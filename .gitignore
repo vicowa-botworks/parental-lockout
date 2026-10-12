@@ -6,9 +6,6 @@
 *.out
 coverage.*
 
-# Scratch space for `make run-dev`
-.plock-dev/
-
 # Editor noise
 *.swp
 .idea/

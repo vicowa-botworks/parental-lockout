@@ -10,11 +10,11 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"slices"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/version"
 )
@@ -44,8 +44,15 @@ Commands:
 Run "plock <command> -h" for the flags a command accepts.
 `
 
+const versionUsage = `Usage: plock version
+
+Print the version, commit and build date.
+`
+
 // planned records the intended flag surface of commands that are not
 // implemented yet, so `plock <cmd> -h` is accurate before the code exists.
+// Every entry here is also listed in globalUsage; a test pins the two together
+// so neither can quietly drift away from the other.
 var planned = map[string]string{
 	"serve":  "[--config PATH]",
 	"init":   "[--username NAME] (--password PASS | --password-stdin) [--force]",
@@ -61,53 +68,140 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprint(stderr, globalUsage)
+		if err := writeAll(stderr, globalUsage); err != nil {
+			return exitFailure
+		}
 		return exitUsage
 	}
 
 	command, rest := args[0], args[1:]
 	switch command {
-	case "help", "-h", "--help":
-		fmt.Fprint(stdout, globalUsage)
-		return exitOK
+	case "help", "-h", "-help", "--help":
+		return runHelp(stdout, stderr, rest)
 	case "version":
 		return runVersion(stdout, stderr, rest)
 	default:
-		if _, ok := planned[command]; ok {
-			return notImplemented(stdout, stderr, command, rest)
+		if synopsis, ok := planned[command]; ok {
+			return notImplemented(stdout, stderr, command, synopsis, rest)
 		}
-		fmt.Fprintf(stderr, "plock: unknown command %q\n\n%s", command, globalUsage)
+		if err := writeAll(stderr,
+			fmt.Sprintf("plock: unknown command %q\n\n", command), globalUsage); err != nil {
+			return exitFailure
+		}
 		return exitUsage
 	}
 }
 
-// runVersion prints the build identity. It accepts only -h so that a typo in a
-// flag is an error rather than a silently ignored argument.
+// runHelp implements `plock help [command]`. Help goes to stdout; asking about
+// something that does not exist is a usage error, because printing the overview
+// anyway is how a typo turns into a mystery.
+func runHelp(stdout, stderr io.Writer, args []string) int {
+	if len(args) == 0 {
+		if err := writeAll(stdout, globalUsage); err != nil {
+			return exitFailure
+		}
+		return exitOK
+	}
+
+	topic := args[0]
+	switch {
+	case topic == "version":
+		if err := writeAll(stdout, versionUsage); err != nil {
+			return exitFailure
+		}
+		return exitOK
+	default:
+		if synopsis, ok := planned[topic]; ok {
+			if err := writeAll(stdout, stubUsage(topic, synopsis)); err != nil {
+				return exitFailure
+			}
+			return exitOK
+		}
+	}
+
+	if err := writeAll(stderr,
+		fmt.Sprintf("plock: no help for unknown command %q\n\n", topic), globalUsage); err != nil {
+		return exitFailure
+	}
+	return exitUsage
+}
+
+// runVersion prints the build identity. It takes no arguments, so a typo is an
+// error rather than a silently ignored positional.
 func runVersion(stdout, stderr io.Writer, args []string) int {
+	if len(args) > 0 && isHelpFlag(args[0]) {
+		if err := writeAll(stdout, versionUsage); err != nil {
+			return exitFailure
+		}
+		return exitOK
+	}
+
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.Usage = func() {
-		fmt.Fprint(stderr, "Usage: plock version\n\nPrint the version, commit and build date.\n")
-	}
+	fs.Usage = func() { fmt.Fprint(stderr, versionUsage) }
 	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
+		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
 		}
 		return exitUsage
 	}
-	fmt.Fprintln(stdout, version.String())
+	if fs.NArg() > 0 {
+		if err := writeAll(stderr,
+			fmt.Sprintf("plock version: unexpected argument %q\n\n", fs.Arg(0)),
+			versionUsage); err != nil {
+			return exitFailure
+		}
+		return exitUsage
+	}
+
+	if _, err := fmt.Fprintln(stdout, version.String()); err != nil {
+		fmt.Fprintf(stderr, "plock version: %v\n", err)
+		return exitFailure
+	}
 	return exitOK
 }
 
 // notImplemented is the honest placeholder for a command that has a documented
 // surface but no behaviour yet. It exits 1, not 0: a script must never read a
 // no-op as success.
-func notImplemented(stdout, stderr io.Writer, command string, args []string) int {
-	if slices.Contains(args, "-h") || slices.Contains(args, "--help") {
-		fmt.Fprintf(stderr, "Usage: plock %s %s\n\n%s is not implemented yet.\n",
-			command, planned[command], command)
+//
+// Help is recognised only in flag position zero. Scanning the whole argv would
+// let a *value* that happens to read "-h" — `plock lock --reason -h`, or
+// anything after a `--` terminator — turn a command that did nothing into exit
+// code 0.
+func notImplemented(stdout, stderr io.Writer, command, synopsis string, args []string) int {
+	if len(args) > 0 && isHelpFlag(args[0]) {
+		if err := writeAll(stdout, stubUsage(command, synopsis)); err != nil {
+			return exitFailure
+		}
 		return exitOK
 	}
 	fmt.Fprintf(stderr, "plock %s: not implemented yet\n", command)
 	return exitFailure
+}
+
+func stubUsage(command, synopsis string) string {
+	return fmt.Sprintf("Usage: plock %s %s\n\n%s is not implemented yet.\n", command, synopsis, command)
+}
+
+// isHelpFlag accepts all three spellings Go's own flag package accepts, so the
+// CLI does not disagree with itself about how to ask for help.
+func isHelpFlag(arg string) bool {
+	switch arg {
+	case "-h", "-help", "--help":
+		return true
+	default:
+		return false
+	}
+}
+
+// writeAll reports a write failure so a broken pipe or a full device cannot be
+// reported to the caller as success.
+func writeAll(w io.Writer, parts ...string) error {
+	for _, p := range parts {
+		if _, err := io.WriteString(w, p); err != nil {
+			return err
+		}
+	}
+	return nil
 }

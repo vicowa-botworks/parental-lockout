@@ -17,12 +17,9 @@ var (
 	Date = "unknown"
 )
 
-// String renders the one-line form printed by `plock version`.
+// String renders the one-line form printed by `plock version`. The label order
+// is the documented output contract; a test pins it so a reordering cannot ship
+// silently.
 func String() string {
 	return fmt.Sprintf("plock %s (commit %s, built %s)", Version, Commit, Date)
-}
-
-// Fields returns the identity as separate values for machine-readable output.
-func Fields() (ver, commit, date string) {
-	return Version, Commit, Date
 }
