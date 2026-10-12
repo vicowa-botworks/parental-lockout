@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -422,11 +423,4 @@ func copySlice[T any](in []T) []T {
 var DayNames = []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
 // IsDay reports whether s is one of the accepted weekday names.
-func IsDay(s string) bool {
-	for _, d := range DayNames {
-		if s == d {
-			return true
-		}
-	}
-	return false
-}
+func IsDay(s string) bool { return slices.Contains(DayNames, s) }

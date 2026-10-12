@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -43,6 +44,12 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Admin.Username) == "" {
 		add("admin.username: an administrator account is required")
 	}
+	// An empty verifier is the one ambiguity that decides what the login form
+	// accepts, so it is reported rather than left for ticket #10 to discover at
+	// runtime: every login would fail, with nothing on disk to check against.
+	if strings.TrimSpace(c.Admin.Password) == "" {
+		add("admin.password: no password verifier is stored, so the web UI cannot authenticate anyone")
+	}
 
 	if strings.TrimSpace(c.Settings.Listen) == "" {
 		add("settings.listen: must not be empty")
@@ -54,7 +61,7 @@ func (c *Config) Validate() error {
 		// time.Duration, and an unbounded value wraps to a negative interval.
 		add("settings.pollSeconds: %d is above the maximum of %d", c.Settings.PollSeconds, MaxPollSeconds)
 	}
-	if !contains(tlsModes, c.Settings.TLS) {
+	if !slices.Contains(tlsModes, c.Settings.TLS) {
 		add("settings.tls: %q is not one of %s", c.Settings.TLS, strings.Join(tlsModes, ", "))
 	}
 	if c.Settings.TLS == "custom" && (c.Settings.CertFile == "" || c.Settings.KeyFile == "") {
@@ -108,6 +115,15 @@ func (c *Config) Validate() error {
 			if !timeOfDay.MatchString(r.End) {
 				add("%s.end: %q is not HH:MM on a 24-hour clock", rl, r.End)
 			}
+			// A window that ends where it starts is read as overnight, so it
+			// covers all 1440 minutes. That fails toward locking, which is why
+			// it is still accepted by Load, but a parent who typed the same time
+			// into both boxes means "no window", not "never any screen time", and
+			// nothing else would ever tell them.
+			if r.Start == r.End && timeOfDay.MatchString(r.Start) {
+				add("%s.start: %s is also the end time, which locks the account all day rather than not at all; use 00:00 to 23:59 for an all-day rule",
+					rl, r.Start)
+			}
 
 			if len(r.Days) == 0 {
 				add("%s.days: a rule with no days can never match", rl)
@@ -142,12 +158,22 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// One override per account is what AddOverride guarantees, but a hand-edited
+	// document can hold several, and then the winner is array order. This
+	// package's position on a value that silently loses is already on the record
+	// with duplicate JSON keys: it is an error, not a precedence rule.
+	overrideAccounts := make(map[string]bool, len(c.Overrides))
 	for i, o := range c.Overrides {
 		label := fmt.Sprintf("overrides[%d]", i)
 		if !usernames[o.Username] {
 			add("%s.username: %q does not name a configured account, so this override would do nothing",
 				label, o.Username)
+		} else if overrideAccounts[o.Username] {
+			add("overrides: account %q has more than one override; only the first can ever apply", o.Username)
+		} else {
+			overrideAccounts[o.Username] = true
 		}
+
 		if o.Until.IsZero() {
 			add("%s.until: must be a date and time", label)
 		}
@@ -157,13 +183,4 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("config: %d problem(s): %s", len(problems), strings.Join(problems, "; "))
 	}
 	return nil
-}
-
-func contains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }

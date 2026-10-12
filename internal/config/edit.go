@@ -9,6 +9,10 @@ import (
 // they will happily create a state that Validate rejects — because a form
 // submission wants to make several edits before checking the result. Call
 // Validate before Save.
+//
+// None of them write into a slice the caller might still be holding. A `snap :=
+// *cfg` shares the config's arrays, and a helper that filtered in place would
+// leave that snapshot looking like a valid document about the wrong child.
 
 // UpsertProfile adds p, or replaces the profile that already has its ID.
 func (c *Config) UpsertProfile(p Profile) {
@@ -34,13 +38,13 @@ func (c *Config) DeleteProfile(id string) error {
 				id, u.Username)
 		}
 	}
-	for i, p := range c.Profiles {
-		if p.ID == id {
-			c.Profiles = append(c.Profiles[:i], c.Profiles[i+1:]...)
-			return nil
-		}
+
+	kept, found := cut(c.Profiles, func(p Profile) bool { return p.ID == id })
+	if !found {
+		return fmt.Errorf("config: no profile %q", id)
 	}
-	return fmt.Errorf("config: no profile %q", id)
+	c.Profiles = kept
+	return nil
 }
 
 // UpsertUser assigns a profile to an account, replacing any earlier assignment.
@@ -58,15 +62,7 @@ func (c *Config) UpsertUser(u User) {
 // a child's profile does not leave a grant behind that the next person to use
 // that account would inherit.
 func (c *Config) RemoveUser(username string) error {
-	kept := c.Users[:0]
-	found := false
-	for _, u := range c.Users {
-		if u.Username == username {
-			found = true
-			continue
-		}
-		kept = append(kept, u)
-	}
+	kept, found := cut(c.Users, func(u User) bool { return u.Username == username })
 	if !found {
 		return fmt.Errorf("config: no account %q", username)
 	}
@@ -76,30 +72,38 @@ func (c *Config) RemoveUser(username string) error {
 }
 
 // UserFor returns the assignment record for an account.
-func (c *Config) UserFor(username string) (*User, bool) {
-	for i := range c.Users {
-		if c.Users[i].Username == username {
-			return &c.Users[i], true
+//
+// It returns a copy. A pointer into c.Users describes whatever ends up at that
+// index, which changes when a later RemoveUser shifts the list — and the web UI
+// is exactly the caller that holds one of these while it edits.
+func (c *Config) UserFor(username string) (User, bool) {
+	for _, u := range c.Users {
+		if u.Username == username {
+			return u, true
 		}
 	}
-	return nil, false
+	return User{}, false
 }
 
 // ProfileFor returns the profile an account is locked out by. It reports false
 // for an account that is not configured, one whose enforcement is switched off,
 // and one whose profile no longer exists — all three mean "nothing to enforce",
 // and the caller has no reason to tell them apart.
-func (c *Config) ProfileFor(username string) (*Profile, bool) {
+//
+// The Profile is a copy of the record; its rule and override lists are shared
+// with the config, which is safe because nothing in this package edits a
+// profile's slices in place — UpsertProfile replaces the whole value.
+func (c *Config) ProfileFor(username string) (Profile, bool) {
 	u, ok := c.UserFor(username)
 	if !ok || !u.Enabled {
-		return nil, false
+		return Profile{}, false
 	}
-	for i := range c.Profiles {
-		if c.Profiles[i].ID == u.ProfileID {
-			return &c.Profiles[i], true
+	for _, p := range c.Profiles {
+		if p.ID == u.ProfileID {
+			return p, true
 		}
 	}
-	return nil, false
+	return Profile{}, false
 }
 
 // AddOverride grants a temporary unlock, replacing whatever override that
@@ -118,17 +122,11 @@ func (c *Config) AddOverride(o Override) {
 // RemoveOverride withdraws an account's override, reporting whether there was
 // one to withdraw.
 func (c *Config) RemoveOverride(username string) bool {
-	kept := c.Overrides[:0]
-	removed := false
-	for _, o := range c.Overrides {
-		if o.Username == username {
-			removed = true
-			continue
-		}
-		kept = append(kept, o)
+	kept, found := cut(c.Overrides, func(o Override) bool { return o.Username == username })
+	if found {
+		c.Overrides = kept
 	}
-	c.Overrides = kept
-	return removed
+	return found
 }
 
 // ActiveOverride returns the override currently granting an account access, if
@@ -144,4 +142,28 @@ func (c *Config) ActiveOverride(username string, now time.Time) (Override, bool)
 		}
 	}
 	return Override{}, false
+}
+
+// cut returns a new slice holding the elements pred rejects, and whether it
+// dropped anything.
+//
+// It allocates instead of filtering into the receiver's own array. The in-place
+// idiom is the fast one, and the one that bites here: `snap := *cfg` is a
+// supported way to keep hold of the document a form was submitted from, and an
+// in-place filter leaves that snapshot its original length with a shifted tail —
+// a document that still reads as valid and names the wrong child. A
+// configuration is a few kilobytes and these run on a parent's click, not in the
+// enforcement loop, so the allocation is not the thing worth optimising.
+func cut[T any](in []T, pred func(T) bool) ([]T, bool) {
+	kept := make([]T, 0, len(in))
+	found := false
+
+	for _, v := range in {
+		if pred(v) {
+			found = true
+			continue
+		}
+		kept = append(kept, v)
+	}
+	return kept, found
 }

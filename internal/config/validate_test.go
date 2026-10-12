@@ -46,6 +46,12 @@ func TestValidateRejectsEachMalformedField(t *testing.T) {
 			want:   "admin.username",
 		},
 		{
+			// Every login would fail with nothing on disk to check against.
+			name:   "no password verifier",
+			mangle: func(c *Config) { c.Admin.Password = "" },
+			want:   "admin.password",
+		},
+		{
 			name:   "empty listen address",
 			mangle: func(c *Config) { c.Settings.Listen = "" },
 			want:   "settings.listen",
@@ -196,6 +202,19 @@ func TestValidateRejectsEachMalformedField(t *testing.T) {
 			},
 			want: "overrides[0].until",
 		},
+		{
+			// AddOverride keeps one per account; a hand edit can hold several, and
+			// then which one wins is array order.
+			name: "two overrides for one account",
+			mangle: func(c *Config) {
+				until := time.Now().Add(time.Hour)
+				c.Overrides = []Override{
+					{Username: "kiddo", Until: until, Reason: "first"},
+					{Username: "kiddo", Until: until.Add(time.Hour), Reason: "second"},
+				}
+			},
+			want: "more than one override",
+		},
 	}
 
 	for _, tc := range cases {
@@ -252,16 +271,37 @@ func TestValidateAcceptsEveryTlsMode(t *testing.T) {
 }
 
 // A window that crosses midnight is the documented shape of "21:00 to 06:30",
-// so it must not be mistaken for a malformed rule.
-func TestValidateAcceptsOvernightAndEqualWindows(t *testing.T) {
+// so it must not be mistaken for a malformed rule. 00:00–23:59 is a plain
+// window of 1439 minutes, which is as close to all day as two HH:MM boxes get.
+func TestValidateAcceptsOvernightWindows(t *testing.T) {
 	c := valid()
 	c.Profiles[0].Rules = []Rule{
 		{ID: "overnight", Days: []string{"sun"}, Start: "21:00", End: "06:30", Enabled: true},
-		{ID: "instant", Days: []string{"mon"}, Start: "08:00", End: "08:00", Enabled: true},
-		{ID: "allday", Days: []string{"sat"}, Start: "00:00", End: "23:59", Enabled: true},
+		{ID: "almost-all-day", Days: []string{"sat"}, Start: "00:00", End: "23:59", Enabled: true},
 	}
 	if err := c.Validate(); err != nil {
 		t.Errorf("Validate: %v", err)
+	}
+}
+
+// Start == End is read as overnight, so it covers all 1440 minutes. That is the
+// opposite of what a parent who typed the same time into both boxes means, and
+// it is the one typo in this file that silently locks an account permanently.
+func TestValidateRejectsAWindowThatEndsWhereItStarts(t *testing.T) {
+	c := valid()
+	c.Profiles[0].Rules = []Rule{
+		{ID: "typo", Days: []string{"mon"}, Start: "08:00", End: "08:00", Enabled: true},
+	}
+
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted a window that starts and ends at the same time")
+	}
+	if !strings.Contains(err.Error(), "rules[0].start") {
+		t.Errorf("problem is not attributed to rules[0].start: %v", err)
+	}
+	if !strings.Contains(err.Error(), "all day") {
+		t.Errorf("problem does not say what the window actually does: %v", err)
 	}
 }
 

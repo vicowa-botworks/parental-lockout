@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -270,11 +271,17 @@ func TestDefaultIsValidApartFromTheAdmin(t *testing.T) {
 		t.Errorf("Default has content: %+v", c)
 	}
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "admin.username") {
-		t.Errorf("Validate on Default = %v, want only the missing administrator", err)
+	if err == nil {
+		t.Fatal("Validate on Default = nil, want the missing administrator")
 	}
-	if strings.Count(err.Error(), "; ") != 0 {
-		t.Errorf("Validate on Default reported more than the missing administrator: %v", err)
+	for _, want := range []string{"admin.username", "admin.password"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Validate on Default did not report %s: %v", want, err)
+		}
+	}
+	// A fresh document is otherwise sound: exactly these two, not a third.
+	if n := strings.Count(err.Error(), "; ") + 1; n != 2 {
+		t.Errorf("Validate on Default reported problems besides the administrator: %v", err)
 	}
 }
 
@@ -285,5 +292,117 @@ func TestApplyDefaultsIsIdempotent(t *testing.T) {
 
 	if !reflect.DeepEqual(once, twice) || !reflect.DeepEqual(twice, thrice) {
 		t.Errorf("normalizing twice changed the document:\n%+v\n%+v\n%+v", once, twice, thrice)
+	}
+}
+
+// `snap := *cfg` is how the web UI keeps the document a form was submitted from,
+// and the package doc tells callers to do it. A helper that filters into the
+// receiver's own array leaves that snapshot its original length with a shifted
+// tail: a document that still reads as valid and names the wrong child.
+//
+// The removals below take the first of three each time. Dropping the last
+// element of a list shifts nothing and hides the bug, which is exactly how the
+// in-place idiom survived review once already.
+func TestEditHelpersDoNotRewriteTheCallersArrays(t *testing.T) {
+	c := sample()
+	c.UpsertProfile(Profile{ID: "aaa", Name: "A", Timezone: "UTC"})
+	c.UpsertProfile(Profile{ID: "zzz", Name: "Z", Timezone: "UTC"})
+	c.UpsertUser(User{Username: "aaa", ProfileID: "aaa", Enabled: true})
+	c.UpsertUser(User{Username: "zzz", ProfileID: "zzz", Enabled: true})
+	c.AddOverride(Override{Username: "aaa", Until: time.Now().Add(time.Hour), Reason: "first"})
+	c.AddOverride(Override{Username: "zzz", Until: time.Now().Add(time.Hour), Reason: "second"})
+
+	snap := *c
+	before, err := json.Marshal(&snap)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	// Each removal drops the middle or the first of three, so something after it
+	// shifts down. RemoveOverride goes first: RemoveUser withdraws the account's
+	// override with it, and by then there would be nothing left to shift.
+	if !c.RemoveOverride("aaa") {
+		t.Fatal("RemoveOverride found nothing to remove")
+	}
+	if err := c.RemoveUser("aaa"); err != nil {
+		t.Fatalf("RemoveUser: %v", err)
+	}
+	if err := c.DeleteProfile("aaa"); err != nil {
+		t.Fatalf("DeleteProfile: %v", err)
+	}
+
+	after, err := json.Marshal(&snap)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("editing the config rewrote the snapshot taken from it:\nbefore %s\nafter  %s", before, after)
+	}
+	if len(snap.Users) != 3 || len(snap.Profiles) != 3 || len(snap.Overrides) != 3 {
+		t.Errorf("snapshot lost length with the config: %d users, %d profiles, %d overrides",
+			len(snap.Users), len(snap.Profiles), len(snap.Overrides))
+	}
+	if snap.Users[0].Username != "kiddo" {
+		t.Errorf("the snapshot's first account is now %q, want kiddo — its array was shifted in place",
+			snap.Users[0].Username)
+	}
+}
+
+// A pointer into c.Users describes whatever ends up at that index, which moves
+// when a later removal shifts the list. Handing out a copy is what makes the
+// value a caller holds mean what it meant when it was read.
+func TestUserForReturnsACopy(t *testing.T) {
+	c := sample()
+	got, ok := c.UserFor("kiddo")
+	if !ok {
+		t.Fatal("UserFor(kiddo) found nothing")
+	}
+
+	c.UpsertUser(User{Username: "kiddo", ProfileID: "other", Enabled: false})
+	if err := c.RemoveUser("kiddo"); err != nil {
+		t.Fatalf("RemoveUser: %v", err)
+	}
+
+	if got.ProfileID != "schoolnight" || !got.Enabled || got.Username != "kiddo" {
+		t.Errorf("the User handed out earlier changed underneath its holder: %+v", got)
+	}
+}
+
+func TestProfileForReturnsACopy(t *testing.T) {
+	c := sample()
+	got, ok := c.ProfileFor("kiddo")
+	if !ok {
+		t.Fatal("ProfileFor(kiddo) found nothing")
+	}
+	rules := len(got.Rules)
+
+	c.UpsertProfile(Profile{ID: "schoolnight", Name: "Renamed", Timezone: "UTC"})
+
+	if got.Name != "School night" || len(got.Rules) != rules {
+		t.Errorf("the Profile handed out earlier changed underneath its holder: %+v", got)
+	}
+}
+
+// Withdrawing a grant that was never made leaves no mark. An absent list and an
+// empty one are different bytes on disk, and a no-op that changes which of the
+// two you have means every save rewrites a document it did not need to touch.
+func TestRemoveOverrideOfAnUnknownAccountChangesNothing(t *testing.T) {
+	c := sample()
+	c.Overrides = nil
+
+	before, err := json.Marshal(c.normalized())
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if c.RemoveOverride("ghost") {
+		t.Error("RemoveOverride reported a grant that does not exist")
+	}
+	after, err := json.Marshal(c.normalized())
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	if string(before) != string(after) {
+		t.Errorf("a removal that found nothing changed the document:\nbefore %s\nafter  %s", before, after)
 	}
 }

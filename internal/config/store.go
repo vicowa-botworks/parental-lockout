@@ -23,6 +23,15 @@ var ErrUnknownVersion = errors.New("unsupported config schema version")
 // through.
 var errOwnershipUnsupported = errors.New("this platform cannot report a file's owner")
 
+// errNotRegular reports a config path that is a device, socket or directory
+// rather than a file.
+var errNotRegular = errors.New("not a regular file")
+
+// ErrRefusesSymlink reports a config path that is a symlink. It is exported
+// because a caller may reasonably want to tell "someone replaced the file with a
+// link" apart from "the file is missing".
+var ErrRefusesSymlink = errors.New("refusing to follow a symlinked config path")
+
 // staleTempAge is how old a leftover save file has to be before Load reaps it.
 // A Save takes milliseconds, so anything older than this belongs to a process
 // that no longer exists.
@@ -37,7 +46,7 @@ const staleTempAge = time.Hour
 // best-effort — Load is called by the enforcement loop, and refusing to enforce
 // because a cleanup failed would be the wrong trade.
 func Load(path string) (*Config, error) {
-	f, err := os.Open(path)
+	f, err := openReadable(path)
 	if err != nil {
 		return nil, fmt.Errorf("config: open %s: %w", path, err)
 	}
@@ -63,9 +72,39 @@ func Load(path string) (*Config, error) {
 	}
 
 	c.applyDefaults()
-	tightenMode(path)
+	tightenMode(f)
 	reapStaleTempFiles(path, time.Now())
 	return &c, nil
+}
+
+// openReadable opens the configuration file for reading, refusing a symlink or
+// anything that is not a regular file.
+//
+// The shape check happens before the open, not after it: opening a FIFO for
+// reading blocks until someone writes to it, which would park the enforcement
+// loop in a call that never returns. O_NOFOLLOW then closes the gap between
+// looking at the path and opening it, so a link swapped in during that window
+// fails instead of being followed.
+//
+// This is the read half of the tamper guard, and it deliberately checks less
+// than the write half. Refusing to load stops enforcement, which is the failure
+// this product exists to prevent, and a child who can plant a file in /etc/plock
+// can already write the configuration directly. What the read path must never do
+// is follow a link or open a device: that hands the most privileged process in
+// the product a way to read — and, until this check existed, to chmod — a file
+// outside the directory it was given.
+func openReadable(path string) (*os.File, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return nil, &os.PathError{Op: "open", Path: path, Err: ErrRefusesSymlink}
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, &os.PathError{Op: "open", Path: path, Err: errNotRegular}
+	}
+	return openNoFollow(path)
 }
 
 // tightenMode removes group and other permissions from the credential file.
@@ -73,8 +112,12 @@ func Load(path string) (*Config, error) {
 // Fixing it on sight beats refusing: the alternative to reading this file is
 // enforcing nothing, and a child whose machine stopped being locked out because
 // someone ran `chmod a+r` is the outcome this package exists to prevent.
-func tightenMode(path string) {
-	fi, err := os.Stat(path)
+//
+// It works on the descriptor Load already holds, never on the path. Chmodding by
+// path follows a symlink and races with whoever made it: the file that gets
+// tightened would not necessarily be the file that was read.
+func tightenMode(f *os.File) {
+	fi, err := f.Stat()
 	if err != nil {
 		return
 	}
@@ -82,7 +125,7 @@ func tightenMode(path string) {
 	if perm&0o077 == 0 {
 		return
 	}
-	os.Chmod(path, perm&^0o077)
+	fchmodFile(f, perm&^0o077)
 }
 
 // reapStaleTempFiles deletes save files a crashed Save left behind.
@@ -295,7 +338,8 @@ func statOf(path string) stamp {
 //
 // It takes a done channel rather than returning only a subscription channel: a
 // poller with no way to be stopped is a goroutine that outlives its purpose.
-// The returned channel is closed when done is closed.
+// The returned channel is closed when done is closed. A nil done never stops,
+// which is what the daemon wants — it watches for the life of the process.
 //
 // Bursts are coalesced — the channel holds at most one pending signal, because
 // a consumer reloads the whole document and does not need to know how many

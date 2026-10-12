@@ -879,3 +879,118 @@ func TestWatchStopsWhenDone(t *testing.T) {
 		t.Fatal("Watch did not close its channel when done was closed")
 	}
 }
+
+// The read path is the half a child can aim at. Replacing the configuration with
+// a link makes every reader follow it, and Load used to tighten the mode of what
+// it read by path — which turned "fix the credential file's permissions" into
+// "chmod any root-owned file on the machine". /usr/bin/sudo goes 0755 to 0700
+// with one ln -s, from the process with the most privileges in the product.
+func TestLoadRefusesASymlinkedConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	// The link has to point at a document that would actually load, or the test
+	// passes because decoding failed rather than because the link was refused.
+	secret := filepath.Join(dir, "shadow")
+	if err := sample().Save(secret); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := os.Chmod(secret, 0o644); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	path := filepath.Join(dir, "config.json")
+	if err := os.Symlink(secret, path); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load through a symlink succeeded, want refusal")
+	}
+	if !errors.Is(err, ErrRefusesSymlink) {
+		t.Errorf("error = %v, want it to wrap ErrRefusesSymlink", err)
+	}
+
+	fi, err := os.Stat(secret)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o644 {
+		t.Errorf("the link target's mode is %o after a refused Load, want 644 — it was chmodded through the link", perm)
+	}
+}
+
+// A directory is openable but not readable as a file, and a FIFO blocks the open
+// until someone writes to it. Both are refused before the open, so neither can
+// park the enforcement loop in a call that never returns.
+func TestLoadRefusesADirectory(t *testing.T) {
+	path := t.TempDir()
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load of a directory succeeded, want refusal")
+	} else if !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("error = %v, want it to say the path is not a regular file", err)
+	}
+}
+
+// A missing file has to stay distinguishable from a refused one: the daemon
+// treats "nothing configured yet" differently from "someone tampered".
+func TestLoadStillReportsAMissingFile(t *testing.T) {
+	_, err := Load(filepath.Join(t.TempDir(), "absent.json"))
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("error = %v, want it to wrap os.ErrNotExist", err)
+	}
+}
+
+// The mode is tightened on the descriptor Load holds, never on the path. This is
+// a second guard rather than a restatement of the first: whoever is quick enough
+// to swap a link in after the open finds the file they aimed at left alone, even
+// if the check at the open were ever bypassed.
+func TestTightenModeIgnoresAPathSwappedAfterTheOpen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := sample().Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	f, err := openReadable(path)
+	if err != nil {
+		t.Fatalf("openReadable: %v", err)
+	}
+	defer f.Close()
+
+	shadow := filepath.Join(dir, "shadow")
+	if err := sample().Save(shadow); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := os.Chmod(shadow, 0o644); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if err := os.Symlink(shadow, path); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	tightenMode(f)
+
+	shadowFi, err := os.Stat(shadow)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := shadowFi.Mode().Perm(); perm != 0o644 {
+		t.Errorf("the file swapped in behind the path was chmodded to %o, want 644 untouched", perm)
+	}
+
+	held, err := f.Stat()
+	if err != nil {
+		t.Fatalf("f.Stat: %v", err)
+	}
+	if perm := held.Mode().Perm(); perm != 0o600 {
+		t.Errorf("the file the descriptor points at is %o, want 600 — tightening did not happen where it should have", perm)
+	}
+}

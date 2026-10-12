@@ -16,3 +16,16 @@ func fileUID(os.FileInfo) (int, error) {
 func fileIno(os.FileInfo) uint64 {
 	return 0
 }
+
+// openNoFollow has no O_NOFOLLOW to ask for on this platform. The caller's
+// symlink check still runs; what is lost is the guarantee that the path cannot
+// be swapped for a link between that check and the open.
+func openNoFollow(path string) (*os.File, error) {
+	return os.Open(path)
+}
+
+// fchmodFile has nothing to do here: this platform has no POSIX permission bits
+// to strip, so declining silently is accurate rather than a swallowed failure.
+func fchmodFile(*os.File, os.FileMode) error {
+	return nil
+}

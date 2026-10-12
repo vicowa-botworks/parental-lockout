@@ -4,6 +4,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -91,5 +92,27 @@ func TestCheckTargetRefuses(t *testing.T) {
 				t.Errorf("error = %v, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// The shape check has to come before the open: opening a FIFO for reading waits
+// for a writer, so a config replaced by a pipe would stop the enforcement loop
+// where it stands, with no error and no timeout.
+func TestLoadDoesNotBlockOnAFIFO(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Skipf("cannot create a FIFO here: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { _, err := Load(path); done <- err }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("Load of a FIFO succeeded, want refusal")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Load blocked opening a FIFO")
 	}
 }
