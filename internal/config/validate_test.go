@@ -61,6 +61,18 @@ func TestValidateRejectsEachMalformedField(t *testing.T) {
 			want:   "settings.pollSeconds",
 		},
 		{
+			name:   "poll interval above the ceiling",
+			mangle: func(c *Config) { c.Settings.PollSeconds = MaxPollSeconds + 1 },
+			want:   "settings.pollSeconds",
+		},
+		{
+			// The consumer multiplies this into a time.Duration; unbounded, it
+			// wraps to a negative interval.
+			name:   "poll interval that overflows a Duration",
+			mangle: func(c *Config) { c.Settings.PollSeconds = 9223372036854775807 },
+			want:   "settings.pollSeconds",
+		},
+		{
 			name:   "unknown tls mode",
 			mangle: func(c *Config) { c.Settings.TLS = "yes please" },
 			want:   "settings.tls",

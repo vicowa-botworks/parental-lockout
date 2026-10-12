@@ -160,29 +160,118 @@ func TestSaveRefusesNonRegularFile(t *testing.T) {
 	}
 }
 
-func TestSaveLeavesNoTempFiles(t *testing.T) {
+// The failure that matters is the one after the temp file exists: a save that
+// dies between the fsync and the rename must not leave a copy of the whole
+// document, password verifier included, sitting in the config directory.
+func TestFailedSaveLeavesNoTempFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 
-	if err := sample().Save(path); err != nil {
-		t.Fatalf("Save: %v", err)
+	aborted := errors.New("aborted")
+	setCrashPoint(func(string, string) error { return aborted })
+	err := sample().Save(path)
+	defer setCrashPoint(nil)
+	if !errors.Is(err, aborted) {
+		t.Fatalf("Save error = %v, want the injected abort", err)
 	}
-	// A symlink target fails after the temp file exists, which is the failure
-	// path most likely to strand one.
-	link := filepath.Join(dir, "link.json")
-	if err := os.Symlink(filepath.Join(dir, "elsewhere"), link); err != nil {
-		t.Fatalf("Symlink: %v", err)
-	}
-	_ = sample().Save(link)
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
 	for _, e := range entries {
-		if strings.Contains(e.Name(), "tmp") {
-			t.Errorf("temp file %q left behind", e.Name())
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("temp file %q left behind after a failed save", e.Name())
 		}
+	}
+}
+
+// A save that never got as far as creating a temp file must not create one
+// either, and must not touch the target.
+func TestRefusedSaveCreatesNoTempFile(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "config.json")
+	if err := os.Symlink(filepath.Join(dir, "elsewhere"), link); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	if err := sample().Save(link); err == nil {
+		t.Fatal("Save through a symlink succeeded")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Errorf("the guard fired too late: temp file %q was created first", e.Name())
+		}
+	}
+}
+
+// Load is the reaper for a temp file a killed process could not clean up.
+func TestLoadReapsStaleTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := Default().Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	stale := filepath.Join(dir, ".config.json.tmp123456")
+	fresh := filepath.Join(dir, ".config.json.tmp999999")
+	for _, name := range []string{stale, fresh} {
+		if err := os.WriteFile(name, []byte("a stranded copy of the document"), 0o600); err != nil {
+			t.Fatalf("seeding %s: %v", name, err)
+		}
+	}
+	old := time.Now().Add(-2 * staleTempAge)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	// Something unrelated to the save protocol is none of Load's business. It is
+	// old on purpose: the name is the only thing that tells the two apart.
+	unrelated := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(unrelated, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("seeding %s: %v", unrelated, err)
+	}
+	if err := os.Chtimes(unrelated, old, old); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Error("the stranded temp file survived Load")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("a save in flight lost its work file: %v", err)
+	}
+	if _, err := os.Stat(unrelated); err != nil {
+		t.Errorf("Load deleted an unrelated file: %v", err)
+	}
+}
+
+// The file holds the administrator's password verifier, so a mode that lets the
+// child's account read it is repaired on sight rather than enforced around.
+func TestLoadTightensALooseMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := sample().Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("mode after Load = %o, want 600", perm)
 	}
 }
 
@@ -205,7 +294,7 @@ func TestSaveInterruptedLeavesOldFileWhole(t *testing.T) {
 	}
 
 	crash := errors.New("simulated power loss")
-	crashPointForTest = func(tmpName, target string) error {
+	setCrashPoint(func(tmpName, target string) error {
 		if target != path {
 			t.Errorf("crash point saw target %q, want %q", target, path)
 		}
@@ -235,8 +324,8 @@ func TestSaveInterruptedLeavesOldFileWhole(t *testing.T) {
 			t.Errorf("staged file is in %q, want the same directory as the target (%q)", filepath.Dir(tmpName), dir)
 		}
 		return crash
-	}
-	defer func() { crashPointForTest = nil }()
+	})
+	defer setCrashPoint(nil)
 
 	newCfg := sample()
 	newCfg.Admin.Username = "replaced"
@@ -411,14 +500,16 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Settings.PollSeconds != DefaultPollSeconds {
-		t.Errorf("PollSeconds = %d, want %d", c.Settings.PollSeconds, DefaultPollSeconds)
+	// Literals, not the constants: a default asserted against the constant it
+	// comes from would survive the constant being changed to anything.
+	if c.Settings.PollSeconds != 30 {
+		t.Errorf("PollSeconds = %d, want 30", c.Settings.PollSeconds)
 	}
-	if c.Settings.Listen != DefaultListen {
-		t.Errorf("Listen = %q, want %q", c.Settings.Listen, DefaultListen)
+	if c.Settings.Listen != "0.0.0.0:8443" {
+		t.Errorf("Listen = %q, want 0.0.0.0:8443", c.Settings.Listen)
 	}
-	if c.Settings.TLS != DefaultTLS {
-		t.Errorf("TLS = %q, want %q", c.Settings.TLS, DefaultTLS)
+	if c.Settings.TLS != "auto" {
+		t.Errorf("TLS = %q, want auto", c.Settings.TLS)
 	}
 	if want := []string{"logind", "kde", "gnome"}; !reflect.DeepEqual(c.Settings.LockBackends, want) {
 		t.Errorf("LockBackends = %v, want %v", c.Settings.LockBackends, want)
@@ -427,6 +518,31 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	// silently mean "off".
 	if !c.Settings.Enforcement {
 		t.Error("Enforcement = false, want the default of true")
+	}
+}
+
+// A partial settings object still has to pick up the settings it left out.
+// Load's applyDefaults is the only thing that does this for a present-but-
+// incomplete object, so it is not covered by the no-settings-object case above.
+func TestLoadAppliesDefaultsToAPartialSettingsObject(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	write(t, path, `{"version":1,"settings":{"pollSeconds":45}}`)
+
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Settings.PollSeconds != 45 {
+		t.Errorf("PollSeconds = %d, want the explicit 45", c.Settings.PollSeconds)
+	}
+	if c.Settings.Listen != "0.0.0.0:8443" {
+		t.Errorf("Listen = %q, want the default", c.Settings.Listen)
+	}
+	if c.Settings.TLS != "auto" {
+		t.Errorf("TLS = %q, want the default", c.Settings.TLS)
+	}
+	if len(c.Settings.LockBackends) != 3 {
+		t.Errorf("LockBackends = %v, want the default three", c.Settings.LockBackends)
 	}
 }
 
@@ -542,6 +658,75 @@ func TestSaveReportsAnUnwritableDirectory(t *testing.T) {
 	})
 }
 
+// Save must not write a document this build could not read back: a daemon that
+// starts, saves, and then cannot load its own file is dead on arrival.
+func TestSaveRefusesAVersionItCannotRead(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := Default().Save(path); err != nil {
+		t.Fatalf("seeding Save: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	c := sample()
+	c.Version = 7
+	err = c.Save(path)
+	if err == nil {
+		t.Fatal("Save wrote a version this build would refuse to load")
+	}
+	if !strings.Contains(err.Error(), "version") {
+		t.Errorf("error = %v, want it to name the version", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Error("the refused save changed the live document")
+	}
+}
+
+// A path the guard cannot inspect is a refusal, not a pass. This is the branch
+// that decides whether an EACCES or an ELOOP fails open.
+func TestSaveRefusesAPathItCannotStat(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions, so this test would prove nothing")
+	}
+	dir := t.TempDir()
+	hidden := filepath.Join(dir, "hidden")
+	if err := os.Mkdir(hidden, 0o700); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	if err := os.Chmod(hidden, 0); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(hidden, 0o700) })
+
+	err := sample().Save(filepath.Join(hidden, "config.json"))
+	if err == nil {
+		t.Fatal("Save into a directory it cannot see succeeded")
+	}
+	// The point is that the guard refused because it could not look, not that
+	// some later step happened to fail too.
+	if !strings.Contains(err.Error(), "stat") {
+		t.Errorf("error = %v, want the guard's own refusal to write what it cannot inspect", err)
+	}
+}
+
+// Two documents in one file is how a hand edit goes quietly wrong: the second
+// one's fields would be dropped without a word.
+func TestLoadRejectsTrailingDocuments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	write(t, path, `{"version":1}`+"\n"+`{"version":1}`)
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load accepted two documents in one file")
+	}
+}
+
 func TestWatchReportsChanges(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := Default().Save(path); err != nil {
@@ -589,6 +774,94 @@ func TestWatchReportsAFileAppearing(t *testing.T) {
 	case <-changes:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Watch did not report the file appearing")
+	}
+}
+
+// cp -p, tar -x and rsync --mtime all produce a file with the original size and
+// the original timestamp. Size and mtime alone would call that "no change", and
+// the daemon would go on enforcing a schedule that is no longer on disk.
+func TestWatchNoticesAReplacedFileWithIdenticalSizeAndMtime(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	stamp := time.Now().Add(-time.Hour)
+	if err := os.WriteFile(path, []byte("aaaaaaaaaa"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	done := make(chan struct{})
+	defer close(done)
+	changes := Watch(path, 10*time.Millisecond, done)
+
+	// Same length, same mtime, different inode: only the inode moves.
+	incoming := filepath.Join(dir, "incoming")
+	if err := os.WriteFile(incoming, []byte("bbbbbbbbbb"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.Chtimes(incoming, stamp, stamp); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	if err := os.Rename(incoming, path); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+
+	select {
+	case <-changes:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Watch missed a replacement whose size and mtime were unchanged")
+	}
+}
+
+// The channel holds one pending signal, so a burst of edits costs the consumer
+// one reload. That only works because the channel is buffered: with an
+// unbuffered one the non-blocking send drops nearly every signal in a burst and
+// nothing is ever delivered.
+func TestWatchCoalescesABurstIntoOneSignal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
+	done := make(chan struct{})
+	defer close(done)
+	changes := Watch(path, 10*time.Millisecond, done)
+
+	for i := range 5 {
+		c := sample()
+		c.Admin.Username = fmt.Sprintf("parent-%d", i)
+		if err := c.Save(path); err != nil {
+			t.Fatalf("Save %d: %v", i, err)
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+
+	select {
+	case <-changes:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a burst of five saves produced no signal at all")
+	}
+	select {
+	case <-changes:
+		t.Error("a burst queued more than one reload")
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// A zero interval would panic inside time.NewTicker, in a goroutine with nobody
+// above it to recover.
+func TestWatchTreatsAZeroIntervalAsTheDefault(t *testing.T) {
+	done := make(chan struct{})
+	changes := Watch(filepath.Join(t.TempDir(), "absent.json"), 0, done)
+
+	close(done)
+	select {
+	case _, ok := <-changes:
+		if ok {
+			t.Error("Watch delivered a signal after done was closed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Watch panicked or hung on a zero interval")
 	}
 }
 

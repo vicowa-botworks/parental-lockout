@@ -16,6 +16,10 @@ var timeOfDay = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 // self-signed certificate, serve plain HTTP, or use operator-supplied paths.
 var tlsModes = []string{"auto", "off", "custom"}
 
+// MaxPollSeconds is a day. Anything longer is a mistake rather than a policy:
+// the enforcement loop would not notice a schedule change for over that long.
+const MaxPollSeconds = 86400
+
 // Validate reports every problem it finds, not just the first. The web UI shows
 // this list to a parent who has just submitted a form, and making them fix one
 // error per round trip is a poor way to spend an evening.
@@ -45,6 +49,10 @@ func (c *Config) Validate() error {
 	}
 	if c.Settings.PollSeconds < 5 {
 		add("settings.pollSeconds: %d is below the minimum of 5", c.Settings.PollSeconds)
+	} else if c.Settings.PollSeconds > MaxPollSeconds {
+		// Bounded from above because the consumer multiplies it into a
+		// time.Duration, and an unbounded value wraps to a negative interval.
+		add("settings.pollSeconds: %d is above the maximum of %d", c.Settings.PollSeconds, MaxPollSeconds)
 	}
 	if !contains(tlsModes, c.Settings.TLS) {
 		add("settings.tls: %q is not one of %s", c.Settings.TLS, strings.Join(tlsModes, ", "))

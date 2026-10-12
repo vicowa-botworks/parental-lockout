@@ -106,7 +106,11 @@ func (c *Config) ProfileFor(username string) (*Profile, bool) {
 // account already holds. Replacing rather than appending is what keeps the list
 // bounded and the UI honest: there is only ever one answer to "may this account
 // be unlocked right now".
+//
+// The deadline is reduced to UTC without a monotonic reading, so the value the
+// caller keeps is the value that will come back from Load.
 func (c *Config) AddOverride(o Override) {
+	o.Until = instant(o.Until)
 	c.RemoveOverride(o.Username)
 	c.Overrides = append(c.Overrides, o)
 }

@@ -92,6 +92,27 @@ func TestRemoveUserDropsItsOverride(t *testing.T) {
 	}
 }
 
+func TestAddOverrideNormalizesTheDeadline(t *testing.T) {
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Skipf("no timezone database: %v", err)
+	}
+
+	c := valid()
+	c.AddOverride(Override{Username: "kiddo", Until: time.Date(2026, 10, 12, 20, 40, 0, 0, berlin)})
+
+	got, ok := c.ActiveOverride("kiddo", time.Date(2026, 10, 12, 18, 0, 0, 0, time.UTC))
+	if !ok {
+		t.Fatal("the override is not active")
+	}
+	if got.Until.Location() != time.UTC {
+		t.Errorf("deadline kept its %v zone; the caller's value would not survive a round trip", got.Until.Location())
+	}
+	if want := "2026-10-12T18:40:00Z"; got.Until.Format(time.RFC3339) != want {
+		t.Errorf("deadline = %s, want %s", got.Until.Format(time.RFC3339), want)
+	}
+}
+
 func TestUserForAndProfileFor(t *testing.T) {
 	c := valid()
 
@@ -158,7 +179,58 @@ func TestOverridesAreOnePerAccount(t *testing.T) {
 
 // Save normalizes before encoding, and normalizing must not reach back into the
 // caller's value: the web UI keeps the submitted config around to show the user
-// what they typed.
+// what they typed, and Save mutates the copy it works on.
+func TestNormalizedDoesNotAliasTheReceiver(t *testing.T) {
+	in := &Config{
+		Admin:     Admin{Username: "parent"},
+		Users:     []User{{Username: "kiddo", ProfileID: "p"}},
+		Overrides: []Override{{Username: "kiddo", Reason: "first"}},
+		Profiles: []Profile{{
+			ID:       "p",
+			Name:     "School",
+			Timezone: "UTC",
+			Rules:    []Rule{{ID: "r", Days: []string{"mon", "tue"}}},
+		}},
+		Settings: Settings{LockBackends: []string{"logind"}},
+	}
+
+	got := in.normalized()
+
+	got.Settings.LockBackends[0] = "changed"
+	got.Profiles[0].Name = "REPLACED"
+	got.Profiles[0].Rules[0].ID = "changed"
+	got.Profiles[0].Rules[0].Days[0] = "changed"
+	got.Users[0].Username = "changed"
+	got.Overrides[0].Reason = "changed"
+	// Deleting through the copy must not shift the caller's backing array.
+	got.Profiles = got.Profiles[:0]
+	got.Users = got.Users[:0]
+
+	if in.Settings.LockBackends[0] != "logind" {
+		t.Errorf("LockBackends aliased: %v", in.Settings.LockBackends)
+	}
+	if in.Profiles[0].Name != "School" {
+		t.Errorf("Profiles aliased: %+v", in.Profiles[0])
+	}
+	if in.Profiles[0].Rules[0].ID != "r" {
+		t.Errorf("Rules aliased: %+v", in.Profiles[0].Rules[0])
+	}
+	if in.Profiles[0].Rules[0].Days[0] != "mon" {
+		t.Errorf("Rule.Days aliased: %v", in.Profiles[0].Rules[0].Days)
+	}
+	if in.Users[0].Username != "kiddo" {
+		t.Errorf("Users aliased: %v", in.Users)
+	}
+	if in.Overrides[0].Reason != "first" {
+		t.Errorf("Overrides aliased: %v", in.Overrides)
+	}
+	if len(in.Profiles) != 1 || len(in.Users) != 1 {
+		t.Errorf("truncating the copy truncated the receiver: %d profiles, %d users", len(in.Profiles), len(in.Users))
+	}
+}
+
+// Normalizing must not fill in the caller's blanks either — that is the
+// difference between "here is what will be written" and "your value changed".
 func TestNormalizedDoesNotMutateTheReceiver(t *testing.T) {
 	c := &Config{Admin: Admin{Username: "parent"}}
 
@@ -172,12 +244,20 @@ func TestNormalizedDoesNotMutateTheReceiver(t *testing.T) {
 	if got.Settings.PollSeconds != DefaultPollSeconds {
 		t.Errorf("normalized PollSeconds = %d, want the default", got.Settings.PollSeconds)
 	}
+}
 
-	// The copy must not share the slice either, or appending through one view
-	// would be visible through the other.
-	got.Settings.LockBackends[0] = "changed"
-	if c.Settings.LockBackends != nil {
-		t.Error("the normalized copy shares its slice with the receiver")
+// nil and empty are different documents — one writes `null`, the other `[]` —
+// and the copy must not collapse them, or the round trip would not be an
+// identity for a config that has an empty-but-present list.
+func TestNormalizedPreservesNilVersusEmpty(t *testing.T) {
+	empty := &Config{Users: []User{}, Profiles: []Profile{}}
+	if got := empty.normalized(); got.Users == nil || got.Profiles == nil {
+		t.Errorf("an empty list became nil: %+v", got)
+	}
+
+	nilLists := &Config{}
+	if got := nilLists.normalized(); got.Users != nil || got.Profiles != nil {
+		t.Errorf("a nil list became empty: %+v", got)
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,12 +23,19 @@ var ErrUnknownVersion = errors.New("unsupported config schema version")
 // through.
 var errOwnershipUnsupported = errors.New("this platform cannot report a file's owner")
 
+// staleTempAge is how old a leftover save file has to be before Load reaps it.
+// A Save takes milliseconds, so anything older than this belongs to a process
+// that no longer exists.
+const staleTempAge = time.Hour
+
 // Load reads and decodes the document at path, applies defaults, and refuses a
 // version this build does not understand.
 //
-// Unknown JSON keys are rejected as well. A hand-edited document is a supported
-// way to change this file, and a misspelled key that decodes to nothing is how a
-// parent ends up believing they changed a setting they did not.
+// It also repairs two things it finds, because both are worse than the state
+// that caused them: a credential file that group or other can read is tightened
+// to 0600, and a save file stranded by a crash is deleted. Both are
+// best-effort — Load is called by the enforcement loop, and refusing to enforce
+// because a cleanup failed would be the wrong trade.
 func Load(path string) (*Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -41,6 +50,9 @@ func Load(path string) (*Config, error) {
 	if err := dec.Decode(&c); err != nil {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
+	// The document is one JSON object; anything after it means two documents in
+	// one file, which is how a hand edit goes quietly wrong. This is the one
+	// place that check lives.
 	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("config: parse %s: unexpected data after the JSON object", path)
 	}
@@ -51,7 +63,51 @@ func Load(path string) (*Config, error) {
 	}
 
 	c.applyDefaults()
+	tightenMode(path)
+	reapStaleTempFiles(path, time.Now())
 	return &c, nil
+}
+
+// tightenMode removes group and other permissions from the credential file.
+//
+// Fixing it on sight beats refusing: the alternative to reading this file is
+// enforcing nothing, and a child whose machine stopped being locked out because
+// someone ran `chmod a+r` is the outcome this package exists to prevent.
+func tightenMode(path string) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	perm := fi.Mode().Perm()
+	if perm&0o077 == 0 {
+		return
+	}
+	os.Chmod(path, perm&^0o077)
+}
+
+// reapStaleTempFiles deletes save files a crashed Save left behind.
+//
+// They are mode 0600 copies of the whole document, password verifier included,
+// so leaving one in /etc/plock forever is not acceptable. The age floor is what
+// keeps this safe: a Save that is still in flight must not lose its work file.
+func reapStaleTempFiles(path string, now time.Time) {
+	dir := filepath.Dir(path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	prefix := "." + filepath.Base(path) + ".tmp"
+
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || now.Sub(info.ModTime()) < staleTempAge {
+			continue
+		}
+		os.Remove(filepath.Join(dir, entry.Name()))
+	}
 }
 
 // crashPointForTest, when set, runs after the temp file has been written and
@@ -59,7 +115,26 @@ func Load(path string) (*Config, error) {
 // an error. That window is the only instant in which a crash could leave a
 // partial configuration behind, so it is the instant the tests need to look at.
 // It is nil outside tests.
-var crashPointForTest func(tmpName, target string) error
+//
+// The mutex is not decoration: Save reads it on every call, so a test that sets
+// it while another test saves — which is what t.Parallel invites — would
+// otherwise be a data race in the middle of the production path.
+var (
+	crashMu           sync.Mutex
+	crashPointForTest func(tmpName, target string) error
+)
+
+func setCrashPoint(hook func(tmpName, target string) error) {
+	crashMu.Lock()
+	crashPointForTest = hook
+	crashMu.Unlock()
+}
+
+func takeCrashPoint() func(tmpName, target string) error {
+	crashMu.Lock()
+	defer crashMu.Unlock()
+	return crashPointForTest
+}
 
 // Save writes the document atomically at mode 0600.
 //
@@ -68,17 +143,24 @@ var crashPointForTest func(tmpName, target string) error
 // sees either the whole old file or the whole new one, and a machine that dies
 // between the write and the rename leaves the old file intact with a stray
 // temp file beside it — never a half-written configuration that the enforcement
-// loop would act on.
+// loop would act on. Load reaps the stray.
 //
 // Save does not call Validate. Read-side code must keep working with whatever
 // is on disk, so the gate belongs to whoever produced the change, not to the
-// writer.
+// writer. It does refuse a version it would not be able to read back: writing a
+// document that the next start cannot load would take the daemon down at the
+// worst possible moment.
 func (c *Config) Save(path string) error {
+	out := c.normalized()
+	if out.Version != CurrentVersion {
+		return fmt.Errorf("config: refusing to write version %d to %s: this build reads only version %d",
+			out.Version, path, CurrentVersion)
+	}
 	if err := checkWritableTarget(path); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(c.normalized(), "", "  ")
+	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return fmt.Errorf("config: encode: %w", err)
 	}
@@ -101,8 +183,8 @@ func (c *Config) Save(path string) error {
 	if err := writeAndSync(tmp, data); err != nil {
 		return fmt.Errorf("config: write %s: %w", tmpName, err)
 	}
-	if crashPointForTest != nil {
-		if err := crashPointForTest(tmpName, path); err != nil {
+	if hook := takeCrashPoint(); hook != nil {
+		if err := hook(tmpName, path); err != nil {
 			return err
 		}
 	}
@@ -147,6 +229,13 @@ func writeAndSync(f *os.File, data []byte) error {
 // checkWritableTarget is the tamper guard. A child who somehow obtains write
 // access to the configuration directory must not be able to redirect the write
 // elsewhere, or have the daemon overwrite a file they own.
+//
+// Known limit, stated rather than papered over: the guard inspects the target,
+// not the directory above it. If /etc/plock is itself a symlink to
+// attacker-writable space, the file is created there. Reaching that needs write
+// access one level above the configuration directory, where an attacker already
+// holds strictly better options, so the guard stops at the check that pays for
+// itself.
 func checkWritableTarget(path string) error {
 	fi, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -154,6 +243,7 @@ func checkWritableTarget(path string) error {
 		return nil
 	}
 	if err != nil {
+		// EACCES, ELOOP, anything else. Not being able to look is not a pass.
 		return fmt.Errorf("config: stat %s: %w", path, err)
 	}
 	return checkTarget(path, fi, os.Geteuid())
@@ -180,12 +270,15 @@ func checkTarget(path string, fi os.FileInfo, euid int) error {
 	return nil
 }
 
-// stamp is the pair of stat fields that change whenever the file's contents
-// change. Size alone misses an equal-length edit; mtime alone can be too coarse
-// on a filesystem with one-second timestamps.
+// stamp is what changes whenever the file's contents change. Each field alone
+// has a hole: size misses an equal-length edit, mtime is coarse on some
+// filesystems and is preserved by cp -p and rsync --mtime, and an inode number
+// alone misses an in-place write. Together they catch a replacement by any of
+// the tools a parent might reach for.
 type stamp struct {
 	modTime time.Time
 	size    int64
+	ino     uint64
 }
 
 func statOf(path string) stamp {
@@ -193,11 +286,11 @@ func statOf(path string) stamp {
 	if err != nil {
 		return stamp{}
 	}
-	return stamp{modTime: fi.ModTime(), size: fi.Size()}
+	return stamp{modTime: fi.ModTime(), size: fi.Size(), ino: fileIno(fi)}
 }
 
 // Watch reports on the returned channel whenever the file at path changes, by
-// polling its mtime and size — no new dependency, and portable to the inotify
+// polling its stat fields — no new dependency, and portable to the inotify
 // alternatives.
 //
 // It takes a done channel rather than returning only a subscription channel: a
@@ -210,6 +303,8 @@ func statOf(path string) stamp {
 // enforcement tick, so a coarse mtime degrades latency, never correctness.
 func Watch(path string, interval time.Duration, done <-chan struct{}) <-chan struct{} {
 	if interval <= 0 {
+		// A zero interval would panic inside time.NewTicker, in a goroutine
+		// nobody can recover from.
 		interval = time.Second
 	}
 	changes := make(chan struct{}, 1)

@@ -10,3 +10,9 @@ import "os"
 func fileUID(os.FileInfo) (int, error) {
 	return 0, errOwnershipUnsupported
 }
+
+// fileIno has no answer here, so the change detector falls back to mtime and
+// size alone — the behaviour before the inode was added, not a new risk.
+func fileIno(os.FileInfo) uint64 {
+	return 0
+}
