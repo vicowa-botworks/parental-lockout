@@ -1,0 +1,15 @@
+# Build output
+/bin/
+
+# Test and coverage artefacts
+*.test
+*.out
+coverage.*
+
+# Scratch space for `make run-dev`
+.plock-dev/
+
+# Editor noise
+*.swp
+.idea/
+.vscode/
