@@ -8,7 +8,8 @@
 #
 # The check FAILS CLOSED. A check that could not run has not passed, so every
 # command whose result the verdict depends on reports its own failure instead of
-# being silenced.
+# being silenced, and an empty result from a scanner is treated as "did not
+# scan" rather than "found nothing".
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -22,16 +23,44 @@ if [ ! -f go.mod ]; then
 	exit 1
 fi
 
+# A symlinked directory hides a go.mod from the scan below, because find does
+# not follow directory symlinks, and it can point outside this repository.
+# There is no legitimate reason for one in this tree, so it is rejected rather
+# than chased.
+links=$(find . -type l -xtype d -not -path './.git/*' 2>&1) || {
+	echo "check-deps: cannot scan for symlinks:" >&2
+	echo "$links" >&2
+	exit 1
+}
+if [ -n "$links" ]; then
+	echo "check-deps: symlinked directories hide modules from this check:" >&2
+	printf '%s\n' "$links" >&2
+	status=1
+fi
+
 # Every module in the tree, not just the root one. A nested go.mod is invisible
 # to `go build ./...`, so it would pass the gate silently and become a live
 # dependency the moment someone runs `go work init` or a `go mod edit -replace`.
+mods=$(find . -name go.mod -not -path './.git/*' 2>/dev/null | sort)
+if [ -z "$mods" ]; then
+	echo "check-deps: the go.mod scan found nothing; nothing was verified." >&2
+	exit 1
+fi
+
+# The heredoc keeps the loop in this shell, so `status` survives it; a piped
+# `while` would run in a subshell and throw the verdict away.
 while IFS= read -r mod; do
+	if [ ! -f "$mod" ]; then
+		echo "check-deps: $mod disappeared mid-check." >&2
+		status=1
+		continue
+	fi
 	if grep -Eq '^[[:space:]]*require([[:space:]]|\()' "$mod"; then
 		echo "check-deps: $mod has a require line; this project is stdlib-only." >&2
 		status=1
 	fi
 done <<MODULES
-$(find . -name go.mod -not -path './.git/*' | sort)
+$mods
 MODULES
 
 # A workspace file can graft on modules this repository does not control, and

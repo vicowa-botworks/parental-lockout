@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -17,14 +19,30 @@ import (
 // green, which is exactly the failure these tests exist to catch.
 var wantCommands = []string{"serve", "init", "status", "lock", "unlock", "doctor", "version"}
 
-// TestMain re-executes this test binary as the CLI so the tests can observe the
-// process exit code. `run` returning the right code is not the contract;
-// `main` exiting with it is.
+// plockPath is the real cmd/plock binary, built once for this package. The
+// process tests exec that artifact rather than re-entering run() from a test
+// binary: `main` is what turns a return code into an exit status, and a test
+// that calls run() directly cannot notice os.Exit being dropped.
+var plockPath string
+
 func TestMain(m *testing.M) {
-	if os.Getenv("PLOCK_TEST_ARGV") != "" {
-		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	dir, err := os.MkdirTemp("", "plock-cli-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: %v\n", err)
+		os.Exit(1)
 	}
-	os.Exit(m.Run())
+	bin := filepath.Join(dir, "plock")
+	build := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: building cmd/plock: %v\n%s\n", err, out)
+		os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	plockPath = bin
+
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 func runCmd(t *testing.T, args ...string) (code int, stdout, stderr string) {
@@ -34,11 +52,13 @@ func runCmd(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	return code, out.String(), err.String()
 }
 
-// runProcess exercises the real binary: argv in, exit code and streams out.
+// runProcess exercises the built binary: argv in, exit code and streams out.
 func runProcess(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], args...)
-	cmd.Env = append(os.Environ(), "PLOCK_TEST_ARGV=1")
+	cmd := exec.Command(plockPath, args...)
+	// Hermetic: the CLI must behave the same whatever the developer's or the
+	// runner's environment happens to hold.
+	cmd.Env = nil
 	var out, err bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &err
 	if runErr := cmd.Run(); runErr != nil {
@@ -69,22 +89,47 @@ func TestCommandSurfaceIsComplete(t *testing.T) {
 	}
 }
 
-func TestUsageListsExactlyTheRealCommands(t *testing.T) {
-	lines := strings.Split(globalUsage, "\n")
-	var listed []string
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && strings.HasPrefix(line, "  ") &&
-			slices.Contains(wantCommands, fields[0]) {
-			listed = append(listed, fields[0])
+// commandsIn reads the indented command list under "Commands:". Set equality is
+// asserted in both directions, so the help text can neither omit a real command
+// nor advertise one that does not exist.
+func commandsIn(usage string) []string {
+	var out []string
+	inBlock := false
+	for _, line := range strings.Split(usage, "\n") {
+		if !inBlock {
+			inBlock = line == "Commands:"
+			continue
+		}
+		if !strings.HasPrefix(line, "  ") {
+			break
+		}
+		if fields := strings.Fields(line); len(fields) >= 2 {
+			out = append(out, fields[0])
 		}
 	}
-	slices.Sort(listed)
+	return out
+}
+
+func TestUsageListsExactlyTheRealCommands(t *testing.T) {
+	got := slices.Clone(commandsIn(globalUsage))
+	slices.Sort(got)
 	want := slices.Clone(wantCommands)
 	slices.Sort(want)
 
-	if !slices.Equal(listed, want) {
-		t.Errorf("globalUsage lists %v, want %v", listed, want)
+	if !slices.Equal(got, want) {
+		t.Errorf("globalUsage lists %v, want %v", got, want)
+	}
+}
+
+// TestCommandsInDetectsExtras keeps the helper above from becoming vacuous: if
+// it stopped reading the block, the equality test would fail for the wrong
+// reason or, worse, pass against an empty list.
+func TestCommandsInDetectsExtras(t *testing.T) {
+	extra := strings.Replace(globalUsage,
+		"  version   print version information\n",
+		"  version   print version information\n  frobnicate  pretend to work\n", 1)
+	if got := commandsIn(extra); !slices.Contains(got, "frobnicate") {
+		t.Errorf("commandsIn() = %v, want it to include the injected frobnicate", got)
 	}
 }
 
@@ -111,6 +156,18 @@ func TestHelpListsEveryCommand(t *testing.T) {
 			if !strings.Contains(stdout, cmd) {
 				t.Errorf("%s: usage does not list %q", arg, cmd)
 			}
+		}
+	}
+}
+
+func TestHelpAboutHelpIsTheOverview(t *testing.T) {
+	for _, args := range [][]string{{"help", "help"}, {"help", "-h"}, {"-h", "-h"}, {"help", "--help"}} {
+		code, stdout, stderr := runCmd(t, args...)
+		if code != exitOK {
+			t.Errorf("plock %v: exit code = %d, want %d (stderr %q)", args, code, exitOK, stderr)
+		}
+		if !strings.Contains(stdout, "Usage:") {
+			t.Errorf("plock %v: stdout = %q, want the overview", args, stdout)
 		}
 	}
 }
@@ -165,14 +222,13 @@ func TestVersionRejectsExtraArguments(t *testing.T) {
 		{"--nonsense"},
 		{"extra-arg"},
 		{"--", "--nonsense"},
-		{"version", "extra"},
 	} {
 		code, stdout, _ := runCmd(t, args...)
 		if code != exitUsage {
-			t.Errorf("plock %v: exit code = %d, want %d (stdout %q)", args, code, exitUsage, stdout)
+			t.Errorf("plock version %v: exit code = %d, want %d (stdout %q)", args, code, exitUsage, stdout)
 		}
 		if stdout != "" {
-			t.Errorf("plock %v: stdout = %q, want nothing printed on a usage error", args, stdout)
+			t.Errorf("plock version %v: stdout = %q, want nothing printed on a usage error", args, stdout)
 		}
 	}
 }
@@ -260,7 +316,7 @@ func TestHelpFlagIsOnlyRecognisedInFlagPosition(t *testing.T) {
 	}
 }
 
-// The tests below run the actual process, because `main` is what turns a return
+// The tests below run the built binary, because `main` is what turns a return
 // code into an exit status.
 
 func TestProcessExitCodes(t *testing.T) {
@@ -272,6 +328,7 @@ func TestProcessExitCodes(t *testing.T) {
 		{[]string{"frobnicate"}, exitUsage},
 		{[]string{""}, exitUsage},
 		{[]string{"help"}, exitOK},
+		{[]string{"help", "help"}, exitOK},
 		{[]string{"help", "frobnicate"}, exitUsage},
 		{[]string{"version"}, exitOK},
 		{[]string{"version", "extra"}, exitUsage},
@@ -297,9 +354,38 @@ func TestProcessVersionOutput(t *testing.T) {
 	}
 }
 
-// TestVersionWriteFailure covers the rule that a command whose output cannot be
-// written must not report success — scripts piped into a consumer depend on it.
-func TestVersionWriteFailure(t *testing.T) {
+// TestWriteFailureIsReported covers the rule that a command whose output cannot
+// be written must not report success — scripts piped into a consumer depend on
+// it. Every output path goes through /dev/full, including the writeAll helper
+// that exists solely to enforce this.
+func TestWriteFailureIsReported(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("/dev/full not available on this platform")
+	}
+	cases := [][]string{
+		nil,
+		{"-h"},
+		{"help"},
+		{"help", "frobnicate"},
+		{"frobnicate"},
+		{"version"},
+		{"serve"},
+	}
+	for _, args := range cases {
+		f, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+		if err != nil {
+			t.Skipf("cannot open /dev/full: %v", err)
+		}
+		code := run(args, f, f)
+		f.Close()
+
+		if code == exitOK {
+			t.Errorf("plock %v to /dev/full: exit code = %d, want a failure", args, code)
+		}
+	}
+}
+
+func TestProcessWriteFailure(t *testing.T) {
 	if _, err := os.Stat("/dev/full"); err != nil {
 		t.Skip("/dev/full not available on this platform")
 	}
@@ -309,8 +395,11 @@ func TestVersionWriteFailure(t *testing.T) {
 	}
 	defer f.Close()
 
-	code := run([]string{"version"}, f, io.Discard)
-	if code == exitOK {
-		t.Errorf("exit code = %d writing to /dev/full, want a failure", code)
+	cmd := exec.Command(plockPath, "-h")
+	cmd.Env = nil
+	cmd.Stdout = f
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err == nil {
+		t.Error("plock -h to /dev/full exited 0, want a failure")
 	}
 }

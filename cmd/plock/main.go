@@ -96,7 +96,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 // something that does not exist is a usage error, because printing the overview
 // anyway is how a typo turns into a mystery.
 func runHelp(stdout, stderr io.Writer, args []string) int {
-	if len(args) == 0 {
+	// `plock help`, `plock help help` and `plock help -h` all mean "show me the
+	// overview" — there is nothing more specific to say about help itself.
+	if len(args) == 0 || isHelpFlag(args[0]) || args[0] == "help" {
 		if err := writeAll(stdout, globalUsage); err != nil {
 			return exitFailure
 		}
