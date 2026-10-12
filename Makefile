@@ -51,7 +51,7 @@ verify:
 	echo "==> go build"; $(GO) build ./...; \
 	echo "==> go test -race"; $(GO) test -race ./...; \
 	echo "==> version stamp"; mkdir -p bin; \
-	trap 'rm -f bin/plock-stamp' EXIT INT TERM; \
+	trap 'rm -f bin/plock-stamp' EXIT HUP INT TERM; \
 	$(GO) build -trimpath -ldflags "-X \"$${PKG}.Version=stamp-probe\"" -o bin/plock-stamp ./cmd/plock; \
 	stamped=$$(./bin/plock-stamp version); \
 	case "$$stamped" in \

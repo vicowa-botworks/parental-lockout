@@ -7,9 +7,9 @@
 # in CI rather than trusted.
 #
 # The check FAILS CLOSED. A check that could not run has not passed, so every
-# command whose result the verdict depends on reports its own failure instead of
-# being silenced, and an empty result from a scanner is treated as "did not
-# scan" rather than "found nothing".
+# scan reports its own errors instead of having them swallowed, an empty result
+# from a scanner means "did not scan" rather than "found nothing", and "no
+# match" is never confused with "could not look".
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -23,29 +23,58 @@ if [ ! -f go.mod ]; then
 	exit 1
 fi
 
-# A symlinked directory hides a go.mod from the scan below, because find does
-# not follow directory symlinks, and it can point outside this repository.
-# There is no legitimate reason for one in this tree, so it is rejected rather
-# than chased.
-links=$(find . -type l -xtype d -not -path './.git/*' 2>&1) || {
-	echo "check-deps: cannot scan for symlinks:" >&2
-	echo "$links" >&2
-	exit 1
-}
-if [ -n "$links" ]; then
-	echo "check-deps: symlinked directories hide modules from this check:" >&2
-	printf '%s\n' "$links" >&2
-	status=1
-fi
+# Scanner stderr goes to its own file: merging it into the captured value would
+# let a warning masquerade as a result, and dropping it would hide the reason a
+# scan failed.
+scanErr=$(mktemp)
+trap 'rm -f "$scanErr"' EXIT INT TERM HUP
 
 # Every module in the tree, not just the root one. A nested go.mod is invisible
 # to `go build ./...`, so it would pass the gate silently and become a live
 # dependency the moment someone runs `go work init` or a `go mod edit -replace`.
-mods=$(find . -name go.mod -not -path './.git/*' 2>/dev/null | sort)
+mods=$(find . -name go.mod -not -path './.git/*' 2>"$scanErr") || {
+	echo "check-deps: the go.mod scan failed:" >&2
+	cat "$scanErr" >&2
+	exit 1
+}
+if [ -s "$scanErr" ]; then
+	echo "check-deps: the go.mod scan reported problems:" >&2
+	cat "$scanErr" >&2
+	exit 1
+fi
 if [ -z "$mods" ]; then
 	echo "check-deps: the go.mod scan found nothing; nothing was verified." >&2
 	exit 1
 fi
+
+# find does not follow directory symlinks, so a symlink pointing outside the
+# repository hides a whole tree from the scan above. One pointing inside it
+# hides nothing, because the real directory is scanned where it lives, so only
+# the escaping kind is rejected.
+repo=$(pwd -P)
+links=$(find . -type l -xtype d -not -path './.git/*' 2>"$scanErr") || {
+	echo "check-deps: the symlink scan failed:" >&2
+	cat "$scanErr" >&2
+	exit 1
+}
+if [ -s "$scanErr" ]; then
+	echo "check-deps: the symlink scan reported problems:" >&2
+	cat "$scanErr" >&2
+	exit 1
+fi
+while IFS= read -r link; do
+	[ -n "$link" ] || continue
+	target=$(readlink -f "$link")
+	case "$target" in
+		"$repo"|"$repo"/*) : ;;
+		*)
+			echo "check-deps: $link points outside the repository at $target; find cannot scan it for modules." >&2
+			status=1
+			;;
+	esac
+done <<LINKS
+$links
+LINKS
 
 # The heredoc keeps the loop in this shell, so `status` survives it; a piped
 # `while` would run in a subshell and throw the verdict away.
@@ -55,10 +84,22 @@ while IFS= read -r mod; do
 		status=1
 		continue
 	fi
-	if grep -Eq '^[[:space:]]*require([[:space:]]|\()' "$mod"; then
-		echo "check-deps: $mod has a require line; this project is stdlib-only." >&2
-		status=1
-	fi
+	rc=0
+	grep -Eq '^[[:space:]]*require([[:space:]]|\()' "$mod" || rc=$?
+	case $rc in
+		0)
+			echo "check-deps: $mod has a require line; this project is stdlib-only." >&2
+			status=1
+			;;
+		1) : ;;
+		*)
+			# grep could not read the file. "No match" is 1; anything above that
+			# is an error, and reading an unreadable file as clean is a pass won
+			# by not looking.
+			echo "check-deps: cannot read $mod; nothing was verified about it." >&2
+			exit 1
+			;;
+	esac
 done <<MODULES
 $mods
 MODULES

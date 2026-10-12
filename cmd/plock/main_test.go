@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -19,11 +20,27 @@ import (
 // green, which is exactly the failure these tests exist to catch.
 var wantCommands = []string{"serve", "init", "status", "lock", "unlock", "doctor", "version"}
 
-// plockPath is the real cmd/plock binary, built once for this package. The
-// process tests exec that artifact rather than re-entering run() from a test
-// binary: `main` is what turns a return code into an exit status, and a test
-// that calls run() directly cannot notice os.Exit being dropped.
+// plockPath is the real cmd/plock binary, built once for this package, or empty
+// when the source tree could not be found. The process tests exec that artifact
+// rather than re-entering run() from a test binary: `main` is what turns a
+// return code into an exit status, and a test that calls run() directly cannot
+// notice os.Exit being dropped.
 var plockPath string
+
+// packageDir locates this package's source directory from the compile-time path
+// of this file, so the build works no matter which directory the test binary is
+// invoked from.
+func packageDir() (string, bool) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", false
+	}
+	dir := filepath.Dir(file)
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return "", false
+	}
+	return dir, true
+}
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "plock-cli-")
@@ -32,13 +49,23 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	bin := filepath.Join(dir, "plock")
-	build := exec.Command("go", "build", "-o", bin, ".")
-	if out, err := build.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "TestMain: building cmd/plock: %v\n%s\n", err, out)
-		os.RemoveAll(dir)
-		os.Exit(1)
+
+	pkgDir, haveSrc := packageDir()
+	if !haveSrc {
+		// The binary is being run somewhere the sources are not (a copied test
+		// binary, say). The in-process tests still mean something, so keep them
+		// and say plainly that the process tests will be skipped.
+		fmt.Fprintln(os.Stderr, "TestMain: cmd/plock sources not found; process-level tests will be skipped")
+	} else {
+		build := exec.Command("go", "build", "-o", bin, ".")
+		build.Dir = pkgDir
+		if out, err := build.CombinedOutput(); err != nil {
+			fmt.Fprintf(os.Stderr, "TestMain: building cmd/plock: %v\n%s\n", err, out)
+			os.RemoveAll(dir)
+			os.Exit(1)
+		}
+		plockPath = bin
 	}
-	plockPath = bin
 
 	code := m.Run()
 	os.RemoveAll(dir)
@@ -55,6 +82,9 @@ func runCmd(t *testing.T, args ...string) (code int, stdout, stderr string) {
 // runProcess exercises the built binary: argv in, exit code and streams out.
 func runProcess(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
+	if plockPath == "" {
+		t.Skip("cmd/plock could not be built from the test binary's location")
+	}
 	cmd := exec.Command(plockPath, args...)
 	// Hermetic: the CLI must behave the same whatever the developer's or the
 	// runner's environment happens to hold.
@@ -103,7 +133,10 @@ func commandsIn(usage string) []string {
 		if !strings.HasPrefix(line, "  ") {
 			break
 		}
-		if fields := strings.Fields(line); len(fields) >= 2 {
+		if fields := strings.Fields(line); len(fields) >= 1 {
+			// One field is enough: a line that names a command but omits the
+			// description column still advertises it, and the whole point of
+			// this parser is to notice an advertised command that does not exist.
 			out = append(out, fields[0])
 		}
 	}
@@ -130,6 +163,15 @@ func TestCommandsInDetectsExtras(t *testing.T) {
 		"  version   print version information\n  frobnicate  pretend to work\n", 1)
 	if got := commandsIn(extra); !slices.Contains(got, "frobnicate") {
 		t.Errorf("commandsIn() = %v, want it to include the injected frobnicate", got)
+	}
+
+	// The same injection without a description column: `plock -h` would list a
+	// command that exits 2, and a parser keyed to two-column rows would miss it.
+	undescribed := strings.Replace(globalUsage,
+		"  version   print version information\n",
+		"  frobnicate\n  version   print version information\n", 1)
+	if got := commandsIn(undescribed); !slices.Contains(got, "frobnicate") {
+		t.Errorf("commandsIn() = %v, want it to include a command line with no description", got)
 	}
 }
 
@@ -370,6 +412,10 @@ func TestWriteFailureIsReported(t *testing.T) {
 		{"frobnicate"},
 		{"version"},
 		{"serve"},
+		// A stub asked for help is the only path in notImplemented that returns
+		// exitOK, so it is the one whose write error could pass unnoticed.
+		{"serve", "-h"},
+		{"lock", "--help"},
 	}
 	for _, args := range cases {
 		f, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
@@ -386,20 +432,27 @@ func TestWriteFailureIsReported(t *testing.T) {
 }
 
 func TestProcessWriteFailure(t *testing.T) {
+	if plockPath == "" {
+		t.Skip("cmd/plock could not be built from the test binary's location")
+	}
 	if _, err := os.Stat("/dev/full"); err != nil {
 		t.Skip("/dev/full not available on this platform")
 	}
-	f, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
-	if err != nil {
-		t.Skipf("cannot open /dev/full: %v", err)
-	}
-	defer f.Close()
 
-	cmd := exec.Command(plockPath, "-h")
-	cmd.Env = nil
-	cmd.Stdout = f
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err == nil {
-		t.Error("plock -h to /dev/full exited 0, want a failure")
+	for _, args := range [][]string{{"-h"}, {"version"}, {"serve", "-h"}} {
+		f, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+		if err != nil {
+			t.Skipf("cannot open /dev/full: %v", err)
+		}
+		cmd := exec.Command(plockPath, args...)
+		cmd.Env = nil
+		cmd.Stdout = f
+		cmd.Stderr = io.Discard
+		err = cmd.Run()
+		f.Close()
+
+		if err == nil {
+			t.Errorf("plock %v to /dev/full exited 0, want a failure", args)
+		}
 	}
 }
