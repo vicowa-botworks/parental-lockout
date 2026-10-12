@@ -348,6 +348,67 @@ func TestEditHelpersDoNotRewriteTheCallersArrays(t *testing.T) {
 	}
 }
 
+// A snapshot taken from a config has to survive an edit made after it. The
+// removals have the test above; this one is the upserts, which matter more,
+// because the field being written is the one that switches a child's lockout on
+// or off — a snapshot rewritten here is a cancel that restores nothing.
+//
+// It is a separate test on purpose, and folding the two together hides it: a
+// removal hands the config a fresh slice, so by the time an upsert runs there is
+// no longer an array for the snapshot to share.
+func TestUpsertDoesNotRewriteASnapshot(t *testing.T) {
+	cases := []struct {
+		name  string
+		edit  func(*Config)
+		check func(*testing.T, *Config)
+	}{
+		{
+			name: "user",
+			edit: func(c *Config) {
+				c.UpsertUser(User{Username: "kiddo", ProfileID: "schoolnight", Enabled: false})
+			},
+			check: func(t *testing.T, snap *Config) {
+				if u, _ := snap.UserFor("kiddo"); !u.Enabled {
+					t.Error("the snapshot's account was switched off by an edit made after it was taken")
+				}
+			},
+		},
+		{
+			name: "profile",
+			edit: func(c *Config) {
+				c.UpsertProfile(Profile{ID: "schoolnight", Name: "Renamed", Timezone: "UTC"})
+			},
+			check: func(t *testing.T, snap *Config) {
+				if p, _ := snap.ProfileFor("kiddo"); p.Name != "School night" {
+					t.Errorf("the snapshot's profile is now %q, want School night", p.Name)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := sample()
+			snap := *c
+
+			before, err := json.Marshal(&snap)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			tc.edit(c)
+			after, err := json.Marshal(&snap)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+
+			if string(before) != string(after) {
+				t.Errorf("editing the config rewrote the snapshot taken from it:\nbefore %s\nafter  %s", before, after)
+			}
+			tc.check(t, &snap)
+		})
+	}
+}
+
 // A pointer into c.Users describes whatever ends up at that index, which moves
 // when a later removal shifts the list. Handing out a copy is what makes the
 // value a caller holds mean what it meant when it was read.

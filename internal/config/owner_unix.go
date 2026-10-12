@@ -28,10 +28,17 @@ func fileIno(fi os.FileInfo) uint64 {
 }
 
 // openNoFollow opens an existing file for reading without following a final
-// symlink. The caller has already rejected the symlink case; this is what makes
-// the check and the open one operation instead of a race.
+// symlink and without ever blocking in the open itself. The caller has already
+// rejected the symlink case; this is what makes the check and the open one
+// operation instead of a race.
+//
+// O_NONBLOCK has nothing to do with non-blocking I/O here. Opening a FIFO for
+// reading waits for a writer, and for a config file no writer will ever come:
+// the call would never return, and the enforcement loop would stop with no error
+// and no timeout. With the flag the open fails immediately instead. It is
+// ignored for regular files.
 func openNoFollow(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 }
 
 // fchmodFile sets the mode of an open file. Working on the descriptor is what

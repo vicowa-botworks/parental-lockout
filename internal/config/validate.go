@@ -119,9 +119,11 @@ func (c *Config) Validate() error {
 			// covers all 1440 minutes. That fails toward locking, which is why
 			// it is still accepted by Load, but a parent who typed the same time
 			// into both boxes means "no window", not "never any screen time", and
-			// nothing else would ever tell them.
+			// nothing else would ever tell them. The alternative it is pointed at
+			// is a minute short of all day, and the message says so rather than
+			// letting a parent believe they had written a 24-hour rule.
 			if r.Start == r.End && timeOfDay.MatchString(r.Start) {
-				add("%s.start: %s is also the end time, which locks the account all day rather than not at all; use 00:00 to 23:59 for an all-day rule",
+				add("%s.start: %s is also the end time, which locks the account all day rather than not at all; write 00:00 to 23:59 for an all-day rule, and note that leaves the last minute of the day unlocked",
 					rl, r.Start)
 			}
 

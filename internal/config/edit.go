@@ -15,14 +15,20 @@ import (
 // leave that snapshot looking like a valid document about the wrong child.
 
 // UpsertProfile adds p, or replaces the profile that already has its ID.
+//
+// It writes into a fresh array rather than overwriting the existing element, so
+// that a `snap := *c` taken before the call still describes what it described
+// when it was taken. See the note at the top of this file.
 func (c *Config) UpsertProfile(p Profile) {
-	for i, existing := range c.Profiles {
+	next := copySlice(c.Profiles)
+	for i, existing := range next {
 		if existing.ID == p.ID {
-			c.Profiles[i] = p
+			next[i] = p
+			c.Profiles = next
 			return
 		}
 	}
-	c.Profiles = append(c.Profiles, p)
+	c.Profiles = append(next, p)
 }
 
 // DeleteProfile removes a profile by ID.
@@ -48,14 +54,19 @@ func (c *Config) DeleteProfile(id string) error {
 }
 
 // UpsertUser assigns a profile to an account, replacing any earlier assignment.
+// Like UpsertProfile it writes into a fresh array, so a snapshot taken before the
+// call is not quietly rewritten by it — which matters most here, because the
+// field being replaced is the one that switches a child's lockout on or off.
 func (c *Config) UpsertUser(u User) {
-	for i, existing := range c.Users {
+	next := copySlice(c.Users)
+	for i, existing := range next {
 		if existing.Username == u.Username {
-			c.Users[i] = u
+			next[i] = u
+			c.Users = next
 			return
 		}
 	}
-	c.Users = append(c.Users, u)
+	c.Users = append(next, u)
 }
 
 // RemoveUser unassigns an account and drops any override it holds, so removing

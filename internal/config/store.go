@@ -80,11 +80,15 @@ func Load(path string) (*Config, error) {
 // openReadable opens the configuration file for reading, refusing a symlink or
 // anything that is not a regular file.
 //
-// The shape check happens before the open, not after it: opening a FIFO for
-// reading blocks until someone writes to it, which would park the enforcement
-// loop in a call that never returns. O_NOFOLLOW then closes the gap between
-// looking at the path and opening it, so a link swapped in during that window
-// fails instead of being followed.
+// The shape is checked twice: on the path, to tell "absent" from "refused" and to
+// give a symlink an error of its own, and again on whatever the open actually
+// returned. The second check is the load-bearing one. Between looking at a path
+// and opening it, whoever can write to the directory can replace what is there —
+// with a FIFO, whose open waits for a writer that will never come. Checking only
+// before the open therefore does not close that window; O_NONBLOCK keeps the
+// open from blocking in it, and the descriptor check then refuses the result.
+//
+// O_NOFOLLOW closes the same window for a symlink swapped in during it.
 //
 // This is the read half of the tamper guard, and it deliberately checks less
 // than the write half. Refusing to load stops enforcement, which is the failure
@@ -101,10 +105,43 @@ func openReadable(path string) (*os.File, error) {
 	if fi.Mode()&os.ModeSymlink != 0 {
 		return nil, &os.PathError{Op: "open", Path: path, Err: ErrRefusesSymlink}
 	}
-	if !fi.Mode().IsRegular() {
-		return nil, &os.PathError{Op: "open", Path: path, Err: errNotRegular}
+
+	f, err := openNoFollow(path)
+	if err != nil {
+		// A FIFO swapped in behind the path fails the open rather than blocking
+		// it, and errno says "no such device or address". Say what it is.
+		if fi, statErr := os.Lstat(path); statErr == nil && !fi.Mode().IsRegular() {
+			return nil, &os.PathError{Op: "open", Path: path, Err: errNotRegular}
+		}
+		return nil, err
 	}
-	return openNoFollow(path)
+
+	if err := checkRegular(f); err != nil {
+		f.Close()
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	return f, nil
+}
+
+// checkRegular reports whether the open file is one we may read as a
+// configuration.
+//
+// It judges the descriptor, not the path, and that is the whole point. Between
+// the open and this call the path can be replaced with anything at all, and the
+// answer has to describe the bytes the caller is about to read, not whatever the
+// name happens to resolve to now. It is also why a refused file reports
+// errNotRegular rather than a stat failure: "this is a pipe" and "the path went
+// away" are different claims, and only the second one is a lie about a file we
+// are still holding.
+func checkRegular(f *os.File) error {
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() {
+		return errNotRegular
+	}
+	return nil
 }
 
 // tightenMode removes group and other permissions from the credential file.

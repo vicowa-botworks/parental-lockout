@@ -52,6 +52,11 @@ func TestValidateRejectsEachMalformedField(t *testing.T) {
 			want:   "admin.password",
 		},
 		{
+			name:   "whitespace password verifier",
+			mangle: func(c *Config) { c.Admin.Password = "   " },
+			want:   "admin.password",
+		},
+		{
 			name:   "empty listen address",
 			mangle: func(c *Config) { c.Settings.Listen = "" },
 			want:   "settings.listen",
@@ -302,6 +307,28 @@ func TestValidateRejectsAWindowThatEndsWhereItStarts(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "all day") {
 		t.Errorf("problem does not say what the window actually does: %v", err)
+	}
+}
+
+// The equal-window rule is about a real time typed twice. When the box holds
+// something that is not a time at all, the format problem is the whole answer:
+// describing such a rule as an all-day lockout would be interpreting a value the
+// package has just said it cannot read.
+func TestValidateDoesNotCallAnUnparsableWindowAllDay(t *testing.T) {
+	c := valid()
+	c.Profiles[0].Rules = []Rule{
+		{ID: "typo", Days: []string{"mon"}, Start: "25:00", End: "25:00", Enabled: true},
+	}
+
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted 25:00 as a time of day")
+	}
+	if strings.Contains(err.Error(), "all day") {
+		t.Errorf("Validate called an unparsable time an all-day lockout: %v", err)
+	}
+	if !strings.Contains(err.Error(), "not HH:MM") {
+		t.Errorf("Validate did not report the format problem: %v", err)
 	}
 }
 
