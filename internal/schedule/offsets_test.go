@@ -16,7 +16,8 @@ import (
 // So the requirement is stated directly: every offset in effect within the reach
 // of a repeated reading has to be in the list. The reach is the same 26h the fast
 // path's proof uses — two instants reading the same wall clock are at most that far
-// apart — and the grid is 6h against a minimum offset state of 96h, which is what
+// apart — and the grid is 6h against the 55h minimum offset state the bounds test
+// pins, which is what
 // makes "cannot be missed" arithmetic rather than optimism.
 func TestOffsetsAroundFindsEveryOffsetThatCouldMatter(t *testing.T) {
 	zones := tzZones(t)

@@ -103,10 +103,14 @@ func (c *Config) Validate() error {
 				ruleIDs[r.ID] = true
 			}
 
-			if !timeOfDay.MatchString(r.Start) {
+			// Both halves of the clock go through ParseClock, the same function the
+			// evaluator uses, so the two can never disagree about what is a legal
+			// time. Matching the pattern here instead would agree only for as long
+			// as nobody touches the one it borrows.
+			if _, ok := ParseClock(r.Start); !ok {
 				add("%s.start: %q is not HH:MM on a 24-hour clock", rl, r.Start)
 			}
-			if !timeOfDay.MatchString(r.End) {
+			if _, ok := ParseClock(r.End); !ok {
 				add("%s.end: %q is not HH:MM on a 24-hour clock", rl, r.End)
 			}
 			// A window that ends where it starts is empty: the evaluator finds no
@@ -121,9 +125,11 @@ func (c *Config) Validate() error {
 			// locks out everybody would let them approve the typo on purpose.
 			// The all-day rule they actually want is 00:00 to 23:59, which is a
 			// minute short — see #16.
-			if r.Start == r.End && timeOfDay.MatchString(r.Start) {
-				add("%s.start: %s is also the end time, so the window is empty and enforces nothing; write 00:00 to 23:59 for an all-day rule, and note that leaves the last minute of the day unlocked",
-					rl, r.Start)
+			if r.Start == r.End {
+				if _, ok := ParseClock(r.Start); ok {
+					add("%s.start: %s is also the end time, so the window is empty and enforces nothing; write 00:00 to 23:59 for an all-day rule, and note that leaves the last minute of the day unlocked",
+						rl, r.Start)
+				}
 			}
 
 			if len(r.Days) == 0 {

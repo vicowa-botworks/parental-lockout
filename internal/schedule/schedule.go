@@ -222,8 +222,12 @@ type window struct {
 }
 
 // compiled is a rule that has been read once: its times as minutes past
-// midnight and its days as a lookup, so that evaluating it a hundred times a
-// minute costs no parsing.
+// midnight and its days as a lookup, so that testing it against the many candidate
+// days of one evaluation costs no parsing.
+//
+// It is built per Evaluate and dropped when that returns — there is no cache
+// across calls. At one call per user per 30s poll that is free; if #6 ever makes
+// Evaluate hot enough to matter, the compiled form is what moves onto the Profile.
 type compiled struct {
 	def      *config.Rule
 	startMin int

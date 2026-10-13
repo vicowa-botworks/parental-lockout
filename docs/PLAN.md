@@ -153,13 +153,17 @@ type Verdict struct {
     Rule       *Rule     // which rule is responsible
     StartedAt  time.Time // when the current window opened
     EndsAt     time.Time // when it closes
-    NextStart  time.Time // next window opening, if Active == false
+    NextStart  time.Time // next window opening; set whether or not Active
 }
 ```
 
-Algorithm: for each enabled rule, test two candidate windows — the one starting
-"today" (if today's weekday is in `days`) and the one that started "yesterday"
-and is still running (if yesterday's weekday is in `days`). Take the **latest**
+Algorithm: for each enabled rule, test the windows that started on each of the
+last three local dates — the day before yesterday, yesterday, and today — each
+counting only if that date's weekday is in `days`. Three, not two, because a zone
+can delete a calendar date: five Pacific zones crossed the dateline with a 24h
+forward jump, so a window that opened the evening before a deleted date closes two
+local dates later, and a two-day walk released the account for about 22 hours in
+the middle of its own lockout. Take the **latest**
 `EndsAt` among active windows, because that is how long the child stays locked
 out; the earliest would release them while a second rule still holds. `NextStart`
 scans the next 8 days of candidate window openings. DST is handled by resolving

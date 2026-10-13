@@ -70,8 +70,8 @@ func wallInstant(loc *time.Location, y int, mo time.Month, day, min int, last bo
 	//
 	//   - every offset is between -12h and +14h, so two instants that read the
 	//     same wall time are at most 26h apart;
-	//   - no two offset changes are closer than 96h, so a 54h window cannot hold
-	//     two of them.
+	//   - no offset state lasts less than the 55h the test pins, so a 54h window
+	//     cannot hold two changes.
 	//
 	// If the offset is the same 27h either side of t, then either there was no
 	// change in that window at all, or there were at least two — and two inside
@@ -80,8 +80,9 @@ func wallInstant(loc *time.Location, y int, mo time.Month, day, min int, last bo
 	// and would share that offset, which pins it to t itself. The reading is
 	// unique and t is the answer.
 	//
-	// The window has to be wider than the 26h, not merely wider than the biggest
-	// clock change anyone happens to have seen. It used to be 2h on the reasoning
+	// The window has to reach the whole 26h, not merely half of it, and not merely
+	// as wide as the biggest clock change anyone happens to have seen. It used to
+	// be 2h on the reasoning
 	// that DST moves an hour, and that was wrong by an afternoon: Antarctica/Casey
 	// puts its clocks back three hours every March, so 23:00 arrives twice and the
 	// guard handed a window's *start* the later of the two readings — a Saturday
@@ -95,9 +96,11 @@ func wallInstant(loc *time.Location, y int, mo time.Month, day, min int, last bo
 }
 
 // uniqueProbe is how far either side of an instant the offset has to be equal to
-// prove the wall clock is one-to-one there: more than half the widest possible
-// gap between two readings of one wall time (26h), and less than half the
-// narrowest gap between two offset changes (96h).
+// prove the wall clock is one-to-one there. Two conditions, from the same test:
+// at least the whole 26h spread between two readings of one wall time — half of
+// it leaves the second reading outside the window — and less than half the 55h
+// narrowest offset state, so that equal ends mean nothing changed in between.
+// That leaves 26h to 27.5h, and 27h sits in the middle of it.
 const uniqueProbe = 27 * time.Hour
 
 // resolveReading is the exhaustive half of wallInstant: every instant within the
@@ -189,11 +192,11 @@ func offsetAt(t time.Time, loc *time.Location) time.Duration {
 //   - every offset is between -12h and +14h, so any instant reading the same wall
 //     time as t sits at most 26h from t, and its offset is one in effect within
 //     that 26h;
-//   - no offset state lasts less than 96h. Take the state holding at an instant
-//     u within 26h of t: it contains u and runs at least 96h, so at least 10h of
-//     it falls inside the sampled span of ±36h. (If the state starts before the
-//     span, it reaches past u, which is 10h inside; if it starts inside the span,
-//     it runs 96h and cannot end before the span does.)
+//   - no offset state lasts less than the 55h the test pins. Take the state
+//     holding at an instant u within 26h of t: it contains u and runs at least
+//     55h, so at least 10h of it falls inside the sampled span of ±36h. (If the
+//     state starts before the span, it reaches past u, which is 10h inside; if it
+//     starts inside the span, it runs 55h and cannot end before the span does.)
 //
 // A span of ±36h sampled every 6h therefore lands inside every state that
 // overlaps it by more than 6h, which is every state that matters. Sampling every
