@@ -81,7 +81,7 @@ func (l *logind) Sessions(ctx context.Context) ([]Session, error) {
 			continue
 		}
 
-		props, err := l.show(ctx, e.Session)
+		props, err := l.show(ctx, e.Session, sessionProps...)
 		if err != nil {
 			// A session that disappeared between the listing and the detail call is
 			// normal — someone logged out mid-poll. It is not a reason to give up on
@@ -97,6 +97,8 @@ func (l *logind) Sessions(ctx context.Context) ([]Session, error) {
 			ID:       e.Session,
 			Username: props.get("Name"),
 			UID:      e.UID,
+			Class:    e.Class,
+			Seat:     seatString(e.Seat),
 			Type:     props.get("Type"),
 			State:    props.get("State"),
 			Remote:   props.flag("Remote"),
@@ -144,6 +146,29 @@ func (l *logind) Lock(ctx context.Context, s Session) error {
 
 // Probe checks that logind can be talked to. It runs the read-only listing and
 // nothing else — in particular it never locks.
+// LockConfirmed re-reads LockedHint to see whether the lock took effect.
+//
+// It has to re-query rather than look at Session.Locked, because that field was read
+// before the lock was requested — using it would report the state the daemon was
+// trying to change. LockedHint is set by the desktop environment when it locks, so it
+// is the one signal that distinguishes "loginctl accepted my request" from "the screen
+// is locked", which on Plasma is exactly the difference that matters.
+//
+// It is a second call per lock attempt. At one lock per session per 30 seconds that is
+// cheap, and being wrong here means believing a child's screen is locked when it is
+// not.
+func (l *logind) LockConfirmed(ctx context.Context, s Session) (bool, error) {
+	// No id check here on purpose. show() is the only route to loginctl for a query and
+	// it refuses implausible ids itself, so a second guard in front of it can never
+	// fire — and a branch nothing can reach is a branch nobody ever tests, which is
+	// where a wrong stops being visible.
+	props, err := l.show(ctx, s.ID, "LockedHint")
+	if err != nil {
+		return false, err
+	}
+	return props.flag("LockedHint"), nil
+}
+
 func (l *logind) Probe(ctx context.Context) []BackendStatus {
 	entries, err := l.list(ctx)
 	if err != nil {
@@ -192,14 +217,21 @@ func (l *logind) list(ctx context.Context) ([]listEntry, error) {
 }
 
 // show asks for one session's properties.
-func (l *logind) show(ctx context.Context, id string) (props, error) {
+// sessionProps are the properties Sessions needs. They are named here rather than at
+// the call site so the argv test can assert the exact set: an unknown property is not
+// an error from loginctl, so a typo here would look like a property that was never
+// set.
+var sessionProps = []string{"Name", "Type", "State", "Remote", "UID", "LockedHint"}
+
+func (l *logind) show(ctx context.Context, id string, want ...string) (props, error) {
 	if !validSessionID(id) {
 		return nil, fmt.Errorf("loginctl show-session: refusing to query session %q: not a plausible session id", id)
 	}
-	out, err := l.r.Run(ctx, []string{
-		"loginctl", "show-session", id,
-		"-p", "Name", "-p", "Type", "-p", "State", "-p", "Remote", "-p", "UID", "-p", "LockedHint",
-	}, nil, 0)
+	argv := []string{"loginctl", "show-session", id}
+	for _, p := range want {
+		argv = append(argv, "-p", p)
+	}
+	out, err := l.r.Run(ctx, argv, nil, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -307,51 +339,6 @@ func parseSessionJSON(out []byte) ([]listEntry, error) {
 // first: a build that reorders the columns would then fail loudly instead of putting
 // the class in the username field, which is the kind of mistake that shows up as
 // "nobody ever gets locked".
-func parseSessionTable(out []byte) ([]listEntry, error) {
-	lines := strings.Split(string(out), "\n")
-	header := -1
-	for i, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) >= 6 && fields[0] == "SESSION" && fields[1] == "UID" {
-			header = i
-			break
-		}
-	}
-	if header < 0 {
-		return nil, fmt.Errorf("no SESSION UID header in the table output")
-	}
-
-	var out2 []listEntry
-	for _, line := range lines[header+1:] {
-		fields := strings.Fields(line)
-		if len(fields) < 9 {
-			// Blank separator and the "N sessions listed." trailer both land here.
-			continue
-		}
-		e := listEntry{
-			Session: tableStr(fields[0]),
-			User:    tableStr(fields[2]),
-			Seat:    tableField(fields[3]),
-			Class:   tableStr(fields[5]),
-			TTY:     tableField(fields[6]),
-			Idle:    strings.EqualFold(fields[7], "yes") || strings.EqualFold(fields[7], "true"),
-		}
-		if n, ok := (&props{"uid": fields[1]}).uint("uid"); ok {
-			e.UID = n
-		}
-		if _, err := fmt.Sscanf(fields[4], "%d", &e.Leader); err != nil {
-			continue
-		}
-		if e.Session == "" {
-			continue
-		}
-		out2 = append(out2, e)
-	}
-	if len(out2) == 0 {
-		return nil, fmt.Errorf("table output had no session rows")
-	}
-	return out2, nil
-}
 
 // tableStr reads a column that is always present, mapping logind's "-" placeholder
 // to the empty string the JSON path would have produced for an absent value.
@@ -378,11 +365,23 @@ func firstLine(out []byte) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
 	}
-	if len(s) > 120 {
-		s = s[:120] + "..."
+	// Cut on runes. A 120-byte slice can land in the middle of a UTF-8 sequence, and
+	// this string goes into an error message that ends up in a log and possibly on a
+	// status page.
+	if r := []rune(s); len(r) > 120 {
+		s = string(r[:120]) + "..."
 	}
 	if s == "" {
 		return "(empty output)"
 	}
 	return s
+}
+
+// seatString flattens the listing's nullable seat for the Session struct, where the
+// empty string already means "no console".
+func seatString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

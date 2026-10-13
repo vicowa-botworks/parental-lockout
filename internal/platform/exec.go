@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Runner is the only way this package starts a process.
@@ -67,6 +68,18 @@ func (ExecRunner) Run(ctx context.Context, argv []string, env []string, uid uint
 	} else {
 		cmd.Env = os.Environ()
 	}
+	// Cancel kills the direct child; WaitDelay then bounds how long Wait holds on
+	// after it, so a grandchild that survives and keeps the stdout pipe open cannot
+	// park the caller past the context deadline.
+	//
+	// What this does NOT do is guarantee the whole process tree dies. CommandContext's
+	// default cancellation reaches the direct child only; a grandchild it spawned keeps
+	// running, and WaitDelay only stops us from waiting for it. A backend that shells
+	// out to something with helpers of its own has to put the child in its own process
+	// group and kill the group — this seam does not do that on its behalf.
+	cmd.Cancel = func() error { return cmd.Process.Kill() }
+	cmd.WaitDelay = 5 * time.Second
+
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if uid != 0 {
@@ -75,6 +88,10 @@ func (ExecRunner) Run(ctx context.Context, argv []string, env []string, uid uint
 		}
 	}
 
+	// Output() returns whatever was written even when it also returns an error, so the
+	// stdout buffer is kept on the failure paths below. A program that printed a D-Bus
+	// error object or a usage line before exiting non-zero has said the useful thing
+	// there, and dropping it leaves the operator with "exited with 1".
 	out, err := cmd.Output()
 	if err == nil {
 		return out, nil
@@ -84,15 +101,17 @@ func (ExecRunner) Run(ctx context.Context, argv []string, env []string, uid uint
 	// on. The exec package's text for a missing file is "exec: \"x\": executable
 	// file not found in $PATH", which is accurate but buries the name.
 	if errors.Is(err, exec.ErrNotFound) {
-		return nil, fmt.Errorf("%s: %w", argv[0], ErrBinaryNotFound)
+		return out, fmt.Errorf("%s: %w", argv[0], ErrBinaryNotFound)
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
+			// Nothing on stderr: the exec error's own text is all there is, and it
+			// carries the exit status.
 			msg = exitErr.Error()
 		}
-		return nil, fmt.Errorf("%s exited with %d: %s", strings.Join(argv, " "), exitErr.ExitCode(), msg)
+		return out, fmt.Errorf("%s exited with %d: %s", argv[0], exitErr.ExitCode(), msg)
 	}
-	return nil, fmt.Errorf("%s: %w", argv[0], err)
+	return out, fmt.Errorf("%s: %w", argv[0], err)
 }

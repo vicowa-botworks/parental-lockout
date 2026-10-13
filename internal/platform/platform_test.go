@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ func TestChainWithNoBackendsRefusesLoudly(t *testing.T) {
 	if err == nil {
 		t.Fatal("New accepted a backend that does not exist")
 	}
-	err = c.Lock(context.Background(), Session{ID: "3", Type: "x11", State: "active"})
+	err = c.Lock(context.Background(), desktopSession("3"))
 	if err == nil {
 		t.Fatal("Lock succeeded with no backend in the chain")
 	}
@@ -115,24 +116,26 @@ func TestChainSessionsReportsAPartialFailure(t *testing.T) {
 	}
 }
 
-func TestChainLockTriesInOrderAndStopsAtSuccess(t *testing.T) {
-	s := Session{ID: "3", Username: "kid", Type: "x11", State: "active"}
-	first := &Mock{BackendName: "first"}
-	second := &Mock{BackendName: "second"}
+func TestChainLockTriesInOrderAndStopsAtFirstConfirmation(t *testing.T) {
+	s := desktopSession("3")
+	// The first backend locks AND can prove it, which is the only thing that ends the
+	// chain.
+	first := &confirming{Mock: &Mock{BackendName: "first"}, yes: true}
+	second := &confirming{Mock: &Mock{BackendName: "second"}, yes: true}
 	c := &Chain{backends: []Platform{first, second}}
 
 	if err := c.Lock(context.Background(), s); err != nil {
 		t.Fatalf("Lock: %v", err)
 	}
 	if first.LockCount() != 1 || second.LockCount() != 0 {
-		t.Errorf("calls: first=%d second=%d, want the first success to stop the chain", first.LockCount(), second.LockCount())
+		t.Errorf("calls: first=%d second=%d, want the first confirmation to stop the chain", first.LockCount(), second.LockCount())
 	}
 }
 
 func TestChainLockFallsThroughOnFailure(t *testing.T) {
-	s := Session{ID: "3", Type: "x11", State: "active"}
-	first := &Mock{BackendName: "first", LockErr: errors.New("plasma ignored us")}
-	second := &Mock{BackendName: "second"}
+	s := desktopSession("3")
+	first := &confirming{Mock: &Mock{BackendName: "first", LockErr: errors.New("plasma ignored us")}}
+	second := &confirming{Mock: &Mock{BackendName: "second"}, yes: true}
 	c := &Chain{backends: []Platform{first, second}}
 
 	if err := c.Lock(context.Background(), s); err != nil {
@@ -147,7 +150,7 @@ func TestChainLockFallsThroughOnFailure(t *testing.T) {
 // situation the KDE backend exists for, and "nothing worked" without the reasons is
 // undiagnosable from a log line.
 func TestChainLockReportsEveryFailure(t *testing.T) {
-	s := Session{ID: "3", Type: "x11", State: "active"}
+	s := desktopSession("3")
 	a := &Mock{BackendName: "logind", LockErr: errors.New("permission denied")}
 	b := &Mock{BackendName: "kde", LockErr: errors.New("no session bus")}
 	c := &Chain{backends: []Platform{a, b}}
@@ -167,14 +170,17 @@ func TestChainLockReportsEveryFailure(t *testing.T) {
 // lives on the type every caller must go through rather than on each backend's
 // memory.
 func TestChainNeverLocksWhatItMustNot(t *testing.T) {
-	m := &Mock{}
+	m := &confirming{Mock: &Mock{}, yes: true}
 	c := &Chain{backends: []Platform{m}}
 	for name, s := range map[string]Session{
-		"remote ssh":  {ID: "1", Type: "x11", State: "active", Remote: true},
-		"closing":     {ID: "2", Type: "x11", State: "closing"},
-		"manager":     {ID: "3", Type: "unspecified", State: "active"},
-		"no type":     {ID: "4", State: "active"},
-		"tty session": {ID: "5", Type: "tty", State: "active"}, // lockable: a VT is still a session
+		"remote ssh":  {ID: "1", Class: "user", Seat: "seat0", Type: "x11", State: "active", Remote: true},
+		"closing":     {ID: "2", Class: "user", Seat: "seat0", Type: "x11", State: "closing"},
+		"manager":     {ID: "3", Class: "manager", Type: "unspecified", State: "active"},
+		"greeter":     {ID: "3b", Class: "greeter", Seat: "seat0", Type: "x11", State: "active"},
+		"no seat":     {ID: "3c", Class: "user", Type: "x11", State: "active"},
+		"no class":    {ID: "3d", Seat: "seat0", Type: "x11", State: "active"},
+		"no type":     {ID: "4", Class: "user", Seat: "seat0", State: "active"},
+		"tty session": {ID: "5", Class: "user", Seat: "seat0", Type: "tty", State: "active"}, // lockable: a VT is still a session
 	} {
 		err := c.Lock(context.Background(), s)
 		if name == "tty session" {
@@ -205,22 +211,34 @@ func TestChainProbeIncludesUnknownNames(t *testing.T) {
 }
 
 func TestIsLockable(t *testing.T) {
-	base := Session{ID: "1", Type: "x11", State: "active"}
+	base := Session{ID: "1", Class: "user", Seat: "seat0", Type: "x11", State: "active"}
 	for _, tc := range []struct {
 		name string
 		s    Session
 		want bool
 	}{
 		{"plain", base, true},
-		{"tty", Session{Type: "tty", State: "active"}, true},
-		{"wayland", Session{Type: "wayland", State: "active"}, true},
-		{"remote", Session{Type: "x11", State: "active", Remote: true}, false},
-		{"closing", Session{Type: "x11", State: "closing"}, false},
-		{"empty type", Session{State: "active"}, false},
-		{"unspecified type", Session{Type: "unspecified", State: "active"}, false},
+		{"tty", Session{Class: "user", Seat: "seat0", Type: "tty", State: "active"}, true},
+		{"wayland", Session{Class: "user", Seat: "seat0", Type: "wayland", State: "active"}, true},
+		{"remote", Session{Class: "user", Seat: "seat0", Type: "x11", State: "active", Remote: true}, false},
+		{"closing", Session{Class: "user", Seat: "seat0", Type: "x11", State: "closing"}, false},
+		{"empty type", Session{Class: "user", Seat: "seat0", State: "active"}, false},
+		{"unspecified type", Session{Class: "user", Seat: "seat0", Type: "unspecified", State: "active"}, false},
+		// A greeter session is the login screen. Locking it leaves an uninputtable wall
+		// where the child's account was never chosen, and it can share a uid with a real
+		// session, so a uid-aimed caller can easily hit it.
+		{"greeter", Session{Class: "greeter", Seat: "seat0", Type: "x11", State: "active"}, false},
+		{"lock screen", Session{Class: "lock", Seat: "seat0", Type: "x11", State: "active"}, false},
+		{"manager", Session{Class: "manager", Type: "unspecified", State: "active"}, false},
+		// No seat means not on any console.
+		{"no seat", Session{Class: "user", Type: "x11", State: "active"}, false},
+		// A Session that never came from a listing has no class. Refusing it is the
+		// point: the rule is "came from a desktop session listing", and that is only
+		// checkable if the field has to be there.
+		{"no class", Session{Seat: "seat0", Type: "x11", State: "active"}, false},
 		// An online-but-not-active session is still a session someone could walk up
 		// to, so it stays lockable.
-		{"online", Session{Type: "x11", State: "online"}, true},
+		{"online", Session{Class: "user", Seat: "seat0", Type: "x11", State: "online"}, true},
 	} {
 		if got := isLockable(tc.s); got != tc.want {
 			t.Errorf("%s: isLockable = %v, want %v", tc.name, got, tc.want)
@@ -345,5 +363,180 @@ func TestMockBookkeeping(t *testing.T) {
 	}
 	if n := (&Mock{BackendName: "kde"}).Name(); n != "kde" {
 		t.Errorf("Name = %q, want kde", n)
+	}
+}
+
+// The failure this whole distinction exists for: logind accepts the request, Plasma
+// ignores it, and a chain that treats "no error" as "locked" stops right there. On the
+// target platform that means the KDE backend is never reached and the screen never
+// locks, while the daemon records a successful lock every 30 seconds.
+func TestChainDoesNotStopAtASuccessItCannotConfirm(t *testing.T) {
+	s := desktopSession("3")
+	logind := &confirming{Mock: &Mock{BackendName: "logind"}, yes: false}
+	kde := &confirming{Mock: &Mock{BackendName: "kde"}, yes: true}
+	c := &Chain{backends: []Platform{logind, kde}}
+
+	if err := c.Lock(context.Background(), s); err != nil {
+		t.Fatalf("Lock: %v, want the chain to fall through to the backend that confirms", err)
+	}
+	if logind.LockCount() != 1 || kde.LockCount() != 1 {
+		t.Errorf("calls: logind=%d kde=%d, want both", logind.LockCount(), kde.LockCount())
+	}
+}
+
+// A backend that cannot confirm at all must not end the chain either. If it did, adding
+// a confirming backend behind a non-confirming one would change nothing, and the
+// difference between the two would be invisible to whoever configures the chain.
+func TestChainDoesNotStopAtABackendThatCannotConfirm(t *testing.T) {
+	s := desktopSession("3")
+	// Mock deliberately does not implement Confirmer.
+	first := &Mock{BackendName: "legacy"}
+	second := &confirming{Mock: &Mock{BackendName: "kde"}, yes: true}
+	c := &Chain{backends: []Platform{first, second}}
+
+	if err := c.Lock(context.Background(), s); err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	if second.LockCount() != 1 {
+		t.Errorf("the confirming backend was never tried: it is the only one that can prove anything")
+	}
+}
+
+// When every backend asks and none can prove it, the caller has to be able to tell that
+// apart from a lock. The loop keeps re-arming on this, so it must not read as success.
+func TestChainReportsUnconfirmedWhenNothingConfirms(t *testing.T) {
+	s := desktopSession("3")
+	a := &confirming{Mock: &Mock{BackendName: "logind"}, yes: false}
+	b := &Mock{BackendName: "legacy"}
+	c := &Chain{backends: []Platform{a, b}}
+
+	err := c.Lock(context.Background(), s)
+	if err == nil {
+		t.Fatal("Lock returned nil with no backend able to confirm the lock")
+	}
+	if !errors.Is(err, ErrUnconfirmed) {
+		t.Errorf("err = %v, want it to match ErrUnconfirmed", err)
+	}
+	// Both reasons have to survive, or the operator cannot tell which backend to fix.
+	for _, want := range []string{"logind", "legacy", "still unlocked", "cannot confirm"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q is missing %q", err, want)
+		}
+	}
+}
+
+// A chain where every backend hard-failed is not "unconfirmed": nothing ever reached the
+// desktop, which is a different problem and needs a different report.
+func TestChainHardFailureIsNotReportedAsUnconfirmed(t *testing.T) {
+	s := desktopSession("3")
+	a := &Mock{BackendName: "logind", LockErr: errors.New("permission denied")}
+	b := &Mock{BackendName: "kde", LockErr: errors.New("no session bus")}
+	c := &Chain{backends: []Platform{a, b}}
+
+	err := c.Lock(context.Background(), s)
+	if err == nil {
+		t.Fatal("Lock returned nil with every backend failing")
+	}
+	if errors.Is(err, ErrUnconfirmed) {
+		t.Errorf("a total hard failure was reported as ErrUnconfirmed: %v", err)
+	}
+	for _, want := range []string{"logind", "permission denied", "kde", "no session bus"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q is missing %q", err, want)
+		}
+	}
+}
+
+// A mixed chain — one hard failure, one unconfirmed ask — is still the unconfirmed
+// class, because something did reach the desktop, and the hard failure must not be lost.
+func TestChainMixedFailureReportsUnconfirmedAndKeepsBothReasons(t *testing.T) {
+	s := desktopSession("3")
+	a := &Mock{BackendName: "logind", LockErr: fmt.Errorf("after the deadline: %w", context.DeadlineExceeded)}
+	b := &confirming{Mock: &Mock{BackendName: "kde"}, yes: false}
+	c := &Chain{backends: []Platform{a, b}}
+
+	err := c.Lock(context.Background(), s)
+	if !errors.Is(err, ErrUnconfirmed) {
+		t.Errorf("err = %v, want it to match ErrUnconfirmed", err)
+	}
+	for _, want := range []string{"after the deadline", "kde"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q is missing %q", err, want)
+		}
+	}
+	// The per-backend reasons are joined, and a caller has to be able to reach through
+	// the join to a cause it cares about — the loop distinguishes "timed out" from
+	// "refused" without matching on message text.
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("errors.Is(err, context.DeadlineExceeded) = false; the joined reasons are opaque: %v", err)
+	}
+}
+
+// A confirmation that errors is not a confirmation, and must not be reported as one.
+func TestChainKeepsGoingWhenConfirmationErrors(t *testing.T) {
+	s := desktopSession("3")
+	a := &confirming{Mock: &Mock{BackendName: "logind"}, err: errors.New("Connection reset by peer")}
+	b := &confirming{Mock: &Mock{BackendName: "kde"}, yes: true}
+	c := &Chain{backends: []Platform{a, b}}
+
+	if err := c.Lock(context.Background(), s); err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	if b.LockCount() != 1 {
+		t.Error("a failed confirmation stopped the chain")
+	}
+}
+
+// The enforcement loop holds a Chain, and its job is to notice a screen that got
+// unlocked. If the chain could not answer "is it locked", the loop's only move would be
+// to lock again — so the composite has to answer the question its parts answer.
+func TestChainAnswersWhetherALockIsInEffect(t *testing.T) {
+	s := desktopSession("3")
+
+	yes, err := (&Chain{backends: []Platform{
+		&confirming{Mock: &Mock{BackendName: "logind"}, yes: false},
+		&confirming{Mock: &Mock{BackendName: "kde"}, yes: true},
+	}}).LockConfirmed(context.Background(), s)
+	if !yes || err != nil {
+		t.Errorf("LockConfirmed = %v, %v; want true when one backend sees the lock", yes, err)
+	}
+
+	// Nobody sees a lock: reported as unlocked, not as an error and not as true.
+	yes, err = (&Chain{backends: []Platform{
+		&confirming{Mock: &Mock{BackendName: "logind"}, yes: false},
+		&confirming{Mock: &Mock{BackendName: "kde"}, yes: false},
+	}}).LockConfirmed(context.Background(), s)
+	if yes {
+		t.Error("LockConfirmed reported a lock that no backend could see")
+	}
+	if err != nil {
+		t.Errorf("an ordinary unlocked answer came back as an error: %v", err)
+	}
+
+	// A backend that cannot see the session must not veto one that can.
+	yes, err = (&Chain{backends: []Platform{
+		&confirming{Mock: &Mock{BackendName: "blind"}, err: errors.New("Failed to connect to bus")},
+		&confirming{Mock: &Mock{BackendName: "kde"}, yes: true},
+	}}).LockConfirmed(context.Background(), s)
+	if !yes {
+		t.Errorf("a failing backend vetoed a backend that saw the lock (err=%v)", err)
+	}
+
+	// Nothing could establish the state. That is unlocked, with the reasons kept.
+	yes, err = (&Chain{backends: []Platform{
+		&confirming{Mock: &Mock{BackendName: "blind"}, err: errors.New("Failed to connect to bus")},
+	}}).LockConfirmed(context.Background(), s)
+	if yes {
+		t.Error("LockConfirmed reported a lock on nothing but failures")
+	}
+	if err == nil || !strings.Contains(err.Error(), "Failed to connect to bus") {
+		t.Errorf("the reasons the check failed were lost: %v", err)
+	}
+
+	// A backend with no confirmation ability is skipped, not counted as "unlocked".
+	yes, err = (&Chain{backends: []Platform{&Mock{BackendName: "legacy"}}}).
+		LockConfirmed(context.Background(), s)
+	if yes || err != nil {
+		t.Errorf("LockConfirmed = %v, %v with a non-confirming backend", yes, err)
 	}
 }

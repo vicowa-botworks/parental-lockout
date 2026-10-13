@@ -1,0 +1,146 @@
+{
+  "package": "./internal/platform/",
+  "_about": "Each entry puts one known bug back into internal/platform and the suite must fail. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
+  "mutants": [
+    {
+      "id": "C1",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tif yes {\n\t\t\treturn nil\n\t\t}",
+      "new": "\t\tif yes || true {\n\t\t\treturn nil\n\t\t}",
+      "note": "the pre-fix behaviour: logind's zero exit on Plasma ended the chain and the KDE backend was never reached"
+    },
+    {
+      "id": "C2",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tif yes {\n\t\t\treturn nil\n\t\t}",
+      "new": "\t\tif !yes {\n\t\t\treturn nil\n\t\t}",
+      "note": "releasing the chain on the wrong side of the confirmation"
+    },
+    {
+      "id": "C3",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tconf, ok := b.(Confirmer)\n\t\tif !ok {\n\t\t\t// Success we cannot stand behind.",
+      "new": "\t\tconf, ok := b.(Confirmer)\n\t\tif !ok || true {\n\t\t\t// Success we cannot stand behind.",
+      "note": "a backend that cannot confirm would end the chain, so adding a confirming backend behind it would change nothing"
+    },
+    {
+      "id": "C4",
+      "file": "internal/platform/platform.go",
+      "old": "\tif failures == len(c.backends) {",
+      "new": "\tif false && failures == len(c.backends) {",
+      "note": "nothing reached the desktop, which is a different report from 'we asked and cannot prove it'"
+    },
+    {
+      "id": "C5",
+      "file": "internal/platform/platform.go",
+      "old": "func (e *unconfirmedError) Unwrap() []error { return e.reasons }",
+      "new": "func (e *unconfirmedError) Unwrap() []error { return nil }",
+      "note": "the loop distinguishes a timeout from a refusal through errors.Is, without matching on message text"
+    },
+    {
+      "id": "L1",
+      "file": "internal/platform/logind.go",
+      "old": "\treturn props.flag(\"LockedHint\"), nil",
+      "new": "\treturn props.flag(\"LockedHint\") || true, nil",
+      "note": "the exact Plasma failure: exit 0 with the screen unlocked, reported as a lock"
+    },
+    {
+      "id": "L2",
+      "file": "internal/platform/logind.go",
+      "old": "\tif !validSessionID(id) {\n\t\treturn nil, fmt.Errorf(\"loginctl show-session: refusing to query session %q: not a plausible session id\", id)",
+      "new": "\tif false && !validSessionID(id) {\n\t\treturn nil, fmt.Errorf(\"loginctl show-session: refusing to query session %q: not a plausible session id\", id)",
+      "note": "show() is the only route to loginctl for a query, so it is where the id rule lives"
+    },
+    {
+      "id": "P1",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.Class != \"user\" {",
+      "new": "\tif false && s.Class != \"user\" {",
+      "note": "a greeter or manager session shares a uid with a real one and must never be locked"
+    },
+    {
+      "id": "P2",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.Seat == \"\" {",
+      "new": "\tif false && s.Seat == \"\" {",
+      "note": "no seat means not on any console"
+    },
+    {
+      "id": "P3",
+      "file": "internal/platform/platform.go",
+      "old": "func isLockable(s Session) bool {\n\tif s.Remote {",
+      "new": "func isLockable(s Session) bool {\n\tif false && s.Remote {",
+      "note": "the admin's own session is usually the remote one"
+    },
+    {
+      "id": "P4",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.State == \"closing\" {",
+      "new": "\tif false && s.State == \"closing\" {",
+      "note": "a closing session is on its way out; locking it does nothing and hides the real target"
+    },
+    {
+      "id": "P5",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.Type == \"\" || s.Type == \"unspecified\" {",
+      "new": "\tif false && s.Type == \"\" || s.Type == \"unspecified\" {",
+      "note": "an unspecified type is not a desktop anyone is looking at"
+    },
+    {
+      "id": "T1",
+      "file": "internal/platform/table.go",
+      "old": "\t\tif !looksLikeHeader(fields) {",
+      "new": "\t\tif !(len(fields) > 1 && fields[0] == \"SESSION\") {",
+      "note": "the position-locked header read that a single inserted column would silently corrupt"
+    },
+    {
+      "id": "T2",
+      "file": "internal/platform/table.go",
+      "old": "\tif len(fields) < len(cols) {",
+      "new": "\tif false && len(fields) < len(cols) {",
+      "note": "a silently dropped row is a session that never gets enforced"
+    },
+    {
+      "id": "T3",
+      "file": "internal/platform/table.go",
+      "old": "\t\t\t\tcols = append(cols, -1)\n\t\t\t\tcontinue",
+      "new": "\t\t\t\tcontinue",
+      "note": "dropping the slot shifts every column after an unknown one, which is the bug this file exists to prevent"
+    },
+    {
+      "id": "T4",
+      "file": "internal/platform/table.go",
+      "old": "\t\t\te.Since = tableField(f)",
+      "new": "\t\t\t_ = f",
+      "note": "SINCE is the column after the unknown one in the test, so it is what proves the mapping survived"
+    },
+    {
+      "id": "T5",
+      "file": "internal/platform/table.go",
+      "old": "\t\t\tn, err := strconv.ParseUint(f, 10, 32)\n\t\t\tif err != nil {\n\t\t\t\treturn e, fmt.Errorf(\"UID column is %q, not a number\", f)",
+      "new": "\t\t\tn, err := strconv.ParseUint(f, 10, 32)\n\t\t\tif err != nil {\n\t\t\t\tn = 0",
+      "note": "a UID parsed as 0 is root, and the lock would aim at the wrong account"
+    },
+    {
+      "id": "T6",
+      "file": "internal/platform/table.go",
+      "old": "\t\tif len(missing) > 0 {",
+      "new": "\t\tif false && len(missing) > 0 {",
+      "note": "falling through to guess at a later line is worse than refusing a header you cannot read"
+    },
+    {
+      "id": "X1",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tif yes {\n\t\t\treturn true, nil\n\t\t}",
+      "new": "\t\tif !yes {\n\t\t\treturn true, nil\n\t\t}",
+      "note": "a backend that cannot see the session must not veto one that can see it locked"
+    },
+    {
+      "id": "X2",
+      "file": "internal/platform/platform.go",
+      "old": "\treturn false, nil\n}\n\n// Platform is a source",
+      "new": "\treturn true, nil\n}\n\n// Platform is a source",
+      "note": "claiming a lock on nothing but failures is the fail-open this whole file is about"
+    }
+  ]
+}

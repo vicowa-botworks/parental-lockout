@@ -28,10 +28,17 @@ import (
 
 // Session is one desktop session on this machine, as far as the daemon needs to
 // know.
+//
+// Class and Seat are carried rather than used only to build the list, so that the
+// "never lock the wrong thing" rule can be re-checked at lock time by a caller that
+// fabricated a Session by hand — the CLI in #11 will have a session id and a username,
+// and nothing else.
 type Session struct {
 	ID       string // logind session id, e.g. "2"
 	Username string
 	UID      uint32
+	Class    string // user | greeter | lock | manager
+	Seat     string // seat0; empty for a session with no console
 	Type     string // x11 | wayland | tty | mir
 	State    string // active | online | closing
 	Remote   bool
@@ -64,8 +71,94 @@ type BackendStatus struct {
 // Locker is the half a backend that can only lock has to implement. The KDE and
 // GNOME backends are lockers without a way to enumerate sessions, which is why
 // Sessions and Lock are separable.
+//
+// Lock asks for the lock. Returning nil means "the request was accepted", which is
+// NOT the same as "the screen is locked", and the chain therefore does not treat it
+// that way — see Confirmer.
 type Locker interface {
 	Lock(ctx context.Context, s Session) error
+}
+
+// Confirmer is implemented by a backend that can check whether its own lock actually
+// took effect.
+//
+// This exists because the target platform defeats a plain "first success wins" chain.
+// Plasma ignores logind's Lock signal (docs/PLAN.md §7 says so in the row that
+// justifies the kde backend), and `loginctl lock-session` still exits 0. A chain that
+// returned nil on that success would stop at logind and never reach the one backend
+// that works on KDE — reporting a lock that never happened, forever, on the platform
+// this daemon is being written for.
+//
+// So a backend's success counts only when it can be confirmed, and a backend that
+// cannot confirm does not end the chain. A backend that cannot verify must not be
+// treated as confirmed: "we asked and cannot prove it" is a distinct, reported
+// outcome, never a silent success.
+type Confirmer interface {
+	// LockConfirmed reports whether this backend's lock is now in effect for s.
+	// It must be cheap and must not lock anything.
+	LockConfirmed(ctx context.Context, s Session) (bool, error)
+}
+
+// ErrUnconfirmed is what Chain.Lock returns when at least one backend accepted the
+// request but none could confirm the screen is locked.
+//
+// It is a distinct sentinel rather than a plain error because the enforcement loop has
+// to treat it differently from a failure: the request went out, so the next poll
+// should re-lock and stay quiet, whereas a hard failure means nothing reached the
+// desktop and an operator may need to know. errors.Is finds it through the joined
+// chain.
+var ErrUnconfirmed = errors.New("lock requested but not confirmed")
+
+// unconfirmedError carries what each backend said alongside the sentinel, so the
+// message an operator reads names the backends rather than just "not confirmed".
+type unconfirmedError struct{ reasons []error }
+
+func (e *unconfirmedError) Error() string {
+	parts := make([]string, 0, len(e.reasons))
+	for _, r := range e.reasons {
+		parts = append(parts, r.Error())
+	}
+	return "lock requested but not confirmed: " + strings.Join(parts, "; ")
+}
+
+// Is makes errors.Is(err, ErrUnconfirmed) work for this wrapper, so callers do not
+// have to know the concrete type exists.
+func (e *unconfirmedError) Is(target error) bool { return target == ErrUnconfirmed }
+
+func (e *unconfirmedError) Unwrap() []error { return e.reasons }
+
+// LockConfirmed asks every backend whether a lock is currently in effect, and reports
+// true if any of them says so.
+//
+// The chain needs to answer this because it is the chain the enforcement loop holds,
+// and the loop's whole job is re-locking a screen that got unlocked. Without it the
+// loop could only ever ask by locking again.
+//
+// "any" rather than "all": backends observe different things, and one that cannot see
+// the session must not veto another that can see it locked. The failure direction is
+// preserved — if every backend says unlocked or errors, this says unlocked.
+func (c *Chain) LockConfirmed(ctx context.Context, s Session) (bool, error) {
+	var errs []error
+	for _, b := range c.backends {
+		conf, ok := b.(Confirmer)
+		if !ok {
+			continue
+		}
+		yes, err := conf.LockConfirmed(ctx, s)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", b.Name(), err))
+			continue
+		}
+		if yes {
+			return true, nil
+		}
+	}
+	if len(errs) > 0 {
+		// Nothing could establish that the screen is locked. That is reported as
+		// unlocked with the reasons attached, never as true on a guess.
+		return false, joinErrs(errs...)
+	}
+	return false, nil
 }
 
 // Platform is a source of sessions and a way to lock them.
@@ -79,19 +172,34 @@ type Platform interface {
 // isLockable is the whole "never lock the wrong thing" rule in one place.
 //
 // Remote is the loud one: the admin's own session is usually the remote one, and a
-// daemon that locks it locks itself out of the machine. The other two are quieter.
-// A session with no seat is not on any console — on a live systemd this is the
-// class=manager session that shares a uid with the desktop session and has no
-// desktop to lock. A session with no type (logind reports "unspecified" for it) is
-// the same thing seen from the other side.
+// daemon that locks it locks itself out of the machine. The others are quieter.
+//
+// Class must be "user". A greeter session is the login screen, and locking it leaves
+// an uninputtable wall where the child's account was never even chosen; a manager
+// session has no desktop to lock at all. Both share a uid with a real session, so a
+// uid-based caller can easily aim at the wrong one. Requiring the field to be present
+// and equal to "user" also means a hand-built Session that never came from a listing
+// is refused rather than trusted.
+//
+// A session with no seat is not on any console, and a session with no type (logind
+// reports "unspecified" for the manager session) is the same thing seen from the other
+// side.
 //
 // State=closing is excluded because the session is on its way out: locking it races
-// the teardown for no benefit.
+// the teardown for no benefit. Everything else, including "online", stays lockable —
+// excluding a state this code has not observed would silently stop locking a real
+// child session, which is the fail-open direction.
 func isLockable(s Session) bool {
 	if s.Remote {
 		return false
 	}
 	if s.State == "closing" {
+		return false
+	}
+	if s.Class != "user" {
+		return false
+	}
+	if s.Seat == "" {
 		return false
 	}
 	if s.Type == "" || s.Type == "unspecified" {
@@ -187,6 +295,14 @@ func (c *Chain) Name() string { return "chain(" + strings.Join(c.Names(), " ") +
 // because the enforcement loop would lock it twice and log two audit events for one
 // action. The first backend to report a session wins, so the order in the config
 // decides whose view of Locked is the one that gets used.
+//
+// An empty result with a nil error is normal and means "nobody is on a lockable
+// desktop session right now" — which is the correct answer at 3am and on a machine
+// where the child has not logged in. It is deliberately not an error: making the
+// healthy idle state an error would have the loop log a failure every 30 seconds and
+// train everyone to ignore it. A caller that needs to tell "nobody home" apart from
+// "the backend is broken" asks Probe, which reports whether the backend can be talked
+// to at all.
 func (c *Chain) Sessions(ctx context.Context) ([]Session, error) {
 	seen := map[string]bool{}
 	var out []Session
@@ -218,11 +334,19 @@ func (c *Chain) Sessions(ctx context.Context) ([]Session, error) {
 	return out, joinErrs(errs...)
 }
 
-// Lock tries each backend in configured order; the first success wins.
+// Lock asks each backend in configured order until one confirms the lock took effect.
 //
 // It refuses a session that is not lockable before asking anyone, so the rule is
 // enforced by the type every caller already has to go through rather than by each
 // backend remembering to check.
+//
+// A backend that returns an error is a failure and the chain moves on. A backend that
+// returns nil is only done if it can confirm: otherwise the chain keeps going, because
+// an unconfirmed success is exactly what logind produces on KDE, and stopping there
+// would leave the screen unlocked while the audit log said otherwise.
+//
+// If every backend was tried and none confirmed, the result is ErrUnconfirmed rather
+// than nil. Nothing here returns nil without evidence.
 func (c *Chain) Lock(ctx context.Context, s Session) error {
 	if !isLockable(s) {
 		return fmt.Errorf("refusing to lock %s: not a lockable desktop session", s.Describe())
@@ -231,15 +355,39 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 		return fmt.Errorf("no lock backend available (config names %v, this binary knows %s)",
 			c.unknown, strings.Join(Registered(), ", "))
 	}
-	var errs []error
+
+	var notes []error // everything worth saying, in backend order
+	var failures int  // backends that returned an error rather than accepting
 	for _, b := range c.backends {
 		if err := b.Lock(ctx, s); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", b.Name(), err))
+			failures++
+			notes = append(notes, fmt.Errorf("%s: %w", b.Name(), err))
 			continue
 		}
-		return nil
+		conf, ok := b.(Confirmer)
+		if !ok {
+			// Success we cannot stand behind. Keep trying the rest of the chain and
+			// say so in the outcome.
+			notes = append(notes, fmt.Errorf("%s: accepted the request but cannot confirm it", b.Name()))
+			continue
+		}
+		yes, err := conf.LockConfirmed(ctx, s)
+		if err != nil {
+			notes = append(notes, fmt.Errorf("%s: could not confirm: %w", b.Name(), err))
+			continue
+		}
+		if yes {
+			return nil
+		}
+		notes = append(notes, fmt.Errorf("%s: accepted the request but the session is still unlocked", b.Name()))
 	}
-	return joinErrs(errs...)
+	if failures == len(c.backends) {
+		// Nothing ever reached the desktop. That is a different report from "we asked
+		// and cannot prove it": here the operator may need to intervene, and the loop
+		// should not file it under the same heading.
+		return joinErrs(notes...)
+	}
+	return &unconfirmedError{reasons: notes}
 }
 
 // Probe asks every backend whether it is usable. It never locks anything.

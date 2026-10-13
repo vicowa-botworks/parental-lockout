@@ -43,7 +43,7 @@ func serve(t *testing.T, listing string, details map[string]string) *fakeRunner 
 	}}
 }
 
-func newLogind(t *testing.T, r Runner) Platform {
+func newLogind(t *testing.T, r Runner) *Chain {
 	t.Helper()
 	p, err := New(configSettings("logind"), r)
 	if err != nil {
@@ -320,24 +320,36 @@ func TestLogindReportsAnUnexpectedSessionFailure(t *testing.T) {
 
 func TestLogindLockPinsArgvAndRefusesWhatItMustNotLock(t *testing.T) {
 	ctx := context.Background()
-	r := &fakeRunner{}
+	// The lock call, then the confirmation read. LockedHint=yes is what makes Lock
+	// return nil: without a confirmation the chain reports ErrUnconfirmed rather than
+	// claiming a lock it cannot stand behind.
+	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
+		if argv[1] == "show-session" {
+			return []byte("LockedHint=yes\n"), nil
+		}
+		return nil, nil
+	}}
 	p := newLogind(t, r)
 
-	desktop := Session{ID: "3", Username: "kid", UID: 1001, Type: "x11", State: "active"}
-	if err := p.Lock(ctx, desktop); err != nil {
+	if err := p.Lock(ctx, desktopSession("3")); err != nil {
 		t.Fatalf("Lock: %v", err)
 	}
-	wantArgv(t, r.Argvs(), [][]string{{"loginctl", "lock-session", "3"}})
+	wantArgv(t, r.Argvs(), [][]string{
+		{"loginctl", "lock-session", "3"},
+		{"loginctl", "show-session", "3", "-p", "LockedHint"},
+	})
 	if c := r.Calls()[0]; c.uid != 0 || c.env != nil {
 		t.Errorf("lock ran as uid %d with env %v, want uid 0 (root) and the inherited environment", c.uid, c.env)
 	}
 
 	// Every non-lockable shape has to be refused before anything is run.
 	for name, s := range map[string]Session{
-		"remote":      {ID: "4", Type: "x11", State: "active", Remote: true},
-		"closing":     {ID: "5", Type: "x11", State: "closing"},
-		"no type":     {ID: "6", State: "active"},
-		"unspecified": {ID: "7", Type: "unspecified", State: "active"},
+		"remote":      {ID: "4", Class: "user", Seat: "seat0", Type: "x11", State: "active", Remote: true},
+		"closing":     {ID: "5", Class: "user", Seat: "seat0", Type: "x11", State: "closing"},
+		"greeter":     {ID: "5b", Class: "greeter", Seat: "seat0", Type: "x11", State: "active"},
+		"no seat":     {ID: "5c", Class: "user", Type: "x11", State: "active"},
+		"no type":     {ID: "6", Class: "user", Seat: "seat0", State: "active"},
+		"unspecified": {ID: "7", Class: "user", Seat: "seat0", Type: "unspecified", State: "active"},
 	} {
 		before := len(r.Calls())
 		if err := p.Lock(ctx, s); err == nil {
@@ -350,8 +362,8 @@ func TestLogindLockPinsArgvAndRefusesWhatItMustNotLock(t *testing.T) {
 
 	// A session id that would be read as an option must never reach loginctl, even
 	// though it could only have arrived from logind itself.
-	for _, id := range []string{"--help", "-p", "2/tty", "a b", ""} {
-		s := Session{ID: id, Type: "x11", State: "active"}
+	for _, id := range []string{"--help", "-p", "--", "2/tty", "a b", ""} {
+		s := Session{ID: id, Class: "user", Seat: "seat0", Type: "x11", State: "active"}
 		before := len(r.Calls())
 		if err := p.Lock(ctx, s); err == nil {
 			t.Errorf("Lock with id %q succeeded, want refusal", id)
@@ -359,6 +371,54 @@ func TestLogindLockPinsArgvAndRefusesWhatItMustNotLock(t *testing.T) {
 		if len(r.Calls()) != before {
 			t.Errorf("Lock with id %q reached loginctl: %v", id, r.Argvs()[before:])
 		}
+	}
+}
+
+// loginctl exits 0 on Plasma while Plasma ignores the signal. The backend has to report
+// that as "not confirmed" rather than success, or the chain stops at logind and the KDE
+// backend in #6 is never reached on the platform it exists for.
+func TestLogindLockIsNotSuccessUntilLocked(t *testing.T) {
+	ctx := context.Background()
+	for _, hint := range []string{"no", ""} {
+		r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
+			if argv[1] == "show-session" {
+				if hint == "" {
+					return []byte("Type=x11\n"), nil // property absent entirely
+				}
+				return []byte("LockedHint=" + hint + "\n"), nil
+			}
+			return nil, nil
+		}}
+		err := newLogind(t, r).Lock(ctx, desktopSession("3"))
+		if err == nil {
+			t.Errorf("LockedHint=%q: Lock reported success with the session still unlocked", hint)
+			continue
+		}
+		if !errors.Is(err, ErrUnconfirmed) {
+			t.Errorf("LockedHint=%q: err = %v, want it to match ErrUnconfirmed", hint, err)
+		}
+		if !strings.Contains(err.Error(), "lock-session") && !strings.Contains(err.Error(), "unlocked") {
+			t.Errorf("error %q does not say what was attempted", err)
+		}
+	}
+}
+
+// A confirmation read that fails is not a success either. "Could not check" and
+// "checked and it is unlocked" are different sentences, and both have to keep the chain
+// moving.
+func TestLogindConfirmationFailureIsNotSuccess(t *testing.T) {
+	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
+		if argv[1] == "show-session" {
+			return nil, errors.New("Connection reset by peer")
+		}
+		return nil, nil
+	}}
+	err := newLogind(t, r).Lock(context.Background(), desktopSession("3"))
+	if err == nil {
+		t.Fatal("a failed confirmation reported success")
+	}
+	if !strings.Contains(err.Error(), "Connection reset by peer") {
+		t.Errorf("error %q loses the reason the check failed", err)
 	}
 }
 
@@ -409,5 +469,42 @@ func TestLogindWithoutLoginctl(t *testing.T) {
 	}
 	if !strings.Contains(st[0].Detail, "loginctl") {
 		t.Errorf("Probe detail %q does not name the missing binary", st[0].Detail)
+	}
+}
+
+// LockConfirmed queries by id, so it has to apply the same refusal as Lock. A "--help"
+// reaching show-session would make loginctl print its usage on stdout, and a usage line
+// parsed for LockedHint is a nonsense answer to a security question.
+func TestLockConfirmedRefusesAnImplausibleSessionID(t *testing.T) {
+	r := &fakeRunner{}
+	// newLogind hands back the Chain New builds, so the backend has to be taken out of
+	// it. That unwrap is itself the assertion: if logind ever stopped implementing
+	// Confirmer the chain would silently downgrade it to "cannot confirm".
+	conf, ok := backendAt(t, newLogind(t, r), 0).(Confirmer)
+	if !ok {
+		t.Fatal("logind does not implement Confirmer; the chain would never be able to stand behind its own locks")
+	}
+	yes, err := conf.LockConfirmed(context.Background(), desktopSession("--help"))
+	if err == nil {
+		t.Fatal("LockConfirmed queried an option-shaped session id")
+	}
+	if yes {
+		t.Error("an implausible id reported the session as locked")
+	}
+	if len(r.Calls()) != 0 {
+		t.Errorf("loginctl ran before the id was refused: %v", r.Argvs())
+	}
+}
+
+// seatString flattens the listing's nullable seat. Both shapes have to be right: a nil
+// seat is "no console", and a real seat must survive the flattening rather than become
+// the empty string that means the opposite.
+func TestSeatString(t *testing.T) {
+	if got := seatString(nil); got != "" {
+		t.Errorf("seatString(nil) = %q, want the empty string", got)
+	}
+	seat := "seat0"
+	if got := seatString(&seat); got != "seat0" {
+		t.Errorf("seatString(&seat0) = %q, want seat0", got)
 	}
 }

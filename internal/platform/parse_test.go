@@ -278,7 +278,7 @@ func TestLockWrapsAFailureWithTheBackendName(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
 		return nil, errors.New("Interactive authentication required")
 	}}
-	err := newLogind(t, r).Lock(context.Background(), Session{ID: "3", Type: "x11", State: "active"})
+	err := newLogind(t, r).Lock(context.Background(), desktopSession("3"))
 	if err == nil {
 		t.Fatal("Lock succeeded against a failing loginctl")
 	}
@@ -384,7 +384,7 @@ func TestListReportsBothFailuresWhenTheFallbackIsUnreadable(t *testing.T) {
 	if err == nil {
 		t.Fatal("unreadable output parsed successfully")
 	}
-	for _, want := range []string{"Unknown option", "no SESSION UID header"} {
+	for _, want := range []string{"Unknown option", "no column header"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q is missing %q", err, want)
 		}
@@ -416,4 +416,135 @@ func TestRegisterRejectsADuplicateID(t *testing.T) {
 		}
 	}()
 	Register("temp", ctor)
+}
+
+// The header used to be checked and then ignored: the parser verified it began
+// "SESSION UID" and indexed fields 0..8 regardless of what came after. A loginctl that
+// inserted one column anywhere past UID would have parsed cleanly with every field from
+// USER onward shifted by one — a session whose Class read as its TTY and whose username
+// read as its seat — and nothing would have failed. Checking the header cannot prevent
+// that, because the header is exactly what changed.
+func TestParseSessionTableMapsColumnsByName(t *testing.T) {
+	const header = "SESSION  UID USER   SEAT  TTY  CLASS LEADER IDLE DISTANCE SINCE"
+	const row = "2      1000 rodney seat0 tty2 user   18344 no   7        Thu 2026-10-01"
+	entries, err := parseSessionTable([]byte(header + "\n" + row + "\n1 session listed.\n"))
+	if err != nil {
+		t.Fatalf("parseSessionTable: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	e := entries[0]
+	// DISTANCE is a column this build has never heard of. It must occupy a slot so the
+	// columns after it still line up, without being read as anything.
+	if e.Session != "2" || e.UID != 1000 || e.User != "rodney" || e.Seat == nil || *e.Seat != "seat0" {
+		t.Errorf("identity fields parsed wrong through an unknown column: %+v", e)
+	}
+	if e.TTY == nil || *e.TTY != "tty2" || e.Class != "user" || e.Leader != 18344 {
+		t.Errorf("fields after the unknown column shifted: %+v", e)
+	}
+	// SINCE is multi-word ("Thu 2026-10-01 15:47:23 UTC") so only its first token is
+	// captured. What matters here is that the column after the unknown one was read at
+	// all, and read as SINCE rather than as something else.
+	if e.Since == nil || *e.Since != "Thu" {
+		t.Errorf("SINCE after the unknown column = %v, want its first token to have survived", e.Since)
+	}
+}
+
+// Reordering is the other half: position must not matter at all.
+func TestParseSessionTableToleratesReorderedColumns(t *testing.T) {
+	in := "CLASS UID SESSION SINCE IDLE TTY SEAT USER LEADER\n" +
+		"user 1000 2 - no tty2 seat0 rodney 18344\n"
+	entries, err := parseSessionTable([]byte(in))
+	if err != nil {
+		t.Fatalf("parseSessionTable: %v", err)
+	}
+	e := entries[0]
+	if e.Session != "2" || e.UID != 1000 || e.User != "rodney" || e.Class != "user" || e.Leader != 18344 {
+		t.Errorf("reordered header parsed wrong: %+v", e)
+	}
+	if e.Idle {
+		t.Error("IDLE=no read as idle")
+	}
+}
+
+// A row this code cannot read is a session that would go unenforced. Skipping it is a
+// fail-open with no error anywhere, so it has to stop the sweep.
+func TestParseSessionTableRejectsATruncatedRow(t *testing.T) {
+	in := "SESSION UID USER SEAT LEADER CLASS TTY IDLE SINCE\n" +
+		"2 1000 rodney seat0 18344 user tty2 no Thu\n" +
+		"3 1001 kid seat0 19\n" // truncated: CLASS, TTY, IDLE, SINCE never arrive
+	_, err := parseSessionTable([]byte(in))
+	if err == nil {
+		t.Fatal("a truncated row was accepted; that session would never be enforced")
+	}
+	if !strings.Contains(err.Error(), "3 1001 kid") {
+		t.Errorf("error %q does not name the row it could not read", err)
+	}
+}
+
+// loginctl's own trailer is not a session row, and must not be reported as one.
+func TestParseSessionTableSkipsTheTrailer(t *testing.T) {
+	in := "SESSION UID USER SEAT LEADER CLASS TTY IDLE SINCE\n" +
+		"2 1000 rodney seat0 18344 user tty2 no Thu\n" +
+		"\n" +
+		"1 session listed.\n"
+	entries, err := parseSessionTable([]byte(in))
+	if err != nil {
+		t.Fatalf("parseSessionTable: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("got %d entries, want 1 (the trailer is not a session)", len(entries))
+	}
+}
+
+// A header-shaped line that is missing a column this code needs is a refusal, not a
+// reason to fall through and guess at a later line.
+func TestParseSessionTableRejectsAHeaderMissingARequiredColumn(t *testing.T) {
+	_, err := parseSessionTable([]byte("SESSION UID USER SEAT TTY IDLE SINCE\n2 1000 rodney seat0 tty2 no Thu\n"))
+	if err == nil {
+		t.Fatal("a header with no LEADER or CLASS was accepted")
+	}
+	if !strings.Contains(err.Error(), "LEADER") || !strings.Contains(err.Error(), "CLASS") {
+		t.Errorf("error %q does not name the missing columns", err)
+	}
+}
+
+// A non-numeric UID is not "uid 0", which is root.
+func TestParseSessionTableRejectsANonNumericUID(t *testing.T) {
+	in := "SESSION UID USER SEAT LEADER CLASS TTY IDLE SINCE\n2 root rodney seat0 18344 user tty2 no Thu\n"
+	if _, err := parseSessionTable([]byte(in)); err == nil {
+		t.Fatal("UID=root parsed without an error; a wrong uid here aims the lock at the wrong account")
+	}
+}
+
+// A row with more fields than the header describes has extra data whose column nobody
+// declared. Reading it by position would shift nothing (the extra is trailing), but
+// reading it at all means inventing a column, so the surplus is dropped.
+func TestParseTableRowIgnoresFieldsBeyondTheHeader(t *testing.T) {
+	in := "SESSION UID USER SEAT LEADER CLASS TTY IDLE SINCE\n" +
+		"2 1000 rodney seat0 18344 user tty2 no Thu extra trailing\n"
+	entries, err := parseSessionTable([]byte(in))
+	if err != nil {
+		t.Fatalf("parseSessionTable: %v", err)
+	}
+	e := entries[0]
+	if e.Session != "2" || e.UID != 1000 || e.User != "rodney" || e.Class != "user" || e.Leader != 18344 {
+		t.Errorf("trailing fields disturbed the declared columns: %+v", e)
+	}
+	if e.Since == nil || *e.Since != "Thu" {
+		t.Errorf("SINCE = %v, want Thu", e.Since)
+	}
+}
+
+// LEADER is a process id. A non-numeric one means the columns were read wrong or the
+// output changed shape, and a leader parsed as 0 would be indistinguishable from a
+// session with no leader process.
+func TestParseSessionTableRejectsANonNumericLeader(t *testing.T) {
+	in := "SESSION UID USER SEAT LEADER CLASS TTY IDLE SINCE\n2 1000 rodney seat0 leader user tty2 no Thu\n"
+	if _, err := parseSessionTable([]byte(in)); err == nil {
+		t.Fatal("LEADER=leader parsed without an error")
+	} else if !strings.Contains(err.Error(), "LEADER") {
+		t.Errorf("error %q does not name the column that failed", err)
+	}
 }

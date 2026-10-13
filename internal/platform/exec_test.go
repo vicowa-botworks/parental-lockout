@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These are the only tests in the package that start a real process, and they start
@@ -127,5 +128,37 @@ func TestExecRunnerHonoursContext(t *testing.T) {
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Logf("error is %v — not wrapping context.Canceled, but the command did not run", err)
+	}
+}
+
+// The test above cancels before Run, so the command never starts and cmd.Cancel is
+// never called. That closure is the thing that saves the 30-second loop from a loginctl
+// that hangs *mid-call* — the realistic failure, and the one with no other coverage.
+// Cancelling after the child is alive is the only way to reach it.
+func TestExecRunnerKillsAChildThatOutlivesTheContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	start := make(chan struct{})
+	go func() {
+		close(start)
+		_, err := ExecRunner{}.Run(ctx, []string{"/bin/sleep", "30"}, nil, 0)
+		done <- err
+	}()
+	<-start
+	// Give the child time to actually be running, then pull the context out from
+	// under it.
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a cancelled mid-run command reported success")
+		}
+		// The point is the return, not the wording: without cmd.Cancel this blocks for
+		// the full 30 seconds.
+		t.Logf("returned as expected: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after the context was cancelled mid-run; cmd.Cancel is not killing the child")
 	}
 }
