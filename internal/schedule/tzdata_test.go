@@ -71,8 +71,14 @@ func tzZones(t *testing.T) []string {
 	}
 	// A partial install is worse than none: it looks like a full scan and measures
 	// a fraction of the zones, so the bounds come out reassuring rather than wrong.
+	//
+	// The check has to be on the file, not on LoadLocation. This package imports
+	// time/tzdata, so LoadLocation answers from the compiled-in copy even when the
+	// file is gone from the tree the scan walks -- the guard would then pass on
+	// exactly the install it exists to catch, and the scan below would certify a
+	// spread it never measured.
 	for _, z := range boundsZones {
-		if _, err := time.LoadLocation(z); err != nil {
+		if _, err := os.Stat(filepath.Join(root, z)); err != nil {
 			t.Fatalf("%s is missing from the system database at %s: it sets a bound the resolver's fast path rests on, and a scan without it would certify a proof it did not measure",
 				z, root)
 		}
@@ -206,7 +212,9 @@ func TestTZDatabaseStaysWithinTheBoundsTheResolverNeeds(t *testing.T) {
 	const (
 		maxOffset       = 14 * time.Hour  // measured: Pacific/Kiritimati
 		minOffset       = -12 * time.Hour // measured: Pacific/Kanton
-		minStateSpan    = 55 * time.Hour  // pinned floor; the scan measures 168h over 1970-2040
+		maxOffsetZone   = "Pacific/Kiritimati"
+		minOffsetZone   = "Pacific/Kanton"
+		minStateSpan    = 55 * time.Hour // pinned floor; the scan measures 168h over 1970-2040
 		scanFrom        = 1970
 		scanThrough     = 2040
 		scanStep        = 6 * time.Hour // finer than minStateSpan, so no state is stepped over
@@ -260,6 +268,26 @@ func TestTZDatabaseStaysWithinTheBoundsTheResolverNeeds(t *testing.T) {
 	t.Logf("%d zones, %d-%d: offsets %v..%v, narrowest offset state %v (%s at %s)",
 		covered, scanFrom, scanThrough, widestDown, widestUp,
 		narrowest.Round(zoneStepTol), narrowestZone, narrowestWhen.Format(time.RFC3339))
+
+	// The comment above the guards says the extremes are asserted at what the scan
+	// measures, and a ceiling alone does not do that: `o > maxOffset` is satisfied
+	// just as well by a scan that never reached +14h. So assert both extremes were
+	// actually touched.
+	//
+	// What this catches, measured rather than assumed: the +14h extreme is held by
+	// five zones (Kiritimati, Anadyr, Apia, Tongatapu, Etc/GMT-14) and -12h by four
+	// (Kanton, Enderbury, Kwajalein, Etc/GMT+12), so deleting one zone file does NOT
+	// narrow the measurement -- that case belongs to the file check in tzZones. This
+	// is the drift guard: it fires when the pinned constant and the database stop
+	// agreeing, which is the same premise failing for the reason the constant exists.
+	if widestUp != maxOffset {
+		t.Fatalf("the scan never reached offset %v (highest seen %v); %s holds it in the current database. The probe width is derived from the spread between the two extremes, so a narrower measurement is not a passing result: either the scan lost a family of zones, or tzdata moved the extreme and maxOffset has to change with it.",
+			maxOffset, widestUp, maxOffsetZone)
+	}
+	if widestDown != minOffset {
+		t.Fatalf("the scan never reached offset %v (lowest seen %v); %s holds it in the current database. The probe width is derived from the spread between the two extremes, so a narrower measurement is not a passing result: either the scan lost a family of zones, or tzdata moved the extreme and minOffset has to change with it.",
+			minOffset, widestDown, minOffsetZone)
+	}
 
 	// The guard rests on two conditions, and they are not the same inequality.
 	//
