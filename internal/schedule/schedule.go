@@ -51,9 +51,17 @@ type Verdict struct {
 	// now, the one whose window ends last, because that is the one that decides
 	// how long the child stays locked out. It is nil when Active is false.
 	//
-	// It points into the profile that was evaluated. It is only good for as long
-	// as that profile is not modified, so copy the two fields you need — ID and
-	// Name — before keeping a verdict across a config reload.
+	// It points into the profile that was evaluated, so it is the caller's own
+	// document rather than a copy. That is safe under one rule the config store
+	// enforces and this package depends on: a loaded document is never mutated in
+	// place. Every edit in internal/config is copy-on-write, so a profile handed
+	// to Evaluate keeps the bytes it had at the moment it was read, and a verdict
+	// taken from it keeps naming the rule that was actually responsible.
+	//
+	// Anything that breaks that rule breaks this too, silently and in the
+	// fail-open direction: a Rule pointer whose Enabled has been flipped to false
+	// describes a lockout that is not happening. So copy ID and Name if a verdict
+	// has to outlive the document, and do not mutate a profile in place anywhere.
 	Rule *config.Rule
 
 	// StartedAt and EndsAt bound Rule's window. StartedAt is inclusive and
@@ -150,11 +158,27 @@ func Evaluate(p *config.Profile, now time.Time) Verdict {
 //
 // The rules it reports are the ones a parent believes are enforcing. That makes
 // this list worth showing prominently rather than logging at debug level.
+//
+// It also reports a profile whose timezone name cannot be resolved, because
+// Location's fallback to the machine's own zone is the one thing in this package
+// that changes what every rule means rather than dropping one. A Berlin family on
+// a UTC-hosted machine loses the first hours of every overnight rule with nothing
+// on screen unless something says so.
 func ProfileErrors(p *config.Profile) []error {
 	if p == nil {
 		return nil
 	}
 	_, errs := compile(p.Rules)
+
+	// An empty Timezone is the documented way to say "the machine's zone", so it
+	// is not a problem. Anything else that will not resolve is.
+	if p.Timezone != "" {
+		if _, err := time.LoadLocation(p.Timezone); err != nil {
+			errs = append(errs, fmt.Errorf(
+				"schedule: timezone %q is not a known zone (%v); every rule in this profile is being read in the machine's own zone instead",
+				p.Timezone, err))
+		}
+	}
 	return errs
 }
 
@@ -219,6 +243,21 @@ func compile(rules []config.Rule) ([]compiled, []error) {
 			bad = append(bad, "no days are listed, so the rule can never match")
 		}
 
+		// The same time in both boxes. Validate rejects it, but Load keeps a
+		// document it cannot validate, and windowOn's own answer — empty, rather
+		// than the 24 hours an overnight reading would give — means the rule
+		// enforces nothing on every day of the year. That is exactly the kind of
+		// silence this list exists to break: a parent looking at a schedule that
+		// does nothing.
+		//
+		// Only the always-empty shape is reported. A window can also come back
+		// empty on one date because the clock deleted the hour it lived in, and
+		// saying so would mean scanning the year for every rule on every reload.
+		// See issue #16.
+		if okStart && okEnd && start == end {
+			bad = append(bad, fmt.Sprintf("start and end are both %s, so the rule enforces nothing", r.Start))
+		}
+
 		if len(bad) > 0 {
 			errs = append(errs, fmt.Errorf("schedule: rule %s is not enforced: %s",
 				label, joinProblems(bad)))
@@ -243,7 +282,7 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 	}
 
 	y, mo, d := day.Date()
-	start := time.Date(y, mo, d, r.startMin/60, r.startMin%60, 0, 0, loc)
+	start := wallInstant(loc, y, mo, d, r.startMin, false)
 
 	// A window that ends before it starts crosses midnight and still belongs to
 	// the day it started on: Sunday 21:00-06:30 runs into Monday morning, and the
@@ -252,7 +291,7 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 	if r.endMin < r.startMin {
 		endDay = d + 1
 	}
-	end := time.Date(y, mo, endDay, r.endMin/60, r.endMin%60, 0, 0, loc)
+	end := wallInstant(loc, y, mo, endDay, r.endMin, true)
 
 	// A window with no instant inside it is empty, and two things arrive here.
 	//
@@ -261,16 +300,21 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 	// it cannot validate — a hand edit has to keep enforcing — so the evaluator
 	// needs its own answer. Reading it as overnight instead would be the
 	// fail-open in reverse: one typo would silently never let the child use the
-	// machine at all.
+	// machine at all. compile reports this shape, because it enforces nothing on
+	// any day of the year.
 	//
-	// end < start is the one nobody writes. Both ends are wall-clock, and
-	// time.Date is not monotonic in its wall-clock argument across a
-	// spring-forward gap: the times inside the gap resolve into the shifted hour
-	// and land after real times that are earlier on the wall. In Berlin on
-	// 2026-03-29, 02:59 resolves to 03:59 while 03:00 resolves to 03:00, so the
-	// legal, Validate-approved rule 02:59-03:00 comes back reversed.
+	// end < start is the one nobody writes and the one only a calendar makes. A
+	// rule whose whole window falls inside an hour the clock jumped over resolves
+	// both ends to the same instant — the jump — and a rule that ends inside the
+	// gap while starting before it can resolve its end behind its start. Berlin's
+	// 2026-03-29 deletes 02:00-03:00, so 01:30-02:30 comes back as 01:30 to 03:00
+	// minus the hour that is not there.
 	//
-	// Normalising either one would invent a lockout the parent never wrote.
+	// Reporting it as empty is the honest answer: there is no instant inside such
+	// a window on that day. Normalising it would invent a lockout the parent never
+	// wrote, on one night a year, in one timezone. Unlike the shape above this one
+	// is empty on a single date rather than always, so compile cannot report it
+	// without scanning the year; see issue #16.
 	if !end.After(start) {
 		return window{}, false
 	}
@@ -285,6 +329,14 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 // shift or skip a midnight-based value in a way that lands it on the wrong
 // calendar day. Noon is never in the skipped hour, so adding days to an anchor
 // always lands on the intended day.
+//
+// That last claim is an assumption about the tz database rather than a property of
+// time arithmetic, and it is the reason the anchor is not simply `t`: a zone whose
+// clock change landed on noon would shift the anchor a day and change the weekday
+// read back out of it. No zone in the database observes a change at noon today,
+// and the midnight zones -- America/Havana, America/Santiago, Atlantic/Azores --
+// are tested by name, so if a future tzdata release ever moves one to midday this
+// is the comment to come back to.
 func anchor(loc *time.Location, t time.Time) time.Time {
 	y, m, d := t.In(loc).Date()
 	return time.Date(y, m, d, 12, 0, 0, 0, loc)

@@ -278,48 +278,68 @@ func TestDSTWindowEntirelyInsideTheSkippedHour(t *testing.T) {
 // what windowOn's last guard is for, and this finds the pair from the zone
 // database rather than hard-coding one, because Berlin and New York produce it at
 // different minutes.
-func TestDSTWindowTheClockReverses(t *testing.T) {
-	for _, z := range []string{"Europe/Berlin", "America/New_York"} {
+// A window that lands in the hour a spring-forward deletes.
+//
+// The clock goes 01:59 straight to 03:00, so a written time inside the gap names
+// no instant. Two shapes follow, and they get different answers.
+//
+// A window with both ends inside the gap has no instant inside it at all: both
+// ends resolve to the jump itself and the window is empty. It must not lock anyone
+// out, and it must not be reported as a malformed rule — the parent typed two
+// legal times and the calendar is what moved.
+//
+// A window that starts before the gap and ends inside it holds until the jump.
+// "Until 02:00" on a night when 02:00 never arrives means until the clock stops
+// showing 01:59, which is the same instant. Releasing a minute earlier would be
+// the fail-open.
+func TestDSTWindowInsideTheDeletedHour(t *testing.T) {
+	for _, z := range []string{"Europe/Berlin", "America/New_York", "America/Havana"} {
 		t.Run(z, func(t *testing.T) {
 			loc := zone(t, z)
 			day := transitionDay(t, loc, 23*time.Hour)
 			y, mo, d := day.Date()
 
-			// The first wall-clock minute whose successor resolves earlier.
-			startMin, endMin := -1, -1
-			prev := time.Date(y, mo, d, 0, 0, 0, 0, loc)
-			for m := 1; m < 24*60; m++ {
-				cur := time.Date(y, mo, d, m/60, m%60, 0, 0, loc)
-				if cur.Before(prev) {
-					startMin, endMin = m-1, m
-					break
+			// The deleted hour: the first written minute that does not read back,
+			// and the last one that does not.
+			first, last := -1, -1
+			for m := 0; m < 24*60; m++ {
+				if !readsAs(time.Date(y, mo, d, m/60, m%60, 0, 0, loc), loc, y, mo, d, m) {
+					if first < 0 {
+						first = m
+					}
+					last = m
 				}
-				prev = cur
 			}
-			if startMin < 0 {
-				t.Skipf("%s has no reversed minute on its spring-forward day", z)
+			if first < 0 {
+				t.Skipf("%s deletes no minutes on %s", z, day.Format("2006-01-02"))
 			}
 
-			p := profile(z, daily(clock(startMin), clock(endMin)))
-
-			// The rule is well formed; the clock made it empty. It must not lock
-			// anyone out, and it must not be reported as a malformed rule, which
-			// would tell the parent their schedule has a typo when the calendar
-			// is what moved.
-			if v := Evaluate(p, day); v.Active {
-				t.Errorf("a window the clock reversed still locked the account out: %+v", v)
+			// Both ends inside: nothing to enforce.
+			inside := profile(z, daily(clock(first), clock(last)))
+			if blocks, held := walk(inside, day, 23*time.Hour, time.Minute); blocks != 0 || held != 0 {
+				t.Errorf("a window entirely inside the deleted %s-%s held for %v in %d blocks, want nothing",
+					clock(first), clock(last), held, blocks)
 			}
-			if blocks, held := walk(p, day, 23*time.Hour, time.Minute); blocks != 0 || held != 0 {
-				t.Errorf("a reversed window held for %v in %d blocks, want nothing", held, blocks)
-			}
-			if errs := ProfileErrors(p); errs != nil {
+			if errs := ProfileErrors(inside); errs != nil {
 				t.Errorf("ProfileErrors = %v, want nil: the rule is legal, the clock is not", errs)
 			}
 
-			// And the next ordinary day must be untouched: one impossible minute
+			// One end inside: hold to the jump. The last minute before the gap is a
+			// real minute, and the window runs to the instant the clock stops
+			// showing it.
+			if first == 0 {
+				t.Skipf("%s deletes the day from its first minute", z)
+			}
+			straddles := profile(z, daily(clock(first-1), clock(first)))
+			if blocks, held := walk(straddles, day, 23*time.Hour, time.Minute); blocks != 1 || held != time.Minute {
+				t.Errorf("the window %s-%s across the jump: %d blocks held %v, want 1 block held 1m",
+					clock(first-1), clock(first), blocks, held)
+			}
+
+			// And the next ordinary day must be untouched: one impossible hour
 			// cannot be allowed to switch the rule off for good.
 			next := day.AddDate(0, 0, 1)
-			if blocks, held := walk(p, next, 24*time.Hour, time.Minute); blocks != 1 || held != time.Minute {
+			if blocks, held := walk(straddles, next, 24*time.Hour, time.Minute); blocks != 1 || held != time.Minute {
 				t.Errorf("the day after: %d blocks held %v, want 1 block held 1m", blocks, held)
 			}
 		})

@@ -129,9 +129,12 @@ owned, written atomically (temp file + `fsync` + `rename`).
 
 Notes:
 
-- **A rule is a wall-clock window on a set of weekdays.** `end <= start` means
+- **A rule is a wall-clock window on a set of weekdays.** `end < start` means
   the window crosses midnight and belongs to the *starting* day. `21:00–06:30` on
-  `[…,"sun"]` therefore means Sunday evening into Monday morning.
+  `[…,"sun"]` therefore means Sunday evening into Monday morning. `end == start`
+  enforces nothing and is rejected at save; it is deliberately not read as a
+  24-hour window, because that is the shape a parent makes by typing the same time
+  into both boxes.
 - **A user has exactly one profile**; a profile may be shared by several users.
   This matches Timekpr's rule-set-per-user and keeps the UI honest.
 - **An override is a temporary unlock** with an expiry, so a parent can grant
@@ -156,10 +159,15 @@ type Verdict struct {
 
 Algorithm: for each enabled rule, test two candidate windows — the one starting
 "today" (if today's weekday is in `days`) and the one that started "yesterday"
-and is still running (if yesterday's weekday is in `days`). Take the earliest
-`EndsAt` among active windows. `NextStart` scans the next 8 days of candidate
-window openings. DST is handled by doing all arithmetic in the profile's
-`*time.Location` with wall-clock `time.Date`, never by adding durations.
+and is still running (if yesterday's weekday is in `days`). Take the **latest**
+`EndsAt` among active windows, because that is how long the child stays locked
+out; the earliest would release them while a second rule still holds. `NextStart`
+scans the next 8 days of candidate window openings. DST is handled by resolving
+each end through the profile's `*time.Location` — a start takes the earliest
+instant whose clock reads the written time, an end the latest, and a time the
+clock jumped over resolves to the first instant after the jump — never by adding
+durations to a day, and never by trusting `time.Date`'s answer for an ambiguous
+or missing time, which is wrong in the fail-open direction in both hemispheres.
 
 ## 7. Platform abstraction
 
