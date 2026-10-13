@@ -211,6 +211,44 @@ has no session bus. The helper builds the environment from
 `/run/user/<uid>/bus` and drops privileges with `SysProcAttr.Credential`, no
 `sudo` dependency.
 
+### What the live target actually does (measured, systemd 259)
+
+Recorded here because #6 builds on it and each item cost real probing:
+
+- `loginctl list-sessions --output=json` is accepted, **ignored**, and prints the
+  plain table with exit 0. The flag that works is `--json=short`. A backend on the
+  wrong flag does not fail — it feeds a table to a JSON parser every 30 seconds and
+  enforces nothing forever.
+- The listing carries no `Remote` and no `LockedHint`. Lock state and remoteness
+  require a per-session `show-session`, so the cheap `class=user` + has-a-seat filter
+  runs first and the detail call only happens for real desktop sessions.
+- `show-session` prints `Key=value` in neither the requested order nor alphabetical
+  order, so properties are read into a map. An unknown property is **not** an error:
+  exit 0 with no line at all, which makes a typo'd property indistinguishable from an
+  unset one. An unknown session id exits 1 with "No session ... known".
+- One uid can own several sessions. Alongside the desktop session there is typically
+  a `class=manager` session with no seat, `Type=unspecified`, `State=active`,
+  `Remote=no`. Neither `Remote` nor `State=closing` drops it, so `isLockable` also
+  requires a real session type — otherwise the loop calls `lock-session` on a
+  non-desktop session every 30 seconds forever.
+- When `SysProcAttr.Credential` is set, the runtime calls `setgid(cred.Gid)`
+  **unconditionally** before `setuid(cred.Uid)`. A `Credential` with only `Uid` set
+  therefore does not leave the group alone: it sets group 0, so a "downgraded" helper
+  runs as the session user with the root group. Any backend that drops privileges must
+  resolve the real primary group; `platform.dropPrivileges` does this and #6 must call
+  it rather than building a `Credential` by hand.
+- Sessions vanish between the listing and the detail call during an ordinary logout.
+  That single failure mode is skipped; every other per-session error is reported while
+  the sessions that did answer are still returned, because a partially broken backend
+  must not stop enforcement for the whole machine.
+
+`State` in the struct above is wider than `active | closing`. Only `closing` is
+excluded, so any other value stays lockable — the safe direction, since a session
+logind considers live but not current can still be walked up to. `active` and
+`closing` are observed on the target; `online` is what systemd documents for a
+remote session that is not current, and is **not** verified on this host because it
+had no remote session when the fixtures were captured.
+
 `plock doctor` probes every backend against the live machine and reports which
 ones actually work — that turns "it doesn't lock on my KDE" into a one-command
 diagnosis.
