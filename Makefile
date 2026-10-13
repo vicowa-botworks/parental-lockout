@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify clean
+.PHONY: build fmt vet test verify mutate clean
 
 build:
 	@mkdir -p bin
@@ -67,6 +67,22 @@ verify:
 	fi; \
 	echo "==> dependencies"; ./scripts/check-deps.sh; \
 	echo "verify: OK"
+
+# mutate puts each known bug back into the source one at a time and insists the suite
+# notices. A green `go test` says the code passes the tests; it does not say the tests
+# would fail if the code were wrong, and for a daemon whose failure mode is a lockout
+# that silently stops happening, that difference is the whole product.
+#
+# It is deliberately not part of verify: it rewrites files in the working tree and
+# takes minutes. Run it before pushing a branch, and quote its tally in the PR when
+# claiming a fix is covered by a test that bites.
+#
+# scripts/mutate.py restores the tree between every mutant, refuses to start on a red
+# baseline, and reports a mutant that does not compile as INVALID rather than caught.
+# Its docstring lists the four ways a battery like this can report success while
+# testing nothing, which is what the run checks for.
+mutate:
+	@GO="$(GO)" python3 scripts/mutate.py
 
 clean:
 	rm -rf bin

@@ -239,8 +239,20 @@ type Profile struct {
 	Rules    []Rule `json:"rules"`
 }
 
-// Rule is a wall-clock window on a set of weekdays. End earlier than or equal
-// to Start means the window crosses midnight and belongs to the starting day.
+// Rule is a wall-clock window on a set of weekdays, both ends HH:MM in the
+// profile's timezone.
+//
+// End earlier than Start means the window crosses midnight and belongs to the
+// starting day: Sunday 21:00-06:30 runs into Monday morning.
+//
+// End equal to Start enforces nothing, and Validate rejects it. It is not a
+// 24-hour window: reading it that way would turn a parent typing the same time
+// into both boxes into a child who can never use the machine.
+//
+// Note the consequence while #16 is open: because a window is half-open and both
+// ends are whole minutes, no rule covers every minute of a day — 00:00-23:59
+// leaves the last minute free. A schedule that must never release is not
+// expressible yet, and #16 decides whether it becomes a flag or a reserved value.
 type Rule struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
