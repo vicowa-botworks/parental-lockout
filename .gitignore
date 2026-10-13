@@ -10,3 +10,6 @@ coverage.*
 *.swp
 .idea/
 .vscode/
+
+# Local agent state (Magic Context); never part of the project
+.cortexkit/
