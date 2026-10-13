@@ -406,15 +406,26 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 	y, mo, d := day.Date()
 
 	// A rule whose clock could not be read holds for the whole local day: from the
-	// first instant that reads this day to the first that reads the next. Both ends
-	// are midnight, which every zone has an instant for except the midnight a
-	// date-line jump deletes, and wallInstant answers that with the day the clock
-	// actually shows rather than an instant that does not exist.
+	// first instant that reads this day to the LAST instant that reads the next.
+	//
+	// The asymmetry is deliberate and it is the whole point of the end being `true`.
+	// Where a fall-back crosses midnight, the clock shows the next day's 00:00 and
+	// then jumps back to 23:00 of the enforced day, so the first reading of the next
+	// midnight closes the window while the clock still reads the day the rule was
+	// written for. Measured on the leap-second variants (right/Egypt 2026-10-29,
+	// right/Asia/Beirut 2026-10-24, right/America/Santiago 2026-04-04): the earliest
+	// end frees 59 minutes of the enforced day; the latest end holds them and costs
+	// one minute held whose clock already reads the next day. Both ends of every
+	// other window in this file take the same side of an ambiguity for the same
+	// reason. No canonical zone is affected in 2026-2031 — the shape needs the
+	// leap-second offset to move the change off exact midnight — but the daemon
+	// accepts a right/* timezone name without complaint, and this package does not
+	// fail open on the shapes it can reach.
 	if r.allDay {
 		return window{
 			rule:  r.def,
 			start: wallInstant(loc, y, mo, d, 0, false),
-			end:   wallInstant(loc, y, mo, d+1, 0, false),
+			end:   wallInstant(loc, y, mo, d+1, 0, true),
 		}, true
 	}
 

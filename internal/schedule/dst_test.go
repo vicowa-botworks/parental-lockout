@@ -205,6 +205,128 @@ func TestDSTAllDayRuleAcrossTransition(t *testing.T) {
 	}
 }
 
+// The widened all-day rule (an unreadable clock) has to end at the LAST instant
+// that reads the next midnight, not the first.
+//
+// Where a fall-back crosses midnight the clock shows the next day's 00:00 and then
+// jumps back, so an end taken from the first reading closes the window while the
+// clock still reads the day the rule was written for. Two checks, because the two
+// halves need different databases:
+//
+//   - the endpoint itself, in America/Havana, where a fall-back at 01:00 repeats
+//     midnight in a canonical zone every host has. This is the half that pins the
+//     flag, and it runs everywhere;
+//   - the consequence, walking every minute of the enforced day. Only the right/*
+//     leap-second variants actually free a minute this way (the 27-second offset
+//     moves the change off exact midnight), so that subtest runs on whatever the
+//     host's database provides and the canonical zones are walked alongside as the
+//     control that keeps it honest when there are none.
+func TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight(t *testing.T) {
+	// lastReadingOfNextMidnight scans the clock directly for every minute-boundary
+	// that reads the enforced day's successor at 00:00. Deliberately not built from
+	// wallInstant: a guard that asks the function under test whether the ambiguity
+	// is there reports "no ambiguity" when the resolver is what is broken.
+	lastReadingOfNextMidnight := func(loc *time.Location, enforced time.Time) (time.Time, int) {
+		ny, nmo, nd := enforced.AddDate(0, 0, 1).Date()
+		var last time.Time
+		var n int
+		for i := -720; i <= 2160; i++ {
+			c := enforced.Add(time.Duration(i) * time.Minute)
+			if c.In(loc).Format("15:04") != "00:00" {
+				continue
+			}
+			if cy, cmo, cd := c.In(loc).Date(); cy != ny || cmo != nmo || cd != nd {
+				continue
+			}
+			n++
+			last = c
+		}
+		return last, n
+	}
+
+	t.Run("endpoint is the last reading", func(t *testing.T) {
+		for _, tc := range []struct{ zone, day string }{
+			{"America/Havana", "2026-10-31"}, // fall-back at 01:00 repeats midnight
+			{"America/Havana", "2026-11-01"}, // control: the next midnight is unique
+		} {
+			loc := zone(t, tc.zone)
+			enforced, err := time.Parse("2006-01-02", tc.day)
+			if err != nil {
+				t.Fatal(err)
+			}
+			noon := time.Date(enforced.Year(), enforced.Month(), enforced.Day(), 12, 0, 0, 0, loc)
+			dow := []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}[noon.Weekday()]
+			p := profile(tc.zone, rule("widen", []string{dow}, "9am", "23:00"))
+
+			want, reads := lastReadingOfNextMidnight(loc, noon)
+			if reads == 0 {
+				t.Fatalf("%s %s: no instant reads the next midnight; the scan proves nothing",
+					tc.zone, tc.day)
+			}
+
+			v := Evaluate(p, noon)
+			if !v.Active {
+				t.Fatalf("%s %s: the widened rule is not enforcing at noon: %+v", tc.zone, tc.day, v)
+			}
+			if !v.EndsAt.Equal(want) {
+				extra := ""
+				if reads > 1 {
+					extra = " — an end taken from the FIRST reading releases while the clock still reads the enforced day"
+				}
+				t.Errorf("%s %s: window ends %s, want the last of the %d readings of the next midnight (%s)%s",
+					tc.zone, tc.day, v.EndsAt.In(loc).Format("01-02 15:04 MST"), reads,
+					want.In(loc).Format("01-02 15:04 MST"), extra)
+			}
+		}
+	})
+
+	t.Run("no minute of the enforced day is free", func(t *testing.T) {
+		zones := []string{"America/Havana", "America/Santiago", "Asia/Beirut", "Europe/Berlin"}
+		if _, err := time.LoadLocation("right/Egypt"); err == nil {
+			// The variants that can actually reach the shape. The daemon accepts a
+			// right/* timezone name with no complaint, so this is not a hypothetical.
+			zones = append(zones, "right/Egypt", "right/Asia/Beirut", "right/America/Santiago")
+		} else {
+			t.Logf("no leap-second variants on this host: the canonical controls below are the only walk")
+		}
+
+		for _, z := range zones {
+			t.Run(z, func(t *testing.T) {
+				loc := zone(t, z)
+				// Every 2026 day whose length is not 24h, plus an ordinary day, so a
+				// zone with no change still asserts something.
+				days := []time.Time{time.Date(2026, 6, 15, 12, 0, 0, 0, loc)}
+				for _, dc := range changedDays(loc) {
+					days = append(days, dc.day)
+				}
+				var walked, freed int
+				for _, day := range days {
+					y, mo, d := day.Date()
+					noon := time.Date(y, mo, d, 12, 0, 0, 0, loc)
+					dow := []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}[noon.Weekday()]
+					p := profile(z, rule("widen", []string{dow}, "9am", "23:00"))
+					for _, now := range minutesOn(loc, noon) {
+						if yy, mm, dd := now.In(loc).Date(); yy != y || mm != mo || dd != d {
+							continue
+						}
+						walked++
+						if !Evaluate(p, now).Active {
+							freed++
+						}
+					}
+				}
+				if walked == 0 {
+					t.Fatalf("%s: walked no minutes; the subtest proves nothing", z)
+				}
+				if freed != 0 {
+					t.Errorf("%s: %d of %d minutes whose clock reads the enforced day are FREE — the widened rule released them",
+						z, freed, walked)
+				}
+			})
+		}
+	})
+}
+
 // A lockout that spans the transition night is the common real case: a school
 // night rule running straight through 02:00.
 func TestDSTOvernightWindowAcrossTransition(t *testing.T) {
