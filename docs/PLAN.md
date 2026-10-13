@@ -231,6 +231,11 @@ Recorded here because #6 builds on it and each item cost real probing:
   `Remote=no`. Neither `Remote` nor `State=closing` drops it, so `isLockable` also
   requires a real session type — otherwise the loop calls `lock-session` on a
   non-desktop session every 30 seconds forever.
+- The `class` field is not a fixed set. A second machine on the same systemd was found
+  with `class=manager-early`, and with `class=user` sessions that have no seat because
+  they are SSH. Both are refused, but only because the class check is an allowlist and
+  the seat check requires a console: on a host with no `Remote=yes` in sight, the seat
+  requirement is what actually protects a remote admin.
 - When `SysProcAttr.Credential` is set, the runtime calls `setgid(cred.Gid)`
   **unconditionally** before `setuid(cred.Uid)`. A `Credential` with only `Uid` set
   therefore does not leave the group alone: it sets group 0, so a "downgraded" helper
@@ -241,6 +246,34 @@ Recorded here because #6 builds on it and each item cost real probing:
   That single failure mode is skipped; every other per-session error is reported while
   the sessions that did answer are still returned, because a partially broken backend
   must not stop enforcement for the whole machine.
+- **`org.freedesktop.login1.Session` has no `UID` property.** The uid is on the `User`
+  object. Because an unknown property is exit 0 with no line, asking for `UID` yields
+  nothing and no error, so a fallback built on it can never fire against a real
+  `loginctl` while still passing every fake:
+  `loginctl show-session 3 -p Name -p Type -p State -p Remote -p UID -p LockedHint`
+  prints four lines and no `UID`. The listing is the only uid source.
+- **An empty session table is not an error, and it has three shapes.** `loginctl`
+  prints the bare header, or `N sessions listed.`, or — for an empty table — the
+  legend `printf("No %s.\n", type)` from `loginctl.c`. Only the count form looks like
+  a trailer, so recognising just that one turns "nobody is home" into a backend
+  failure on every machine at 3am, in `Sessions()` and in `doctor` alike.
+- **`loginctl lock-session` on a raw VT exits 0 and does nothing.** logind only emits
+  the `Lock` D-Bus signal; `LockedHint` is written by the desktop environment calling
+  `SetLockedHint`, and nothing on a VT ever calls it. `CanLock` is not a substitute —
+  it is class-based, so it says `yes` for a VT. Such a session is therefore asked
+  anyway, and the resulting permanent `ErrUnconfirmed` is the signal; refusing it would
+  make the loop report nobody for that child and go quiet.
+- **The hint is written asynchronously**, so reading `LockedHint` the instant
+  `lock-session` returns races the desktop and loses on any machine where the desktop
+  takes a few milliseconds. The chain re-reads for a bounded window instead; without
+  that, a lock that lands is reported as a failure and the next backend locks twice.
+- **Every `loginctl` call carries `--no-ask-password`.** The lock action is
+  `auth_admin_keep`, so a `plock doctor` run by an ordinary user would otherwise open a
+  polkit prompt and wait on a machine with no terminal.
+- **`SINCE` is the one column whose value contains spaces**, so it is only safe as the
+  last column: anywhere else every column after it shifts, and each shifted value is
+  individually plausible (`CLASS` reading `no`), which is the silent misread the
+  name-based mapping exists to prevent. The layout is refused rather than guessed.
 
 `State` in the struct above is wider than `active | closing`. Only `closing` is
 excluded, so any other value stays lockable — the safe direction, since a session

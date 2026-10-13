@@ -47,26 +47,6 @@ func TestPropsFlag(t *testing.T) {
 	}
 }
 
-func TestPropsUint(t *testing.T) {
-	for _, tc := range []struct {
-		in   string
-		want uint32
-		ok   bool
-	}{
-		{"1000", 1000, true},
-		{"0", 0, true},
-		{"", 0, false},
-		{"abc", 0, false},
-		{"-1", 0, false},
-		{"99999999999999999999", 0, false}, // overflows uint32
-	} {
-		got, ok := (props{"k": tc.in}).uint("k")
-		if got != tc.want || ok != tc.ok {
-			t.Errorf("uint(%q) = %d,%v want %d,%v", tc.in, got, ok, tc.want, tc.ok)
-		}
-	}
-}
-
 func TestIsUnknownSession(t *testing.T) {
 	for _, tc := range []struct {
 		err  error
@@ -168,14 +148,69 @@ func TestParseSessionTableRejectsWhatItCannotRead(t *testing.T) {
 	if _, err := parseSessionTable([]byte("garbage\nmore garbage\n")); err == nil {
 		t.Error("a table with no header parsed successfully")
 	}
-	// Header but no rows: refuse, because "no sessions" and "cannot read the output"
-	// have to stay distinguishable.
-	if _, err := parseSessionTable([]byte("SESSION  UID USER SEAT LEADER CLASS TTY IDLE SINCE\n\n2 sessions listed.\n")); err == nil {
-		t.Error("a header with no rows parsed successfully")
-	}
+	// Header but no rows is NOT in this test: that is the healthy idle state and it
+	// parses to zero sessions. See TestParseSessionTableEmptyTableIsZeroSessions.
 	// A row whose LEADER is not a number is not a session row.
 	if _, err := parseSessionTable([]byte("SESSION UID USER SEAT LEADER CLASS TTY IDLE SINCE\nx y z - q user - no -\n")); err == nil {
 		t.Error("a row with a non-numeric leader parsed successfully")
+	}
+}
+
+// Nobody being logged in is the state of every machine at 3am, and it has to read as
+// zero sessions rather than as a broken backend. Making it an error would have the
+// enforcement loop log a failure twice a minute until nobody reads them, and would
+// have `plock doctor` tell an operator that logind is broken when logind is fine.
+//
+// All three shapes loginctl can produce are checked, because they do not fail alike:
+// the bare header, the count trailer, and the "No sessions." legend that upstream
+// actually prints for an empty table (loginctl.c: printf("No %s.\n", type)). Only the
+// second was recognised before this existed, and the third reached the row parser and
+// failed on its UID column.
+func TestParseSessionTableEmptyTableIsZeroSessions(t *testing.T) {
+	header := "SESSION  UID USER SEAT LEADER CLASS TTY IDLE SINCE"
+	for _, tc := range []struct{ name, in string }{
+		{"header only", header + "\n"},
+		{"count trailer", header + "\n0 sessions listed.\n"},
+		{"upstream empty legend", header + "\nNo sessions.\n"},
+		{"blank line then trailer", header + "\n\n2 sessions listed.\n"},
+		{"blank line then legend", header + "\n\nNo sessions.\n"},
+	} {
+		entries, err := parseSessionTable([]byte(tc.in))
+		if err != nil {
+			t.Errorf("%s: %v — an idle machine must not read as a broken backend", tc.name, err)
+			continue
+		}
+		if len(entries) != 0 {
+			t.Errorf("%s: parsed %d rows, want 0", tc.name, len(entries))
+		}
+	}
+
+	// The legend skip must not become a way for a real row to vanish. A session row
+	// carries a value for every column, so it can never be two words wide; anything
+	// two words wide that is not the legend is refused, not skipped.
+	if _, err := parseSessionTable([]byte(header + "\nNope.\n")); err == nil {
+		t.Error("a two-word line that is not the legend was skipped instead of refused")
+	}
+	// "No sessions." is the legend; a line that merely starts with No is not.
+	if _, err := parseSessionTable([]byte(header + "\nNo sessions\n")); err == nil {
+		t.Error("a line without the trailing period was skipped instead of refused")
+	}
+	// The word has to be a lowercase noun. "No Sessions." is not something loginctl
+	// prints, and accepting it would widen the skip for no benefit — every character
+	// accepted here is a line that stops being checked.
+	if _, err := parseSessionTable([]byte(header + "\nNo Sessions.\n")); err == nil {
+		t.Error("a capitalised two-word line was skipped instead of refused")
+	}
+	// "No ." has an empty noun, which is not a legend either.
+	if _, err := parseSessionTable([]byte(header + "\nNo .\n")); err == nil {
+		t.Error("an empty legend noun was skipped instead of refused")
+	}
+	// Other listing types use the same printf, and a hyphenated noun is still a noun.
+	for _, legend := range []string{"No seats.", "No users.", "No user-sessions."} {
+		entries, err := parseSessionTable([]byte(header + "\n" + legend + "\n"))
+		if err != nil || len(entries) != 0 {
+			t.Errorf("%q: got %d rows, err %v — want the empty-table legend", legend, len(entries), err)
+		}
 	}
 }
 
@@ -201,7 +236,7 @@ func TestParseSessionJSONRejectsATable(t *testing.T) {
 // show-session does not report Name.
 func TestSessionsFallsBackToTheListingForNameAndUID(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return []byte(`[{"session":"9","uid":1002,"user":"kid","seat":"seat0","leader":5,"class":"user","tty":null,"idle":false,"since":null}]`), nil
 		}
 		// No Name, no UID.
@@ -226,7 +261,7 @@ func TestSessionsFallsBackToTheListingForNameAndUID(t *testing.T) {
 // that later reaches lock-session.
 func TestSessionsSkipsARowWithNoID(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return []byte(`[{"session":"","uid":1002,"user":"kid","seat":"seat0","leader":5,"class":"user","tty":null,"idle":false,"since":null}]`), nil
 		}
 		t.Errorf("queried a session that had no id: %v", argv)
@@ -254,7 +289,7 @@ func TestShowRefusesAnImplausibleID(t *testing.T) {
 // means something.
 func TestListReportsTheFirstFailureWhenTheFallbackAlsoFails(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if len(argv) >= 3 && argv[2] == "--json=short" {
+		if hasFlag(argv, "--json=short") {
 			return nil, errors.New("loginctl: not found in PATH")
 		}
 		return nil, errors.New("loginctl: not found in PATH")
@@ -335,21 +370,56 @@ func TestExecRunnerFallsBackToTheExitError(t *testing.T) {
 	}
 }
 
-// The listing's uid is 0 for a session logind could not resolve, and show-session
-// carries the real one.
-func TestSessionsTakesTheUIDFromShowWhenTheListingHasNone(t *testing.T) {
+// The listing is the only place the uid comes from.
+//
+// This test used to assert the opposite: it scripted a `UID=1005` line back from
+// show-session and pinned Sessions reading it. That line does not exist.
+// org.freedesktop.login1.Session has no UID property — the uid is on the User object —
+// and logind answers an unknown property with exit 0 and no line at all, so the
+// fallback could never fire against a real loginctl while still passing here. Verified
+// live:
+//
+//	$ loginctl show-session 3 -p Name -p Type -p State -p Remote -p UID -p LockedHint
+//	Name=rodney / Remote=no / Type=x11 / State=active / LockedHint=yes
+//
+// So the property is not asked for, and what is pinned instead is (a) that a session
+// whose listing carries uid 0 is still reported, because profiles are keyed by the
+// username and the username cannot be missing, and (b) that no show-session call asks
+// for UID — which is the half that would silently come back if someone "fixed" this by
+// re-adding the property.
+func TestSessionsTakesTheUIDFromTheListingOnly(t *testing.T) {
+	var showArgvs [][]string
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return []byte(`[{"session":"9","uid":0,"user":"kid","seat":"seat0","leader":5,"class":"user","tty":null,"idle":false,"since":null}]`), nil
 		}
-		return []byte("Type=x11\nState=active\nRemote=no\nUID=1005\n"), nil
+		showArgvs = append(showArgvs, argv)
+		// Exactly what a real loginctl returns for this set: no UID line, and no
+		// error about the one that was not asked for.
+		return []byte("Name=kid\nType=x11\nState=active\nRemote=no\nLockedHint=no\n"), nil
 	}}
 	got, err := newLogind(t, r).Sessions(context.Background())
 	if err != nil {
 		t.Fatalf("Sessions: %v", err)
 	}
-	if len(got) != 1 || got[0].UID != 1005 {
-		t.Fatalf("got %v, want uid 1005 from show-session", got)
+	if len(got) != 1 {
+		t.Fatalf("got %v, want the unresolved-uid session reported anyway", got)
+	}
+	if got[0].UID != 0 {
+		t.Errorf("uid = %d, want 0: nothing may invent one the listing did not carry", got[0].UID)
+	}
+	if got[0].Username != "kid" {
+		t.Errorf("username = %q, want kid — this is the value profiles are keyed by", got[0].Username)
+	}
+	if len(showArgvs) == 0 {
+		t.Fatal("show-session was never called, so the property check below proves nothing")
+	}
+	for _, argv := range showArgvs {
+		for _, a := range argv {
+			if a == "UID" || a == "-pUID" {
+				t.Errorf("show-session asks for UID, a property loginctl does not have: %v", argv)
+			}
+		}
 	}
 }
 
@@ -375,7 +445,7 @@ func TestLogindLockRefusesBeforeAnythingElse(t *testing.T) {
 // belong in the message: the first explains why a second command was tried at all.
 func TestListReportsBothFailuresWhenTheFallbackIsUnreadable(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if len(argv) >= 3 && argv[2] == "--json=short" {
+		if hasFlag(argv, "--json=short") {
 			return nil, errors.New("Unknown option --json=short")
 		}
 		return []byte("total nonsense\n"), nil
@@ -451,10 +521,13 @@ func TestParseSessionTableMapsColumnsByName(t *testing.T) {
 	}
 }
 
-// Reordering is the other half: position must not matter at all.
+// Reordering is the other half: position must not matter at all. SINCE stays last
+// here -- not because position matters for it, but because its value contains spaces
+// and TestParseSessionTableRefusesSINCEBeforeTheLastColumn pins why that layout is
+// refused rather than reordered.
 func TestParseSessionTableToleratesReorderedColumns(t *testing.T) {
-	in := "CLASS UID SESSION SINCE IDLE TTY SEAT USER LEADER\n" +
-		"user 1000 2 - no tty2 seat0 rodney 18344\n"
+	in := "CLASS UID SESSION IDLE TTY SEAT USER LEADER SINCE\n" +
+		"user 1000 2 no tty2 seat0 rodney 18344 -\n"
 	entries, err := parseSessionTable([]byte(in))
 	if err != nil {
 		t.Fatalf("parseSessionTable: %v", err)
@@ -465,6 +538,48 @@ func TestParseSessionTableToleratesReorderedColumns(t *testing.T) {
 	}
 	if e.Idle {
 		t.Error("IDLE=no read as idle")
+	}
+}
+
+// SINCE is the one column whose value contains a space, so strings.Fields splits it
+// into two. With SINCE last the extra words fall off the end harmlessly. Anywhere
+// else every column after it is shifted, and -- the part that makes this worth a
+// guard -- each shifted value is individually valid, so the row parses cleanly and
+// nothing downstream can see that CLASS now reads "no" and SEAT reads "user".
+//
+// This is the silent column misread the whole name-mapping design exists to prevent,
+// and it is invisible to every check after it because the misread values are
+// plausible. Refusing the layout is the only defence that does not require guessing
+// how many words a timestamp happened to have.
+func TestParseSessionTableRefusesSINCEBeforeTheLastColumn(t *testing.T) {
+	in := "SESSION UID USER LEADER SINCE IDLE CLASS SEAT TTY\n" +
+		"c1 1000 kid 1234 2026-10-01 15:47:23 no user seat0 tty1\n"
+	_, err := parseSessionTable([]byte(in))
+	if err == nil {
+		t.Fatal("a header with SINCE mid-table was accepted; every column after it is shifted")
+	}
+	if !strings.Contains(err.Error(), "SINCE") {
+		t.Errorf("error %q does not name the column at fault", err)
+	}
+
+	// The same columns, SINCE last, read correctly.
+	ok := "SESSION UID USER LEADER IDLE CLASS SEAT TTY SINCE\n" +
+		"c1 1000 kid 1234 no user seat0 tty1 2026-10-01 15:47:23\n"
+	entries, err := parseSessionTable([]byte(ok))
+	if err != nil {
+		t.Fatalf("the same layout with SINCE last was refused: %v", err)
+	}
+	e := entries[0]
+	if e.Class != "user" || e.Seat == nil || *e.Seat != "seat0" || e.TTY == nil || *e.TTY != "tty1" {
+		t.Errorf("SINCE-last row read wrong: %+v", e)
+	}
+
+	// A table with no SINCE column at all is fine -- the guard is about its position,
+	// not its presence.
+	noSince := "SESSION UID USER LEADER IDLE CLASS SEAT TTY\n" +
+		"c1 1000 kid 1234 no user seat0 tty1\n"
+	if _, err := parseSessionTable([]byte(noSince)); err != nil {
+		t.Errorf("a header without SINCE was refused: %v", err)
 	}
 }
 

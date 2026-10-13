@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 )
@@ -43,6 +44,16 @@ type Session struct {
 	State    string // active | online | closing
 	Remote   bool
 	Locked   bool // best effort: logind's LockedHint
+
+	// Leader is the pid of the session's leader process and TTY its controlling
+	// terminal. Both come from the listing, and both exist for one question that
+	// nothing else can answer: "is this the session I am running in?" A daemon that
+	// locks its own session locks itself out of ever unlocking it, and the uid policy
+	// alone does not catch that when the admin and the child share an account. The
+	// caller compares Leader against its own process ancestry; this package does not
+	// decide the policy.
+	Leader int
+	TTY    string
 }
 
 // Describe is what an audit line or a status page shows. It never carries a secret,
@@ -347,6 +358,67 @@ func (c *Chain) Sessions(ctx context.Context) ([]Session, error) {
 //
 // If every backend was tried and none confirmed, the result is ErrUnconfirmed rather
 // than nil. Nothing here returns nil without evidence.
+// confirmSettle bounds how long Chain.Lock waits for a lock to become visible after a
+// backend accepted the request.
+//
+// logind's lock-session returns as soon as the Lock signal is queued on D-Bus; it is
+// the desktop environment that later calls SetLockedHint, and LockedHint is the only
+// evidence this package can read. Asking whether the lock took the instant the request
+// returns therefore races the desktop, and loses on any machine where it takes a few
+// milliseconds to react: the screen does get locked, and the chain reports success as
+// failure, moves on to the next backend, and locks it a second time.
+//
+// Ten reads a tenth of a second apart is a second, far past any real signal round
+// trip. The loop calls this at most once per user per 30 seconds, so the wait costs
+// nothing worth naming.
+const (
+	confirmReads = 10
+	confirmPoll  = 100 * time.Millisecond
+)
+
+// settleWait parks the caller between reads. It is a var so the retry loop can be
+// tested without spending a second per case — the same reason Runner exists for
+// commands. TestMain swaps it for an instant one; sleepCtx itself is pinned directly.
+var settleWait = sleepCtx
+
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// confirmWithSettle asks a backend whether the lock took, giving an asynchronous lock
+// a bounded number of reads to become visible before answering "no".
+//
+// Only a negative is retried. A yes and an error both return immediately: a backend
+// that cannot be queried will not start answering between two polls, and retrying an
+// error would hold up the rest of the chain for no information.
+//
+// A context cancelled mid-window reports unlocked rather than an error. The chain is
+// about to hand the same context to the next backend, and "we asked and cannot prove
+// it" is the honest verdict whether the deadline or the desktop was the reason.
+func confirmWithSettle(ctx context.Context, conf Confirmer, s Session) (bool, error) {
+	yes, err := conf.LockConfirmed(ctx, s)
+	if err != nil || yes {
+		return yes, err
+	}
+	for i := 0; i < confirmReads; i++ {
+		if !settleWait(ctx, confirmPoll) {
+			return false, nil
+		}
+		yes, err = conf.LockConfirmed(ctx, s)
+		if err != nil || yes {
+			return yes, err
+		}
+	}
+	return false, nil
+}
+
 func (c *Chain) Lock(ctx context.Context, s Session) error {
 	if !isLockable(s) {
 		return fmt.Errorf("refusing to lock %s: not a lockable desktop session", s.Describe())
@@ -371,7 +443,7 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 			notes = append(notes, fmt.Errorf("%s: accepted the request but cannot confirm it", b.Name()))
 			continue
 		}
-		yes, err := conf.LockConfirmed(ctx, s)
+		yes, err := confirmWithSettle(ctx, conf, s)
 		if err != nil {
 			notes = append(notes, fmt.Errorf("%s: could not confirm: %w", b.Name(), err))
 			continue

@@ -83,6 +83,27 @@ func parseSessionTable(out []byte) ([]listEntry, error) {
 			return nil, fmt.Errorf("loginctl table header is missing %s (header: %s)",
 				strings.Join(missing, ", "), strings.Join(fields, " "))
 		}
+		// SINCE is the one column whose value contains a space -- "2026-10-01
+		// 15:47:23" -- so strings.Fields hands back two fields for it. Nothing
+		// decides on SINCE, so only its first token is kept and the rest are
+		// ignored, which is safe ONLY while SINCE is last.
+		//
+		// Anywhere else, every column after it is shifted by however many words the
+		// timestamp happens to have, and the row still parses cleanly: each shifted
+		// value is individually valid, so CLASS reads "no" and SEAT reads "user" and
+		// TTY reads "seat0" and nothing complains. That is the silent column misread
+		// this file exists to prevent, and it is invisible to every check downstream
+		// because the misread values are plausible. Refuse the layout instead.
+		if cols[len(cols)-1] != colSince {
+			for _, c := range cols {
+				if c == colSince {
+					return nil, fmt.Errorf(
+						"loginctl table header puts SINCE before the last column (header: %s); "+
+							"its value contains spaces and would silently shift every column after it",
+						strings.Join(fields, " "))
+				}
+			}
+		}
 		header = i
 		break
 	}
@@ -95,8 +116,12 @@ func parseSessionTable(out []byte) ([]listEntry, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if strings.HasSuffix(line, "listed.") {
-			// loginctl's trailer: "2 sessions listed."
+		if strings.HasSuffix(line, "listed.") || isNoRowsLegend(line) {
+			// Two trailers have to be recognised, and only one of them is the
+			// obvious one. "2 sessions listed." is the count line. "No sessions."
+			// is what upstream actually prints for an EMPTY table -- loginctl.c's
+			// list_table_print does printf("No %s.\n", type) -- and it is the only
+			// trailer that matters on a machine where nobody is logged in.
 			continue
 		}
 		fields := strings.Fields(line)
@@ -110,9 +135,41 @@ func parseSessionTable(out []byte) ([]listEntry, error) {
 		entries = append(entries, e)
 	}
 	if len(entries) == 0 {
-		return nil, fmt.Errorf("table output had no session rows")
+		// Zero sessions is the healthy idle state, not a broken backend. Nobody being
+		// logged in is every machine at 3am, and making it an error would have the
+		// enforcement loop log a failure twice a minute until nobody reads them, and
+		// would have Probe tell an operator that logind is broken when logind is fine.
+		//
+		// Genuinely unreadable output still errors, in the two ways it can: no header
+		// at all (above), or a row that cannot be read (above). Reaching this line
+		// means the header was understood and there was simply nothing under it.
+		return nil, nil
 	}
 	return entries, nil
+}
+
+// isNoRowsLegend reports the empty-table line loginctl prints instead of a count.
+//
+// It is deliberately narrow: exactly two words, "No" and something ending in a period.
+// A real session row carries a value for every column in the header, so it can never
+// be two fields wide -- which is the property that makes this safe to skip rather than
+// parse. Being permissive here would mean a malformed row quietly disappearing, and a
+// row that disappears is a child who does not get locked out.
+func isNoRowsLegend(line string) bool {
+	f := strings.Fields(line)
+	if len(f) != 2 || f[0] != "No" || !strings.HasSuffix(f[1], ".") {
+		return false
+	}
+	word := strings.TrimSuffix(f[1], ".")
+	if word == "" {
+		return false
+	}
+	for _, r := range word {
+		if !((r >= 'a' && r <= 'z') || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // tableName is the reverse of tableColumns, for reporting which columns went missing.

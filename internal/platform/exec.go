@@ -68,16 +68,19 @@ func (ExecRunner) Run(ctx context.Context, argv []string, env []string, uid uint
 	} else {
 		cmd.Env = os.Environ()
 	}
-	// Cancel kills the direct child; WaitDelay then bounds how long Wait holds on
-	// after it, so a grandchild that survives and keeps the stdout pipe open cannot
-	// park the caller past the context deadline.
+	// WaitDelay bounds how long Wait holds on after the child is killed, so a
+	// grandchild that survives and keeps the stdout pipe open cannot park the caller
+	// past the context deadline.
+	//
+	// The kill itself is CommandContext's own default cancellation, which is
+	// exactly cmd.Process.Kill() — there is no cmd.Cancel line here because
+	// re-stating the default only implies it is doing something the default is not.
 	//
 	// What this does NOT do is guarantee the whole process tree dies. CommandContext's
-	// default cancellation reaches the direct child only; a grandchild it spawned keeps
+	// cancellation reaches the direct child only; a grandchild it spawned keeps
 	// running, and WaitDelay only stops us from waiting for it. A backend that shells
 	// out to something with helpers of its own has to put the child in its own process
 	// group and kill the group — this seam does not do that on its behalf.
-	cmd.Cancel = func() error { return cmd.Process.Kill() }
 	cmd.WaitDelay = 5 * time.Second
 
 	var stderr bytes.Buffer

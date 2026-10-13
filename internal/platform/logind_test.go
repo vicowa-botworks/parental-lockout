@@ -26,21 +26,52 @@ func fixture(t *testing.T, name string) []byte {
 func serve(t *testing.T, listing string, details map[string]string) *fakeRunner {
 	t.Helper()
 	return &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if len(argv) >= 2 && argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return fixture(t, listing), nil
 		}
-		if len(argv) >= 3 && argv[1] == "show-session" {
-			name, ok := details[argv[2]]
+		if sub(argv, 0) == "show-session" {
+			name, ok := details[sub(argv, 1)]
 			if !ok {
 				// The real binary's behaviour for a session that is gone, so a test
 				// that asks for an id it was never listed gets what production gets.
-				return nil, errors.New("loginctl show-session " + argv[2] + " exited with 1: Failed to get path for session '" + argv[2] + "': No session '" + argv[2] + "' known")
+				return nil, errors.New("loginctl show-session " + sub(argv, 1) + " exited with 1: Failed to get path for session '" + sub(argv, 1) + "': No session '" + sub(argv, 1) + "' known")
 			}
 			return fixture(t, name), nil
 		}
 		t.Errorf("unexpected command from the backend: %v", argv)
 		return nil, errors.New("unexpected command")
 	}}
+}
+
+// sub returns the n-th non-flag argument after the program name: sub(argv, 0) is the
+// loginctl verb, sub(argv, 1) the session id.
+//
+// The test fakes used to read argv[1] and sub(argv, 1) directly. Every loginctl call now
+// carries --no-ask-password, which shifts both by one — and matching on position would
+// break again on the next flag anyone adds. The production code builds argv as a slice
+// precisely so that nothing has to care where a flag sits; the fakes owe the same.
+func sub(argv []string, n int) string {
+	i := 0
+	for _, a := range argv[1:] {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if i == n {
+			return a
+		}
+		i++
+	}
+	return ""
+}
+
+// hasFlag reports whether argv carries flag anywhere.
+func hasFlag(argv []string, flag string) bool {
+	for _, a := range argv {
+		if a == flag {
+			return true
+		}
+	}
+	return false
 }
 
 func newLogind(t *testing.T, r Runner) *Chain {
@@ -84,8 +115,8 @@ func TestLogindSessionsFromCapturedListing(t *testing.T) {
 	// The listing call is the one the ticket got wrong, so pin it exactly: --json=short
 	// is what works, and --output=json is accepted, ignored, and returns a table.
 	wantArgv(t, r.Argvs(), [][]string{
-		{"loginctl", "list-sessions", "--json=short"},
-		{"loginctl", "show-session", "3", "-p", "Name", "-p", "Type", "-p", "State", "-p", "Remote", "-p", "UID", "-p", "LockedHint"},
+		{"loginctl", "--no-ask-password", "list-sessions", "--json=short"},
+		{"loginctl", "--no-ask-password", "show-session", "3", "-p", "Name", "-p", "Type", "-p", "State", "-p", "Remote", "-p", "LockedHint"},
 	})
 }
 
@@ -101,7 +132,7 @@ func TestLogindDoesNotQueryTheManagerSession(t *testing.T) {
 		t.Fatalf("Sessions: %v", err)
 	}
 	for _, c := range r.Calls() {
-		if len(c.argv) >= 3 && c.argv[1] == "show-session" && c.argv[2] == "4" {
+		if sub(c.argv, 0) == "show-session" && sub(c.argv, 1) == "4" {
 			t.Errorf("asked logind about the manager session: %v", c.argv)
 		}
 	}
@@ -111,14 +142,14 @@ func TestLogindDoesNotQueryTheManagerSession(t *testing.T) {
 // for JSON, because that is the output a lenient parser has to cope with.
 func TestLogindFallsBackToTheTable(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if len(argv) >= 3 && argv[2] == "--json=short" {
+		if hasFlag(argv, "--json=short") {
 			// An older build that rejects the flag outright.
 			return nil, errors.New("loginctl list-sessions --json=short exited with 1: Unknown option --json=short")
 		}
-		if len(argv) >= 2 && argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return fixture(t, "list-sessions.table"), nil
 		}
-		if len(argv) >= 3 && argv[1] == "show-session" {
+		if sub(argv, 0) == "show-session" {
 			return fixture(t, "show-session-desktop.txt"), nil
 		}
 		t.Errorf("unexpected command: %v", argv)
@@ -138,9 +169,9 @@ func TestLogindFallsBackToTheTable(t *testing.T) {
 		t.Errorf("table row parsed as %+v, want rodney uid 1000", got[0])
 	}
 	wantArgv(t, r.Argvs(), [][]string{
-		{"loginctl", "list-sessions", "--json=short"},
-		{"loginctl", "list-sessions"},
-		{"loginctl", "show-session", "3", "-p", "Name", "-p", "Type", "-p", "State", "-p", "Remote", "-p", "UID", "-p", "LockedHint"},
+		{"loginctl", "--no-ask-password", "list-sessions", "--json=short"},
+		{"loginctl", "--no-ask-password", "list-sessions"},
+		{"loginctl", "--no-ask-password", "show-session", "3", "-p", "Name", "-p", "Type", "-p", "State", "-p", "Remote", "-p", "LockedHint"},
 	})
 }
 
@@ -148,10 +179,10 @@ func TestLogindFallsBackToTheTable(t *testing.T) {
 // the real 259 demonstrates with --output=json. It must be read, not re-run.
 func TestLogindReadsATableEvenWhenTheFlagSucceeds(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if len(argv) >= 2 && argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return fixture(t, "list-sessions.table"), nil
 		}
-		if len(argv) >= 3 && argv[1] == "show-session" {
+		if sub(argv, 0) == "show-session" {
 			return fixture(t, "show-session-desktop.txt"), nil
 		}
 		t.Errorf("unexpected command: %v", argv)
@@ -176,9 +207,9 @@ func TestLogindReadsATableEvenWhenTheFlagSucceeds(t *testing.T) {
 func TestLogindMissingLockedHintIsNotAnError(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
 		switch {
-		case len(argv) >= 2 && argv[1] == "list-sessions":
+		case sub(argv, 0) == "list-sessions":
 			return []byte(`[{"session":"7","uid":1001,"user":"kid","seat":"seat0","leader":9,"class":"user","tty":"tty3","idle":false,"since":null}]`), nil
-		case len(argv) >= 2 && argv[1] == "show-session":
+		case sub(argv, 0) == "show-session":
 			// No LockedHint line at all, and the remaining properties in an order
 			// that is neither requested nor alphabetical — both are real.
 			return []byte("Name=kid\nRemote=no\nState=active\nType=wayland\n"), nil
@@ -220,11 +251,11 @@ func TestLogindExcludesRemoteAndClosing(t *testing.T) {
 	}
 
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if len(argv) >= 2 && argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return []byte(listing), nil
 		}
-		if len(argv) >= 3 && argv[1] == "show-session" {
-			id := argv[2]
+		if sub(argv, 0) == "show-session" {
+			id := sub(argv, 1)
 			d, ok := details[id]
 			if !ok {
 				t.Errorf("asked about an id that was not listed: %s", id)
@@ -263,14 +294,14 @@ func TestLogindVanishedSessionDoesNotSinkTheSweep(t *testing.T) {
 		`{"session":"here","uid":1001,"user":"kid","seat":"seat0","leader":2,"class":"user","tty":"tty2","idle":false,"since":null}` +
 		`]`
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if len(argv) >= 2 && argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return []byte(listing), nil
 		}
 		if len(argv) < 3 {
 			t.Errorf("unexpected command: %v", argv)
 			return nil, errors.New("unexpected")
 		}
-		if argv[2] == "gone" {
+		if sub(argv, 1) == "gone" {
 			return nil, errors.New("loginctl show-session gone exited with 1: Failed to get path for session 'gone': No session 'gone' known")
 		}
 		return []byte("Name=kid\nRemote=no\nType=x11\nState=active\nLockedHint=no\n"), nil
@@ -293,14 +324,14 @@ func TestLogindReportsAnUnexpectedSessionFailure(t *testing.T) {
 		`{"session":"ok","uid":1001,"user":"kid","seat":"seat0","leader":2,"class":"user","tty":"tty2","idle":false,"since":null}` +
 		`]`
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if len(argv) >= 2 && argv[1] == "list-sessions" {
+		if sub(argv, 0) == "list-sessions" {
 			return []byte(listing), nil
 		}
 		if len(argv) < 3 {
 			t.Errorf("unexpected command: %v", argv)
 			return nil, errors.New("unexpected")
 		}
-		if argv[2] == "bad" {
+		if sub(argv, 1) == "bad" {
 			return nil, errors.New("loginctl show-session bad exited with 1: Connection reset by peer")
 		}
 		return []byte("Name=kid\nRemote=no\nType=x11\nState=active\nLockedHint=no\n"), nil
@@ -324,7 +355,7 @@ func TestLogindLockPinsArgvAndRefusesWhatItMustNotLock(t *testing.T) {
 	// return nil: without a confirmation the chain reports ErrUnconfirmed rather than
 	// claiming a lock it cannot stand behind.
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if argv[1] == "show-session" {
+		if sub(argv, 0) == "show-session" {
 			return []byte("LockedHint=yes\n"), nil
 		}
 		return nil, nil
@@ -335,8 +366,8 @@ func TestLogindLockPinsArgvAndRefusesWhatItMustNotLock(t *testing.T) {
 		t.Fatalf("Lock: %v", err)
 	}
 	wantArgv(t, r.Argvs(), [][]string{
-		{"loginctl", "lock-session", "3"},
-		{"loginctl", "show-session", "3", "-p", "LockedHint"},
+		{"loginctl", "--no-ask-password", "lock-session", "3"},
+		{"loginctl", "--no-ask-password", "show-session", "3", "-p", "LockedHint"},
 	})
 	if c := r.Calls()[0]; c.uid != 0 || c.env != nil {
 		t.Errorf("lock ran as uid %d with env %v, want uid 0 (root) and the inherited environment", c.uid, c.env)
@@ -381,7 +412,7 @@ func TestLogindLockIsNotSuccessUntilLocked(t *testing.T) {
 	ctx := context.Background()
 	for _, hint := range []string{"no", ""} {
 		r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-			if argv[1] == "show-session" {
+			if sub(argv, 0) == "show-session" {
 				if hint == "" {
 					return []byte("Type=x11\n"), nil // property absent entirely
 				}
@@ -408,7 +439,7 @@ func TestLogindLockIsNotSuccessUntilLocked(t *testing.T) {
 // moving.
 func TestLogindConfirmationFailureIsNotSuccess(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if argv[1] == "show-session" {
+		if sub(argv, 0) == "show-session" {
 			return nil, errors.New("Connection reset by peer")
 		}
 		return nil, nil

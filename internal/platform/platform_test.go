@@ -230,8 +230,20 @@ func TestIsLockable(t *testing.T) {
 		{"greeter", Session{Class: "greeter", Seat: "seat0", Type: "x11", State: "active"}, false},
 		{"lock screen", Session{Class: "lock", Seat: "seat0", Type: "x11", State: "active"}, false},
 		{"manager", Session{Class: "manager", Type: "unspecified", State: "active"}, false},
+		// Observed on the reviewer's box (systemd 259.5-0ubuntu3.4) and named by no
+		// ticket: class=manager-early. The class check is an allowlist, so an
+		// unrecognised class is refused rather than waved through — which is the only
+		// reason a value nobody predicted here is handled correctly. Pinned so the
+		// day someone widens this to a denylist, this case fails loudly.
+		{"manager-early", Session{Class: "manager-early", Seat: "seat0", Type: "x11", State: "active"}, false},
 		// No seat means not on any console.
 		{"no seat", Session{Class: "user", Type: "x11", State: "active"}, false},
+		// The seat requirement is doing more work than the fixtures show: on the
+		// reviewer's box the SSH sessions are class=user with no seat, and loginctl
+		// reports no Remote=yes anywhere. So the seat check, not the Remote check, is
+		// what keeps a remote admin from being locked on that machine. Both are kept
+		// because which one fires depends on the build.
+		{"ssh session, class user, no seat", Session{Class: "user", Type: "x11", State: "active", Remote: false}, false},
 		// A Session that never came from a listing has no class. Refusing it is the
 		// point: the rule is "came from a desktop session listing", and that is only
 		// checkable if the field has to be there.

@@ -104,17 +104,16 @@ func (l *logind) Sessions(ctx context.Context) ([]Session, error) {
 			Remote:   props.flag("Remote"),
 			Locked:   props.flag("LockedHint"),
 		}
-		// The listing's user is the account that owns the session; Name from
-		// show-session is the same thing, but the listing is the value that cannot
-		// be missing, so it wins when the property is absent.
+		// The listing's user is the account that owns the session, and the listing is
+		// the only place the uid comes from: show-session has no UID property to give
+		// (see sessionProps). A uid of 0 here means logind could not resolve the
+		// account, which is not fatal — profiles are keyed by username, and the
+		// username is a required column that cannot be missing.
 		if s.Username == "" {
 			s.Username = e.User
 		}
-		if s.UID == 0 {
-			if uid, ok := props.uint("UID"); ok {
-				s.UID = uid
-			}
-		}
+		s.Leader = e.Leader
+		s.TTY = seatString(e.TTY)
 		if !isLockable(s) {
 			continue
 		}
@@ -137,7 +136,7 @@ func (l *logind) Lock(ctx context.Context, s Session) error {
 	if !validSessionID(s.ID) {
 		return fmt.Errorf("logind: refusing to lock session %q: not a plausible session id", s.ID)
 	}
-	_, err := l.r.Run(ctx, []string{"loginctl", "lock-session", s.ID}, nil, 0)
+	_, err := l.r.Run(ctx, []string{"loginctl", noAsk, "lock-session", s.ID}, nil, 0)
 	if err != nil {
 		return fmt.Errorf("logind: %w", err)
 	}
@@ -174,11 +173,39 @@ func (l *logind) Probe(ctx context.Context) []BackendStatus {
 	if err != nil {
 		return []BackendStatus{{Name: l.Name(), Detail: err.Error()}}
 	}
-	return []BackendStatus{{
+	status := BackendStatus{
 		Name:      l.Name(),
 		Available: true,
 		Detail:    fmt.Sprintf("%d session(s) listed", len(entries)),
-	}}
+	}
+	// Say which properties this loginctl did not answer, because on the wire absence
+	// is invisible: logind returns exit 0 with no line for a property it does not
+	// know, so an unimplemented property cannot be told apart from an unset one. Two
+	// of them change what the daemon can actually do:
+	//
+	//   LockedHint absent -- nothing can ever confirm a lock, so no backend can end
+	//       the chain and every one of them is called on every 30-second poll.
+	//   Remote absent -- a remote session is kept out only by the seat requirement,
+	//       which happens to work today but is not the check that was designed.
+	//
+	// This is a read-only show-session on one session, never a lock. It is skipped
+	// when there is nothing to ask about, and a session that vanishes between the
+	// listing and this call is not a reason to stop reporting the probe.
+	if len(entries) > 0 {
+		if p, err := l.show(ctx, entries[0].Session, sessionProps...); err == nil {
+			var absent []string
+			for _, k := range sessionProps {
+				if _, ok := p[k]; !ok {
+					absent = append(absent, k)
+				}
+			}
+			if len(absent) > 0 {
+				status.Detail = fmt.Sprintf("%s; this loginctl does not report: %s",
+					status.Detail, strings.Join(absent, ", "))
+			}
+		}
+	}
+	return []BackendStatus{status}
 }
 
 // list gets the session rows, preferring JSON and falling back to the table.
@@ -188,7 +215,7 @@ func (l *logind) Probe(ctx context.Context) []BackendStatus {
 // is what 259 does to --output=json, and the reason the fixture for the fallback is a
 // captured table rather than an invented one.
 func (l *logind) list(ctx context.Context) ([]listEntry, error) {
-	out, err := l.r.Run(ctx, []string{"loginctl", "list-sessions", "--json=short"}, nil, 0)
+	out, err := l.r.Run(ctx, []string{"loginctl", noAsk, "list-sessions", "--json=short"}, nil, 0)
 	if err == nil {
 		if entries, jsonErr := parseSessionJSON(out); jsonErr == nil {
 			return entries, nil
@@ -202,7 +229,7 @@ func (l *logind) list(ctx context.Context) ([]listEntry, error) {
 	}
 
 	// The flag itself was refused: ask without it.
-	out2, err2 := l.r.Run(ctx, []string{"loginctl", "list-sessions"}, nil, 0)
+	out2, err2 := l.r.Run(ctx, []string{"loginctl", noAsk, "list-sessions"}, nil, 0)
 	if err2 != nil {
 		// Report the first error, since that is the command whose failure means
 		// something; the fallback failing too is expected on a machine with no
@@ -216,18 +243,38 @@ func (l *logind) list(ctx context.Context) ([]listEntry, error) {
 	return entries, nil
 }
 
-// show asks for one session's properties.
-// sessionProps are the properties Sessions needs. They are named here rather than at
-// the call site so the argv test can assert the exact set: an unknown property is not
-// an error from loginctl, so a typo here would look like a property that was never
-// set.
-var sessionProps = []string{"Name", "Type", "State", "Remote", "UID", "LockedHint"}
+// noAsk is on every loginctl invocation. A polkit challenge that cannot be answered
+// non-interactively does not fail fast by default — it prompts, and a daemon with no
+// terminal attached to it waits. `plock doctor` run by a normal user is the realistic
+// case: the lock action is auth_admin_keep, so doctor would hang instead of saying
+// "you are not root". With this flag the same situation returns an error immediately.
+const noAsk = "--no-ask-password"
 
+// sessionProps are the per-session properties the enforcement decision needs.
+//
+// They are named explicitly rather than taken from a bare `show-session`, because a
+// bare call prints every property and a future systemd adding one would change what
+// the code reads without changing anything in this file. Naming them also lets the
+// argv test assert the exact set: an unknown property is not an error from loginctl,
+// so a typo here would look exactly like a property that was never set.
+//
+// There is deliberately no "UID" here. org.freedesktop.login1.Session has no UID
+// property — the uid lives on the User object, not the session — and logind answers an
+// unknown property with exit 0 and no line at all, so asking for it produces nothing
+// and no error. Verified against the live binary:
+//
+//	$ loginctl show-session 3 -p Name -p Type -p State -p Remote -p UID -p LockedHint
+//	Name=rodney / Remote=no / Type=x11 / State=active / LockedHint=yes
+//
+// No UID line. The uid comes from the listing, which always carries it as a column.
+var sessionProps = []string{"Name", "Type", "State", "Remote", "LockedHint"}
+
+// show asks for one session's properties.
 func (l *logind) show(ctx context.Context, id string, want ...string) (props, error) {
 	if !validSessionID(id) {
 		return nil, fmt.Errorf("loginctl show-session: refusing to query session %q: not a plausible session id", id)
 	}
-	argv := []string{"loginctl", "show-session", id}
+	argv := []string{"loginctl", noAsk, "show-session", id}
 	for _, p := range want {
 		argv = append(argv, "-p", p)
 	}
@@ -276,14 +323,6 @@ func (p props) flag(key string) bool {
 		return true
 	}
 	return false
-}
-
-func (p props) uint(key string) (uint32, bool) {
-	var n uint64
-	if _, err := fmt.Sscanf(p[key], "%d", &n); err != nil || n > 1<<32-1 {
-		return 0, false
-	}
-	return uint32(n), true
 }
 
 // isUnknownSession recognises the one per-session failure that is expected.
