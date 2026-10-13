@@ -82,14 +82,29 @@ type Verdict struct {
 	NextStart time.Time
 }
 
+// windowLookback is how many candidate start dates Evaluate tests: today, and the
+// two days before it. See the comment at the walk for why two days back is both
+// necessary and enough.
+const windowLookback = 3
+
 // NextStartHorizon is how many days ahead NextStart looks, counting today as the
 // first of them.
 //
 // Eight: seven weekdays to cover a rule whatever its day set, plus one so that a
 // rule on today's weekday is still found after today's window has closed.
 // Neither can be dropped — TestNextStartHorizonIsSufficient walks every pairing
-// of start day and rule day — and no rule needs a ninth, because a weekly rule
-// always opens somewhere in the first eight days.
+// of start day and rule day.
+//
+// Eight is a proof about the calendar, not about the clock, and the clock can eat
+// a day: a zone that deletes a date visits seven distinct days in eight steps.
+// Measured over every zone, that costs a NextStart answer only in historical
+// zones whose clock changes fell inside the scan window — Africa/Cairo and
+// Algeria among them — and never once across 39.8M verdicts in 2010–2035.
+//
+// The direction matters more than the count. NextStart is what a dashboard shows
+// as "locked again at…"; getting it wrong shows a parent the wrong time. It never
+// releases a child early, because Evaluate decides lockouts from the windows
+// themselves and not from this number.
 const NextStartHorizon = 8
 
 // Evaluate reports whether p locks its accounts out at now.
@@ -110,12 +125,28 @@ func Evaluate(p *config.Profile, now time.Time) Verdict {
 	loc := Location(p.Timezone)
 	today := anchor(loc, now)
 
-	// A window can cover now only if it started today or yesterday. Every window
-	// is shorter than 24 hours and belongs to the day it started on, so anything
-	// that opened two days ago closed before midnight last night. Testing the
-	// yesterday window is what makes 02:00 fall inside a Sunday 21:00-06:30 rule.
+	// A window can cover now only if it started today, yesterday, or the day
+	// before. Testing the yesterday window is what makes 02:00 fall inside a Sunday
+	// 21:00-06:30 rule; the third day is what makes a skipped calendar day work.
+	//
+	// A window's end is written as a wall time on the start's date or the next
+	// one, so on an unbroken calendar two days is the whole story. But a date can
+	// be deleted: when Pacific/Apia crossed the dateline in 2011, Friday became
+	// Sunday and 2011-12-30 never existed. A window that opened on the Thursday
+	// and was written to close on the Friday closes on the Saturday instead, and
+	// now inside it is two local dates past the day it started on. Walking back
+	// only one released the account for the twenty-two hours in between, with the
+	// rule still on the books.
+	//
+	// Two is enough, and it is the same measurement as the fast path's: the
+	// biggest forward clock move anywhere in the database is 24h, which deletes at
+	// most one date, so a window's own extra day plus one deleted day is the
+	// furthest a live window can sit behind today. TestNoWindowIsEverFurtherBack
+	// walks every zone looking for one that sits further.
 	for _, r := range rules {
-		for _, day := range [2]time.Time{today.AddDate(0, 0, -1), today} {
+		for _, day := range [windowLookback]time.Time{
+			today.AddDate(0, 0, -2), today.AddDate(0, 0, -1), today,
+		} {
 			w, ok := r.windowOn(day, loc)
 			if !ok || now.Before(w.start) || !now.Before(w.end) {
 				continue

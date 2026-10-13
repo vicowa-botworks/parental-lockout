@@ -61,14 +61,56 @@ func wallInstant(loc *time.Location, y int, mo time.Month, day, min int, last bo
 	h, mm := min/60, min%60
 	t := time.Date(y, mo, day, h, mm, 0, 0, loc)
 
-	// Almost every instant on almost every day has exactly one reading: if the
-	// offset is the same two hours either side, the wall clock is a one-to-one
-	// map here and time.Date's answer is the only instant there is. Checking this
-	// first keeps the slow path off the 363 days a year that do not need it.
+	// Almost every instant on almost every day has exactly one reading, and
+	// time.Date's answer is that reading. Proving it here keeps the exhaustive
+	// path below off the 363 days a year that do not need it.
+	//
+	// The proof is two facts about the tz database, both measured over every zone
+	// it holds and both pinned by TestTZDatabaseStaysWithinTheBoundsTheResolverNeeds:
+	//
+	//   - every offset is between -12h and +14h, so two instants that read the
+	//     same wall time are at most 26h apart;
+	//   - no two offset changes are closer than 96h, so a 54h window cannot hold
+	//     two of them.
+	//
+	// If the offset is the same 27h either side of t, then either there was no
+	// change in that window at all, or there were at least two — and two inside
+	// 54h contradicts the second fact. So the offset is constant across the
+	// window, and any instant reading the same wall clock as t is at most 26h away
+	// and would share that offset, which pins it to t itself. The reading is
+	// unique and t is the answer.
+	//
+	// The window has to be wider than the 26h, not merely wider than the biggest
+	// clock change anyone happens to have seen. It used to be 2h on the reasoning
+	// that DST moves an hour, and that was wrong by an afternoon: Antarctica/Casey
+	// puts its clocks back three hours every March, so 23:00 arrives twice and the
+	// guard handed a window's *start* the later of the two readings — a Saturday
+	// curfew that did not lock the account for its first three hours.
 	if readsAs(t, loc, y, mo, day, min) &&
-		offsetAt(t.Add(-2*time.Hour), loc) == offsetAt(t.Add(2*time.Hour), loc) {
+		offsetAt(t.Add(-uniqueProbe), loc) == offsetAt(t.Add(uniqueProbe), loc) {
 		return t
 	}
+
+	return resolveReading(loc, t, y, mo, day, min, last)
+}
+
+// uniqueProbe is how far either side of an instant the offset has to be equal to
+// prove the wall clock is one-to-one there: more than half the widest possible
+// gap between two readings of one wall time (26h), and less than half the
+// narrowest gap between two offset changes (96h).
+const uniqueProbe = 27 * time.Hour
+
+// resolveReading is the exhaustive half of wallInstant: every instant within the
+// offsets in effect around t is built and tested against the written time, and
+// the earliest — or latest, with last — is returned. It is correct for any zone
+// and any date without needing anything to be true about the clock, which is why
+// wallInstant defers to it the moment it cannot prove there is only one reading.
+//
+// It is also the oracle the fast path is checked against: TestFastPathNeverDisagreesWithTheExhaustivePath
+// asserts the two agree everywhere, so the guard above can only ever be a
+// speed-up and never an answer of its own.
+func resolveReading(loc *time.Location, t time.Time, y int, mo time.Month, day, min int, last bool) time.Time {
+	h, mm := min/60, min%60
 
 	// Otherwise collect every instant that reads as the written time. The offsets
 	// a day can be in are the ones in effect around it, so sampling the offsets
@@ -136,13 +178,37 @@ func offsetAt(t time.Time, loc *time.Location) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// offsetsAround samples the offsets in effect around t. A day can hold at most
-// two transitions in any zone in the tz database, and a transition moves the
-// clock by at most two hours, so sampling every twelve hours across three days
-// cannot miss one that matters to an instant at the centre.
+// offsetsAround samples the offsets in effect around t.
+//
+// It has to find every offset that any instant reading the same wall time as t
+// could be in, because each one is a candidate for what the written time means.
+// Two measured facts about the tz database — the same two the fast path rests on,
+// both pinned by TestTZDatabaseStaysWithinTheBoundsTheResolverNeeds — make the
+// grid provable rather than plausible:
+//
+//   - every offset is between -12h and +14h, so any instant reading the same wall
+//     time as t sits at most 26h from t, and its offset is one in effect within
+//     that 26h;
+//   - no offset state lasts less than 96h. Take the state holding at an instant
+//     u within 26h of t: it contains u and runs at least 96h, so at least 10h of
+//     it falls inside the sampled span of ±36h. (If the state starts before the
+//     span, it reaches past u, which is 10h inside; if it starts inside the span,
+//     it runs 96h and cannot end before the span does.)
+//
+// A span of ±36h sampled every 6h therefore lands inside every state that
+// overlaps it by more than 6h, which is every state that matters. Sampling every
+// 12h does not: the overlap can be as small as 10h, and a 12h grid can step
+// straight over it.
+//
+// The claim that a day holds at most two readings — the one the previous comment
+// justified by saying a clock change moves at most two hours — is false on its
+// face: Antarctica/Casey moves three, Pacific/Kwajalein moved twenty-three, and
+// Antarctica/Vostok's clock moved by more than a day. What is true, and what the
+// resolver actually relies on, is that no offset state is short enough for a day
+// to hold more than two readings of one wall time.
 func offsetsAround(t time.Time, loc *time.Location) []time.Duration {
 	var out []time.Duration
-	for h := -36; h <= 36; h += 12 {
+	for h := -36; h <= 36; h += 6 {
 		o := offsetAt(t.Add(time.Duration(h)*time.Hour), loc)
 		seen := false
 		for _, have := range out {
