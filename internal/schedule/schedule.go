@@ -412,15 +412,28 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 	// Where a fall-back crosses midnight, the clock shows the next day's 00:00 and
 	// then jumps back to 23:00 of the enforced day, so the first reading of the next
 	// midnight closes the window while the clock still reads the day the rule was
-	// written for. Measured on the leap-second variants (right/Egypt 2026-10-29,
-	// right/Asia/Beirut 2026-10-24, right/America/Santiago 2026-04-04): the earliest
-	// end frees 59 minutes of the enforced day; the latest end holds them and costs
-	// one minute held whose clock already reads the next day. Both ends of every
-	// other window in this file take the same side of an ambiguity for the same
-	// reason. No canonical zone is affected in 2026-2031 — the shape needs the
-	// leap-second offset to move the change off exact midnight — but the daemon
-	// accepts a right/* timezone name without complaint, and this package does not
-	// fail open on the shapes it can reach.
+	// written for. Both ends of every other window in this file take the same side of
+	// an ambiguity for the same reason.
+	//
+	// What that costs, stated exactly (all of it pinned by
+	// TestWidenedDayCostIsBoundedAndNeverFailsOpen and
+	// TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight, not asserted here):
+	//
+	//   - right/* leap-second variants (right/Egypt 2026-10-29, right/Asia/Beirut
+	//     2026-10-24, right/America/Santiago 2026-04-04): the earliest end frees 59
+	//     minutes of the enforced day; the latest end holds them and costs 1 minute
+	//     held whose clock already reads the next day.
+	//   - canonical zones: measured over all 553 the host provides for 2026-2031, the
+	//     end moves on exactly 12 zone-days, in two zones only — America/Havana and
+	//     Atlantic/Azores, whose fall-back repeats midnight — and the cost there is 60
+	//     minutes held whose clock already reads the next day. NO canonical zone frees
+	//     a minute of the enforced day, so this choice never fails open on canonical
+	//     data; it is also not "unaffected", which the earlier wording of this comment
+	//     claimed: an hour of holding is a real difference, and Havana is why the
+	//     endpoint subtest can fail on a host with no leap-second database at all.
+	//
+	// The daemon accepts a right/* timezone name without complaint, and this package
+	// does not fail open on the shapes it can reach.
 	if r.allDay {
 		return window{
 			rule:  r.def,

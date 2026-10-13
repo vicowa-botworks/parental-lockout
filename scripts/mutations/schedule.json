@@ -1,404 +1,435 @@
 {
-  "package": "./internal/schedule/",
-  "_about": "Each entry puts one known bug back into internal/schedule and the suite must fail. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
-  "mutants": [
-    {
-      "id": "S1",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !ok || now.Before(w.start) || !now.Before(w.end) {",
-      "new": "if !ok || now.Before(w.start) || now.Before(w.end) {"
-    },
-    {
-      "id": "S2",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !ok || now.Before(w.start) || !now.Before(w.end) {",
-      "new": "if !ok || !now.Before(w.start) || !now.Before(w.end) {"
-    },
-    {
-      "id": "S3",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !ok || now.Before(w.start) || !now.Before(w.end) {",
-      "new": "if !ok {"
-    },
-    {
-      "id": "S4",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !v.Active || w.end.After(v.EndsAt) {",
-      "new": "if !v.Active || w.end.Before(v.EndsAt) {"
-    },
-    {
-      "id": "S5",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !v.Active || w.end.After(v.EndsAt) {",
-      "new": "if !v.Active {"
-    },
-    {
-      "id": "S6",
-      "file": "internal/schedule/schedule.go",
-      "old": "if v.NextStart.IsZero() || w.start.Before(v.NextStart) {",
-      "new": "if v.NextStart.IsZero() || w.start.After(v.NextStart) {"
-    },
-    {
-      "id": "S7",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !r.Enabled {\n\t\t\tcontinue\n\t\t}",
-      "new": "if false {\n\t\t\tcontinue\n\t\t}"
-    },
-    {
-      "id": "S8",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !r.Enabled {\n\t\t\tcontinue\n\t\t}",
-      "new": "if true {\n\t\t\tcontinue\n\t\t}"
-    },
-    {
-      "id": "S11",
-      "file": "internal/schedule/schedule.go",
-      "old": "if r.endMin < r.startMin {",
-      "new": "if r.endMin <= r.startMin {"
-    },
-    {
-      "id": "S12",
-      "file": "internal/schedule/schedule.go",
-      "old": "if r.endMin < r.startMin {",
-      "new": "if false {"
-    },
-    {
-      "id": "S13",
-      "file": "internal/schedule/schedule.go",
-      "old": "return time.Date(y, m, d, 12, 0, 0, 0, loc)",
-      "new": "return time.Date(y, m, d, 0, 0, 0, 0, loc)"
-    },
-    {
-      "id": "S14",
-      "file": "internal/schedule/schedule.go",
-      "old": "return time.Date(y, m, d, 12, 0, 0, 0, loc)",
-      "new": "return time.Date(y, m, d, 12, 0, 0, 0, time.UTC)",
-      "note": "windowOn only ever reads Date() and Weekday() off the anchor, and the mutated anchor carries the same y/m/d numbers, so the two agree everywhere"
-    },
-    {
-      "id": "S15",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !end.After(start) {",
-      "new": "if end.Before(start) {"
-    },
-    {
-      "id": "S16",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !end.After(start) {",
-      "new": "if false {"
-    },
-    {
-      "id": "S17",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !okStart {\n\t\t\tbad = append(bad, fmt.Sprintf(\"start %q is not HH:MM on a 24-hour clock\", r.Start))",
-      "new": "if false {\n\t\t\tbad = append(bad, fmt.Sprintf(\"start %q is not HH:MM on a 24-hour clock\", r.Start))"
-    },
-    {
-      "id": "S18",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !okEnd {\n\t\t\tbad = append(bad, fmt.Sprintf(\"end %q is not HH:MM on a 24-hour clock\", r.End))",
-      "new": "if false {\n\t\t\tbad = append(bad, fmt.Sprintf(\"end %q is not HH:MM on a 24-hour clock\", r.End))"
-    },
-    {
-      "id": "S19",
-      "file": "internal/schedule/schedule.go",
-      "old": "if badDays && len(r.Days) == 0 {",
-      "new": "if false {"
-    },
-    {
-      "id": "S20",
-      "file": "internal/schedule/schedule.go",
-      "old": "for i := 0; i < NextStartHorizon; i++ {",
-      "new": "for i := 0; i < NextStartHorizon-2; i++ {"
-    },
-    {
-      "id": "S21",
-      "file": "internal/schedule/schedule.go",
-      "old": "for i := 0; i < NextStartHorizon; i++ {",
-      "new": "for i := 1; i < NextStartHorizon; i++ {"
-    },
-    {
-      "id": "S22",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !ok || !w.start.After(now) {",
-      "new": "if !ok {"
-    },
-    {
-      "id": "S23",
-      "file": "internal/schedule/schedule.go",
-      "old": "if !ok || !w.start.After(now) {",
-      "new": "if !ok || !w.start.Before(now) {"
-    },
-    {
-      "id": "S24",
-      "file": "internal/schedule/schedule.go",
-      "old": "const NextStartHorizon = 8",
-      "new": "const NextStartHorizon = 6"
-    },
-    {
-      "id": "S25",
-      "file": "internal/schedule/schedule.go",
-      "old": "const NextStartHorizon = 8",
-      "new": "const NextStartHorizon = 9",
-      "equivalent": true,
-      "note": "a longer horizon still finds every opening; only the exact-8 proof in property_test pins the constant, and S24 covers the unsafe direction"
-    },
-    {
-      "id": "S26",
-      "file": "internal/schedule/schedule.go",
-      "old": "if name == \"\" {\n\t\treturn time.Local\n\t}",
-      "new": "if name == \"\" {\n\t\treturn time.UTC\n\t}"
-    },
-    {
-      "id": "S27",
-      "file": "internal/schedule/schedule.go",
-      "old": "if err != nil {\n\t\treturn time.Local\n\t}",
-      "new": "if err != nil {\n\t\treturn time.UTC\n\t}"
-    },
-    {
-      "id": "S28",
-      "file": "internal/schedule/schedule.go",
-      "old": "v.Rule = w.rule",
-      "new": "v.Rule = nil"
-    },
-    {
-      "id": "S29",
-      "file": "internal/schedule/schedule.go",
-      "old": "if len(rules) == 0 {\n\t\treturn v\n\t}",
-      "new": "if false {\n\t\treturn v\n\t}",
-      "equivalent": true,
-      "note": "a fast path: with no compiled rules both loops iterate over nothing and the zero Verdict is what the loops would leave anyway"
-    },
-    {
-      "id": "S30",
-      "file": "internal/schedule/schedule.go",
-      "old": "today := anchor(loc, now)",
-      "new": "today := now"
-    },
-    {
-      "id": "W1",
-      "file": "internal/schedule/wall.go",
-      "old": "if best.IsZero() || (last && c.After(best)) || (!last && c.Before(best)) {",
-      "new": "if best.IsZero() || (last && c.Before(best)) || (!last && c.After(best)) {"
-    },
-    {
-      "id": "W4",
-      "file": "internal/schedule/wall.go",
-      "old": "candidates[i].Before(candidates[j])",
-      "new": "candidates[i].After(candidates[j])"
-    },
-    {
-      "id": "W5",
-      "file": "internal/schedule/wall.go",
-      "old": "return hi.Truncate(time.Second)",
-      "new": "return hi"
-    },
-    {
-      "id": "W6",
-      "file": "internal/schedule/wall.go",
-      "old": "for hi.Sub(lo) > time.Second {",
-      "new": "for hi.Sub(lo) > time.Minute {"
-    },
-    {
-      "id": "W7",
-      "file": "internal/schedule/wall.go",
-      "old": "if offsetAt(mid, loc) == offsetAt(lo, loc) {\n\t\t\tlo = mid\n\t\t} else {\n\t\t\thi = mid\n\t\t}",
-      "new": "if offsetAt(mid, loc) == offsetAt(lo, loc) {\n\t\t\thi = mid\n\t\t} else {\n\t\t\tlo = mid\n\t\t}"
-    },
-    {
-      "id": "W8",
-      "file": "internal/schedule/wall.go",
-      "old": "return ly == y && lmo == mo && ld == day && lh*60+lm == min",
-      "new": "return ly >= y && lmo == mo && ld == day && lh*60+lm == min",
-      "equivalent": true,
-      "note": "every candidate is within a day of the requested date, so day+minute already exclude a year mismatch; documented on readsAs"
-    },
-    {
-      "id": "W9",
-      "file": "internal/schedule/wall.go",
-      "old": "return ly == y && lmo == mo && ld == day && lh*60+lm == min",
-      "new": "return ly == y && lmo == mo && ld == day && lh*60+lm >= 0"
-    },
-    {
-      "id": "W10",
-      "file": "internal/schedule/wall.go",
-      "old": "return time.Duration(seconds) * time.Second",
-      "new": "return time.Duration(seconds) * time.Minute"
-    },
-    {
-      "id": "W12",
-      "file": "internal/schedule/wall.go",
-      "old": "noon := time.Date(y, mo, day, 12, 0, 0, 0, loc)",
-      "new": "noon := time.Date(y, mo, day, 0, 0, 0, 0, loc)"
-    },
-    {
-      "id": "W13",
-      "file": "internal/schedule/wall.go",
-      "old": "c := time.Date(y, mo, day, h, mm, 0, 0, time.UTC).Add(-off)",
-      "new": "c := time.Date(y, mo, day, h, mm, 0, 0, time.UTC).Add(off)",
-      "note": "produces candidates that never read back, so the bisection still lands on the jump for the shapes tested; kept to record it was tried"
-    },
-    {
-      "id": "R1",
-      "file": "internal/schedule/schedule.go",
-      "old": "if p.Timezone != \"\" {\n\t\tif _, err := time.LoadLocation(p.Timezone); err != nil {",
-      "new": "if false {\n\t\tif _, err := time.LoadLocation(p.Timezone); err != nil {"
-    },
-    {
-      "id": "R2",
-      "file": "internal/schedule/schedule.go",
-      "old": "if p.Timezone != \"\" {",
-      "new": "if true {",
-      "equivalent": true,
-      "note": "time.LoadLocation(\"\") returns UTC with a nil error, so an empty zone appends nothing either way; the guard is documentation, not behaviour"
-    },
-    {
-      "id": "R3",
-      "file": "internal/schedule/schedule.go",
-      "old": "empty := okStart && okEnd && start == end",
-      "new": "empty := false"
-    },
-    {
-      "id": "R4",
-      "file": "internal/schedule/schedule.go",
-      "old": "empty := okStart && okEnd && start == end",
-      "new": "empty := okStart && okEnd && start != end"
-    },
-    {
-      "id": "R5",
-      "file": "internal/schedule/schedule.go",
-      "old": "_, errs := compile(p.Rules)",
-      "new": "errs := []error{}"
-    },
-    {
-      "id": "F1",
-      "file": "internal/schedule/schedule.go",
-      "old": "end := wallInstant(loc, y, mo, endDay, r.endMin, true)",
-      "new": "end := time.Date(y, mo, endDay, r.endMin/60, r.endMin%60, 0, 0, loc)"
-    },
-    {
-      "id": "F2",
-      "file": "internal/schedule/schedule.go",
-      "old": "start := wallInstant(loc, y, mo, d, r.startMin, false)",
-      "new": "start := time.Date(y, mo, d, r.startMin/60, r.startMin%60, 0, 0, loc)"
-    },
-    {
-      "id": "L1",
-      "file": "internal/schedule/schedule.go",
-      "old": "\t\tfor _, day := range [windowLookback]time.Time{\n\t\t\ttoday.AddDate(0, 0, -2), today.AddDate(0, 0, -1), today,\n\t\t} {",
-      "new": "\t\tfor _, day := range [2]time.Time{\n\t\t\ttoday.AddDate(0, 0, -1), today,\n\t\t} {"
-    },
-    {
-      "id": "L2",
-      "file": "internal/schedule/schedule.go",
-      "old": "today.AddDate(0, 0, -2), today.AddDate(0, 0, -1), today,",
-      "new": "today.AddDate(0, 0, -1), today.AddDate(0, 0, -1), today,"
-    },
-    {
-      "id": "P1",
-      "file": "internal/schedule/wall.go",
-      "old": "const uniqueProbe = 27 * time.Hour",
-      "new": "const uniqueProbe = 2 * time.Hour"
-    },
-    {
-      "id": "P2",
-      "file": "internal/schedule/wall.go",
-      "old": "const uniqueProbe = 27 * time.Hour",
-      "new": "const uniqueProbe = 4 * time.Hour"
-    },
-    {
-      "id": "P3",
-      "file": "internal/schedule/wall.go",
-      "old": "const uniqueProbe = 27 * time.Hour",
-      "new": "const uniqueProbe = 13 * time.Hour"
-    },
-    {
-      "id": "P4",
-      "file": "internal/schedule/wall.go",
-      "old": "const uniqueProbe = 27 * time.Hour",
-      "new": "const uniqueProbe = 47 * time.Hour"
-    },
-    {
-      "id": "P5",
-      "file": "internal/schedule/wall.go",
-      "old": "for h := -36; h <= 36; h += 6 {",
-      "new": "for h := -36; h <= 36; h += 12 {",
-      "equivalent": "no zone in the tz database triggers this; the shipped value is the one the proof needs, not the one today's data distinguishes",
-      "note": "a denser sample grid is not empirically distinguishable on real tzdata -- no zone triggers the blind spot a coarser grid has; the test pins the requirement, so a future tzdata that does trigger it is caught"
-    },
-    {
-      "id": "P6",
-      "file": "internal/schedule/wall.go",
-      "old": "for h := -36; h <= 36; h += 6 {",
-      "new": "for h := -12; h <= 12; h += 6 {"
-    },
-    {
-      "id": "P7",
-      "file": "internal/schedule/wall.go",
-      "old": "return ly == y && lmo == mo && ld == day && lh*60+lm == min",
-      "new": "return ly == y && lmo == mo && ld == day && lh*60+lm >= 0"
-    },
-    {
-      "id": "P8",
-      "file": "internal/schedule/wall.go",
-      "old": "if readsAs(t, loc, y, mo, day, min) &&",
-      "new": "if readsAs(t, loc, y, mo, day, min) ||"
-    },
-    {
-      "id": "PD1",
-      "file": "internal/schedule/schedule.go",
-      "old": "badDays := len(r.Days) == 0",
-      "new": "badDays := false",
-      "note": "an empty day list stops widening"
-    },
-    {
-      "id": "PD2",
-      "file": "internal/schedule/schedule.go",
-      "old": "badDays = true",
-      "new": "badDays = false",
-      "note": "a mistyped weekday stops widening -- the reviewer's mon/tues case"
-    },
-    {
-      "id": "PD3",
-      "file": "internal/schedule/schedule.go",
-      "old": "if badDays {\n\t\t\tdays = everyDay()\n\t\t}",
-      "new": "if false {\n\t\t\tdays = everyDay()\n\t\t}",
-      "note": "the widened days are never applied"
-    },
-    {
-      "id": "PD4",
-      "file": "internal/schedule/schedule.go",
-      "old": "allDay := !okStart || !okEnd || (empty && badDays)",
-      "new": "allDay := false",
-      "note": "an unreadable clock never widens"
-    },
-    {
-      "id": "PD5",
-      "file": "internal/schedule/schedule.go",
-      "old": "allDay := !okStart || !okEnd || (empty && badDays)",
-      "new": "allDay := !okStart && !okEnd",
-      "note": "only widens when both clocks are unreadable, so one bad box is enough to escape"
-    },
-    {
-      "id": "PD6",
-      "file": "internal/schedule/schedule.go",
-      "old": "allDay := !okStart || !okEnd || (empty && badDays)",
-      "new": "allDay := !okStart || !okEnd",
-      "note": "the empty-window-plus-bad-days case stops widening -- the bug the round-3 policy introduced"
-    },
-    {
-      "id": "PD7",
-      "file": "internal/schedule/schedule.go",
-      "old": "zeroLength := empty && !badDays",
-      "new": "zeroLength := empty",
-      "note": "a zero-length rule with unreadable days is skipped instead of widened"
-    },
-    {
-      "id": "W14",
-      "file": "internal/schedule/schedule.go",
-      "old": "end:   wallInstant(loc, y, mo, d+1, 0, true),",
-      "new": "end:   wallInstant(loc, y, mo, d+1, 0, false),",
-      "note": "the widened day ends at the FIRST reading of the next midnight, freeing the repeated hour of the enforced day (59 minutes in right/Egypt)"
-    }
-  ]
+ "package": "./internal/schedule/",
+ "_about": "Each entry puts one known bug back into internal/schedule and the suite must fail. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
+ "mutants": [
+  {
+   "id": "S1",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !ok || now.Before(w.start) || !now.Before(w.end) {",
+   "new": "if !ok || now.Before(w.start) || now.Before(w.end) {"
+  },
+  {
+   "id": "S2",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !ok || now.Before(w.start) || !now.Before(w.end) {",
+   "new": "if !ok || !now.Before(w.start) || !now.Before(w.end) {"
+  },
+  {
+   "id": "S3",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !ok || now.Before(w.start) || !now.Before(w.end) {",
+   "new": "if !ok {"
+  },
+  {
+   "id": "S4",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !v.Active || w.end.After(v.EndsAt) {",
+   "new": "if !v.Active || w.end.Before(v.EndsAt) {"
+  },
+  {
+   "id": "S5",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !v.Active || w.end.After(v.EndsAt) {",
+   "new": "if !v.Active {"
+  },
+  {
+   "id": "S6",
+   "file": "internal/schedule/schedule.go",
+   "old": "if v.NextStart.IsZero() || w.start.Before(v.NextStart) {",
+   "new": "if v.NextStart.IsZero() || w.start.After(v.NextStart) {"
+  },
+  {
+   "id": "S7",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !r.Enabled {\n\t\t\tcontinue\n\t\t}",
+   "new": "if false {\n\t\t\tcontinue\n\t\t}"
+  },
+  {
+   "id": "S8",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !r.Enabled {\n\t\t\tcontinue\n\t\t}",
+   "new": "if true {\n\t\t\tcontinue\n\t\t}"
+  },
+  {
+   "id": "S11",
+   "file": "internal/schedule/schedule.go",
+   "old": "if r.endMin < r.startMin {",
+   "new": "if r.endMin <= r.startMin {"
+  },
+  {
+   "id": "S12",
+   "file": "internal/schedule/schedule.go",
+   "old": "if r.endMin < r.startMin {",
+   "new": "if false {"
+  },
+  {
+   "id": "S13",
+   "file": "internal/schedule/schedule.go",
+   "old": "return time.Date(y, m, d, 12, 0, 0, 0, loc)",
+   "new": "return time.Date(y, m, d, 0, 0, 0, 0, loc)"
+  },
+  {
+   "id": "S14",
+   "file": "internal/schedule/schedule.go",
+   "old": "return time.Date(y, m, d, 12, 0, 0, 0, loc)",
+   "new": "return time.Date(y, m, d, 12, 0, 0, 0, time.UTC)",
+   "note": "windowOn only ever reads Date() and Weekday() off the anchor, and the mutated anchor carries the same y/m/d numbers, so the two agree everywhere"
+  },
+  {
+   "id": "S15",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !end.After(start) {",
+   "new": "if end.Before(start) {"
+  },
+  {
+   "id": "S16",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !end.After(start) {",
+   "new": "if false {"
+  },
+  {
+   "id": "S17",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !okStart {\n\t\t\tbad = append(bad, fmt.Sprintf(\"start %q is not HH:MM on a 24-hour clock\", r.Start))",
+   "new": "if false {\n\t\t\tbad = append(bad, fmt.Sprintf(\"start %q is not HH:MM on a 24-hour clock\", r.Start))"
+  },
+  {
+   "id": "S18",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !okEnd {\n\t\t\tbad = append(bad, fmt.Sprintf(\"end %q is not HH:MM on a 24-hour clock\", r.End))",
+   "new": "if false {\n\t\t\tbad = append(bad, fmt.Sprintf(\"end %q is not HH:MM on a 24-hour clock\", r.End))"
+  },
+  {
+   "id": "S19",
+   "file": "internal/schedule/schedule.go",
+   "old": "if badDays && len(r.Days) == 0 {",
+   "new": "if false {"
+  },
+  {
+   "id": "S20",
+   "file": "internal/schedule/schedule.go",
+   "old": "for i := 0; i < NextStartHorizon; i++ {",
+   "new": "for i := 0; i < NextStartHorizon-2; i++ {"
+  },
+  {
+   "id": "S21",
+   "file": "internal/schedule/schedule.go",
+   "old": "for i := 0; i < NextStartHorizon; i++ {",
+   "new": "for i := 1; i < NextStartHorizon; i++ {"
+  },
+  {
+   "id": "S22",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !ok || !w.start.After(now) {",
+   "new": "if !ok {"
+  },
+  {
+   "id": "S23",
+   "file": "internal/schedule/schedule.go",
+   "old": "if !ok || !w.start.After(now) {",
+   "new": "if !ok || !w.start.Before(now) {"
+  },
+  {
+   "id": "S24",
+   "file": "internal/schedule/schedule.go",
+   "old": "const NextStartHorizon = 8",
+   "new": "const NextStartHorizon = 6"
+  },
+  {
+   "id": "S25",
+   "file": "internal/schedule/schedule.go",
+   "old": "const NextStartHorizon = 8",
+   "new": "const NextStartHorizon = 9",
+   "equivalent": true,
+   "note": "a longer horizon still finds every opening; only the exact-8 proof in property_test pins the constant, and S24 covers the unsafe direction"
+  },
+  {
+   "id": "S26",
+   "file": "internal/schedule/schedule.go",
+   "old": "if name == \"\" {\n\t\treturn time.Local\n\t}",
+   "new": "if name == \"\" {\n\t\treturn time.UTC\n\t}"
+  },
+  {
+   "id": "S27",
+   "file": "internal/schedule/schedule.go",
+   "old": "if err != nil {\n\t\treturn time.Local\n\t}",
+   "new": "if err != nil {\n\t\treturn time.UTC\n\t}"
+  },
+  {
+   "id": "S28",
+   "file": "internal/schedule/schedule.go",
+   "old": "v.Rule = w.rule",
+   "new": "v.Rule = nil"
+  },
+  {
+   "id": "S29",
+   "file": "internal/schedule/schedule.go",
+   "old": "if len(rules) == 0 {\n\t\treturn v\n\t}",
+   "new": "if false {\n\t\treturn v\n\t}",
+   "equivalent": true,
+   "note": "a fast path: with no compiled rules both loops iterate over nothing and the zero Verdict is what the loops would leave anyway"
+  },
+  {
+   "id": "S30",
+   "file": "internal/schedule/schedule.go",
+   "old": "today := anchor(loc, now)",
+   "new": "today := now"
+  },
+  {
+   "id": "W1",
+   "file": "internal/schedule/wall.go",
+   "old": "if best.IsZero() || (last && c.After(best)) || (!last && c.Before(best)) {",
+   "new": "if best.IsZero() || (last && c.Before(best)) || (!last && c.After(best)) {"
+  },
+  {
+   "id": "W4",
+   "file": "internal/schedule/wall.go",
+   "old": "candidates[i].Before(candidates[j])",
+   "new": "candidates[i].After(candidates[j])"
+  },
+  {
+   "id": "W5",
+   "file": "internal/schedule/wall.go",
+   "old": "return hi.Truncate(time.Second)",
+   "new": "return hi"
+  },
+  {
+   "id": "W6",
+   "file": "internal/schedule/wall.go",
+   "old": "for hi.Sub(lo) > time.Second {",
+   "new": "for hi.Sub(lo) > time.Minute {"
+  },
+  {
+   "id": "W7",
+   "file": "internal/schedule/wall.go",
+   "old": "if offsetAt(mid, loc) == offsetAt(lo, loc) {\n\t\t\tlo = mid\n\t\t} else {\n\t\t\thi = mid\n\t\t}",
+   "new": "if offsetAt(mid, loc) == offsetAt(lo, loc) {\n\t\t\thi = mid\n\t\t} else {\n\t\t\tlo = mid\n\t\t}"
+  },
+  {
+   "id": "W8",
+   "file": "internal/schedule/wall.go",
+   "old": "return ly == y && lmo == mo && ld == day && lh*60+lm == min",
+   "new": "return ly >= y && lmo == mo && ld == day && lh*60+lm == min",
+   "equivalent": true,
+   "note": "every candidate is within a day of the requested date, so day+minute already exclude a year mismatch; documented on readsAs"
+  },
+  {
+   "id": "W9",
+   "file": "internal/schedule/wall.go",
+   "old": "return ly == y && lmo == mo && ld == day && lh*60+lm == min",
+   "new": "return ly == y && lmo == mo && ld == day && lh*60+lm >= 0"
+  },
+  {
+   "id": "W10",
+   "file": "internal/schedule/wall.go",
+   "old": "return time.Duration(seconds) * time.Second",
+   "new": "return time.Duration(seconds) * time.Minute"
+  },
+  {
+   "id": "W12",
+   "file": "internal/schedule/wall.go",
+   "old": "noon := time.Date(y, mo, day, 12, 0, 0, 0, loc)",
+   "new": "noon := time.Date(y, mo, day, 0, 0, 0, 0, loc)"
+  },
+  {
+   "id": "W13",
+   "file": "internal/schedule/wall.go",
+   "old": "c := time.Date(y, mo, day, h, mm, 0, 0, time.UTC).Add(-off)",
+   "new": "c := time.Date(y, mo, day, h, mm, 0, 0, time.UTC).Add(off)",
+   "note": "produces candidates that never read back, so the bisection still lands on the jump for the shapes tested; kept to record it was tried"
+  },
+  {
+   "id": "R1",
+   "file": "internal/schedule/schedule.go",
+   "old": "if p.Timezone != \"\" {\n\t\tif _, err := time.LoadLocation(p.Timezone); err != nil {",
+   "new": "if false {\n\t\tif _, err := time.LoadLocation(p.Timezone); err != nil {"
+  },
+  {
+   "id": "R2",
+   "file": "internal/schedule/schedule.go",
+   "old": "if p.Timezone != \"\" {",
+   "new": "if true {",
+   "equivalent": true,
+   "note": "time.LoadLocation(\"\") returns UTC with a nil error, so an empty zone appends nothing either way; the guard is documentation, not behaviour"
+  },
+  {
+   "id": "R3",
+   "file": "internal/schedule/schedule.go",
+   "old": "empty := okStart && okEnd && start == end",
+   "new": "empty := false"
+  },
+  {
+   "id": "R4",
+   "file": "internal/schedule/schedule.go",
+   "old": "empty := okStart && okEnd && start == end",
+   "new": "empty := okStart && okEnd && start != end"
+  },
+  {
+   "id": "R5",
+   "file": "internal/schedule/schedule.go",
+   "old": "_, errs := compile(p.Rules)",
+   "new": "errs := []error{}"
+  },
+  {
+   "id": "F1",
+   "file": "internal/schedule/schedule.go",
+   "old": "end := wallInstant(loc, y, mo, endDay, r.endMin, true)",
+   "new": "end := time.Date(y, mo, endDay, r.endMin/60, r.endMin%60, 0, 0, loc)"
+  },
+  {
+   "id": "F2",
+   "file": "internal/schedule/schedule.go",
+   "old": "start := wallInstant(loc, y, mo, d, r.startMin, false)",
+   "new": "start := time.Date(y, mo, d, r.startMin/60, r.startMin%60, 0, 0, loc)"
+  },
+  {
+   "id": "L1",
+   "file": "internal/schedule/schedule.go",
+   "old": "\t\tfor _, day := range [windowLookback]time.Time{\n\t\t\ttoday.AddDate(0, 0, -2), today.AddDate(0, 0, -1), today,\n\t\t} {",
+   "new": "\t\tfor _, day := range [2]time.Time{\n\t\t\ttoday.AddDate(0, 0, -1), today,\n\t\t} {"
+  },
+  {
+   "id": "L2",
+   "file": "internal/schedule/schedule.go",
+   "old": "today.AddDate(0, 0, -2), today.AddDate(0, 0, -1), today,",
+   "new": "today.AddDate(0, 0, -1), today.AddDate(0, 0, -1), today,"
+  },
+  {
+   "id": "P1",
+   "file": "internal/schedule/wall.go",
+   "old": "const uniqueProbe = 27 * time.Hour",
+   "new": "const uniqueProbe = 2 * time.Hour"
+  },
+  {
+   "id": "P2",
+   "file": "internal/schedule/wall.go",
+   "old": "const uniqueProbe = 27 * time.Hour",
+   "new": "const uniqueProbe = 4 * time.Hour"
+  },
+  {
+   "id": "P3",
+   "file": "internal/schedule/wall.go",
+   "old": "const uniqueProbe = 27 * time.Hour",
+   "new": "const uniqueProbe = 13 * time.Hour"
+  },
+  {
+   "id": "P4",
+   "file": "internal/schedule/wall.go",
+   "old": "const uniqueProbe = 27 * time.Hour",
+   "new": "const uniqueProbe = 47 * time.Hour"
+  },
+  {
+   "id": "P5",
+   "file": "internal/schedule/wall.go",
+   "old": "for h := -36; h <= 36; h += 6 {",
+   "new": "for h := -36; h <= 36; h += 12 {",
+   "equivalent": "no zone in the tz database triggers this; the shipped value is the one the proof needs, not the one today's data distinguishes",
+   "note": "a denser sample grid is not empirically distinguishable on real tzdata -- no zone triggers the blind spot a coarser grid has; the test pins the requirement, so a future tzdata that does trigger it is caught"
+  },
+  {
+   "id": "P6",
+   "file": "internal/schedule/wall.go",
+   "old": "for h := -36; h <= 36; h += 6 {",
+   "new": "for h := -12; h <= 12; h += 6 {"
+  },
+  {
+   "id": "P7",
+   "file": "internal/schedule/wall.go",
+   "old": "return ly == y && lmo == mo && ld == day && lh*60+lm == min",
+   "new": "return ly == y && lmo == mo && ld == day && lh*60+lm >= 0"
+  },
+  {
+   "id": "P8",
+   "file": "internal/schedule/wall.go",
+   "old": "if readsAs(t, loc, y, mo, day, min) &&",
+   "new": "if readsAs(t, loc, y, mo, day, min) ||"
+  },
+  {
+   "id": "PD1",
+   "file": "internal/schedule/schedule.go",
+   "old": "badDays := len(r.Days) == 0",
+   "new": "badDays := false",
+   "note": "an empty day list stops widening"
+  },
+  {
+   "id": "PD2",
+   "file": "internal/schedule/schedule.go",
+   "old": "badDays = true",
+   "new": "badDays = false",
+   "note": "a mistyped weekday stops widening -- the reviewer's mon/tues case"
+  },
+  {
+   "id": "PD3",
+   "file": "internal/schedule/schedule.go",
+   "old": "if badDays {\n\t\t\tdays = everyDay()\n\t\t}",
+   "new": "if false {\n\t\t\tdays = everyDay()\n\t\t}",
+   "note": "the widened days are never applied"
+  },
+  {
+   "id": "PD4",
+   "file": "internal/schedule/schedule.go",
+   "old": "allDay := !okStart || !okEnd || (empty && badDays)",
+   "new": "allDay := false",
+   "note": "an unreadable clock never widens"
+  },
+  {
+   "id": "PD5",
+   "file": "internal/schedule/schedule.go",
+   "old": "allDay := !okStart || !okEnd || (empty && badDays)",
+   "new": "allDay := !okStart && !okEnd",
+   "note": "only widens when both clocks are unreadable, so one bad box is enough to escape"
+  },
+  {
+   "id": "PD6",
+   "file": "internal/schedule/schedule.go",
+   "old": "allDay := !okStart || !okEnd || (empty && badDays)",
+   "new": "allDay := !okStart || !okEnd",
+   "note": "the empty-window-plus-bad-days case stops widening -- the bug the round-3 policy introduced"
+  },
+  {
+   "id": "PD7",
+   "file": "internal/schedule/schedule.go",
+   "old": "zeroLength := empty && !badDays",
+   "new": "zeroLength := empty",
+   "note": "a zero-length rule with unreadable days is skipped instead of widened"
+  },
+  {
+   "id": "W14",
+   "file": "internal/schedule/schedule.go",
+   "old": "end:   wallInstant(loc, y, mo, d+1, 0, true),",
+   "new": "end:   wallInstant(loc, y, mo, d+1, 0, false),",
+   "note": "the widened day ends at the FIRST reading of the next midnight, freeing the repeated hour of the enforced day (59 minutes in right/Egypt)"
+  },
+  {
+   "id": "W15",
+   "file": "internal/schedule/dst_test.go",
+   "old": "add(dc.day.AddDate(0, 0, -1))",
+   "new": "add(dc.day)",
+   "note": "issue #20: drops the day-before-each-change-day from the walk. add() dedupes, so this is exactly 'the predecessor is never walked'. The consequence walk then checks only minutes that cannot fail for Havana and right/America/Santiago, and the per-zone ambiguity guard must report that rather than pass."
+  },
+  {
+   "id": "W16",
+   "file": "internal/schedule/dst_test.go",
+   "old": "if mustHaveAmbiguity && ambiguousDays == 0 {",
+   "new": "if false && mustHaveAmbiguity && ambiguousDays == 0 {",
+   "note": "meta-guard, not killable as a single mutant: with the day list correct no candidate is ever vacuous, so neutering the assertion changes nothing observable. Its load-bearingness is proven by the PAIR, and that was checked by hand rather than assumed: applying W15 alone the suite FAILS, applying W15 and W16 together the suite PASSES -- which is precisely the state #20 was filed from, a live bug reported green. So W15 being caught is the guard's proof, and this entry exists so nobody 'cleans up' the guard as dead code.",
+   "equivalent": true
+  },
+  {
+   "id": "W17",
+   "file": "internal/schedule/widenedcost_test.go",
+   "old": "if freedAnywhere != 0 {",
+   "new": "if false && freedAnywhere != 0 {",
+   "equivalent": true,
+   "note": "future-data guard: no canonical zone frees a minute on the current database, so neutering the assertion cannot fail here. It is kept because its whole job is to fire the day a tzdata edit brings the shape into canonical data, which is the same reason the property is asserted at all."
+  },
+  {
+   "id": "W18",
+   "file": "internal/schedule/widenedcost_test.go",
+   "old": "if worstCost > time.Hour {",
+   "new": "if worstCost > 24*time.Hour {",
+   "equivalent": true,
+   "note": "future-data guard: the measured worst canonical cost is exactly 1h, so widening the ceiling cannot fail on current data. Kept so a database that moves a canonical clock further forces the schedule.go cost sentence to be re-measured."
+  }
+ ]
 }
