@@ -280,7 +280,7 @@ func modelNextStart(rules []config.Rule, now time.Time) time.Time {
 			continue
 		}
 
-		for d := 0; d <= NextStartHorizon; d++ {
+		for d := 0; d < NextStartHorizon; d++ {
 			day := now.AddDate(0, 0, d)
 			if !listed(r, day.Weekday()) {
 				continue

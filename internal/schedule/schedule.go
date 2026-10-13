@@ -74,11 +74,14 @@ type Verdict struct {
 	NextStart time.Time
 }
 
-// NextStartHorizon is how far ahead NextStart looks, in days.
+// NextStartHorizon is how many days ahead NextStart looks, counting today as the
+// first of them.
 //
-// Eight: seven weekdays to cover every rule whatever its day set, plus one so
-// that a rule on the same weekday as today is still found rather than being
-// missed as "already passed".
+// Eight: seven weekdays to cover a rule whatever its day set, plus one so that a
+// rule on today's weekday is still found after today's window has closed.
+// Neither can be dropped — TestNextStartHorizonIsSufficient walks every pairing
+// of start day and rule day — and no rule needs a ninth, because a weekly rule
+// always opens somewhere in the first eight days.
 const NextStartHorizon = 8
 
 // Evaluate reports whether p locks its accounts out at now.
@@ -124,7 +127,7 @@ func Evaluate(p *config.Profile, now time.Time) Verdict {
 	}
 
 	for _, r := range rules {
-		for i := 0; i <= NextStartHorizon; i++ {
+		for i := 0; i < NextStartHorizon; i++ {
 			w, ok := r.windowOn(today.AddDate(0, 0, i), loc)
 			if !ok || !w.start.After(now) {
 				continue
@@ -239,16 +242,6 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 		return window{}, false
 	}
 
-	// end == start is a zero-length window. Validate rejects it, but Load keeps a
-	// document it cannot validate — a hand edit has to keep enforcing — so the
-	// evaluator needs its own answer, and "this window is empty" is the only one
-	// that does not invent a 24-hour lockout from two boxes that say the same
-	// thing. Reading it as overnight instead would be the fail-open in reverse:
-	// a typo would silently never let the child use the machine at all.
-	if r.endMin == r.startMin {
-		return window{}, false
-	}
-
 	y, mo, d := day.Date()
 	start := time.Date(y, mo, d, r.startMin/60, r.startMin%60, 0, 0, loc)
 
@@ -261,17 +254,23 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 	}
 	end := time.Date(y, mo, endDay, r.endMin/60, r.endMin%60, 0, 0, loc)
 
-	// Both ends are wall-clock, so a transition can move one of them — and
+	// A window with no instant inside it is empty, and two things arrive here.
+	//
+	// end == start is the one a parent writes by accident, by typing the same
+	// time into both boxes. Validate rejects the shape, but Load keeps a document
+	// it cannot validate — a hand edit has to keep enforcing — so the evaluator
+	// needs its own answer. Reading it as overnight instead would be the
+	// fail-open in reverse: one typo would silently never let the child use the
+	// machine at all.
+	//
+	// end < start is the one nobody writes. Both ends are wall-clock, and
 	// time.Date is not monotonic in its wall-clock argument across a
 	// spring-forward gap: the times inside the gap resolve into the shifted hour
 	// and land after real times that are earlier on the wall. In Berlin on
 	// 2026-03-29, 02:59 resolves to 03:59 while 03:00 resolves to 03:00, so the
-	// legal, Validate-approved rule 02:59-03:00 comes back with its end before
-	// its start.
+	// legal, Validate-approved rule 02:59-03:00 comes back reversed.
 	//
-	// There is no instant inside such a window, so it is reported as empty. The
-	// alternative — normalising it somehow — would invent a lockout the parent
-	// never wrote, on one night a year, in one timezone.
+	// Normalising either one would invent a lockout the parent never wrote.
 	if !end.After(start) {
 		return window{}, false
 	}

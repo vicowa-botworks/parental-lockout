@@ -1,6 +1,7 @@
 package schedule
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -646,4 +647,46 @@ func TestPackagesAgreeOnWhatARuleMeans(t *testing.T) {
 			}
 		}
 	})
+}
+
+// The horizon exists so that a rule is never reported as "nothing scheduled"
+// when it is merely later in the week. Every pairing of a start day with a rule
+// day has to come back with an opening — including the pairing where they are the
+// same weekday and that day's window has already closed, which is the case the
+// eighth day is there for.
+//
+// The weekday is checked against the model's own table rather than the
+// evaluator's, so a horizon that reached the wrong week could not agree with
+// itself.
+func TestNextStartHorizonIsSufficient(t *testing.T) {
+	loc := utc(t)
+
+	for offset := 0; offset < 7; offset++ {
+		// Noon, so a 09:00-10:00 rule on today's weekday has already passed.
+		today := at(loc, 2026, 10, 5, 12, 0).AddDate(0, 0, offset)
+
+		for _, day := range config.DayNames {
+			p := profile("UTC", rule("one", []string{day}, "09:00", "10:00"))
+
+			v := Evaluate(p, today)
+			label := fmt.Sprintf("rule on %s seen from %s", day, today.Format("Mon 2006-01-02"))
+
+			if v.NextStart.IsZero() {
+				t.Errorf("%s: reported nothing scheduled", label)
+				continue
+			}
+			if got := v.NextStart.Weekday(); got != modelDays[day] {
+				t.Errorf("%s: NextStart is on a %s", label, got)
+			}
+			if !v.NextStart.After(today) {
+				t.Errorf("%s: NextStart %s is not ahead of now", label, v.NextStart)
+			}
+			// The nearest such weekday is never more than a week off once today's
+			// own window has closed, so anything further out means the walk
+			// overshot.
+			if gap := v.NextStart.Sub(today); gap > 7*24*time.Hour {
+				t.Errorf("%s: NextStart is %v away, more than a week", label, gap)
+			}
+		}
+	}
 }

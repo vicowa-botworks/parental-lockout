@@ -326,6 +326,7 @@ func TestDSTWindowTheClockReverses(t *testing.T) {
 	}
 }
 
+// A profile in a zone with no DST at all is the common case for a family that
 // never changes its clocks, and it must not be disturbed by what the machine's
 // own zone does.
 func TestDSTZoneWithoutTransitions(t *testing.T) {
@@ -350,5 +351,125 @@ func TestDSTZoneWithoutTransitions(t *testing.T) {
 	}
 	if v := Evaluate(berlin, now); v.Active {
 		t.Errorf("the Berlin profile was active at %s, outside 21:00-06:00", v.StartedAt)
+	}
+}
+
+// Some zones change their clocks at midnight rather than in the small hours, and
+// in those a calendar day genuinely has no midnight: in America/Havana on
+// 2026-03-08, time.Date(..., 0, 0, ...) resolves to 23:00 on the 7th.
+//
+// That is a fail-open, not a curiosity. Anchor the day walk on midnight and the
+// transition Sunday evaluates as a Saturday, so a Sunday lockout rule does not
+// fire on exactly one day a year — the day nobody thinks to test. Anchoring on
+// noon is what prevents it: no zone in the tz database moves its clock within
+// twelve hours of noon, so noon always belongs to the day it was built from.
+//
+// The list below is every zone in the installed tz database where a calendar
+// day's midnight resolves to a different calendar day. The test finds the day by
+// asking the database rather than trusting this comment, and skips a zone that
+// no longer has the property.
+func TestDSTZoneWhoseMidnightIsOnTheWrongDay(t *testing.T) {
+	for _, z := range []string{"America/Havana", "America/Santiago", "Atlantic/Azores", "Chile/Continental"} {
+		t.Run(z, func(t *testing.T) {
+			loc := zone(t, z)
+
+			var target time.Time
+			for i := 0; i < 366*3 && target.IsZero(); i++ {
+				// Enumerated through UTC: walking days in the zone under test
+				// would be shifted by the very effect being looked for, and the
+				// search would find nothing.
+				u := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, i)
+				y, mo, d := u.Date()
+				if mt, mm, md := time.Date(y, mo, d, 0, 0, 0, 0, loc).Date(); mt != y || mm != mo || md != d {
+					target = time.Date(y, mo, d, 21, 0, 0, 0, loc)
+				}
+			}
+			if target.IsZero() {
+				t.Skipf("%s has no missing midnight in this tz database", z)
+			}
+
+			p := profile(z, rule("once", []string{dayName(target.Weekday())}, "20:00", "23:00"))
+
+			// The evening exists; only the midnight around it does not. The rule
+			// has to fire on the day it names.
+			v := Evaluate(p, target)
+			if !v.Active {
+				t.Fatalf("the %s rule did not fire at 21:00 on %s, the day whose midnight is missing: %+v",
+					target.Weekday(), target.Format("2006-01-02"), v)
+			}
+			if want := time.Date(target.Year(), target.Month(), target.Day(), 23, 0, 0, 0, loc); !v.EndsAt.Equal(want) {
+				t.Errorf("EndsAt = %s, want 23:00 on %s", v.EndsAt, target.Format("2006-01-02"))
+			}
+
+			// And the day walk has to reach that day at all: from a week earlier
+			// the dashboard must be able to see the coming lockout, rather than
+			// reporting nothing because the walk stepped over the missing day.
+			opens := time.Date(target.Year(), target.Month(), target.Day(), 20, 0, 0, 0, loc)
+			weekBefore := time.Date(target.Year(), target.Month(), target.Day(), 12, 0, 0, 0, loc).AddDate(0, 0, -5)
+			if v := Evaluate(p, weekBefore); !v.NextStart.Equal(opens) {
+				t.Errorf("NextStart from %s = %s, want %s",
+					weekBefore.Format("2006-01-02"), v.NextStart.Format(time.RFC3339), opens.Format(time.RFC3339))
+			}
+		})
+	}
+}
+
+// dayName is the documented three-letter name for a weekday, read out of the same
+// table the evaluator reads rather than a parallel one.
+func dayName(w time.Weekday) string {
+	return config.DayNames[(int(w)+6)%7]
+}
+
+// The noon anchor is not only about the day being evaluated. Every overnight
+// window is found by walking back to yesterday, and in a zone whose clock change
+// lands on midnight, walking back from the small hours lands on the missing
+// midnight and resolves to the day before that.
+//
+// In America/Havana, from 00:00 to 00:59 on the Monday after the change, an
+// anchor built from the instant itself puts "yesterday" on a Saturday. A
+// Sunday-night lockout would then release the child at midnight instead of
+// holding them to 06:00 — in the small hours, which is precisely when a lockout
+// is there to hold. Anchoring on noon makes the walk land on a time that always
+// exists.
+func TestDSTYesterdayWalkAcrossAMidnightTransition(t *testing.T) {
+	for _, z := range []string{"America/Havana", "America/Santiago", "Atlantic/Azores", "Chile/Continental"} {
+		t.Run(z, func(t *testing.T) {
+			loc := zone(t, z)
+
+			var changed time.Time
+			for i := 0; i < 366*3 && changed.IsZero(); i++ {
+				u := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, i)
+				y, mo, d := u.Date()
+				if mt, mm, md := time.Date(y, mo, d, 0, 0, 0, 0, loc).Date(); mt != y || mm != mo || md != d {
+					changed = time.Date(y, mo, d, 12, 0, 0, 0, loc)
+				}
+			}
+			if changed.IsZero() {
+				t.Skipf("%s has no missing midnight in this tz database", z)
+			}
+
+			// A rule on the day of the change, running through the night after it.
+			p := profile(z, rule("weekend", []string{dayName(changed.Weekday())}, "22:00", "06:00"))
+
+			// The small hours of the following day. Built from that day's date
+			// rather than by adding hours to the change day: 00:30 on the change
+			// day is itself one of the times that does not exist, and would
+			// resolve to the evening before.
+			next := changed.AddDate(0, 0, 1)
+			earlyHours := time.Date(next.Year(), next.Month(), next.Day(), 0, 30, 0, 0, loc)
+
+			v := Evaluate(p, earlyHours)
+			if !v.Active {
+				t.Fatalf("released at %02d:%02d on the %s after the change, inside the %s-night window: %+v",
+					earlyHours.Hour(), earlyHours.Minute(), earlyHours.Weekday(),
+					changed.Weekday(), v)
+			}
+			if want := time.Date(changed.Year(), changed.Month(), changed.Day(), 22, 0, 0, 0, loc); !v.StartedAt.Equal(want) {
+				t.Errorf("StartedAt = %s, want 22:00 on %s", v.StartedAt, changed.Format("2006-01-02"))
+			}
+			if want := time.Date(earlyHours.Year(), earlyHours.Month(), earlyHours.Day(), 6, 0, 0, 0, loc); !v.EndsAt.Equal(want) {
+				t.Errorf("EndsAt = %s, want 06:00 on %s", v.EndsAt, earlyHours.Format("2006-01-02"))
+			}
+		})
 	}
 }
