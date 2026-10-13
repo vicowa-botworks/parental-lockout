@@ -1,0 +1,5 @@
+Name=rodney
+Remote=no
+Type=unspecified
+State=active
+LockedHint=no

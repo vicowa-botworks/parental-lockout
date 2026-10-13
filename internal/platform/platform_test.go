@@ -1,0 +1,349 @@
+package platform
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
+)
+
+func configSettings(ids ...string) config.Settings {
+	return config.Settings{LockBackends: ids}
+}
+
+func TestNewBuildsTheChainInConfiguredOrder(t *testing.T) {
+	r := &fakeRunner{}
+	c, err := New(configSettings("logind"), r)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := c.Names(); len(got) != 1 || got[0] != "logind" {
+		t.Errorf("chain = %v, want [logind]", got)
+	}
+	if len(c.Unknown()) != 0 {
+		t.Errorf("Unknown = %v, want none", c.Unknown())
+	}
+	// logind is the only backend that exists until #6 lands, so the default config's
+	// other two names have to surface rather than vanish.
+	c2, err := New(configSettings("logind", "kde", "gnome"), r)
+	if err == nil {
+		t.Fatal("New reported no error for backends this binary does not have")
+	}
+	if got := c2.Names(); len(got) != 1 || got[0] != "logind" {
+		t.Errorf("chain = %v, want the one backend that exists", got)
+	}
+	// Config order, not sorted: the list is what somebody wrote, and echoing it back
+	// in the order they wrote it is what makes the message readable.
+	if got := c2.Unknown(); len(got) != 2 || got[0] != "kde" || got[1] != "gnome" {
+		t.Errorf("Unknown = %v, want [kde gnome] in config order", got)
+	}
+	// The error has to name both the offending id and what is available, or the
+	// operator has no way to find the typo.
+	msg := err.Error()
+	for _, want := range []string{"kde", "gnome", "logind"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("New error %q does not mention %q", msg, want)
+		}
+	}
+	// And the chain is still usable: a shorter chain is not a broken one.
+	if st := c2.Probe(context.Background()); len(st) != 3 {
+		t.Errorf("Probe on a partial chain gave %+v, want the backend plus the two unknown names", st)
+	}
+}
+
+// A config that names nothing usable must say so at lock time in terms an operator
+// can act on, rather than returning nil from a chain with no members.
+func TestChainWithNoBackendsRefusesLoudly(t *testing.T) {
+	c, err := New(configSettings("nonexistent"), &fakeRunner{})
+	if err == nil {
+		t.Fatal("New accepted a backend that does not exist")
+	}
+	err = c.Lock(context.Background(), Session{ID: "3", Type: "x11", State: "active"})
+	if err == nil {
+		t.Fatal("Lock succeeded with no backend in the chain")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error %q does not name the configured id", err)
+	}
+}
+
+func TestChainSessionsMergesByID(t *testing.T) {
+	// Two backends that both enumerate. Today only logind does, but the merge rule is
+	// what stops the enforcement loop locking one session twice and writing two audit
+	// events for one action.
+	a := &Mock{BackendName: "a", Listed: []Session{
+		{ID: "3", Username: "kid", Type: "x11", State: "active", Locked: true},
+	}}
+	b := &Mock{BackendName: "b", Listed: []Session{
+		{ID: "3", Username: "kid", Type: "x11", State: "active", Locked: false},
+		{ID: "4", Username: "other", Type: "wayland", State: "active"},
+	}}
+	c := &Chain{backends: []Platform{a, b}}
+
+	got, err := c.Sessions(context.Background())
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d sessions %v, want 2 — session 3 is reported by both", len(got), got)
+	}
+	// First backend wins, so the config order decides whose Locked is used.
+	if got[0].ID != "3" || !got[0].Locked {
+		t.Errorf("session 3 came from %q, want the first backend's view (Locked=true)", got[0].Username)
+	}
+}
+
+// A backend that cannot list must not hide the sessions another backend found, but
+// the failure has to be visible: "the KDE backend is broken" is not something to
+// swallow on the way to enforcing.
+func TestChainSessionsReportsAPartialFailure(t *testing.T) {
+	good := &Mock{BackendName: "good", Listed: []Session{{ID: "3", Type: "x11", State: "active"}}}
+	bad := &Mock{BackendName: "bad", ListErr: errors.New("boom")}
+	c := &Chain{backends: []Platform{bad, good}}
+
+	got, err := c.Sessions(context.Background())
+	if len(got) != 1 {
+		t.Fatalf("got %v, want the session the working backend returned", got)
+	}
+	if err == nil {
+		t.Fatal("the failing backend was swallowed")
+	}
+	if !strings.Contains(err.Error(), "bad") || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("error %q does not name the backend and its cause", err)
+	}
+}
+
+func TestChainLockTriesInOrderAndStopsAtSuccess(t *testing.T) {
+	s := Session{ID: "3", Username: "kid", Type: "x11", State: "active"}
+	first := &Mock{BackendName: "first"}
+	second := &Mock{BackendName: "second"}
+	c := &Chain{backends: []Platform{first, second}}
+
+	if err := c.Lock(context.Background(), s); err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	if first.LockCount() != 1 || second.LockCount() != 0 {
+		t.Errorf("calls: first=%d second=%d, want the first success to stop the chain", first.LockCount(), second.LockCount())
+	}
+}
+
+func TestChainLockFallsThroughOnFailure(t *testing.T) {
+	s := Session{ID: "3", Type: "x11", State: "active"}
+	first := &Mock{BackendName: "first", LockErr: errors.New("plasma ignored us")}
+	second := &Mock{BackendName: "second"}
+	c := &Chain{backends: []Platform{first, second}}
+
+	if err := c.Lock(context.Background(), s); err != nil {
+		t.Fatalf("Lock: %v — the second backend should have succeeded", err)
+	}
+	if first.LockCount() != 1 || second.LockCount() != 1 {
+		t.Errorf("calls: first=%d second=%d, want both", first.LockCount(), second.LockCount())
+	}
+}
+
+// When every backend fails, the error has to carry every reason. This is the exact
+// situation the KDE backend exists for, and "nothing worked" without the reasons is
+// undiagnosable from a log line.
+func TestChainLockReportsEveryFailure(t *testing.T) {
+	s := Session{ID: "3", Type: "x11", State: "active"}
+	a := &Mock{BackendName: "logind", LockErr: errors.New("permission denied")}
+	b := &Mock{BackendName: "kde", LockErr: errors.New("no session bus")}
+	c := &Chain{backends: []Platform{a, b}}
+
+	err := c.Lock(context.Background(), s)
+	if err == nil {
+		t.Fatal("Lock succeeded with every backend failing")
+	}
+	for _, want := range []string{"logind", "permission denied", "kde", "no session bus"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q is missing %q", err, want)
+		}
+	}
+}
+
+// The chain refuses a non-lockable session before asking any backend, so the rule
+// lives on the type every caller must go through rather than on each backend's
+// memory.
+func TestChainNeverLocksWhatItMustNot(t *testing.T) {
+	m := &Mock{}
+	c := &Chain{backends: []Platform{m}}
+	for name, s := range map[string]Session{
+		"remote ssh":  {ID: "1", Type: "x11", State: "active", Remote: true},
+		"closing":     {ID: "2", Type: "x11", State: "closing"},
+		"manager":     {ID: "3", Type: "unspecified", State: "active"},
+		"no type":     {ID: "4", State: "active"},
+		"tty session": {ID: "5", Type: "tty", State: "active"}, // lockable: a VT is still a session
+	} {
+		err := c.Lock(context.Background(), s)
+		if name == "tty session" {
+			if err != nil {
+				t.Errorf("Lock(%s): %v — a tty session is lockable", name, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Errorf("Lock(%s) succeeded, want refusal", name)
+		}
+	}
+	if n := m.LockCount(); n != 1 {
+		t.Errorf("%d lock call(s) reached the backend, want only the tty session", n)
+	}
+}
+
+func TestChainProbeIncludesUnknownNames(t *testing.T) {
+	m := &Mock{BackendName: "logind"}
+	c := &Chain{backends: []Platform{m}, unknown: []string{"kde"}}
+	st := c.Probe(context.Background())
+	if len(st) != 2 {
+		t.Fatalf("Probe gave %+v, want the backend plus the unknown name", st)
+	}
+	if st[1].Name != "kde" || st[1].Available {
+		t.Errorf("unknown backend reported as %+v, want unavailable", st[1])
+	}
+}
+
+func TestIsLockable(t *testing.T) {
+	base := Session{ID: "1", Type: "x11", State: "active"}
+	for _, tc := range []struct {
+		name string
+		s    Session
+		want bool
+	}{
+		{"plain", base, true},
+		{"tty", Session{Type: "tty", State: "active"}, true},
+		{"wayland", Session{Type: "wayland", State: "active"}, true},
+		{"remote", Session{Type: "x11", State: "active", Remote: true}, false},
+		{"closing", Session{Type: "x11", State: "closing"}, false},
+		{"empty type", Session{State: "active"}, false},
+		{"unspecified type", Session{Type: "unspecified", State: "active"}, false},
+		// An online-but-not-active session is still a session someone could walk up
+		// to, so it stays lockable.
+		{"online", Session{Type: "x11", State: "online"}, true},
+	} {
+		if got := isLockable(tc.s); got != tc.want {
+			t.Errorf("%s: isLockable = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestRegisteredIsSortedAndComplete(t *testing.T) {
+	got := Registered()
+	if len(got) == 0 {
+		t.Fatal("no backends registered; logind's init did not run")
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i-1] > got[i] {
+			t.Fatalf("Registered is not sorted: %v", got)
+		}
+	}
+	// The mock must stay out of the registry: a config that could select it would
+	// report success while locking nothing.
+	for _, id := range got {
+		if id == "mock" {
+			t.Error("the mock backend is registered — a config could then silently enforce nothing")
+		}
+	}
+}
+
+// Only the empty id is exercised. The duplicate case panics for the same reason and
+// is equally a programming error, but testing it would leave a test-only name in the
+// package-level registry for every other test in this package to trip over, and
+// there is no unregister to put it back.
+func TestRegisterRejectsAnEmptyID(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("Register with an empty id did not panic")
+		}
+	}()
+	Register("", func(r Runner) (Platform, error) { return nil, nil })
+}
+
+func TestMockSessionsReturnsACopy(t *testing.T) {
+	m := &Mock{Listed: []Session{{ID: "3", Type: "x11", State: "active"}}}
+	got, err := m.Sessions(context.Background())
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	got[0].ID = "tampered"
+	again, _ := m.Sessions(context.Background())
+	if again[0].ID != "3" {
+		t.Errorf("the script was rewritten by the caller: %v", again[0].ID)
+	}
+}
+
+// The mock is what every enforcement test in #7 will assert through, so its own
+// bookkeeping has to be pinned here rather than discovered from the other side of a
+// failing loop test.
+func TestMockBookkeeping(t *testing.T) {
+	ctx := context.Background()
+	s := Session{ID: "3", Username: "kid", Type: "x11", State: "active"}
+	m := &Mock{Listed: []Session{s}}
+
+	if err := m.Lock(ctx, s); err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	if err := m.Lock(ctx, Session{ID: "4", Type: "x11", State: "active"}); err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	if got := m.LockedIDs(); len(got) != 2 || got[0] != "3" || got[1] != "4" {
+		t.Errorf("LockedIDs = %v, want [3 4] in call order", got)
+	}
+	if m.LockCount() != 2 {
+		t.Errorf("LockCount = %d, want 2", m.LockCount())
+	}
+	if len(m.Locked()) != 2 || m.Locked()[0].Username != "kid" {
+		t.Errorf("Locked = %v", m.Locked())
+	}
+
+	// A failed lock is still an attempt, and a fallback chain has to be able to count
+	// the attempts rather than only the successes.
+	failing := &Mock{LockErr: errors.New("nope")}
+	if err := failing.Lock(ctx, s); err == nil {
+		t.Error("a failing mock reported success")
+	}
+	if failing.LockCount() != 1 {
+		t.Errorf("a failed lock was not counted: %d", failing.LockCount())
+	}
+
+	// Per-session failure, which is how a chain test says "backend A cannot do THIS
+	// session".
+	per := &Mock{LockErrBySession: map[string]error{"3": errors.New("only 3 fails")}}
+	if err := per.Lock(ctx, s); err == nil {
+		t.Error("the scripted per-session failure did not fire")
+	}
+	if err := per.Lock(ctx, Session{ID: "9", Type: "x11", State: "active"}); err != nil {
+		t.Errorf("an unscripted session failed: %v", err)
+	}
+
+	// Reset clears the record and keeps the script.
+	m.Reset()
+	if m.LockCount() != 0 || len(m.Locked()) != 0 {
+		t.Error("Reset left the record behind")
+	}
+	if got, err := m.Sessions(ctx); err != nil || len(got) != 1 {
+		t.Errorf("Reset cleared the script: %v %v", got, err)
+	}
+
+	// Scripted probe, and Probe hands back a copy so a caller cannot rewrite the
+	// script through the slice it was given.
+	m.SetProbe(BackendStatus{Name: "mock", Available: false, Detail: "down"})
+	st := m.Probe(ctx)
+	if len(st) != 1 || st[0].Available || st[0].Detail != "down" {
+		t.Errorf("Probe = %+v, want the scripted unavailable status", st)
+	}
+	st[0].Detail = "tampered"
+	if again := m.Probe(ctx); again[0].Detail != "down" {
+		t.Errorf("the probe script was rewritten by the caller: %q", again[0].Detail)
+	}
+	if def := (&Mock{}).Probe(ctx); len(def) != 1 || !def[0].Available {
+		t.Errorf("default Probe = %+v, want one available status", def)
+	}
+	if n := (&Mock{}).Name(); n != "mock" {
+		t.Errorf("default Name = %q, want mock", n)
+	}
+	if n := (&Mock{BackendName: "kde"}).Name(); n != "kde" {
+		t.Errorf("Name = %q, want kde", n)
+	}
+}
