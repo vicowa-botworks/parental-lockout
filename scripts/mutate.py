@@ -60,6 +60,9 @@ import tempfile
 import sys
 
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The Makefile takes GO ?= go; honouring it here keeps `make mutate GO=...` testing
+# the compiler it names rather than whatever else is on PATH.
+GO = os.environ.get("GO", "go")
 ROOT = SRC  # main() points this at the throwaway copy
 
 
@@ -73,7 +76,7 @@ def load(path):
 
 def run_suite(pkg):
     return subprocess.run(
-        ["go", "test", pkg, "-count=1", "-timeout", "900s"],
+        [GO, "test", pkg, "-count=1", "-timeout", "900s"],
         capture_output=True,
         text=True,
         cwd=ROOT,
@@ -165,8 +168,12 @@ def main():
                     help="comma-separated mutant ids to run, e.g. S1,W3")
     args = ap.parse_args()
 
-    if subprocess.run(["go", "version"], capture_output=True).returncode != 0:
-        sys.exit("go is not on PATH")
+    try:
+        probe = subprocess.run([GO, "version"], capture_output=True)
+    except FileNotFoundError:
+        probe = None
+    if probe is None or probe.returncode != 0:
+        sys.exit(f"{GO} is not runnable; put it on PATH or set GO= (the Makefile uses GO ?= go)")
 
     sets = [os.path.abspath(p) for p in
             (args.sets or sorted(glob.glob(os.path.join(SRC, "scripts/mutations/*.json"))))]
