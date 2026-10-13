@@ -2,16 +2,10 @@ package config
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
 )
-
-// timeOfDay is the documented wall-clock format. It is deliberately strict:
-// "9:00" would parse happily with a more forgiving pattern and then never match,
-// because comparison is done on the zero-padded string.
-var timeOfDay = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 
 // tlsModes are the settings the web server knows how to act on: generate a
 // self-signed certificate, serve plain HTTP, or use operator-supplied paths.
@@ -115,15 +109,20 @@ func (c *Config) Validate() error {
 			if !timeOfDay.MatchString(r.End) {
 				add("%s.end: %q is not HH:MM on a 24-hour clock", rl, r.End)
 			}
-			// A window that ends where it starts is read as overnight, so it
-			// covers all 1440 minutes. That fails toward locking, which is why
-			// it is still accepted by Load, but a parent who typed the same time
-			// into both boxes means "no window", not "never any screen time", and
-			// nothing else would ever tell them. The alternative it is pointed at
-			// is a minute short of all day, and the message says so rather than
-			// letting a parent believe they had written a 24-hour rule.
+			// A window that ends where it starts is empty: the evaluator finds no
+			// instant inside it. That is what a parent who typed the same time
+			// into both boxes means — "no window" — but it is also the one typo
+			// in this file that silently enforces nothing, so it is rejected at
+			// save time rather than left to be discovered on a night the child
+			// had the run of the machine.
+			//
+			// The message must not claim this shape locks the account. It does
+			// not: an empty window locks out nobody, and telling a parent it
+			// locks out everybody would let them approve the typo on purpose.
+			// The all-day rule they actually want is 00:00 to 23:59, which is a
+			// minute short — see #16.
 			if r.Start == r.End && timeOfDay.MatchString(r.Start) {
-				add("%s.start: %s is also the end time, which locks the account all day rather than not at all; write 00:00 to 23:59 for an all-day rule, and note that leaves the last minute of the day unlocked",
+				add("%s.start: %s is also the end time, so the window is empty and enforces nothing; write 00:00 to 23:59 for an all-day rule, and note that leaves the last minute of the day unlocked",
 					rl, r.Start)
 			}
 

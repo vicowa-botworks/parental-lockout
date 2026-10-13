@@ -289,9 +289,14 @@ func TestValidateAcceptsOvernightWindows(t *testing.T) {
 	}
 }
 
-// Start == End is read as overnight, so it covers all 1440 minutes. That is the
-// opposite of what a parent who typed the same time into both boxes means, and
-// it is the one typo in this file that silently locks an account permanently.
+// Start == End is an empty window: the evaluator finds no instant inside it.
+// That is what a parent who typed the same time into both boxes means, but it is
+// also the one typo in this file that silently enforces nothing, so Validate
+// refuses it and says plainly that nothing is enforced.
+//
+// The wording matters in one direction specifically. A message that described
+// this shape as locking the account all day would let a parent who wanted an
+// all-day rule approve the typo on purpose — and get no lockout at all.
 func TestValidateRejectsAWindowThatEndsWhereItStarts(t *testing.T) {
 	c := valid()
 	c.Profiles[0].Rules = []Rule{
@@ -305,16 +310,19 @@ func TestValidateRejectsAWindowThatEndsWhereItStarts(t *testing.T) {
 	if !strings.Contains(err.Error(), "rules[0].start") {
 		t.Errorf("problem is not attributed to rules[0].start: %v", err)
 	}
-	if !strings.Contains(err.Error(), "all day") {
-		t.Errorf("problem does not say what the window actually does: %v", err)
+	if !strings.Contains(err.Error(), "enforces nothing") {
+		t.Errorf("problem does not say the window enforces nothing: %v", err)
+	}
+	if strings.Contains(err.Error(), "locks the account") {
+		t.Errorf("problem claims the empty window locks the account out, which is the opposite of what it does: %v", err)
 	}
 }
 
 // The equal-window rule is about a real time typed twice. When the box holds
 // something that is not a time at all, the format problem is the whole answer:
-// describing such a rule as an all-day lockout would be interpreting a value the
-// package has just said it cannot read.
-func TestValidateDoesNotCallAnUnparsableWindowAllDay(t *testing.T) {
+// interpreting such a rule well enough to describe what it enforces would mean
+// reading a value the package has just said it cannot read.
+func TestValidateDoesNotInterpretAnUnparsableWindow(t *testing.T) {
 	c := valid()
 	c.Profiles[0].Rules = []Rule{
 		{ID: "typo", Days: []string{"mon"}, Start: "25:00", End: "25:00", Enabled: true},
@@ -324,8 +332,8 @@ func TestValidateDoesNotCallAnUnparsableWindowAllDay(t *testing.T) {
 	if err == nil {
 		t.Fatal("Validate accepted 25:00 as a time of day")
 	}
-	if strings.Contains(err.Error(), "all day") {
-		t.Errorf("Validate called an unparsable time an all-day lockout: %v", err)
+	if strings.Contains(err.Error(), "enforces nothing") {
+		t.Errorf("Validate described what an unparsable window enforces: %v", err)
 	}
 	if !strings.Contains(err.Error(), "not HH:MM") {
 		t.Errorf("Validate did not report the format problem: %v", err)
