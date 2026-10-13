@@ -13,6 +13,22 @@ import (
 // None of them write into a slice the caller might still be holding. A `snap :=
 // *cfg` shares the config's arrays, and a helper that filtered in place would
 // leave that snapshot looking like a valid document about the wrong child.
+//
+// That covers two shapes, not one, and only the first is obvious:
+//
+//   - writing through an existing element, or filtering with `in[:0]`, which moves
+//     data the snapshot can still see;
+//   - appending. One append is harmless — the write lands past the snapshot's
+//     length. But Load's slices arrive with spare capacity, because encoding/json
+//     grows by doubling, so two configs sharing one array each appending collide in
+//     that spare slot. Neither holder is writing through the other's elements, and
+//     both end up with the wrong document.
+//
+// So every helper allocates: copySlice before an element write, and copySlice
+// before an append. The second rule is the one that got missed on AddOverride, and
+// the shape it produces fails open — an unlock appears for a child nobody granted
+// one — so it is pinned by TestAddOverrideDoesNotWriteIntoAnArrayAnotherConfigHolds
+// rather than left to the reader.
 
 // UpsertProfile adds p, or replaces the profile that already has its ID.
 //
@@ -127,7 +143,11 @@ func (c *Config) ProfileFor(username string) (Profile, bool) {
 func (c *Config) AddOverride(o Override) {
 	o.Until = instant(o.Until)
 	c.RemoveOverride(o.Username)
-	c.Overrides = append(c.Overrides, o)
+	// copySlice, not an append into c.Overrides: two configs taken from one Load
+	// share that array, and encoding/json leaves spare capacity in it, so a plain
+	// append writes the new grant into the slot the other config is about to use.
+	// See TestAddOverrideDoesNotWriteIntoAnArrayAnotherConfigHolds.
+	c.Overrides = append(copySlice(c.Overrides), o)
 }
 
 // RemoveOverride withdraws an account's override, reporting whether there was
