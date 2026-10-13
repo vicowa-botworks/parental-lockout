@@ -39,9 +39,23 @@ import (
 // Both resolve toward holding the child, which is the direction this product
 // takes every ambiguity: a start takes the earliest instant that reads as the
 // written time, an end takes the last, and a time that does not exist resolves to
-// the first instant after it. None of these invents a lockout longer than the
-// parent wrote by more than the clock itself made ambiguous, and none of them
-// hands back a minute the parent did not ask to keep.
+// the first instant after it. None of them hands back a minute the parent did not
+// ask to keep.
+//
+// What that costs has to be stated exactly, because it is bigger than it looks. A
+// start takes the first pass of its time and an end the last, so across a fold the
+// two ends land on different passes and the window is held for the written span
+// PLUS THE WHOLE WIDTH OF THE FOLD — not by the ambiguity of the endpoints, which
+// is what "the clock made ambiguous" would suggest. Measured: an hour written on
+// Antarctica/Casey in 2021 holds for four, on Antarctica/Vostok in 1994 for eight.
+// TestAFoldLengthensAWindowByItsOwnWidth pins that, per zone, against the clock.
+//
+// The consequence for anything that shows a parent when a lockout ends (#10): the
+// release instant's clock does read the written end time, but on its LAST pass. A
+// dashboard that renders "ends at 01:00" from the rule's text rather than from
+// EndsAt is describing a time the child has already been released at, and the error
+// is in the direction that makes the daemon look lenient when it is not. Render
+// EndsAt as the instant it is.
 //
 // wallInstant is where that decision lives; windowOn is the only caller.
 

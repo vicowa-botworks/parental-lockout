@@ -80,6 +80,20 @@ func TestCaseyThreeHourFoldKeepsTheWholeWindow(t *testing.T) {
 		t.Errorf("StartedAt = %s, want %s", v.StartedAt.UTC().Format(time.RFC3339), first.Format(time.RFC3339))
 	}
 
+	// Between the two passes the clock reads *before* the written start: 22:59 on
+	// the +08 side, three hours after the window opened. Releasing there is the
+	// tempting correction — it agrees with the wall clock and contradicts the
+	// policy. The window opened at the first 23:00 and closes at the last reading of
+	// its end, so the fold is held. This is the instant the PR text originally got
+	// wrong, and it is here so the text cannot drift again.
+	middle := first.Add(3*time.Hour - time.Minute) // 14:59Z, whose clock reads 22:59 +08
+	if v := Evaluate(p, middle); !v.Active {
+		t.Errorf("released at %s, whose clock reads %s, three hours into a window that "+
+			"opened at %s: the fold is held, not handed back",
+			middle.UTC().Format(time.RFC3339), middle.In(loc).Format("15:04 MST"),
+			first.UTC().Format(time.RFC3339))
+	}
+
 	// The window holds across the fold and closes at 23:59 on the +08 side, the
 	// last reading the parent's words name — and the end is exclusive, so the
 	// release lands on 23:59 itself rather than a minute later.
@@ -140,4 +154,114 @@ func formatAll(ts []time.Time) []string {
 		out = append(out, t.UTC().Format(time.RFC3339))
 	}
 	return out
+}
+
+// A fold lengthens a window that overlaps it, by exactly the fold's width.
+//
+// The parent wrote two clock times and the clock shows the ones inside the
+// repeated stretch twice. The window opens at the first of them and closes at the
+// last of the second, so the account is held for longer than the arithmetic on the
+// two boxes suggests: a one-hour rule on Antarctica/Casey in 2021 holds for four.
+//
+// That direction is the only safe one. Cutting the window at the first pass instead
+// would hand the screen back in the middle of the repeated hour, which is the
+// fail-open this file exists to keep shut. What it costs is a child locked out for
+// an hour the parent did not count, and the dashboard shows that honestly as long
+// as it renders EndsAt as the instant it is rather than re-deriving it from the
+// rule's text.
+//
+// The fold is located from the clock and its width asserted, not assumed: a tzdata
+// edit that moves one of these turns the test red instead of quietly narrowing it.
+func TestAFoldLengthensAWindowByItsOwnWidth(t *testing.T) {
+	for _, tc := range []struct {
+		zone     string
+		year     int
+		wantFold time.Duration
+	}{
+		{"Antarctica/Casey", 2021, 3 * time.Hour},
+		{"Antarctica/Vostok", 1994, 7 * time.Hour},
+		{"Antarctica/Troll", 2026, 2 * time.Hour},
+		{"Europe/Berlin", 2026, time.Hour},
+	} {
+		t.Run(tc.zone, func(t *testing.T) {
+			loc := zone(t, tc.zone)
+			day, fold := foldDay(t, loc, tc.year)
+			if fold != tc.wantFold {
+				t.Fatalf("%s %d: the fold on %s is %s wide, not %s -- this test's "+
+					"expectations are written against a clock that has moved",
+					tc.zone, tc.year, day.Format("2006-01-02"), fold, tc.wantFold)
+			}
+
+			first := firstRepeatedMinute(t, loc, day)
+			start, end := hhmm(first), hhmm(first+60)
+			p := profile(tc.zone, daily(start, end))
+
+			probe := time.Date(day.Year(), day.Month(), day.Day(),
+				first/60, first%60, 0, 0, loc).Add(time.Minute)
+			v := Evaluate(p, probe)
+			if !v.Active {
+				t.Fatalf("free at %s, one minute into the written %s-%s on a %s fold",
+					probe.Format(time.RFC3339), start, end, fold)
+			}
+
+			held := v.EndsAt.Sub(v.StartedAt)
+			if want := time.Hour + fold; held != want {
+				t.Errorf("the written hour holds for %s, want %s (the hour plus the %s fold)",
+					held, want, fold)
+			}
+			if held < time.Hour {
+				t.Errorf("held %s is shorter than the written hour: a fold must never "+
+					"give back time the parent wrote", held)
+			}
+
+			// The release is the last instant that still reads the written end,
+			// found by looking at the clock and nothing else. On a fold exactly one
+			// hour wide the end minute sits just outside the repeated stretch and
+			// has only one reading; the claim is the same either way.
+			passes := instantsReading(t, loc, day.Year(), day.Month(), day.Day(), first+60)
+			if len(passes) == 0 {
+				t.Fatalf("nothing on %s in %s reads %s, so this zone no longer behaves "+
+					"the way the window above assumes", end, day.Format("2006-01-02"), tc.zone)
+			}
+			if last := passes[len(passes)-1]; !v.EndsAt.Equal(last) {
+				t.Errorf("released at %s, want the last instant reading %s, %s",
+					v.EndsAt.Format(time.RFC3339), end, last.Format(time.RFC3339))
+			}
+		})
+	}
+}
+
+// foldDay returns the day in the given year whose clock went backwards, and by how
+// much. It reads the length of each local day and nothing else, so it cannot agree
+// with a broken resolver and hide the case it is meant to set up.
+func foldDay(t *testing.T, loc *time.Location, year int) (time.Time, time.Duration) {
+	t.Helper()
+	base := time.Date(year, 1, 1, 0, 0, 0, 0, loc)
+	for i := 0; i < 366; i++ {
+		a, b := base.AddDate(0, 0, i), base.AddDate(0, 0, i+1)
+		if l := b.Sub(a); l > 24*time.Hour {
+			return a, l - 24*time.Hour
+		}
+	}
+	t.Fatalf("%s has no fold in %d", loc, year)
+	return time.Time{}, 0
+}
+
+// firstRepeatedMinute is the first minute past local midnight that the clock shows
+// twice on the day, found by counting instants that read it.
+func firstRepeatedMinute(t *testing.T, loc *time.Location, day time.Time) int {
+	t.Helper()
+	y, mo, d := day.Date()
+	for min := 0; min < 24*60; min++ {
+		if len(instantsReading(t, loc, y, mo, d, min)) == 2 {
+			return min
+		}
+	}
+	t.Fatalf("no minute on %s in %s is shown twice", day.Format("2006-01-02"), loc)
+	return -1
+}
+
+// hhmm writes minutes past midnight the way a parent types them.
+func hhmm(min int) string {
+	return time.Date(0, 1, 1, min/60, min%60, 0, 0, time.UTC).Format("15:04")
 }

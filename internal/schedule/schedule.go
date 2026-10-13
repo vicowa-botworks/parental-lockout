@@ -18,17 +18,33 @@
 // genuinely ambiguous, resolve it toward the lockout, because the failure this
 // product cannot survive is a child who was not locked out.
 //
-// The second is that a rule nobody can read cannot be enforced either, and a
+// The second is that a rule nobody can read cannot be enforced as written, and a
 // daemon that refuses to load over one malformed rule stops locking out every
-// child on the machine. So an unreadable rule is skipped and reported by
-// ProfileErrors. That is the one place the evaluator does not fail toward
-// locking, and it is only tolerable because it is visible: whoever shows this
-// list is showing a parent a rule they believe is working.
+// child on the machine. So an unreadable rule is enforced at the widest reading of
+// the parts that could be read — days that are not weekday names become every day,
+// a clock that does not parse becomes the whole day — and reported by
+// ProfileErrors.
 //
-// What is never skipped is a rule that reads cleanly. Those are evaluated in
+// It is never dropped. Dropping it was the earlier policy and it is the wrong way
+// round: a rule that says "tues" instead of "tue" then kept the days that parsed
+// and gave up on the one the parent actually mistyped, which is a hole in the
+// schedule that nothing shows. Widening produces the opposite error — a lockout on
+// a day the parent did not intend, which they notice the first time it happens and
+// fix. Between a mistake the parent notices and one the child enjoys, the package
+// takes the first one, here as everywhere else.
+//
+// What is never reinterpreted is a rule that reads cleanly. Those are evaluated in
 // wall-clock terms and never by adding durations to a day, because a window
-// mis-parsed by an hour locks or unlocks at the wrong minute and says nothing
-// while it does it.
+// mis-parsed by an hour locks or unlocks at the wrong minute and says nothing while
+// it does it.
+//
+// One consequence of wall-clock resolution is worth stating where the code is read:
+// a window that overlaps a fall-back is held for longer than the two clock times
+// suggest, by exactly the width of the fold, because it opens at the first reading
+// of its start and closes at the last reading of its end. That is the safe
+// direction, and it is pinned by TestAFoldLengthensAWindowByItsOwnWidth. Anything
+// showing a parent when a lockout ends has to render EndsAt as the instant it is,
+// not re-derive it from the rule's text.
 package schedule
 
 import (
@@ -233,6 +249,11 @@ type compiled struct {
 	startMin int
 	endMin   int
 	days     [7]bool
+
+	// allDay is a rule whose clock could not be read at all. It holds for the
+	// whole local day rather than nothing; see compile for why the unreadable part
+	// of a rule widens instead of disappearing.
+	allDay bool
 }
 
 // compile turns rules into something the evaluator can use, collecting the rules
@@ -266,16 +287,50 @@ func compile(rules []config.Rule) ([]compiled, []error) {
 		}
 
 		var days [7]bool
+		badDays := len(r.Days) == 0
 		for _, d := range r.Days {
 			wd, ok := weekday(d)
 			if !ok {
 				bad = append(bad, fmt.Sprintf("day %q is not a weekday name", d))
+				badDays = true
 				continue
 			}
 			days[wd] = true
 		}
-		if len(r.Days) == 0 {
-			bad = append(bad, "no days are listed, so the rule can never match")
+		if badDays && len(r.Days) == 0 {
+			bad = append(bad, "no days are listed")
+		}
+
+		// A rule the daemon cannot read as written is still a rule the parent
+		// wrote, and the package's rule is that ambiguity resolves toward locking
+		// the child out. Dropping the rule is the fail-open reading, and it is the
+		// failure that goes unnoticed: a "school nights" rule that says "tues"
+		// instead of "tue" keeps the days that parsed and silently loses the one
+		// the parent actually mistyped.
+		//
+		// So each unreadable part takes the widest value consistent with the parts
+		// that could be read:
+		//
+		//   days unreadable -- a name that is not a weekday, or none listed
+		//       the window applies every day
+		//   clock unreadable -- a start or end that is not HH:MM
+		//       the rule holds for the whole day
+		//
+		// Both stay loud: the rule is reported either way, and the dashboard (#10)
+		// is where the parent reads it. A lockout the parent notices and fixes beats
+		// a hole the child enjoys.
+		//
+		// The one shape that stays empty is a rule that is readable in full and
+		// whose start and end are the same time. That is not ambiguity, it is the
+		// documented zero-length window, and widening it would let one typo lock the
+		// child out around the clock. When the days are unreadable too there is no
+		// readable part left for that reading to protect, and the widest one wins —
+		// including the window, because an empty window on every day enforces nothing
+		// while the report below claims the rule was widened.
+		empty := okStart && okEnd && start == end
+		allDay := !okStart || !okEnd || (empty && badDays)
+		if badDays {
+			days = everyDay()
 		}
 
 		// The same time in both boxes. Validate rejects it, but Load keeps a
@@ -289,20 +344,52 @@ func compile(rules []config.Rule) ([]compiled, []error) {
 		// empty on one date because the clock deleted the hour it lived in, and
 		// saying so would mean scanning the year for every rule on every reload.
 		// See issue #16.
-		if okStart && okEnd && start == end {
-			bad = append(bad, fmt.Sprintf("start and end are both %s, so the rule enforces nothing", r.Start))
+		zeroLength := empty && !badDays
+		if zeroLength {
+			bad = append(bad, fmt.Sprintf("start and end are both %s", r.Start))
+		} else if allDay || badDays {
+			bad = append(bad, "enforcing the widest reading instead: "+enforcedAs(allDay, badDays))
 		}
 
 		if len(bad) > 0 {
-			errs = append(errs, fmt.Errorf("schedule: rule %s is not enforced: %s",
-				label, joinProblems(bad)))
+			if zeroLength {
+				errs = append(errs, fmt.Errorf("schedule: rule %s enforces nothing: %s, so the rule is not enforced",
+					label, joinProblems(bad)))
+			} else {
+				errs = append(errs, fmt.Errorf("schedule: rule %s is not readable (%s)",
+					label, joinProblems(bad)))
+			}
+		}
+		if zeroLength {
 			continue
 		}
 
-		out = append(out, compiled{def: r, startMin: start, endMin: end, days: days})
+		out = append(out, compiled{def: r, startMin: start, endMin: end, days: days, allDay: allDay})
 	}
 
 	return out, errs
+}
+
+// everyDay is the day set of a rule whose days could not be read: it applies
+// whenever its window is open.
+func everyDay() (d [7]bool) {
+	for i := range d {
+		d[i] = true
+	}
+	return d
+}
+
+// enforcedAs says out loud what a rule that could not be read is being held to,
+// because the report is the only place a parent finds out.
+func enforcedAs(allDay, badDays bool) string {
+	switch {
+	case allDay && badDays:
+		return "the whole day, every day"
+	case allDay:
+		return "the whole day, on the days that were readable"
+	default:
+		return "the window on every day"
+	}
 }
 
 // windowOn pins the rule to the given starting date, which must be a moment on
@@ -317,6 +404,20 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 	}
 
 	y, mo, d := day.Date()
+
+	// A rule whose clock could not be read holds for the whole local day: from the
+	// first instant that reads this day to the first that reads the next. Both ends
+	// are midnight, which every zone has an instant for except the midnight a
+	// date-line jump deletes, and wallInstant answers that with the day the clock
+	// actually shows rather than an instant that does not exist.
+	if r.allDay {
+		return window{
+			rule:  r.def,
+			start: wallInstant(loc, y, mo, d, 0, false),
+			end:   wallInstant(loc, y, mo, d+1, 0, false),
+		}, true
+	}
+
 	start := wallInstant(loc, y, mo, d, r.startMin, false)
 
 	// A window that ends before it starts crosses midnight and still belongs to

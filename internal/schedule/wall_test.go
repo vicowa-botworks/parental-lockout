@@ -170,13 +170,25 @@ func TestWallGapEndHoldsToTheJump(t *testing.T) {
 	}
 }
 
-// The property the whole file is about, stated without reference to how
-// endpoints are resolved: no instant whose own wall clock reads a time strictly
-// inside the window may be free.
+// TestWallNeverFreesAMinuteTheParentWrote is the fail-closed property itself,
+// stated without reference to how endpoints are resolved: no instant whose own wall
+// clock reads a time inside a window the parent wrote may be free. Nothing else in
+// the suite states it that way -- the other DST tests each check one endpoint, and
+// an endpoint test passes whenever the endpoint lands on the pass that happens to
+// agree with it.
 //
 // Every zone here has a clock change in 2026, and the set is chosen for the ones
 // that do not behave like Europe — a half-hour shift, a forty-five minute shift,
-// the southern hemisphere, and a zone whose change lands on midnight.
+// the southern hemisphere, a zone whose change lands on midnight, and a zone whose
+// change is two hours wide.
+//
+// It is written as a subtest per zone on purpose. The first version of this test
+// looped over the zones in the body and called t.Skipf when one had no clock
+// change, which aborts the whole test rather than that zone: the first zone in the
+// list with a calendar the helpers could not see skipped everything after it, and
+// CI reported a pass with zero minutes checked. A skip has to be scoped to the
+// zone it describes, and the test has to fail -- not skip -- if no zone ended up
+// contributing anything.
 func TestWallNeverFreesAMinuteTheParentWrote(t *testing.T) {
 	shapes := [][2]string{
 		{"00:30", "03:30"}, // straight through a night-time change
@@ -186,30 +198,63 @@ func TestWallNeverFreesAMinuteTheParentWrote(t *testing.T) {
 		{"20:00", "23:30"}, // an evening, away from the change
 	}
 
+	// Minutes asserted across all zones. Guards the test itself: a helper that
+	// quietly stops finding transitions would otherwise turn this into a no-op
+	// that passes.
+	var checked int
+
 	for _, z := range ambiguousZones {
-		loc := zone(t, z)
-		days := append(transitionDays(loc, 23*time.Hour), transitionDays(loc, 25*time.Hour)...)
-		if len(days) == 0 {
-			t.Skipf("%s changes its clocks in none of 2026", z)
+		if neverShifts[z] {
+			// Not a skip: these zones are asserted below to have no clock change at
+			// all, so there is no minute this test could check in them.
+			continue
 		}
+		t.Run(z, func(t *testing.T) {
+			loc := zone(t, z)
+			days := changedDays(loc)
+			if len(days) == 0 {
+				t.Fatalf("%s changes its clocks in none of 2026. This list claims every "+
+					"zone in it does; a zone that stopped shifting has to be moved to "+
+					"neverShifts, where the claim is checked, rather than skipped.", z)
+			}
 
-		for _, shape := range shapes {
-			p := profile(z, daily(shape[0], shape[1]))
+			// Minutes this zone alone put on the table. A zone that contributes none
+			// passes without having checked anything, and the aggregate guard below
+			// cannot see it: seventeen zones passing on zero minutes each still
+			// looks like a suite that works.
+			var mine int
 
-			for _, day := range days {
-				for _, now := range minutesOn(loc, day) {
-					reading := now.In(loc).Format("15:04")
-					if reading <= shape[0] || reading >= shape[1] {
-						continue
-					}
-					if !Evaluate(p, now).Active {
-						t.Errorf("%s %s: free at %s, whose clock reads %s, inside the written %s-%s",
-							z, day.Format("2006-01-02"), now.Format(time.RFC3339), reading, shape[0], shape[1])
-						return
+			for _, shape := range shapes {
+				p := profile(z, daily(shape[0], shape[1]))
+
+				for _, dc := range days {
+					for _, now := range minutesOn(loc, dc.day) {
+						reading := now.In(loc).Format("15:04")
+						if reading < shape[0] || reading >= shape[1] {
+							continue
+						}
+						checked++
+						mine++
+						if !Evaluate(p, now).Active {
+							t.Fatalf("%s %s (%s day): free at %s, whose clock reads %s, inside the written %s-%s",
+								z, dc.day.Format("2006-01-02"), dc.length, now.Format(time.RFC3339),
+								reading, shape[0], shape[1])
+						}
 					}
 				}
 			}
-		}
+
+			if mine == 0 {
+				t.Errorf("%s has %d clock-change days and contributed no minute inside any "+
+					"of the %d window shapes: the day finder sees a change this test cannot "+
+					"reach, so the zone is on the list for nothing", z, len(days), len(shapes))
+			}
+		})
+	}
+
+	if checked == 0 {
+		t.Errorf("no zone contributed a single minute to check: the transition helpers "+
+			"find nothing in %d zones, so this test proves nothing", len(ambiguousZones))
 	}
 }
 
@@ -238,35 +283,90 @@ var ambiguousZones = []string{
 	"Antarctica/Troll",
 }
 
-// fallBackDay and springForwardDay return the 2026 day whose length is 25 or 23
-// hours, if the zone has one. Unlike transitionDay they do not fail the test,
-// because a zone's calendar is not something the suite should insist on.
+// neverShifts are the zones above that do not change their clocks at all, so a
+// test about clock changes has nothing to check in them.
+//
+// They are named rather than skipped because a skip is how this suite lost a whole
+// test once already: a zone that quietly stops shifting is indistinguishable, in CI,
+// from a helper that quietly stops finding shifts. Both directions are therefore
+// asserted -- a zone listed here must have no clock change, and a zone in the list
+// that is not here must have one.
+var neverShifts = map[string]bool{
+	// Iran stopped shifting clocks; tzdata has no future transitions for it.
+	"Asia/Tehran": true,
+	// Queensland has never observed DST.
+	"Australia/Brisbane": true,
+}
+
+func TestTheZoneListsSayWhatTheyMean(t *testing.T) {
+	for _, z := range ambiguousZones {
+		loc := zone(t, z)
+		changed := len(changedDays(loc))
+		switch {
+		case neverShifts[z] && changed != 0:
+			t.Errorf("%s is in neverShifts but has %d clock changes in 2026; it now "+
+				"belongs in the tests that skip nothing", z, changed)
+		case !neverShifts[z] && changed == 0:
+			t.Errorf("%s has no clock change in 2026; move it to neverShifts so the "+
+				"claim is checked instead of skipped", z)
+		}
+	}
+}
+
+// fallBackDay and springForwardDay return a 2026 day that got longer or shorter
+// than twenty-four hours, if the zone has one.
+//
+// The test is on the length, not on it being 25 or 23 hours. Antarctica/Troll
+// moves its clock by two hours in each direction, so a predicate that asks for a
+// one-hour day reports that Troll has no clock change at all -- and every test
+// that skips when it finds no change then skips a zone the suite lists on purpose.
+// A shift of two hours is exactly the case these tests are for, so it must not be
+// invisible.
+//
+// Unlike transitionDay they do not fail the test, because a zone's calendar is not
+// something the suite should insist on.
 func fallBackDay(loc *time.Location) (time.Time, bool) {
-	return transitionDayOrZero(loc, 25*time.Hour)
+	return dayLongerThan(loc, 24*time.Hour)
 }
 
 func springForwardDay(loc *time.Location) (time.Time, bool) {
-	return transitionDayOrZero(loc, 23*time.Hour)
+	return dayShorterThan(loc, 24*time.Hour)
 }
 
-func transitionDayOrZero(loc *time.Location, want time.Duration) (time.Time, bool) {
-	base := time.Date(2026, 1, 1, 0, 0, 0, 0, loc)
-	for i := 0; i < 365; i++ {
-		if a, b := base.AddDate(0, 0, i), base.AddDate(0, 0, i+1); b.Sub(a) == want {
-			return a, true
+func dayLongerThan(loc *time.Location, want time.Duration) (time.Time, bool) {
+	for _, d := range changedDays(loc) {
+		if d.length > want {
+			return d.day, true
 		}
 	}
 	return time.Time{}, false
 }
 
-// transitionDays collects every 2026 day of the given length, which is normally
-// one and is two only for a zone that changes twice in one day.
-func transitionDays(loc *time.Location, want time.Duration) []time.Time {
-	var out []time.Time
+func dayShorterThan(loc *time.Location, want time.Duration) (time.Time, bool) {
+	for _, d := range changedDays(loc) {
+		if d.length < want {
+			return d.day, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// dayChange is a 2026 local day that was not twenty-four hours long, and by how
+// much it differed.
+type dayChange struct {
+	day    time.Time
+	length time.Duration
+}
+
+// changedDays returns every 2026 day in the zone whose length is not twenty-four
+// hours, of whatever width the clock move was.
+func changedDays(loc *time.Location) []dayChange {
+	var out []dayChange
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, loc)
 	for i := 0; i < 365; i++ {
-		if a, b := base.AddDate(0, 0, i), base.AddDate(0, 0, i+1); b.Sub(a) == want {
-			out = append(out, a)
+		a, b := base.AddDate(0, 0, i), base.AddDate(0, 0, i+1)
+		if l := b.Sub(a); l != 24*time.Hour {
+			out = append(out, dayChange{day: a, length: l})
 		}
 	}
 	return out

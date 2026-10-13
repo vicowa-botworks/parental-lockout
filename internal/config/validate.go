@@ -133,7 +133,11 @@ func (c *Config) Validate() error {
 			}
 
 			if len(r.Days) == 0 {
-				add("%s.days: a rule with no days can never match", rl)
+				// The consequence is stated because it is the opposite of what it
+				// looks like. An empty day list reads as "no day", but the evaluator
+				// resolves an unreadable part of a rule toward the lockout, so a rule
+				// with no days is enforced on all seven.
+				add("%s.days: at least one day is required; as written the rule names no day, and the daemon would enforce it on every day", rl)
 			}
 			seen := make(map[string]bool, len(r.Days))
 			for _, d := range r.Days {

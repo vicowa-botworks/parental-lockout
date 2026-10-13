@@ -450,33 +450,95 @@ func TestEvaluateEmptyAndNilProfiles(t *testing.T) {
 	})
 }
 
-// A malformed rule is skipped and reported, never a panic and never a silent
-// lockout. This is the hand-edit path: Load keeps a document Validate would
-// reject, so the evaluator is the last thing standing between a typo and a child
-// who is locked out at the wrong minute.
-func TestEvaluateSkipsMalformedRules(t *testing.T) {
+// A rule the daemon cannot read as written is enforced at the widest reading of
+// what it could read, and reported. It is never a panic, and it is never a silent
+// hole.
+//
+// This is the hand-edit path: Load keeps a document Validate would reject, so the
+// evaluator is the last thing standing between a typo and a child who is not locked
+// out at the minute they should be. The first version of this test asserted the
+// opposite — that a malformed rule must never lock anyone out — which is the
+// fail-open the package exists to avoid: a parent who writes "tues" instead of
+// "tue" keeps the days that parsed, loses the day they mistyped, and sees nothing
+// on screen to tell them. Skipping is the failure nobody notices.
+func TestEvaluateEnforcesTheWidestReadingOfAMalformedRule(t *testing.T) {
 	loc := utc(t)
-	now := at(loc, 2026, 10, 12, 12, 0)
+	now := at(loc, 2026, 10, 12, 12, 0) // a Monday
 
 	cases := []struct {
 		name    string
 		rule    config.Rule
 		wantErr string
+		// wantStart and wantEnd are the window the widened rule is held to at now.
+		wantStart time.Time
+		wantEnd   time.Time
 	}{
-		{"start not a time", rule("bad1", []string{"mon"}, "9:00", "14:00"), `start "9:00"`},
-		{"end not a time", rule("bad2", []string{"mon"}, "11:00", "24:00"), `end "24:00"`},
-		{"empty start", rule("bad3", []string{"mon"}, "", "14:00"), `start ""`},
-		{"unknown day", rule("bad4", []string{"monnday"}, "11:00", "14:00"), `day "monnday"`},
-		{"no days", rule("bad5", nil, "11:00", "14:00"), "no days"},
+		{
+			// A clock that cannot be read leaves no window to hold, so the whole
+			// local day is the widest reading, on the days that did parse.
+			name:      "start not a time",
+			rule:      rule("bad1", []string{"mon"}, "9:00", "14:00"),
+			wantErr:   `start "9:00"`,
+			wantStart: at(loc, 2026, 10, 12, 0, 0),
+			wantEnd:   at(loc, 2026, 10, 13, 0, 0),
+		},
+		{
+			name:      "end not a time",
+			rule:      rule("bad2", []string{"mon"}, "11:00", "24:00"),
+			wantErr:   `end "24:00"`,
+			wantStart: at(loc, 2026, 10, 12, 0, 0),
+			wantEnd:   at(loc, 2026, 10, 13, 0, 0),
+		},
+		{
+			name:      "empty start",
+			rule:      rule("bad3", []string{"mon"}, "", "14:00"),
+			wantErr:   `start ""`,
+			wantStart: at(loc, 2026, 10, 12, 0, 0),
+			wantEnd:   at(loc, 2026, 10, 13, 0, 0),
+		},
+		{
+			// The window is readable, so it is kept; the days are not, so they widen
+			// to every day. The child is locked out for the written window on a day
+			// the parent did not list, which is the visible direction of error.
+			name:      "unknown day",
+			rule:      rule("bad4", []string{"monnday"}, "11:00", "14:00"),
+			wantErr:   `day "monnday"`,
+			wantStart: at(loc, 2026, 10, 12, 11, 0),
+			wantEnd:   at(loc, 2026, 10, 12, 14, 0),
+		},
+		{
+			name:      "no days",
+			rule:      rule("bad5", nil, "11:00", "14:00"),
+			wantErr:   "no days",
+			wantStart: at(loc, 2026, 10, 12, 11, 0),
+			wantEnd:   at(loc, 2026, 10, 12, 14, 0),
+		},
+		{
+			// Both parts unreadable at once. Honouring the zero-length window here
+			// would hold an empty window on all seven days while the report claims
+			// the rule was widened -- a report that lies, and a free child.
+			name:      "empty window and unreadable days",
+			rule:      rule("bad6", []string{"tues"}, "09:00", "09:00"),
+			wantErr:   `day "tues"`,
+			wantStart: at(loc, 2026, 10, 12, 0, 0),
+			wantEnd:   at(loc, 2026, 10, 13, 0, 0),
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := profile("UTC", tc.rule)
 
-			if v := Evaluate(p, now); v.Active {
-				t.Errorf("a malformed rule locked the account out: %+v", v)
+			v := Evaluate(p, now)
+			if !v.Active {
+				t.Fatalf("a rule that could not be read left the account free: %+v", v)
 			}
+			if !v.StartedAt.Equal(tc.wantStart) || !v.EndsAt.Equal(tc.wantEnd) {
+				t.Errorf("widest reading = %s..%s, want %s..%s",
+					v.StartedAt.Format(time.RFC3339), v.EndsAt.Format(time.RFC3339),
+					tc.wantStart.Format(time.RFC3339), tc.wantEnd.Format(time.RFC3339))
+			}
+
 			errs := ProfileErrors(p)
 			if len(errs) != 1 {
 				t.Fatalf("ProfileErrors = %v, want one problem", errs)
@@ -487,16 +549,46 @@ func TestEvaluateSkipsMalformedRules(t *testing.T) {
 			if !strings.Contains(errs[0].Error(), tc.rule.ID) {
 				t.Errorf("error = %q, want it to name the rule %q", errs[0], tc.rule.ID)
 			}
+			// The report has to say what is being enforced, because the parent is
+			// looking at a lockout they did not ask for and needs to know why.
+			if msg := errs[0].Error(); !strings.Contains(msg, "enforcing the widest reading") {
+				t.Errorf("error = %q, want it to say what is being enforced instead", msg)
+			}
 		})
 	}
 
+	// The shape the finding was actually filed against: one mistyped name beside a
+	// good one. The old behaviour kept the days that parsed and dropped the rule's
+	// claim on the rest, so the day the parent meant stayed free.
+	t.Run("one mistyped day name does not free the days around it", func(t *testing.T) {
+		p := profile("UTC", rule("curfew", []string{"mon", "tues"}, "20:00", "06:00"))
+
+		if errs := ProfileErrors(p); len(errs) != 1 {
+			t.Fatalf("ProfileErrors = %v, want the mistyped name reported", errs)
+		}
+		for _, day := range []struct {
+			name string
+			now  time.Time
+		}{
+			{"monday", at(loc, 2026, 10, 12, 21, 0)},
+			{"tuesday", at(loc, 2026, 10, 13, 21, 0)},
+			{"the day nobody typed", at(loc, 2026, 10, 17, 21, 0)},
+		} {
+			if v := Evaluate(p, day.now); !v.Active {
+				t.Errorf("%s at 21:00 is free; a rule with an unreadable day must widen, not vanish", day.name)
+			}
+		}
+	})
+
 	t.Run("a good rule beside a bad one still enforces", func(t *testing.T) {
+		// Tuesday, so the bad rule's widened whole-day reading -- which only covers
+		// the Monday it listed -- is not the one holding the account.
 		p := profile("UTC",
 			rule("bad", []string{"mon"}, "25:00", "26:00"),
 			rule("good", allDays, "11:00", "13:00"),
 		)
 
-		v := Evaluate(p, now)
+		v := Evaluate(p, at(loc, 2026, 10, 13, 12, 0))
 		if !v.Active || v.Rule.ID != "good" {
 			t.Errorf("verdict = %+v, want the good rule to hold the account", v)
 		}
