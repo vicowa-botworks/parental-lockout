@@ -82,7 +82,7 @@ verify:
 # Its docstring lists the four ways a battery like this can report success while
 # testing nothing, which is what the run checks for.
 mutate:
-	@GO="$(GO)" python3 scripts/mutate.py
+	@GO="$(GO)" python3 -u scripts/mutate.py
 
 clean:
 	rm -rf bin

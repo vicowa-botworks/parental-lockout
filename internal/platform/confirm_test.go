@@ -107,6 +107,44 @@ func TestChainLockDoesNotRetryAnError(t *testing.T) {
 	}
 }
 
+// The same rule has to hold for a read that fails *during* the settle window, and that
+// is a different branch: the first read is answered by the guard before the loop, so a
+// test that only ever fails read 1 leaves the in-loop check completely unpinned. That is
+// exactly how this mutant survived its first battery -- the behaviour looked covered,
+// and the one line that decides it was never executed with an error.
+//
+// What the discard costs is the reason. The loop's fall-through returns `false, nil`, so
+// a backend that starts failing mid-settle reports "not confirmed" with nothing attached,
+// and a session whose bus died becomes indistinguishable from a desktop that is merely
+// slow to write LockedHint. Those need different follow-ups: one is a machine to fix, the
+// other is a millisecond.
+func TestChainLockSurfacesAnErrorThatArrivesMidSettle(t *testing.T) {
+	m := &Mock{BackendName: "logind"}
+	boom := errors.New("connection closed by bus")
+	// Read 1 answers "not yet", so the settle loop starts; read 2 fails.
+	f := &flipConfirmer{Mock: m, errOn: 2, err: boom}
+	c := &Chain{backends: []Platform{f}}
+
+	err := c.Lock(context.Background(), desktopSession("3"))
+	if err == nil {
+		t.Fatal("Lock succeeded although the confirmation query failed mid-settle")
+	}
+	if !errors.Is(err, boom) {
+		t.Errorf("error %q does not wrap the reason the check failed; a discarded error here leaves the operator with \"not confirmed\" and no way to tell a slow desktop from a broken bus", err)
+	}
+	// Both at once, deliberately. The lock *request* succeeded, so this genuinely is
+	// "asked and could not prove it" -- the loop must keep re-arming, which is what
+	// ErrUnconfirmed means. It must also say why. Losing either half is the bug: drop
+	// the cause and a broken bus reads as a slow desktop; drop ErrUnconfirmed and the
+	// loop stops re-arming on a screen that may well still be unlocked.
+	if !errors.Is(err, ErrUnconfirmed) {
+		t.Errorf("a failed confirmation stopped being ErrUnconfirmed: %q -- the loop would stop re-arming a session that may not be locked", err)
+	}
+	if f.reads != 2 {
+		t.Errorf("confirmation read %d time(s), want 2: a failed read is an answer, and retrying it turns a hard failure into silence", f.reads)
+	}
+}
+
 // A context cancelled mid-window has to stop the settle. The enforcement loop aborts a
 // sweep on shutdown, and a settle that ignored the context would hold the exit open.
 func TestChainLockSettleStopsOnCancelledContext(t *testing.T) {
