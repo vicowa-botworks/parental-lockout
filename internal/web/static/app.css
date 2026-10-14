@@ -1,0 +1,103 @@
+/* plock admin UI.
+   Deliberately small and deliberately plain: this page is opened to turn a
+   lockout off, usually by somebody who is not at the machine they are locking
+   themselves out of. Nothing here needs a framework. */
+
+:root {
+	--ink: #1a1c20;
+	--muted: #5b6270;
+	--line: #d8dbe2;
+	--held: #b3261e;
+	--free: #1c6b34;
+	--bg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--ink: #e6e8ee;
+		--muted: #9aa2b1;
+		--line: #33373f;
+		--held: #ff6b61;
+		--free: #57c785;
+		--bg: #16181c;
+	}
+}
+
+body {
+	margin: 0;
+	padding: 1.5rem;
+	background: var(--bg);
+	color: var(--ink);
+	font: 16px/1.5 system-ui, sans-serif;
+}
+
+main {
+	max-width: 46rem;
+	margin: 0 auto;
+}
+
+h1 {
+	font-size: 1.35rem;
+	margin: 0 0 1rem;
+}
+
+table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+th,
+td {
+	text-align: left;
+	padding: .5rem .6rem;
+	border-bottom: 1px solid var(--line);
+}
+
+.state-held {
+	color: var(--held);
+	font-weight: 600;
+}
+
+.state-free {
+	color: var(--free);
+}
+
+.muted {
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+
+form.inline {
+	display: inline;
+}
+
+button {
+	font: inherit;
+	padding: .35rem .8rem;
+	border: 1px solid var(--line);
+	border-radius: 4px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+	outline: 2px solid var(--ink);
+	outline-offset: 2px;
+}
+
+/* The request id is printed on every error so it can be read out over the phone.
+   It is selectable on purpose: copying it into a log search is the whole point. */
+.request-id {
+	font-family: ui-monospace, monospace;
+	user-select: all;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	* {
+		animation: none !important;
+		transition: none !important;
+	}
+}

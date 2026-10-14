@@ -324,8 +324,21 @@ tests drive it with a manual ticker.
   hand-written and the only JS is progressive enhancement for row deletion.
 - **Transport:** HTTPS by default. On first start the daemon mints a self-signed
   ECDSA P-256 certificate valid for the machine's hostnames and LAN IPs into
-  `/var/lib/plock/tls/`. `tls: off` is allowed for a trusted-LAN setup and prints
-  a loud warning; `tls: custom` takes operator cert/key paths.
+  `/var/lib/plock/tls/` (directory `0700`, key `0600`, both set with `Fchmod` on the
+  descriptor it opened rather than `chmod` on a path). Validity is 825 days — the
+  lifetime browsers settled on — and it is re-minted when fewer than 30 days
+  remain, so a daemon restarted daily mints once a year and one left running for two
+  years is not serving an expired chain. A usable certificate on disk is reused byte
+  for byte: re-minting per start would change the fingerprint the parent pinned,
+  which is how a warning becomes a reflex they ignore. A certificate that is corrupt
+  or mismatched to its key is replaced with a log line rather than being fatal,
+  because a daemon that will not start locks nobody out.
+  `tls: off` is allowed for a trusted-LAN setup and prints a loud warning on every
+  start; `tls: custom` takes operator cert/key paths and **fails at startup** on a
+  missing, unparseable, or expired pair — a daemon that starts, reports healthy, and
+  then cannot complete a handshake looks like a network problem, and the operator
+  spends the evening debugging the wrong thing. TLS 1.2 is the floor; client
+  certificates are not requested.
 - **Auth:** a single admin account created by `plock init`. Passwords are stored
   as PBKDF2-SHA256, 600 000 iterations, 16-byte salt, 32-byte key, compared with
   `crypto/subtle.ConstantTimeCompare`. Optional PAM-backed login against real
@@ -359,7 +372,17 @@ tests drive it with a manual ticker.
   live sessions; the cap evicts whoever has gone longest without a request, so it
   cannot be used to lock the parent out by filling the store first. Changing the
   password revokes every session.
-- **CSRF:** per-session token required on every state-changing request.
+- **CSRF:** a per-session token, compared with `crypto/subtle.ConstantTimeCompare`,
+  required on every state-changing request that carries a session. `POST /login` is
+  exempt, and the reason is worth writing down because it is the one mutation with
+  no token on it: a token is bound to a session and the person filling in a login
+  form has no session yet. Minting a throwaway token per page view would prove
+  nothing, because an attacker can load the login page too. What protects a login is
+  `SameSite=Strict` (the cookie the response sets is not sent on the attacker's
+  navigation) and the throttle. This layer's job starts where a session exists.
+  The token lives in `internal/web`, not in `auth.Session`: CSRF is a property of
+  this transport, and a CLI authenticating the same account has no token and needs
+  none.
 - **Throttling:** 10 attempts per 10 minutes per key, then an exponential penalty
   doubling from 1s to a 30s cap. A wrong login costs a quarter-second of PBKDF2
   before the throttle is consulted, so the KDF is the first line and the throttle
@@ -368,9 +391,40 @@ tests drive it with a manual ticker.
   cooldown is a **fixed window measured from the moment it trips** — a failure
   arriving during it does not extend it, because an extensible cooldown lets the
   attack itself hold the parent out indefinitely.
-- **Headers:** `Content-Security-Policy: default-src 'self'`,
-  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: no-referrer`.
+  A throttled attempt is refused **before the credential is touched**, so the point
+  of the throttle is to stop the work rather than hide its result, and a refused
+  attempt answers 429 with `Retry-After`. The key is `RemoteAddr` with the IPv6 zone
+  stripped; `X-Forwarded-For` is never consulted, because there is no proxy in front
+  of this server and trusting that header is the same as having no throttle. A
+  verifier that cannot be parsed is not charged to the throttle — locking the
+  operator out of the machine that is the only way to fix the config is the worst
+  available outcome.
+- **Headers:** `Content-Security-Policy: default-src 'self'; frame-ancestors 'none';
+  base-uri 'self'; form-action 'self'`, `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and
+  `Cache-Control: no-store` on everything except the content-hashed assets. They are
+  asserted on the rejection paths as well as the pages: a bare 403 written by the
+  CSRF layer would otherwise be the one response on the server without
+  `X-Frame-Options` on it. The CSP is why `app.js` is an external file with every
+  handler attached by `addEventListener` — an inline script works until the headers
+  are on, which is the worst time to find out.
+- **Assets** are embedded with `embed.FS` and served under a URL carrying a hash of
+  their bytes (`/static/app.9f2c….css`), which is what makes `immutable` for a year
+  an honest header. Without the hash, a fix to `app.css` does not appear on a
+  parent's phone until their browser feels like revalidating, and the bug report is
+  "you didn't deploy it". An unknown hash is a 404 rather than a fallback to the
+  unhashed name.
+- **Shutdown:** SIGINT and SIGTERM cancel one shared context that both the web server
+  and the enforcement loop run under. The listener closes first, so a new connection
+  is refused while requests already running get ten seconds to finish. One shared
+  context is not tidiness: with two, a SIGTERM leaves one of them running, and the
+  one still running would be locking a screen while systemd counts down to SIGKILL.
+- **Logs** carry the path but never the query string, never a header value, and never
+  a body — a query string is where a session token ends up the moment somebody pastes
+  a URL, and a token in a log is a token that closing the browser no longer revokes.
+  Each request gets an 8-byte ID, echoed in `X-Request-Id`, because "the page said an
+  error happened" has to be findable in the journal by somebody who cannot grep it
+  live.
 
 ### Screens
 
