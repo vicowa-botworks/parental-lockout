@@ -1,0 +1,5 @@
+SESSION  UID USER   SEAT  LEADER CLASS   TTY  IDLE SINCE
+      3 1000 rodney seat0 6654   user    tty2 no   -
+      4 1000 rodney -     6695   manager -    no   -
+
+2 sessions listed.

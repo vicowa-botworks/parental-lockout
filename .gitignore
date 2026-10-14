@@ -6,6 +6,11 @@
 *.out
 coverage.*
 
+# Local agent state (Magic Context session/note storage). Never part of the
+# project; it was swept in by `git add -A` twice, which is why it is ignored rather
+# than remembered.
+.cortexkit/
+
 # Editor noise
 *.swp
 .idea/
