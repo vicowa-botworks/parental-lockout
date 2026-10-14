@@ -72,6 +72,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	c.applyDefaults()
+	c.clipAll()
 	tightenMode(f)
 	reapStaleTempFiles(path, time.Now())
 	return &c, nil

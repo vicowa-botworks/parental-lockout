@@ -376,6 +376,38 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// clipAll removes the spare capacity from every slice a decoded document carries.
+//
+// encoding/json grows slices by doubling, so a slice that leaves a decoder
+// routinely has len < cap. Two holders of one document that each append to it then
+// write into the same spare slot, and each ends up holding the other's document —
+// the shape internal/config/edit.go's header exists to prevent, and the second
+// shape that header had to grow to describe.
+//
+// Clipping at the source makes that shape impossible instead of relying on every
+// helper to remember: with len == cap, any append reallocates on its own and cannot
+// reach a sibling. This is the structural half of the defence, deliberately chosen
+// over "the comment now lists both shapes" — a rule that has already failed twice is
+// not a load-bearing barrier.
+//
+// The edit helpers stay copy-on-write regardless. Removing the hazard is not the
+// same as retiring the rule: a Config built by hand, or by a future constructor that
+// does not go through Load, can still carry room to append into.
+func (c *Config) clipAll() {
+	c.Profiles = slices.Clip(c.Profiles)
+	c.Users = slices.Clip(c.Users)
+	c.Overrides = slices.Clip(c.Overrides)
+	c.Settings.LockBackends = slices.Clip(c.Settings.LockBackends)
+	// The nested lists are the easy ones to forget, and they are exactly as
+	// appendable as the top-level three.
+	for i := range c.Profiles {
+		c.Profiles[i].Rules = slices.Clip(c.Profiles[i].Rules)
+		for j := range c.Profiles[i].Rules {
+			c.Profiles[i].Rules[j].Days = slices.Clip(c.Profiles[i].Rules[j].Days)
+		}
+	}
+}
+
 // instant reduces a timestamp to what JSON can round-trip: UTC, with the
 // monotonic reading dropped.
 //
@@ -429,6 +461,22 @@ func copySlice[T any](in []T) []T {
 		return nil
 	}
 	return append(make([]T, 0, len(in)), in...)
+}
+
+// appended returns v appended to a fresh array, never into in's array.
+//
+// The one-idiom form of the rule at the top of edit.go: "add one without touching
+// what a sibling holder may still be reading" is a single named operation, so a call
+// site cannot half-do it. copySlice followed by append is correct but allocates twice
+// — copySlice returns len == cap, so the append reallocates — and, more importantly,
+// it reads as two independent steps that a future edit can separate.
+//
+// It is deliberately not a general-purpose helper outside this package's
+// copy-on-write discipline: the cap is exact, so a second append reallocates again.
+func appended[T any](in []T, v T) []T {
+	out := make([]T, len(in), len(in)+1)
+	copy(out, in)
+	return append(out, v)
 }
 
 // DayNames are the accepted weekday spellings, lowercase, in week order.
