@@ -162,7 +162,22 @@ func (h Hasher) Hash(password string) (string, error) {
 // than a login that succeeds against something nobody can characterise.
 func (h Hasher) Verify(password, verifier string) bool {
 	p, err := Parse(verifier)
-	if err != nil || password == "" {
+	if err != nil {
+		return false
+	}
+	return h.verifyWith(p, password)
+}
+
+// verifyWith is Verify with the verifier already parsed.
+//
+// The authenticator has to parse the stored string anyway, to check its cost before
+// it spends a quarter-second deriving a key. Going through Verify would parse the same
+// bytes a second time, and — the part that matters — the cost the KDF actually uses
+// would come from the second parse rather than the one that was checked. That is inert
+// today because both parses read the same string, and it stops being inert the first
+// time the two paths differ. One parse, one cost, one answer.
+func (h Hasher) verifyWith(p Params, password string) bool {
+	if password == "" {
 		return false
 	}
 	key, err := pbkdf2.Key(sha256.New, password, p.Salt, p.Iterations, len(p.Key))

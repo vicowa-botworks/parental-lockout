@@ -544,3 +544,36 @@ func TestInitCreatesEveryMissingLevelUnderARestrictiveUmask(t *testing.T) {
 		}
 	}
 }
+
+// The refusal must not promise something the daemon does not do.
+//
+// The message used to end with "Every existing admin session ends when you do." Nothing
+// ends them: Sessions lives in the daemon's memory, plock init writes a file and exits,
+// and no code consumes Admin.UpdatedAt. That is printed at the moment a parent is most
+// likely rotating the password *because* they believe a session is compromised, and it
+// tells them the mitigation happened.
+//
+// The assertion is on the shape of the claim rather than its exact wording: it must name
+// the restart as the thing that ends sessions, and it must not say sessions end on their
+// own.
+func TestTheReplaceRefusalSaysHowSessionsActuallyEnd(t *testing.T) {
+	cfgPath, state := initPaths(t)
+	if code, _, stderr := doInitOut(t, "--username", "parent",
+		"--password", "a password long enough", "--config", cfgPath, "--state-dir", state); code != exitOK {
+		t.Fatalf("first init failed: %d %s", code, stderr)
+	}
+
+	code, _, stderr := doInitOut(t, "--username", "parent",
+		"--password", "a different password long enough", "--config", cfgPath, "--state-dir", state)
+	if code == exitOK {
+		t.Fatal("replacing an existing administrator without --force succeeded")
+	}
+	if !strings.Contains(stderr, "restart") {
+		t.Errorf("the refusal does not tell the operator how to end existing sessions:\n%s", stderr)
+	}
+	for _, claim := range []string{"session ends", "sessions end", "session is ended", "sessions are ended"} {
+		if strings.Contains(strings.ToLower(stderr), claim) {
+			t.Errorf("the refusal claims %q, which no code does; sessions survive until the daemon restarts", claim)
+		}
+	}
+}

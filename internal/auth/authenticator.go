@@ -67,7 +67,10 @@ func (a PasswordAuthenticator) Authenticate(username, password string) (bool, er
 	// right one, which hands the attacker a free oracle for the half of the
 	// credential they do not know — and the username is not secret, so the only
 	// reason not to leak it is that leaking it is how a guess becomes targeted.
-	ok := a.Hasher.Verify(password, a.Verifier)
+	// verifyWith rather than Verify: p is the cost that was just checked, and deriving
+	// the key from a second parse would let the answer come from parameters nobody
+	// vetted.
+	ok := a.Hasher.verifyWith(p, password)
 	if !usernameMatches(username, a.Username) {
 		return false, nil
 	}

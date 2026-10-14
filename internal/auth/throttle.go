@@ -202,6 +202,11 @@ func (t *Throttle) penalty(n int) time.Duration {
 		return start
 	}
 	shift := n - 1
+	// 31, not 63, although Duration is 64 bits. Either guard alone bounds the result —
+	// the property test in throttle_test.go pins that — so the narrower constant is
+	// deliberate: it keeps the shift inside the range where every intermediate is a
+	// small positive number, rather than relying on overflow behaviour that a future
+	// reader would have to re-derive to believe. Do not "simplify" it to 63.
 	if shift >= 31 {
 		return cap
 	}

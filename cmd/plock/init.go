@@ -157,6 +157,13 @@ func doInit(f *initFlags, stdout, stderr io.Writer, stdin io.Reader) int {
 	// The verifier is produced before anything is written, so a failure in the KDF
 	// leaves the existing credential exactly as it was rather than half-applied.
 	verifier, err := auth.Hasher{}.Hash(password)
+	// Dropping the last reference to the plaintext as soon as the KDF has consumed it.
+	//
+	// This is not a scrub. The bufio buffer behind the string is still live and Go may
+	// have copied the bytes on assignment, so zeroing this variable removes one
+	// reference and no bytes. Getting the stronger property would mean reading into a
+	// fixed array and zeroing that, which the password-prompt path does not do; the
+	// claim here is only "we do not hold it any longer than the KDF needs".
 	password = ""
 	if err != nil {
 		return initFailure(stderr, fmt.Sprintf("plock init: hashing the password: %v", err))
@@ -167,9 +174,23 @@ func doInit(f *initFlags, stdout, stderr io.Writer, stdin io.Reader) int {
 		return initFailure(stderr, fmt.Sprintf("plock init: %v", err))
 	}
 	if cfg.Admin.Username != "" && !f.force {
+		// This sentence used to promise "Every existing admin session ends when you do."
+		// Nothing ends them. Sessions live in the daemon's memory, plock init writes a
+		// config file and exits, and there is no config-watch, no SIGHUP handler, and no
+		// consumer of Admin.UpdatedAt anywhere in the tree. The engine re-reads the config
+		// every tick, so the *verifier* is picked up within 30 seconds — but a token minted
+		// before the rotation keeps resolving against the in-memory store for its full
+		// sliding 12-hour window, refreshed on every request.
+		//
+		// That is printed at precisely the moment a parent is most likely to be rotating the
+		// password because they believe a session is compromised, and it tells them the thing
+		// that did not happen. Saying less is the fix until the daemon has a consumer for it;
+		// see the ticket referenced in the PR.
 		return initFailure(stderr, fmt.Sprintf(
 			"plock init: %s already has an administrator %q.\n"+
-				"Re-run with --force to replace it. Every existing admin session ends when you do.",
+				"Re-run with --force to replace it. The new password is picked up within one\n"+
+				"engine tick, but sessions already signed in stay valid until the daemon is\n"+
+				"restarted — run systemctl restart plock to end them now.",
 			f.configPath, cfg.Admin.Username))
 	}
 
