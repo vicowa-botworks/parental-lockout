@@ -222,6 +222,17 @@ func isLockable(s Session) bool {
 	return true
 }
 
+// IsLockable is the exported view of the rule above, for the one caller outside this
+// package that needs it: the enforcement loop asks before it evaluates a schedule,
+// because a session it will never lock must not be reported as an enforceable one
+// either — a greeter would otherwise show up in the audit log as a child who is not
+// being locked out.
+//
+// The rule itself stays in isLockable, in one place, and stays unexported so that
+// deciding what counts as a desktop remains this package's call. This is a door, not a
+// second copy: a mutant in the rule below is still caught by this package's own tests.
+func IsLockable(s Session) bool { return isLockable(s) }
+
 // Constructor builds a backend over a Runner. Every backend takes the runner rather
 // than calling exec itself, so the tests that pin argv and env are the same tests
 // that exercise the backend.
