@@ -26,9 +26,10 @@ func TestNewBuildsTheChainInConfiguredOrder(t *testing.T) {
 	if len(c.Unknown()) != 0 {
 		t.Errorf("Unknown = %v, want none", c.Unknown())
 	}
-	// logind is the only backend that exists until #6 lands, so the default config's
-	// other two names have to surface rather than vanish.
-	c2, err := New(configSettings("logind", "kde", "gnome"), r)
+	// kde and gnome landed in #6, so the default config's three names all resolve.
+	// The unknown-name path is still what this block is for, so it is exercised with
+	// names nothing registers rather than with names that used to be missing.
+	c2, err := New(configSettings("logind", "plasma", "kde "), r)
 	if err == nil {
 		t.Fatal("New reported no error for backends this binary does not have")
 	}
@@ -37,8 +38,8 @@ func TestNewBuildsTheChainInConfiguredOrder(t *testing.T) {
 	}
 	// Config order, not sorted: the list is what somebody wrote, and echoing it back
 	// in the order they wrote it is what makes the message readable.
-	if got := c2.Unknown(); len(got) != 2 || got[0] != "kde" || got[1] != "gnome" {
-		t.Errorf("Unknown = %v, want [kde gnome] in config order", got)
+	if got := c2.Unknown(); len(got) != 2 || got[0] != "plasma" || got[1] != "kde " {
+		t.Errorf("Unknown = %v, want [plasma \"kde \"] in config order", got)
 	}
 	// The error has to name both the offending id and what is available, or the
 	// operator has no way to find the typo.

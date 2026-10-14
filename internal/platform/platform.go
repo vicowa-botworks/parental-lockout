@@ -93,17 +93,20 @@ type Locker interface {
 // Confirmer is implemented by a backend that can check whether its own lock actually
 // took effect.
 //
-// This exists because the target platform defeats a plain "first success wins" chain.
-// Plasma ignores logind's Lock signal (docs/PLAN.md §7 says so in the row that
-// justifies the kde backend), and `loginctl lock-session` still exits 0. A chain that
-// returned nil on that success would stop at logind and never reach the one backend
-// that works on KDE — reporting a lock that never happened, forever, on the platform
-// this daemon is being written for.
+// This exists because the target platform may defeat a plain "first success wins"
+// chain. docs/PLAN.md §7 records that Plasma "historically" ignores logind's Lock
+// signal while `loginctl lock-session` still exits 0 — a design premise carried forward
+// from that row, and NOT yet measured on a live Plasma session, because measuring it
+// means locking a desktop someone is using (docs/platforms.md §5 has the recipe).
 //
-// So a backend's success counts only when it can be confirmed, and a backend that
-// cannot confirm does not end the chain. A backend that cannot verify must not be
-// treated as confirmed: "we asked and cannot prove it" is a distinct, reported
-// outcome, never a silent success.
+// The chain's shape does not depend on which way that turns out. A chain that returned
+// nil on logind's zero exit would stop there and never reach the desktop backend,
+// reporting a lock that never happened if the premise holds — and on a raw VT the
+// premise is known to hold (docs/PLAN.md §7: logind only emits the signal, and nothing
+// on a VT ever calls SetLockedHint). So a backend's success counts only when it can be
+// confirmed, and a backend that cannot confirm does not end the chain. A backend that
+// cannot verify must not be treated as confirmed: "we asked and cannot prove it" is a
+// distinct, reported outcome, never a silent success.
 type Confirmer interface {
 	// LockConfirmed reports whether this backend's lock is now in effect for s.
 	// It must be cheap and must not lock anything.
@@ -257,6 +260,48 @@ type Chain struct {
 	// build without the KDE backend has to be told the lock will not happen, not
 	// silently handed a shorter chain.
 	unknown []string
+
+	// LockBudget bounds one Lock call end to end. Zero means DefaultLockBudget.
+	//
+	// It is a field rather than a constant because the bound is the thing a test has
+	// to be able to shrink: proving that a hung backend stops eating the chain means
+	// making a call that outlives the budget, and 25s is a long time to wait for a
+	// unit test.
+	LockBudget time.Duration
+}
+
+// DefaultLockBudget bounds one Chain.Lock from the first backend to the last.
+//
+// The per-command guard in ExecRunner is not enough on its own. One Lock is many
+// commands: measured at 17 subprocess calls with a session bus that owns the name and
+// never replies, and 36 when the desktop accepts the lock but never writes the hint,
+// because every backend then runs its own settle window. Ten seconds apiece is 2m50s
+// to 6m for a single session of a single child, which is minutes of a 30s tick during
+// which nothing else is enforced and the machine in front of the child stays unlocked.
+//
+// 25s is under one default tick, and against a healthy chain — two or three calls at
+// 0.01s each — it is roughly a thousand times the cost, so it fires only when
+// something is already not answering. Running out of it is not a silent outcome: the
+// remaining backends are never asked, the call returns an error or ErrUnconfirmed, and
+// the enforcement loop keeps the lockout and asks again on the next tick.
+//
+// The arithmetic that is left, stated rather than claimed: a tick that locks N
+// sessions can still take N times this budget in the pathological case. That is what
+// the engine's overlap guard is for — it skips the tick rather than stacking them and
+// reports that enforcement is landing late.
+const DefaultLockBudget = 25 * time.Second
+
+// errLockBudget is the cause put on the deadline Chain.Lock creates, so that a note
+// coming back from a backend says the lock ran out of time instead of blaming a tool
+// that was merely still waiting when the budget expired.
+var errLockBudget = errors.New("platform: lock budget expired")
+
+// lockBudget resolves the configured bound.
+func (c *Chain) lockBudget() time.Duration {
+	if c.LockBudget != 0 {
+		return c.LockBudget
+	}
+	return DefaultLockBudget
 }
 
 // New builds the chain named by the configuration, in the configured order.
@@ -345,19 +390,6 @@ func (c *Chain) Sessions(ctx context.Context) ([]Session, error) {
 	return out, joinErrs(errs...)
 }
 
-// Lock asks each backend in configured order until one confirms the lock took effect.
-//
-// It refuses a session that is not lockable before asking anyone, so the rule is
-// enforced by the type every caller already has to go through rather than by each
-// backend remembering to check.
-//
-// A backend that returns an error is a failure and the chain moves on. A backend that
-// returns nil is only done if it can confirm: otherwise the chain keeps going, because
-// an unconfirmed success is exactly what logind produces on KDE, and stopping there
-// would leave the screen unlocked while the audit log said otherwise.
-//
-// If every backend was tried and none confirmed, the result is ErrUnconfirmed rather
-// than nil. Nothing here returns nil without evidence.
 // confirmSettle bounds how long Chain.Lock waits for a lock to become visible after a
 // backend accepted the request.
 //
@@ -369,8 +401,15 @@ func (c *Chain) Sessions(ctx context.Context) ([]Session, error) {
 // failure, moves on to the next backend, and locks it a second time.
 //
 // Ten reads a tenth of a second apart is a second, far past any real signal round
-// trip. The loop calls this at most once per user per 30 seconds, so the wait costs
-// nothing worth naming.
+// trip, and the loop asks at most once per user per 30 seconds.
+//
+// That second is the healthy cost, and only the healthy cost. Each read is a command,
+// and a command that meets a service which owns the name and never replies costs up to
+// DefaultCallTimeout, so an unbounded-in-the-aggregate window on a hung bus is ten
+// reads times ten seconds per backend. The bound on that is not here: it is
+// DefaultLockBudget around the whole Chain.Lock, which is also what stops the settle
+// loop, because every read takes the same context and a cancelled one reports
+// unlocked at once rather than after the remaining polls.
 const (
 	confirmReads = 10
 	confirmPoll  = 100 * time.Millisecond
@@ -419,6 +458,26 @@ func confirmWithSettle(ctx context.Context, conf Confirmer, s Session) (bool, er
 	return false, nil
 }
 
+// Lock asks each backend in configured order until one confirms the lock took effect.
+//
+// It refuses a session that is not lockable before asking anyone, so the rule is
+// enforced by the type every caller already has to go through rather than by each
+// backend remembering to check.
+//
+// A backend that returns an error is a failure and the chain moves on. A backend that
+// returns nil is only done if it can confirm: otherwise the chain keeps going, because
+// an unconfirmed success is exactly what logind produces on KDE, and stopping there
+// would leave the screen unlocked while the audit log said otherwise.
+//
+// If every backend was tried and none confirmed, the result is ErrUnconfirmed rather
+// than nil. Nothing here returns nil without evidence.
+//
+// The whole call is bounded by LockBudget, which is what keeps a service that has
+// stopped answering from turning one lock into minutes. Running out of it needs no new
+// outcome, because the two shapes it produces are already the right sentences: a
+// backend that had accepted the lock but could not be confirmed in time lands in
+// ErrUnconfirmed, and one that never got asked lands in the joined errors. Both keep
+// the enforcement loop re-arming.
 func (c *Chain) Lock(ctx context.Context, s Session) error {
 	if !isLockable(s) {
 		return fmt.Errorf("refusing to lock %s: not a lockable desktop session", s.Describe())
@@ -427,6 +486,12 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 		return fmt.Errorf("no lock backend available (config names %v, this binary knows %s)",
 			c.unknown, strings.Join(Registered(), ", "))
 	}
+
+	// Applied here rather than at the call sites so it cannot be forgotten, the same
+	// reason the per-command bound lives in ExecRunner. A caller's earlier deadline
+	// still wins, because WithTimeout takes the sooner of the two.
+	ctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)
+	defer cancel()
 
 	var notes []error // everything worth saying, in backend order
 	var failures int  // backends that returned an error rather than accepting

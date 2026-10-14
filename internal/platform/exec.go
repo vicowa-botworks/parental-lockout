@@ -30,6 +30,10 @@ type Runner interface {
 	//
 	// uid selects the account the process runs as. 0 means "stay as we are", which
 	// for the daemon is root. Anything else drops privileges before exec.
+	//
+	// Implementations must bound the call: a backend's caller is a 30s loop that has
+	// to keep running whether or not the thing it asked ever answers. ExecRunner
+	// documents the default budget.
 	Run(ctx context.Context, argv []string, env []string, uid uint32) ([]byte, error)
 }
 
@@ -41,8 +45,55 @@ type Runner interface {
 // works against exec.ErrNotFound.
 var ErrBinaryNotFound = errors.New("not found in PATH")
 
+// DefaultCallTimeout bounds a single external command.
+//
+// Every call this daemon makes is a short CLI round-trip, but nothing about that is
+// enforced by the tools: `gdbus call` has no default timeout, so a service that owns
+// the bus name and never replies leaves the child waiting forever — and ExecRunner
+// only ever killed on the caller's context. With no deadline anywhere in non-test
+// code, a hung bus wedged whatever asked: the 30s enforcement loop would simply stop
+// enforcing, and say nothing. Silence is this daemon's characteristic failure mode,
+// not a crash.
+//
+// 10s is generous against what these calls actually cost: loginctl show-session and
+// gdbus call both returned 0.00-0.01s on the target box, so this fires only when a
+// service has stopped answering at all.
+//
+// What it does NOT do is bound a lock. It is a per-command bound, and one Chain.Lock
+// is many commands — measured at 17 subprocess calls when the session bus owns the
+// name and never replies, and 36 when the desktop accepts the lock but never writes
+// the hint, because every backend then runs its own settle loop. Ten seconds each is
+// 2m50s to 6m for one session, so the operation-level bound is DefaultLockBudget and
+// this number only makes that one meaningful: without it, a single hung call would
+// eat the whole lock budget before the rest of the chain was ever asked.
+const DefaultCallTimeout = 10 * time.Second
+
+// errCallBudget is the cause this runner puts on the deadline it creates.
+//
+// It exists so an error can name the budget that actually ran out. The runner's own
+// guard and the caller's deadline both surface as context.DeadlineExceeded, and a
+// message that blames the 10s guard when the caller's own 100ms deadline was the
+// limit sends an operator to change a setting that was never the problem.
+var errCallBudget = errors.New("platform: call budget expired")
+
 // ExecRunner runs commands for real.
-type ExecRunner struct{}
+type ExecRunner struct {
+	// CallTimeout bounds each command. Zero means DefaultCallTimeout.
+	//
+	// The bound only ever tightens a caller's deadline, never loosens it, so a call
+	// site cannot accidentally become unbounded by forgetting to set something. A
+	// caller that genuinely needs a longer budget — a future bulk or slow operation —
+	// builds its own ExecRunner with a larger value rather than passing a context
+	// that quietly disables the guard.
+	CallTimeout time.Duration
+}
+
+func (r ExecRunner) timeout() time.Duration {
+	if r.CallTimeout != 0 {
+		return r.CallTimeout
+	}
+	return DefaultCallTimeout
+}
 
 // Run starts argv and returns its stdout.
 //
@@ -50,7 +101,11 @@ type ExecRunner struct{}
 // lock-session failed" without the reason is a bug report nobody can act on. A
 // missing binary is reported as ErrBinaryNotFound naming the program, not as the
 // exec package's error chain.
-func (ExecRunner) Run(ctx context.Context, argv []string, env []string, uid uint32) ([]byte, error) {
+//
+// The call is bounded by CallTimeout, so a command that never returns cannot wedge
+// the caller; see DefaultCallTimeout for why the guard lives here rather than in the
+// backends.
+func (r ExecRunner) Run(ctx context.Context, argv []string, env []string, uid uint32) ([]byte, error) {
 	if len(argv) == 0 || argv[0] == "" {
 		return nil, errors.New("platform: Run called with no program to execute")
 	}
@@ -61,6 +116,15 @@ func (ExecRunner) Run(ctx context.Context, argv []string, env []string, uid uint
 	if strings.ContainsAny(argv[0], " \t\n") {
 		return nil, fmt.Errorf("platform: %q looks like a command line, not a program; pass the arguments as separate elements", argv[0])
 	}
+
+	// Bound the call before handing the context to the child. Doing it here rather
+	// than in each backend means the guard cannot be forgotten: every command this
+	// package runs, now and later, and every caller including `plock doctor`, inherits
+	// it. A caller's own earlier deadline still wins, because context.WithTimeout
+	// takes the sooner of the two.
+	callTimeout := r.timeout()
+	ctx, cancel := context.WithTimeoutCause(ctx, callTimeout, errCallBudget)
+	defer cancel()
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if env != nil {
@@ -98,6 +162,26 @@ func (ExecRunner) Run(ctx context.Context, argv []string, env []string, uid uint
 	out, err := cmd.Output()
 	if err == nil {
 		return out, nil
+	}
+
+	// A call that ran out of time is its own answer and must not read as a crash. The
+	// killed child reports "signal: killed" with nothing on stderr, which an operator
+	// reads as "this tool is broken"; what actually happened is that the thing it
+	// called never answered, which on a desktop usually means a service that owns the
+	// bus name and is not replying. That distinction is the whole reason the bound
+	// exists, so it has to survive into the error text.
+	if ctx.Err() != nil {
+		// Name the budget that ran out. Both deadlines report the same sentinel, and
+		// the two answers send the operator to different places: one says a service
+		// is not replying and this guard is doing its job, the other says whoever
+		// asked gave up first and this guard was never the limit.
+		if cause := context.Cause(ctx); !errors.Is(cause, errCallBudget) {
+			// Not our number in the sentence. Naming a budget that was never the
+			// limit is exactly the misdirection this branch exists to avoid.
+			return out, fmt.Errorf("%s: the caller stopped waiting before this command answered: %w",
+				argv[0], cause)
+		}
+		return out, fmt.Errorf("%s: no answer within %s, gave up: %w", argv[0], callTimeout, ctx.Err())
 	}
 
 	// Name the program and say what is wrong, in one sentence an operator can act

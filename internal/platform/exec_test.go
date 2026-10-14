@@ -4,16 +4,17 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
 // These are the only tests in the package that start a real process, and they start
-// nothing but echo and false. The rule that no test executes a real binary is about
-// the backends — the thing being asserted here is what ExecRunner does to a command,
-// and there is no fake that can tell us whether a missing binary produces a sentence
-// an operator can act on.
+// nothing but echo, false, sleep, and a script with a broken shebang. The rule that no
+// test executes a real binary is about the backends — the thing being asserted here is
+// what ExecRunner does to a command, and there is no fake that can tell us whether a
+// missing binary produces a sentence an operator can act on.
 
 func TestExecRunnerMissingBinaryNamesTheProgram(t *testing.T) {
 	out, err := ExecRunner{}.Run(context.Background(), []string{"plock-no-such-binary-xyz", "list-sessions"}, nil, 0)
@@ -160,5 +161,117 @@ func TestExecRunnerKillsAChildThatOutlivesTheContext(t *testing.T) {
 		t.Logf("returned as expected: %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not return after the context was cancelled mid-run; cmd.Cancel is not killing the child")
+	}
+}
+
+// The tests above always bring a context with a deadline, which is exactly the hole:
+// `plock doctor` calls Probe(context.Background()), and `gdbus call` has no default
+// timeout, so a service that owns the bus name and never replies would have parked it
+// forever. The bound has to hold when the caller thought of nothing.
+func TestExecRunnerBoundsACallThatNeverAnswers(t *testing.T) {
+	start := time.Now()
+	// context.Background(): no deadline, no cancel. Nothing but the runner's own
+	// guard can end this call.
+	_, err := ExecRunner{CallTimeout: 50 * time.Millisecond}.Run(
+		context.Background(), []string{"/bin/sleep", "30"}, nil, 0)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("a command that never answered reported success")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want it to wrap context.DeadlineExceeded", err)
+	}
+	// The operator has to be able to tell "the bus never answered" from "the tool
+	// crashed", so the bound belongs in the sentence.
+	if !strings.Contains(err.Error(), "50ms") {
+		t.Errorf("error %q does not name the budget it ran out of", err)
+	}
+	// Generous on purpose: this asserts "not thirty seconds", not microsecond timing.
+	if elapsed > 5*time.Second {
+		t.Errorf("took %v to give up; the guard did not fire", elapsed)
+	}
+}
+
+// The guard must only ever tighten a deadline, never loosen one, or a caller that set
+// a careful budget would be quietly extended by a default it never asked for.
+func TestExecRunnerCallerDeadlineStillWins(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := ExecRunner{CallTimeout: time.Hour}.Run(ctx, []string{"/bin/sleep", "30"}, nil, 0)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("a command outlived the caller's own deadline and reported success")
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("took %v; the runner's 1h default overrode the caller's 50ms deadline", elapsed)
+	}
+	// The sentence has to blame the budget that actually ran out. Both deadlines
+	// report the same sentinel, and an operator chasing a hung bus who is told the
+	// 1h guard fired will go looking for a 1h guard that was never the limit.
+	if strings.Contains(err.Error(), "1h0m0s") {
+		t.Errorf("error %q blames the runner's budget, which was never the limit", err)
+	}
+	if !strings.Contains(err.Error(), "the caller stopped waiting") {
+		t.Errorf("error %q never says the caller's own deadline ended the call", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want it still to wrap context.DeadlineExceeded", err)
+	}
+}
+
+// Zero means the default, and the default has to be a real bound: a constant that
+// drifts to 0 would mean "no timeout" while still looking configured.
+func TestExecRunnerResolvesItsTimeout(t *testing.T) {
+	if DefaultCallTimeout <= 0 {
+		t.Errorf("DefaultCallTimeout = %v; a zero default means no bound at all", DefaultCallTimeout)
+	}
+	if got := (ExecRunner{}).timeout(); got != DefaultCallTimeout {
+		t.Errorf("zero CallTimeout resolved to %v, want DefaultCallTimeout", got)
+	}
+	if got := (ExecRunner{CallTimeout: 3 * time.Second}).timeout(); got != 3*time.Second {
+		t.Errorf("CallTimeout = %v, want 3s", got)
+	}
+}
+
+// The last error branch in Run is for a failure that is neither a missing program,
+// nor a non-zero exit, nor a timeout. It is reachable: a script whose shebang names an
+// interpreter that does not exist starts as a fork/exec failure, which is not
+// exec.ErrNotFound (the file is right there) and never becomes an ExitError (there is
+// no process to exit). Without this test the branch reads as dead code and gets
+// deleted, and the operator then gets a bare "no such file or directory" with nothing
+// naming the program they asked about.
+//
+// Independent of who runs the tests: a missing interpreter is ENOENT for root too,
+// unlike a non-executable file, which root would happily run.
+func TestExecRunnerReportsAFailedStartThatIsNotAMissingBinary(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "bad-interpreter")
+	if err := os.WriteFile(script, []byte("#!/nonexistent/interpreter\necho hi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := ExecRunner{}.Run(context.Background(), []string{script}, nil, 0)
+	if err == nil {
+		t.Fatalf("a script with a missing interpreter reported success: %q", out)
+	}
+	if !strings.Contains(err.Error(), script) {
+		t.Errorf("error %q does not name the program that failed to start", err)
+	}
+	// The substring above passes with or without the wrap, because the exec
+	// package's own text already contains the path — which is exactly how a mutant
+	// that drops the wrap survived this test once. What distinguishes our sentence
+	// from the stdlib's is that ours puts the program first: "path: fork/exec ...",
+	// not "fork/exec path: ...".
+	if !strings.HasPrefix(err.Error(), script+": ") {
+		t.Errorf("error %q is not our message naming the program first", err)
+	}
+	// It must not be dressed up as "not installed": the file exists, and telling an
+	// operator to install it sends them to the wrong thing.
+	if errors.Is(err, ErrBinaryNotFound) {
+		t.Errorf("a present file with a broken shebang was reported as %v", ErrBinaryNotFound)
 	}
 }
