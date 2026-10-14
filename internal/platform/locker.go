@@ -31,10 +31,13 @@ import (
 //
 // so the locker is a child of ksmserver — the process that owns
 // org.freedesktop.ScreenSaver and answers the Lock call this backend sends. Requiring
-// both halves, the locker and that specific parent, moves the impostor's job from
-// "write a property" to "get code running as a child of the session's own compositor".
-// The locker runs as uid 1000, the same uid as the child, so that is a bar raised and
-// not a wall; docs/platforms.md's threat model says so rather than implying otherwise.
+// both halves, the locker and that specific parent, is what makes the check about a
+// process tree rather than one property. Neither half is decided by a name: argv[0] is
+// whatever the caller passed to execve, and the reviewer showed that two execve calls as
+// the session user produce a tree whose names are both lies. Identity comes from
+// /proc/<pid>/exe, and the resolved binary must be one the session user could not have
+// written. The locker runs as uid 1000, the same uid as the child, so that is a bar raised
+// and not a wall; docs/platforms.md's threat model says so rather than implying otherwise.
 const (
 	kdeLockerProgram = "kscreenlocker_greet"
 	ksmserverProgram = "ksmserver"
@@ -77,6 +80,15 @@ func lockerRunning(ctx context.Context, uid uint32) (bool, error) {
 		if _, err := strconv.Atoi(name); err != nil {
 			continue // not a process directory
 		}
+		// The uid filter runs before anything is resolved. It is the cheapest read in
+		// this loop and it discards the whole machine except the session being locked,
+		// and the walk runs on every confirmation inside the settle window.
+		_, puid, err := procParent(name)
+		if err != nil || puid != uid {
+			continue
+		}
+		// The name is only a candidate filter now. It cannot be the answer, and the
+		// reason is in the next paragraph.
 		argv, err := procArgv(name)
 		if err != nil || len(argv) == 0 {
 			continue // vanished, or a kernel thread with no argv
@@ -84,25 +96,116 @@ func lockerRunning(ctx context.Context, uid uint32) (bool, error) {
 		if filepath.Base(argv[0]) != kdeLockerProgram {
 			continue
 		}
-		ppid, puid, err := procParent(name)
+		ppid, _, err := procParent(name)
 		if err != nil {
 			continue
 		}
-		// The locker belongs to the session it is locking. Without this, another
-		// user's locked session — or a root-owned one — would stand in as evidence
-		// for this one.
-		if puid != uid {
+		if !isLockerBinary(name, uid) {
 			continue
 		}
 		parentArgv, err := procArgv(strconv.Itoa(ppid))
 		if err != nil || len(parentArgv) == 0 {
 			continue
 		}
-		if filepath.Base(parentArgv[0]) == ksmserverProgram {
-			return true, nil
+		if filepath.Base(parentArgv[0]) != ksmserverProgram {
+			continue
 		}
+		if !isCompositorBinary(strconv.Itoa(ppid), uid) {
+			continue
+		}
+		return true, nil
 	}
 	return false, nil
+}
+
+// isLockerBinary and isCompositorBinary decide whether a pid is what its argv[0] claims,
+// by asking the kernel rather than the process.
+//
+// argv[0] is whatever the caller passed to execve. The session user can therefore build
+// the exact process tree this check used to accept with two execve calls and no
+// privilege at all — a helper started from ~/.config/autostart with
+// argv[0] = "/usr/bin/ksmserver" that spawns /bin/sleep with
+// argv[0] = "kscreenlocker_greet" is a parent and child whose names are both lies, and
+// the old check reported a corroborated lock. That is #29's failure mode arriving
+// through the mitigation, so the name is kept only as a cheap pre-filter.
+//
+// /proc/<pid>/exe is a symlink the kernel maintains and a user cannot point at
+// something else, so it answers "what is actually running". Two things are then
+// required of the resolved path, for both halves of the tree:
+//
+//   - its basename is the program expected, so a copy installed under another name is
+//     not accepted, and
+//   - the file is not writable by the session user — not owned by them, and not
+//     group- or world-writable.
+//
+// The second requirement is what actually raises the bar. It is not the path: the
+// canonical location differs by distribution (/usr/lib/x86_64-linux-gnu/libexec on
+// Ubuntu, /usr/libexec on Fedora), so pinning one absolute path would break the real
+// desktop in order to stop the fake one. What does not vary is that the session user
+// cannot write to the directory the real locker lives in, while they can put a binary
+// anywhere they do own. So the impostor now needs a binary named
+// kscreenlocker_greet that the session user cannot modify, parented by one named
+// ksmserver that the session user cannot modify — which means either the real pair, or
+// a write that needs root.
+func isLockerBinary(pid string, uid uint32) bool {
+	return resolvedBinaryIsTrusted(pid, kdeLockerProgram, procRoot, uid)
+}
+
+func isCompositorBinary(pid string, uid uint32) bool {
+	return resolvedBinaryIsTrusted(pid, ksmserverProgram, procRoot, uid)
+}
+
+func resolvedBinaryIsTrusted(pid, wantProgram, root string, uid uint32) bool {
+	exe, err := procExe(root, pid)
+	if err != nil || exe == "" {
+		return false
+	}
+	if filepath.Base(exe) != wantProgram {
+		return false
+	}
+	return !binaryWritableBy(exe, uid)
+}
+
+// procExe resolves the binary a process is actually running.
+//
+// The kernel appends " (deleted)" when the file was unlinked or replaced under a
+// running process. That is not a locker we can vouch for — the bytes at that path are
+// gone and whatever is there now was put there by somebody else — so it is reported as
+// no answer rather than a path.
+func procExe(root, pid string) (string, error) {
+	link, err := os.Readlink(filepath.Join(root, pid, "exe"))
+	if err != nil {
+		return "", err
+	}
+	if strings.HasSuffix(link, " (deleted)") {
+		return "", fmt.Errorf("%s: the binary was deleted while running", pid)
+	}
+	return link, nil
+}
+
+// binaryWritableBy reports whether uid could have put these bytes here.
+//
+// Owned by the target uid is disqualifying on its own: they chose the contents. So is
+// group- or world-writable, because a binary anybody can append to is a binary the
+// session user can change without touching its owner. A root-owned 0755 binary under
+// /usr passes both, which is the real desktop.
+//
+// A file that cannot be stat'ed is not trusted. "Cannot tell" is answered on the side
+// of not corroborating, because the cost of a false "locked" is an audit line saying a
+// child was locked out when they were not.
+func binaryWritableBy(path string, uid uint32) bool {
+	owner, ok := fileOwner(path)
+	if !ok {
+		return true
+	}
+	if owner == uid {
+		return true
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return true
+	}
+	return fi.Mode().Perm()&0o022 != 0
 }
 
 // procArgv reads /proc/<pid>/cmdline: NUL-separated, with a trailing NUL after the last

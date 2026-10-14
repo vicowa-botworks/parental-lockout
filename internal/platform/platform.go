@@ -510,24 +510,48 @@ func corroborated(conf Confirmer) bool {
 func (c *Chain) lockState(ctx context.Context, s Session) (bool, error) {
 	var fallback Confirmer
 	var fallbackName string
-	for _, b := range c.backends {
+	// Every uncorroborated confirmer, not just the first. See the loop below.
+	var plain []Confirmer
+	var plainNames []string
+	for i, b := range c.backends {
 		conf, ok := b.(Confirmer)
 		if !ok {
 			continue
 		}
 		if !corroborated(conf) {
-			return conf.LockConfirmed(ctx, s)
+			plain = append(plain, conf)
+			plainNames = append(plainNames, c.backends[i].Name())
+			continue
 		}
 		if fallback == nil {
 			fallback, fallbackName = conf, b.Name()
 		}
 	}
+	// A read that fails is that confirmer's problem, not the operation's. Returning on
+	// the first error would set preErr for the whole Chain.Lock and discount every later
+	// uncorroborated yes, including one from a second confirmer that answered for itself.
+	// Only the first confirmer that can answer at all decides, though: every uncorroborated
+	// one reads the same LockedHint, so asking the rest after a clean answer buys a
+	// disagreement the real desktop cannot produce.
+	var errs []error
+	for i, conf := range plain {
+		yes, err := conf.LockConfirmed(ctx, s)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", plainNames[i], err))
+			continue
+		}
+		return yes, nil
+	}
 	if fallback == nil {
+		if len(errs) > 0 {
+			return false, errors.Join(errs...)
+		}
 		return false, fmt.Errorf("no backend in this chain can confirm a lock")
 	}
 	yes, err := fallback.LockConfirmed(ctx, s)
 	if err != nil {
-		return false, fmt.Errorf("%s: %w", fallbackName, err)
+		errs = append(errs, fmt.Errorf("%s: %w", fallbackName, err))
+		return false, errors.Join(errs...)
 	}
 	return yes, nil
 }

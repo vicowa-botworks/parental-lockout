@@ -24,9 +24,25 @@ func newProcFixture(t *testing.T) *procFixture {
 	return &procFixture{t: t, root: t.TempDir()}
 }
 
-// add writes one process. argv is joined with NULs and given the trailing NUL a real
-// cmdline carries.
+// add writes one process whose exe link resolves to a binary nobody but root could
+// have supplied, which is the shape the real desktop presents.
+//
+// The binary is a real file under the fixture's bin/ directory and the exe link points
+// at it, because /proc/<pid>/exe is a symlink the kernel maintains and the check reads
+// it with Readlink and then Stats the target. A dangling link would be an honest way to
+// model a deleted binary, and that has its own case below.
 func (f *procFixture) add(pid, ppid int, uid uint32, argv ...string) *procFixture {
+	f.t.Helper()
+	f.addWithExe(pid, ppid, uid, baseOf(argv[0]), argv...)
+	return f
+}
+
+// addWithExe writes one process and names the binary its exe link resolves to.
+//
+// argv[0] and the resolved binary are separate arguments on purpose: the whole point of
+// the check is that they can disagree, and a fixture that could only express them
+// together could not express the attack.
+func (f *procFixture) addWithExe(pid, ppid int, uid uint32, exeProgram string, argv ...string) *procFixture {
 	f.t.Helper()
 	dir := filepath.Join(f.root, fmt.Sprint(pid))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -46,7 +62,78 @@ func (f *procFixture) add(pid, ppid int, uid uint32, argv ...string) *procFixtur
 	if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0o644); err != nil {
 		f.t.Fatalf("write status: %v", err)
 	}
+	if exeProgram != "" {
+		f.linkExe(dir, exeProgram, 0o755)
+	}
 	return f
+}
+
+// addWithNoExe writes a process with no exe link yet, for a case that wants to install
+// a particular one afterwards.
+func (f *procFixture) addWithNoExe(pid, ppid int, uid uint32, argv ...string) *procFixture {
+	f.t.Helper()
+	f.addWithExe(pid, ppid, uid, "", argv...)
+	return f
+}
+
+// linkDeletedExe gives a process the exe link the kernel serves for a binary that was
+// unlinked while running: the path with " (deleted)" on the end, pointing at nothing.
+func (f *procFixture) linkDeletedExe(dir, program string) {
+	f.t.Helper()
+	path := filepath.Join(f.binDir(), program+" (deleted)")
+	if err := os.Symlink(path, filepath.Join(dir, "exe")); err != nil {
+		f.t.Fatalf("link deleted exe: %v", err)
+	}
+}
+
+// binDir is where the fixture keeps the binaries its exe links point at.
+func (f *procFixture) binDir() string {
+	f.t.Helper()
+	dir := filepath.Join(f.root, "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		f.t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	return dir
+}
+
+// linkExe gives a process directory an exe link resolving to a binary called program.
+//
+// The binary is created 0755 and owned by whoever runs the tests, which is not
+// fixtureUID — so it reads as a binary the session user cannot have written, exactly as
+// a root-owned file under /usr does on a real machine.
+func (f *procFixture) linkExe(dir, program string, mode os.FileMode) {
+	f.t.Helper()
+	path := filepath.Join(f.binDir(), program)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), mode); err != nil {
+			f.t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		f.t.Fatalf("chmod %s: %v", path, err)
+	}
+	if err := os.Symlink(path, filepath.Join(dir, "exe")); err != nil {
+		f.t.Fatalf("link exe: %v", err)
+	}
+}
+
+// forge writes a process whose argv[0] claims to be one program while its exe resolves
+// to something else. This is the impostor: argv[0] is whatever the caller passed to
+// execve, so the name is free and the resolved path is not.
+func (f *procFixture) forge(pid, ppid int, uid uint32, claimedArgv0, realBinary string) *procFixture {
+	f.t.Helper()
+	f.addWithExe(pid, ppid, uid, realBinary, claimedArgv0)
+	return f
+}
+
+// writableBinary makes the fixture's copy of program writable by anybody, modelling a
+// binary the session user could have put their own bytes into.
+func (f *procFixture) writableBinary(program string) {
+	f.t.Helper()
+	path := filepath.Join(f.binDir(), program)
+	if err := os.Chmod(path, 0o777); err != nil {
+		f.t.Fatalf("chmod %s: %v", path, err)
+	}
 }
 
 // use points the package at this fixture for the duration of the test.
@@ -93,6 +180,15 @@ const (
 	measuredKsmserver = "/usr/bin/ksmserver"
 )
 
+// fixtureUID is the uid the fixture's session belongs to.
+//
+// It is deliberately not the uid running the tests. The identity rule rejects a binary
+// the session user could have written, and every file a test creates is owned by the
+// test's own uid — so a fixture that used os.Getuid() would have its own honest trees
+// rejected, and the way to make them pass would be to weaken the rule. Picking a uid
+// nobody here owns keeps the fixture on the same side of the check as the real desktop.
+const fixtureUID = uint32(60000)
+
 // The tree measured on the target with the session genuinely locked:
 //
 //	2224790 7619 1000 /usr/lib/x86_64-linux-gnu/libexec/kscreenlocker_greet --graceTime 5000 --ksldfd 56
@@ -101,12 +197,12 @@ const (
 // This is the one shape that must corroborate a lock.
 func TestLockerRunningAcceptsTheMeasuredTree(t *testing.T) {
 	newProcFixture(t).
-		add(6695, 1, 1000, "/usr/lib/systemd/systemd --user").
-		add(7619, 6695, 1000, measuredKsmserver).
-		add(2224790, 7619, 1000, measuredLocker, "--graceTime", "5000", "--ksldfd", "56").
+		add(6695, 1, fixtureUID, "/usr/lib/systemd/systemd --user").
+		add(7619, 6695, fixtureUID, measuredKsmserver).
+		add(2224790, 7619, fixtureUID, measuredLocker, "--graceTime", "5000", "--ksldfd", "56").
 		use()
 
-	yes, err := lockerRunning(context.Background(), 1000)
+	yes, err := lockerRunning(context.Background(), fixtureUID)
 	if err != nil {
 		t.Fatalf("lockerRunning: %v", err)
 	}
@@ -119,12 +215,12 @@ func TestLockerRunningAcceptsTheMeasuredTree(t *testing.T) {
 // so". This is the case the corroborator exists for.
 func TestLockerRunningRejectsAHintWithNoLockerBehindIt(t *testing.T) {
 	newProcFixture(t).
-		add(6695, 1, 1000, "/usr/lib/systemd/systemd --user").
-		add(7619, 6695, 1000, measuredKsmserver).
-		add(300, 7619, 1000, "/usr/bin/plasmashell").
+		add(6695, 1, fixtureUID, "/usr/lib/systemd/systemd --user").
+		add(7619, 6695, fixtureUID, measuredKsmserver).
+		add(300, 7619, fixtureUID, "/usr/bin/plasmashell").
 		use()
 
-	yes, err := lockerRunning(context.Background(), 1000)
+	yes, err := lockerRunning(context.Background(), fixtureUID)
 	if err != nil {
 		t.Fatalf("lockerRunning: %v", err)
 	}
@@ -149,12 +245,12 @@ func TestLockerRunningRejectsALockerThatIsNotKsmserversChild(t *testing.T) {
 	} {
 		t.Run(parent.why, func(t *testing.T) {
 			newProcFixture(t).
-				add(7619, 6695, 1000, measuredKsmserver).
+				add(7619, 6695, fixtureUID, measuredKsmserver).
 				add(parent.pid, 3000, 1000, parent.argv).
 				add(5000, parent.pid, 1000, measuredLocker, "--graceTime", "5000").
 				use()
 
-			yes, err := lockerRunning(context.Background(), 1000)
+			yes, err := lockerRunning(context.Background(), fixtureUID)
 			if err != nil {
 				t.Fatalf("lockerRunning: %v", err)
 			}
@@ -173,7 +269,7 @@ func TestLockerRunningRejectsAnotherUsersLocker(t *testing.T) {
 		add(2224790, 7619, 1001, measuredLocker).
 		use()
 
-	yes, err := lockerRunning(context.Background(), 1000)
+	yes, err := lockerRunning(context.Background(), fixtureUID)
 	if err != nil {
 		t.Fatalf("lockerRunning: %v", err)
 	}
@@ -188,8 +284,8 @@ func TestLockerRunningRejectsAnotherUsersLocker(t *testing.T) {
 // pins which one the code reads by giving it a tree where the two disagree.
 func TestLockerRunningMatchesOnCmdlineNotTheTruncatedName(t *testing.T) {
 	f := newProcFixture(t)
-	f.add(7619, 6695, 1000, measuredKsmserver)
-	f.add(2224790, 7619, 1000, measuredLocker)
+	f.add(7619, 6695, fixtureUID, measuredKsmserver)
+	f.add(2224790, 7619, fixtureUID, measuredLocker)
 	f.use()
 
 	// Sanity: the fixture really does carry the truncated name, or this test proves
@@ -202,7 +298,7 @@ func TestLockerRunningMatchesOnCmdlineNotTheTruncatedName(t *testing.T) {
 		t.Errorf("fixture status is %q, want the 15-char truncated name", raw)
 	}
 
-	yes, err := lockerRunning(context.Background(), 1000)
+	yes, err := lockerRunning(context.Background(), fixtureUID)
 	if err != nil || !yes {
 		t.Fatalf("lockerRunning = %v, %v; want the full argv0 to match", yes, err)
 	}
@@ -211,10 +307,10 @@ func TestLockerRunningMatchesOnCmdlineNotTheTruncatedName(t *testing.T) {
 	// else is not the locker. Alone, it must corroborate nothing — that is what a
 	// prefix match would get wrong.
 	imp := newProcFixture(t)
-	imp.add(7619, 6695, 1000, measuredKsmserver)
-	imp.add(9000, 7619, 1000, "/usr/bin/kscreenlocker_g")
+	imp.add(7619, 6695, fixtureUID, measuredKsmserver)
+	imp.add(9000, 7619, fixtureUID, "/usr/bin/kscreenlocker_g")
 	imp.use()
-	yes, err = lockerRunning(context.Background(), 1000)
+	yes, err = lockerRunning(context.Background(), fixtureUID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +324,7 @@ func TestLockerRunningMatchesOnCmdlineNotTheTruncatedName(t *testing.T) {
 // looks at argv[0] would not notice — which is exactly why it gets asserted.
 func TestProcArgvDropsTheTrailingNulField(t *testing.T) {
 	f := newProcFixture(t)
-	f.add(1234, 1, 1000, measuredLocker, "--graceTime", "5000")
+	f.add(1234, 1, fixtureUID, measuredLocker, "--graceTime", "5000")
 	f.use()
 
 	argv, err := procArgv("1234")
@@ -251,16 +347,19 @@ func TestProcArgvDropsTheTrailingNulField(t *testing.T) {
 // not the session's.
 func TestLockerRunningMatchesTheEffectiveUidNotTheRealOne(t *testing.T) {
 	f := newProcFixture(t)
-	f.add(7619, 6695, 1000, measuredKsmserver)
-	f.add(2224790, 7619, 1000, measuredLocker)
+	f.add(7619, 6695, fixtureUID, measuredKsmserver)
+	f.add(2224790, 7619, fixtureUID, measuredLocker)
 	dir := filepath.Join(f.root, "2224790")
 	raw, err := os.ReadFile(filepath.Join(dir, "status"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// real 1000, effective 1001.
+	// real 1000, effective 1001, both different from the fixture's own uid so the
+	// distinction is the only thing that can decide the answer.
 	if err := os.WriteFile(filepath.Join(dir, "status"),
-		[]byte(strings.Replace(string(raw), "Uid:\t1000\t1000\t1000\t1000", "Uid:\t1000\t1001\t1000\t1000", 1)), 0o644); err != nil {
+		[]byte(strings.Replace(string(raw),
+			fmt.Sprintf("Uid:\t%d\t%d\t%d\t%d", fixtureUID, fixtureUID, fixtureUID, fixtureUID),
+			"Uid:\t1000\t1001\t1000\t1000", 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	f.use()
@@ -270,7 +369,7 @@ func TestLockerRunningMatchesTheEffectiveUidNotTheRealOne(t *testing.T) {
 		t.Fatalf("lockerRunning for the effective uid = %v, %v; want it to count", yes, err)
 	}
 	// And the real uid is not the session's.
-	if yes, err := lockerRunning(context.Background(), 1000); err != nil || yes {
+	if yes, err := lockerRunning(context.Background(), fixtureUID); err != nil || yes {
 		t.Errorf("lockerRunning for the real uid = %v, %v; want it not to count", yes, err)
 	}
 }
@@ -278,7 +377,7 @@ func TestLockerRunningMatchesTheEffectiveUidNotTheRealOne(t *testing.T) {
 func TestLockerRunningEmptyTreeIsNothingNotAnError(t *testing.T) {
 	newProcFixture(t).use()
 
-	yes, err := lockerRunning(context.Background(), 1000)
+	yes, err := lockerRunning(context.Background(), fixtureUID)
 	if err != nil {
 		t.Fatalf("lockerRunning: %v", err)
 	}
@@ -294,8 +393,8 @@ func TestLockerRunningWalkesPastOrdinaryProcNoise(t *testing.T) {
 	f := newProcFixture(t)
 	f.kernelThread(1, 0)
 	f.kernelThread(2, 0)
-	f.add(7619, 6695, 1000, measuredKsmserver)
-	f.add(2224790, 7619, 1000, measuredLocker)
+	f.add(7619, 6695, fixtureUID, measuredKsmserver)
+	f.add(2224790, 7619, fixtureUID, measuredLocker)
 	f.use()
 	if err := os.WriteFile(filepath.Join(f.root, "self"), []byte("not a pid"), 0o644); err != nil {
 		t.Fatal(err)
@@ -305,7 +404,7 @@ func TestLockerRunningWalkesPastOrdinaryProcNoise(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	yes, err := lockerRunning(context.Background(), 1000)
+	yes, err := lockerRunning(context.Background(), fixtureUID)
 	if err != nil {
 		t.Fatalf("lockerRunning: %v", err)
 	}
@@ -322,7 +421,7 @@ func TestLockerRunningErrorsWhenProcCannotBeRead(t *testing.T) {
 	procRoot = missing
 	t.Cleanup(func() { procRoot = old })
 
-	yes, err := lockerRunning(context.Background(), 1000)
+	yes, err := lockerRunning(context.Background(), fixtureUID)
 	if err == nil {
 		t.Fatal("an unreadable procRoot reported " + fmt.Sprint(yes) + " instead of faulting")
 	}
@@ -335,7 +434,7 @@ func TestLockerRunningErrorsWhenProcCannotBeRead(t *testing.T) {
 }
 
 func TestLockerRunningHonoursACancelledContext(t *testing.T) {
-	newProcFixture(t).add(7619, 6695, 1000, measuredKsmserver).use()
+	newProcFixture(t).add(7619, 6695, fixtureUID, measuredKsmserver).use()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

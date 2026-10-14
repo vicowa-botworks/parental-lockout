@@ -18,6 +18,12 @@ import (
 // park becomes instant here, and sleepCtx's own two branches are pinned directly by
 // TestSleepCtxBothBranches rather than being left untested behind the substitution.
 func TestMain(m *testing.M) {
+	// A process re-exec'd to be part of a forged process tree never runs the suite. See
+	// locker_forged_test.go, which needs a real /proc entry whose argv[0] is a lie.
+	if os.Getenv(forgedEnv) == "child" {
+		runForgedParent()
+		return
+	}
 	settleWait = func(context.Context, time.Duration) bool { return true }
 	os.Exit(m.Run())
 }

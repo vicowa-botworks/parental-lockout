@@ -249,11 +249,47 @@ Discounting a corroborated yes there would report `ErrUnconfirmed` forever on a 
 screen, and an operator trained to ignore that signal has no signal left. So the rule is
 "an uncorroborated yes needs a transition", not "never trust the hint".
 
-**What this does not prove.** The locker runs as uid 1000 — the same uid as the child.
-`ksmserver` is the child's own process too, so a child willing to `ptrace` its own session
-leader could in principle make it spawn a locker. That is a long way up from writing a
-property, and it is a bar raised rather than a wall; nothing here should be read as
-claiming more.
+**What this does not prove, and what it now does.** An earlier draft of this page said the
+corroborator moves the impostor's job to "get code running as a child of the session's own
+compositor", and that `ptrace` was the next rung up. That was wrong, and it was wrong in the
+direction that matters: the reviewer built the tree and ran the check against a real `/proc`.
+
+The first version decided identity from `filepath.Base(argv[0])`. `argv[0]` is whatever the
+caller passed to `execve`. Two `execve` calls as the session user — no `ptrace`, no
+relationship to any compositor, nothing KDE running at all — produced a parent claiming to
+be `/usr/bin/ksmserver` and a child claiming to be `kscreenlocker_greet`, and the KDE
+backend reported a **corroborated** yes. The bar as implemented was the same bar as writing
+the hint: run code as the session user, which is exactly what the `~/.config/autostart` file
+in #29 already is.
+
+So identity is resolved from `/proc/<pid>/exe`, a symlink the kernel maintains, for both
+halves of the tree; the name is kept only as a cheap pre-filter. Two things are then
+required of the resolved binary: its basename is the expected program, and the session user
+could not have written it — not owned by them, not group- or world-writable. The canonical
+*path* is deliberately not the test, because it differs by distribution
+(`/usr/lib/x86_64-linux-gnu/libexec` on Ubuntu, `/usr/libexec` on Fedora) and pinning one
+would break the real desktop to stop the fake one. What does not vary is that the session
+user cannot write into the directory the real locker lives in.
+
+The impostor therefore now needs a binary named `kscreenlocker_greet` that the session user
+cannot modify, parented by one named `ksmserver` that the session user cannot modify — the
+real pair, or a write that needs root. That is a bar raised, not a wall: the locker still
+runs as the child's own uid, and nothing here proves the screen is locked.
+
+`locker_test.go` drives a synthetic `/proc`, and a fixture *is* a claimed identity, so it
+structurally cannot catch a false claim. `locker_forged_test.go` is the case that can: it
+execs a helper with `argv[0] = "/usr/bin/ksmserver"` that spawns `/bin/sleep` with
+`argv[0] = "kscreenlocker_greet"`, against the real `/proc`, and asserts rejection — with a
+positive control that resolves our own binary first, so the rejection cannot be vacuous.
+
+**Cost of the walk.** `lockerRunning` reads `/proc/<pid>/status` for every process on the
+machine, and it runs on every `LockConfirmed`, which `confirmWithSettle` calls repeatedly
+inside the settle window, per backend. The uid filter now runs before anything is resolved,
+which is what keeps the expensive reads (`cmdline`, `exe`) to the session's own processes.
+`ctx.Err()` bounds the walk against the lock budget but not against the tick; caching the
+answer for the duration of one `Chain.Lock` is the obvious next step and is filed as a
+follow-up rather than done here, because a cache of a security answer needs its own
+reasoning about staleness.
 
 **GNOME is not covered, deliberately.** GNOME draws its lock screen inside `gnome-shell`,
 so there is no separate locker to find. The candidate signal is
