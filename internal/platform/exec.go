@@ -55,10 +55,26 @@ var ErrBinaryNotFound = errors.New("not found in PATH")
 // enforcing, and say nothing. Silence is this daemon's characteristic failure mode,
 // not a crash.
 //
-// 10s is generous against what these calls actually cost (loginctl show-session and
-// gdbus call both return well under a second on the target box) and still lets the
-// whole default chain run inside one 30s tick.
+// 10s is generous against what these calls actually cost: loginctl show-session and
+// gdbus call both returned 0.00-0.01s on the target box, so this fires only when a
+// service has stopped answering at all.
+//
+// What it does NOT do is bound a lock. It is a per-command bound, and one Chain.Lock
+// is many commands — measured at 17 subprocess calls when the session bus owns the
+// name and never replies, and 36 when the desktop accepts the lock but never writes
+// the hint, because every backend then runs its own settle loop. Ten seconds each is
+// 2m50s to 6m for one session, so the operation-level bound is DefaultLockBudget and
+// this number only makes that one meaningful: without it, a single hung call would
+// eat the whole lock budget before the rest of the chain was ever asked.
 const DefaultCallTimeout = 10 * time.Second
+
+// errCallBudget is the cause this runner puts on the deadline it creates.
+//
+// It exists so an error can name the budget that actually ran out. The runner's own
+// guard and the caller's deadline both surface as context.DeadlineExceeded, and a
+// message that blames the 10s guard when the caller's own 100ms deadline was the
+// limit sends an operator to change a setting that was never the problem.
+var errCallBudget = errors.New("platform: call budget expired")
 
 // ExecRunner runs commands for real.
 type ExecRunner struct {
@@ -107,7 +123,7 @@ func (r ExecRunner) Run(ctx context.Context, argv []string, env []string, uid ui
 	// it. A caller's own earlier deadline still wins, because context.WithTimeout
 	// takes the sooner of the two.
 	callTimeout := r.timeout()
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	ctx, cancel := context.WithTimeoutCause(ctx, callTimeout, errCallBudget)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -155,6 +171,16 @@ func (r ExecRunner) Run(ctx context.Context, argv []string, env []string, uid ui
 	// bus name and is not replying. That distinction is the whole reason the bound
 	// exists, so it has to survive into the error text.
 	if ctx.Err() != nil {
+		// Name the budget that ran out. Both deadlines report the same sentinel, and
+		// the two answers send the operator to different places: one says a service
+		// is not replying and this guard is doing its job, the other says whoever
+		// asked gave up first and this guard was never the limit.
+		if cause := context.Cause(ctx); !errors.Is(cause, errCallBudget) {
+			// Not our number in the sentence. Naming a budget that was never the
+			// limit is exactly the misdirection this branch exists to avoid.
+			return out, fmt.Errorf("%s: the caller stopped waiting before this command answered: %w",
+				argv[0], cause)
+		}
 		return out, fmt.Errorf("%s: no answer within %s, gave up: %w", argv[0], callTimeout, ctx.Err())
 	}
 

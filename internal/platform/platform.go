@@ -260,6 +260,48 @@ type Chain struct {
 	// build without the KDE backend has to be told the lock will not happen, not
 	// silently handed a shorter chain.
 	unknown []string
+
+	// LockBudget bounds one Lock call end to end. Zero means DefaultLockBudget.
+	//
+	// It is a field rather than a constant because the bound is the thing a test has
+	// to be able to shrink: proving that a hung backend stops eating the chain means
+	// making a call that outlives the budget, and 25s is a long time to wait for a
+	// unit test.
+	LockBudget time.Duration
+}
+
+// DefaultLockBudget bounds one Chain.Lock from the first backend to the last.
+//
+// The per-command guard in ExecRunner is not enough on its own. One Lock is many
+// commands: measured at 17 subprocess calls with a session bus that owns the name and
+// never replies, and 36 when the desktop accepts the lock but never writes the hint,
+// because every backend then runs its own settle window. Ten seconds apiece is 2m50s
+// to 6m for a single session of a single child, which is minutes of a 30s tick during
+// which nothing else is enforced and the machine in front of the child stays unlocked.
+//
+// 25s is under one default tick, and against a healthy chain — two or three calls at
+// 0.01s each — it is roughly a thousand times the cost, so it fires only when
+// something is already not answering. Running out of it is not a silent outcome: the
+// remaining backends are never asked, the call returns an error or ErrUnconfirmed, and
+// the enforcement loop keeps the lockout and asks again on the next tick.
+//
+// The arithmetic that is left, stated rather than claimed: a tick that locks N
+// sessions can still take N times this budget in the pathological case. That is what
+// the engine's overlap guard is for — it skips the tick rather than stacking them and
+// reports that enforcement is landing late.
+const DefaultLockBudget = 25 * time.Second
+
+// errLockBudget is the cause put on the deadline Chain.Lock creates, so that a note
+// coming back from a backend says the lock ran out of time instead of blaming a tool
+// that was merely still waiting when the budget expired.
+var errLockBudget = errors.New("platform: lock budget expired")
+
+// lockBudget resolves the configured bound.
+func (c *Chain) lockBudget() time.Duration {
+	if c.LockBudget != 0 {
+		return c.LockBudget
+	}
+	return DefaultLockBudget
 }
 
 // New builds the chain named by the configuration, in the configured order.
@@ -359,8 +401,15 @@ func (c *Chain) Sessions(ctx context.Context) ([]Session, error) {
 // failure, moves on to the next backend, and locks it a second time.
 //
 // Ten reads a tenth of a second apart is a second, far past any real signal round
-// trip. The loop calls this at most once per user per 30 seconds, so the wait costs
-// nothing worth naming.
+// trip, and the loop asks at most once per user per 30 seconds.
+//
+// That second is the healthy cost, and only the healthy cost. Each read is a command,
+// and a command that meets a service which owns the name and never replies costs up to
+// DefaultCallTimeout, so an unbounded-in-the-aggregate window on a hung bus is ten
+// reads times ten seconds per backend. The bound on that is not here: it is
+// DefaultLockBudget around the whole Chain.Lock, which is also what stops the settle
+// loop, because every read takes the same context and a cancelled one reports
+// unlocked at once rather than after the remaining polls.
 const (
 	confirmReads = 10
 	confirmPoll  = 100 * time.Millisecond
@@ -422,6 +471,13 @@ func confirmWithSettle(ctx context.Context, conf Confirmer, s Session) (bool, er
 //
 // If every backend was tried and none confirmed, the result is ErrUnconfirmed rather
 // than nil. Nothing here returns nil without evidence.
+//
+// The whole call is bounded by LockBudget, which is what keeps a service that has
+// stopped answering from turning one lock into minutes. Running out of it needs no new
+// outcome, because the two shapes it produces are already the right sentences: a
+// backend that had accepted the lock but could not be confirmed in time lands in
+// ErrUnconfirmed, and one that never got asked lands in the joined errors. Both keep
+// the enforcement loop re-arming.
 func (c *Chain) Lock(ctx context.Context, s Session) error {
 	if !isLockable(s) {
 		return fmt.Errorf("refusing to lock %s: not a lockable desktop session", s.Describe())
@@ -430,6 +486,12 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 		return fmt.Errorf("no lock backend available (config names %v, this binary knows %s)",
 			c.unknown, strings.Join(Registered(), ", "))
 	}
+
+	// Applied here rather than at the call sites so it cannot be forgotten, the same
+	// reason the per-command bound lives in ExecRunner. A caller's earlier deadline
+	// still wins, because WithTimeout takes the sooner of the two.
+	ctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)
+	defer cancel()
 
 	var notes []error // everything worth saying, in backend order
 	var failures int  // backends that returned an error rather than accepting

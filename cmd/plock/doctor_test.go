@@ -72,6 +72,94 @@ func TestDoctorReportsWhichBackendWouldBeUsed(t *testing.T) {
 	}
 }
 
+// A misspelled backend has to be named in the report body, not only in the stderr
+// warning. Two reasons, both about how this output is actually used: the body is what
+// gets pasted into a bug report, and stderr is the first thing a script redirects away.
+//
+// Both halves of the table matter. The common case is a typo sitting next to a backend
+// that does resolve, so a line printed only when nothing at all works is a line that
+// never fires in practice; and the all-broken case is the one a test would think to
+// cover, which is why the assertion is the PHRASE and not merely the name — every
+// configured backend is listed by name anyway, so a test looking for "nope" passes with
+// the line deleted. Moving the print behind "something is usable" survived the whole
+// suite once, on exactly that confusion.
+func TestDoctorNamesUnknownBackendsInTheBody(t *testing.T) {
+	cases := []struct {
+		name     string
+		names    []string
+		unknown  []string
+		statuses []platform.BackendStatus
+		want     string
+		wantCode int
+	}{
+		{
+			name:    "alongside a backend that works",
+			names:   []string{"kde", "kdeeen"},
+			unknown: []string{"kdeeen"},
+			statuses: []platform.BackendStatus{
+				{Name: "kde", Available: true, Detail: "calls org.freedesktop.ScreenSaver.Lock"},
+			},
+			want:     "not recognised in this binary: kdeeen",
+			wantCode: exitOK,
+		},
+		{
+			name:    "when nothing is usable",
+			names:   []string{"nope"},
+			unknown: []string{"nope"},
+			statuses: []platform.BackendStatus{
+				{Name: "nope", Available: false, Detail: "no such backend"},
+			},
+			want:     "not recognised in this binary: nope",
+			wantCode: exitFailure,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withChain(t, &fakeChain{names: tc.names, unknown: tc.unknown, statuses: tc.statuses}, nil)
+
+			code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
+			if code != tc.wantCode {
+				t.Fatalf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, tc.wantCode, out, errOut)
+			}
+			// stdout specifically: a test that accepts either stream is satisfied by
+			// the stderr warning alone.
+			if !strings.Contains(out, tc.want) {
+				t.Errorf("the report body never says %q\nstdout:\n%s\nstderr:\n%s", tc.want, out, errOut)
+			}
+		})
+	}
+}
+
+// "would try first" is only honest next to the sentence explaining that a backend is
+// finished with once its lock is CONFIRMED. On its own the line predicts which backend
+// will do the locking, which is the overclaim this wording replaced; and because
+// deleting the explanation changes nothing any test was checking, an honest sentence
+// here is one refactor away from being honest-looking output again.
+func TestDoctorExplainsThatFirstIsNotTheBackendThatLocks(t *testing.T) {
+	withChain(t, &fakeChain{
+		names: []string{"logind", "kde"},
+		statuses: []platform.BackendStatus{
+			{Name: "logind", Available: true, Detail: "loginctl found"},
+			{Name: "kde", Available: true, Detail: "calls org.freedesktop.ScreenSaver.Lock"},
+		},
+	}, nil)
+
+	code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
+	if code != exitOK {
+		t.Fatalf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, exitOK, out, errOut)
+	}
+	for _, want := range []string{
+		"would try first: logind",
+		"only once its lock is confirmed",
+		"may come from a later one",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report is missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // The failure this command exists for: nothing can lock, and the daemon would run
 // forever enforcing nothing.
 func TestDoctorFailsLoudlyWhenNothingCanLock(t *testing.T) {
@@ -226,9 +314,13 @@ func TestDoctorReportsAConfigWhoseBackendsAllMiss(t *testing.T) {
 	if !strings.Contains(out, "would try: nothing") {
 		t.Errorf("must say nothing can lock:\n%s", out)
 	}
+	// stdout, specifically. The stderr warning is not the report: it is the first
+	// thing a script redirects away, and a test that accepts either stream is
+	// satisfied by it alone — which is how the placement of this line went unpinned
+	// once a change moved the print behind "nothing is usable".
 	for _, name := range []string{"nope", "also-nope"} {
-		if !strings.Contains(errOut, name) && !strings.Contains(out, name) {
-			t.Errorf("the bad name %q is never reported\nstdout:\n%s\nstderr:\n%s", name, out, errOut)
+		if !strings.Contains(out, name) {
+			t.Errorf("the bad name %q is not in the report body\nstdout:\n%s\nstderr:\n%s", name, out, errOut)
 		}
 	}
 }

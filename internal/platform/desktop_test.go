@@ -499,10 +499,15 @@ func TestDesktopConfirmPropagatesALogindFailure(t *testing.T) {
 
 // The shipped default chain is [logind, kde, gnome], and kde and gnome are the same
 // interface under different preferred names. When confirmation never arrives — the
-// open question in docs/platforms.md §4 — both run: kde locks via org.kde.screensaver,
-// gnome finds org.gnome.ScreenSaver unowned and falls through to
-// org.freedesktop.ScreenSaver. ksmserver owns both of those names (measured,
-// docs/platforms.md), so one desktop gets two lock requests per poll.
+// open question in docs/platforms.md §4 — both run, and they end up at the same
+// locker.
+//
+// kde asks for its preferred name, org.kde.screensaver, which ksmserver owns. gnome
+// prefers org.gnome.ScreenSaver, which on a KDE machine nothing owns, so it falls
+// through to its second name, org.freedesktop.ScreenSaver — and ksmserver owns that
+// one too (measured: it serves the interface under org.kde.screensaver,
+// org.freedesktop.ScreenSaver and org.kde.ksmserver, and org.gnome.ScreenSaver is not
+// among them). One desktop, two lock requests per poll.
 //
 // ScreenSaver.Lock is idempotent, so the effect is nil; what is not nil is the audit
 // trail, which will show two accepted locks every 30 seconds. Pinning that here keeps

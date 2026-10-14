@@ -271,7 +271,7 @@
     {
       "id": "D8",
       "file": "cmd/plock/doctor.go",
-      "old": "\t\tif st.Available {\n\t\t\tpicked = st.Name\n\t\t\tbreak\n\t\t}",
+      "old": "\t\tif st.Available {\n\t\t\tfirst = st.Name\n\t\t\tbreak\n\t\t}",
       "new": "\t\tif st.Available {\n\t\t\tpicked = st.Name\n\t\t}",
       "note": "reports the LAST usable backend: Chain.Lock stops at the first, so doctor describes a machine it is not looking at",
       "package": "./cmd/plock/"
@@ -287,7 +287,7 @@
     {
       "id": "D10",
       "file": "cmd/plock/doctor.go",
-      "old": "\tif picked == \"\" {\n\t\treturn exitFailure\n\t}",
+      "old": "\tif first == \"\" {\n\t\treturn exitFailure\n\t}",
       "new": "\tif picked == \"\" {\n\t\treturn exitOK\n\t}",
       "note": "exits 0 when nothing can lock, the one state a script must be able to test for",
       "package": "./cmd/plock/"
@@ -335,6 +335,62 @@
       "old": "That is all Probe can see: it has no user session to ask, so \\\"usable\\\" means the tool \"+\n\t\t\t\"is present, not that a lock would land here. ",
       "new": "",
       "about": "let Probe report usable as if a lock were guaranteed, on machines where no screensaver exists at all"
+    },
+    {
+      "id": "G1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\tctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)",
+      "new": "\tctx, cancel := context.WithCancel(ctx)",
+      "note": "the bound is per command again: one Chain.Lock can spend minutes on a session that is not answering while nothing else on the machine is enforced"
+    },
+    {
+      "id": "G2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\tif c.LockBudget != 0 {\n\t\treturn c.LockBudget\n\t}",
+      "new": "\tif true {\n\t\treturn c.LockBudget\n\t}",
+      "note": "the default stops resolving, so a chain built by New gets a zero budget"
+    },
+    {
+      "id": "G3",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\tctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)",
+      "new": "\tctx, cancel := context.WithTimeout(ctx, c.lockBudget())",
+      "note": "the deadline loses its cause, so a note from a backend blames a hung tool instead of the lock running out of time"
+    },
+    {
+      "id": "G4",
+      "package": "./internal/platform/",
+      "file": "internal/platform/exec.go",
+      "old": "\t\tif cause := context.Cause(ctx); !errors.Is(cause, errCallBudget) {",
+      "new": "\t\tif cause := context.Cause(ctx); errors.Is(cause, errCallBudget) && false {",
+      "note": "every timeout blames the runner's own guard, including the ones where the caller's deadline was the limit"
+    },
+    {
+      "id": "G5",
+      "package": "./internal/platform/",
+      "file": "internal/platform/exec.go",
+      "old": "\treturn out, fmt.Errorf(\"%s: %w\", argv[0], err)",
+      "new": "\treturn out, err",
+      "note": "the stdlib's own text already contains the path, so the substring check alone let this survive once; the prefix assertion is what pins the wrap"
+    },
+    {
+      "id": "G6",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/doctor.go",
+      "old": "\tif unknown := chain.Unknown(); len(unknown) > 0 {",
+      "new": "\tif unknown := chain.Unknown(); first != \"\" && len(unknown) > 0 {",
+      "note": "a misspelled backend is only named when nothing works, which is the case that almost never happens; the body is what gets pasted into a bug report"
+    },
+    {
+      "id": "G7",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/doctor.go",
+      "old": "\t\tfmt.Fprintln(&report, \"           A backend is finished with only once its lock is confirmed, so\")\n\t\tfmt.Fprintln(&report, \"           the lock that lands may come from a later one in the list.\")\n",
+      "new": "",
+      "note": "\"would try first\" on its own is the overclaim W1 was raised against; the explanation is what makes the line honest"
     }
   ]
 }

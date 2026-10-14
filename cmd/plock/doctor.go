@@ -32,10 +32,10 @@ Reads only. It never locks a screen and never writes the config.
 // verdicts, and the names that resolved to nothing.
 //
 // An interface rather than a *platform.Chain so the report can be tested against a
-// fixed set of verdicts. Without that seam every assertion about "would use: logind"
-// is a claim about whether the machine running the test happens to have loginctl and
-// gdbus installed, which is how a test ends up passing for the wrong reason on one box
-// and failing for no reason on another.
+// fixed set of verdicts. Without that seam every assertion about "would try first:
+// logind" is a claim about whether the machine running the test happens to have
+// loginctl and gdbus installed, which is how a test ends up passing for the wrong
+// reason on one box and failing for no reason on another.
 type chainView interface {
 	Names() []string
 	Unknown() []string
@@ -47,7 +47,7 @@ type chainView interface {
 // platform.New always hands back a chain, alongside an error naming whatever it could
 // not build, so there is no "no chain" case to branch on here. That is the behaviour
 // doctor wants: a config whose only entry is a typo still gets a report — the unknown
-// name, and "would use: nothing" — rather than an error line and no information.
+// name, and "would try: nothing" — rather than an error line and no information.
 var buildChain = func(s config.Settings) (chainView, error) {
 	return platform.New(s, platform.ExecRunner{})
 }

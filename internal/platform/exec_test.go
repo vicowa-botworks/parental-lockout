@@ -209,6 +209,18 @@ func TestExecRunnerCallerDeadlineStillWins(t *testing.T) {
 	if elapsed > 5*time.Second {
 		t.Errorf("took %v; the runner's 1h default overrode the caller's 50ms deadline", elapsed)
 	}
+	// The sentence has to blame the budget that actually ran out. Both deadlines
+	// report the same sentinel, and an operator chasing a hung bus who is told the
+	// 1h guard fired will go looking for a 1h guard that was never the limit.
+	if strings.Contains(err.Error(), "1h0m0s") {
+		t.Errorf("error %q blames the runner's budget, which was never the limit", err)
+	}
+	if !strings.Contains(err.Error(), "the caller stopped waiting") {
+		t.Errorf("error %q never says the caller's own deadline ended the call", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("error = %v, want it still to wrap context.DeadlineExceeded", err)
+	}
 }
 
 // Zero means the default, and the default has to be a real bound: a constant that
@@ -248,6 +260,14 @@ func TestExecRunnerReportsAFailedStartThatIsNotAMissingBinary(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), script) {
 		t.Errorf("error %q does not name the program that failed to start", err)
+	}
+	// The substring above passes with or without the wrap, because the exec
+	// package's own text already contains the path — which is exactly how a mutant
+	// that drops the wrap survived this test once. What distinguishes our sentence
+	// from the stdlib's is that ours puts the program first: "path: fork/exec ...",
+	// not "fork/exec path: ...".
+	if !strings.HasPrefix(err.Error(), script+": ") {
+		t.Errorf("error %q is not our message naming the program first", err)
 	}
 	// It must not be dressed up as "not installed": the file exists, and telling an
 	// operator to install it sends them to the wrong thing.

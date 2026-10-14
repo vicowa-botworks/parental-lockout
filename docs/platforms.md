@@ -131,6 +131,28 @@ If step 3 says `no` while the screen is visibly locked, **stop**: confirmation i
 this desktop and the daemon will never report a successful lock. Record it against the
 issue for this platform rather than relaxing the confirmation.
 
+### What the wrong answer costs in wall clock
+
+Counted on a box with a session bus that owns `org.kde.screensaver` and never replies, with
+the shipped default chain `[logind, kde, gnome]` and `loginctl` unaffected:
+
+| Shape | Subprocess calls per `Chain.Lock` |
+| --- | --- |
+| bus owns the name, never answers | **17** (5 `gdbus` + 12 `loginctl`) |
+| desktop accepts the lock, never writes the hint — the answer to the question above is `no` | **36** (2 `gdbus` + 34 `loginctl`), because every backend runs its own 11-read settle window |
+
+Each call is bounded by `DefaultCallTimeout` (10s), so those are 2m50s and 6m for **one
+lock of one session**. That is why the per-command guard is not the whole answer and
+`Chain.Lock` carries an operation-level bound of its own, `DefaultLockBudget` (25s, inside
+one default tick): running out of it leaves the remaining backends unasked and returns an
+error or `ErrUnconfirmed`, so the enforcement loop keeps the lockout and asks again next
+tick.
+
+The arithmetic that is left, stated rather than hidden: a tick that locks *N* sessions can
+still take *N* × `DefaultLockBudget` in this shape. The engine's overlap guard is what
+keeps that from stacking ticks — it skips the next one and says enforcement is landing
+late.
+
 ## 5. The confirmation signal is writable by the person being locked out
 
 **Measured on the target box, 2026-10-14.** `LockedHint` is not a secret. The session
@@ -234,8 +256,10 @@ sudo plock doctor --config /etc/plock/config.json
 ```
 
 Prints, per configured backend and **in configured order**: usable or unusable, why not,
-and which one a lock would go to. Exits non-zero when nothing can lock — which is the
-state that otherwise looks identical to "nothing needed locking".
+and which one a lock attempt would be offered to **first**. Not which one would do the
+locking — a backend is finished with only once its lock is confirmed, so the lock that
+lands may come from a later entry in the list. Exits non-zero when nothing can lock —
+which is the state that otherwise looks identical to "nothing needed locking".
 
 Then, on a machine you are allowed to lock:
 
