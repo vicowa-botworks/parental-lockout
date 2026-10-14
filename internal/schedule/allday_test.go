@@ -145,6 +145,18 @@ func TestAllDayIsNotReportedAsDegraded(t *testing.T) {
 			wantErrMention: "every day",
 		},
 		{
+			// The form sends the checkbox with a leftover typo still sitting in both
+			// boxes. Validate refuses that shape without the flag, so this is where
+			// the two halves have to agree: the flag wins, the rule enforces the
+			// whole day, and nothing is reported. It is also the only case that
+			// distinguishes "all day" from "the clock could not be read" — every
+			// other declared case has times that fail to parse, so a bug that read
+			// the equal-times shape as a zero-length window would hide behind them.
+			name:          "declared, with the same readable time in both boxes",
+			rule:          allDayRule("f", allDays, "08:00", "08:00"),
+			wantEnforcing: true,
+		},
+		{
 			// Control: the inferred widening keeps its report.
 			name:           "inferred from an unreadable clock",
 			rule:           rule("e", allDays, "bedtime", "wake"),
