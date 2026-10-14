@@ -95,6 +95,11 @@ def failing_tests(out):
 def run_set(path, label):
     doc = load(path)
     pkg, mutants = doc["package"], doc["mutants"]
+    # A mutant's tests live wherever its behaviour is observable, which is not always
+    # the set's default package: a cmd/plock mutant is invisible to the platform suite.
+    # Without this, a mutant whose tests never ran was reported as SURVIVED and looked
+    # like a gap in the tests rather than a gap in the runner.
+    pkgs = sorted({m.get("package", pkg) for m in mutants})
     files = sorted({m["file"] for m in mutants})
     for f in files:
         if not os.path.isfile(os.path.join(ROOT, f)):
@@ -106,20 +111,22 @@ def run_set(path, label):
             with open(os.path.join(ROOT, f), "w") as fh:
                 fh.write(orig[f])
 
-    print(f"\n{label}  ({len(mutants)} mutants, {pkg})")
+    print(f"\n{label}  ({len(mutants)} mutants, {', '.join(pkgs)})")
 
-    base = run_suite(pkg)
-    if base.returncode != 0:
-        restore()
-        print("baseline is RED -- refusing to run, every mutant would look caught:\n"
-              + base.stdout + base.stderr)
-        return None
+    for p in pkgs:
+        base = run_suite(p)
+        if base.returncode != 0:
+            restore()
+            print(f"baseline is RED in {p} -- refusing to run, every mutant would look caught:\n"
+                  + base.stdout + base.stderr)
+            return None
+        print(f"baseline green in {p}")
 
-    print("baseline green")
     tally = {"caught": 0, "survived": 0, "invalid": 0, "equivalent": 0}
 
     for m in mutants:
         src = m["file"]
+        mpkg = m.get("package", pkg)
         label = f"{m['id']}  {m['old'][:52]!r}"
         want = m.get("count", 1)
         hits = orig[src].count(m["old"])
@@ -137,7 +144,7 @@ def run_set(path, label):
 
         with open(os.path.join(ROOT, src), "w") as fh:
             fh.write(mutated)
-        r = run_suite(pkg)
+        r = run_suite(mpkg)
         out = r.stdout + r.stderr
 
         if "[build failed]" in out or "[setup failed]" in out:
