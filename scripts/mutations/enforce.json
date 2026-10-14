@@ -155,6 +155,22 @@
    "old": "\te.mu.Lock()\n\tdefer e.mu.Unlock()\n\tvar out []string",
    "new": "\tvar out []string",
    "note": "State() reads the tick's map with no guard; -race catches it in the reloader test"
+  },
+  {
+   "id": "F20",
+   "package": "./internal/enforce/",
+   "file": "internal/enforce/enforce.go",
+   "old": "\t\tif ctx.Err() != nil {\n\t\t\treturn rep\n\t\t}",
+   "new": "\t\tif false {\n\t\t\treturn rep\n\t\t}",
+   "note": "the pass walks the whole session list on a dead context, so every remaining child is reported unconfirmed during shutdown"
+  },
+  {
+   "id": "F21",
+   "package": "./internal/enforce/",
+   "file": "internal/enforce/enforce.go",
+   "old": "\tif err != nil && ctx.Err() != nil {\n",
+   "new": "\tif err != nil && false {\n",
+   "note": "a lock cancelled mid-flight is filed under unconfirmed, whose rule is keep re-arming, so a shutdown claims the child is at the desktop"
   }
  ]
 }

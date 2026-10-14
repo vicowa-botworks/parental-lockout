@@ -480,3 +480,79 @@ func TestTheDefaultsAreUsableWithoutAnythingInjected(t *testing.T) {
 		t.Errorf("default logger got %q, want the reload diagnostic", logged.String())
 	}
 }
+
+// A shutdown landing mid-lock is not a failed lock, and must not be reported as
+// one.
+//
+// #25 measured the shape: a cancelled context inside the confirmation settle
+// window makes a backend answer "not locked", and Chain.Lock reports that as
+// ErrUnconfirmed rather than context.Canceled. The engine's own rule for
+// ErrUnconfirmed is "keep asking every tick", so without a cancellation check the
+// daemon's last act before exiting is to write an audit line saying the child may
+// still be at the desktop — on a machine that is powering off.
+//
+// That is not merely untidy. Unconfirmed is the one signal an operator is meant to
+// act on, and a false one on every restart is how it stops being believed.
+func TestAShutdownMidLockIsNotReportedAsAnUnconfirmedLock(t *testing.T) {
+	e, p, _, _, _ := newEngine(t, kidDoc(), refInside)
+	p.unconfirmedOnCancel = true
+	p.entered = make(chan struct{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// The tick enters with a live context and the cancellation arrives while the
+	// lock is in flight: the only ordering that reproduces the bug. Cancelling
+	// before the call would take the cancellation down a different path entirely.
+	go func() {
+		<-p.entered
+		cancel()
+	}()
+
+	rep := e.Tick(ctx)
+
+	for _, err := range rep.Errors {
+		if errors.Is(err, platform.ErrUnconfirmed) {
+			t.Errorf("a cancelled tick reported an unconfirmed lock: %v", err)
+		}
+	}
+	for _, ev := range rep.Events {
+		if ev.Kind == KindLockUnconfirmed {
+			t.Errorf("a cancelled tick emitted %v: the machine is going down, the child was not left at the desktop", ev.Kind)
+		}
+	}
+}
+
+// A shutdown partway through the session list stops the pass.
+//
+// The single-session case cannot show this: there is no remainder of the list to
+// walk, so a tick that keeps going looks identical to one that stops. With two
+// children, the difference is one extra lock.unconfirmed line per child still in
+// the list — written by a process that is on its way out, about a machine that is
+// powering off.
+func TestAShutdownPartwayThroughTheListStopsThePass(t *testing.T) {
+	// Both sessions have to be managed children. With only one, the second is
+	// released as "not a managed account" before it ever reaches the platform, and
+	// the test then passes because of the fixture rather than the guard.
+	doc := kidDoc()
+	doc.Users = append(doc.Users, config.User{Username: "alex", ProfileID: "p-default", Enabled: true})
+	e, p, _, _, _ := newEngine(t, doc, refInside)
+	first, second := desktop("2", "kid"), desktop("3", "alex")
+	p.setSessions(first, second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	p.cancel = cancel
+
+	rep := e.Tick(ctx)
+
+	if n := p.lockCount("3"); n != 0 {
+		t.Errorf("the session after the shutdown was locked %d time(s): every remaining session is reported unconfirmed rather than left for the next process", n)
+	}
+	if n := p.lockCount("2"); n != 1 {
+		t.Errorf("the first session was locked %d time(s), want 1", n)
+	}
+	for _, ev := range rep.Events {
+		if ev.Kind == KindLockUnconfirmed && ev.SessionID == "3" {
+			t.Errorf("session 3 was reported unconfirmed after the shutdown: %q", ev.Detail)
+		}
+	}
+}

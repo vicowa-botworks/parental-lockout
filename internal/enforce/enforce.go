@@ -383,6 +383,14 @@ func (e *Engine) Tick(ctx context.Context) Report {
 
 	seen := make(map[string]bool, len(sessions))
 	for _, s := range sessions {
+		// A shutdown between sessions ends the pass rather than continuing through
+		// the list. Every remaining session would be locked with a dead context,
+		// and the platform reports that as an unconfirmed lock — so a routine
+		// `systemctl stop` would write one alarming audit line per child on the
+		// machine, on its way out.
+		if ctx.Err() != nil {
+			return rep
+		}
 		seen[s.ID] = true
 		e.tickSession(ctx, cfg, s, now, &rep)
 	}
@@ -673,6 +681,22 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 	// in the other direction is the product.
 	hinted := s.Locked
 	err := e.Platform.Lock(ctx, s)
+	if err != nil && ctx.Err() != nil {
+		// The machine is going down, and this is not a lock outcome.
+		//
+		// Chain.Lock cannot tell "the desktop would not confirm" from "we were
+		// cancelled while asking": a cancelled settle window answers "not locked",
+		// which arrives here as ErrUnconfirmed — the one verdict whose rule is
+		// "keep asking every tick". Applying that rule during shutdown makes the
+		// daemon's last act an audit line claiming the child may still be at the
+		// desktop, on a machine that is powering off.
+		//
+		// Unconfirmed is the signal an operator is meant to act on. Emitting a
+		// false one on every restart is how it stops being believed, so the tick
+		// says nothing and leaves the recorded state for the next process to
+		// re-assert.
+		return
+	}
 	switch {
 	case err == nil:
 		e.markEnforcing(rep, s, now, ruleID, ruleName, "")

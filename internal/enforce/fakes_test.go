@@ -125,6 +125,23 @@ type fakePlatform struct {
 	entered chan struct{}
 	once    sync.Once
 
+	// unconfirmedOnCancel reproduces what the real chain does when a shutdown
+	// lands inside the confirmation settle window: the settle loop stops on
+	// ctx.Err() and reports "not locked", which Chain.Lock turns into
+	// ErrUnconfirmed rather than context.Canceled.
+	//
+	// It waits for the cancellation rather than checking for one, so the ordering
+	// is forced instead of raced. A fake that returns immediately lets the tick
+	// finish before the test's cancel() lands, and the shutdown path then looks
+	// clean for a reason that has nothing to do with the code under test.
+	unconfirmedOnCancel bool
+
+	// cancel, when set, is called on the first Lock and the call then reports
+	// ErrUnconfirmed. It exists for the between-sessions check: a tick with one
+	// session cannot show whether the pass walks the rest of the list on a dead
+	// context, because there is no rest of the list.
+	cancel context.CancelFunc
+
 	locks []string
 	calls int
 }
@@ -160,6 +177,30 @@ func (f *fakePlatform) Lock(ctx context.Context, s platform.Session) error {
 			return ctx.Err()
 		case <-time.After(5 * time.Second):
 			return fmt.Errorf("fake platform: still blocked after 5s")
+		}
+	}
+	if f.cancel != nil {
+		f.mu.Lock()
+		ent := f.entered
+		f.mu.Unlock()
+		if ent != nil {
+			f.once.Do(func() { close(ent) })
+		}
+		f.cancel()
+		return platform.ErrUnconfirmed
+	}
+	if f.unconfirmedOnCancel {
+		f.mu.Lock()
+		ent := f.entered
+		f.mu.Unlock()
+		if ent != nil {
+			f.once.Do(func() { close(ent) })
+		}
+		select {
+		case <-ctx.Done():
+			return platform.ErrUnconfirmed
+		case <-time.After(5 * time.Second):
+			return fmt.Errorf("fake platform: nobody cancelled within 5s")
 		}
 	}
 	if slow > 0 {
