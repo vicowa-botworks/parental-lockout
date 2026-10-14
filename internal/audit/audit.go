@@ -293,7 +293,29 @@ func (w *Writer) open() error {
 		return fmt.Errorf("chmod %s: %w", w.Path, err)
 	}
 	w.f = f
-	w.size = 0
+	// The size comes from the file, not from zero.
+	//
+	// The file is opened O_APPEND, so new bytes land after whatever is already there
+	// while a counter started at zero decides when to rotate. Setting it to 0 therefore
+	// does not mis-report a number, it moves the bound: every restart adds up to another
+	// MaxBytes before the first rotation fires, so "five generations at 8 MiB is 40 MiB
+	// worst case" is a per-run bound wearing a per-file bound's clothes.
+	//
+	// The shape that grows the log is the shape that restarts the daemon. KindPlatformError
+	// and KindLockUnconfirmed are emitted per tick by the engine, and a machine whose
+	// desktop has died is also a machine whose supervisor is restarting it. Disk full is
+	// then the failure that makes this package's own failure mode permanent: the trail stops
+	// being written on the one machine that most needs it.
+	//
+	// A file that cannot be stat'ed is not treated as empty either — that would be the same
+	// mistake in a rarer costume — so the bound is kept at the conservative end and the next
+	// write decides.
+	if fi, err := f.Stat(); err == nil {
+		w.size = fi.Size()
+	} else {
+		w.logf("audit: cannot stat %s to measure the existing trail: %v; rotating on the next write", w.Path, err)
+		w.size = w.MaxBytes
+	}
 	return nil
 }
 
@@ -360,6 +382,16 @@ func (w *Writer) prepareDir(dir string) error {
 // It works on the descriptor of the parent rather than on the new directory
 // itself, because a umask strict enough to make this matter leaves a directory the
 // creator cannot open — see setDirMode.
+//
+// One limit worth naming before it becomes a surprise: MkdirAll may have created
+// intermediate levels as well as the target, and only the target's mode is corrected
+// here — the ancestors keep the umask-masked mode. That is unreachable for DefaultPath
+// (one level under /var/log, whose parent always exists) and for any --state-dir whose
+// parent exists, so it is not a live defect today. If a nested audit path ever becomes
+// supported, cmd/plock/dir_unix.go is the model: it walks one component at a time so a
+// hostile umask cannot make an intermediate directory unusable before the leaf's chmod
+// runs, and it checks only the target rather than policing every ancestor with the
+// leaf's ceiling.
 func (w *Writer) setModeOnNewDir(dir string, mode os.FileMode) error {
 	parent := filepath.Dir(dir)
 	pf, err := openDir(parent)
@@ -476,7 +508,10 @@ func (w *Writer) noteFailure(f *os.File, op string, err error) {
 		// "the next event re-verifies" true rather than aspirational.
 		f.Close()
 		w.f = nil
-		w.size = 0
+		// w.size is deliberately left alone. open() re-measures from the file when the
+		// next event reopens it, and zeroing it here used to throw the accounting away
+		// for the rest of the run: a stretch of failures mid-file would silently double
+		// or triple how far past MaxBytes the trail grew.
 	}
 	switch {
 	case w.failures == 1:

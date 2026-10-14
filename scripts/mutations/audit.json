@@ -1,209 +1,230 @@
 {
-  "package": "./internal/audit/",
-  "note": "Mutants over the audit writer: the failure policy (a lost event is counted, reported every time, and escalates) and the tamper guards (symlink, FIFO, mode, ownership, path swap) that keep a root daemon from writing the trail wherever a child points it.",
-  "mutants": [
-    {
-      "id": "A1",
-      "file": "internal/audit/audit.go",
-      "old": "\tw.dropped++\n\tw.failures++",
-      "new": "\tw.failures++",
-      "note": "a lost event stops being counted, so `plock status` reports a complete trail while the file is missing every lockout"
-    },
-    {
-      "id": "A2",
-      "file": "internal/audit/audit.go",
-      "old": "\tw.dropped++\n\tw.failures++",
-      "new": "\tw.dropped++",
-      "note": "the consecutive run stops advancing, so the escalation threshold can never be reached"
-    },
-    {
-      "id": "A3",
-      "file": "internal/audit/audit.go",
-      "old": "\tcase w.failures == 3 && !w.escalated:",
-      "new": "\tcase false:",
-      "note": "repeated failures never escalate to the loud signal; the operator sees one line and a daemon that has been blind for hours"
-    },
-    {
-      "id": "A4",
-      "file": "internal/audit/audit.go",
-      "old": "\tif w.failures != 0 {",
-      "new": "\tif false {",
-      "note": "recovery is never reported, so the last thing the operator read is an unresolved warning"
-    },
-    {
-      "id": "A5",
-      "file": "internal/audit/audit.go",
-      "old": "\t\tw.failures = 0\n\t\tw.escalated = false",
-      "new": "\t\tw.escalated = false",
-      "note": "the failure run is never cleared, so a single later blip reads as a continuation of an old one"
-    },
-    {
-      "id": "A6",
-      "file": "internal/audit/audit.go",
-      "old": "\tif w.Logf != nil {",
-      "new": "\tif false {",
-      "note": "the configured hook is ignored and every diagnostic goes to the standard logger regardless"
-    },
-    {
-      "id": "A7",
-      "file": "internal/audit/audit.go",
-      "old": "\tlog.Printf(format, args...)",
-      "new": "\tlog.Flags()",
-      "note": "a Writer built without a hook drops its diagnostics silently: the same hole internal/enforce's constructor shipped"
-    },
-    {
-      "id": "A8",
-      "file": "internal/audit/audit.go",
-      "old": "\tif !fi.Mode().IsRegular() {\n\t\treturn ErrNotRegular",
-      "new": "\tif false {\n\t\treturn ErrNotRegular",
-      "note": "a non-regular file on the held descriptor is accepted"
-    },
-    {
-      "id": "A9",
-      "file": "internal/audit/audit.go",
-      "old": "\tif fi.Mode().Perm()&0o077 != 0 {",
-      "new": "\tif false {",
-      "note": "a trail every account on the machine can read or write is accepted"
-    },
-    {
-      "id": "A10",
-      "file": "internal/audit/audit.go",
-      "old": "\tif !mine {\n\t\treturn fmt.Errorf(\"%w: %s is owned by another account\", ErrNotRootOwned, w.Path)",
-      "new": "\tif _ = mine; false {\n\t\treturn fmt.Errorf(\"%w: %s is owned by another account\", ErrNotRootOwned, w.Path)",
-      "note": "a trail owned by another account is accepted, which is a trail that account can rewrite"
-    },
-    {
-      "id": "A11",
-      "file": "internal/audit/audit.go",
-      "old": "\tif !os.SameFile(fi, li) {",
-      "new": "\tif false {",
-      "note": "the path being repointed under the held descriptor stops being noticed, so appends go where the name no longer points"
-    },
-    {
-      "id": "A12",
-      "file": "internal/audit/audit.go",
-      "old": "\tif li.Mode()&os.ModeSymlink != 0 {\n\t\treturn fmt.Errorf(\"%s is now a symlink",
-      "new": "\tif false {\n\t\treturn fmt.Errorf(\"%s is now a symlink",
-      "note": "a symlink planted at the name after the first write stops being noticed"
-    },
-    {
-      "id": "A13",
-      "file": "internal/audit/posix.go",
-      "old": "os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK",
-      "new": "os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_NONBLOCK",
-      "note": "the audit path is opened through a symlink: root appending to whatever the child linked it to"
-    },
-    {
-      "id": "A14",
-      "file": "internal/audit/posix.go",
-      "old": "os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK",
-      "new": "os.O_CREATE|syscall.O_NOFOLLOW",
-      "note": "a FIFO at the audit path parks the open forever, and a parked tick stops re-locking the child"
-    },
-    {
-      "id": "A15",
-      "file": "internal/audit/posix.go",
-      "old": "\treturn st.Uid == geteuid(), nil",
-      "new": "\treturn st.Uid == st.Uid, nil",
-      "note": "ownership always checks out"
-    },
-    {
-      "id": "A16",
-      "file": "internal/audit/audit.go",
-      "old": "\tif err := tightenMode(f, fileMode); err != nil {",
-      "new": "\tif err := error(nil); err != nil {",
-      "note": "the mode from the open is taken as the result, so a permissive umask yields a world-readable trail"
-    },
-    {
-      "id": "A19",
-      "file": "internal/audit/audit.go",
-      "old": "\tif w.maxBytes() > 0 && w.size >= w.maxBytes() {",
-      "new": "\tif false {",
-      "note": "the log never rotates and grows without bound on the filesystem holding /var"
-    },
-    {
-      "id": "A20",
-      "file": "internal/audit/audit.go",
-      "old": "\tw.size += int64(n)",
-      "new": "\tw.size += int64(n*0)",
-      "note": "the running size stops advancing, so the rotation threshold is never reached"
-    },
-    {
-      "id": "A21",
-      "file": "internal/audit/audit.go",
-      "old": "\tfor i := w.keep() - 1; i >= 1; i-- {",
-      "new": "\tfor i := 0; i >= 1; i-- {",
-      "note": "generations stop shifting aside, so each rotation overwrites .1 and retention is one file regardless of Keep"
-    },
-    {
-      "id": "A22",
-      "file": "internal/audit/audit.go",
-      "old": "\tif err := os.Rename(w.Path, w.Path+\".1\"); err != nil && !errors.Is(err, os.ErrNotExist) {",
-      "new": "\tif err := error(nil); false || err != nil {",
-      "note": "the current file is never moved aside, so rotation renames nothing and the log never bounds itself"
-    },
-    {
-      "id": "A23",
-      "file": "internal/audit/audit.go",
-      "old": "\t\t\tw.logf(\"audit: could not rotate %s: %v (the log will keep growing past its size bound)\", w.Path, err)",
-      "new": "",
-      "note": "a failed rotation is absorbed silently, so an unbounded log looks like a working rotation policy"
-    },
-    {
-      "id": "A24",
-      "file": "internal/audit/audit.go",
-      "old": "\tif at.IsZero() {",
-      "new": "\tif false {",
-      "note": "a record with no timestamp is written with the zero time, so the line cannot answer when the child was locked out"
-    },
-    {
-      "id": "A25",
-      "file": "internal/audit/audit.go",
-      "old": "\treturn append(blob, '\\n'), nil",
-      "new": "\treturn blob, nil",
-      "note": "records are written without a newline, so the trail is one unparseable line"
-    },
-    {
-      "id": "A26",
-      "file": "internal/audit/audit.go",
-      "old": "\tif f != nil {\n\t\t// The descriptor may be pointing",
-      "new": "\tif false {\n\t\t// The descriptor may be pointing",
-      "note": "the descriptor is kept after a failed write, so the next event reuses a file the guard already refused"
-    },
-    {
-      "id": "A27",
-      "file": "internal/audit/audit.go",
-      "old": "\tif li.Mode().Perm()&0o002 != 0 {",
-      "new": "\tif false {",
-      "note": "a trail directory anybody can write into is accepted, and anybody can rename the trail out of the way between two events"
-    },
-    {
-      "id": "A28",
-      "file": "internal/audit/audit.go",
-      "old": "\tif !mine {\n\t\treturn fmt.Errorf(\"%s is owned by another account: refusing",
-      "new": "\tif _ = mine; false {\n\t\treturn fmt.Errorf(\"%s is owned by another account: refusing",
-      "note": "the trail is appended into a directory another account controls"
-    },
-    {
-      "id": "A29",
-      "file": "internal/audit/audit.go",
-      "old": "\tif li.Mode()&os.ModeSymlink != 0 {\n\t\treturn fmt.Errorf(\"%s is a symlink: refusing to write the trail through a directory",
-      "new": "\tif false {\n\t\treturn fmt.Errorf(\"%s is a symlink: refusing to write the trail through a directory",
-      "note": "a symlinked audit directory is followed, which is the arbitrary-chmod-then-write primitive prepareDir exists to remove"
-    },
-    {
-      "id": "A30",
-      "file": "internal/audit/audit.go",
-      "old": "\tif !li.IsDir() {",
-      "new": "\tif false {",
-      "note": "an audit path whose parent is a plain file reports a confusing error instead of refusing the shape"
-    },
-    {
-      "id": "A31",
-      "file": "internal/audit/audit.go",
-      "old": "\t\tif err := w.setModeOnNewDir(dir, dirMode); err != nil {",
-      "new": "\t\tif err := error(nil); err != nil {",
-      "note": "a freshly created trail directory keeps whatever the umask left, so a strict UMask= on the unit yields a directory the daemon cannot even open"
-    }
-  ]
+ "package": "./internal/audit/",
+ "note": "Mutants over the audit writer: the failure policy (a lost event is counted, reported every time, and escalates) and the tamper guards (symlink, FIFO, mode, ownership, path swap) that keep a root daemon from writing the trail wherever a child points it.",
+ "mutants": [
+  {
+   "id": "A1",
+   "file": "internal/audit/audit.go",
+   "old": "\tw.dropped++\n\tw.failures++",
+   "new": "\tw.failures++",
+   "note": "a lost event stops being counted, so `plock status` reports a complete trail while the file is missing every lockout"
+  },
+  {
+   "id": "A2",
+   "file": "internal/audit/audit.go",
+   "old": "\tw.dropped++\n\tw.failures++",
+   "new": "\tw.dropped++",
+   "note": "the consecutive run stops advancing, so the escalation threshold can never be reached"
+  },
+  {
+   "id": "A3",
+   "file": "internal/audit/audit.go",
+   "old": "\tcase w.failures == 3 && !w.escalated:",
+   "new": "\tcase false:",
+   "note": "repeated failures never escalate to the loud signal; the operator sees one line and a daemon that has been blind for hours"
+  },
+  {
+   "id": "A4",
+   "file": "internal/audit/audit.go",
+   "old": "\tif w.failures != 0 {",
+   "new": "\tif false {",
+   "note": "recovery is never reported, so the last thing the operator read is an unresolved warning"
+  },
+  {
+   "id": "A5",
+   "file": "internal/audit/audit.go",
+   "old": "\t\tw.failures = 0\n\t\tw.escalated = false",
+   "new": "\t\tw.escalated = false",
+   "note": "the failure run is never cleared, so a single later blip reads as a continuation of an old one"
+  },
+  {
+   "id": "A6",
+   "file": "internal/audit/audit.go",
+   "old": "\tif w.Logf != nil {",
+   "new": "\tif false {",
+   "note": "the configured hook is ignored and every diagnostic goes to the standard logger regardless"
+  },
+  {
+   "id": "A7",
+   "file": "internal/audit/audit.go",
+   "old": "\tlog.Printf(format, args...)",
+   "new": "\tlog.Flags()",
+   "note": "a Writer built without a hook drops its diagnostics silently: the same hole internal/enforce's constructor shipped"
+  },
+  {
+   "id": "A8",
+   "file": "internal/audit/audit.go",
+   "old": "\tif !fi.Mode().IsRegular() {\n\t\treturn ErrNotRegular",
+   "new": "\tif false {\n\t\treturn ErrNotRegular",
+   "note": "a non-regular file on the held descriptor is accepted"
+  },
+  {
+   "id": "A9",
+   "file": "internal/audit/audit.go",
+   "old": "\tif fi.Mode().Perm()&0o077 != 0 {",
+   "new": "\tif false {",
+   "note": "a trail every account on the machine can read or write is accepted"
+  },
+  {
+   "id": "A10",
+   "file": "internal/audit/audit.go",
+   "old": "\tif !mine {\n\t\treturn fmt.Errorf(\"%w: %s is owned by another account\", ErrNotRootOwned, w.Path)",
+   "new": "\tif _ = mine; false {\n\t\treturn fmt.Errorf(\"%w: %s is owned by another account\", ErrNotRootOwned, w.Path)",
+   "note": "a trail owned by another account is accepted, which is a trail that account can rewrite"
+  },
+  {
+   "id": "A11",
+   "file": "internal/audit/audit.go",
+   "old": "\tif !os.SameFile(fi, li) {",
+   "new": "\tif false {",
+   "note": "the path being repointed under the held descriptor stops being noticed, so appends go where the name no longer points"
+  },
+  {
+   "id": "A12",
+   "file": "internal/audit/audit.go",
+   "old": "\tif li.Mode()&os.ModeSymlink != 0 {\n\t\treturn fmt.Errorf(\"%s is now a symlink",
+   "new": "\tif false {\n\t\treturn fmt.Errorf(\"%s is now a symlink",
+   "note": "a symlink planted at the name after the first write stops being noticed"
+  },
+  {
+   "id": "A13",
+   "file": "internal/audit/posix.go",
+   "old": "os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK",
+   "new": "os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_NONBLOCK",
+   "note": "the audit path is opened through a symlink: root appending to whatever the child linked it to"
+  },
+  {
+   "id": "A14",
+   "file": "internal/audit/posix.go",
+   "old": "os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK",
+   "new": "os.O_CREATE|syscall.O_NOFOLLOW",
+   "note": "a FIFO at the audit path parks the open forever, and a parked tick stops re-locking the child"
+  },
+  {
+   "id": "A15",
+   "file": "internal/audit/posix.go",
+   "old": "\treturn st.Uid == geteuid(), nil",
+   "new": "\treturn st.Uid == st.Uid, nil",
+   "note": "ownership always checks out"
+  },
+  {
+   "id": "A16",
+   "file": "internal/audit/audit.go",
+   "old": "\tif err := tightenMode(f, fileMode); err != nil {",
+   "new": "\tif err := error(nil); err != nil {",
+   "note": "the mode from the open is taken as the result, so a permissive umask yields a world-readable trail"
+  },
+  {
+   "id": "A19",
+   "file": "internal/audit/audit.go",
+   "old": "\tif w.maxBytes() > 0 && w.size >= w.maxBytes() {",
+   "new": "\tif false {",
+   "note": "the log never rotates and grows without bound on the filesystem holding /var"
+  },
+  {
+   "id": "A20",
+   "file": "internal/audit/audit.go",
+   "old": "\tw.size += int64(n)",
+   "new": "\tw.size += int64(n*0)",
+   "note": "the running size stops advancing, so the rotation threshold is never reached"
+  },
+  {
+   "id": "A21",
+   "file": "internal/audit/audit.go",
+   "old": "\tfor i := w.keep() - 1; i >= 1; i-- {",
+   "new": "\tfor i := 0; i >= 1; i-- {",
+   "note": "generations stop shifting aside, so each rotation overwrites .1 and retention is one file regardless of Keep"
+  },
+  {
+   "id": "A22",
+   "file": "internal/audit/audit.go",
+   "old": "\tif err := os.Rename(w.Path, w.Path+\".1\"); err != nil && !errors.Is(err, os.ErrNotExist) {",
+   "new": "\tif err := error(nil); false || err != nil {",
+   "note": "the current file is never moved aside, so rotation renames nothing and the log never bounds itself"
+  },
+  {
+   "id": "A23",
+   "file": "internal/audit/audit.go",
+   "old": "\t\t\tw.logf(\"audit: could not rotate %s: %v (the log will keep growing past its size bound)\", w.Path, err)",
+   "new": "",
+   "note": "a failed rotation is absorbed silently, so an unbounded log looks like a working rotation policy"
+  },
+  {
+   "id": "A24",
+   "file": "internal/audit/audit.go",
+   "old": "\tif at.IsZero() {",
+   "new": "\tif false {",
+   "note": "a record with no timestamp is written with the zero time, so the line cannot answer when the child was locked out"
+  },
+  {
+   "id": "A25",
+   "file": "internal/audit/audit.go",
+   "old": "\treturn append(blob, '\\n'), nil",
+   "new": "\treturn blob, nil",
+   "note": "records are written without a newline, so the trail is one unparseable line"
+  },
+  {
+   "id": "A26",
+   "file": "internal/audit/audit.go",
+   "old": "\tif f != nil {\n\t\t// The descriptor may be pointing",
+   "new": "\tif false {\n\t\t// The descriptor may be pointing",
+   "note": "the descriptor is kept after a failed write, so the next event reuses a file the guard already refused"
+  },
+  {
+   "id": "A27",
+   "file": "internal/audit/audit.go",
+   "old": "\tif li.Mode().Perm()&0o002 != 0 {",
+   "new": "\tif false {",
+   "note": "a trail directory anybody can write into is accepted, and anybody can rename the trail out of the way between two events"
+  },
+  {
+   "id": "A28",
+   "file": "internal/audit/audit.go",
+   "old": "\tif !mine {\n\t\treturn fmt.Errorf(\"%s is owned by another account: refusing",
+   "new": "\tif _ = mine; false {\n\t\treturn fmt.Errorf(\"%s is owned by another account: refusing",
+   "note": "the trail is appended into a directory another account controls"
+  },
+  {
+   "id": "A29",
+   "file": "internal/audit/audit.go",
+   "old": "\tif li.Mode()&os.ModeSymlink != 0 {\n\t\treturn fmt.Errorf(\"%s is a symlink: refusing to write the trail through a directory",
+   "new": "\tif false {\n\t\treturn fmt.Errorf(\"%s is a symlink: refusing to write the trail through a directory",
+   "note": "a symlinked audit directory is followed, which is the arbitrary-chmod-then-write primitive prepareDir exists to remove"
+  },
+  {
+   "id": "A30",
+   "file": "internal/audit/audit.go",
+   "old": "\tif !li.IsDir() {",
+   "new": "\tif false {",
+   "note": "an audit path whose parent is a plain file reports a confusing error instead of refusing the shape"
+  },
+  {
+   "id": "A31",
+   "file": "internal/audit/audit.go",
+   "old": "\t\tif err := w.setModeOnNewDir(dir, dirMode); err != nil {",
+   "new": "\t\tif err := error(nil); err != nil {",
+   "note": "a freshly created trail directory keeps whatever the umask left, so a strict UMask= on the unit yields a directory the daemon cannot even open"
+  },
+  {
+   "id": "A32",
+   "file": "internal/audit/audit.go",
+   "old": "\tif fi, err := f.Stat(); err == nil {\n\t\tw.size = fi.Size()\n\t} else {",
+   "new": "\tif fi, err := f.Stat(); err == nil {\n\t\t_, _ = fi, err\n\t\tw.size = 0\n\t} else {",
+   "note": "the bug #33 found: the bound counted from process start, so every restart added another MaxBytes before the first rotation"
+  },
+  {
+   "id": "A33",
+   "file": "internal/audit/audit.go",
+   "old": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, err)\n\t\tw.size = w.MaxBytes",
+   "new": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, err)\n\t\tw.size = 0",
+   "note": "an unmeasurable file treated as empty, which moves the bound in the same direction by a rarer route"
+  },
+  {
+   "id": "A34",
+   "file": "internal/audit/audit.go",
+   "old": "\t\tf.Close()\n\t\tw.f = nil\n\t\t// w.size is deliberately left alone.",
+   "new": "\t\tf.Close()\n\t\tw.f = nil\n\t\tw.size = 0\n\t\t// w.size is deliberately left alone.",
+   "note": "noteFailure re-zeroing the size: a stretch of failures mid-file silently moved the bound"
+  }
+ ]
 }
