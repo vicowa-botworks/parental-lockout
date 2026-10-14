@@ -399,6 +399,44 @@
       "old": "end:   wallInstant(loc, y, mo, d+1, 0, true),",
       "new": "end:   wallInstant(loc, y, mo, d+1, 0, false),",
       "note": "the widened day ends at the FIRST reading of the next midnight, freeing the repeated hour of the enforced day (59 minutes in right/Egypt)"
+    },
+    {
+      "id": "W15",
+      "file": "internal/schedule/dst_test.go",
+      "old": "add(dc.day.AddDate(0, 0, -1))",
+      "new": "add(dc.day)",
+      "note": "issue #20: drops the day-before-each-change-day from the walk. add() dedupes, so this is exactly 'the predecessor is never walked'. The consequence walk then checks only minutes that cannot fail for Havana and right/America/Santiago, and the per-zone ambiguity guard must report that rather than pass."
+    },
+    {
+      "id": "W16",
+      "file": "internal/schedule/dst_test.go",
+      "old": "if mustHaveAmbiguity && ambiguousDays == 0 {",
+      "new": "if false && mustHaveAmbiguity && ambiguousDays == 0 {",
+      "note": "meta-guard, not killable as a single mutant: with the day list correct no candidate is ever vacuous, so neutering the assertion changes nothing observable. Its load-bearingness is proven by the PAIR, and that was checked by hand rather than assumed: applying W15 alone the suite FAILS, applying W15 and W16 together the suite PASSES -- which is precisely the state #20 was filed from, a live bug reported green. So W15 being caught is the guard's proof, and this entry exists so nobody 'cleans up' the guard as dead code.",
+      "equivalent": true
+    },
+    {
+      "id": "W17",
+      "file": "internal/schedule/widenedcost_test.go",
+      "old": "if freedAnywhere != 0 {",
+      "new": "if false && freedAnywhere != 0 {",
+      "equivalent": true,
+      "note": "future-data guard: no canonical zone frees a minute on the current database, so neutering the assertion cannot fail here. It is kept because its whole job is to fire the day a tzdata edit brings the shape into canonical data, which is the same reason the property is asserted at all."
+    },
+    {
+      "id": "W18",
+      "file": "internal/schedule/widenedcost_test.go",
+      "old": "if worstCost > time.Hour {",
+      "new": "if worstCost > 24*time.Hour {",
+      "equivalent": true,
+      "note": "future-data guard: the measured worst canonical cost is exactly 1h, so widening the ceiling cannot fail on current data. Kept so a database that moves a canonical clock further forces the schedule.go cost sentence to be re-measured."
+    },
+    {
+      "id": "W19",
+      "file": "internal/schedule/widenedcost_test.go",
+      "old": "\t\tif a.Year() != yr {\n\t\t\tcontinue\n\t\t}\n",
+      "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n",
+      "about": "let changedDaysIn leak Jan 1 of the next year into this year's list, double-counting a New Year offset change in the cost figures"
     }
   ]
 }

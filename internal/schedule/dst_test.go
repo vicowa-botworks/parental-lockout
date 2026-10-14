@@ -218,32 +218,41 @@ func TestDSTAllDayRuleAcrossTransition(t *testing.T) {
 //     flag, and it runs everywhere;
 //   - the consequence, walking every minute of the enforced day. Only the right/*
 //     leap-second variants actually free a minute this way (the 27-second offset
-//     moves the change off exact midnight), so that subtest runs on whatever the
-//     host's database provides and the canonical zones are walked alongside as the
-//     control that keeps it honest when there are none.
-func TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight(t *testing.T) {
-	// lastReadingOfNextMidnight scans the clock directly for every minute-boundary
-	// that reads the enforced day's successor at 00:00. Deliberately not built from
-	// wallInstant: a guard that asks the function under test whether the ambiguity
-	// is there reports "no ambiguity" when the resolver is what is broken.
-	lastReadingOfNextMidnight := func(loc *time.Location, enforced time.Time) (time.Time, int) {
-		ny, nmo, nd := enforced.AddDate(0, 0, 1).Date()
-		var last time.Time
-		var n int
-		for i := -720; i <= 2160; i++ {
-			c := enforced.Add(time.Duration(i) * time.Minute)
-			if c.In(loc).Format("15:04") != "00:00" {
-				continue
-			}
-			if cy, cmo, cd := c.In(loc).Date(); cy != ny || cmo != nmo || cd != nd {
-				continue
-			}
-			n++
-			last = c
+//     moves the change off exact midnight), so each zone declares whether it CAN fail
+//     that walk. A zone that can fail but no longer has an ambiguous walked day is an
+//     error rather than a pass: the day list is otherwise free to rot into minutes that
+//     cannot fail. Measured with the old day list and the endpoint flag reverted, five of
+//     the seven zones passed while the bug was live — and only two of those five
+//     (America/Havana, right/America/Santiago) actually had the shape and were walking
+//     minutes that could not fail; the other three had no ambiguous midnight to begin
+//     with, so their pass was honest. See the walk for why the day before each change day
+//     is in the list.
+//
+// lastReadingOfNextMidnight scans the clock directly for every minute-boundary that
+// reads the enforced day's successor at 00:00, returning the last such instant and how
+// many there were. A count above one is what "the next midnight is ambiguous" means
+// here, and it is the only honest way to ask: building this from wallInstant would have
+// the guard ask the function under test whether the ambiguity is there, which reports
+// "no ambiguity" precisely when the resolver is what is broken.
+func lastReadingOfNextMidnight(loc *time.Location, enforced time.Time) (time.Time, int) {
+	ny, nmo, nd := enforced.AddDate(0, 0, 1).Date()
+	var last time.Time
+	var n int
+	for i := -720; i <= 2160; i++ {
+		c := enforced.Add(time.Duration(i) * time.Minute)
+		if c.In(loc).Format("15:04") != "00:00" {
+			continue
 		}
-		return last, n
+		if cy, cmo, cd := c.In(loc).Date(); cy != ny || cmo != nmo || cd != nd {
+			continue
+		}
+		n++
+		last = c
 	}
+	return last, n
+}
 
+func TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight(t *testing.T) {
 	t.Run("endpoint is the last reading", func(t *testing.T) {
 		for _, tc := range []struct{ zone, day string }{
 			{"America/Havana", "2026-10-31"}, // fall-back at 01:00 repeats midnight
@@ -281,34 +290,94 @@ func TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight(t *testing.T) {
 	})
 
 	t.Run("no minute of the enforced day is free", func(t *testing.T) {
-		zones := []string{"America/Havana", "America/Santiago", "Asia/Beirut", "Europe/Berlin"}
+		// Each zone declares whether it CAN fail this check. Measured on 2026 tzdata,
+		// the zones with an ambiguous next midnight are Havana (10-31, canonical) and
+		// the three right/* variants; canonical Santiago, Beirut and Berlin cannot have
+		// one.
+		//
+		// The reason matters, because two of the three look like they should. Santiago
+		// folds at 2026-04-04 23:59:59 -> 23:00 and Beirut at 2026-10-24 23:59:59 ->
+		// 23:00: each turns the clock back at the very instant it would have read
+		// midnight. That is still not a repeated midnight, because the fold happens
+		// *before* midnight is ever displayed — 00:00 belongs to the following day and
+		// occurs exactly once. "Lands on midnight" is not "repeats midnight", and that
+		// distinction is the whole subject of this test, so it is spelled out rather
+		// than left as "does not land on midnight", which reads as an error in an
+		// honest label and invites someone to "fix" it. Berlin's fold (02:00 -> 03:00)
+		// is simply nowhere near midnight.
+		//
+		// Saying which is which is the point. Requiring every zone to be able to fail
+		// would fail the controls forever; requiring nothing lets a candidate rot into
+		// a control -- after a tzdata edit, say -- and report green while checking
+		// nothing. So a candidate with no ambiguous walked day is an error, and a
+		// control is walked anyway as the honest baseline.
+		type walkZone struct {
+			name       string
+			mustAmbigu bool // true: must have at least one ambiguous walked day
+		}
+		zones := []walkZone{
+			{"America/Havana", true},
+			{"America/Santiago", false},
+			{"Asia/Beirut", false},
+			{"Europe/Berlin", false},
+		}
 		if _, err := time.LoadLocation("right/Egypt"); err == nil {
 			// The variants that can actually reach the shape. The daemon accepts a
 			// right/* timezone name with no complaint, so this is not a hypothetical.
-			zones = append(zones, "right/Egypt", "right/Asia/Beirut", "right/America/Santiago")
+			zones = append(zones,
+				walkZone{"right/Egypt", true},
+				walkZone{"right/Asia/Beirut", true},
+				walkZone{"right/America/Santiago", true})
 		} else {
 			t.Logf("no leap-second variants on this host: the canonical controls below are the only walk")
 		}
 
-		for _, z := range zones {
+		for _, zc := range zones {
+			z, mustHaveAmbiguity := zc.name, zc.mustAmbigu
 			t.Run(z, func(t *testing.T) {
 				loc := zone(t, z)
-				// Every 2026 day whose length is not 24h, plus an ordinary day, so a
-				// zone with no change still asserts something.
-				days := []time.Time{time.Date(2026, 6, 15, 12, 0, 0, 0, loc)}
-				for _, dc := range changedDays(loc) {
-					days = append(days, dc.day)
+				// Every 2026 day whose length is not 24h, the day BEFORE each of
+				// those, and an ordinary day so a zone with no change still asserts
+				// something.
+				//
+				// The day before is not padding. Where a fall-back lands on midnight,
+				// the 25-hour length belongs to the NEXT day, so the day the rule
+				// actually enforces is the ordinary-looking one before the change --
+				// and a walk over only the change days checks minutes that cannot
+				// fail. That is the same trap the suite already has a rule for on the
+				// zone list, applied to the day list: a subtest that passes while
+				// checking nothing is invisible to an aggregate guard.
+				seen := map[[3]int]bool{}
+				var days []time.Time
+				add := func(d time.Time) {
+					y, mo, dd := d.Date()
+					k := [3]int{y, int(mo), dd}
+					if seen[k] {
+						return
+					}
+					seen[k] = true
+					days = append(days, d)
 				}
-				var walked, freed int
+				add(time.Date(2026, 6, 15, 12, 0, 0, 0, loc))
+				for _, dc := range changedDays(loc) {
+					add(dc.day)
+					add(dc.day.AddDate(0, 0, -1))
+				}
+
+				var walked, freed, ambiguousDays int
 				for _, day := range days {
 					y, mo, d := day.Date()
 					noon := time.Date(y, mo, d, 12, 0, 0, 0, loc)
+					// Does this day's next midnight have more than one reading? If
+					// not, no answer the evaluator gives on this day can be wrong in
+					// the way the subtest is looking for, and the day contributes
+					// coverage it will not report.
+					if _, reads := lastReadingOfNextMidnight(loc, noon); reads > 1 {
+						ambiguousDays++
+					}
 					dow := []string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}[noon.Weekday()]
 					p := profile(z, rule("widen", []string{dow}, "9am", "23:00"))
 					for _, now := range minutesOn(loc, noon) {
-						if yy, mm, dd := now.In(loc).Date(); yy != y || mm != mo || dd != d {
-							continue
-						}
 						walked++
 						if !Evaluate(p, now).Active {
 							freed++
@@ -318,10 +387,30 @@ func TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight(t *testing.T) {
 				if walked == 0 {
 					t.Fatalf("%s: walked no minutes; the subtest proves nothing", z)
 				}
+				// The stronger half of the guard, and the reason the day list above is
+				// not simply longer: a candidate zone whose walked days are all
+				// unambiguous has checked nothing, however many minutes it walked, so
+				// it must be reported rather than counted green.
+				if mustHaveAmbiguity && ambiguousDays == 0 {
+					t.Errorf("%s: none of the %d walked days has an ambiguous next midnight, so no minute here could fail — the day list is shaped favourably and this subtest is not testing the widening",
+						z, len(days))
+				}
 				if freed != 0 {
 					t.Errorf("%s: %d of %d minutes whose clock reads the enforced day are FREE — the widened rule released them",
 						z, freed, walked)
 				}
+				// The candidate/control labels are facts about THIS host's tzdata, and
+				// nothing asserts them in the other direction: a control that GAINS the
+				// shape is not a failure, it is simply no longer a control, and a
+				// candidate that loses it is caught but only after someone wonders why.
+				// Logged so the drift is visible in the run log before it is a stale
+				// label, at zero assertion cost.
+				role := "control"
+				if mustHaveAmbiguity {
+					role = "candidate"
+				}
+				t.Logf("%s: labelled %s; %d of %d walked days have an ambiguous next midnight (%d minutes walked, %d free)",
+					z, role, ambiguousDays, len(days), walked, freed)
 			})
 		}
 	})
