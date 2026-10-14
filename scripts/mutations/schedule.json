@@ -437,6 +437,41 @@
       "old": "\t\tif a.Year() != yr {\n\t\t\tcontinue\n\t\t}\n",
       "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n",
       "about": "let changedDaysIn leak Jan 1 of the next year into this year's list, double-counting a New Year offset change in the cost figures"
+    },
+    {
+      "id": "M1",
+      "file": "internal/schedule/schedule.go",
+      "old": "\t\tif !r.AllDay {\n\t\t\tif !okStart {",
+      "new": "\t\tif true {\n\t\t\tif !okStart {",
+      "note": "a declared all-day rule is reported as unreadable because its clock ends are empty"
+    },
+    {
+      "id": "M2",
+      "file": "internal/schedule/schedule.go",
+      "old": "\t\tempty := !r.AllDay && okStart && okEnd && start == end",
+      "new": "\t\tempty := okStart && okEnd && start == end",
+      "note": "an all-day rule whose leftover times are equal is dropped as a zero-length window, enforcing nothing while the parent reads 'all day'"
+    },
+    {
+      "id": "M3",
+      "file": "internal/schedule/schedule.go",
+      "old": "\t\tallDay := r.AllDay || !okStart || !okEnd || (empty && badDays)",
+      "new": "\t\tallDay := !okStart || !okEnd || (empty && badDays)",
+      "note": "the flag is ignored by the evaluator: a rule with readable times enforces those times and never the whole day"
+    },
+    {
+      "id": "M4",
+      "file": "internal/schedule/schedule.go",
+      "old": "\t\t} else if (allDay && !r.AllDay) || badDays {",
+      "new": "\t\t} else if allDay || badDays {",
+      "note": "a rule the parent declared is reported as a degraded reading, which trains them to ignore the report"
+    },
+    {
+      "id": "M5",
+      "file": "internal/schedule/schedule.go",
+      "old": "\t\t} else if (allDay && !r.AllDay) || badDays {",
+      "new": "\t\t} else if badDays {",
+      "note": "the inferred widening stops being reported, so a rule whose clock could not be read goes quiet"
     }
   ]
 }

@@ -107,11 +107,19 @@ func (c *Config) Validate() error {
 			// evaluator uses, so the two can never disagree about what is a legal
 			// time. Matching the pattern here instead would agree only for as long
 			// as nobody touches the one it borrows.
-			if _, ok := ParseClock(r.Start); !ok {
-				add("%s.start: %q is not HH:MM on a 24-hour clock", rl, r.Start)
-			}
-			if _, ok := ParseClock(r.End); !ok {
-				add("%s.end: %q is not HH:MM on a 24-hour clock", rl, r.End)
+			//
+			// An all-day rule is not asked. Its clock ends are not consulted by the
+			// evaluator at all, so rejecting "25:00" here would refuse a document
+			// that enforces exactly what its author meant, and demanding the times
+			// be cleared first would force the form (#10) to know that a checkbox
+			// changes which of its own fields are legal.
+			if !r.AllDay {
+				if _, ok := ParseClock(r.Start); !ok {
+					add("%s.start: %q is not HH:MM on a 24-hour clock", rl, r.Start)
+				}
+				if _, ok := ParseClock(r.End); !ok {
+					add("%s.end: %q is not HH:MM on a 24-hour clock", rl, r.End)
+				}
 			}
 			// A window that ends where it starts is empty: the evaluator finds no
 			// instant inside it. That is what a parent who typed the same time
@@ -123,11 +131,12 @@ func (c *Config) Validate() error {
 			// The message must not claim this shape locks the account. It does
 			// not: an empty window locks out nobody, and telling a parent it
 			// locks out everybody would let them approve the typo on purpose.
-			// The all-day rule they actually want is 00:00 to 23:59, which is a
-			// minute short — see #16.
-			if r.Start == r.End {
+			// It points at allDay instead, which is the rule they actually meant
+			// when they wrote "all day" — and unlike 00:00 to 23:59 it really is
+			// all day, because that window is a minute short.
+			if r.Start == r.End && !r.AllDay {
 				if _, ok := ParseClock(r.Start); ok {
-					add("%s.start: %s is also the end time, so the window is empty and enforces nothing; write 00:00 to 23:59 for an all-day rule, and note that leaves the last minute of the day unlocked",
+					add("%s.start: %s is also the end time, so the window is empty and enforces nothing; for a rule with no minute free set allDay instead — 00:00 to 23:59 is a minute short",
 						rl, r.Start)
 				}
 			}

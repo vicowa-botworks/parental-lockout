@@ -113,7 +113,9 @@ owned, written atomically (temp file + `fsync` + `rename`).
         { "id": "r1", "name": "Bedtime", "days": ["mon","tue","wed","thu","sun"],
           "start": "21:00", "end": "06:30", "enabled": true },
         { "id": "r2", "name": "School hours", "days": ["mon","tue","wed","thu","fri"],
-          "start": "08:15", "end": "13:30", "enabled": true }
+          "start": "08:15", "end": "13:30", "enabled": true },
+        { "id": "r3", "name": "Holiday", "days": ["sat","sun"],
+          "allDay": true, "enabled": true }
       ]
     }
   ],
@@ -135,6 +137,16 @@ Notes:
   enforces nothing and is rejected at save; it is deliberately not read as a
   24-hour window, because that is the shape a parent makes by typing the same time
   into both boxes.
+- **`"allDay": true` is the rule with no minute free.** It replaces both clock
+  ends, which are then not read and need not be present. `00:00–23:59` is *not*
+  all day: it is 1439 minutes, and the minute it releases is two 30-second re-lock
+  ticks of free machine on a schedule the parent read as all day. The flag is a
+  field rather than a reserved `24:00` because `24:00` is `00:00` on the following
+  day, which is exactly where America/Havana, America/Santiago and
+  Atlantic/Azores put their clock change — a reserved value there would need its
+  own disambiguation in the one place where the endpoint choice is already
+  load-bearing. The form (#10) renders it as an "All day" checkbox so nobody
+  types the boundary.
 - **A user has exactly one profile**; a profile may be shared by several users.
   This matches Timekpr's rule-set-per-user and keeps the UI honest.
 - **An override is a temporary unlock** with an expiry, so a parent can grant

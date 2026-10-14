@@ -250,9 +250,11 @@ type compiled struct {
 	endMin   int
 	days     [7]bool
 
-	// allDay is a rule whose clock could not be read at all. It holds for the
-	// whole local day rather than nothing; see compile for why the unreadable part
-	// of a rule widens instead of disappearing.
+	// allDay holds for the whole local day instead of a clock-derived window.
+	// Two different rules arrive here: one whose parent declared allDay, and one
+	// whose clock could not be read at all and widens rather than disappearing
+	// (see compile). They share a window and differ only in whether the result is
+	// reported as degraded, which compile decides and does not carry forward.
 	allDay bool
 }
 
@@ -278,12 +280,18 @@ func compile(rules []config.Rule) ([]compiled, []error) {
 		start, okStart := config.ParseClock(r.Start)
 		end, okEnd := config.ParseClock(r.End)
 
+		// A rule that declares itself all-day has no clock ends for the evaluator to
+		// read, so a missing or malformed one is not a defect and must not be
+		// reported as one. Validate lets these through on purpose (#16); reporting
+		// them here would tell a parent their working rule is broken.
 		var bad []string
-		if !okStart {
-			bad = append(bad, fmt.Sprintf("start %q is not HH:MM on a 24-hour clock", r.Start))
-		}
-		if !okEnd {
-			bad = append(bad, fmt.Sprintf("end %q is not HH:MM on a 24-hour clock", r.End))
+		if !r.AllDay {
+			if !okStart {
+				bad = append(bad, fmt.Sprintf("start %q is not HH:MM on a 24-hour clock", r.Start))
+			}
+			if !okEnd {
+				bad = append(bad, fmt.Sprintf("end %q is not HH:MM on a 24-hour clock", r.End))
+			}
 		}
 
 		var days [7]bool
@@ -327,8 +335,8 @@ func compile(rules []config.Rule) ([]compiled, []error) {
 		// readable part left for that reading to protect, and the widest one wins —
 		// including the window, because an empty window on every day enforces nothing
 		// while the report below claims the rule was widened.
-		empty := okStart && okEnd && start == end
-		allDay := !okStart || !okEnd || (empty && badDays)
+		empty := !r.AllDay && okStart && okEnd && start == end
+		allDay := r.AllDay || !okStart || !okEnd || (empty && badDays)
 		if badDays {
 			days = everyDay()
 		}
@@ -347,7 +355,12 @@ func compile(rules []config.Rule) ([]compiled, []error) {
 		zeroLength := empty && !badDays
 		if zeroLength {
 			bad = append(bad, fmt.Sprintf("start and end are both %s", r.Start))
-		} else if allDay || badDays {
+		} else if (allDay && !r.AllDay) || badDays {
+			// A rule that declared itself all-day is not a widened reading: the
+			// parent asked for the whole day and the whole day is what is enforced.
+			// Only an allDay this package inferred from a clock it could not read is
+			// a degraded state, and reporting the declared one as degraded would
+			// teach a parent that the report says nothing they need to act on.
 			bad = append(bad, "enforcing the widest reading instead: "+enforcedAs(allDay, badDays))
 		}
 
@@ -405,8 +418,14 @@ func (r compiled) windowOn(day time.Time, loc *time.Location) (window, bool) {
 
 	y, mo, d := day.Date()
 
-	// A rule whose clock could not be read holds for the whole local day: from the
-	// first instant that reads this day to the LAST instant that reads the next.
+	// An all-day rule holds from the first instant that reads this day to the LAST
+	// instant that reads the next. That is both the rule a parent declared and the
+	// one this package widened from a clock it could not read: where midnight is
+	// itself a repeated wall time, "the end of today" has two readings, and taking
+	// the later one is the only choice that never frees a minute of the enforced
+	// day. A declared all-day rule inherits that choice, so in America/Havana and
+	// Atlantic/Azores it can hold up to an hour whose clock already reads tomorrow
+	// — the same cost, measured below, that the widened rule pays.
 	//
 	// The asymmetry is deliberate and it is the whole point of the end being `true`.
 	// Where a fall-back crosses midnight, the clock shows the next day's 00:00 and
