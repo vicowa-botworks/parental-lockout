@@ -75,8 +75,10 @@ waiting for the same checks.
 
 - Exit 0 (all pass) -> go to phase 2.
 - Non-zero (failures) -> diagnose and fix:
-  1. Name the failing checks. There is **no `--fail-only` flag** on `gh pr checks` (and no
-     `--json` either), so ask the API:
+  1. Name the failing checks. There is **no `--fail-only` flag** on `gh pr checks` on any
+     version checked (2.46.0 and 2.67.0). `--json` is version-dependent — absent on the
+     2.46.0 installed here (`unknown flag: --json`), present in 2.67.0 — so do not rely on
+     it either way; ask the API, which works on both:
      ```bash
      gh api repos/vicowa-botworks/parental-lockout/commits/<headSha>/check-runs \
        --jq '.check_runs[] | select(.conclusion != "success") | "\(.name) \(.status) \(.conclusion)"'
@@ -159,12 +161,26 @@ fires the completion notification, so the session goes deaf to the very event it
 this happened, and the review sat unread. Do other useful work while it runs; you will be resumed
 when it finishes.
 
-Before trusting any watcher, run its self-test — all four controls are synthetic and two of them
-exist because a control that *cannot fail* (or *cannot pass*) shipped twice:
+Before trusting any watcher, run its self-test. All seven controls are synthetic, and **gate on
+its exit code, not on the words it prints** — the first version of this self-test printed `FAIL`
+and exited 0, so the harness it was meant to protect saw green on a broken watcher:
 
 ```bash
-.opencode/skills/review-loop/watch-pr.sh --selftest
+.opencode/skills/review-loop/watch-pr.sh --selftest   # 0 = usable, 1 = a control failed
 ```
+
+A–C are the comparison (nothing new against a full baseline; exactly one id when the baseline
+lacks it; a space-joined baseline still parses). D–G are the baseline guard, and they call
+`check_baseline` itself rather than restating its conditions — a control that tests a copy of the
+guard keeps passing when the guard is edited. D refuses junk, E refuses a **missing** file, F
+refuses a baseline containing prose (a failed capture whose `404` would otherwise be read as an
+id while every real id is absent), and G keeps an **empty** baseline legal, because a new PR has
+no reviews and refusing that would make the common case unwatchable.
+
+Exit codes: `0` a new review arrived, `3` the whole budget passed with nothing new, `2` the
+watcher is broken or blind — unusable baseline, non-numeric arguments, or five consecutive
+failures reading the API. That last one matters: a watcher whose auth expired used to exit 3,
+indistinguishable from a quiet PR, so a deaf watcher reported "nothing happened" forever.
 
 When it reports a new review, read it in full before touching code, and verify every finding
 against the current tree rather than assuming it.
