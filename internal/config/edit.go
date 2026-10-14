@@ -19,16 +19,21 @@ import (
 //   - writing through an existing element, or filtering with `in[:0]`, which moves
 //     data the snapshot can still see;
 //   - appending. One append is harmless — the write lands past the snapshot's
-//     length. But Load's slices arrive with spare capacity, because encoding/json
-//     grows by doubling, so two configs sharing one array each appending collide in
-//     that spare slot. Neither holder is writing through the other's elements, and
-//     both end up with the wrong document.
+//     length. But two configs sharing one array each appending collide in the spare
+//     capacity, if the array has any. Neither holder is writing through the other's
+//     elements, and both end up with the wrong document.
 //
-// So every helper allocates: copySlice before an element write, and copySlice
-// before an append. The second rule is the one that got missed on AddOverride, and
-// the shape it produces fails open — an unlock appears for a child nobody granted
-// one — so it is pinned by TestAddOverrideDoesNotWriteIntoAnArrayAnotherConfigHolds
-// rather than left to the reader.
+// Two defences, deliberately both. Load clips the spare capacity out of every slice it
+// hands back, so the append shape cannot arrive through the daemon's only constructor;
+// and every helper still allocates, via copySlice before an element write and appended
+// before an append, because a Config assembled by hand can carry room regardless of
+// what Load does. The clip is what stops the class recurring; the helpers are what
+// stop a future constructor from reintroducing it.
+//
+// The append rule is the one that got missed on AddOverride, and the shape it produces
+// fails open — an unlock appears for a child nobody granted one — so it is pinned by
+// TestAddOverrideDoesNotWriteIntoAnArrayAnotherConfigHolds rather than left to the
+// reader.
 
 // UpsertProfile adds p, or replaces the profile that already has its ID.
 //
@@ -36,15 +41,15 @@ import (
 // that a `snap := *c` taken before the call still describes what it described
 // when it was taken. See the note at the top of this file.
 func (c *Config) UpsertProfile(p Profile) {
-	next := copySlice(c.Profiles)
-	for i, existing := range next {
+	for i, existing := range c.Profiles {
 		if existing.ID == p.ID {
+			next := copySlice(c.Profiles)
 			next[i] = p
 			c.Profiles = next
 			return
 		}
 	}
-	c.Profiles = append(next, p)
+	c.Profiles = appended(c.Profiles, p)
 }
 
 // DeleteProfile removes a profile by ID.
@@ -74,15 +79,15 @@ func (c *Config) DeleteProfile(id string) error {
 // call is not quietly rewritten by it — which matters most here, because the
 // field being replaced is the one that switches a child's lockout on or off.
 func (c *Config) UpsertUser(u User) {
-	next := copySlice(c.Users)
-	for i, existing := range next {
+	for i, existing := range c.Users {
 		if existing.Username == u.Username {
+			next := copySlice(c.Users)
 			next[i] = u
 			c.Users = next
 			return
 		}
 	}
-	c.Users = append(next, u)
+	c.Users = appended(c.Users, u)
 }
 
 // RemoveUser unassigns an account and drops any override it holds, so removing
@@ -143,11 +148,13 @@ func (c *Config) ProfileFor(username string) (Profile, bool) {
 func (c *Config) AddOverride(o Override) {
 	o.Until = instant(o.Until)
 	c.RemoveOverride(o.Username)
-	// copySlice, not an append into c.Overrides: two configs taken from one Load
-	// share that array, and encoding/json leaves spare capacity in it, so a plain
-	// append writes the new grant into the slot the other config is about to use.
+	// appended, never an append into c.Overrides: two configs taken from one Load can
+	// share that array, and a plain append writes the new grant into the spare slot the
+	// other config is about to use. Load now clips that spare capacity away, so the
+	// hazard cannot arrive through Load — but a Config assembled by hand still can, and
+	// the helper does not get to assume how its receiver was built.
 	// See TestAddOverrideDoesNotWriteIntoAnArrayAnotherConfigHolds.
-	c.Overrides = append(copySlice(c.Overrides), o)
+	c.Overrides = appended(c.Overrides, o)
 }
 
 // RemoveOverride withdraws an account's override, reporting whether there was

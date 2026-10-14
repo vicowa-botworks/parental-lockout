@@ -1,0 +1,74 @@
+{
+ "package": "./internal/config/",
+ "_about": "Each entry puts one known bug back into internal/config and the suite must fail. The set is deliberately about the aliasing invariant, because that invariant has been written down twice and violated twice: once by an element write through a shared array, once by an append into shared spare capacity. A comment restating a rule is not a regression test. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
+ "mutants": [
+  {
+   "id": "CG1",
+   "file": "internal/config/edit.go",
+   "old": "c.Overrides = appended(c.Overrides, o)",
+   "new": "c.Overrides = append(c.Overrides, o)"
+  },
+  {
+   "id": "CG2",
+   "file": "internal/config/edit.go",
+   "old": "\t\t\tnext := copySlice(c.Profiles)\n\t\t\tnext[i] = p",
+   "new": "\t\t\tnext := c.Profiles\n\t\t\tnext[i] = p"
+  },
+  {
+   "id": "CG3",
+   "file": "internal/config/edit.go",
+   "old": "\t\t\tnext := copySlice(c.Users)\n\t\t\tnext[i] = u",
+   "new": "\t\t\tnext := c.Users\n\t\t\tnext[i] = u"
+  },
+  {
+   "id": "CG4",
+   "file": "internal/config/edit.go",
+   "old": "kept := make([]T, 0, len(in))",
+   "new": "kept := in[:0]"
+  },
+  {
+   "id": "CG5",
+   "file": "internal/config/edit.go",
+   "old": "\tc.RemoveOverride(o.Username)\n\t// appended, never an append into c.Overrides:",
+   "new": "\t// appended, never an append into c.Overrides:",
+   "note": "the removal moved after the append by deletion of the pre-append call; paired with CG6, which moves it after explicitly. This one is the 'removal dropped entirely' shape: an amend then leaves two entries for one child and which grant wins depends on order."
+  },
+  {
+   "id": "CG6",
+   "file": "internal/config/edit.go",
+   "old": "\tc.Overrides = appended(c.Overrides, o)\n}",
+   "new": "\tc.Overrides = appended(c.Overrides, o)\n\tc.RemoveOverride(o.Username)\n}"
+  },
+  {
+   "id": "CG7",
+   "file": "internal/config/store.go",
+   "old": "\tc.applyDefaults()\n\tc.clipAll()",
+   "new": "\tc.applyDefaults()"
+  },
+  {
+   "id": "CG8",
+   "file": "internal/config/config.go",
+   "old": "\t\tc.Profiles[i].Rules[j].Days = slices.Clip(c.Profiles[i].Rules[j].Days)",
+   "new": "\t\tc.Profiles[i].Rules[j].Days = c.Profiles[i].Rules[j].Days"
+  },
+  {
+   "id": "CG9",
+   "file": "internal/config/config.go",
+   "old": "\t\tc.Profiles[i].Rules = slices.Clip(c.Profiles[i].Rules)",
+   "new": "\t\tc.Profiles[i].Rules = c.Profiles[i].Rules"
+  },
+  {
+   "id": "CG10",
+   "file": "internal/config/config.go",
+   "old": "\tc.Settings.LockBackends = slices.Clip(c.Settings.LockBackends)",
+   "new": "\tc.Settings.LockBackends = c.Settings.LockBackends"
+  },
+  {
+   "id": "CG11",
+   "file": "internal/config/config.go",
+   "old": "\treturn append(out, v)\n}",
+   "new": "\treturn append(in, v)\n}",
+   "note": "appended writing into the caller's own array instead of the fresh one; out stays used by the copy above, so this compiles and only the aliasing changes."
+  }
+ ]
+}
