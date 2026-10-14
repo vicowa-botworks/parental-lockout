@@ -59,7 +59,6 @@ var planned = map[string]string{
 	"status": "[--json]",
 	"lock":   "<user> [--all]",
 	"unlock": "<user> --minutes N --reason TEXT",
-	"doctor": "[--json] [--try USER]",
 }
 
 func main() {
@@ -80,6 +79,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runHelp(stdout, stderr, rest)
 	case "version":
 		return runVersion(stdout, stderr, rest)
+	case "doctor":
+		return runDoctor(stdout, stderr, rest)
 	default:
 		if synopsis, ok := planned[command]; ok {
 			return notImplemented(stdout, stderr, command, synopsis, rest)
@@ -109,6 +110,11 @@ func runHelp(stdout, stderr io.Writer, args []string) int {
 	switch {
 	case topic == "version":
 		if err := writeAll(stdout, versionUsage); err != nil {
+			return exitFailure
+		}
+		return exitOK
+	case topic == "doctor":
+		if err := writeAll(stdout, doctorUsage); err != nil {
 			return exitFailure
 		}
 		return exitOK

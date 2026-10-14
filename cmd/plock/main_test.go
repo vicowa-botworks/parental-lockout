@@ -101,6 +101,13 @@ func runProcess(t *testing.T, args ...string) (code int, stdout, stderr string) 
 	return code, out.String(), err.String()
 }
 
+// implementedCommands are the commands with real behaviour behind them, so they are
+// deliberately absent from `planned`. It is a list rather than a single name because
+// the surface grows one entry at a time, and the day somebody forgets to move a command
+// out of `planned` the test below says so instead of `plock doctor -h` printing a
+// "not implemented" synopsis forever.
+var implementedCommands = []string{"version", "doctor"}
+
 func TestCommandSurfaceIsComplete(t *testing.T) {
 	var stubs []string
 	for command := range planned {
@@ -109,13 +116,27 @@ func TestCommandSurfaceIsComplete(t *testing.T) {
 	slices.Sort(stubs)
 
 	wantStubs := slices.DeleteFunc(slices.Clone(wantCommands), func(c string) bool {
-		return c == "version"
+		return slices.Contains(implementedCommands, c)
 	})
 	slices.Sort(wantStubs)
 
 	if !slices.Equal(stubs, wantStubs) {
 		t.Errorf("planned = %v, want %v — a command that vanishes from the surface "+
 			"silently changes `plock <cmd>` from exit 1 to exit 2", stubs, wantStubs)
+	}
+}
+
+// An implemented command must not also sit in `planned`: notImplemented would then
+// answer before the real one, and `-h` would advertise the wrong flags.
+func TestImplementedCommandsAreNotAlsoPlanned(t *testing.T) {
+	for _, c := range implementedCommands {
+		if synopsis, ok := planned[c]; ok {
+			t.Errorf("%q is implemented but still in planned as %q, so `plock %s` reaches the stub instead of the command",
+				c, synopsis, c)
+		}
+		if !strings.Contains(globalUsage, "\n  "+c+" ") {
+			t.Errorf("%q is implemented but not listed in globalUsage", c)
+		}
 	}
 }
 
@@ -340,13 +361,14 @@ func TestPlannedCommandsDocumentTheirFlags(t *testing.T) {
 // and anything after `--` is data. Neither may make a command that did nothing
 // exit 0.
 func TestHelpFlagIsOnlyRecognisedInFlagPosition(t *testing.T) {
-	cases := [][]string{
+	// Stubs: notImplemented prints its synopsis and exits 1. That exact code is the
+	// stub contract, so it stays pinned.
+	stubCases := [][]string{
 		{"lock", "--reason", "-h"},
 		{"unlock", "kid", "--minutes", "5", "--", "-h"},
-		{"doctor", "--try", "--help"},
 		{"status", "extra", "-h"},
 	}
-	for _, args := range cases {
+	for _, args := range stubCases {
 		code, stdout, _ := runCmd(t, args...)
 		if code != exitFailure {
 			t.Errorf("plock %v: exit code = %d, want %d — a help flag outside flag "+
@@ -354,6 +376,24 @@ func TestHelpFlagIsOnlyRecognisedInFlagPosition(t *testing.T) {
 		}
 		if stdout != "" {
 			t.Errorf("plock %v: stdout = %q, want nothing", args, stdout)
+		}
+	}
+
+	// Real commands: a help flag carried as a value, or after `--`, must not print the
+	// help text on stdout and must not exit 0. The code here is whatever the command's
+	// own argument handling produces (2 for an unparseable flag), so only the two
+	// properties the contract actually promises are asserted.
+	realCases := [][]string{
+		{"doctor", "--try", "--help"},
+		{"doctor", "--", "--help"},
+	}
+	for _, args := range realCases {
+		code, stdout, _ := runCmd(t, args...)
+		if code == exitOK {
+			t.Errorf("plock %v: exit 0 — a help flag outside flag position produced a success", args)
+		}
+		if strings.Contains(stdout, "usage: plock doctor") {
+			t.Errorf("plock %v: printed the help text on stdout (%q) instead of reporting the argument", args, stdout)
 		}
 	}
 }
