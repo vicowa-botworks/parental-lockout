@@ -30,10 +30,14 @@ import (
 // what Load does. The clip is what stops the class recurring; the helpers are what
 // stop a future constructor from reintroducing it.
 //
-// The append rule is the one that got missed on AddOverride, and the shape it produces
-// fails open — an unlock appears for a child nobody granted one — so it is pinned by
-// TestAddOverrideDoesNotWriteIntoAnArrayAnotherConfigHolds rather than left to the
-// reader.
+// The append rule is the one that got missed. It arrived on AddOverride, in shipped code,
+// and the shape fails open — an unlock appears for a child nobody granted one. It is now
+// pinned at every site rather than left to the reader:
+// TestAddOverrideDoesNotWriteIntoAnArrayAnotherConfigHolds and
+// TestUpsertAddDoesNotWriteIntoAnArrayAnotherConfigHolds, with mutants CG1 through CG3 and
+// CG12 through CG13 so a site cannot quietly lose its defence. The add paths were correct
+// in code before their own test existed, which is exactly the gap that let AddOverride
+// ship wrong: a rule asserted at one call site reads as a rule asserted everywhere.
 
 // UpsertProfile adds p, or replaces the profile that already has its ID.
 //

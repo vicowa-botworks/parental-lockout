@@ -5,10 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
+
+// indexRE turns a field path like Profiles[2].Rules[0].Days into the shape
+// Profiles[].Rules[].Days, so a list found by reflection can be compared with the
+// hand-written enumeration regardless of how many elements the fixture happens to hold.
+var indexRE = regexp.MustCompile(`\[\d+\]`)
 
 // slot names one list in a document so its length and capacity can be compared.
 type slot struct {
@@ -75,6 +82,41 @@ func TestLoadHandsBackNoSpareCapacity(t *testing.T) {
 		return out
 	}
 
+	// listShapes walks the document reflectively and returns every path that holds a
+	// list, with indices removed. It exists for one comparison, made below: the
+	// enumeration above and the clip statements in clipAll are the same hand-written
+	// list, so a slice field added to Profile, Rule or Settings escapes both — the clip
+	// misses it and the test that exists to notice the miss never asks about it either.
+	// Reflection asks about it.
+	//
+	// This is not "walking the config through the code under test", which the comment
+	// above warns about: reflect reads the struct's own fields and calls nothing in the
+	// package, so a clip that failed to reach a list cannot hide its own miss here.
+	listShapes := func(c *Config) map[string]bool {
+		out := map[string]bool{}
+		var walk func(path string, v reflect.Value)
+		walk = func(path string, v reflect.Value) {
+			switch v.Kind() {
+			case reflect.Slice:
+				shape := indexRE.ReplaceAllString(path, "[]")
+				out[shape] = true
+				for i := 0; i < v.Len(); i++ {
+					walk(fmt.Sprintf("%s[%d]", path, i), v.Index(i))
+				}
+			case reflect.Struct:
+				for i := 0; i < v.NumField(); i++ {
+					name := v.Type().Field(i).Name
+					if path != "" {
+						name = path + "." + name
+					}
+					walk(name, v.Field(i))
+				}
+			}
+		}
+		walk("", reflect.ValueOf(*c))
+		return out
+	}
+
 	// The precondition, measured WITHOUT Load. Asking Load whether decoded documents
 	// carry spare capacity can only ever answer "no" once Load clips them, which turns
 	// the guard into a test that cancels itself while looking like a pass. So the same
@@ -89,6 +131,19 @@ func TestLoadHandsBackNoSpareCapacity(t *testing.T) {
 		t.Fatalf("raw decode: %v", err)
 	}
 	before := slotsOf(&undecorated)
+	// Every list the decoder can reach has to be a list the clip knows about. A shape
+	// that appears only in the reflection walk is a field nobody wrote a clip for — and
+	// the whole reason this test exists is that such a field fails open silently.
+	handled := map[string]bool{}
+	for _, c := range before {
+		handled[indexRE.ReplaceAllString(c.name, "[]")] = true
+	}
+	for shape := range listShapes(&undecorated) {
+		if !handled[shape] {
+			t.Errorf("%s holds a list this test does not cover, so clipAll almost certainly misses it too: add the clip statement and a fixture list big enough to come back loose — a decoded list left with spare capacity lets two holders write the same spare slot",
+				shape)
+		}
+	}
 	// Per site, not in aggregate. An aggregate "something was loose" is satisfied by
 	// one lucky list, which is exactly how the Rules clip shipped unexercised once:
 	// every clip site must have had something to clip, or that site is code no test
@@ -279,4 +334,112 @@ func wideSample() *Config {
 		{Username: "c", Until: until, Reason: "three"},
 	}
 	return c
+}
+
+// TestUpsertAddDoesNotWriteIntoAnArrayAnotherConfigHolds is the same defect at the two
+// ADD paths.
+//
+// The replace paths were pinned first, because an in-place upsert can flip a snapshot's
+// Enabled to false. The add paths are what a parent actually uses when adding a second
+// child, and a plain append there writes the other config's new entry into the array this
+// one still shares — so the document a saves lists a profile (or an enforced account)
+// that a never granted. For a profile that means a child bound to a schedule nobody wrote;
+// for a user it means an account switched on in a config that never switched it on.
+//
+// Both holders are taken before either appends, which is the whole point: taking the
+// second snapshot after the first append would let the first call allocate its own array
+// and the test would pass with the bug present.
+func TestUpsertAddDoesNotWriteIntoAnArrayAnotherConfigHolds(t *testing.T) {
+	t.Run("profiles", func(t *testing.T) {
+		cfg := sample()
+		room := make([]Profile, len(cfg.Profiles), len(cfg.Profiles)+1)
+		copy(room, cfg.Profiles)
+		cfg.Profiles = room
+		if cap(cfg.Profiles) == len(cfg.Profiles) {
+			t.Fatalf("the shared array has len==cap==%d; without spare capacity this test cannot fail", len(cfg.Profiles))
+		}
+
+		a, b := *cfg, *cfg
+		a.UpsertProfile(Profile{ID: "extra-a", Name: "A", Timezone: "UTC"})
+		b.UpsertProfile(Profile{ID: "extra-b", Name: "B", Timezone: "UTC"})
+
+		if !hasProfile(&a, "extra-a") {
+			t.Errorf("a lost the profile it added")
+		}
+		if hasProfile(&a, "extra-b") {
+			t.Errorf("b's new profile is in a's config — UpsertProfile appended into the array a still shares")
+		}
+		if !hasProfile(&b, "extra-b") {
+			t.Errorf("b lost the profile it added")
+		}
+
+		path := filepath.Join(t.TempDir(), "config.json")
+		if err := a.Save(path); err != nil {
+			t.Fatalf("Save(a): %v", err)
+		}
+		back, err := Load(path)
+		if err != nil {
+			t.Fatalf("re-Load: %v", err)
+		}
+		if hasProfile(back, "extra-b") {
+			t.Errorf("the saved document carries the profile a never added — the corruption reached disk")
+		}
+		if !hasProfile(back, "extra-a") {
+			t.Errorf("a's own profile did not survive the save")
+		}
+	})
+
+	t.Run("users", func(t *testing.T) {
+		cfg := sample()
+		room := make([]User, len(cfg.Users), len(cfg.Users)+1)
+		copy(room, cfg.Users)
+		cfg.Users = room
+		if cap(cfg.Users) == len(cfg.Users) {
+			t.Fatalf("the shared array has len==cap==%d; without spare capacity this test cannot fail", len(cfg.Users))
+		}
+
+		a, b := *cfg, *cfg
+		a.UpsertUser(User{Username: "child-a", ProfileID: cfg.Profiles[0].ID, Enabled: true})
+		b.UpsertUser(User{Username: "child-b", ProfileID: cfg.Profiles[0].ID, Enabled: true})
+
+		if !hasUser(&a, "child-a") {
+			t.Errorf("a lost the account it assigned")
+		}
+		if hasUser(&a, "child-b") {
+			t.Errorf("b's new account is in a's config — UpsertUser appended into the array a still shares")
+		}
+		if !hasUser(&b, "child-b") {
+			t.Errorf("b lost the account it assigned")
+		}
+
+		path := filepath.Join(t.TempDir(), "config.json")
+		if err := a.Save(path); err != nil {
+			t.Fatalf("Save(a): %v", err)
+		}
+		back, err := Load(path)
+		if err != nil {
+			t.Fatalf("re-Load: %v", err)
+		}
+		if hasUser(back, "child-b") {
+			t.Errorf("the saved document lists child-b as an enforced account in a config that never assigned them — the corruption reached disk")
+		}
+	})
+}
+
+func hasProfile(c *Config, id string) bool {
+	for _, p := range c.Profiles {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUser(c *Config, username string) bool {
+	for _, u := range c.Users {
+		if u.Username == username {
+			return true
+		}
+	}
+	return false
 }
