@@ -13,7 +13,7 @@
 //     passed as its own argv element, so nothing about it can be reinterpreted.
 //   - Locking is only ever aimed at a desktop session. A remote session is never
 //     locked (locking an SSH session would cut off the admin), and neither is a
-//     session that has no seat or no session type — see IsLockable.
+//     session that has no seat or no session type — see isLockable.
 package platform
 
 import (
@@ -180,7 +180,7 @@ type Platform interface {
 	Probe(ctx context.Context) []BackendStatus
 }
 
-// IsLockable is the whole "never lock the wrong thing" rule in one place.
+// isLockable is the whole "never lock the wrong thing" rule in one place.
 //
 // Remote is the loud one: the admin's own session is usually the remote one, and a
 // daemon that locks it locks itself out of the machine. The others are quieter.
@@ -200,7 +200,7 @@ type Platform interface {
 // the teardown for no benefit. Everything else, including "online", stays lockable —
 // excluding a state this code has not observed would silently stop locking a real
 // child session, which is the fail-open direction.
-func IsLockable(s Session) bool {
+func isLockable(s Session) bool {
 	if s.Remote {
 		return false
 	}
@@ -218,6 +218,17 @@ func IsLockable(s Session) bool {
 	}
 	return true
 }
+
+// IsLockable is the exported view of the rule above, for the one caller outside this
+// package that needs it: the enforcement loop asks before it evaluates a schedule,
+// because a session it will never lock must not be reported as an enforceable one
+// either — a greeter would otherwise show up in the audit log as a child who is not
+// being locked out.
+//
+// The rule itself stays in isLockable, in one place, and stays unexported so that
+// deciding what counts as a desktop remains this package's call. This is a door, not a
+// second copy: a mutant in the rule below is still caught by this package's own tests.
+func IsLockable(s Session) bool { return isLockable(s) }
 
 // Constructor builds a backend over a Runner. Every backend takes the runner rather
 // than calling exec itself, so the tests that pin argv and env are the same tests
@@ -420,7 +431,7 @@ func confirmWithSettle(ctx context.Context, conf Confirmer, s Session) (bool, er
 }
 
 func (c *Chain) Lock(ctx context.Context, s Session) error {
-	if !IsLockable(s) {
+	if !isLockable(s) {
 		return fmt.Errorf("refusing to lock %s: not a lockable desktop session", s.Describe())
 	}
 	if len(c.backends) == 0 {

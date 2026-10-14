@@ -79,7 +79,7 @@ func wantArgv(t testing.TB, got, want [][]string) {
 }
 
 // desktopSession is the shape logind reports for a real desktop session. Tests build
-// through it rather than spelling the fields out, because IsLockable requires Class and
+// through it rather than spelling the fields out, because isLockable requires Class and
 // Seat and a bare Session{Type: "x11"} is now correctly refused — a session that never
 // came from a listing is not something to hand to lock-session.
 func desktopSession(id string) Session {

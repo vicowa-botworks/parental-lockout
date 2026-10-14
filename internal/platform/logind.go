@@ -114,7 +114,7 @@ func (l *logind) Sessions(ctx context.Context) ([]Session, error) {
 		}
 		s.Leader = e.Leader
 		s.TTY = seatString(e.TTY)
-		if !IsLockable(s) {
+		if !isLockable(s) {
 			continue
 		}
 		out = append(out, s)
@@ -126,7 +126,7 @@ func (l *logind) Sessions(ctx context.Context) ([]Session, error) {
 // whole point: logind lets the manager lock any session, so no downgrade and no
 // access to the user's bus is needed.
 func (l *logind) Lock(ctx context.Context, s Session) error {
-	if !IsLockable(s) {
+	if !isLockable(s) {
 		return fmt.Errorf("logind: refusing to lock %s: not a lockable desktop session", s.Describe())
 	}
 	// The id came from logind itself, but it is about to be an argument to a command
