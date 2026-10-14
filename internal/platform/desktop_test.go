@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -60,10 +61,15 @@ func TestSessionEnvTargetsTheSessionsBus(t *testing.T) {
 		t.Errorf("HOME = %q, want it emptied", v)
 	}
 
-	// The precondition for the leak assertions: a variable the daemon does not have
-	// cannot demonstrate that nothing leaked.
-	if _, ok := got["LD_PRELOAD"]; ok {
-		t.Fatal("LD_PRELOAD present though t.Setenv set it; the allowlist is not what filtered it")
+	// The precondition for the leak assertions, checked against the environment
+	// itself rather than through sessionEnv: a variable the daemon does not actually
+	// have cannot demonstrate that nothing leaked, and a guard that measures the
+	// precondition with the function under test turns a broken filter into a passing
+	// test.
+	for _, must := range []string{"LD_PRELOAD", "PYTHONPATH", "DISPLAY", "PATH"} {
+		if os.Getenv(must) == "" {
+			t.Fatalf("%s is not set in the test environment, so its absence from the result proves nothing", must)
+		}
 	}
 }
 
