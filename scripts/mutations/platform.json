@@ -405,7 +405,7 @@
       "id": "H2",
       "package": "./internal/platform/",
       "file": "internal/platform/platform.go",
-      "old": "\t\t\tif _, strong := conf.(Corroborator); strong {\n\t\t\t\treturn nil\n\t\t\t}\n",
+      "old": "\t\t\tif corroborated(conf) {\n\t\t\t\treturn nil\n\t\t\t}\n",
       "new": "",
       "note": "discount a corroborated yes too: a genuinely locked machine reports unconfirmed from the second tick on"
     },
@@ -429,8 +429,8 @@
       "id": "H5",
       "package": "./internal/platform/",
       "file": "internal/platform/platform.go",
-      "old": "\t\tif _, strong := conf.(Corroborator); !strong {",
-      "new": "\t\tif _, strong := conf.(Corroborator); !strong || true {",
+      "old": "\t\tif !corroborated(conf) {",
+      "new": "\t\tif true {",
       "note": "the before-state read from the first confirmer rather than the raw-hint one, so a [kde logind] chain credits logind's bare yes"
     },
     {
