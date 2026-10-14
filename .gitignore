@@ -1,6 +1,10 @@
 # Build output
 /bin/
 
+# A cross-compile check (`GOOS=windows go build ./cmd/plock`) drops the binary in the
+# tree next to the package it built. It is not an artefact anybody wants tracked.
+*.exe
+
 # Test and coverage artefacts
 *.test
 *.out
