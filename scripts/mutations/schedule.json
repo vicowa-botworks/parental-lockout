@@ -90,14 +90,14 @@
     {
       "id": "S17",
       "file": "internal/schedule/schedule.go",
-      "old": "if !okStart {\n\t\t\tbad = append(bad, fmt.Sprintf(\"start %q is not HH:MM on a 24-hour clock\", r.Start))",
-      "new": "if false {\n\t\t\tbad = append(bad, fmt.Sprintf(\"start %q is not HH:MM on a 24-hour clock\", r.Start))"
+      "old": "\t\t\tif !okStart {\n\t\t\t\tbad = append(bad, fmt.Sprintf(\"start %q is not HH:MM on a 24-hour clock\", r.Start))",
+      "new": "\t\t\tif false {\n\t\t\t\tbad = append(bad, fmt.Sprintf(\"start %q is not HH:MM on a 24-hour clock\", r.Start))"
     },
     {
       "id": "S18",
       "file": "internal/schedule/schedule.go",
-      "old": "if !okEnd {\n\t\t\tbad = append(bad, fmt.Sprintf(\"end %q is not HH:MM on a 24-hour clock\", r.End))",
-      "new": "if false {\n\t\t\tbad = append(bad, fmt.Sprintf(\"end %q is not HH:MM on a 24-hour clock\", r.End))"
+      "old": "\t\t\tif !okEnd {\n\t\t\t\tbad = append(bad, fmt.Sprintf(\"end %q is not HH:MM on a 24-hour clock\", r.End))",
+      "new": "\t\t\tif false {\n\t\t\t\tbad = append(bad, fmt.Sprintf(\"end %q is not HH:MM on a 24-hour clock\", r.End))"
     },
     {
       "id": "S19",
@@ -255,14 +255,14 @@
     {
       "id": "R3",
       "file": "internal/schedule/schedule.go",
-      "old": "empty := okStart && okEnd && start == end",
-      "new": "empty := false"
+      "old": "\t\tempty := !r.AllDay && okStart && okEnd && start == end",
+      "new": "\t\tempty := false"
     },
     {
       "id": "R4",
       "file": "internal/schedule/schedule.go",
-      "old": "empty := okStart && okEnd && start == end",
-      "new": "empty := okStart && okEnd && start != end"
+      "old": "\t\tempty := !r.AllDay && okStart && okEnd && start == end",
+      "new": "\t\tempty := !r.AllDay && okStart && okEnd && start != end"
     },
     {
       "id": "R5",
@@ -368,22 +368,22 @@
     {
       "id": "PD4",
       "file": "internal/schedule/schedule.go",
-      "old": "allDay := !okStart || !okEnd || (empty && badDays)",
-      "new": "allDay := false",
+      "old": "\t\tallDay := r.AllDay || !okStart || !okEnd || (empty && badDays)",
+      "new": "\t\tallDay := r.AllDay || (empty && badDays)",
       "note": "an unreadable clock never widens"
     },
     {
       "id": "PD5",
       "file": "internal/schedule/schedule.go",
-      "old": "allDay := !okStart || !okEnd || (empty && badDays)",
-      "new": "allDay := !okStart && !okEnd",
+      "old": "\t\tallDay := r.AllDay || !okStart || !okEnd || (empty && badDays)",
+      "new": "\t\tallDay := r.AllDay || (!okStart && !okEnd) || (empty && badDays)",
       "note": "only widens when both clocks are unreadable, so one bad box is enough to escape"
     },
     {
       "id": "PD6",
       "file": "internal/schedule/schedule.go",
-      "old": "allDay := !okStart || !okEnd || (empty && badDays)",
-      "new": "allDay := !okStart || !okEnd",
+      "old": "\t\tallDay := r.AllDay || !okStart || !okEnd || (empty && badDays)",
+      "new": "\t\tallDay := r.AllDay || !okStart || !okEnd",
       "note": "the empty-window-plus-bad-days case stops widening -- the bug the round-3 policy introduced"
     },
     {
