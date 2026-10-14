@@ -479,6 +479,21 @@ func confirmWithSettle(ctx context.Context, conf Confirmer, s Session) (bool, er
 	return false, nil
 }
 
+// corroborated reports whether this confirmer stands behind its yes with evidence the
+// controlled user did not supply.
+//
+// The type assertion alone is not the question. Both desktop flavours implement
+// Corroborator on the same type, so `_, ok := conf.(Corroborator)` is true for gnome
+// even though gnome has nothing to corroborate with — and treating it as a corroborator
+// is the #29 attack arriving through a gnome-only config: a hint the child set from its
+// own account confirms the lock, the chain stops, and the screen never locks. The answer
+// the method returns is the whole difference between the two flavours, so the answer is
+// what gets asked.
+func corroborated(conf Confirmer) bool {
+	c, ok := conf.(Corroborator)
+	return ok && c.Corroborated()
+}
+
 // lockState reads the lock state from the backend that reports the raw hint, for the
 // question Chain.Lock asks: what was true before we asked anybody?
 //
@@ -500,7 +515,7 @@ func (c *Chain) lockState(ctx context.Context, s Session) (bool, error) {
 		if !ok {
 			continue
 		}
-		if _, strong := conf.(Corroborator); !strong {
+		if !corroborated(conf) {
 			return conf.LockConfirmed(ctx, s)
 		}
 		if fallback == nil {
@@ -600,7 +615,7 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 			// Discounting a corroborated yes would report unconfirmed forever on a
 			// genuinely locked screen, and an operator trained to ignore that signal
 			// has no signal left.
-			if _, strong := conf.(Corroborator); strong {
+			if corroborated(conf) {
 				return nil
 			}
 			if wasLocked {

@@ -3,8 +3,11 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
 )
 
 // #29, measured: Session.SetLockedHint is authorized by uid alone, so a controlled user
@@ -203,6 +206,92 @@ func TestDesktopConfirmationNeedsTheLockerOnKdeAndNotOnGnome(t *testing.T) {
 			t.Error("gnome claims to corroborate; nothing about GNOME's lock has been measured here")
 		}
 	})
+}
+
+// The re-assert tick on a machine that really is locked, through the backend the
+// shipped config builds rather than a fake that claims to be one.
+//
+// The chain tests above inject a corroborator. That is the right seam for the rule
+// and it says nothing about the wiring: nothing anywhere said the *registered* kde
+// backend is the backend that reports itself corroborated. A registration that
+// stopped saying so would leave every genuinely locked machine reporting
+// "unconfirmed" forever — the exact outcome the discounting rule exists to avoid —
+// and every fake would stay green, because a fake answers what it is told.
+func TestTheRegisteredKdeBackendIsTheOneTheChainBelieves(t *testing.T) {
+	newProcFixture(t).
+		add(6695, 1, desktopUID, "/usr/lib/systemd/systemd --user").
+		add(7619, 6695, desktopUID, measuredKsmserver).
+		add(2224790, 7619, desktopUID, measuredLocker, "--graceTime", "5000", "--ksldfd", "56").
+		use()
+
+	// The hint reads locked before the request and after it: this is the second tick
+	// on a machine the desktop already locked, which is the shape that would go
+	// permanently unconfirmed if a corroborated yes were discounted.
+	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
+		switch argv[0] {
+		case gdbusProgram:
+			return []byte("()\n"), nil
+		case "loginctl":
+			if sub(argv, 0) == "show-session" {
+				return []byte("LockedHint=yes\n"), nil
+			}
+			return nil, nil
+		}
+		return nil, fmt.Errorf("unexpected program %q", argv[0])
+	}}
+
+	c, err := New(config.Settings{LockBackends: []string{"kde"}}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Lock(context.Background(), desktopSession("3")); err != nil {
+		t.Fatalf("Lock on a locked machine with its locker running = %v, want nil.\n"+
+			"The registered kde backend is the corroborator this whole design leans on. "+
+			"If it no longer reports itself corroborated, Chain.Lock discounts a true hint "+
+			"and every locked screen reports unconfirmed.", err)
+	}
+}
+
+// The same shape on the flavour that has nothing to corroborate with, and the reason
+// Corroborated() has to be called rather than merely implemented.
+//
+// Both desktop flavours are the same Go type, so a type assertion on Corroborator is
+// true for gnome as well. Deciding that way hands gnome the standing of a backend that
+// proved something, and a gnome-only config then confirms a hint the child wrote from
+// its own account: the chain stops, the screen never locks, and the audit line says it
+// did.
+func TestAGnomeOnlyChainNeverConfirmsOffAPreSetHint(t *testing.T) {
+	// Even a locker process running would not help: gnome does not look, because
+	// nothing about GNOME's second signal has been measured. The fixture is here to
+	// prove the answer does not come from the locker being absent.
+	newProcFixture(t).
+		add(7619, 6695, desktopUID, measuredKsmserver).
+		add(2224790, 7619, desktopUID, measuredLocker, "--graceTime", "5000").
+		use()
+
+	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
+		switch argv[0] {
+		case gdbusProgram:
+			return []byte("()\n"), nil
+		case "loginctl":
+			if sub(argv, 0) == "show-session" {
+				return []byte("LockedHint=yes\n"), nil
+			}
+			return nil, nil
+		}
+		return nil, fmt.Errorf("unexpected program %q", argv[0])
+	}}
+
+	c, err := New(config.Settings{LockBackends: []string{"gnome"}}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = c.Lock(context.Background(), desktopSession("3"))
+	if !errors.Is(err, ErrUnconfirmed) {
+		t.Fatalf("Lock = %v, want ErrUnconfirmed.\ngnome says plainly that it cannot corroborate; "+
+			"if the chain believed it anyway, a hint the child set from ~/.config/autostart "+
+			"confirms a lock that never happened on any gnome-only machine.", err)
+	}
 }
 
 // A corroborator whose second signal cannot be consulted is not a corroborator that said

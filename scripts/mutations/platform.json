@@ -560,6 +560,13 @@
       "old": "\t\t\tif ppid, err = strconv.Atoi(val); err != nil {",
       "new": "\t\t\tif ppid, err = strconv.Atoi(val); false {",
       "note": "an unparsable PPid swallowed as pid 0"
+    },
+    {
+      "id": "I6",
+      "file": "internal/platform/platform.go",
+      "old": "\tc, ok := conf.(Corroborator)\n\treturn ok && c.Corroborated()",
+      "new": "\t_, ok := conf.(Corroborator)\n\treturn ok",
+      "note": "the chain goes back to deciding corroboration by type assertion, which is true for gnome, so a pre-set hint confirms on a gnome-only chain"
     }
   ]
 }
