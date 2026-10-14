@@ -83,6 +83,34 @@
       "old": "c.Users = appended(c.Users, u)",
       "new": "c.Users = append(c.Users, u)",
       "about": "the UpsertUser add path appends into an array another Config still holds, so a's saved document enforces an account a never assigned"
+    },
+    {
+      "id": "K1",
+      "file": "internal/config/config.go",
+      "old": "\t\tEnd: raw.End, AllDay: raw.AllDay}",
+      "new": "\t\tEnd: raw.End}",
+      "note": "the flag never survives decoding, so every rule is an ordinary one and an all-day parent loses the last minute anyway"
+    },
+    {
+      "id": "K2",
+      "file": "internal/config/validate.go",
+      "old": "\t\t\tif !r.AllDay {\n\t\t\t\tif _, ok := ParseClock(r.Start); !ok {",
+      "new": "\t\t\tif true {\n\t\t\t\tif _, ok := ParseClock(r.Start); !ok {",
+      "note": "an all-day rule is asked for clock ends it does not have, so a form that clears them is refused"
+    },
+    {
+      "id": "K3",
+      "file": "internal/config/validate.go",
+      "old": "\t\t\tif r.Start == r.End && !r.AllDay {",
+      "new": "\t\t\tif r.Start == r.End {",
+      "note": "the all-day rule that left 08:00 in both boxes is rejected as the typo it is not"
+    },
+    {
+      "id": "K4",
+      "file": "internal/config/validate.go",
+      "old": "so the window is empty and enforces nothing; for a rule with no minute free set allDay instead",
+      "new": "so the window is empty and enforces nothing; write 00:00 to 23:59 for an all-day rule",
+      "note": "the message recommends the 1439-minute window again, which is the advice this issue exists to retire"
     }
   ]
 }

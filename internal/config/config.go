@@ -249,28 +249,50 @@ type Profile struct {
 // 24-hour window: reading it that way would turn a parent typing the same time
 // into both boxes into a child who can never use the machine.
 //
-// Note the consequence while #16 is open: because a window is half-open and both
-// ends are whole minutes, no rule covers every minute of a day — 00:00-23:59
-// leaves the last minute free. A schedule that must never release is not
-// expressible yet, and #16 decides whether it becomes a flag or a reserved value.
+// AllDay is the way to say that, in fact, there is no minute free. It replaces
+// both clock ends: Start and End are not consulted, so a rule may carry the
+// times a form left behind without them meaning anything.
+//
+//	Why a flag rather than accepting 24:00 as an end. 24:00 reads like the way a
+//	parent writes a midnight deadline, but it is not a time of day anywhere else,
+//	so it would need to be legal in one position and illegal in the other, and —
+//	the reason that settled it — 24:00 is 00:00 on the following day, which is
+//	exactly where three canonical zones put their clock change. America/Havana,
+//	America/Santiago and Atlantic/Azores all transition at midnight local, so
+//	24:00 is a repeated or nonexistent wall time in those zones, and a reserved
+//	value would need its own DST analysis in the one function where the endpoint
+//	choice is already load-bearing. AllDay names the whole day instead of a
+//	clock reading, so there is no reading to disambiguate.
+//
+//	Why it is not inferred from Start == 00:00 and End == 23:59. That window is
+//	1439 minutes, and the minute it leaves free is the whole difference between a
+//	rule that holds and a rule that releases. Treating the near miss as the intent
+//	would make the boundary invisible in exactly the direction that matters.
 type Rule struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Days    []string `json:"days"`
 	Start   string   `json:"start"`
 	End     string   `json:"end"`
+	AllDay  bool     `json:"allDay"`
 	Enabled bool     `json:"enabled"`
 }
 
 // ruleJSON exists so that a rule written without "enabled" is an enabled rule.
 // A rule is created to lock a child out; defaulting it to disabled would make
 // the omission the one way to switch a rule off without saying so.
+//
+// AllDay needs no such shadow and deliberately does not have one: it widens a
+// window rather than gating one, so an omitted allDay means "use the clock ends
+// that are also in the document". Defaulting it on would lock every account
+// around the clock the moment a rule was written without it.
 type ruleJSON struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
 	Days    []string `json:"days"`
 	Start   string   `json:"start"`
 	End     string   `json:"end"`
+	AllDay  bool     `json:"allDay"`
 	Enabled *bool    `json:"enabled"`
 }
 
@@ -281,7 +303,8 @@ func (r *Rule) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*r = Rule{ID: raw.ID, Name: raw.Name, Days: raw.Days, Start: raw.Start, End: raw.End}
+	*r = Rule{ID: raw.ID, Name: raw.Name, Days: raw.Days, Start: raw.Start,
+		End: raw.End, AllDay: raw.AllDay}
 	r.Enabled = raw.Enabled == nil || *raw.Enabled
 	return nil
 }
