@@ -345,19 +345,6 @@ func (c *Chain) Sessions(ctx context.Context) ([]Session, error) {
 	return out, joinErrs(errs...)
 }
 
-// Lock asks each backend in configured order until one confirms the lock took effect.
-//
-// It refuses a session that is not lockable before asking anyone, so the rule is
-// enforced by the type every caller already has to go through rather than by each
-// backend remembering to check.
-//
-// A backend that returns an error is a failure and the chain moves on. A backend that
-// returns nil is only done if it can confirm: otherwise the chain keeps going, because
-// an unconfirmed success is exactly what logind produces on KDE, and stopping there
-// would leave the screen unlocked while the audit log said otherwise.
-//
-// If every backend was tried and none confirmed, the result is ErrUnconfirmed rather
-// than nil. Nothing here returns nil without evidence.
 // confirmSettle bounds how long Chain.Lock waits for a lock to become visible after a
 // backend accepted the request.
 //
@@ -419,6 +406,19 @@ func confirmWithSettle(ctx context.Context, conf Confirmer, s Session) (bool, er
 	return false, nil
 }
 
+// Lock asks each backend in configured order until one confirms the lock took effect.
+//
+// It refuses a session that is not lockable before asking anyone, so the rule is
+// enforced by the type every caller already has to go through rather than by each
+// backend remembering to check.
+//
+// A backend that returns an error is a failure and the chain moves on. A backend that
+// returns nil is only done if it can confirm: otherwise the chain keeps going, because
+// an unconfirmed success is exactly what logind produces on KDE, and stopping there
+// would leave the screen unlocked while the audit log said otherwise.
+//
+// If every backend was tried and none confirmed, the result is ErrUnconfirmed rather
+// than nil. Nothing here returns nil without evidence.
 func (c *Chain) Lock(ctx context.Context, s Session) error {
 	if !isLockable(s) {
 		return fmt.Errorf("refusing to lock %s: not a lockable desktop session", s.Describe())
