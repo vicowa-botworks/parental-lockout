@@ -272,8 +272,8 @@
       "id": "D8",
       "file": "cmd/plock/doctor.go",
       "old": "\t\tif st.Available {\n\t\t\tfirst = st.Name\n\t\t\tbreak\n\t\t}",
-      "new": "\t\tif st.Available {\n\t\t\tpicked = st.Name\n\t\t}",
-      "note": "reports the LAST usable backend: Chain.Lock stops at the first, so doctor describes a machine it is not looking at",
+      "new": "\t\tif st.Available {\n\t\t\tfirst = st.Name\n\t\t}",
+      "note": "picks the LAST usable backend instead of the first, so configured order stops meaning anything",
       "package": "./cmd/plock/"
     },
     {
@@ -288,8 +288,8 @@
       "id": "D10",
       "file": "cmd/plock/doctor.go",
       "old": "\tif first == \"\" {\n\t\treturn exitFailure\n\t}",
-      "new": "\tif picked == \"\" {\n\t\treturn exitOK\n\t}",
-      "note": "exits 0 when nothing can lock, the one state a script must be able to test for",
+      "new": "\tif first == \"\" {\n\t\treturn exitOK\n\t}",
+      "note": "exits 0 when nothing can lock, the state that looks identical to nothing needing locking",
       "package": "./cmd/plock/"
     },
     {
@@ -303,9 +303,10 @@
     {
       "id": "E1",
       "file": "internal/platform/exec.go",
-      "old": "\tctx, cancel := context.WithTimeout(ctx, callTimeout)",
+      "old": "\tctx, cancel := context.WithTimeoutCause(ctx, callTimeout, errCallBudget)",
       "new": "\tctx, cancel := context.WithCancel(ctx)",
-      "about": "drop the default bound: a caller with no deadline (plock doctor) is wedged by a service that never replies"
+      "about": "drop the default bound: a caller with no deadline (plock doctor) is wedged by a service that never replies",
+      "note": "the per-command bound is not applied to the child, so a bus that never replies parks the tick"
     },
     {
       "id": "E2",
