@@ -23,7 +23,7 @@ const defaultConfigPath = "/etc/plock/config.json"
 const doctorUsage = `usage: plock doctor [--config PATH]
 
 Reports, for each configured lock backend: whether it is usable on this machine, why
-not if it is not, and which one a lock would actually go to.
+not if it is not, and which one a lock attempt would be offered to first.
 
 Reads only. It never locks a screen and never writes the config.
 `
@@ -123,33 +123,51 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprintf(&report, "  %-8s %-8s %s\n", st.Name, verdict, st.Detail)
 	}
 
-	// Which one would be used: the first usable backend, because that is what
-	// Chain.Lock stops at. Saying "none" out loud is the point of the command — a
-	// machine where nothing is usable otherwise looks exactly like a machine where
-	// nothing needed locking.
-	picked := ""
+	// Which backend a lock would actually go to is NOT answerable from here, and
+	// claiming otherwise would repeat the mistake this command exists to catch.
+	// Chain.Lock tries every usable backend and stops at the first one whose lock it
+	// can CONFIRM, so the first usable backend is only "the one that gets asked
+	// first". Printing "would use: logind" stated a conclusion the chain does not
+	// reach: logind is asked first, and whether it finishes depends on a confirmation
+	// this command never performs — doctor reads, it does not lock.
+	//
+	// (The design premise is that on KDE logind's Lock is ignored and the desktop
+	// backend is the one that lands. That is recorded in docs/PLAN.md §7 as something
+	// Plasma does "historically" and has NOT been measured on a real Plasma session,
+	// because measuring it means locking a live desktop. docs/platforms.md §5 carries
+	// the recipe. So the honest answer here is the order, not the outcome.)
+	//
+	// Saying "nothing" out loud is still the point of the command: a machine where no
+	// backend is usable otherwise looks exactly like a machine where nothing needed
+	// locking.
+	first := ""
 	for _, st := range statuses {
 		if st.Available {
-			picked = st.Name
+			first = st.Name
 			break
 		}
 	}
 	fmt.Fprintln(&report)
-	if picked == "" {
-		fmt.Fprintln(&report, "would use: nothing - no configured backend can lock this machine,")
+	if first == "" {
+		fmt.Fprintln(&report, "would try: nothing - no configured backend can lock this machine,")
 		fmt.Fprintln(&report, "           so a lockout period would be enforced by nobody.")
 	} else {
-		fmt.Fprintf(&report, "would use: %s\n", picked)
-		if unknown := chain.Unknown(); len(unknown) > 0 {
-			fmt.Fprintf(&report, "not recognised in this binary: %s\n", strings.Join(unknown, ", "))
-		}
+		fmt.Fprintf(&report, "would try first: %s\n", first)
+		fmt.Fprintln(&report, "           A backend is finished with only once its lock is confirmed, so")
+		fmt.Fprintln(&report, "           the lock that lands may come from a later one in the list.")
+	}
+	// Printed whether or not something is usable: the report body is what people paste
+	// into bug reports, and a misspelled backend must be visible there even on a
+	// machine that happens to have a working one later in the list.
+	if unknown := chain.Unknown(); len(unknown) > 0 {
+		fmt.Fprintf(&report, "not recognised in this binary: %s\n", strings.Join(unknown, ", "))
 	}
 
 	if err := writeAll(stdout, report.String()); err != nil {
 		fmt.Fprintf(stderr, "plock doctor: %v\n", err)
 		return exitFailure
 	}
-	if picked == "" {
+	if first == "" {
 		return exitFailure
 	}
 	return exitOK

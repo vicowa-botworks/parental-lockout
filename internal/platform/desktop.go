@@ -168,8 +168,15 @@ func (d *desktop) Probe(ctx context.Context) []BackendStatus {
 	return []BackendStatus{{
 		Name:      d.id,
 		Available: true,
-		Detail: fmt.Sprintf("calls %s.Lock on %s as the session user; enumerates no sessions of its own, "+
-			"and confirms via logind LockedHint (the screensaver interface exposes no lock state)",
-			screensaverIface, strings.Join(d.dests, ", ")),
+		// "usable" here means only that the tool is installed. Probe has no user
+		// session to ask, so it cannot see whether a screensaver service is reachable
+		// — and on a machine with no desktop it would otherwise report a backend as
+		// usable that could never lock anything. Saying what was not checked is the
+		// difference between a diagnostic and a reassurance.
+		Detail: fmt.Sprintf("%s is installed and would call %s.Lock on %s as the session user. "+
+			"That is all Probe can see: it has no user session to ask, so \"usable\" means the tool "+
+			"is present, not that a lock would land here. Enumerates no sessions of its own, and "+
+			"confirms via logind LockedHint (the screensaver interface exposes no lock state).",
+			gdbusProgram, screensaverIface, strings.Join(d.dests, ", ")),
 	}}
 }

@@ -93,17 +93,20 @@ type Locker interface {
 // Confirmer is implemented by a backend that can check whether its own lock actually
 // took effect.
 //
-// This exists because the target platform defeats a plain "first success wins" chain.
-// Plasma ignores logind's Lock signal (docs/PLAN.md §7 says so in the row that
-// justifies the kde backend), and `loginctl lock-session` still exits 0. A chain that
-// returned nil on that success would stop at logind and never reach the one backend
-// that works on KDE — reporting a lock that never happened, forever, on the platform
-// this daemon is being written for.
+// This exists because the target platform may defeat a plain "first success wins"
+// chain. docs/PLAN.md §7 records that Plasma "historically" ignores logind's Lock
+// signal while `loginctl lock-session` still exits 0 — a design premise carried forward
+// from that row, and NOT yet measured on a live Plasma session, because measuring it
+// means locking a desktop someone is using (docs/platforms.md §5 has the recipe).
 //
-// So a backend's success counts only when it can be confirmed, and a backend that
-// cannot confirm does not end the chain. A backend that cannot verify must not be
-// treated as confirmed: "we asked and cannot prove it" is a distinct, reported
-// outcome, never a silent success.
+// The chain's shape does not depend on which way that turns out. A chain that returned
+// nil on logind's zero exit would stop there and never reach the desktop backend,
+// reporting a lock that never happened if the premise holds — and on a raw VT the
+// premise is known to hold (docs/PLAN.md §7: logind only emits the signal, and nothing
+// on a VT ever calls SetLockedHint). So a backend's success counts only when it can be
+// confirmed, and a backend that cannot confirm does not end the chain. A backend that
+// cannot verify must not be treated as confirmed: "we asked and cannot prove it" is a
+// distinct, reported outcome, never a silent success.
 type Confirmer interface {
 	// LockConfirmed reports whether this backend's lock is now in effect for s.
 	// It must be cheap and must not lock anything.

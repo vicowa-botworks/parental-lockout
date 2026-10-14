@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -305,11 +306,17 @@ func TestDesktopProbeSaysItEnumeratesNothing(t *testing.T) {
 	// Whether the tool is present decides availability, and the box running the tests
 	// may or may not have gdbus. Either answer must be stated, not left implicit.
 	if statuses[0].Available {
-		if !strings.Contains(statuses[0].Detail, "enumerates no sessions") {
+		if !strings.Contains(strings.ToLower(statuses[0].Detail), "no sessions of its own") {
 			t.Errorf("an available desktop backend must say it finds no sessions of its own, or a chain configured without logind looks complete: %q", statuses[0].Detail)
 		}
 		if !strings.Contains(statuses[0].Detail, "LockedHint") {
 			t.Errorf("an available desktop backend must say where confirmation comes from: %q", statuses[0].Detail)
+		}
+		// "usable" is the word an operator acts on, and on a box with no desktop it is
+		// a lie: gdbus being installed says nothing about a screensaver being reachable,
+		// because Probe has no user session to ask. The detail has to carry that limit.
+		if !strings.Contains(statuses[0].Detail, "not that a lock would land") {
+			t.Errorf("an available desktop backend must not imply a lock would succeed here: %q", statuses[0].Detail)
 		}
 	} else if !strings.Contains(statuses[0].Detail, gdbusProgram) {
 		t.Errorf("an unavailable desktop backend must name the missing tool: %q", statuses[0].Detail)
@@ -488,4 +495,74 @@ func TestDesktopConfirmPropagatesALogindFailure(t *testing.T) {
 	if !errors.Is(err, boom) {
 		t.Errorf("the cause is not wrapped through: %v", err)
 	}
+}
+
+// The shipped default chain is [logind, kde, gnome], and kde and gnome are the same
+// interface under different preferred names. When confirmation never arrives — the
+// open question in docs/platforms.md §4 — both run: kde locks via org.kde.screensaver,
+// gnome finds org.gnome.ScreenSaver unowned and falls through to
+// org.freedesktop.ScreenSaver. ksmserver owns both of those names (measured,
+// docs/platforms.md), so one desktop gets two lock requests per poll.
+//
+// ScreenSaver.Lock is idempotent, so the effect is nil; what is not nil is the audit
+// trail, which will show two accepted locks every 30 seconds. Pinning that here keeps
+// it a known property instead of a surprise, and makes any future "optimisation" that
+// skips a backend change this test on purpose.
+func TestChainWithKdeAndGNOMEAsksTheSameLockerTwice(t *testing.T) {
+	var mu sync.Mutex
+	var accepted []string
+
+	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
+		if len(argv) > 0 && argv[0] == "loginctl" {
+			// The confirmer's view: the desktop never reports the hint, which is the
+			// whole reason both backends get asked.
+			return []byte("LockedHint=no\n"), nil
+		}
+		switch dest := dbusDest(argv); dest {
+		case "org.gnome.ScreenSaver":
+			return nil, errors.New("Error: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown")
+		default:
+			mu.Lock()
+			accepted = append(accepted, dest)
+			mu.Unlock()
+			return []byte("()\n"), nil
+		}
+	}}
+
+	kde, err := newRegistered(t, "kde", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gnome, err := newRegistered(t, "gnome", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Chain{backends: []Platform{kde, gnome}}
+
+	err = c.Lock(context.Background(), desktopSession("2"))
+	if !errors.Is(err, ErrUnconfirmed) {
+		t.Fatalf("Lock error = %v, want ErrUnconfirmed: both backends asked, neither could prove the lock took", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"org.kde.screensaver", "org.freedesktop.ScreenSaver"}
+	if len(accepted) != len(want) {
+		t.Fatalf("lock requests = %v, want %v", accepted, want)
+	}
+	for i := range want {
+		if accepted[i] != want[i] {
+			t.Errorf("request %d went to %s, want %s", i, accepted[i], want[i])
+		}
+	}
+}
+
+// dbusDest pulls the --dest value out of a gdbus argv.
+func dbusDest(argv []string) string {
+	for i, a := range argv {
+		if a == "--dest" && i+1 < len(argv) {
+			return argv[i+1]
+		}
+	}
+	return ""
 }

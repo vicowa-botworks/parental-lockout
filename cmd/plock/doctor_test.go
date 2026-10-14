@@ -59,7 +59,7 @@ func TestDoctorReportsWhichBackendWouldBeUsed(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, exitOK, out, errOut)
 	}
-	if !strings.Contains(out, "would use: kde") {
+	if !strings.Contains(out, "would try first: kde") {
 		t.Errorf("did not name the first usable backend:\n%s", out)
 	}
 	// Configured order, not alphabetical: which backend is tried first is the whole
@@ -87,7 +87,7 @@ func TestDoctorFailsLoudlyWhenNothingCanLock(t *testing.T) {
 	if code == exitOK {
 		t.Fatalf("exit 0 while no backend can lock; a script must be able to test for this\n%s", out)
 	}
-	if !strings.Contains(out, "would use: nothing") {
+	if !strings.Contains(out, "would try: nothing") {
 		t.Errorf("must say plainly that nothing can lock:\n%s", out)
 	}
 	if !strings.Contains(out, "enforced by nobody") {
@@ -112,7 +112,7 @@ func TestDoctorReportsUnknownBackendNames(t *testing.T) {
 	if !strings.Contains(errOut, "kde-x") {
 		t.Errorf("the unknown name is not surfaced on stderr: %s", errOut)
 	}
-	if !strings.Contains(out, "would use: logind") {
+	if !strings.Contains(out, "would try first: logind") {
 		t.Errorf("report lost the usable backend:\n%s", out)
 	}
 }
@@ -212,7 +212,7 @@ func TestBuildChainProductionWiring(t *testing.T) {
 
 // The commonest misconfiguration, end to end through the real builder: every name in
 // lockBackends is wrong. The operator gets the typo named and a non-zero exit, not a
-// silent "would use: nothing".
+// silent "would try: nothing".
 func TestDoctorReportsAConfigWhoseBackendsAllMiss(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	body := `{"version":1,"settings":{"lockBackends":["nope","also-nope"]}}`
@@ -223,7 +223,7 @@ func TestDoctorReportsAConfigWhoseBackendsAllMiss(t *testing.T) {
 	if code != exitFailure {
 		t.Fatalf("exit %d, want %d\n%s", code, exitFailure, out)
 	}
-	if !strings.Contains(out, "would use: nothing") {
+	if !strings.Contains(out, "would try: nothing") {
 		t.Errorf("must say nothing can lock:\n%s", out)
 	}
 	for _, name := range []string{"nope", "also-nope"} {

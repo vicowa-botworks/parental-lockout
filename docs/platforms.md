@@ -95,6 +95,10 @@ $ loginctl show-session "$XDG_SESSION_ID" -p LockedHint
 LockedHint=no
 ```
 
+It is the only signal available, and it is **not** trustworthy as evidence: the session
+owner can write it themselves, unauthenticated. Read §5 before treating any confirmation
+as proof that a child was actually locked out.
+
 ## 4. The open question — answer this first on a real machine
 
 > **Does locking via `org.freedesktop.ScreenSaver.Lock()` cause the desktop to write
@@ -127,7 +131,80 @@ If step 3 says `no` while the screen is visibly locked, **stop**: confirmation i
 this desktop and the daemon will never report a successful lock. Record it against the
 issue for this platform rather than relaxing the confirmation.
 
-## 5. Root → the session user's bus
+## 5. The confirmation signal is writable by the person being locked out
+
+**Measured on the target box, 2026-10-14.** `LockedHint` is not a secret. The session
+owner can write it directly, with no authentication at all:
+
+```console
+$ id -u
+1000                                    # the child's own uid; no sudo, no polkit prompt
+$ gdbus call --system --dest org.freedesktop.login1 \
+    --object-path /org/freedesktop/login1/session/_3 \
+    --method org.freedesktop.login1.Session.SetLockedHint false
+()                                      # accepted
+$ loginctl show-session 3 -p LockedHint
+LockedHint=no                           # and it took effect
+```
+
+The authorization surface, measured rather than inferred:
+
+```console
+$ grep -c '<action id=' /usr/share/polkit-1/actions/org.freedesktop.login1.policy
+37
+$ grep -ci hint /usr/share/polkit-1/actions/org.freedesktop.login1.policy
+0
+```
+
+There is no polkit action covering a lock hint. `org.freedesktop.login1.lock-sessions`
+gates the *request* to lock; the *report* that the lock took is ungated, because logind
+has to let any desktop announce its own state. A session that genuinely cannot be locked
+is refused on capability, not authorization (`NotSupported: Session does not support lock
+screen` for the seatless manager session), so that error path is not what protects the
+hint.
+
+**Consequence.** An autostart entry that sets the hint to `true` at login makes every
+confirmation succeed while the screen stays up. This is why the enforcement loop
+([#29](https://github.com/vicowa-botworks/parental-lockout/issues/29)) re-asserts the lock
+on every tick instead of skipping when a session reports itself locked:
+
+> A signal the controlled user can write may make enforcement **quieter**. It must never
+> decide when enforcement **stops**.
+
+`Session.Locked` still carries the hint, because it is genuinely useful for reporting. It
+is not an input to the "can we stop?" decision. Corroboration that the session user cannot
+forge — a locker process parented by that session's compositor — is the obvious next
+signal and is deliberately *not* implemented yet; it belongs in a backend, not in the
+engine.
+
+### The premise this whole design rests on is still unmeasured
+
+`docs/PLAN.md` §7 justifies the desktop backend by saying Plasma "historically" ignores
+logind's `Lock` signal. That is a carried-forward design premise, **not** a measurement:
+confirming it means locking a live desktop, same as §4. Nothing in this repository claims
+to have measured it, and `plock doctor` deliberately reports only the order backends are
+asked in, never which one a lock would reach.
+
+The premise is load-bearing in one place that does not need a live desktop: a **raw VT**.
+There logind only emits the `Lock` D-Bus signal, nothing ever calls `SetLockedHint`, and
+`loginctl lock-session` still exits 0 — so a zero exit is demonstrably not evidence of a
+lock, and the chain's "confirm or keep going" shape is justified without any Plasma
+assumption.
+
+To measure the Plasma case, run §4's recipe and additionally compare the two paths:
+
+```bash
+# A: lock via logind, as root.
+loginctl lock-session "$XDG_SESSION_ID"; echo "exit=$?"
+loginctl show-session "$XDG_SESSION_ID" -p LockedHint   # does the hint move?
+# B: unlock, then lock via the desktop interface (§4 step 2), and re-read.
+```
+
+If A moves the hint on current Plasma, the premise is out of date — the desktop backend
+becomes a fallback rather than the mechanism, and the chain order in `lockBackends` is
+worth revisiting. Record the result against the platform issue either way.
+
+## 6. Root → the session user's bus
 
 The daemon runs as root and root has no session bus, so the child is dropped to the
 session uid and given an environment built for that session.
@@ -150,7 +227,7 @@ session's `Type` (`x11` / `wayland` / `tty`) but not its display number, so sett
 would mean guessing `:0` — which on a machine with a second X server points the child at
 somebody else's screen, and would be set for a tty session that has no display at all.
 
-## 6. Checking a machine end to end
+## 7. Checking a machine end to end
 
 ```bash
 sudo plock doctor --config /etc/plock/config.json
@@ -172,7 +249,7 @@ Expected for a lockable child session: `Class=user`, a non-empty `Seat`, `Type` 
 or `wayland`, `State=active`, `Remote=no`. Anything else and `isLockable` refuses it on
 purpose — see the comment on that function before changing the filter.
 
-## 7. Things that are deliberately *not* treated as lockable
+## 8. Things that are deliberately *not* treated as lockable
 
 - `Class=greeter` — the login screen. Locking it leaves an uninputtable wall where the
   child's account was never chosen.
