@@ -252,8 +252,8 @@ func TestIsLockable(t *testing.T) {
 		// to, so it stays lockable.
 		{"online", Session{Class: "user", Seat: "seat0", Type: "x11", State: "online"}, true},
 	} {
-		if got := isLockable(tc.s); got != tc.want {
-			t.Errorf("%s: isLockable = %v, want %v", tc.name, got, tc.want)
+		if got := IsLockable(tc.s); got != tc.want {
+			t.Errorf("%s: IsLockable = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

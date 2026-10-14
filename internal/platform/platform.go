@@ -13,7 +13,7 @@
 //     passed as its own argv element, so nothing about it can be reinterpreted.
 //   - Locking is only ever aimed at a desktop session. A remote session is never
 //     locked (locking an SSH session would cut off the admin), and neither is a
-//     session that has no seat or no session type — see isLockable.
+//     session that has no seat or no session type — see IsLockable.
 package platform
 
 import (
@@ -180,7 +180,7 @@ type Platform interface {
 	Probe(ctx context.Context) []BackendStatus
 }
 
-// isLockable is the whole "never lock the wrong thing" rule in one place.
+// IsLockable is the whole "never lock the wrong thing" rule in one place.
 //
 // Remote is the loud one: the admin's own session is usually the remote one, and a
 // daemon that locks it locks itself out of the machine. The others are quieter.
@@ -200,7 +200,7 @@ type Platform interface {
 // the teardown for no benefit. Everything else, including "online", stays lockable —
 // excluding a state this code has not observed would silently stop locking a real
 // child session, which is the fail-open direction.
-func isLockable(s Session) bool {
+func IsLockable(s Session) bool {
 	if s.Remote {
 		return false
 	}
@@ -420,7 +420,7 @@ func confirmWithSettle(ctx context.Context, conf Confirmer, s Session) (bool, er
 }
 
 func (c *Chain) Lock(ctx context.Context, s Session) error {
-	if !isLockable(s) {
+	if !IsLockable(s) {
 		return fmt.Errorf("refusing to lock %s: not a lockable desktop session", s.Describe())
 	}
 	if len(c.backends) == 0 {

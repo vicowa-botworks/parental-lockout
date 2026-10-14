@@ -17,7 +17,7 @@ type Mock struct {
 	BackendName string
 
 	// Listed is what Sessions returns, verbatim, before any filtering. Mock applies
-	// no isLockable filter: a test that wants to know the loop ignores a remote
+	// no IsLockable filter: a test that wants to know the loop ignores a remote
 	// session should have to say so, not get the answer from the fixture.
 	Listed []Session
 	// ListErr is returned instead of listing anything.

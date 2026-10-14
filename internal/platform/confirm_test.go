@@ -229,7 +229,7 @@ func TestChainLockConfirmedMixedErrorAndUnlocked(t *testing.T) {
 // SetLockedHint. Nothing on a VT ever calls it, so the hint stays false forever and
 // loginctl still exits 0.
 //
-// The tempting fix is to refuse tty sessions in isLockable, and it is wrong. Refusing
+// The tempting fix is to refuse tty sessions in IsLockable, and it is wrong. Refusing
 // means Sessions() reports nobody for that child, the loop finds nothing to do, and the
 // machine goes quiet while the child keeps typing. Asking anyway produces
 // ErrUnconfirmed on every sweep — which is the same outcome for the child and a loud,
@@ -242,7 +242,7 @@ func TestChainLockConfirmedMixedErrorAndUnlocked(t *testing.T) {
 func TestIsLockableKeepsARawVTSession(t *testing.T) {
 	vt := Session{ID: "5", Username: "kid", UID: 1001, Class: "user",
 		Seat: "seat0", Type: "tty", State: "active"}
-	if !isLockable(vt) {
+	if !IsLockable(vt) {
 		t.Error("a tty session is refused: the loop would then report nothing at all for that child")
 	}
 	// CanLock is not a usable substitute either — it is class-based, so logind says
@@ -282,7 +282,7 @@ func TestSessionsRemotePropertyAbsentIsStillLockable(t *testing.T) {
 	if got[0].Remote {
 		t.Error("absent Remote read as remote")
 	}
-	if !isLockable(got[0]) {
+	if !IsLockable(got[0]) {
 		t.Error("a session whose Remote property was never reported is not lockable")
 	}
 	// The same session with Remote=yes in words is refused. Absence and presence
