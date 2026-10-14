@@ -71,6 +71,11 @@ func TestWidenedDayCostIsBoundedAndNeverFailsOpen(t *testing.T) {
 		}
 	}
 
+	// Unreachable today: len(zones) == 0 fatals above, and every zone either loads and
+	// increments scanned or fatals. Kept as a tripwire, because the only edit that makes
+	// it reachable is the tempting one — turning the load failure into a `continue` so a
+	// broken database stops failing the suite. That edit would otherwise turn this into a
+	// test that measures nothing and reports green.
 	if scanned == 0 {
 		t.Fatal("no zone loaded; nothing was measured")
 	}
@@ -103,9 +108,65 @@ func changedDaysIn(loc *time.Location, yr int) []dayChange {
 	base := time.Date(yr, 1, 1, 0, 0, 0, 0, loc)
 	for i := 0; i < 366; i++ {
 		a, b := base.AddDate(0, 0, i), base.AddDate(0, 0, i+1)
+		// 366 iterations are needed so a leap year's Dec 31 is examined at all — with
+		// 365 the last day is never the `a` of any pair. But on a 365-day year the extra
+		// iteration lands on Jan 1 of yr+1, and a zone whose New Year transition falls
+		// on that instant would be counted twice: once here under yr, once when the
+		// caller reaches yr+1. Double-counting inflates `moved` and could report the
+		// same zone twice in `movedZones`. No zone on the current database changes its
+		// offset on Jan 1, so this is latent — but "latent" is only true of the database
+		// this was measured on, and the count is the thing the comment cites.
+		if a.Year() != yr {
+			continue
+		}
 		if l := b.Sub(a); l != 24*time.Hour {
 			out = append(out, dayChange{day: a, length: l})
 		}
 	}
 	return out
+}
+
+// changedDaysIn's own contract: every day it returns belongs to the year it was asked
+// about.
+//
+// The leak is not hypothetical. Measured on this host's database, Africa/Sao_Tome changes
+// its offset on 2018-01-01 (a 23-hour day) and on 2019-01-01 (25 hours), and 2017 is a
+// 365-day year — so the helper's 366th iteration lands on 2018-01-01 and reports it as a
+// 2017 change day. The caller loops years in order, so it then counts that same zone-day
+// a second time when it reaches 2018, inflating `moved` and possibly naming the zone twice
+// in `movedZones`. The cost figures this file exists to pin are what get wrong.
+//
+// Asserted as a property of the helper rather than left to the figures, because the
+// figures only go wrong on a database that happens to hold such a zone inside the scanned
+// span — and the span is chosen for the claim being pinned, not for this one.
+func TestChangedDaysInNeverReportsAnotherYearsDay(t *testing.T) {
+	probes := []string{"Africa/Sao_Tome", "America/Lima", "America/Managua", "Africa/Bissau", "America/Danmarkshavn"}
+	const lo, hi = 2014, 2022
+	shape, checked := 0, 0
+	for _, z := range probes {
+		loc, err := time.LoadLocation(z)
+		if err != nil {
+			t.Fatalf("%s: %v", z, err)
+		}
+		for yr := lo; yr <= hi; yr++ {
+			for _, dc := range changedDaysIn(loc, yr) {
+				checked++
+				d := dc.day.In(loc)
+				if d.Month() == time.January && d.Day() == 1 {
+					shape++
+				}
+				if d.Year() != yr {
+					t.Errorf("%s: changedDaysIn(%d) returned %s, a day in %d — the caller counts that zone-day twice",
+						z, yr, d.Format("2006-01-02"), d.Year())
+				}
+			}
+		}
+	}
+	// A New Year change is the only input that can expose the leak, so a run without one
+	// has proved nothing and must not be allowed to look like a pass.
+	if shape == 0 {
+		t.Fatalf("none of the %d probe zones had a New Year offset change in %d-%d (%d change days checked): the leak this pins cannot be reached on this database",
+			len(probes), lo, hi, checked)
+	}
+	t.Logf("%d New Year change days among %d change days checked", shape, checked)
 }

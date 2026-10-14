@@ -221,8 +221,12 @@ func TestDSTAllDayRuleAcrossTransition(t *testing.T) {
 //     moves the change off exact midnight), so each zone declares whether it CAN fail
 //     that walk. A zone that can fail but no longer has an ambiguous walked day is an
 //     error rather than a pass: the day list is otherwise free to rot into minutes that
-//     cannot fail, which is how this subtest passed for three of its zones while the
-//     bug was live. See the walk for why the day before each change day is in the list.
+//     cannot fail. Measured with the old day list and the endpoint flag reverted, five of
+//     the seven zones passed while the bug was live — and only two of those five
+//     (America/Havana, right/America/Santiago) actually had the shape and were walking
+//     minutes that could not fail; the other three had no ambiguous midnight to begin
+//     with, so their pass was honest. See the walk for why the day before each change day
+//     is in the list.
 //
 // lastReadingOfNextMidnight scans the clock directly for every minute-boundary that
 // reads the enforced day's successor at 00:00, returning the last such instant and how
@@ -288,9 +292,19 @@ func TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight(t *testing.T) {
 	t.Run("no minute of the enforced day is free", func(t *testing.T) {
 		// Each zone declares whether it CAN fail this check. Measured on 2026 tzdata,
 		// the zones with an ambiguous next midnight are Havana (10-31, canonical) and
-		// the three right/* variants; canonical Santiago, Beirut and Berlin have no
-		// ambiguous midnight at all, because their fall-back does not land on or
-		// across midnight.
+		// the three right/* variants; canonical Santiago, Beirut and Berlin cannot have
+		// one.
+		//
+		// The reason matters, because two of the three look like they should. Santiago
+		// folds at 2026-04-04 23:59:59 -> 23:00 and Beirut at 2026-10-24 23:59:59 ->
+		// 23:00: each turns the clock back at the very instant it would have read
+		// midnight. That is still not a repeated midnight, because the fold happens
+		// *before* midnight is ever displayed — 00:00 belongs to the following day and
+		// occurs exactly once. "Lands on midnight" is not "repeats midnight", and that
+		// distinction is the whole subject of this test, so it is spelled out rather
+		// than left as "does not land on midnight", which reads as an error in an
+		// honest label and invites someone to "fix" it. Berlin's fold (02:00 -> 03:00)
+		// is simply nowhere near midnight.
 		//
 		// Saying which is which is the point. Requiring every zone to be able to fail
 		// would fail the controls forever; requiring nothing lets a candidate rot into
@@ -385,6 +399,18 @@ func TestWidenedDayEndsAtTheLastReadingOfTheNextMidnight(t *testing.T) {
 					t.Errorf("%s: %d of %d minutes whose clock reads the enforced day are FREE — the widened rule released them",
 						z, freed, walked)
 				}
+				// The candidate/control labels are facts about THIS host's tzdata, and
+				// nothing asserts them in the other direction: a control that GAINS the
+				// shape is not a failure, it is simply no longer a control, and a
+				// candidate that loses it is caught but only after someone wonders why.
+				// Logged so the drift is visible in the run log before it is a stale
+				// label, at zero assertion cost.
+				role := "control"
+				if mustHaveAmbiguity {
+					role = "candidate"
+				}
+				t.Logf("%s: labelled %s; %d of %d walked days have an ambiguous next midnight (%d minutes walked, %d free)",
+					z, role, ambiguousDays, len(days), walked, freed)
 			})
 		}
 	})
