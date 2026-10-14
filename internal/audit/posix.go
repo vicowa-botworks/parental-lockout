@@ -54,6 +54,23 @@ func openDir(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 }
 
+// setDirMode sets the mode on a directory this process just created, addressed
+// relative to a descriptor on its parent.
+//
+// The obvious code — open the new directory and Fchmod it — does not work. A
+// umask strict enough to matter here (UMask=0700 on the unit, say) strips the
+// owner's own bits, so the directory MkdirAll just made is one we cannot open,
+// and the daemon would fail to start and be restarted by systemd into a loop that
+// never locks anyone out.
+//
+// Fchmodat against the parent's descriptor avoids both that and the usual
+// objection to chmod-by-path: the name is resolved inside a directory this
+// process has already established is its own and not world-writable, so nobody
+// else can have swapped it for a link between the create and the chmod.
+func setDirMode(parent *os.File, name string, mode os.FileMode) error {
+	return syscall.Fchmodat(int(parent.Fd()), name, uint32(mode.Perm()), 0)
+}
+
 // ownerIsWriter reports whether fi is owned by the process that is about to
 // append to it.
 //

@@ -115,13 +115,6 @@
       "note": "the mode from the open is taken as the result, so a permissive umask yields a world-readable trail"
     },
     {
-      "id": "A18",
-      "file": "internal/audit/audit.go",
-      "old": "os.MkdirAll(dir, dirMode)",
-      "new": "os.MkdirAll(dir, 0o755)",
-      "note": "the directory holding the trail is created listable by every account"
-    },
-    {
       "id": "A19",
       "file": "internal/audit/audit.go",
       "old": "\tif w.maxBytes() > 0 && w.size >= w.maxBytes() {",
@@ -208,9 +201,9 @@
     {
       "id": "A31",
       "file": "internal/audit/audit.go",
-      "old": "\t\tif err := tightenMode(f, dirMode); err != nil {",
+      "old": "\t\tif err := w.setModeOnNewDir(dir, dirMode); err != nil {",
       "new": "\t\tif err := error(nil); err != nil {",
-      "note": "a freshly created trail directory keeps whatever the umask left, so 0700 is an intention rather than a result"
+      "note": "a freshly created trail directory keeps whatever the umask left, so a strict UMask= on the unit yields a directory the daemon cannot even open"
     }
   ]
 }

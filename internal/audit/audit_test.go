@@ -200,22 +200,77 @@ func TestTheDirectoryIsCreatedPrivate(t *testing.T) {
 // PLAN §10's 0600 has to survive the umask. The mode passed to open is masked by
 // it, so a daemon started under a permissive umask would otherwise create a trail
 // every account on the machine can read, and nothing would say so.
+// PLAN §10's 0600 has to survive the umask. The mode passed to open is masked by
+// it, so a daemon started under a permissive — or, worse, a *restrictive* — umask
+// would otherwise create a trail whose mode is an accident of how the service was
+// started, and nothing would say so.
+//
+// Umask is process-wide, so this test cannot run beside others that open files.
 func TestTheFileModeIsTightenedRegardlessOfUmask(t *testing.T) {
-	old := syscall.Umask(0o000)
-	syscall.Umask(old)
-	// Umask is process-wide, so this test cannot run beside others that open
-	// files; the value above restores it before anything else happens.
-
+	t.Helper()
+	// The directory is made first, under the normal umask: the mask below strips
+	// the owner's own bits, which would make a freshly created directory one we
+	// could not even enter, and that would test the directory rule rather than
+	// this one.
 	w, path, _ := newWriter(t)
+	restore := forceUmask(t, 0o600)
+
 	if err := w.Write(Record{Kind: "lock.asserted"}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("write under umask 600: %v", err)
 	}
+	restore()
+
 	fi, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("audit file mode = %v, want 0600", fi.Mode().Perm())
+		t.Errorf("audit file mode = %v, want 0600: the open's mode is a request, the descriptor's mode is the result", fi.Mode().Perm())
+	}
+}
+
+// forceUmask sets the process umask and returns a function that puts it back.
+// Returning the restorer rather than deferring it is deliberate: the caller needs
+// the window to cover exactly the operation under test, and a defer that fires
+// before it is the bug this helper replaced.
+func forceUmask(t *testing.T, mask int) func() {
+	t.Helper()
+	prev := syscall.Umask(mask)
+	restored := false
+	restore := func() {
+		if !restored {
+			restored = true
+			syscall.Umask(prev)
+		}
+	}
+	t.Cleanup(restore)
+	return restore
+}
+
+// The same rule one level up: the directory the trail lives in. Under a
+// restrictive umask MkdirAll delivers nothing close to 0700 — umask 0777 turns
+// 0700 into 0000 — so the mode set on the descriptor is the only thing that makes
+// the directory private.
+func TestACreatedDirectoryIsPrivateEvenUnderARestrictiveUmask(t *testing.T) {
+	dir := t.TempDir()
+	// 700 strips every bit of 0700, so MkdirAll alone delivers a directory nobody
+	// can open. Only the mode set on the descriptor makes it usable.
+	restore := forceUmask(t, 0o700)
+
+	path := filepath.Join(dir, "plock", "audit.jsonl")
+	w := &Writer{Path: path, Logf: func(string, ...any) {}}
+	defer w.Close()
+	if err := w.Write(Record{Kind: "lock.asserted"}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	restore()
+
+	fi, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o700 {
+		t.Errorf("created directory mode = %v, want 0700", fi.Mode().Perm())
 	}
 }
 
@@ -284,7 +339,10 @@ func TestAFIFOAtTheAuditPathFailsFastInsteadOfParkingTheTick(t *testing.T) {
 	}
 
 	w := &Writer{Path: path, Keep: DefaultKeep, Logf: func(string, ...any) {}}
-	defer w.Close()
+	// Deliberately no `defer w.Close()`. If the open parks, it parks holding the
+	// writer's mutex, and a Close that waits for that mutex turns this test into a
+	// 900-second package timeout with a goroutine dump instead of the sentence
+	// below. The leaked goroutine dies with the test binary.
 
 	done := make(chan error, 1)
 	go func() { done <- w.Write(Record{Kind: "lock.asserted"}) }()

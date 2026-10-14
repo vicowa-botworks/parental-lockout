@@ -176,6 +176,15 @@ func (w *Writer) Stats() (dropped int64, consecutiveFailures int) {
 // enforcement loop, and a lockout that has begun does not stop because the log
 // is full. Every caller should pass the error along — the engine files it as a
 // degraded report — and none should let it change what happens to the child.
+//
+// The mutex is held across the open and the append, so a filesystem that stalls
+// stalls every writer, including the admin server's. That is a deliberate
+// trade: releasing the lock between opening and writing would let two events
+// interleave across a rotation, and a torn line is as unreadable as a lost one.
+// What makes the stall bounded is O_NONBLOCK — without it, a FIFO at the audit
+// path parks the open forever by design, which is not a slow filesystem but a
+// child turning enforcement off. The mutant that removes that flag is caught by
+// a test whose whole job is that the call returns within two seconds.
 func (w *Writer) Write(r Record) error {
 	blob, err := w.marshal(r)
 	if err != nil {
@@ -310,16 +319,11 @@ func (w *Writer) prepareDir(dir string) error {
 		if err := os.MkdirAll(dir, dirMode); err != nil {
 			return fmt.Errorf("create %s: %w", dir, err)
 		}
-		// MkdirAll honours the umask, so the mode we asked for is a request. The
-		// directory is ours, so tightening it on the descriptor is both safe and
-		// the only way to make 0700 a fact rather than an intention.
-		f, err := openDir(dir)
-		if err != nil {
+		// MkdirAll honours the umask, so the mode we asked for is a request and the
+		// directory it produced may be anything from 0700 down to nothing at all.
+		// Setting it on the descriptor is the only way 0700 becomes a result.
+		if err := w.setModeOnNewDir(dir, dirMode); err != nil {
 			return err
-		}
-		defer f.Close()
-		if err := tightenMode(f, dirMode); err != nil {
-			return fmt.Errorf("chmod %s: %w", dir, err)
 		}
 		return nil
 	}
@@ -347,6 +351,26 @@ func (w *Writer) prepareDir(dir string) error {
 	}
 	if !mine {
 		return fmt.Errorf("%s is owned by another account: refusing to append the trail to a directory somebody else controls", dir)
+	}
+	return nil
+}
+
+// setModeOnNewDir corrects the mode of a directory this process just created.
+//
+// It works on the descriptor of the parent rather than on the new directory
+// itself, because a umask strict enough to make this matter leaves a directory the
+// creator cannot open — see setDirMode.
+func (w *Writer) setModeOnNewDir(dir string, mode os.FileMode) error {
+	parent := filepath.Dir(dir)
+	pf, err := openDir(parent)
+	if err != nil {
+		// The parent is where the audit path lives, so a parent this process cannot
+		// read is a trail it cannot keep.
+		return fmt.Errorf("open %s: %w", parent, err)
+	}
+	defer pf.Close()
+	if err := setDirMode(pf, filepath.Base(dir), mode); err != nil {
+		return fmt.Errorf("chmod %s: %w", dir, err)
 	}
 	return nil
 }

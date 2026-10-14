@@ -177,8 +177,12 @@ func TestADirectoryOwnedByAnotherAccountIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("appended the trail into a directory another account controls")
 	}
-	if !strings.Contains(err.Error(), "owned by another account") {
-		t.Errorf("error %q does not name ownership", err)
+	// The file-level guard would refuse this fixture too, for a related but
+	// different reason. Naming the directory is what pins *this* guard: without it
+	// the writer appends into a directory somebody else owns and only the file
+	// check, which fires later and covers less, notices anything.
+	if !strings.Contains(err.Error(), "directory somebody else controls") {
+		t.Errorf("error %q does not name the directory guard", err)
 	}
 }
 
@@ -227,11 +231,74 @@ func TestASymlinkedAuditDirectoryIsRefusedNotChmodded(t *testing.T) {
 	if err == nil {
 		t.Fatal("wrote through a symlinked audit directory")
 	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("error %q does not name the symlink; the IsDir check below fires for a link too, and an operator cannot tell a link from a plain file by that message", err)
+	}
 	if fi, serr := os.Stat(target); serr == nil && fi.Mode().Perm() == 0o700 {
 		t.Errorf("the linked directory was chmodded to 0700: %v", fi.Mode().Perm())
 	}
 	if _, err := os.Stat(filepath.Join(target, "audit.jsonl")); !os.IsNotExist(err) {
 		t.Error("the trail was written through the linked directory")
+	}
+}
+
+// An audit path whose parent is a plain file is a misconfiguration, and the two
+// ways to refuse it read very differently in a journal: "not a directory" points
+// at the config line, while the errno from opening under a non-directory ("not a
+// directory" again, but from the syscall, or "no such file or directory" on some
+// filesystems) points at a missing file that is not missing.
+func TestAParentThatIsAPlainFileIsReportedAsThat(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "notadir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := &Writer{Path: filepath.Join(blocker, "audit.jsonl"), Logf: func(string, ...any) {}}
+	defer w.Close()
+
+	err := w.Write(Record{Kind: "lock.asserted"})
+	if err == nil {
+		t.Fatal("wrote an audit path whose parent is a file")
+	}
+	// The errno from opening under a non-directory says "not a directory" as well,
+	// so the words alone do not prove the guard ran. What distinguishes them is
+	// which path is named: the guard names the parent the config got wrong, the
+	// errno names a file that is not missing.
+	if !strings.Contains(err.Error(), blocker+" is not a directory") {
+		t.Errorf("error %q does not name %s as the thing that is not a directory", err, blocker)
+	}
+}
+
+// Dropping the descriptor after a refused write is what makes "the next event
+// re-verifies" true rather than aspirational — and the case that proves it is not
+// the refusal, it is the recovery afterwards. A writer that keeps a descriptor it
+// has already refused can never adopt the file the path names once the path is
+// fixed, so an operator who repairs the permissions finds the trail still broken
+// and no error that explains why.
+func TestTheWriterAdoptsThePathAgainAfterARefusalIsRepaired(t *testing.T) {
+	w, path, _ := newWriter(t)
+	if err := w.Write(Record{Kind: "lock.asserted"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Skipf("cannot chmod: %v", err)
+	}
+	if err := w.Write(Record{Kind: "lock.asserted"}); err == nil {
+		t.Fatal("expected the loose mode to be refused")
+	}
+
+	// Repair it the way an operator would: replace the file with a correct one.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Write(Record{Kind: "lockout.exited"}); err != nil {
+		t.Fatalf("the writer never recovered after the path was replaced: %v", err)
+	}
+	if got := readLines(t, path); len(got) != 1 || got[0].Kind != "lockout.exited" {
+		t.Errorf("file holds %+v, want the post-repair event in the file the path names", got)
 	}
 }
 

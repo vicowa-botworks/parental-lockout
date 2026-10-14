@@ -25,6 +25,11 @@ func openDir(path string) (*os.File, error) {
 	return os.Open(path)
 }
 
+// setDirMode sets the mode on a directory just created inside parent.
+func setDirMode(_ *os.File, name string, _ os.FileMode) error {
+	return os.Chmod(name, 0o700)
+}
+
 // tightenMode has nothing to do here: this platform has no POSIX permission bits
 // to strip, so declining silently is accurate rather than a swallowed failure.
 func tightenMode(*os.File, os.FileMode) error {
