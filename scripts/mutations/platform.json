@@ -5,15 +5,15 @@
     {
       "id": "C1",
       "file": "internal/platform/platform.go",
-      "old": "\t\tif yes {\n\t\t\treturn nil\n\t\t}",
-      "new": "\t\tif yes || true {\n\t\t\treturn nil\n\t\t}",
-      "note": "the pre-fix behaviour: logind's zero exit on Plasma ended the chain and the KDE backend was never reached"
+      "old": "\t\tif yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
+      "new": "\t\tif yes || true {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
+      "note": "the pre-fix behaviour: logind's zero exit on Plasma ended the chain and the KDE backend was never reached. Re-pointed onto the confirmation gate, which now opens into the #29 discounting rather than a bare return."
     },
     {
       "id": "C2",
       "file": "internal/platform/platform.go",
-      "old": "\t\tif yes {\n\t\t\treturn nil\n\t\t}",
-      "new": "\t\tif !yes {\n\t\t\treturn nil\n\t\t}",
+      "old": "\t\tif yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
+      "new": "\t\tif !yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
       "note": "releasing the chain on the wrong side of the confirmation"
     },
     {
@@ -264,9 +264,9 @@
     {
       "id": "D7",
       "file": "internal/platform/desktop.go",
-      "old": "\treturn d.hint.LockConfirmed(ctx, s)",
-      "new": "\treturn true, nil",
-      "note": "confirms unconditionally: the chain never re-locks and every lock reports success"
+      "old": "\tyes, err := d.hint.LockConfirmed(ctx, s)",
+      "new": "\tyes, err := false, error(nil)",
+      "note": "the desktop backend's own read of the hint replaced by a constant no: nothing it does can ever be confirmed, so a locked machine is re-locked every tick forever. The opposite direction -- confirming unconditionally -- is now I1, because the hint read is no longer the last word in this function."
     },
     {
       "id": "D8",

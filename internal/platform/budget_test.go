@@ -12,7 +12,8 @@ import (
 // commands, and the two failure modes that produce the most of them are both real: a
 // session bus that owns the name and never replies, and a desktop that accepts the lock
 // and never writes the hint, which sends every backend through its own settle window.
-// Measured at 17 and 36 subprocess calls respectively, so a 10s per-command guard
+// Measured at 18 and 37 subprocess calls respectively (pinned by
+// TestDocumentedCallCountsPerChainLock), so a 10s per-command guard
 // permits minutes for a single session while the child sits at an unlocked screen and
 // nothing else on the machine is enforced.
 //

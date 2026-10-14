@@ -127,8 +127,13 @@ func TestChainLockDoesNotRetryAnError(t *testing.T) {
 func TestChainLockSurfacesAnErrorThatArrivesMidSettle(t *testing.T) {
 	m := &Mock{BackendName: "logind"}
 	boom := errors.New("connection closed by bus")
-	// Read 1 answers "not yet", so the settle loop starts; read 2 fails.
-	f := &flipConfirmer{Mock: m, errOn: 2, err: boom}
+	// Read 1 is the state Chain.Lock takes before asking anybody and read 2 is the
+	// first read of the settle window; both answer "not yet", so the retry loop starts
+	// and read 3 fails *inside* it. The distinction is the whole of this test: an error
+	// on the pre-loop read is returned by a different statement, and TestChainLockDoesNotRetryAnError
+	// covers that one. Aiming both at the same read would leave the loop's own error
+	// path unpinned -- it is the one that turns a broken bus into silence.
+	f := &flipConfirmer{Mock: m, errOn: 3, err: boom}
 	c := &Chain{backends: []Platform{f}}
 
 	err := c.Lock(context.Background(), desktopSession("3"))
@@ -146,8 +151,8 @@ func TestChainLockSurfacesAnErrorThatArrivesMidSettle(t *testing.T) {
 	if !errors.Is(err, ErrUnconfirmed) {
 		t.Errorf("a failed confirmation stopped being ErrUnconfirmed: %q -- the loop would stop re-arming a session that may not be locked", err)
 	}
-	if f.reads != 2 {
-		t.Errorf("confirmation read %d time(s), want 2: a failed read is an answer, and retrying it turns a hard failure into silence", f.reads)
+	if f.reads != 3 {
+		t.Errorf("confirmation read %d time(s), want 3: a failed read is an answer, and retrying it turns a hard failure into silence", f.reads)
 	}
 }
 

@@ -294,7 +294,7 @@ type Chain struct {
 // DefaultLockBudget bounds one Chain.Lock from the first backend to the last.
 //
 // The per-command guard in ExecRunner is not enough on its own. One Lock is many
-// commands: measured at 17 subprocess calls with a session bus that owns the name and
+// commands: measured at 18 subprocess calls with a session bus that owns the name and
 // never replies, and 36 when the desktop accepts the lock but never writes the hint,
 // because every backend then runs its own settle window. Ten seconds apiece is 2m50s
 // to 6m for a single session of a single child, which is minutes of a 30s tick during

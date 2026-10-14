@@ -138,10 +138,15 @@ the shipped default chain `[logind, kde, gnome]` and `loginctl` unaffected:
 
 | Shape | Subprocess calls per `Chain.Lock` |
 | --- | --- |
-| bus owns the name, never answers | **17** (5 `gdbus` + 12 `loginctl`) |
-| desktop accepts the lock, never writes the hint — the answer to the question above is `no` | **36** (2 `gdbus` + 34 `loginctl`), because every backend runs its own 11-read settle window |
+| bus owns the name, never answers | **18** (5 `gdbus` + 13 `loginctl`) |
+| desktop accepts the lock, never writes the hint — the answer to the question above is `no` | **37** (2 `gdbus` + 35 `loginctl`), because every backend runs its own 11-read settle window |
 
-Each call is bounded by `DefaultCallTimeout` (10s), so those are 2m50s and 6m for **one
+Both figures are pinned by `TestDocumentedCallCountsPerChainLock`, which counts the
+commands a default `[logind, kde, gnome]` chain actually issues. They moved from 17 and 36
+when `Chain.Lock` gained the state read it takes before asking anybody (§5); a table nobody
+re-measures is a table that quietly stops being true.
+
+Each call is bounded by `DefaultCallTimeout` (10s), so those are 3m and 6m10s for **one
 lock of one session**. That is why the per-command guard is not the whole answer and
 `Chain.Lock` carries an operation-level bound of its own, `DefaultLockBudget` (25s, inside
 one default tick): running out of it leaves the remaining backends unasked and returns an
