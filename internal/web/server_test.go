@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func (a *stubAuth) Authenticate(username, password string) (bool, error) {
 // TLS is off so the tests can drive Handler() with httptest and still assert the
 // cookie's Secure attribute separately, in the one test that is about that
 // attribute.
-func newTestServer(t *testing.T, a auth.Authenticator) (*Server, *[]string, *[]string) {
+func newTestServer(t *testing.T, a auth.Authenticator) (*Server, *logSink, *logSink) {
 	t.Helper()
 	return newTestServerWith(t, a, &auth.Throttle{
 		// The production penalty starts at a second and doubles, which is right for
@@ -65,10 +66,9 @@ func newTestServer(t *testing.T, a auth.Authenticator) (*Server, *[]string, *[]s
 	})
 }
 
-func newTestServerWith(t *testing.T, a auth.Authenticator, th *auth.Throttle) (*Server, *[]string, *[]string) {
+func newTestServerWith(t *testing.T, a auth.Authenticator, th *auth.Throttle) (*Server, *logSink, *logSink) {
 	t.Helper()
-	var logged []string
-	var audited []string
+	logged, audited := newLogSink(), newLogSink()
 	s := &Server{
 		Auth:     a,
 		Sessions: auth.NewSessions(),
@@ -76,10 +76,47 @@ func newTestServerWith(t *testing.T, a auth.Authenticator, th *auth.Throttle) (*
 		TLSMode:  TLSAuto,
 		csrf:     newCSRFStore(),
 		Listen:   "127.0.0.1:0",
-		Logf:     func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) },
-		Audit:    func(event, detail string) { audited = append(audited, event+" "+detail) },
+		Logf:     logged.log,
+		Audit:    audited.event,
+		// The capture has to be synchronized. Serve logs from the request goroutines,
+		// and a test that reads what was logged while a request is still in flight --
+		// which is exactly what a shutdown test does -- is a data race, not a flake.
+		// It showed up as a race report rather than a wrong answer, which is the good
+		// outcome; the bad one is a suite that only passes without -race.
+
 	}
-	return s, &logged, &audited
+	return s, logged, audited
+}
+
+// logSink is a concurrency-safe capture for the server's Logf and Audit hooks.
+//
+// Lines copies, so a test cannot read a slice that a request goroutine is appending to.
+type logSink struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func newLogSink() *logSink { return &logSink{} }
+
+// event captures the audit hook, whose shape is (event, detail) rather than a format
+// string. Keeping one type with two entry points means a test cannot mix the two streams
+// by accident.
+func (l *logSink) event(event, detail string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, event+" "+detail)
+}
+
+func (l *logSink) log(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(format, args...))
+}
+
+func (l *logSink) Lines() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.lines...)
 }
 
 // login performs a real login and returns the cookie plus the CSRF token, so the
@@ -142,8 +179,8 @@ func TestACorrectLoginSetsASessionCookieWithTheRightAttributes(t *testing.T) {
 	if len(c.Value) < 32 {
 		t.Errorf("the session token is %d characters, which is short enough to guess", len(c.Value))
 	}
-	if !anyContains(*audited, "auth.success parent") {
-		t.Errorf("a successful login was not audited; audit: %q", *audited)
+	if !anyContains(audited.Lines(), "auth.success parent") {
+		t.Errorf("a successful login was not audited; audit: %q", audited.Lines())
 	}
 }
 
@@ -191,8 +228,8 @@ func TestAWrongPasswordIsOneAnswerForBothWrongHalves(t *testing.T) {
 	if len(bodies) != 1 {
 		t.Error("the two kinds of wrong credential produced different responses, which tells an attacker the username is real")
 	}
-	if !anyContains(*audited, "auth.failure") {
-		t.Errorf("a failed login was not audited; audit: %q", *audited)
+	if !anyContains(audited.Lines(), "auth.failure") {
+		t.Errorf("a failed login was not audited; audit: %q", audited.Lines())
 	}
 }
 
@@ -441,8 +478,8 @@ func TestAPostWithoutACSRFTokenIsRefusedAndDoesNothing(t *testing.T) {
 	if _, ok := s.Sessions.Lookup(c.Value); !ok {
 		t.Error("the session was revoked even though the request was refused")
 	}
-	if !anyContains(*audited, "csrf.rejected") {
-		t.Errorf("a refused CSRF check was not audited; audit: %q", *audited)
+	if !anyContains(audited.Lines(), "csrf.rejected") {
+		t.Errorf("a refused CSRF check was not audited; audit: %q", audited.Lines())
 	}
 }
 
@@ -519,7 +556,7 @@ func TestAHandlerPanicBecomesA500AndStaysOffTheWire(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "a handler fell over") || strings.Contains(rec.Body.String(), "goroutine") {
 		t.Errorf("the panic reached the client: %q", rec.Body.String())
 	}
-	if !anyContains(*logged, "a handler fell over") {
+	if !anyContains(logged.Lines(), "a handler fell over") {
 		t.Error("the panic was not logged, so nobody will know it happened")
 	}
 }
@@ -544,7 +581,7 @@ func TestTheLogCarriesNoPasswordNoCookieAndNoSessionToken(t *testing.T) {
 	req.RemoteAddr = "192.0.2.80:1"
 	s.Handler().ServeHTTP(rec, req)
 
-	joined := strings.Join(*logged, "\n")
+	joined := strings.Join(logged.Lines(), "\n")
 	for _, secret := range []string{password, c.Value, "correct horse"} {
 		if strings.Contains(joined, secret) {
 			t.Errorf("the log contains %q\n--- log ---\n%s", secret, joined)
@@ -770,4 +807,115 @@ func TestAnOversizedLoginBodyIsRefused(t *testing.T) {
 		t.Error("an oversized body was logged in with")
 	}
 	_ = io.Discard
+}
+
+// Shutting down has to stop admitting work, not just finish the work it admitted.
+//
+// The acceptance criterion is two halves: an in-flight request completes, and a second
+// connection is refused. Only the first was pinned, and a shutdown that drained forever
+// while still accepting new connections would pass it — which on this daemon means the
+// parent keeps editing a schedule at 11:59pm and the last few edits are silently dropped
+// when the process finally exits.
+//
+// The listener is closed before the drain begins, so a connect attempt gets ECONNREFUSED
+// rather than a hang. Asserting "not a successful response" rather than a specific errno
+// keeps the test about the promise: nothing new gets served.
+func TestANewConnectionIsRefusedDuringTheDrain(t *testing.T) {
+	s, _, _ := newTestServer(t, &stubAuth{})
+	s.TLSMode = TLSOff
+
+	release := make(chan struct{})
+	started := make(chan struct{})
+	s.extraRoutes = func(mux *http.ServeMux) {
+		mux.HandleFunc("GET /slow", func(w http.ResponseWriter, r *http.Request) {
+			close(started)
+			<-release
+			_, _ = io.WriteString(w, "done")
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx) }()
+
+	var addr string
+	for i := 0; i < 200; i++ {
+		if addr = s.Addr(); addr != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if addr == "" {
+		t.Fatal("Serve never bound")
+	}
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		cancel()
+	})
+
+	inFlight := make(chan struct{})
+	go func() {
+		defer close(inFlight)
+		client := &http.Client{Timeout: 20 * time.Second}
+		resp, err := client.Get("http://" + addr + "/slow")
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+
+	<-started
+
+	// The control. Without it, "the connection was refused" could mean "this server never
+	// accepted connections at all", and the test would pass on a server that was dead from
+	// the first line. A second request while the drain has not begun must be served.
+	control := &http.Client{Timeout: 3 * time.Second}
+	resp, err := control.Get("http://" + addr + "/healthz")
+	if err != nil {
+		t.Fatalf("a connection was refused before shutdown even began (%v), so the refusal below proves nothing", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		t.Fatal("/healthz is not routed, so the control above proves nothing")
+	}
+
+	cancel()
+
+	// The drain is now running with one request outstanding. Anything arriving here has
+	// to be turned away.
+	deadline := time.Now().Add(3 * time.Second)
+	var refused bool
+	for time.Now().Before(deadline) && !refused {
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err != nil {
+			refused = true
+			break
+		}
+		// A socket that accepted is not automatically served: an HTTP request over it
+		// must not produce a response.
+		_, werr := conn.Write([]byte("GET /slow HTTP/1.1\r\nHost: x\r\n\r\n"))
+		if werr == nil {
+			_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			buf := make([]byte, 16)
+			if n, _ := conn.Read(buf); n == 0 {
+				refused = true
+			}
+		}
+		conn.Close()
+		if !refused {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if !refused {
+		t.Error("a new connection was served during shutdown, so the drain does not stop admission")
+	}
+
+	close(release)
+	<-inFlight
+	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+		t.Errorf("Serve returned %v, want nil or context.Canceled", err)
+	}
 }
