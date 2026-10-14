@@ -392,6 +392,174 @@
       "old": "\t\tfmt.Fprintln(&report, \"           A backend is finished with only once its lock is confirmed, so\")\n\t\tfmt.Fprintln(&report, \"           the lock that lands may come from a later one in the list.\")\n",
       "new": "",
       "note": "\"would try first\" on its own is the overclaim W1 was raised against; the explanation is what makes the line honest"
+    },
+    {
+      "id": "H1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\twasLocked, preErr := c.lockState(ctx, s)",
+      "new": "\twasLocked, preErr := false, error(nil)",
+      "note": "never read the state before asking: a pre-set hint is credited as this request's result, which is the whole of #29"
+    },
+    {
+      "id": "H2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\t\tif _, strong := conf.(Corroborator); strong {\n\t\t\t\treturn nil\n\t\t\t}\n",
+      "new": "",
+      "note": "discount a corroborated yes too: a genuinely locked machine reports unconfirmed from the second tick on"
+    },
+    {
+      "id": "H3",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\t\tif wasLocked {",
+      "new": "\t\t\tif wasLocked && false {",
+      "note": "the discount itself removed: the chain stops at logind off the spoofed hint and kde is never asked"
+    },
+    {
+      "id": "H4",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\t\tif preErr != nil {",
+      "new": "\t\t\tif preErr != nil && false {",
+      "note": "credit a yes even when the before-state could not be read, which is the case that cannot be argued"
+    },
+    {
+      "id": "H5",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tif _, strong := conf.(Corroborator); !strong {",
+      "new": "\t\tif _, strong := conf.(Corroborator); !strong || true {",
+      "note": "the before-state read from the first confirmer rather than the raw-hint one, so a [kde logind] chain credits logind's bare yes"
+    },
+    {
+      "id": "H6",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\treturn false, fmt.Errorf(\"no backend in this chain can confirm a lock\")",
+      "new": "\t\treturn false, nil",
+      "note": "a chain with no confirmer reports the session as unlocked rather than saying it cannot look"
+    },
+    {
+      "id": "H7",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\"(%w), so this cannot be told apart from a hint that was already true\",",
+      "new": "\"(%v), so this cannot be told apart from a hint that was already true\",",
+      "note": "the reason the before-state was unreadable stops being reachable by errors.Is"
+    },
+    {
+      "id": "I1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "\tif !d.corroborate {\n\t\treturn true, nil\n\t}",
+      "new": "\tif true || !d.corroborate {\n\t\treturn true, nil\n\t}",
+      "note": "the KDE corroborator never consulted: the hint alone confirms again"
+    },
+    {
+      "id": "I2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "\t\t\tcorroborate: true,",
+      "new": "\t\t\tcorroborate: false,",
+      "note": "the kde flavour registered as uncorroborated"
+    },
+    {
+      "id": "I3",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "func (d *desktop) Corroborated() bool { return d.corroborate }",
+      "new": "func (d *desktop) Corroborated() bool { return false }",
+      "note": "the backend stops telling the chain its yes is corroborated, so a locked machine goes unconfirmed"
+    },
+    {
+      "id": "I4",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "\tif corroborated {",
+      "new": "\tif true || corroborated {",
+      "note": "Probe claims corroboration for a flavour that has none"
+    },
+    {
+      "id": "I5",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "\t\treturn false, fmt.Errorf(\"%s: the session reports itself locked but the locker could not be checked: %w\", d.id, err)",
+      "new": "\t\treturn false, nil",
+      "note": "an unconsultable corroborator reports 'unlocked' instead of a fault"
+    },
+    {
+      "id": "J1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\tif puid != uid {",
+      "new": "\t\tif puid != uid && false {",
+      "note": "another user's locked session corroborates this one"
+    },
+    {
+      "id": "J2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\tif filepath.Base(parentArgv[0]) == ksmserverProgram {",
+      "new": "\t\tif true || filepath.Base(parentArgv[0]) == ksmserverProgram {",
+      "note": "any locker process corroborates, including one the child started itself"
+    },
+    {
+      "id": "J3",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\tif filepath.Base(argv[0]) != kdeLockerProgram {",
+      "new": "\t\tif !strings.Contains(strings.Join(argv, \" \"), \"kscreenlocker_g\") {",
+      "note": "match on the 15-char truncated name instead of argv0, so any program named like the locker counts"
+    },
+    {
+      "id": "J4",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\treturn false, fmt.Errorf(\"cannot open %s to look for the locker: %w\", procRoot, err)",
+      "new": "\t\treturn false, nil",
+      "note": "'cannot look' reported as 'looked and found nothing'"
+    },
+    {
+      "id": "J5",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn false, err\n\t\t}\n",
+      "new": "",
+      "note": "the walk ignores its context and outruns the lock budget"
+    },
+    {
+      "id": "J6",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\tfor len(fields) > 0 && fields[len(fields)-1] == \"\" {\n\t\tfields = fields[:len(fields)-1]\n\t}\n",
+      "new": "",
+      "note": "the cmdline's trailing NUL is left as an empty argv field"
+    },
+    {
+      "id": "J7",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\t\tu, err := strconv.ParseUint(fields[1], 10, 32)",
+      "new": "\t\t\tu, err := strconv.ParseUint(fields[0], 10, 32)",
+      "note": "the real uid read instead of the effective one"
+    },
+    {
+      "id": "J8",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\tif seen < 2 {",
+      "new": "\tif seen < 0 {",
+      "note": "a status carrying neither PPid nor Uid accepted as read"
+    },
+    {
+      "id": "J9",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\t\tif ppid, err = strconv.Atoi(val); err != nil {",
+      "new": "\t\t\tif ppid, err = strconv.Atoi(val); false {",
+      "note": "an unparsable PPid swallowed as pid 0"
     }
   ]
 }

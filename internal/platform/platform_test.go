@@ -121,7 +121,10 @@ func TestChainLockTriesInOrderAndStopsAtFirstConfirmation(t *testing.T) {
 	s := desktopSession("3")
 	// The first backend locks AND can prove it, which is the only thing that ends the
 	// chain.
-	first := &confirming{Mock: &Mock{BackendName: "first"}, yes: true}
+	// "Prove" is load-bearing now. A backend that only relays LockedHint says nothing
+	// this call can be credited with, because the hint is the controlled user's own
+	// property (#29) — so the backend that ends the chain is one that corroborates.
+	first := &corroborating{Mock: &Mock{BackendName: "first"}, yes: true}
 	second := &confirming{Mock: &Mock{BackendName: "second"}, yes: true}
 	c := &Chain{backends: []Platform{first, second}}
 
@@ -171,7 +174,7 @@ func TestChainLockReportsEveryFailure(t *testing.T) {
 // lives on the type every caller must go through rather than on each backend's
 // memory.
 func TestChainNeverLocksWhatItMustNot(t *testing.T) {
-	m := &confirming{Mock: &Mock{}, yes: true}
+	m := &corroborating{Mock: &Mock{}, yes: true}
 	c := &Chain{backends: []Platform{m}}
 	for name, s := range map[string]Session{
 		"remote ssh":  {ID: "1", Class: "user", Seat: "seat0", Type: "x11", State: "active", Remote: true},
@@ -404,7 +407,7 @@ func TestChainDoesNotStopAtABackendThatCannotConfirm(t *testing.T) {
 	s := desktopSession("3")
 	// Mock deliberately does not implement Confirmer.
 	first := &Mock{BackendName: "legacy"}
-	second := &confirming{Mock: &Mock{BackendName: "kde"}, yes: true}
+	second := &corroborating{Mock: &Mock{BackendName: "kde"}, yes: true}
 	c := &Chain{backends: []Platform{first, second}}
 
 	if err := c.Lock(context.Background(), s); err != nil {
@@ -489,7 +492,7 @@ func TestChainMixedFailureReportsUnconfirmedAndKeepsBothReasons(t *testing.T) {
 func TestChainKeepsGoingWhenConfirmationErrors(t *testing.T) {
 	s := desktopSession("3")
 	a := &confirming{Mock: &Mock{BackendName: "logind"}, err: errors.New("Connection reset by peer")}
-	b := &confirming{Mock: &Mock{BackendName: "kde"}, yes: true}
+	b := &corroborating{Mock: &Mock{BackendName: "kde"}, yes: true}
 	c := &Chain{backends: []Platform{a, b}}
 
 	if err := c.Lock(context.Background(), s); err != nil {

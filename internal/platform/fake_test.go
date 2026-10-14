@@ -78,13 +78,21 @@ func wantArgv(t testing.TB, got, want [][]string) {
 	}
 }
 
+// desktopUID is the uid every fixture session and every fixture process agrees on.
+//
+// It is a name rather than a literal because the locker corroborator matches on it: a
+// fixture that invents a locker at 1000 while the session is 1001 does not "fail to
+// corroborate for a reason", it silently tests the wrong thing. The uid check is real,
+// so the uid has to be shared on purpose.
+const desktopUID = uint32(1001)
+
 // desktopSession is the shape logind reports for a real desktop session. Tests build
 // through it rather than spelling the fields out, because isLockable requires Class and
 // Seat and a bare Session{Type: "x11"} is now correctly refused — a session that never
 // came from a listing is not something to hand to lock-session.
 func desktopSession(id string) Session {
 	return Session{
-		ID: id, Username: "kid", UID: 1001,
+		ID: id, Username: "kid", UID: desktopUID,
 		Class: "user", Seat: "seat0", Type: "x11", State: "active",
 	}
 }
@@ -102,6 +110,27 @@ type confirming struct {
 }
 
 func (c confirming) LockConfirmed(context.Context, Session) (bool, error) { return c.yes, c.err }
+
+// corroborating is a double whose yes the chain is told to believe even when the session
+// was already reporting itself locked.
+//
+// The distinction is the whole of #29. LockedHint is written through a method login1
+// authorizes by uid alone, so "the session says it is locked" is a statement by the party
+// being locked out, and it stops being evidence about *this* lock the moment it was
+// already true beforehand. A backend that can add evidence the controlled user did not
+// put there says so through Corroborator; this is how a test says the same thing.
+//
+// Tests that want "the lock took" now have to pick one of two stories — the state changed
+// under us, or someone can prove it — and that is the point: the old double could not
+// tell them apart, which is how a pre-set hint defeated the chain.
+type corroborating struct {
+	*Mock
+	yes bool
+	err error
+}
+
+func (c corroborating) LockConfirmed(context.Context, Session) (bool, error) { return c.yes, c.err }
+func (c corroborating) Corroborated() bool                                   { return true }
 
 // backendAt takes one backend out of the chain New builds, for tests that need to
 // exercise a backend's optional interfaces. The chain is what callers hold, so this is

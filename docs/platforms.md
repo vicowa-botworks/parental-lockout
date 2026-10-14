@@ -194,10 +194,72 @@ on every tick instead of skipping when a session reports itself locked:
 > decide when enforcement **stops**.
 
 `Session.Locked` still carries the hint, because it is genuinely useful for reporting. It
-is not an input to the "can we stop?" decision. Corroboration that the session user cannot
-forge — a locker process parented by that session's compositor — is the obvious next
-signal and is deliberately *not* implemented yet; it belongs in a backend, not in the
-engine.
+is not an input to the "can we stop?" decision.
+
+### What closes it, and what that leaves open
+
+Two changes, and neither one is sufficient alone.
+
+**1. `Chain.Lock` reads the hint before it asks anybody.** A hint that was already true
+cannot be the consequence of a request that had not been made yet, so a yes from a backend
+that cannot corroborate it counts only if the state changed under us. This is what makes
+the attack fail: the chain stops believing the pre-set hint, keeps going, reaches the
+desktop backend, and the screen actually locks.
+
+It is one read per `Chain.Lock`, not one per backend, and it asks the backend that reports
+the **raw** hint rather than the first one in the list. Order matters: a chain configured
+`[kde logind]` that asked the corroborator would correctly hear "not locked" (no locker),
+and then take logind's bare-hint yes at face value — the attack, arriving through the
+configuration rather than the code.
+
+**2. The KDE backend corroborates.** Measured on the target, 2026-10-14, with the session
+genuinely locked:
+
+```console
+$ ps -eo pid=,ppid=,uid=,args= | grep kscreenlocker
+2224790    7619  1000 /usr/lib/x86_64-linux-gnu/libexec/kscreenlocker_greet --graceTime 5000 --ksldfd 56
+$ ps -o args= -p 7619
+/usr/bin/ksmserver
+$ loginctl show-session 3 -p LockedHint
+LockedHint=yes
+```
+
+The locker is a child of `ksmserver` — the process that owns `org.freedesktop.ScreenSaver`
+and answers the `Lock` call. So a KDE confirmation requires **both** the hint and a live
+`kscreenlocker_greet` owned by that session's uid whose parent is `ksmserver`. Unlocked
+reads `LockedHint=no` with no locker running, which is the other half of the calibration.
+
+Two details that cost a look:
+
+- `ps` and `/proc/<pid>/comm` truncate the name to 15 characters — `kscreenlocker_g`. The
+  check reads `cmdline`, which is not truncated, so it matches the real argv0 rather than a
+  prefix that two programs could share.
+- The walk reads `/proc` directly instead of running `ps`. This is a security check, and a
+  check answered by a PATH lookup can be answered by whatever the session user put earlier
+  in PATH — and the session user owns the environment these commands run in.
+
+**Why the corroborator is not optional decoration.** The loop re-asserts every tick, so
+from the second tick on a genuinely locked machine *always* reads "already locked".
+Discounting a corroborated yes there would report `ErrUnconfirmed` forever on a locked
+screen, and an operator trained to ignore that signal has no signal left. So the rule is
+"an uncorroborated yes needs a transition", not "never trust the hint".
+
+**What this does not prove.** The locker runs as uid 1000 — the same uid as the child.
+`ksmserver` is the child's own process too, so a child willing to `ptrace` its own session
+leader could in principle make it spawn a locker. That is a long way up from writing a
+property, and it is a bar raised rather than a wall; nothing here should be read as
+claiming more.
+
+**GNOME is not covered, deliberately.** GNOME draws its lock screen inside `gnome-shell`,
+so there is no separate locker to find. The candidate signal is
+`org.gnome.ScreenSaver.GetActive`, and it has **not** been measured on this box — the KDE
+spelling of that call answers `(true,)` on an unlocked desktop (§3), so assuming the GNOME
+one means "locked" would build a rubber stamp and hand the corroborator back to the
+attacker. The GNOME backend therefore reports itself uncorroborated, `Probe` says so in
+words, and the consequence is stated: on a GNOME-only configuration a lock is confirmed on
+the tick that changes the hint and reported unconfirmed on every tick after it. That is
+worse news for GNOME operators than for KDE ones and it is the honest reading of #29, not
+an oversight.
 
 ### The premise this whole design rests on is still unmeasured
 

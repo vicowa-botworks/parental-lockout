@@ -32,6 +32,14 @@ type desktop struct {
 	// with — see LockConfirmed — so confirmation is logind's LockedHint, read
 	// through the same runner.
 	hint Confirmer
+	// corroborate says this flavour has a second signal to confirm with, and that
+	// LockConfirmed therefore withholds a yes unless both halves agree. See
+	// LockConfirmed and locker.go.
+	//
+	// It is a field rather than a check on id because the two flavours are otherwise
+	// one mechanism, and the day GNOME grows an equivalent signal the difference
+	// should be one line in one registration rather than a branch on a name.
+	corroborate bool
 }
 
 // screensaverPath and screensaverIface are the object path and interface measured on
@@ -54,6 +62,9 @@ func init() {
 			dests: []string{"org.kde.screensaver", "org.freedesktop.ScreenSaver", "org.kde.ksmserver"},
 			r:     r,
 			hint:  &logind{r: r},
+			// KDE spawns a separate locker, so KDE has something to corroborate
+			// with. Measured; see locker.go.
+			corroborate: true,
 		}, nil
 	})
 	Register("gnome", func(r Runner) (Platform, error) {
@@ -62,6 +73,13 @@ func init() {
 			dests: []string{"org.gnome.ScreenSaver", "org.freedesktop.ScreenSaver"},
 			r:     r,
 			hint:  &logind{r: r},
+			// No corroborating signal yet. GNOME draws its lock screen inside
+			// gnome-shell, so there is no separate locker to find, and the
+			// candidate signal (org.gnome.ScreenSaver.GetActive) has not been
+			// measured — the KDE spelling of that call answers (true,) on an
+			// unlocked desktop, so it cannot be assumed to mean "locked" here.
+			// Guessing would turn the corroborator into a rubber stamp.
+			corroborate: false,
 		}, nil
 	})
 }
@@ -129,8 +147,8 @@ func (d *desktop) Lock(ctx context.Context, s Session) error {
 	return fmt.Errorf("%s: no screensaver service accepted the lock: %w", d.id, joinErrs(errs...))
 }
 
-// LockConfirmed reads logind's LockedHint, because the screensaver interface cannot
-// answer this question.
+// LockConfirmed reads logind's LockedHint, corroborated on KDE by the locker process,
+// because the screensaver interface cannot answer this question.
 //
 // Two tempting signals were measured on the live desktop and both are wrong:
 //
@@ -142,16 +160,39 @@ func (d *desktop) Lock(ctx context.Context, s Session) error {
 //     confirmed. That is the exact failure this package exists to prevent, so the
 //     method is not called anywhere in this file.
 //
-// LockedHint is written by the desktop when it locks. Whether ksmserver writes it is
-// the open question recorded in docs/platforms.md's manual recipe, with the expected
-// answer stated: answering it needs a real lock, and a machine with a person using it
-// is not the place to take one.
+// What is left, LockedHint, is written through Session.SetLockedHint, which login1
+// authorizes by uid alone: the controlled user owns it (#29, measured). So on a flavour
+// that has a second signal the hint is only half an answer, and a yes needs both.
+// locker.go records what the second half is and what it does not prove.
+//
+// Whether ksmserver writes the hint at all is still the open question recorded in
+// docs/platforms.md's manual recipe. It is orthogonal to this: if it never does, a KDE
+// lock is reported unconfirmed, which is loud and safe.
 func (d *desktop) LockConfirmed(ctx context.Context, s Session) (bool, error) {
 	if s.ID == "" {
 		return false, fmt.Errorf("%s: cannot confirm a session with no id", d.id)
 	}
-	return d.hint.LockConfirmed(ctx, s)
+	yes, err := d.hint.LockConfirmed(ctx, s)
+	if err != nil || !yes {
+		return false, err
+	}
+	if !d.corroborate {
+		return true, nil
+	}
+	alive, err := lockerRunning(ctx, s.UID)
+	if err != nil {
+		// Not the same as "unlocked". The hint said locked and the corroborator
+		// could not look; that belongs in the fault column, and the chain already
+		// has a sentence for a backend that could not be consulted.
+		return false, fmt.Errorf("%s: the session reports itself locked but the locker could not be checked: %w", d.id, err)
+	}
+	return alive, nil
 }
+
+// Corroborated reports that a yes from this backend stands on something other than the
+// hint the controlled user can write. Chain.Lock uses it to decide whether a lock that
+// was already reported locked beforehand still needs believing.
+func (d *desktop) Corroborated() bool { return d.corroborate }
 
 // Probe reports what this backend would target and why it might not work, without
 // locking anything.
@@ -173,10 +214,26 @@ func (d *desktop) Probe(ctx context.Context) []BackendStatus {
 		// — and on a machine with no desktop it would otherwise report a backend as
 		// usable that could never lock anything. Saying what was not checked is the
 		// difference between a diagnostic and a reassurance.
+		//
+		// Whether confirmation here is corroborated is operator-facing for the same
+		// reason: it is the difference between "unconfirmed means we could not look"
+		// and "unconfirmed means this backend can never confirm anything".
 		Detail: fmt.Sprintf("%s is installed and would call %s.Lock on %s as the session user. "+
 			"That is all Probe can see: it has no user session to ask, so \"usable\" means the tool "+
 			"is present, not that a lock would land here. Enumerates no sessions of its own, and "+
-			"confirms via logind LockedHint (the screensaver interface exposes no lock state).",
-			gdbusProgram, screensaverIface, strings.Join(d.dests, ", ")),
+			"confirms via logind LockedHint (the screensaver interface exposes no lock state) %s.",
+			gdbusProgram, screensaverIface, strings.Join(d.dests, ", "), corroborationNote(d.corroborate)),
 	}}
+}
+
+// corroborationNote states, for Probe, what a confirmation from this backend is worth.
+// LockedHint is writable by the session user, so an uncorroborated yes is the request
+// landing rather than the screen being locked.
+func corroborationNote(corroborated bool) string {
+	if corroborated {
+		return "corroborated by a live kscreenlocker_greet parented to ksmserver, which the " +
+			"session user cannot produce by writing a property"
+	}
+	return "uncorroborated: LockedHint is writable by the session user, so a yes here is weaker " +
+		"than the screen being locked and Chain.Lock discounts it unless the state changed"
 }

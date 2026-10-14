@@ -81,10 +81,11 @@ func TestChainLockGivesUpAfterTheSettleWindow(t *testing.T) {
 	if !errors.Is(err, ErrUnconfirmed) {
 		t.Fatalf("Lock = %v, want ErrUnconfirmed", err)
 	}
-	// Bounded: the first read plus the window's worth of retries, and no more. A
-	// settle with no bound would park the enforcement loop on a machine where the
-	// desktop never answers.
-	if want := 1 + confirmReads; f.reads != want {
+	// Bounded: the state read before anyone was asked, plus the first read of the
+	// settle window, plus the window's worth of retries, and no more. A settle with no
+	// bound would park the enforcement loop on a machine where the desktop never
+	// answers.
+	if want := 2 + confirmReads; f.reads != want {
 		t.Errorf("confirmation read %d time(s), want exactly %d: the window must be bounded", f.reads, want)
 	}
 }
@@ -92,7 +93,12 @@ func TestChainLockGivesUpAfterTheSettleWindow(t *testing.T) {
 func TestChainLockDoesNotRetryAnError(t *testing.T) {
 	m := &Mock{BackendName: "logind"}
 	boom := errors.New("dbus gone")
-	f := &flipConfirmer{Mock: m, errOn: 1, err: boom}
+	// errOn 2, not 1: the first read is the state Chain.Lock takes before asking
+	// anybody, and an error spent there is spent on a different question. What this
+	// test is about is the settle window not retrying, so the failure has to land on
+	// the first read of the window. TestChainLockDiscountsAYesWhoseBeforeStateIsUnreadable
+	// pins the pre-read's own failure.
+	f := &flipConfirmer{Mock: m, errOn: 2, err: boom}
 	c := &Chain{backends: []Platform{f}}
 
 	err := c.Lock(context.Background(), desktopSession("3"))
@@ -102,8 +108,8 @@ func TestChainLockDoesNotRetryAnError(t *testing.T) {
 	if !errors.Is(err, boom) {
 		t.Errorf("error %q loses why the check failed", err)
 	}
-	if f.reads != 1 {
-		t.Errorf("confirmation read %d time(s), want 1: a backend that cannot be queried will not start answering between polls", f.reads)
+	if f.reads != 2 {
+		t.Errorf("confirmation read %d time(s), want 2: a backend that cannot be queried will not start answering between polls", f.reads)
 	}
 }
 

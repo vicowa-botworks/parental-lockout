@@ -113,6 +113,27 @@ type Confirmer interface {
 	LockConfirmed(ctx context.Context, s Session) (bool, error)
 }
 
+// Corroborator is a Confirmer that can say whether its own yes rests on something
+// besides logind's LockedHint.
+//
+// The distinction exists because the hint is not a private signal. Session.SetLockedHint
+// is authorized by uid alone — org.freedesktop.login1.policy defines 37 actions,
+// including org.freedesktop.login1.lock-sessions at auth_admin_keep, and none of them
+// covers the hint, because logind assumes only a desktop writes it. #29 measured a
+// session user flipping a genuinely locked session's hint to no and back with a plain
+// gdbus call: no sudo, no polkit prompt, no logind event to notice.
+//
+// So a yes that rests on the hint alone means "the session says it is locked", which is
+// a statement by the party being locked out. A backend that can add evidence that party
+// did not put there says so here, and Chain.Lock weights the two accordingly.
+type Corroborator interface {
+	Confirmer
+	// Corroborated reports whether a yes from LockConfirmed stands on something other
+	// than the hint. It is a property of the backend, not of the moment: it must not
+	// lock anything, query anything, or vary between calls.
+	Corroborated() bool
+}
+
 // ErrUnconfirmed is what Chain.Lock returns when at least one backend accepted the
 // request but none could confirm the screen is locked.
 //
@@ -458,6 +479,44 @@ func confirmWithSettle(ctx context.Context, conf Confirmer, s Session) (bool, er
 	return false, nil
 }
 
+// lockState reads the lock state from the backend that reports the raw hint, for the
+// question Chain.Lock asks: what was true before we asked anybody?
+//
+// It deliberately prefers a confirmer that does NOT corroborate. Asking a corroborating
+// backend instead would ask the wrong question — "was the lock already proved?" rather
+// than "was the forgeable signal already set?" — and a chain configured with the desktop
+// backend ahead of logind would then read false on a spoofed machine, because the
+// corroborator correctly says "not locked", and logind's bare-hint yes would be taken at
+// face value. That is the attack, arriving through the configuration order.
+//
+// When every confirmer corroborates there is no uncorroborated signal left to discount,
+// and the fallback answer is never used: such a backend returns nil before the value is
+// consulted.
+func (c *Chain) lockState(ctx context.Context, s Session) (bool, error) {
+	var fallback Confirmer
+	var fallbackName string
+	for _, b := range c.backends {
+		conf, ok := b.(Confirmer)
+		if !ok {
+			continue
+		}
+		if _, strong := conf.(Corroborator); !strong {
+			return conf.LockConfirmed(ctx, s)
+		}
+		if fallback == nil {
+			fallback, fallbackName = conf, b.Name()
+		}
+	}
+	if fallback == nil {
+		return false, fmt.Errorf("no backend in this chain can confirm a lock")
+	}
+	yes, err := fallback.LockConfirmed(ctx, s)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", fallbackName, err)
+	}
+	return yes, nil
+}
+
 // Lock asks each backend in configured order until one confirms the lock took effect.
 //
 // It refuses a session that is not lockable before asking anyone, so the rule is
@@ -493,6 +552,26 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 	ctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)
 	defer cancel()
 
+	// Read the lock state once, before anyone is asked.
+	//
+	// Without this the chain is defeated by construction, and by the very mechanism
+	// built to make it trustworthy. The hint is already true — one autostart file
+	// running SetLockedHint true at login does it, as the controlled user, with no
+	// privilege (#29). logind's Lock is then accepted, its confirmation reads the hint
+	// back, sees true, and the chain stops: the desktop backend is never reached, the
+	// screen never locks, and the audit log records a lock that happened. The
+	// confirmation chain was supposed to be the thing that survives a child dismissing
+	// the lock screen, and a hint pre-set from the child's own account switches it off.
+	//
+	// Knowing what was true beforehand turns that into an argument the daemon can see
+	// through: a hint that was already true cannot be the consequence of a request that
+	// had not been made yet. So a yes from a backend that cannot corroborate it counts
+	// only if the state changed under us.
+	//
+	// One read for the whole operation, not one per backend: the question is what held
+	// when we started, and every backend here confirms off the same property.
+	wasLocked, preErr := c.lockState(ctx, s)
+
 	var notes []error // everything worth saying, in backend order
 	var failures int  // backends that returned an error rather than accepting
 	for _, b := range c.backends {
@@ -514,6 +593,34 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 			continue
 		}
 		if yes {
+			// A backend that stands behind its yes with evidence the controlled user
+			// did not supply has proved the lock whatever was true beforehand, and the
+			// steady state of a locked machine depends on that: the loop re-asserts
+			// every tick, so from the second tick on the hint is always already true.
+			// Discounting a corroborated yes would report unconfirmed forever on a
+			// genuinely locked screen, and an operator trained to ignore that signal
+			// has no signal left.
+			if _, strong := conf.(Corroborator); strong {
+				return nil
+			}
+			if wasLocked {
+				notes = append(notes, fmt.Errorf(
+					"%s: reports the session locked, but it already reported locked before we asked. "+
+						"LockedHint is writable by the session user, so that is not evidence this lock took",
+					b.Name()))
+				continue
+			}
+			if preErr != nil {
+				// The same reading, and the safe one: if the state beforehand could not
+				// be established, the change cannot be claimed as ours. A backend whose
+				// pre-read fails will usually fail its post-read too, since they are the
+				// same call, so this costs little and closes the gap where they differ.
+				notes = append(notes, fmt.Errorf(
+					"%s: reports the session locked, but the state before the request could not be read "+
+						"(%w), so this cannot be told apart from a hint that was already true",
+					b.Name(), preErr))
+				continue
+			}
 			return nil
 		}
 		notes = append(notes, fmt.Errorf("%s: accepted the request but the session is still unlocked", b.Name()))

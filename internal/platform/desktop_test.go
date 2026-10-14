@@ -235,7 +235,14 @@ func TestDesktopLockTriesBusNamesInOrderAndStopsAtTheFirstYes(t *testing.T) {
 // Confirmation must not use any screensaver signal. GetActive() was measured returning
 // (true,) on this desktop while it was unlocked and in active use, so a backend that
 // confirmed with it would report every lock as confirmed forever.
+//
+// The locker fixture is what lets the hint confirm at all on KDE: the hint alone is the
+// controlled user's own property (#29), so a bare yes is no longer enough here.
 func TestDesktopConfirmUsesLockedHintAndNeverAsksTheScreensaver(t *testing.T) {
+	newProcFixture(t).
+		add(7619, 6695, desktopUID, measuredKsmserver).
+		add(2224790, 7619, desktopUID, measuredLocker).
+		use()
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
 		if argv[0] == "loginctl" {
 			return []byte("LockedHint=yes\n"), nil
@@ -256,7 +263,7 @@ func TestDesktopConfirmUsesLockedHintAndNeverAsksTheScreensaver(t *testing.T) {
 		t.Fatalf("LockConfirmed: %v", err)
 	}
 	if !yes {
-		t.Error("LockedHint=yes did not confirm")
+		t.Error("LockedHint=yes with the locker running did not confirm")
 	}
 
 	for _, c := range r.Calls() {
