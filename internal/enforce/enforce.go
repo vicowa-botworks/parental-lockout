@@ -14,6 +14,9 @@
 //   - A lock that was requested but not confirmed (platform.ErrUnconfirmed) is
 //     retried on the next tick and reported as its own event kind. It is not
 //     success, and it is not the same failure as "nothing reached the desktop".
+//   - A session that reports itself locked is locked anyway. logind's LockedHint is
+//     writable by the session user with no polkit action behind it (#29, measured on
+//     live hardware), so it can never be the reason enforcement stops.
 //
 // What this package does NOT do is decide what a lockout means, or how to lock a
 // screen. schedule.Evaluate answers "is a window open"; platform.Lock performs the
@@ -24,7 +27,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
@@ -37,10 +44,15 @@ import (
 // "lock.asserted" needs no lookup table. They are also what the tests assert on,
 // so renaming one is a visible, greppable change rather than a constant drift.
 const (
-	// KindLockAsserted is one successful call to platform.Lock. Expect it on the
-	// tick that enters a window and again each time the child dismisses the lock
-	// screen — not every tick, because a session already reporting itself locked
-	// is left alone (see Engine.Tick).
+	// KindLockAsserted is one successful call to platform.Lock. Expect it on EVERY
+	// tick a window stays open, not only on the tick that enters it: the child may
+	// have dismissed the lock screen in between, and a session that reports itself
+	// already locked is locked again anyway, because that report is something the
+	// child can forge (see the comment at step 5 of tickSession, and #29).
+	//
+	// That makes this the highest-volume kind in the log — two lines a minute per
+	// enforced session — which is the price of a trail that proves enforcement was
+	// continuous rather than asserting it happened. Size rotation is #28's job.
 	KindLockAsserted = "lock.asserted"
 
 	// KindLockoutEntered and KindLockoutExited bracket a period of enforcement
@@ -79,12 +91,24 @@ const (
 	// editing the schedule needs to know their edit did not land.
 	KindConfigStale = "config.stale"
 
-	// KindUnenforceable is a session that is inside a lockout but cannot be
-	// locked by any backend — a raw VT, for instance, where every backend either
-	// refuses or reports ErrUnconfirmed forever. Retrying into the log every
-	// 30 seconds is noise; going quiet is a fail-open. So it is reported once per
-	// session per lockout, and the operator decides.
+	// KindUnenforceable is a session that is inside a lockout but cannot be locked
+	// by any backend — a raw VT, for instance, where every backend either refuses or
+	// reports ErrUnconfirmed forever. Retrying into the log every 30 seconds is
+	// noise; going quiet is a fail-open. So it is reported once per session per
+	// lockout, and the operator decides.
 	KindUnenforceable = "session.unenforceable"
+
+	// KindScheduleDegraded is a profile the evaluator could read but not obey: a
+	// timezone name that does not resolve, so every rule is being read in the
+	// machine's own zone, or a rule whose window can never open. It is emitted when
+	// the set of complaints CHANGES, not every tick — a parent has to fix it once,
+	// and a profile can sit degraded for weeks.
+	//
+	// It exists because schedule.ProfileErrors would otherwise have no consumer. A
+	// parent who sets "Europe/Berlin" on a UTC-hosted machine and sees the child
+	// released at 04:00 instead of 02:00 has no way to know the schedule was never
+	// the one they wrote, and every other line in the log will read as if it was.
+	KindScheduleDegraded = "schedule.degraded"
 
 	// KindTickSkipped is a tick that found the previous one still running. It
 	// should be rare — a tick is a handful of loginctl calls against a local
@@ -152,8 +176,10 @@ type Engine struct {
 	// placed at 21:00 on a Tuesday without waiting for one.
 	Clock func() time.Time
 
-	// Logf receives human-readable diagnostics that are not audit events — the
-	// ones about the engine itself. nil discards them.
+	// Logf receives human-readable diagnostics that are not audit events — the ones
+	// about the engine itself: a tick that fell behind, a config that went stale and
+	// then recovered. New defaults it to log.Printf, so the journal gets them without
+	// the caller remembering; nil is the explicit way to ask for quiet.
 	Logf func(string, ...any)
 
 	// cfg is the last document that loaded successfully. It is what enforcement
@@ -175,22 +201,67 @@ type Engine struct {
 	enforcementWas bool
 
 	// unenforceable counts, per session, how many ticks in a row this session has
-	// been unenforceable. See KindUnenforceable.
+	// shown a hard lock failure. See KindUnenforceable.
 	unenforceable map[string]int
+
+	// degraded holds the last schedule-complaint signature per session, so
+	// KindScheduleDegraded fires when the set changes rather than every tick. It is
+	// keyed separately from state rather than stored inside it because a degraded
+	// profile outside any window still has to be reported, and creating enforcement
+	// state for a session that is not being enforced would be a lie.
+	degraded map[string]string
+
+	// Interval, when non-zero, fixes the tick period and ignores
+	// settings.pollSeconds. Tests set it to a few milliseconds so Run can be
+	// exercised without waiting thirty seconds for a ticker that does not need to
+	// exist to prove the policy.
+	Interval time.Duration
+
+	// WatchInterval is how often config.Watch re-stats the config file. Zero means
+	// one second: an edit lands on the next tick anyway, so this only buys latency.
+	WatchInterval time.Duration
+
+	// mu is the overlap guard. One tick at a time is a property of the engine, not
+	// of Run, because the caller that would otherwise race the loop is #10's
+	// "apply now" button — which cannot know that a loop is running somewhere.
+	// Tick runs under it; TryTick takes it with TryLock.
+	mu sync.Mutex
+
+	// skipped counts the ticks Run refused because one was already running. It is
+	// atomic because Skipped is read from the status path while the loop ticks.
+	skipped atomic.Int64
+
+	// pollSeconds mirrors settings.pollSeconds out of the last successful reload so
+	// Run can retime itself without reading e.cfg off the loop goroutine. e.cfg
+	// belongs to the tick, and reading it from both is a race the race detector is
+	// right to complain about.
+	pollSeconds atomic.Int64
 }
 
 // sessionState is what one tick learns about one session so the next tick can tell
 // whether anything changed.
 type sessionState struct {
 	// enforcing is true when the previous tick considered this session locked out
-	// and subject to enforcement — whether or not it also called Lock. A session
-	// inside a window that already reports itself locked is enforcing; it is just
-	// not being touched again.
+	// and subject to enforcement. It is a statement about the policy, not about the
+	// screen: the tick that sets it also called Lock, whatever the session claimed
+	// about being locked already (#29).
 	enforcing bool
 
 	// overrideActive is true when an override suppressed enforcement last tick, so
 	// its expiry can be audited once.
 	overrideActive bool
+
+	// unenforceableReported is true once KindUnenforceable has fired for this
+	// lockout. It is a flag rather than a count because the two ways to reach it
+	// differ: a session every backend refuses escalates after unenforceableAfter
+	// ticks, and a session that can never confirm escalates on the first, so a
+	// shared counter would have to be reset differently by each path.
+	unenforceableReported bool
+
+	// profileErrs is the schedule complaint set this session was last reported with,
+	// so KindScheduleDegraded fires when the set changes rather than every tick. The
+	// empty string means nothing was wrong last time.
+	profileErrs string
 
 	// ruleID names the window we were enforcing, so the exit event can say what
 	// ended rather than only that something ended.
@@ -205,10 +276,18 @@ type sessionState struct {
 // New returns an Engine with the defaults filled in.
 func New(path string, p platform.Platform, sink Sink) *Engine {
 	return &Engine{
-		Path:           path,
-		Platform:       p,
-		Sink:           sink,
-		Clock:          time.Now,
+		Path:     path,
+		Platform: p,
+		Sink:     sink,
+		Clock:    time.Now,
+		// Diagnostics go to the standard logger unless the caller replaces it.
+		// Without this, an engine built here and left unconfigured drops the three
+		// loudest things it has to say — a tick that fell behind, a config that went
+		// stale, a schedule that stopped being readable — and silence is this
+		// daemon's characteristic failure mode rather than its crash. The journal
+		// capture in #12 gets them for free; a caller with its own logger assigns
+		// Logf, and one that wants quiet assigns nil.
+		Logf:           log.Printf,
 		enforcementWas: true,
 	}
 }
@@ -248,8 +327,8 @@ type Report struct {
 // Tick.
 //
 // Tick is not safe to call concurrently with itself: it mutates the engine's
-// state. Run enforces that with an overlap guard; a caller driving Tick directly is
-// responsible for the same discipline.
+// state. Run and TryTick both take the engine's guard first, and a caller driving
+// Tick directly is responsible for the same discipline.
 func (e *Engine) Tick(ctx context.Context) Report {
 	now := e.now()
 	rep := Report{At: now}
@@ -311,30 +390,183 @@ func (e *Engine) Tick(ctx context.Context) Report {
 	// A session that is no longer listed has stopped being enforceable: logged
 	// out, or closing. Its lockout ended, so say so once.
 	//
+	// It is then forgotten completely, whether or not it was enforcing. Keeping the
+	// bookkeeping of sessions that have come and gone would grow the map for the
+	// lifetime of the daemon — logind mints a new id for every login and never
+	// reuses one — and a stale entry buys nothing, because a session id is not
+	// reused within a logind's lifetime.
+	//
 	// The cost is that a listing which transiently omits a session emits an exit
 	// and then an entry when it comes back. That is the honest direction — an
 	// audit trail that claims a lockout ran after the session vanished is worse
-	// than one that shows a blip — and a session id is not reused within a
-	// logind's lifetime, so the pair cannot be mistaken for two lockouts.
+	// than one that shows a blip.
 	for id, st := range e.state {
-		if seen[id] || !st.enforcing {
+		if seen[id] {
 			continue
 		}
-		prev := e.state[id]
-		e.emit(&rep, Event{
-			At:        now,
-			Kind:      KindLockoutExited,
-			Username:  prev.username,
-			SessionID: id,
-			RuleID:    prev.ruleID,
-			RuleName:  prev.ruleName,
-			Detail:    "session is no longer listed",
-		})
+		if st.enforcing {
+			e.emit(&rep, Event{
+				At:        now,
+				Kind:      KindLockoutExited,
+				Username:  st.username,
+				SessionID: id,
+				RuleID:    st.ruleID,
+				RuleName:  st.ruleName,
+				Detail:    "session is no longer listed",
+			})
+		}
 		delete(e.state, id)
 		delete(e.unenforceable, id)
+		delete(e.degraded, id)
 	}
 
 	return rep
+}
+
+// Run drives Tick from a ticker until ctx is cancelled, and returns ctx.Err().
+//
+// Three things belong here rather than in Tick:
+//
+//   - The period. settings.pollSeconds, taken from the config the tick just read,
+//     so editing the interval takes effect without a restart.
+//   - The overlap guard. A tick that outlives its period is skipped and counted,
+//     never stacked: two ticks locking the same session at once would double every
+//     audit line and race the engine's own state.
+//   - Latency. config.Watch pokes the loop when the file changes, so an edit lands
+//     within a second instead of within a tick. It is not load-bearing — Tick
+//     re-reads the file regardless — so a watcher that dies costs latency and
+//     nothing else, which is why nothing here watches the watcher.
+//
+// The first tick runs immediately, before any waiting: a daemon restarted at 21:03
+// during a curfew must lock on start, not hand back 30 seconds first.
+//
+// Ticks run on their own goroutine so that a platform call which ignores its
+// context cannot park the loop and make it deaf to cancellation. That is also what
+// makes the overlap guard necessary rather than theoretical.
+func (e *Engine) Run(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var wg sync.WaitGroup
+	defer func() {
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(shutdownGrace):
+			// The tick's context is already cancelled, so a tick still running now
+			// is stuck somewhere that does not answer to cancellation. Waiting
+			// forever would let a hung D-Bus turn every restart into a SIGKILL, so
+			// this gives up and says so — the goroutine is left to finish, and the
+			// process exiting takes it with it.
+			e.logf("enforce: a tick was still running %v after shutdown; not waiting for it", shutdownGrace)
+		}
+	}()
+
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	// A negative WatchInterval opts out of watching entirely. config.Watch spawns a
+	// goroutine that stats the path forever, and a test that drives Run with its own
+	// short Interval does not want a file poller in the race report.
+	var changes <-chan struct{}
+	if e.WatchInterval >= 0 {
+		changes = config.Watch(e.Path, e.watchInterval(), watchDone)
+	}
+
+	e.startTick(ctx, &wg)
+
+	for {
+		timer := time.NewTimer(e.interval())
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+			e.startTick(ctx, &wg)
+		case <-changes:
+			e.startTick(ctx, &wg)
+		}
+	}
+}
+
+// shutdownGrace bounds how long Run waits, on the way out, for a tick still in
+// flight. Five seconds is well past a healthy tick — a handful of loginctl calls
+// against a local daemon — and well short of systemd's default stop timeout, so the
+// daemon exits on its own and the journal keeps the explanation.
+const shutdownGrace = 5 * time.Second
+
+// startTick runs one tick unless one is already running, in which case it records
+// the skip. The guard is taken here rather than inside the goroutine because a tick
+// that has been refused must not even begin: two ticks reading and writing
+// e.state at once is the failure, not two ticks finishing out of order.
+func (e *Engine) startTick(ctx context.Context, wg *sync.WaitGroup) {
+	if !e.mu.TryLock() {
+		e.noteSkipped()
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer e.mu.Unlock()
+		e.Tick(ctx)
+	}()
+}
+
+// noteSkipped records a refused tick as both a counter and an event.
+//
+// The counter alone would be enough for a status page and useless for everything
+// else: a daemon that quietly falls behind every tick leaves no trace in the audit
+// log, and "enforcement stopped being timely three hours ago" is precisely the fact
+// an operator finds out by other means.
+func (e *Engine) noteSkipped() {
+	n := e.skipped.Add(1)
+	e.logf("enforce: tick skipped, previous one still running (total %d)", n)
+	if e.Sink != nil {
+		e.Sink.Emit(Event{At: e.now(), Kind: KindTickSkipped,
+			Detail: fmt.Sprintf("a tick was still running when this one was due; %d skipped so far. Enforcement is taking longer than the tick interval, so locks are landing late.", n)})
+	}
+}
+
+// TryTick runs one guarded enforcement pass, reporting whether it ran.
+//
+// This is the entry point for a caller outside the loop — #10's "apply now" — that
+// wants the engine's own overlap rule instead of inventing a second one. It never
+// waits: a tick is in flight, the caller is told no, and that in-flight tick is
+// already doing the same work with the same config.
+//
+// A refused TryTick is not counted in Skipped, which means specifically "the timer
+// fired and enforcement was behind".
+func (e *Engine) TryTick(ctx context.Context) (Report, bool) {
+	if !e.mu.TryLock() {
+		return Report{}, false
+	}
+	defer e.mu.Unlock()
+	return e.Tick(ctx), true
+}
+
+// Skipped is how many timer ticks have been refused because one was still running.
+// Any number that keeps growing means the tick interval is shorter than a tick.
+func (e *Engine) Skipped() int64 { return e.skipped.Load() }
+
+// interval is the current tick period: the test override if set, else whatever the
+// last successful reload said, else the documented default. It reads the published
+// number rather than e.cfg because e.cfg belongs to the tick goroutine.
+func (e *Engine) interval() time.Duration {
+	if e.Interval > 0 {
+		return e.Interval
+	}
+	if s := e.pollSeconds.Load(); s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return config.DefaultPollSeconds * time.Second
+}
+
+func (e *Engine) watchInterval() time.Duration {
+	if e.WatchInterval > 0 {
+		return e.WatchInterval
+	}
+	return time.Second
 }
 
 // tickSession applies the whole per-session policy to one session.
@@ -345,8 +577,10 @@ func (e *Engine) Tick(ctx context.Context) Report {
 //  2. not a managed, enabled account   → never touch it
 //  3. no window open right now         → release, and audit the exit once
 //  4. an unexpired override            → release, and remember to audit expiry
-//  5. already reporting itself locked  → leave it alone
-//  6. otherwise                        → lock, and audit it
+//  5. otherwise                        → lock, and audit it, on EVERY tick
+//
+// There is no "the session says it is already locked" step between 4 and 5, and
+// there must never be one again; see the comment where the lock is issued.
 //
 // Steps 1 and 2 come before any evaluation so an unmanaged account is never
 // locked even if a rule would match it, and so a malformed profile cannot cost
@@ -381,6 +615,11 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 
 	v := schedule.Evaluate(&profile, now)
 
+	// A schedule the evaluator could read but not obey is said out loud before
+	// anything is decided from it, because the verdict below is computed from rules
+	// that may not be the ones the parent wrote.
+	e.reportDegraded(rep, s, &profile, now)
+
 	// 3. No window open: release.
 	if !v.Active {
 		e.release(rep, s, now, "no lockout window is open")
@@ -406,68 +645,76 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 	}
 	e.clearOverride(rep, s, now)
 
-	// 5. Already locked: leave it alone. Re-locking under the user's fingers
-	// re-shows the lock screen, and a child who is honestly looking at a lock
-	// screen is not the failure this loop is for.
+	// 5. Lock it. Every tick, while the window is open, whatever the session says
+	// about itself.
 	//
-	// What this trusts: platform.Session.Locked comes from logind's LockedHint,
-	// which the desktop writes asynchronously. It is the only signal logind
-	// offers — Active, State and IdleHint all read as "active"/"no" on a locked
-	// screen (measured, see #7) — so if a desktop ever left the hint set after an
-	// unlock, this line would skip every tick and the child would have the
-	// machine, silently. That is why the unlock direction is in #6's manual
-	// recipe, and why the time this session has claimed to be locked is kept: a
-	// lockout that has "been locked" for far longer than any plausible lock
-	// screen is worth surfacing.
-	if s.Locked {
-		st := e.ensure(s.ID)
-		if !st.enforcing {
-			e.emit(rep, Event{At: now, Kind: KindLockoutEntered, Username: s.Username,
-				SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
-				Detail: "window open; session already reports itself locked"})
-		}
-		st.enforcing = true
-		st.ruleID, st.ruleName = ruleID, ruleName
-		st.username = s.Username
-		delete(e.unenforceable, s.ID)
-		return
-	}
-
-	// 6. Lock it.
+	// There used to be a step here that skipped the lock when s.Locked was true, on
+	// the reasoning that re-locking under someone's fingers is rude and a child
+	// honestly looking at a lock screen is not the failure this loop exists for.
+	// #29 measured why that reasoning is fatal. platform.Session.Locked is logind's
+	// LockedHint, and SetLockedHint is authorized by uid alone — there is no polkit
+	// action for it among login1's 37, because desktops are supposed to be the only
+	// thing writing it. So this runs from the child's own account, no sudo, no
+	// prompt:
+	//
+	//	gdbus call --system --dest org.freedesktop.login1 \
+	//	  --object-path /org/freedesktop/login1/session/_33 \
+	//	  --method org.freedesktop.login1.Session.SetLockedHint true
+	//
+	// One autostart file with that line and the old engine believed the session was
+	// locked on every tick forever: no lock, no error, and an audit trail reading
+	// "window open; session already reports itself locked" — accurate as far as the
+	// daemon knew, false in fact. A signal the controlled user can write must never
+	// decide when enforcement may stop.
+	//
+	// So the hint is now wording, never a gate. The cost of being wrong in this
+	// direction is that ScreenSaver.Lock is called again on a screen that is already
+	// locked, which #6 measured to be idempotent: a repaint. The cost of being wrong
+	// in the other direction is the product.
+	hinted := s.Locked
 	err := e.Platform.Lock(ctx, s)
 	switch {
 	case err == nil:
-		st := e.ensure(s.ID)
-		if !st.enforcing {
-			e.emit(rep, Event{At: now, Kind: KindLockoutEntered, Username: s.Username,
-				SessionID: s.ID, RuleID: ruleID, RuleName: ruleName})
-		}
-		st.enforcing = true
-		st.ruleID, st.ruleName = ruleID, ruleName
-		st.username = s.Username
+		e.markEnforcing(rep, s, now, ruleID, ruleName, "")
 		rep.Asserted++
 		e.emit(rep, Event{At: now, Kind: KindLockAsserted, Username: s.Username,
-			SessionID: s.ID, RuleID: ruleID, RuleName: ruleName})
-		delete(e.unenforceable, s.ID)
+			SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
+			Detail: assertedDetail(hinted)})
 
 	case errors.Is(err, platform.ErrUnconfirmed):
 		// The request reached a backend; nobody could prove the screen locked.
-		// Treat it as enforcing — we asked, and the next tick re-asks if the hint
-		// says otherwise — but say so, because this is the one outcome where the
-		// child may still be at the desktop.
-		st := e.ensure(s.ID)
-		if !st.enforcing {
-			e.emit(rep, Event{At: now, Kind: KindLockoutEntered, Username: s.Username,
-				SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
-				Detail: "lock requested but not confirmed"})
-		}
-		st.enforcing = true
-		st.ruleID, st.ruleName = ruleID, ruleName
-		st.username = s.Username
+		// Treat it as enforcing — we asked, and the next tick asks again — but say
+		// so, because this is the one outcome where the child may still be at the
+		// desktop.
+		st := e.markEnforcing(rep, s, now, ruleID, ruleName, "lock requested but not confirmed")
 		rep.Errors = append(rep.Errors, fmt.Errorf("lock %s: %w", s.Describe(), err))
-		e.emit(rep, Event{At: now, Kind: KindLockUnconfirmed, Username: s.Username,
-			SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
-			Detail: "a backend accepted the lock; nothing confirmed the screen locked"})
+
+		// A raw virtual terminal is a different statement from "unconfirmed
+		// today". Nothing on a VT ever calls SetLockedHint and loginctl still
+		// exits 0, so this returns ErrUnconfirmed on tick 1 and on tick 10,000
+		// (measured, #5). platform.IsLockable keeps such a session in the listing
+		// on purpose — refusing it would make Sessions() report nobody for that
+		// child and the loop would go quiet while the child kept typing — so the
+		// verdict that this account is not being locked out has to be reached here,
+		// in the loop, rather than in the filter that decides what to look at.
+		//
+		// A wayland or x11 session is NOT in this category. Its desktop may have
+		// locked the screen without ever writing the hint — the screensaver
+		// interface exposes no Locked property at all (measured, #6) — so
+		// persistent unconfirmed on a real desktop is a question to keep asking,
+		// not an answer.
+		if canNeverConfirm(s) {
+			if !st.unenforceableReported {
+				st.unenforceableReported = true
+				e.emit(rep, Event{At: now, Kind: KindUnenforceable, Username: s.Username,
+					SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
+					Detail: "this session type has no desktop to lock, so no backend will ever be able to confirm a lock on it; this account is not being locked out"})
+			}
+		} else {
+			e.emit(rep, Event{At: now, Kind: KindLockUnconfirmed, Username: s.Username,
+				SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
+				Detail: unconfirmedDetail(hinted)})
+		}
 
 	default:
 		// Nothing reached the desktop. Keep the state as it was: if we were
@@ -485,12 +732,56 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 			e.unenforceable = map[string]int{}
 		}
 		e.unenforceable[s.ID]++
-		if e.unenforceable[s.ID] == unenforceableAfter {
-			e.emit(rep, Event{At: now, Kind: KindUnenforceable, Username: s.Username,
-				SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
-				Detail: fmt.Sprintf("no backend has been able to lock this session for %d ticks in a row; this account is not being locked out", unenforceableAfter)})
+		if e.unenforceable[s.ID] >= unenforceableAfter {
+			if st := e.ensure(s.ID); !st.unenforceableReported {
+				st.unenforceableReported = true
+				e.emit(rep, Event{At: now, Kind: KindUnenforceable, Username: s.Username,
+					SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
+					Detail: fmt.Sprintf("no backend has been able to lock this session for %d ticks in a row; this account is not being locked out", unenforceableAfter)})
+			}
 		}
 	}
+}
+
+// assertedDetail words a lock.asserted line. The hint is named when it was set so
+// the trail says out loud that the engine re-locked a session that claimed it did
+// not need it — the line a parent reads to learn someone was writing LockedHint.
+func assertedDetail(hinted bool) string {
+	if hinted {
+		return "re-asserted although the session reported itself locked; that report is not evidence the screen is locked"
+	}
+	return ""
+}
+
+// unconfirmedDetail words a lock.unconfirmed line.
+func unconfirmedDetail(hinted bool) string {
+	if hinted {
+		return "a backend accepted the lock and the session already claimed to be locked; neither proves the screen is locked"
+	}
+	return "a backend accepted the lock; nothing confirmed the screen locked"
+}
+
+// canNeverConfirm reports whether a session is one no backend will ever be able to
+// confirm, as opposed to merely unconfirmed on this tick. See the call site.
+func canNeverConfirm(s platform.Session) bool { return s.Type == "tty" }
+
+// markEnforcing records that this session is inside an enforced lockout and returns
+// its state, emitting lockout.entered on the tick that starts one.
+//
+// Every branch that asked for a lock goes through here — confirmed and unconfirmed —
+// so "we believe this account should be locked" cannot be set by one outcome and
+// forgotten by another.
+func (e *Engine) markEnforcing(rep *Report, s platform.Session, now time.Time, ruleID, ruleName, enterDetail string) *sessionState {
+	st := e.ensure(s.ID)
+	if !st.enforcing {
+		e.emit(rep, Event{At: now, Kind: KindLockoutEntered, Username: s.Username,
+			SessionID: s.ID, RuleID: ruleID, RuleName: ruleName, Detail: enterDetail})
+	}
+	st.enforcing = true
+	st.ruleID, st.ruleName = ruleID, ruleName
+	st.username = s.Username
+	delete(e.unenforceable, s.ID)
+	return st
 }
 
 // unenforceableAfter is how many consecutive failed ticks a session must show
@@ -534,6 +825,10 @@ func (e *Engine) reload(now time.Time, rep *Report) (*config.Config, error) {
 	if err == nil {
 		first := e.cfg == nil
 		e.cfg, e.cfgErr = cfg, nil
+		// Published for Run, which must not read e.cfg from another goroutine. A
+		// parent who changes pollSeconds sees the period move on the next tick
+		// without a restart, which is the same reason the file is re-read at all.
+		e.pollSeconds.Store(int64(cfg.Settings.PollSeconds))
 		if !first {
 			// A recovery is worth a line: the operator saw KindConfigStale and
 			// should see it stop.
@@ -554,12 +849,21 @@ func (e *Engine) reload(now time.Time, rep *Report) (*config.Config, error) {
 
 // release stops enforcing one session and audits the exit once.
 func (e *Engine) release(rep *Report, s platform.Session, now time.Time, detail string) {
-	st := e.state[s.ID]
-	if st != nil && st.enforcing {
-		e.emit(rep, Event{At: now, Kind: KindLockoutExited, Username: s.Username,
-			SessionID: s.ID, RuleID: st.ruleID, RuleName: st.ruleName, Detail: detail})
+	if st := e.state[s.ID]; st != nil {
+		if st.enforcing {
+			e.emit(rep, Event{At: now, Kind: KindLockoutExited, Username: s.Username,
+				SessionID: s.ID, RuleID: st.ruleID, RuleName: st.ruleName, Detail: detail})
+		}
 		st.enforcing = false
 		st.ruleID, st.ruleName = "", ""
+		// Per-lockout bookkeeping starts again the next time this session is inside
+		// a window. Leaving unenforceableReported set would mean a child who was
+		// unenforceable last night is never escalated again, because the flag says
+		// "already told you" for a lockout that has since ended.
+		st.unenforceableReported = false
+		if !st.overrideActive {
+			delete(e.state, s.ID)
+		}
 	}
 	delete(e.unenforceable, s.ID)
 }
@@ -571,6 +875,7 @@ func (e *Engine) releaseState(id string) {
 	if st, ok := e.state[id]; ok {
 		st.enforcing = false
 		st.ruleID, st.ruleName = "", ""
+		st.unenforceableReported = false
 	}
 	delete(e.unenforceable, id)
 }
@@ -584,6 +889,37 @@ func (e *Engine) clearOverride(rep *Report, s platform.Session, now time.Time) {
 	st.overrideActive = false
 	e.emit(rep, Event{At: now, Kind: KindOverrideExpired, Username: s.Username,
 		SessionID: s.ID, Detail: "override ended; enforcement resumes"})
+}
+
+// reportDegraded surfaces a profile the evaluator had to compromise on.
+//
+// It reports when the complaint SET changes, in either direction: a parent who
+// fixes the timezone should see it stop, and a profile that silently gained a rule
+// that can never fire should be visible the tick it was saved. Reporting every tick
+// would bury the lock lines; reporting only the first time would leave a parent who
+// missed it with no second chance while the daemon enforced a schedule nobody chose.
+func (e *Engine) reportDegraded(rep *Report, s platform.Session, p *config.Profile, now time.Time) {
+	errs := schedule.ProfileErrors(p)
+	msgs := make([]string, 0, len(errs))
+	for _, err := range errs {
+		msgs = append(msgs, err.Error())
+	}
+	sig := strings.Join(msgs, "\n")
+
+	if e.degraded[s.ID] == sig {
+		return
+	}
+	if e.degraded == nil {
+		e.degraded = map[string]string{}
+	}
+	e.degraded[s.ID] = sig
+
+	if sig == "" {
+		e.logf("enforce: %s: schedule readable again", s.Username)
+		return
+	}
+	e.emit(rep, Event{At: now, Kind: KindScheduleDegraded, Username: s.Username,
+		SessionID: s.ID, Detail: sig})
 }
 
 func (e *Engine) ensure(id string) *sessionState {
@@ -618,10 +954,24 @@ func (e *Engine) logf(format string, args ...any) {
 	}
 }
 
-// State reports how many sessions the engine currently believes are being
-// enforced. It is what `plock status` shows, and it is a snapshot: the slice is
+// State reports which sessions are inside a lockout the engine is enforcing. It is
+// what `plock status` and the dashboard show, and it is a snapshot: the slice is
 // sorted so two calls with the same state print identically.
+//
+// Read it as "this account is in a lockout we are acting on", not "this screen is
+// locked now". Those differ in both directions, and the difference is deliberate: a
+// session whose very first lock failed is absent, because nothing has been enforced,
+// while a session that was locked an hour ago and whose platform has since gone quiet
+// stays listed, because the window is still open and the failure is reported as an
+// error rather than as a release. Anything that wants the second question has to ask
+// the platform, and #29 says what that answer is worth on its own.
+//
+// It takes the same guard a tick runs under, so a status read cannot observe half of
+// a tick's bookkeeping. That means it waits for a tick in flight, which is the right
+// trade for a screen whose whole job is to be truthful about the last tick.
 func (e *Engine) State() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	var out []string
 	for id, st := range e.state {
 		if st.enforcing {
