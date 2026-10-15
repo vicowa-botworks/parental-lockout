@@ -253,16 +253,7 @@ func TestADrainThatGivesUpSaysSo(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(ctx) }()
 
-	var addr string
-	for i := 0; i < 200; i++ {
-		if addr = s.Addr(); addr != "" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if addr == "" {
-		t.Fatal("Serve never bound")
-	}
+	addr := waitAddr(t, s, ctx)
 	t.Cleanup(func() {
 		select {
 		case <-release:
@@ -272,13 +263,24 @@ func TestADrainThatGivesUpSaysSo(t *testing.T) {
 		cancel()
 	})
 
+	inFlight := make(chan struct{})
 	go func() {
+		defer close(inFlight)
 		client := &http.Client{Timeout: 20 * time.Second}
 		if resp, err := client.Get("http://" + addr + "/slow"); err == nil {
 			resp.Body.Close()
 		}
 	}()
-	<-started
+	// Bounded: if the request never reaches the handler there is no drain to time out,
+	// and an unbounded wait here held the whole package open for four minutes on a mutant
+	// whose real answer was one failing assertion.
+	select {
+	case <-started:
+	case <-inFlight:
+		t.Fatal("the request returned without reaching the handler, so there was no in-flight request to drain")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the request never reached the handler within 10s")
+	}
 	cancel()
 
 	select {

@@ -91,21 +91,30 @@ type Server struct {
 	// embedded tree cannot change while the process runs.
 	assets map[string]string
 
-	// extraRoutes lets a test put a route on the real router. It exists for the
-	// shutdown drain, which needs a handler that is still running at the moment the
-	// context is cancelled — and a route that only exists in a test's own handler
-	// would not be going through the chain that Serve installs, which is the thing
-	// under test.
+	// extraRoutes puts a route on the real router, and exactly three tests use it — all
+	// of them the shutdown drain, which needs a handler that is still running at the
+	// moment the context is cancelled.
+	//
+	// It is unexported on purpose. The alternative, a test standing up its own
+	// http.Server around s.Handler(), would not go through the listener wrap, the
+	// listener close ordering, or the Shutdown call that Serve installs — and those are
+	// the things the drain tests exist to pin. The seam is one field on an unexported
+	// path; the alternative is not testing the shutdown path at all.
 	extraRoutes func(mux *http.ServeMux)
 
 	mu       sync.Mutex
 	listener net.Listener
 	minted   *tls.Config
 
-	// started is closed once the listener is bound, so a caller can wait for the
-	// port to be real rather than sleeping.
-	started chan struct{}
-	startEr error
+	// started is closed once Serve has attempted to bind — on failure as well as on
+	// success, because a caller waiting on a bind that will never happen is the exact
+	// deadlock this field's comment used to promise away. startEr carries what it found.
+	//
+	// startEr is written before close(started) and never again, so a read that happens
+	// after observing the close is ordered by the close itself and needs no lock.
+	started   chan struct{}
+	startEr   error
+	startOnce sync.Once
 }
 
 // sessionCookie is the one cookie this server sets.
@@ -290,6 +299,7 @@ func (s *Server) tlsConfig() *tls.Config {
 // accepting anything.
 func (s *Server) Serve(ctx context.Context) error {
 	ln, err := s.listen()
+	s.markStarted(err)
 	if err != nil {
 		return err
 	}
@@ -406,6 +416,52 @@ func (s *Server) Addr() string {
 		return ""
 	}
 	return s.listener.Addr().String()
+}
+
+// startedCh returns the bind signal, creating it on first use.
+//
+// Lazy rather than left to New: a Server assembled as a struct literal — which every
+// in-package test does, and which the zero-value rule here requires to keep working — has
+// no channel, and closing a nil channel panics. Making the constructor the only place the
+// value exists is the same mistake this codebase has already made three times (a nil Logf
+// in enforce.New, a nil clock in Throttle, max == 0 in Sessions).
+func (s *Server) startedCh() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started == nil {
+		s.started = make(chan struct{})
+	}
+	return s.started
+}
+
+// markStarted releases whoever is waiting on the bind, exactly once. Serving the same
+// Server twice must not close the channel twice, and the first answer is the one they
+// were waiting for.
+func (s *Server) markStarted(err error) {
+	ch := s.startedCh()
+	s.startOnce.Do(func() {
+		s.startEr = err
+		close(ch)
+	})
+}
+
+// WaitReady blocks until Serve has tried to bind the socket and reports what it found.
+//
+// A caller that asked for port 0 needs this. Addr() is "" until the socket exists, so
+// without it the only way to learn the port is to poll — which is what this package's own
+// tests did, 500 times, until the field that advertised a better answer turned out to be
+// wired to nothing.
+//
+// It returns on a bind FAILURE too. A caller that blocks until the port is real and never
+// gets one is worse off than the caller who polled.
+func (s *Server) WaitReady(ctx context.Context) error {
+	ch := s.startedCh()
+	select {
+	case <-ch:
+		return s.startEr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Handler returns the full middleware chain over the router.

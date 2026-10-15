@@ -346,6 +346,34 @@
       "old": "\t\tStatic:   opts.Static,\n",
       "new": "\t\tStatic:   nil,\n",
       "why": "an injected asset bundle is dropped, so Options.Static does nothing and the constructor's asset check is unreachable again"
+    },
+    {
+      "id": "W46",
+      "file": "internal/web/server.go",
+      "old": "\tln, err := s.listen()\n\ts.markStarted(err)\n",
+      "new": "\tln, err := s.listen()\n",
+      "_why": "the bind signal is never sent, so every caller of WaitReady blocks until its own deadline -- the dead field's contract, broken in the other direction"
+    },
+    {
+      "id": "W47",
+      "file": "internal/web/server.go",
+      "old": "\ts.startOnce.Do(func() {\n\t\ts.startEr = err\n\t\tclose(ch)\n\t})",
+      "new": "\ts.startOnce.Do(func() {\n\t\t_ = err\n\t\tclose(ch)\n\t})",
+      "_why": "the waiter is released but never told what happened, so a failed bind reports success and the caller reads an empty Addr() with no error to explain it"
+    },
+    {
+      "id": "W48",
+      "file": "internal/web/server.go",
+      "old": "\tif s.started == nil {\n\t\ts.started = make(chan struct{})\n\t}",
+      "new": "\tif false {\n\t\ts.started = make(chan struct{})\n\t}",
+      "_why": "a Server assembled as a struct literal gets a nil channel, and closing it panics in Serve -- the zero-value rule this package's own tests depend on"
+    },
+    {
+      "id": "W49",
+      "file": "internal/web/server.go",
+      "old": "\tcase <-ctx.Done():\n\t\treturn ctx.Err()\n\t}\n}\n\n// Handler returns",
+      "new": "\tcase <-ctx.Done():\n\t\treturn nil\n\t}\n}\n\n// Handler returns",
+      "_why": "a caller that gave up is told the server is ready, so a daemon that never bound looks healthy to the thing supervising it"
     }
   ]
 }

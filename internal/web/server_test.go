@@ -700,17 +700,7 @@ func TestServeServesAndStopsWithTheContext(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(ctx) }()
 
-	// Wait for the bind rather than sleeping: the port is chosen by the kernel.
-	var addr string
-	for i := 0; i < 200; i++ {
-		if addr = s.Addr(); addr != "" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if addr == "" {
-		t.Fatal("Serve never bound")
-	}
+	addr := waitAddr(t, s, ctx)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get("http://" + addr + "/healthz")
@@ -757,31 +747,36 @@ func TestAnInFlightRequestCompletesDuringShutdown(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(ctx) }()
 
-	var addr string
-	for i := 0; i < 200; i++ {
-		if addr = s.Addr(); addr != "" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if addr == "" {
-		t.Fatal("Serve never bound")
-	}
+	addr := waitAddr(t, s, ctx)
 	// The release channel is closed exactly once, on the success path. A Cleanup
 	// that closed it too would panic on the happy path, which is the one path this
 	// test takes when it passes.
 	t.Cleanup(cancel)
 
+	// Local, not package scope: a channel at package level is shared by every run of the
+	// test, so -count=2 reads the previous run's leftover and stops being a test.
+	slowResult := make(chan requestOutcome, 1)
 	go func() {
 		client := &http.Client{Timeout: 20 * time.Second}
 		resp, err := client.Get("http://" + addr + "/slow")
 		if err == nil {
 			resp.Body.Close()
 		}
-		slowResult <- result{err: err}
+		slowResult <- requestOutcome{err: err}
 	}()
 
-	<-slow
+	// Bounded. `<-slow` with no deadline sat for fourteen minutes on a mutant that made
+	// the CSRF gate cover GET, because the request was answered with 403 and the handler
+	// that closes `slow` never ran: the test neither passed nor failed, it just occupied
+	// the run. A test whose precondition can fail has to say so.
+	select {
+	case <-slow:
+	case res := <-slowResult:
+		t.Fatalf("the in-flight request never reached the handler, so there was nothing to drain: "+
+			"err=%v", res.err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the request never reached the handler within 10s")
+	}
 	cancel()
 
 	select {
@@ -800,9 +795,8 @@ func TestAnInFlightRequestCompletesDuringShutdown(t *testing.T) {
 	}
 }
 
-type result struct{ err error }
-
-var slowResult = make(chan result, 1)
+// requestOutcome is what the in-flight request reported when it finally returned.
+type requestOutcome struct{ err error }
 
 // The transport the daemon presents must be TLS 1.2 at the floor.
 func TestTheTransportRefusesAnythingOlderThanTLS12(t *testing.T) {
@@ -903,16 +897,7 @@ func TestANewConnectionIsRefusedDuringTheDrain(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(ctx) }()
 
-	var addr string
-	for i := 0; i < 200; i++ {
-		if addr = s.Addr(); addr != "" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if addr == "" {
-		t.Fatal("Serve never bound")
-	}
+	addr := waitAddr(t, s, ctx)
 	t.Cleanup(func() {
 		select {
 		case <-release:
@@ -932,7 +917,16 @@ func TestANewConnectionIsRefusedDuringTheDrain(t *testing.T) {
 		}
 	}()
 
-	<-started
+	// Bounded, for the same reason as the drain test above: when a mutant stops the
+	// request reaching the handler, this test's premise is gone, and an unbounded wait
+	// turns that into four minutes of silence instead of one failing assertion.
+	select {
+	case <-started:
+	case <-inFlight:
+		t.Fatal("the in-flight request returned before the handler ran, so there was no drain to test")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the in-flight request never reached the handler within 10s")
+	}
 
 	// The control. Without it, "the connection was refused" could mean "this server never
 	// accepted connections at all", and the test would pass on a server that was dead from

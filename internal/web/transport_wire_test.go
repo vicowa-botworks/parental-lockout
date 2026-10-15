@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -131,14 +132,19 @@ func startRealServer(t *testing.T, mode string) (*Server, *logSink, *logSink) {
 	done := make(chan error, 1)
 	go func() { done <- s.Serve(ctx) }()
 
-	// Wait for the bind rather than sleeping: the port is chosen by the kernel, and a
-	// test that races it fails on a URL of "https://" with no clue why.
-	for i := 0; i < 500 && s.Addr() == ""; i++ {
-		time.Sleep(10 * time.Millisecond)
+	// The port is chosen by the kernel, so the caller has to wait for the bind rather
+	// than guess it. WaitReady is what that wait is for; this helper used to poll Addr()
+	// 500 times, which is the shape of caller the field's comment promised nobody would
+	// have to write.
+	wctx, wcancel := context.WithTimeout(ctx, 10*time.Second)
+	defer wcancel()
+	if err := s.WaitReady(wctx); err != nil {
+		cancel()
+		t.Fatalf("Serve failed to bind: %v", err)
 	}
 	if s.Addr() == "" {
 		cancel()
-		t.Fatal("Serve never bound")
+		t.Fatal("WaitReady returned no error and Addr is still empty")
 	}
 	t.Cleanup(func() {
 		cancel()
@@ -155,3 +161,92 @@ func startRealServer(t *testing.T, mode string) (*Server, *logSink, *logSink) {
 // logSink because that helper is shared by every other test in the package and a substring
 // check is only ever wanted here.
 func joinLines(l *logSink) string { return strings.Join(l.Lines(), "\n") }
+
+// waitAddr blocks until Serve has bound and returns the address it bound to.
+//
+// Four tests used to carry their own 200-iteration poll of Addr() for this. The poll was
+// not merely noisy: it reported "Serve never bound" when the real answer was a bind error
+// the test threw away, so a misconfigured listen address and a server that had not started
+// yet looked the same. WaitReady carries the error, and says so.
+func waitAddr(t *testing.T, s *Server, ctx context.Context) string {
+	t.Helper()
+	wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := s.WaitReady(wctx); err != nil {
+		t.Fatalf("Serve failed to bind: %v", err)
+	}
+	a := s.Addr()
+	if a == "" {
+		t.Fatal("WaitReady reported no bind error and Addr() is still empty")
+	}
+	return a
+}
+
+// The contract the field's comment advertised, tested. `started` was declared with "so a
+// caller can wait for the port to be real rather than sleeping" and nothing ever closed
+// it, so a caller that believed the comment blocked forever.
+//
+// The failure half is the one that matters. A channel closed only on success turns every
+// misconfigured address into a hang, and a hang in a daemon's startup path looks exactly
+// like a daemon that is still starting.
+func TestWaitReadyReleasesItsCallerWhenTheBindFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod %s: %v", dir, err)
+	}
+	// Port 1 on loopback is reserved and never bindable by an unprivileged process, so
+	// this is a real bind failure rather than a mocked one.
+	s, err := New(Options{
+		Listen:   "127.0.0.1:1",
+		TLSMode:  TLSOff,
+		StoreDir: dir,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Serve is what binds, so it has to be running for the waiter to be released.
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- s.Serve(ctx) }()
+
+	if err := s.WaitReady(ctx); err == nil {
+		t.Fatal("WaitReady reported no error for a bind that cannot have succeeded")
+	} else if errors.Is(err, ctx.Err()) || errors.Is(err, context.DeadlineExceeded) {
+		// Without this half the test passes when `started` is never closed at all: the
+		// caller gives up after 5s, gets a deadline error, and a test named for the bind
+		// reports that a bind error arrived.
+		t.Fatalf("WaitReady timed out rather than reporting the bind failure: %v", err)
+	} else if !strings.Contains(err.Error(), "listen") {
+		t.Errorf("WaitReady reported %v, which is not the bind failure", err)
+	}
+	if a := s.Addr(); a != "" {
+		t.Errorf("the bind failed and Addr() still reports %q", a)
+	}
+	// Serve must return the same failure rather than blocking or swallowing it.
+	select {
+	case err := <-serveErr:
+		if err == nil {
+			t.Error("Serve returned no error although the bind failed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Serve did not return after its bind failed")
+	}
+}
+
+// The success half, and the reason the poll in startRealServer is gone rather than merely
+// moved: WaitReady has to answer promptly, not eventually.
+func TestWaitReadyAnswersOnceThePortIsReal(t *testing.T) {
+	s, _, _ := startRealServer(t, TLSOff)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.WaitReady(ctx); err != nil {
+		t.Fatalf("WaitReady on a server that is serving: %v", err)
+	}
+	if s.Addr() == "" {
+		t.Error("WaitReady returned and Addr() is still empty, so the two disagree about the bind")
+	}
+}
