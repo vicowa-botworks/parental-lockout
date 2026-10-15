@@ -570,6 +570,68 @@
       "old": "\ts.Self = opts.Self\n",
       "new": "",
       "note": "the constructor dropping the location, so every assembled Server behaves as a system unit regardless of what its caller knows. A fixture that sets Server.Self by hand stays green while the documented constructor cannot deliver it. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
-    }
+    },
+    {
+      "id": "W78",
+      "file": "internal/web/write.go",
+      "old": "\tif s.Mutate == nil {\n\t\treturn errors.New(\"no configuration write path is wired\")\n",
+      "new": "\tif false {\n\t\treturn errors.New(\"no configuration write path is wired\")\n",
+      "note": "a server assembled without a write path accepts the request, audits the grant, and redirects to a dashboard that still shows the child locked out: the parent is told it worked and nothing was written"
+    },
+    {
+      "id": "W79",
+      "file": "internal/web/write.go",
+      "old": "\ts.writeMu.Lock()\n\tdefer s.writeMu.Unlock()\n",
+      "new": "\t// lock dropped\n",
+      "note": "two load-mutate-save cycles overlap, both start from the same document, and the second rename wins -- one parent's rule silently disappears. Atomicity of config.Save does not help: both writes are whole, one is just stale"
+    },
+    {
+      "id": "W80",
+      "file": "internal/web/override.go",
+      "old": "\tif reason == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n",
+      "new": "\tif false {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n",
+      "note": "an override with no reason is accepted, so the audit line says a child was let out and offers nothing about why -- the exact situation the trail exists to settle"
+    },
+    {
+      "id": "W81",
+      "file": "internal/web/override.go",
+      "old": "\tif !knownAccount(cfg, name) {\n\t\ts.pageRefuse(w, r, http.StatusNotFound,\n",
+      "new": "\tif false {\n\t\ts.pageRefuse(w, r, http.StatusNotFound,\n",
+      "note": "the outer account check is removed, so an unmanaged name reaches mutateConfig and takes the write lock to discover it. The check exists to refuse without serializing behind unrelated writes, which is only observable by asserting the lock is never acquired"
+    },
+    {
+      "id": "W82",
+      "file": "internal/web/override.go",
+      "old": "\t\tif !knownAccount(c, name) {\n\t\t\treturn errUnknownAccount\n",
+      "new": "\t\tif false {\n\t\t\treturn errUnknownAccount\n",
+      "note": "the re-check inside the mutation is dropped: the cfg read above is outside the write lock, so an account removed by a concurrent request still gets an override written for a name that stopped existing"
+    },
+    {
+      "id": "W83",
+      "file": "internal/web/override.go",
+      "old": "\tif !removed {\n\t\t// Not an error, and not silence either",
+      "new": "\tif false && !removed {\n\t\t// Not an error, and not silence either",
+      "note": "clearing an override that was not there reports success, so the parent believes the child is back under enforcement when in fact there was nothing to clear. Guarded with `false &&` rather than a bare `false` because dropping the read of `removed` is a compile error, and a build failure is reported as a catch that proved nothing"
+    },
+    {
+      "id": "W84",
+      "file": "internal/web/override.go",
+      "old": "\tfor _, ok := range overrideMinutes {\n\t\tif m == ok {\n",
+      "new": "\tfor _, ok := range overrideMinutes {\n\t\tif m == ok || true {\n",
+      "note": "any number of minutes accepted, so `minutes=1440` unlocks a child for a day and a half from a hand-crafted request. The allowlist is the only thing separating the three buttons from a free-form field with no guardrail behind it"
+    },
+    {
+      "id": "W85",
+      "file": "internal/web/override.go",
+      "old": "\tif r.FormValue(\"scope\") == \"window\" {",
+      "new": "\tif false && r.FormValue(\"scope\") == \"window\" {",
+      "note": "the window scope is ignored and falls through to the minutes branch, so \"until the window ends\" becomes a 422 about minutes on a page whose button offers exactly that"
+    },
+    {
+      "id": "W86",
+      "file": "internal/web/override.go",
+      "old": "\t\tv := schedule.Evaluate(&c.Profiles[i], now)\n\t\tif !v.Active {\n",
+      "new": "\t\tv := schedule.Evaluate(&c.Profiles[i], now)\n\t\tif false {\n",
+      "note": "an inactive window returns its zero EndsAt as a real one, so an override \"until the window ends\" is written with a zero instant -- which reads as already expired, or as never, depending on the reader, and neither is what the parent asked for"    }
   ]
 }
