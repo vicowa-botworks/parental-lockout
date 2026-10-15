@@ -11,6 +11,14 @@ import (
 // self-signed certificate, serve plain HTTP, or use operator-supplied paths.
 var tlsModes = []string{"auto", "off", "custom"}
 
+// MinPollSeconds is the shortest tick the daemon will accept.
+//
+// Exported because deploy/run-dev.sh has to refuse a too-small PLOCK_DEV_POLL before it
+// writes a dev root, and a second copy of this number in a shell script is how the two
+// come to disagree. The script's comment names this constant; TestTheDevScriptsPollFloor
+// is what makes that naming more than a hope.
+const MinPollSeconds = 5
+
 // MaxPollSeconds is a day. Anything longer is a mistake rather than a policy:
 // the enforcement loop would not notice a schedule change for over that long.
 const MaxPollSeconds = 86400
@@ -49,7 +57,7 @@ func (c *Config) Validate() error {
 		add("settings.listen: must not be empty")
 	}
 	if c.Settings.PollSeconds < 5 {
-		add("settings.pollSeconds: %d is below the minimum of 5", c.Settings.PollSeconds)
+		add("settings.pollSeconds: %d is below the minimum of %d", c.Settings.PollSeconds, MinPollSeconds)
 	} else if c.Settings.PollSeconds > MaxPollSeconds {
 		// Bounded from above because the consumer multiplies it into a
 		// time.Duration, and an unbounded value wraps to a negative interval.
@@ -63,6 +71,32 @@ func (c *Config) Validate() error {
 	}
 	if len(c.Settings.LockBackends) == 0 {
 		add("settings.lockBackends: at least one lock backend is required")
+	}
+
+	// The command backend is the one configured backend that runs a program this
+	// binary does not ship, so its two fields are checked here rather than only at
+	// construction. A document that names "command" without a path would otherwise
+	// load clean, pass doctor, and then fail on the first tick -- and a *relative*
+	// path is worse than a missing one, because it looks specific: it would be
+	// resolved against whatever working directory the daemon happened to start in,
+	// which under systemd is not a directory anyone chose. #53 refused a bare name
+	// for the shipped lock binaries for the same reason; this is that rule applied
+	// to the binary an operator names.
+	if wants := slices.Contains(c.Settings.LockBackends, "command"); wants {
+		path := strings.TrimSpace(c.Settings.LockCommandPath)
+		switch {
+		case path == "":
+			add("settings.lockCommandPath: required when lockBackends names \"command\"")
+		case !strings.HasPrefix(path, "/"):
+			add("settings.lockCommandPath: %q must be an absolute path; a relative or bare name "+
+				"is resolved against the daemon's working directory, which is not a thing an "+
+				"operator controls", c.Settings.LockCommandPath)
+		}
+	} else if c.Settings.LockCommandPath != "" || len(c.Settings.LockCommandArgv) > 0 {
+		// Configured but never used is its own bug: the operator believes a command
+		// backend is in the chain, and doctor will report the three backends that are.
+		add("settings.lockCommandPath: set but lockBackends does not name \"command\", so nothing " +
+			"will ever run it")
 	}
 
 	profileIDs := make(map[string]bool, len(c.Profiles))

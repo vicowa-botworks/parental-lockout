@@ -195,6 +195,22 @@ type Settings struct {
 	PollSeconds  int      `json:"pollSeconds"`
 	Enforcement  bool     `json:"enforcement"`
 	LockBackends []string `json:"lockBackends"`
+
+	// LockCommandPath and LockCommandArgv configure the "command" backend, and are
+	// read only when lockBackends names it. They are flat rather than a nested
+	// object for the same reason certFile/keyFile sit beside tls: a nested struct
+	// would be a pointer (nil must mean "not configured", not "configured empty"),
+	// and a pointer inside Settings has to be deep-copied by normalized, clipped by
+	// clipAll and cloned by every copy-on-write edit helper — four places that must
+	// not be forgotten, which is the exact shape of bug this file has already been
+	// fixed for twice. A string and a []string fall out of the existing copySlice
+	// and slices.Clip coverage with nothing new to remember.
+	//
+	// The path must be absolute. A bare name would be resolved through PATH inside
+	// a root daemon, and #53 established why that is refused rather than resolved
+	// (platform.resolveProgram, docs/security.md §8).
+	LockCommandPath string   `json:"lockCommandPath,omitempty"`
+	LockCommandArgv []string `json:"lockCommandArgv,omitempty"`
 }
 
 // settingsJSON exists for one reason: to tell an omitted "enforcement" apart
@@ -209,6 +225,9 @@ type settingsJSON struct {
 	PollSeconds  int      `json:"pollSeconds"`
 	Enforcement  *bool    `json:"enforcement"`
 	LockBackends []string `json:"lockBackends"`
+
+	LockCommandPath string   `json:"lockCommandPath,omitempty"`
+	LockCommandArgv []string `json:"lockCommandArgv,omitempty"`
 }
 
 // UnmarshalJSON applies the enforcement default while the information that it
@@ -220,12 +239,14 @@ func (s *Settings) UnmarshalJSON(data []byte) error {
 	}
 
 	*s = Settings{
-		Listen:       raw.Listen,
-		TLS:          raw.TLS,
-		CertFile:     raw.CertFile,
-		KeyFile:      raw.KeyFile,
-		PollSeconds:  raw.PollSeconds,
-		LockBackends: raw.LockBackends,
+		Listen:          raw.Listen,
+		TLS:             raw.TLS,
+		CertFile:        raw.CertFile,
+		KeyFile:         raw.KeyFile,
+		PollSeconds:     raw.PollSeconds,
+		LockBackends:    raw.LockBackends,
+		LockCommandPath: raw.LockCommandPath,
+		LockCommandArgv: raw.LockCommandArgv,
 	}
 	s.Enforcement = raw.Enforcement == nil || *raw.Enforcement
 	return nil
@@ -421,6 +442,7 @@ func (c *Config) clipAll() {
 	c.Users = slices.Clip(c.Users)
 	c.Overrides = slices.Clip(c.Overrides)
 	c.Settings.LockBackends = slices.Clip(c.Settings.LockBackends)
+	c.Settings.LockCommandArgv = slices.Clip(c.Settings.LockCommandArgv)
 	// The nested lists are the easy ones to forget, and they are exactly as
 	// appendable as the top-level three.
 	for i := range c.Profiles {
@@ -454,6 +476,7 @@ func (c *Config) normalized() *Config {
 	out.Admin = c.Admin
 	out.Settings = c.Settings
 	out.Settings.LockBackends = copySlice(c.Settings.LockBackends)
+	out.Settings.LockCommandArgv = copySlice(c.Settings.LockCommandArgv)
 
 	if c.Profiles != nil {
 		out.Profiles = make([]Profile, len(c.Profiles))
