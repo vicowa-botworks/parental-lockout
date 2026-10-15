@@ -684,6 +684,118 @@
       "new": "\treturn program, nil",
       "note": "no lookup at all: every bare name is passed through unchanged, which is the pre-fix behaviour this whole change replaced",
       "package": "./internal/platform/"
+    },
+    {
+      "id": "K14",
+      "file": "internal/platform/command.go",
+      "old": "\tcase !strings.HasPrefix(path, \"/\"):",
+      "new": "\tcase false && !strings.HasPrefix(path, \"/\"):",
+      "package": "./internal/platform/",
+      "note": "the absolute-path rule is dropped, so a bare program name reaches exec and is resolved against the daemon's working directory -- the PATH-shaped hole #53 closed for the shipped lock binaries, reopened through the config field an operator writes"
+    },
+    {
+      "id": "K15",
+      "file": "internal/platform/command.go",
+      "old": "\tcase path == \"\":",
+      "new": "\tcase false && path == \"\":",
+      "package": "./internal/platform/",
+      "note": "an empty path stops being an error. lockBackends named the backend, so the chain would carry a backend that locks nothing while reporting itself healthy"
+    },
+    {
+      "id": "K16",
+      "file": "internal/platform/command.go",
+      "old": "\tpath := strings.TrimSpace(s.LockCommandPath)",
+      "new": "\tpath := s.LockCommandPath",
+      "package": "./internal/platform/",
+      "note": "the path is no longer trimmed, so a config with a trailing space execs a file that does not exist and the refusal blames the operator's spelling"
+    },
+    {
+      "id": "K17",
+      "file": "internal/platform/command.go",
+      "old": "\tif !substituted {\n\t\targv = append(argv, s.ID)\n\t}",
+      "new": "\tif _ = substituted; true {\n\t\targv = append(argv, s.ID)\n\t}",
+      "package": "./internal/platform/",
+      "note": "the session id is appended even when the argv already named a token, so a script gets an argument it never asked for; the paired mutant drops it entirely, and only one of the two directions is visible to a test that checks a single fixture"
+    },
+    {
+      "id": "K18",
+      "file": "internal/platform/command.go",
+      "old": "\tif !substituted {\n\t\targv = append(argv, s.ID)\n\t}",
+      "new": "\tif false && !substituted {\n\t\targv = append(argv, s.ID)\n\t}",
+      "package": "./internal/platform/",
+      "note": "a token-free argv gets no session identity at all, so the script can only lock whatever it guessed -- which on a single-session dev box looks identical to working"
+    },
+    {
+      "id": "K19",
+      "file": "internal/platform/command.go",
+      "old": "\t\tout = append(out, a)",
+      "new": "\t\tif a != \"\" {\n\t\t\tout = append(out, a)\n\t\t}",
+      "package": "./internal/platform/",
+      "note": "an argument that substituted to an empty field is dropped rather than kept empty, shifting every later argument one slot into a different option"
+    },
+    {
+      "id": "K20",
+      "file": "internal/platform/command.go",
+      "old": "\tif err := b.exec(ctx, b.path, argv); err != nil {",
+      "new": "\tif err := b.exec(ctx, b.path, argv); false && err != nil {",
+      "package": "./internal/platform/",
+      "note": "a non-zero exit is reported as a successful lock. This is the property that separates the backend from Mock; without it the backend can no longer fail, which is the exact shape mock.go refuses a registry id for"
+    },
+    {
+      "id": "K21",
+      "file": "internal/platform/command.go",
+      "old": "\treturn b.lister.Sessions(ctx)",
+      "new": "\tgot, _ := b.lister.Sessions(ctx)\n\treturn got, nil",
+      "package": "./internal/platform/",
+      "note": "a failed session listing becomes an empty list, which the enforcement loop reads as 'nobody is logged in' and stops enforcing -- the fail-open direction, arriving as a success"
+    },
+    {
+      "id": "K22",
+      "file": "internal/platform/command.go",
+      "old": "\tstatus := BackendStatus{Name: b.Name()}",
+      "new": "\tstatus := BackendStatus{Name: b.Name()}\n\tif b.exec != nil {\n\t\t_ = b.exec(ctx, b.path, nil)\n\t}",
+      "package": "./internal/platform/",
+      "note": "Probe runs the lock program. `plock doctor` is what an operator reaches for when they suspect locking is broken, and a probe that locks the screen while diagnosing it is both a surprise and a false positive"
+    },
+    {
+      "id": "K23",
+      "file": "internal/platform/command.go",
+      "old": "\tif _, err := b.lister.Sessions(ctx); err != nil {",
+      "new": "\tif _, err := b.lister.Sessions(ctx); false && err != nil {",
+      "package": "./internal/platform/",
+      "note": "the listing half disappears from the probe detail, so a machine whose bus is down reports a healthy backend and the operator hunts for a broken binary"
+    },
+    {
+      "id": "K24",
+      "file": "internal/platform/command.go",
+      "old": "\tif fi.IsDir() {",
+      "new": "\tif false && fi.IsDir() {",
+      "package": "./internal/platform/",
+      "note": "a directory is no longer refused by name. It still fails the regular-file check, so the operator gets a mode-string message instead of the sentence that says what they pointed at"
+    },
+    {
+      "id": "K25",
+      "file": "internal/platform/command.go",
+      "old": "\tif fi.Mode().Perm()&0o111 == 0 {",
+      "new": "\tif false && fi.Mode().Perm()&0o111 == 0 {",
+      "package": "./internal/platform/",
+      "note": "a non-executable file is reported available, and the failure then surfaces at lock time as an exec error with nothing in doctor pointing at the mode"
+    },
+    {
+      "id": "K26",
+      "file": "internal/platform/command.go",
+      "old": "return fmt.Errorf(\"%w: %s\", ErrBinaryNotFound, path)",
+      "new": "return fmt.Errorf(\"no such file: %s\", path)",
+      "package": "./internal/platform/",
+      "note": "the missing-program case loses its sentinel, so a missing binary can no longer be reported as a missing binary -- the difference between 'install loginctl' and 'something failed'. Re-pointed once: the message gained the program name to match how ExecRunner reports the same failure, which moved the text this pattern matched."
+    },
+    {
+      "id": "K27",
+      "file": "internal/platform/command.go",
+      "old": "\tstatus.Detail = fmt.Sprintf(\"%s (configured command; not a production backend)\", b.path)",
+      "new": "\tstatus.Detail = fmt.Sprintf(\"%s (configured command)\", b.path)",
+      "package": "./internal/platform/",
+      "note": "the not-a-production warning is dropped from doctor. The field is documented as a hook for tests and a developer's loop, and doctor is the one screen where an operator would otherwise conclude a command backend is a normal thing to be running"
     }
   ]
 }

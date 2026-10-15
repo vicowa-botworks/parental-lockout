@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"strings"
 )
 
@@ -55,7 +56,7 @@ const (
 )
 
 func init() {
-	Register("kde", func(r Runner) (Platform, error) {
+	Register("kde", func(r Runner, _ config.Settings) (Platform, error) {
 		return &desktop{
 			id:    "kde",
 			dests: []string{"org.kde.screensaver", "org.freedesktop.ScreenSaver", "org.kde.ksmserver"},
@@ -66,7 +67,7 @@ func init() {
 			corroborate: true,
 		}, nil
 	})
-	Register("gnome", func(r Runner) (Platform, error) {
+	Register("gnome", func(r Runner, _ config.Settings) (Platform, error) {
 		return &desktop{
 			id:    "gnome",
 			dests: []string{"org.gnome.ScreenSaver", "org.freedesktop.ScreenSaver"},

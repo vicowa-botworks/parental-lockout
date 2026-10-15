@@ -257,7 +257,15 @@ func IsLockable(s Session) bool { return isLockable(s) }
 // Constructor builds a backend over a Runner. Every backend takes the runner rather
 // than calling exec itself, so the tests that pin argv and env are the same tests
 // that exercise the backend.
-type Constructor func(r Runner) (Platform, error)
+//
+// It also takes the settings, because one registered backend -- "command" -- runs a
+// program the operator names rather than one this binary ships. Passing the whole
+// Settings rather than a purpose-built struct is deliberate: a narrower bag would
+// have to be assembled field by field at every New call site, and a field added to
+// Settings would be silently absent from it. The backends that do not need any of it
+// ignore the parameter, which is what the two shipped ones already do with the runner
+// they do not use.
+type Constructor func(r Runner, s config.Settings) (Platform, error)
 
 var registry = map[string]Constructor{}
 
@@ -352,7 +360,7 @@ func New(s config.Settings, r Runner) (*Chain, error) {
 				id, strings.Join(Registered(), ", ")))
 			continue
 		}
-		p, err := ctor(r)
+		p, err := ctor(r, s)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("lockBackends: %s: %w", id, err))
 			continue

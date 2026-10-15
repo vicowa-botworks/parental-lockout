@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"strings"
 )
 
@@ -26,7 +27,7 @@ import (
 type logind struct{ r Runner }
 
 func init() {
-	Register("logind", func(r Runner) (Platform, error) {
+	Register("logind", func(r Runner, _ config.Settings) (Platform, error) {
 		if r == nil {
 			return nil, fmt.Errorf("logind: no runner")
 		}
