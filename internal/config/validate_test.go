@@ -352,3 +352,84 @@ func TestIsDay(t *testing.T) {
 		}
 	}
 }
+
+// TestValidateForEditDiffersOnlyByTheCredential pins the split itself.
+//
+// The risk in a second entry point is that it quietly stops checking something else, and
+// nothing downstream would notice: the CLI would write a document the daemon then reports as
+// broken. So the two are walked over the same deliberately-broken document and compared
+// field by field.
+func TestValidateForEditDiffersOnlyByTheCredential(t *testing.T) {
+	bad := &Config{
+		Version:  CurrentVersion + 1,
+		Settings: Settings{Listen: "", PollSeconds: MaxPollSeconds + 1},
+		Profiles: []Profile{{ID: "p", Timezone: "", Rules: []Rule{{ID: "r", Start: "9am", End: ""}}}},
+		Users:    []User{{Username: "casey", ProfileID: "nope"}},
+	}
+
+	full := problemList(t, bad.Validate())
+	edit := problemList(t, bad.ValidateForEdit())
+
+	var onlyInFull, onlyInEdit []string
+	for _, p := range full {
+		if !strHas(edit, p) {
+			onlyInFull = append(onlyInFull, p)
+		}
+	}
+	for _, p := range edit {
+		if !strHas(full, p) {
+			onlyInEdit = append(onlyInEdit, p)
+		}
+	}
+
+	for _, p := range onlyInFull {
+		if !strings.HasPrefix(p, "admin.") {
+			t.Errorf("ValidateForEdit stopped checking %q, which is not about the credential", p)
+		}
+	}
+	if len(onlyInEdit) > 0 {
+		t.Errorf("ValidateForEdit reports a problem Validate does not: %q", onlyInEdit)
+	}
+	// And the split has to actually be a difference, or the second method is decoration.
+	if len(onlyInFull) == 0 {
+		t.Error("the two checks are identical, so ValidateForEdit is not the narrower gate it claims to be")
+	}
+	// Everything that is not the credential must still be caught by the narrower gate --
+	// these are the fields the CLI's own commands author.
+	joined := strings.Join(edit, "\n")
+	for _, want := range []string{"version", "settings.listen", "settings.pollSeconds", "profileID"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("ValidateForEdit does not report %q:\n%s", want, joined)
+		}
+	}
+}
+
+// problemList splits a Validate error into its individual problems. They are joined with
+// "; " behind a "config: N problem(s): " header, so the header is dropped first -- counting
+// it as a problem would make every comparison differ by one bogus entry.
+func problemList(t *testing.T, err error) []string {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected problems from a deliberately broken document")
+	}
+	body := err.Error()
+	if i := strings.Index(body, "): "); i >= 0 {
+		body = body[i+3:]
+	}
+	var out []string
+	for _, p := range strings.Split(body, "; ") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func strHas(hay []string, needle string) bool {
+	for _, h := range hay {
+		if h == needle {
+			return true
+		}
+	}
+	return false
+}

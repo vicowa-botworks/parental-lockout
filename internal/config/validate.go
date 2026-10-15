@@ -25,7 +25,26 @@ const MaxPollSeconds = 86400
 // Save does not call this. The daemon has to keep enforcing whatever is already
 // on disk even if a hand edit made it unsound, so refusing to write is the
 // responsibility of whoever produced the change.
-func (c *Config) Validate() error {
+func (c *Config) Validate() error { return c.validate(false) }
+
+// ValidateForEdit is Validate without the administrator credential.
+//
+// The credential is the only requirement in the document that a profile or user edit does
+// not author, and it is the one that a machine can legitimately lack: the credential exists
+// to log in to the web UI, and everything in this file is what you do *before* the web UI
+// is reachable, over SSH, on a headless box.
+//
+// Requiring it on an edit is a fail-open. A parent who has not yet run `plock init` on a
+// fresh install would be refused when adding their child, and a child who cannot be added
+// is not enforced. The command that refuses to write because of a field it never touched is
+// the same mistake as `plock unlock` refusing over the admin credential, and it is the third
+// instance of that shape in this package.
+//
+// Validate remains the whole-document check, and `plock init` still insists on the
+// credential: setting up the machine is where that requirement belongs.
+func (c *Config) ValidateForEdit() error { return c.validate(true) }
+
+func (c *Config) validate(skipAdmin bool) error {
 	var problems []string
 	add := func(format string, args ...any) {
 		problems = append(problems, fmt.Sprintf(format, args...))
@@ -35,14 +54,16 @@ func (c *Config) Validate() error {
 		add("version: got %d, this build writes %d", c.Version, CurrentVersion)
 	}
 
-	if strings.TrimSpace(c.Admin.Username) == "" {
-		add("admin.username: an administrator account is required")
-	}
-	// An empty verifier is the one ambiguity that decides what the login form
-	// accepts, so it is reported rather than left for ticket #10 to discover at
-	// runtime: every login would fail, with nothing on disk to check against.
-	if strings.TrimSpace(c.Admin.Password) == "" {
-		add("admin.password: no password verifier is stored, so the web UI cannot authenticate anyone")
+	if !skipAdmin {
+		if strings.TrimSpace(c.Admin.Username) == "" {
+			add("admin.username: an administrator account is required")
+		}
+		// An empty verifier is the one ambiguity that decides what the login form
+		// accepts, so it is reported rather than left for ticket #10 to discover at
+		// runtime: every login would fail, with nothing on disk to check against.
+		if strings.TrimSpace(c.Admin.Password) == "" {
+			add("admin.password: no password verifier is stored, so the web UI cannot authenticate anyone")
+		}
 	}
 
 	if strings.TrimSpace(c.Settings.Listen) == "" {

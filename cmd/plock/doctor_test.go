@@ -18,6 +18,14 @@ type fakeChain struct {
 	names    []string
 	unknown  []string
 	statuses []platform.BackendStatus
+
+	// sessions is the live session set the unenforced check sees. Empty by default, which
+	// models "nobody is logged in" -- the neutral answer for the tests that are only about
+	// backends, and deliberately not an error, because an error here would make every one of
+	// those tests depend on how the join reports a failure.
+	sessions    []platform.Session
+	sessionsErr error
+	lockErr     error
 }
 
 func (f *fakeChain) Names() []string   { return f.names }
@@ -25,6 +33,13 @@ func (f *fakeChain) Unknown() []string { return f.unknown }
 func (f *fakeChain) Probe(context.Context) []platform.BackendStatus {
 	return f.statuses
 }
+func (f *fakeChain) Sessions(context.Context) ([]platform.Session, error) {
+	return f.sessions, f.sessionsErr
+}
+
+// lockErr is what --try reports. A var rather than a recorder because the tests for --try
+// assert on what the operator is told, and only one lock happens per test.
+func (f *fakeChain) Lock(context.Context, platform.Session) error { return f.lockErr }
 
 // withChain installs a chain builder for one test and puts the real one back after.
 func withChain(t *testing.T, cv chainView, err error) {
@@ -32,6 +47,16 @@ func withChain(t *testing.T, cv chainView, err error) {
 	saved := buildChain
 	buildChain = func(config.Settings) (chainView, error) { return cv, err }
 	t.Cleanup(func() { buildChain = saved })
+}
+
+// withDaemon states what the init system will answer. Without it every doctor test asserts
+// on whether the machine running the test happens to have plock installed as a service,
+// which is the shape of test that passes on the author's box and fails everywhere else.
+func withDaemon(t *testing.T, state string, known bool, err error) {
+	t.Helper()
+	saved := systemdProbe
+	systemdProbe = func() (string, bool, error) { return state, known, err }
+	t.Cleanup(func() { systemdProbe = saved })
 }
 
 // writeConfig drops a minimal readable document so runDoctor gets past Load and the
@@ -54,6 +79,7 @@ func TestDoctorReportsWhichBackendWouldBeUsed(t *testing.T) {
 			{Name: "gnome", Available: true, Detail: "calls org.freedesktop.ScreenSaver.Lock"},
 		},
 	}, nil)
+	withDaemon(t, "active", true, nil)
 
 	code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
 	if code != exitOK {
@@ -99,7 +125,7 @@ func TestDoctorNamesUnknownBackendsInTheBody(t *testing.T) {
 			statuses: []platform.BackendStatus{
 				{Name: "kde", Available: true, Detail: "calls org.freedesktop.ScreenSaver.Lock"},
 			},
-			want:     "not recognised in this binary: kdeeen",
+			want:     `names kdeeen, which this binary does not recognise`,
 			wantCode: exitOK,
 		},
 		{
@@ -109,7 +135,7 @@ func TestDoctorNamesUnknownBackendsInTheBody(t *testing.T) {
 			statuses: []platform.BackendStatus{
 				{Name: "nope", Available: false, Detail: "no such backend"},
 			},
-			want:     "not recognised in this binary: nope",
+			want:     `names nope, which this binary does not recognise`,
 			wantCode: exitFailure,
 		},
 	}
@@ -117,6 +143,7 @@ func TestDoctorNamesUnknownBackendsInTheBody(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			withChain(t, &fakeChain{names: tc.names, unknown: tc.unknown, statuses: tc.statuses}, nil)
+			withDaemon(t, "active", true, nil)
 
 			code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
 			if code != tc.wantCode {
@@ -144,6 +171,7 @@ func TestDoctorExplainsThatFirstIsNotTheBackendThatLocks(t *testing.T) {
 			{Name: "kde", Available: true, Detail: "calls org.freedesktop.ScreenSaver.Lock"},
 		},
 	}, nil)
+	withDaemon(t, "active", true, nil)
 
 	code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
 	if code != exitOK {
@@ -170,6 +198,7 @@ func TestDoctorFailsLoudlyWhenNothingCanLock(t *testing.T) {
 			{Name: "kde", Available: false, Detail: "no gdbus"},
 		},
 	}, nil)
+	withDaemon(t, "active", true, nil)
 
 	code, out, _ := runCmd(t, "doctor", "--config", writeConfig(t))
 	if code == exitOK {
@@ -189,6 +218,7 @@ func TestDoctorReportsUnknownBackendNames(t *testing.T) {
 		unknown:  []string{"kde-x"},
 		statuses: []platform.BackendStatus{{Name: "logind", Available: true, Detail: "ok"}},
 	}, errors.New(`unknown lock backend "kde-x"`))
+	withDaemon(t, "active", true, nil)
 
 	code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
 	if code != exitOK {
@@ -206,19 +236,50 @@ func TestDoctorReportsUnknownBackendNames(t *testing.T) {
 }
 
 func TestDoctorReportsAConfigItCannotRead(t *testing.T) {
-	// No chain installed at all: a config that will not load must stop the command
-	// before anything is probed, or the report describes settings nobody wrote.
+	// No chain installed at all: a config that will not load must stop every check that
+	// would otherwise describe settings nobody wrote.
+	//
+	// It no longer stops the whole command. The original shape returned here, which left the
+	// operator's actual next question -- "is the daemon even running?" -- unanswered, and the
+	// two checks that answer it need no config at all. So the config-dependent checks are
+	// reported as skipped rather than run against defaults, which is what this test is really
+	// guarding against.
+	withDaemon(t, "active", true, nil)
 	path := filepath.Join(t.TempDir(), "absent.json")
 	code, out, errOut := runCmd(t, "doctor", "--config", path)
 	if code != exitFailure {
 		t.Fatalf("exit %d, want %d", code, exitFailure)
 	}
-	if out != "" {
-		t.Errorf("printed a report for a config it could not read:\n%s", out)
-	}
 	if !strings.Contains(errOut, path) {
 		t.Errorf("error does not name the file it failed on: %s", errOut)
 	}
+	// The checks that need no config still ran.
+	for _, want := range []string{"daemon", "config.file"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a config failure suppressed the %s check, which does not need a config:\n%s", want, out)
+		}
+	}
+	// And the ones that do are named as not checked, never as having passed.
+	for _, want := range []string{"backends", "unenforced"} {
+		line := checkLine(out, want)
+		if !strings.Contains(line, string(verdictSkip)) {
+			t.Errorf("%s reported %q, want it to say it was not checked:\n%s", want, line, out)
+		}
+	}
+	// Nothing may claim success for a check that could not run.
+	if strings.Contains(out, "nothing failed") {
+		t.Errorf("a run whose config could not be read reported no failures:\n%s", out)
+	}
+}
+
+// checkLine pulls the report line for one check name out of the text output.
+func checkLine(out, name string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, " "+name+" ") {
+			return line
+		}
+	}
+	return ""
 }
 
 func TestDoctorRejectsBadArguments(t *testing.T) {
@@ -236,6 +297,15 @@ func TestDoctorRejectsBadArguments(t *testing.T) {
 	}
 }
 
+// The stub synopsis once promised flags this command did not have, and this test pinned
+// their absence to keep the help from lying. Both flags have since landed, so the pin had
+// to be turned around rather than deleted: the worry was never "--try must not exist", it
+// was "the help and the FlagSet must agree". A lie runs both ways -- advertising a flag
+// that does nothing, and hiding one that works -- so both directions are asserted now.
+//
+// The hiding direction is the one that bit for real: --json and --try were implemented,
+// worked, and were absent from `plock doctor -h`, which no test noticed until the
+// package-wide flag/documentation test was added.
 func TestDoctorHelpIsTheRealUsage(t *testing.T) {
 	code, out, _ := runCmd(t, "doctor", "-h")
 	if code != exitOK {
@@ -244,11 +314,42 @@ func TestDoctorHelpIsTheRealUsage(t *testing.T) {
 	if !strings.Contains(out, "usage: plock doctor") {
 		t.Errorf("help text:\n%s", out)
 	}
-	// The stub synopsis promised flags this command does not have. If one reappears the
-	// help is lying, so the absence is pinned.
-	for _, banned := range []string{"--try", "--json"} {
-		if strings.Contains(out, banned) {
-			t.Errorf("doctor help advertises %s, which this command does not implement:\n%s", banned, out)
+
+	// The real declared set, from the same AST walk the package-wide test uses. A fresh
+	// flag.NewFlagSet here would declare nothing at all -- the flags are declared inside
+	// runDoctor, on a FlagSet this test never sees -- and an empty set would make both
+	// loops below pass by inspecting nothing.
+	names := declaredFlags(t)["doctorUsage"]
+	if len(names) == 0 {
+		t.Fatal("no flags attributed to doctorUsage, so neither assertion below can mean anything")
+	}
+	declared := map[string]bool{}
+	for _, n := range names {
+		declared["--"+n] = true
+	}
+
+	// Every declared flag is advertised.
+	for name := range declared {
+		if !strings.Contains(out, name) {
+			t.Errorf("doctor implements %s but its help does not mention it:\n%s", name, out)
+		}
+	}
+	// Nothing is advertised that the command does not implement. The scan is limited to
+	// the synopsis and the flag bullets, because the body legitimately names a flag while
+	// explaining a rule about it ("--try cannot be combined with --json").
+	for _, line := range strings.Split(out, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "usage:") && !strings.HasPrefix(trimmed, "--") {
+			continue
+		}
+		for _, tok := range strings.Fields(trimmed) {
+			tok = strings.Trim(tok, "[]")
+			if !strings.HasPrefix(tok, "--") {
+				continue
+			}
+			if !declared[tok] {
+				t.Errorf("doctor help advertises %s, which the command does not implement:\n%s", tok, out)
+			}
 		}
 	}
 }
@@ -336,6 +437,7 @@ func TestDoctorReportsAWriteFailure(t *testing.T) {
 		names:    []string{"logind"},
 		statuses: []platform.BackendStatus{{Name: "logind", Available: true, Detail: "ok"}},
 	}, nil)
+	withDaemon(t, "active", true, nil)
 	if code := runDoctor(failWriter{}, failWriter{}, []string{"--config", writeConfig(t)}); code != exitFailure {
 		t.Errorf("exit %d, want %d when the report cannot be written", code, exitFailure)
 	}

@@ -262,10 +262,15 @@ func (a auditSink) Emit(e enforce.Event) {
 	}
 }
 
-// sessionSource is what the Lockables seam reads. *platform.Chain satisfies it, and a
-// test supplies its own because platform.New builds a chain from a config and a Runner
-// and cannot be handed a fake backend: without this, the only thing a wiring test could
-// assert about the seam is that it is not nil, and a hollowed-out body satisfies that.
+// sessionSource is the slice of the chain that needs reading by name rather than by type:
+// serve's Lockables seam and doctor's unenforced check both take it, so it is declared once
+// here and shared rather than restated per file.
+//
+// *platform.Chain satisfies it, and a test supplies its own because platform.New builds a
+// chain from a config and a Runner and cannot be handed a fake backend: without this, the
+// only thing a wiring test could assert about the seam is that it is not nil, and a
+// hollowed-out body satisfies that. The same argument holds for doctor's join, which wants
+// to state a set of sessions instead of asserting on whether the test machine has loginctl.
 type sessionSource interface {
 	Sessions(context.Context) ([]platform.Session, error)
 }

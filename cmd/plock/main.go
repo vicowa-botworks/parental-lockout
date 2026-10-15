@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/cli"
 	"github.com/vicowa-botworks/parental-lockout/internal/version"
 )
 
@@ -26,6 +27,34 @@ const (
 	exitFailure = 1
 	exitUsage   = 2
 )
+
+// Failure codes for `--json`. They are keys, not sentences: the sentence is the
+// "message" field, and a consumer that branches on prose breaks the first time the
+// sentence is improved. Codes are stable across releases the same way the JSON field
+// names are, which is the promise docs/cli.md makes.
+const (
+	codeConfigUnreadable  = "config_unreadable"
+	codeConfigUnstatable  = "config_unstatable"
+	codeConfigUnwritable  = "config_unwritable"
+	codeNoBackend         = "no_backend"
+	codeSessionsFailed    = "sessions_failed"
+	codeNoSuchUser        = "no_such_user"
+	codeNoLockableSession = "no_lockable_session"
+	codeLockFailed        = "lock_failed"
+	codeNoSuchProfile     = "no_such_profile"
+	codeOutputFailed      = "output_failed"
+)
+
+// opFail reports an operational failure (exit 1) from a command that may have been asked
+// for --json. Usage errors do not come through here: they mean the command line itself is
+// wrong, which is a human reading the usage text, and exit 2 already says so.
+//
+// One helper for every command because the alternative is what this repo had: `status`
+// putting its JSON error on stdout while everything else put text on stderr, each
+// defensible in isolation and together meaning no script can rely on either.
+func opFail(stderr io.Writer, asJSON bool, prefix, code string, err error) int {
+	return cli.Fail(stderr, asJSON, prefix, code, err)
+}
 
 const globalUsage = `plock - parental lockout for Linux desktop sessions
 
@@ -38,6 +67,9 @@ Commands:
   status    show enforcement state and per-user lockout status
   lock      lock a user's session immediately, ignoring the schedule
   unlock    grant a temporary override that suspends enforcement
+  override  list or clear temporary overrides
+  profile   list, show, add, edit and remove schedules and their rules
+  user      list and manage the accounts plock enforces
   doctor    diagnose whether locking actually works on this machine
   version   print version information
 
@@ -53,11 +85,38 @@ Print the version, commit and build date.
 // implemented yet, so `plock <cmd> -h` is accurate before the code exists.
 // Every entry here is also listed in globalUsage; a test pins the two together
 // so neither can quietly drift away from the other.
-var planned = map[string]string{
-	"status": "[--json]",
-	"lock":   "<user> [--all]",
-	"unlock": "<user> --minutes N --reason TEXT",
+// helpTopic is one entry of `plock help <command>`.
+type helpTopic struct {
+	topic string
+	usage string
 }
+
+// helpTopics covers every implemented command. A command missing from here answers `-h`
+// with "no help for unknown command", which reads as though the command does not exist;
+// a test walks the command surface against this list so that cannot happen quietly.
+var helpTopics = []helpTopic{
+	// serve has its own topic now. It was absent while it was a stub on this branch, and
+	// main implemented it there -- neither PR's CI could see the other's command list, so
+	// the surface test that walks this table never ran against a tree where serve was real.
+	{"serve", serveUsage},
+	{"init", initUsage},
+	{"status", statusUsage},
+	{"lock", lockUsage},
+	{"unlock", unlockUsage},
+	{"override", overrideUsage},
+	{"profile", profileUsage},
+	{"user", userUsage},
+	{"doctor", doctorUsage},
+	{"version", versionUsage},
+}
+
+// Empty on purpose, and the emptiness is the point of keeping it: every command that was
+// ever a stub is implemented now -- `serve` landed on main while `status`, `lock`,
+// `unlock`, `override`, `profile` and `user` landed here, and neither PR's CI could see the
+// other's commands, so each branch still listed the other's as unimplemented. The
+// command-surface tests walk this map, so an empty map is what makes them assert that
+// nothing is left to stub rather than asserting nothing at all.
+var planned = map[string]string{}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -83,6 +142,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runInit(stdout, stderr, rest)
 	case "serve":
 		return runServe(stdout, stderr, rest)
+	case "status":
+		return runStatus(stdout, stderr, rest)
+	case "lock":
+		return runLock(stdout, stderr, rest)
+	case "unlock":
+		return runUnlock(stdout, stderr, rest)
+	case "override":
+		return runOverride(stdout, stderr, rest)
+	case "profile":
+		return runProfile(stdout, stderr, rest)
+	case "user":
+		return runUser(stdout, stderr, rest)
 	default:
 		if synopsis, ok := planned[command]; ok {
 			return notImplemented(stdout, stderr, command, synopsis, rest)
@@ -109,31 +180,25 @@ func runHelp(stdout, stderr io.Writer, args []string) int {
 	}
 
 	topic := args[0]
-	switch {
-	case topic == "version":
-		if err := writeAll(stdout, versionUsage); err != nil {
-			return exitFailure
-		}
-		return exitOK
-	case topic == "doctor":
-		if err := writeAll(stdout, doctorUsage); err != nil {
-			return exitFailure
-		}
-		return exitOK
-	case topic == "init":
-		if err := writeAll(stdout, initUsage); err != nil {
-			return exitFailure
-		}
-		return exitOK
-	default:
-		if synopsis, ok := planned[topic]; ok {
-			if err := writeAll(stdout, stubUsage(topic, synopsis)); err != nil {
+	// One table rather than a growing switch. A command whose usage string exists but is
+	// not listed here answers `plock <cmd> -h` with "no help for unknown command", which
+	// reads as though the command itself does not exist -- and the test below walks the
+	// command surface, so a new command cannot slip past unlisted.
+	for _, h := range helpTopics {
+		if h.topic == topic {
+			if err := writeAll(stdout, h.usage); err != nil {
 				return exitFailure
 			}
 			return exitOK
 		}
 	}
-
+	// A command that is announced but not built yet still has accurate help: its synopsis.
+	if synopsis, ok := planned[topic]; ok {
+		if err := writeAll(stdout, stubUsage(topic, synopsis)); err != nil {
+			return exitFailure
+		}
+		return exitOK
+	}
 	if err := writeAll(stderr,
 		fmt.Sprintf("plock: no help for unknown command %q\n\n", topic), globalUsage); err != nil {
 		return exitFailure
