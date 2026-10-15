@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // The KDE locker is a separate process, and on this desktop it is the only thing a lock
@@ -60,6 +61,72 @@ var procRoot = "/proc"
 // that cannot be read at all is the opposite case and returns an error, because
 // "cannot look" must not arrive in the same shape as "looked and found nothing" — the
 // caller treats the second as unconfirmed and the first as a fault worth naming.
+// lockerCache memoizes the answer to "is the locker running" for one lock operation.
+//
+// The walk reads /proc/<pid>/status for every process on the machine, and one Chain.Lock
+// asks the question up to eleven times per desktop backend: once, then once per poll for
+// the whole settle window. The settle window is 10 reads 100 ms apart, so a single lock
+// operation can walk the process table eleven times to reach the same answer eleven times.
+//
+// Only a YES is remembered, and that restriction is the whole design.
+//
+// The settle window exists because the desktop raises LockedHint asynchronously, a moment
+// after the lock request returns -- and the locker process appears in the same moment. A
+// cache that remembered NO would be installed before the locker spawns and would then
+// suppress the exact evidence the settle is waiting for: the operation would report
+// unconfirmed on a machine that had locked, forever, and the bug would look like the
+// desktop ignoring us. That is why this is not a general-purpose cache and why there is no
+// TTL to tune.
+//
+// A YES cannot go stale in the direction that matters. The locker dying between two reads
+// would make the second read wrong, but the operation that saw it alive has already
+// confirmed and is returning; nothing re-asks in order to decide whether to keep locking,
+// because the enforcement loop re-locks on every tick regardless and starts a fresh
+// operation -- with a fresh cache -- each time.
+type lockerCache struct {
+	mu  sync.Mutex
+	yes map[uint32]bool
+}
+
+type cacheKey struct{}
+
+// withLockerCache attaches a fresh cache to ctx. Chain.Lock calls this once per operation,
+// which is what makes the cache per-operation without any shared mutable state on the
+// backend -- two concurrent locks for different sessions cannot see each other's answer.
+func withLockerCache(ctx context.Context) context.Context {
+	return context.WithValue(ctx, cacheKey{}, &lockerCache{yes: map[uint32]bool{}})
+}
+
+// lockerRunningCached is lockerRunning with the memo applied. It is the entry point every
+// caller inside a lock operation uses; lockerRunning itself stays uncached and honest so a
+// caller outside an operation -- a test, or a future diagnostic -- cannot accidentally
+// inherit an answer from a previous one.
+func lockerRunningCached(ctx context.Context, uid uint32) (bool, error) {
+	c, _ := ctx.Value(cacheKey{}).(*lockerCache)
+	if c != nil {
+		c.mu.Lock()
+		found := c.yes[uid]
+		c.mu.Unlock()
+		if found {
+			return true, nil
+		}
+	}
+
+	yes, err := lockerRunning(ctx, uid)
+	// A fault is not a NO and must not be remembered as one: "cannot look" and "looked
+	// and found nothing" are different sentences to the caller, and caching the first as
+	// the second would turn a transient /proc problem into a permanent unconfirmed.
+	if yes && err == nil && c != nil {
+		c.mu.Lock()
+		if c.yes == nil {
+			c.yes = map[uint32]bool{}
+		}
+		c.yes[uid] = true
+		c.mu.Unlock()
+	}
+	return yes, err
+}
+
 func lockerRunning(ctx context.Context, uid uint32) (bool, error) {
 	dir, err := os.Open(procRoot)
 	if err != nil {

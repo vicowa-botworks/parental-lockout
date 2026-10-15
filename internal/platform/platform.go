@@ -613,6 +613,11 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 	// reason the per-command bound lives in ExecRunner. A caller's earlier deadline
 	// still wins, because WithTimeout takes the sooner of the two.
 	ctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)
+	// The locker-process answer is memoized for exactly this operation's lifetime, and
+	// this is the only place it can be attached: it has to outlive every confirmation
+	// inside the operation and no further, and a cache on the backend would be shared by
+	// concurrent operations and survive the tick that produced it.
+	ctx = withLockerCache(ctx)
 	defer cancel()
 
 	// Read the lock state once, before anyone is asked.
