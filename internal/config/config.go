@@ -209,6 +209,16 @@ type Settings struct {
 	// The path must be absolute. A bare name would be resolved through PATH inside
 	// a root daemon, and #53 established why that is refused rather than resolved
 	// (platform.resolveProgram, docs/security.md §8).
+	//
+	// This is a hook for tests and for a developer's own loop. It is NOT a production
+	// option, and nothing here pretends it can be made one: a lockCommandPath pointing
+	// at /bin/true configures a daemon that reports every lock as requested and locks
+	// nothing, and the daemon has no way to tell that apart from a real locker, because
+	// a program exiting 0 is not evidence a screen locked. That is why the backend never
+	// implements Confirmer and why `plock doctor` prints "not a production backend" on
+	// its line. Nothing can refuse it on a real machine -- the config is root-only, so
+	// configuring it is already an act only root can perform, which is the same trust
+	// boundary docs/security.md §2 puts the whole policy behind.
 	LockCommandPath string   `json:"lockCommandPath,omitempty"`
 	LockCommandArgv []string `json:"lockCommandArgv,omitempty"`
 }

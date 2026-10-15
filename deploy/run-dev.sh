@@ -49,7 +49,8 @@ and no root.
 Environment:
   PLOCK_DEV_ROOT     where the throwaway state lives (default /tmp/plock-dev)
   PLOCK_DEV_USER     admin login name            (default dev)
-  PLOCK_DEV_LISTEN   listen address              (default 127.0.0.1:8443)
+  PLOCK_DEV_LISTEN   listen address              (default 127.0.0.1:8443;
+                     plain HTTP -- the config sets tls: off)
   PLOCK_DEV_POLL     settings.pollSeconds        (default 5)
   PLOCK_DEV_TARGET   account to enforce          (default the invoking user)
   PLOCK_DEV_PASSWORD admin password; generated and printed if unset
@@ -169,7 +170,7 @@ cat >"$CONFIG" <<EOF
   "version": 1,
   "settings": {
     "listen": "$LISTEN",
-    "tls": "auto",
+    "tls": "off",
     "pollSeconds": $POLL,
     "enforcement": true,
     "lockBackends": ["command"],
@@ -220,14 +221,17 @@ plock dev loop
   audit    $AUDIT
   locker   $LOCKER
   calls    $LOCK_LOG        (tail -f this to watch the loop ask)
-  ui       https://$LISTEN/
+  ui       http://$LISTEN/
   admin    $USERNAME
   target   $TARGET  (the account enforcement acts on)
   password $PASSWORD
 
-Enforcement is aimed at $TARGET. If that is the account you are sitting in, the
-daemon will refuse to lock its own session -- that refusal is correct and is worth
-seeing once; set PLOCK_DEV_TARGET to another local account to watch locks land.
+Enforcement is aimed at $TARGET, which defaults to you. That is safe here only
+because the locker is a script that writes a log line: nothing in this tree refuses
+to lock the session the daemon is running in, so with a real backend pointed at your
+own account you would be locking yourself out of the machine you are using to stop
+it. Set PLOCK_DEV_TARGET to another local account if you want the same loop without
+aiming it at yourself.
 
 The command backend does not confirm a lock, so the audit trail will carry
 lock.unconfirmed. That is the honest reading, not a fault: a script exiting 0 is
