@@ -101,8 +101,7 @@ func runLock(stdout, stderr io.Writer, args []string) int {
 
 	cfg, err := config.Load(*path)
 	if err != nil {
-		fmt.Fprintf(stderr, "plock lock: %v\n", err)
-		return cli.Failure
+		return opFail(stderr, *asJSON, "plock lock", codeConfigUnreadable, err)
 	}
 
 	chain, chainErr := buildLockChain(cfg.Settings)
@@ -113,14 +112,13 @@ func runLock(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprintf(stderr, "plock lock: warning: %v\n", chainErr)
 	}
 	if chain == nil {
-		fmt.Fprint(stderr, "plock lock: no lock backend could be built\n")
-		return cli.Failure
+		return opFail(stderr, *asJSON, "plock lock", codeNoBackend,
+			errors.New("no lock backend could be built"))
 	}
 
 	sessions, err := chain.Sessions(context.Background())
 	if err != nil {
-		fmt.Fprintf(stderr, "plock lock: %v\n", err)
-		return cli.Failure
+		return opFail(stderr, *asJSON, "plock lock", codeSessionsFailed, err)
 	}
 
 	want := sessions
@@ -136,11 +134,11 @@ func runLock(stdout, stderr io.Writer, args []string) int {
 		// operator needs to know which of the two they are looking at.
 		if len(want) == 0 {
 			if _, ok := cfg.UserFor(target); !ok {
-				fmt.Fprintf(stderr, "plock lock: no managed user %q\n", target)
-				return cli.Failure
+				return opFail(stderr, *asJSON, "plock lock", codeNoSuchUser,
+					fmt.Errorf("no managed user %q", target))
 			}
-			fmt.Fprintf(stderr, "plock lock: %q has no session on this machine\n", target)
-			return cli.Failure
+			return opFail(stderr, *asJSON, "plock lock", codeNoLockableSession,
+				fmt.Errorf("%q has no session on this machine", target))
 		}
 	}
 

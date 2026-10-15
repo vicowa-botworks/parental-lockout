@@ -348,17 +348,26 @@ func TestStatusUnreadableConfigWithJSONPutsTheErrorWhereTheParserLooks(t *testin
 	if code != exitFailure {
 		t.Fatalf("exit %d, want %d", code, exitFailure)
 	}
-	// A caller that asked for --json is parsing stdout. A failure that only lands on stderr
-	// is, to that caller, a success carrying an empty document.
+	// The error is JSON on stderr and stdout is empty. The reasoning this test used to
+	// record -- "a caller parsing stdout sees a success carrying an empty document" -- is
+	// answered by the exit code, which is the primary signal and is non-zero, and by the
+	// fact that an empty document is at least recognisably absent. The failure mode on the
+	// other side is worse and silent: with the error on stdout, `plock status --json 2>&1 |
+	// jq` hands jq a JSON document interleaved with a human line, and jq fails on input
+	// that looks fine in either stream alone.
+	//
+	// #11's acceptance criteria also name stderr, and the repo had already drifted on the
+	// strength of the argument below: status put JSON on stdout while every other command
+	// put text on stderr, so neither was usable as a contract.
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		t.Fatalf("--json failure is not JSON on stdout: %v\n%q", err, out)
+	if err := json.Unmarshal([]byte(errOut), &doc); err != nil {
+		t.Fatalf("--json failure is not JSON on stderr: %v\n%q", err, errOut)
 	}
 	if doc["error"] == nil || doc["error"] == "" {
 		t.Errorf("no error field in %v", doc)
 	}
-	if errOut == "" {
-		t.Error("stderr carries nothing, so a human running it by hand sees only a JSON blob")
+	if out != "" {
+		t.Errorf("stdout carries a document on a failed run, so a merged 2>&1 stream is two documents: %q", out)
 	}
 }
 

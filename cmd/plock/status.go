@@ -188,22 +188,11 @@ func runStatus(stdout, stderr io.Writer, args []string) int {
 
 // statusFail reports a failure in whichever grammar the caller asked for.
 //
-// With --json the document goes on stdout. That is a deliberate split from the plain-text
-// path, where the complaint goes on stderr: a caller that asked for --json is parsing one
-// stream, and a failure that appears only on the other stream reads as a success carrying
-// an empty document. #11's acceptance criteria say the error is on stderr as JSON too, so
-// both streams carry it -- stdout for the parser, stderr for the human who ran it by hand.
-func statusFail(stdout, stderr io.Writer, asJSON bool, code string, err error) int {
-	if asJSON {
-		if werr := cli.JSONError(stdout, code, err); werr != nil {
-			fmt.Fprintf(stderr, "plock status: %v\n", werr)
-			return cli.Failure
-		}
-		fmt.Fprintf(stderr, "plock status: %v\n", err)
-		return cli.Failure
-	}
-	fmt.Fprintf(stderr, "plock status: %v\n", err)
-	return cli.Failure
+// It defers to cli.Fail rather than owning a policy of its own: the contract is that a
+// --json failure is JSON on stderr with stdout left empty, and the moment one command
+// decides stdout is more convenient for it, the contract is per-command again.
+func statusFail(_, stderr io.Writer, asJSON bool, code string, err error) int {
+	return cli.Fail(stderr, asJSON, "plock status", code, err)
 }
 
 // buildStatus turns a config into the report, without touching the machine.

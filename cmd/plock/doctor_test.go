@@ -297,6 +297,15 @@ func TestDoctorRejectsBadArguments(t *testing.T) {
 	}
 }
 
+// The stub synopsis once promised flags this command did not have, and this test pinned
+// their absence to keep the help from lying. Both flags have since landed, so the pin had
+// to be turned around rather than deleted: the worry was never "--try must not exist", it
+// was "the help and the FlagSet must agree". A lie runs both ways -- advertising a flag
+// that does nothing, and hiding one that works -- so both directions are asserted now.
+//
+// The hiding direction is the one that bit for real: --json and --try were implemented,
+// worked, and were absent from `plock doctor -h`, which no test noticed until the
+// package-wide flag/documentation test was added.
 func TestDoctorHelpIsTheRealUsage(t *testing.T) {
 	code, out, _ := runCmd(t, "doctor", "-h")
 	if code != exitOK {
@@ -305,11 +314,42 @@ func TestDoctorHelpIsTheRealUsage(t *testing.T) {
 	if !strings.Contains(out, "usage: plock doctor") {
 		t.Errorf("help text:\n%s", out)
 	}
-	// The stub synopsis promised flags this command does not have. If one reappears the
-	// help is lying, so the absence is pinned.
-	for _, banned := range []string{"--try", "--json"} {
-		if strings.Contains(out, banned) {
-			t.Errorf("doctor help advertises %s, which this command does not implement:\n%s", banned, out)
+
+	// The real declared set, from the same AST walk the package-wide test uses. A fresh
+	// flag.NewFlagSet here would declare nothing at all -- the flags are declared inside
+	// runDoctor, on a FlagSet this test never sees -- and an empty set would make both
+	// loops below pass by inspecting nothing.
+	names := declaredFlags(t)["doctorUsage"]
+	if len(names) == 0 {
+		t.Fatal("no flags attributed to doctorUsage, so neither assertion below can mean anything")
+	}
+	declared := map[string]bool{}
+	for _, n := range names {
+		declared["--"+n] = true
+	}
+
+	// Every declared flag is advertised.
+	for name := range declared {
+		if !strings.Contains(out, name) {
+			t.Errorf("doctor implements %s but its help does not mention it:\n%s", name, out)
+		}
+	}
+	// Nothing is advertised that the command does not implement. The scan is limited to
+	// the synopsis and the flag bullets, because the body legitimately names a flag while
+	// explaining a rule about it ("--try cannot be combined with --json").
+	for _, line := range strings.Split(out, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "usage:") && !strings.HasPrefix(trimmed, "--") {
+			continue
+		}
+		for _, tok := range strings.Fields(trimmed) {
+			tok = strings.Trim(tok, "[]")
+			if !strings.HasPrefix(tok, "--") {
+				continue
+			}
+			if !declared[tok] {
+				t.Errorf("doctor help advertises %s, which the command does not implement:\n%s", tok, out)
+			}
 		}
 	}
 }

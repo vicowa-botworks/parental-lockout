@@ -21,12 +21,27 @@ import (
 // replaces.
 const defaultConfigPath = "/etc/plock/config.json"
 
-const doctorUsage = `usage: plock doctor [--config PATH]
+const doctorUsage = `usage: plock doctor [--json] [--try <user>] [--config PATH]
 
 Reports, for each configured lock backend: whether it is usable on this machine, why
-not if it is not, and which one a lock attempt would be offered to first.
+not if it is not, and which one a lock attempt would be offered to first. Also checks
+that the process is root, that the config is readable, writable and 0600, that the poll
+interval is sane, that the TLS certificate is valid, that the daemon is running, and --
+the check that answers "it is not working" -- whether any managed user is inside a
+lockout window with a session that is not locked.
 
-Reads only. It never locks a screen and never writes the config.
+Reads only. Without --try it never locks a screen and never writes the config.
+
+  --json         the report as one JSON document on stdout; a failure is reported as
+                 JSON on stderr and stdout stays empty
+  --try <user>   actually lock that user and report which backend won. This is the one
+                 flag that changes the machine, so it cannot be combined with --json:
+                 a script must never be able to lock a screen as a side effect of
+                 asking a question
+  --config PATH  config file (default /etc/plock/config.json)
+
+Exits 0 when nothing failed, 1 when a check failed -- and --json names which in its
+"failed" array.
 `
 
 // chainView is what doctor needs from the chain: the configured order, the per-backend

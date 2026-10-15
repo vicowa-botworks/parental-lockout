@@ -66,6 +66,36 @@ func JSONError(w io.Writer, code string, err error) error {
 	}{Error: code, Message: err.Error()})
 }
 
+// Fail reports an operational failure in whichever grammar the caller asked for and
+// returns the exit code to exit with.
+//
+// With --json the document goes on stderr and stdout stays empty. The two alternatives
+// were both worse. On stdout: a caller doing `plock status --json 2>&1 | jq` gets a JSON
+// document interleaved with a human line and parses neither. On both streams: that same
+// caller gets two documents, and jq reads the first then errors on the second. Empty
+// stdout plus exit 1 is the honest pair -- there is no report, and stderr says why in the
+// grammar that was asked for.
+//
+// Every command routes through here so the contract has one implementation rather than
+// eight. #11's acceptance criteria name stderr; `status` had been writing to stdout, which
+// is exactly how a per-command contract drifts once each command owns its own error path.
+//
+// The write error on the text path is deliberately not propagated: stderr is the last
+// channel there is, and a command that cannot report a failure still has to return a
+// non-zero status rather than trade one silence for another.
+func Fail(stderr io.Writer, asJSON bool, prefix, code string, err error) int {
+	if asJSON {
+		if werr := JSONError(stderr, code, err); werr != nil {
+			// Failing to write the error is a different fault from the one being
+			// reported, and saying so is the only thing that keeps the two apart.
+			fmt.Fprintf(stderr, "%s: %v (and writing the JSON error: %v)\n", prefix, err, werr)
+		}
+		return Failure
+	}
+	fmt.Fprintf(stderr, "%s: %v\n", prefix, err)
+	return Failure
+}
+
 // Report accumulates a human-readable report so it can be written once, with the write
 // error checked.
 //

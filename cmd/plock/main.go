@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/cli"
 	"github.com/vicowa-botworks/parental-lockout/internal/version"
 )
 
@@ -26,6 +27,34 @@ const (
 	exitFailure = 1
 	exitUsage   = 2
 )
+
+// Failure codes for `--json`. They are keys, not sentences: the sentence is the
+// "message" field, and a consumer that branches on prose breaks the first time the
+// sentence is improved. Codes are stable across releases the same way the JSON field
+// names are, which is the promise docs/cli.md makes.
+const (
+	codeConfigUnreadable  = "config_unreadable"
+	codeConfigUnstatable  = "config_unstatable"
+	codeConfigUnwritable  = "config_unwritable"
+	codeNoBackend         = "no_backend"
+	codeSessionsFailed    = "sessions_failed"
+	codeNoSuchUser        = "no_such_user"
+	codeNoLockableSession = "no_lockable_session"
+	codeLockFailed        = "lock_failed"
+	codeNoSuchProfile     = "no_such_profile"
+	codeOutputFailed      = "output_failed"
+)
+
+// opFail reports an operational failure (exit 1) from a command that may have been asked
+// for --json. Usage errors do not come through here: they mean the command line itself is
+// wrong, which is a human reading the usage text, and exit 2 already says so.
+//
+// One helper for every command because the alternative is what this repo had: `status`
+// putting its JSON error on stdout while everything else put text on stderr, each
+// defensible in isolation and together meaning no script can rely on either.
+func opFail(stderr io.Writer, asJSON bool, prefix, code string, err error) int {
+	return cli.Fail(stderr, asJSON, prefix, code, err)
+}
 
 const globalUsage = `plock - parental lockout for Linux desktop sessions
 

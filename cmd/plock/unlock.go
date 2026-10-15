@@ -27,7 +27,7 @@ The account returns to its schedule on its own; there is nothing to undo. Use
 ` + "`plock override clear <user>`" + ` to end an override early.
 `
 
-const overrideUsage = `usage: plock override list [--json]
+const overrideUsage = `usage: plock override list [--json] [--config PATH]
        plock override clear <user> [--config PATH]
 
 list shows every override in the config, active or not, with who granted it and why.
@@ -213,8 +213,7 @@ func runOverrideList(stdout, stderr io.Writer, args []string) int {
 
 	cfg, err := config.Load(*path)
 	if err != nil {
-		fmt.Fprintf(stderr, "plock override list: %v\n", err)
-		return cli.Failure
+		return opFail(stderr, *asJSON, "plock override list", codeConfigUnreadable, err)
 	}
 
 	now := nowFunc()
@@ -238,8 +237,7 @@ func runOverrideList(stdout, stderr io.Writer, args []string) int {
 
 	if *asJSON {
 		if err := cli.JSON(stdout, map[string]any{"overrides": rows}); err != nil {
-			fmt.Fprintf(stderr, "plock override list: %v\n", err)
-			return cli.Failure
+			return opFail(stderr, true, "plock override list", codeOutputFailed, err)
 		}
 		return cli.OK
 	}

@@ -106,6 +106,12 @@ type cmdFlags struct {
 	asJSON *bool
 }
 
+// jsonWanted reports whether this invocation asked for --json. Nil-safe because the
+// flag is only declared on the read commands: a write subcommand has no --json to read,
+// and a helper that panicked on the nil would make the shared failure path unusable
+// there -- which is how commands end up owning their own error handling again.
+func (c cmdFlags) jsonWanted() bool { return c.asJSON != nil && *c.asJSON }
+
 func newFlagSet(name, usage string, withJSON bool) cmdFlags {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	var buf bytes.Buffer
@@ -144,7 +150,7 @@ func profileList(stdout, stderr io.Writer, args []string) int {
 		}
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "profile list")
+	cfg, code := loadForEdit(c, stderr, *c.path, "profile list")
 	if code != cli.OK {
 		return code
 	}
@@ -164,8 +170,7 @@ func profileList(stdout, stderr io.Writer, args []string) int {
 	}
 	if *c.asJSON {
 		if err := cli.JSON(stdout, map[string]any{"profiles": rows}); err != nil {
-			fmt.Fprintf(stderr, "plock profile list: %v\n", err)
-			return cli.Failure
+			return opFail(stderr, true, "plock profile list", codeOutputFailed, err)
 		}
 		return cli.OK
 	}
@@ -194,20 +199,19 @@ func profileShow(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprint(stderr, "plock profile show: a profile id is required\n\n")
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "profile show")
+	cfg, code := loadForEdit(c, stderr, *c.path, "profile show")
 	if code != cli.OK {
 		return code
 	}
 	p, ok := findProfile(cfg, id)
 	if !ok {
-		fmt.Fprintf(stderr, "plock profile show: no profile %q\n", id)
-		return cli.Failure
+		return opFail(stderr, c.jsonWanted(), "plock profile show", codeNoSuchProfile,
+			fmt.Errorf("no profile %q", id))
 	}
 
 	if *c.asJSON {
 		if err := cli.JSON(stdout, p); err != nil {
-			fmt.Fprintf(stderr, "plock profile show: %v\n", err)
-			return cli.Failure
+			return opFail(stderr, true, "plock profile show", codeOutputFailed, err)
 		}
 		return cli.OK
 	}
@@ -251,7 +255,7 @@ func profileAdd(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprint(stderr, "plock profile add: a profile id is required\n\n")
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "profile add")
+	cfg, code := loadForEdit(c, stderr, *c.path, "profile add")
 	if code != cli.OK {
 		return code
 	}
@@ -323,7 +327,7 @@ func profileEdit(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprint(stderr, "plock profile edit: nothing to change (give --name or --timezone)\n")
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "profile edit")
+	cfg, code := loadForEdit(c, stderr, *c.path, "profile edit")
 	if code != cli.OK {
 		return code
 	}
@@ -364,7 +368,7 @@ func profileRm(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprint(stderr, "plock profile rm: a profile id is required\n\n")
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "profile rm")
+	cfg, code := loadForEdit(c, stderr, *c.path, "profile rm")
 	if code != cli.OK {
 		return code
 	}
@@ -456,7 +460,7 @@ func ruleAdd(stdout, stderr io.Writer, args []string) int {
 		return cli.Usage
 	}
 
-	cfg, code := loadForEdit(stderr, *c.path, "profile rule add")
+	cfg, code := loadForEdit(c, stderr, *c.path, "profile rule add")
 	if code != cli.OK {
 		return code
 	}
@@ -516,7 +520,7 @@ func ruleRm(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprint(stderr, "plock profile rule rm: a profile id and a rule id are required\n\n")
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "profile rule rm")
+	cfg, code := loadForEdit(c, stderr, *c.path, "profile rule rm")
 	if code != cli.OK {
 		return code
 	}
@@ -562,7 +566,7 @@ func ruleEnabled(stdout, stderr io.Writer, enable bool, args []string) int {
 		fmt.Fprintf(stderr, "plock profile rule %s: a profile id and a rule id are required\n\n", verb(enable))
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "profile rule "+verb(enable))
+	cfg, code := loadForEdit(c, stderr, *c.path, "profile rule "+verb(enable))
 	if code != cli.OK {
 		return code
 	}
@@ -602,7 +606,7 @@ func userList(stdout, stderr io.Writer, args []string) int {
 		}
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "user list")
+	cfg, code := loadForEdit(c, stderr, *c.path, "user list")
 	if code != cli.OK {
 		return code
 	}
@@ -624,8 +628,7 @@ func userList(stdout, stderr io.Writer, args []string) int {
 	}
 	if *c.asJSON {
 		if err := cli.JSON(stdout, map[string]any{"users": rows}); err != nil {
-			fmt.Fprintf(stderr, "plock user list: %v\n", err)
-			return cli.Failure
+			return opFail(stderr, true, "plock user list", codeOutputFailed, err)
 		}
 		return cli.OK
 	}
@@ -663,7 +666,7 @@ func userAssign(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprint(stderr, "plock user assign: a username and a profile id are required\n\n")
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "user assign")
+	cfg, code := loadForEdit(c, stderr, *c.path, "user assign")
 	if code != cli.OK {
 		return code
 	}
@@ -705,7 +708,7 @@ func userEnabled(stdout, stderr io.Writer, enable bool, args []string) int {
 		fmt.Fprintf(stderr, "plock user %s: a username is required\n\n", verb(enable))
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "user "+verb(enable))
+	cfg, code := loadForEdit(c, stderr, *c.path, "user "+verb(enable))
 	if code != cli.OK {
 		return code
 	}
@@ -742,7 +745,7 @@ func userRm(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprint(stderr, "plock user rm: a username is required\n\n")
 		return cli.Usage
 	}
-	cfg, code := loadForEdit(stderr, *c.path, "user rm")
+	cfg, code := loadForEdit(c, stderr, *c.path, "user rm")
 	if code != cli.OK {
 		return code
 	}
@@ -782,11 +785,10 @@ func saveEdited(cfg *config.Config, path string, stdout, stderr io.Writer, what 
 // A config that will not load is refused rather than defaulted: writing on top of a
 // document this build cannot read would replace bytes the operator wrote with a document
 // assembled from defaults, and the daemon would then enforce something nobody configured.
-func loadForEdit(stderr io.Writer, path, what string) (*config.Config, int) {
+func loadForEdit(c cmdFlags, stderr io.Writer, path, what string) (*config.Config, int) {
 	cfg, err := config.Load(path)
 	if err != nil {
-		fmt.Fprintf(stderr, "plock %s: %v\n", what, err)
-		return nil, cli.Failure
+		return nil, opFail(stderr, c.jsonWanted(), "plock "+what, codeConfigUnreadable, err)
 	}
 	return cfg, cli.OK
 }
