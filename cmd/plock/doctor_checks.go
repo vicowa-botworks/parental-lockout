@@ -17,13 +17,6 @@ import (
 	"github.com/vicowa-botworks/parental-lockout/internal/schedule"
 )
 
-// sessionSource is the part of the chain the unenforced check needs. An interface rather
-// than *platform.Chain so the join can be tested against a stated set of sessions instead
-// of a machine that happens to have loginctl.
-type sessionSource interface {
-	Sessions(context.Context) ([]platform.Session, error)
-}
-
 // The diagnostic half of `plock doctor`: the checks beyond "which backend would I use".
 //
 // The reason this file exists is the ticket's own framing — doctor is the answer to "it is
