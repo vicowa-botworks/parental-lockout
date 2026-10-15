@@ -604,6 +604,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /{$}", s.requireAuth(http.HandlerFunc(s.handleDashboard)))
 	mux.Handle("GET /users", s.requireAuth(http.HandlerFunc(s.handleUsers)))
 	mux.Handle("GET /audit", s.requireAuth(http.HandlerFunc(s.handleAudit)))
+	mux.Handle("GET /profiles", s.requireAuth(http.HandlerFunc(s.handleProfiles)))
 	// The override routes are the first writes this server accepts. They need no CSRF
 	// wiring of their own: csrfMiddleware gates every non-public non-GET already, so a new
 	// POST route is covered the moment it is registered -- which is the reason the gate
@@ -612,6 +613,10 @@ func (s *Server) Handler() http.Handler {
 		s.requireAuth(http.HandlerFunc(s.handleOverride)))
 	mux.Handle("POST /users/{name}/override/clear",
 		s.requireAuth(http.HandlerFunc(s.handleOverrideClear)))
+	mux.Handle("POST /profiles/{id}/rules",
+		s.requireAuth(http.HandlerFunc(s.handleAddRule)))
+	mux.Handle("POST /profiles/{id}/delete",
+		s.requireAuth(http.HandlerFunc(s.handleDeleteProfile)))
 	mux.HandleFunc("GET /static/{file}", s.handleStatic)
 
 	chain := s.recoverMiddleware(

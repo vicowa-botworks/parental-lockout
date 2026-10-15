@@ -1,0 +1,112 @@
+{{define "pagename"}}profiles{{end}}
+{{define "title"}}Lockout profiles{{end}}
+{{define "body"}}
+<p class="banner">
+  {{if not .Manage}}
+    <span class="problem">Enforcement is switched off, so a rule added here changes the
+    configuration but locks nobody out until it is switched back on.</span>
+  {{else if not .Profiles}}
+    There are no profiles yet, so no account can be locked out.
+  {{else}}
+    A profile is the set of windows that lock a child out. Several accounts can share one.
+  {{end}}
+</p>
+
+{{range .Profiles}}
+<section class="profile">
+  <h2>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</h2>
+  <p class="meta">
+    id <code>{{.ID}}</code> &middot; timezone <code>{{.Timezone}}</code>
+  </p>
+
+  {{- /* The evaluator's own degraded report. A profile whose rule can never fire, or whose
+         timezone fell back to a default, would otherwise look exactly like one that works. */ -}}
+  {{if .Complaint}}
+  <p class="problem" role="alert">{{.Complaint}}</p>
+  {{end}}
+
+  <table class="rows">
+    <caption>
+      Windows enforced by {{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}},
+      and which accounts share them.
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Rule</th>
+        <th scope="col">Days</th>
+        <th scope="col">Window</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Rules}}
+      <tr>
+        <th scope="row">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</th>
+        <td>{{if .Days}}{{.Days}}{{else}}<span class="problem">no day</span>{{end}}</td>
+        <td>{{.Window}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="3">No windows yet, so this profile locks nobody out.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  <p class="assigned">
+    {{if .AssignedTo}}
+      Shared by:
+      {{range $i, $u := .AssignedTo}}{{if $i}}, {{end}}<code>{{$u}}</code>{{end}}
+    {{else}}
+      <span class="muted">No account is assigned to this profile.</span>
+    {{end}}
+  </p>
+
+  <form method="post" action="/profiles/{{.ID}}/rules" class="edit-form">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <h3>Add a window</h3>
+
+    <p>
+      <label for="name-{{.ID}}">Name</label>
+      <input id="name-{{.ID}}" type="text" name="name" required
+             placeholder="School night">
+    </p>
+
+    <fieldset>
+      <legend>Days</legend>
+      {{range $.Days}}
+      <label><input type="checkbox" name="days" value="{{.}}"> {{.}}</label>
+      {{end}}
+    </fieldset>
+
+    <p>
+      <label for="start-{{.ID}}">From</label>
+      <input id="start-{{.ID}}" type="text" name="start" inputmode="numeric"
+             placeholder="21:00" size="5">
+      <label for="end-{{.ID}}">Until</label>
+      <input id="end-{{.ID}}" type="text" name="end" inputmode="numeric"
+             placeholder="06:30" size="5">
+    </p>
+
+    <p>
+      <label for="allday-{{.ID}}">
+        <input id="allday-{{.ID}}" type="checkbox" name="allDay" value="on">
+        All day &mdash; the times above are then ignored
+      </label>
+    </p>
+
+    <button type="submit">Add window</button>
+  </form>
+
+  <form method="post" action="/profiles/{{.ID}}/delete" class="edit-form">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <p>
+      <button type="submit">Delete this profile</button>
+      <span class="muted">
+        Refused while an account is still assigned to it, naming every account that has to
+        move first.
+      </span>
+    </p>
+  </form>
+</section>
+{{else}}
+<p>Nothing is configured yet.</p>
+{{end}}
+{{end}}
