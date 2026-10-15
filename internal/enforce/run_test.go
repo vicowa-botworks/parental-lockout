@@ -564,3 +564,56 @@ func TestAShutdownPartwayThroughTheListStopsThePass(t *testing.T) {
 		}
 	}
 }
+
+// The reviewer reproduced this race by giving the sink a slow Emit -- 250 ms, three runs
+// out of three -- where my attempts to lose it by stressing the machine did not reproduce
+// in 2600 runs. That asymmetry is the reason this test exists: a wait that only holds when
+// the emit is fast is not a wait on the emit.
+//
+// So the sink is slow on purpose. If the loop ever goes back to waiting on the counter,
+// this fails in a quarter second rather than on a loaded runner once a week.
+func TestASlowAuditSinkDoesNotHideTheSkippedTickEvent(t *testing.T) {
+	e, p, _, _, _ := newEngine(t, kidDoc(), refInside)
+	slow := &slowSink{inner: &recSink{}}
+	e.Sink = slow
+	e.Interval = 5 * time.Millisecond
+	e.WatchInterval = -1
+
+	gate := make(chan struct{})
+	p.mu.Lock()
+	p.block = gate
+	p.entered = make(chan struct{})
+	p.mu.Unlock()
+	t.Cleanup(func() {
+		select {
+		case <-gate:
+		default:
+			close(gate)
+		}
+	})
+
+	cancel, _ := startRun(t, e)
+	defer cancel()
+
+	// The counter is already visible here while the event is still inside Emit. Waiting
+	// on it would let this test pass with nothing in the audit log.
+	waitFor(t, "a tick.skipped event through a slow sink", func() bool {
+		return slow.countOf(KindTickSkipped) > 0
+	})
+}
+
+// slowSink records like recSink and then holds the event for a beat, standing in for an
+// audit writer that is doing real work when the engine reports something.
+//
+// The sleep sits before the append, so there is a real window in which the engine has
+// already counted the skip and the audit log has not yet seen it.
+type slowSink struct {
+	inner *recSink
+}
+
+func (s *slowSink) Emit(ev Event) {
+	time.Sleep(250 * time.Millisecond)
+	s.inner.Emit(ev)
+}
+
+func (s *slowSink) countOf(kind string) int { return s.inner.countOf(kind) }
