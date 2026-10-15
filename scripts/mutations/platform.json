@@ -501,17 +501,17 @@
    "id": "J2",
    "package": "./internal/platform/",
    "file": "internal/platform/locker.go",
-   "old": "\t\tif filepath.Base(parentArgv[0]) != ksmserverProgram {",
-   "new": "\t\tif false {",
-   "note": "any locker process corroborates, including one the child started itself"
+   "old": "\t\tif filepath.Base(parentArgv[0]) != ksmserverProgram {\n\t\t\tcontinue\n\t\t}\n\t\tif !isCompositorBinary(strconv.Itoa(ppid), uid) {\n\t\t\tcontinue\n\t\t}",
+   "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n\t\tif false {\n\t\t\tcontinue\n\t\t}",
+   "note": "the parent is never asked to be the compositor -- both the argv[0] name and the resolved-binary check, because either one alone catches the impostor and mutating only the cheap pre-filter is masked by the guard after it"
   },
   {
    "id": "J3",
    "package": "./internal/platform/",
    "file": "internal/platform/locker.go",
-   "old": "\t\tif filepath.Base(argv[0]) != kdeLockerProgram {",
-   "new": "\t\tif !strings.Contains(strings.Join(argv, \" \"), \"kscreenlocker_g\") {",
-   "note": "match on the 15-char truncated name instead of argv0, so any program named like the locker counts"
+   "old": "\t\tif filepath.Base(argv[0]) != kdeLockerProgram {\n\t\t\tcontinue\n\t\t}\n\t\tif !isLockerBinary(name, uid) {\n\t\t\tcontinue\n\t\t}",
+   "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n\t\tif false {\n\t\t\tcontinue\n\t\t}",
+   "note": "the candidate is never asked to be the locker -- both the argv[0] name and the resolved-binary check, for the same reason as J2"
   },
   {
    "id": "J4",
@@ -567,6 +567,22 @@
    "old": "\tc, ok := conf.(Corroborator)\n\treturn ok && c.Corroborated()",
    "new": "\t_, ok := conf.(Corroborator)\n\treturn ok",
    "note": "the chain goes back to deciding corroboration by type assertion, which is true for gnome, so a pre-set hint confirms on a gnome-only chain"
+  },
+  {
+   "id": "K1",
+   "package": "./internal/platform/",
+   "file": "internal/platform/locker.go",
+   "old": "\tfor _, p := range []string{path, filepath.Dir(path)} {",
+   "new": "\tfor _, p := range []string{path} {",
+   "note": "the locker's own mode is honest and the directory that decides who can replace it is never asked about"
+  },
+  {
+   "id": "K2",
+   "package": "./internal/platform/",
+   "file": "internal/platform/platform.go",
+   "old": "\treturn yes, nil, errs\n}",
+   "new": "\treturn yes, nil, nil\n}",
+   "note": "a confirmer that faulted on the way to an answer is collected and then dropped"
   }
  ]
 }

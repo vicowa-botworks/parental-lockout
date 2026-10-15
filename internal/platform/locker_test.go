@@ -266,10 +266,16 @@ func TestLockerRunningRejectsALockerThatIsNotKsmserversChild(t *testing.T) {
 		{4003, measuredLocker, "parented to another copy of itself"},
 	} {
 		t.Run(parent.why, func(t *testing.T) {
+			// Every process in this tree belongs to the session uid under test. It used
+			// to say 1000 for the parent and the locker while the query asked about
+			// fixtureUID, so the uid filter rejected the candidate first and the test
+			// passed whatever the parent rule did -- a green test that was never testing
+			// the thing in its name.
 			newProcFixture(t).
+				add(6695, 1, fixtureUID, "/usr/lib/systemd/systemd --user").
 				add(7619, 6695, fixtureUID, measuredKsmserver).
-				add(parent.pid, 3000, 1000, parent.argv).
-				add(5000, parent.pid, 1000, measuredLocker, "--graceTime", "5000").
+				add(parent.pid, 3000, fixtureUID, parent.argv).
+				add(5000, parent.pid, fixtureUID, measuredLocker, "--graceTime", "5000").
 				use()
 
 			yes, err := lockerRunning(context.Background(), fixtureUID)
