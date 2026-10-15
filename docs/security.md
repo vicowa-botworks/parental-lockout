@@ -224,6 +224,7 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 | **GNOME corroboration of a lock** | No second signal has been measured on GNOME hardware. A GNOME-only config therefore reports `lock.unconfirmed` on transitions. Issue #35. |
 | **A non-Linux build** | The guards fail closed — `ownerIsWriter` and `fileUID` return `errOwnershipUnsupported` and the writer refuses — but the *race* protection is lost: without `O_NOFOLLOW` a path can still be swapped between check and open. v0.1 ships Linux only. |
 | **A malicious package or supply chain** | There are zero third-party modules, which is the whole mitigation available (`scripts/check-deps.sh`). |
+| **A child-writable directory on the daemon's `PATH`** | Every program the daemon starts is resolved by `ExecRunner.Run` against the *daemon's* own `os.Getenv("PATH")`, so if the child can write a directory on that PATH, the child's `gdbus` or `loginctl` is what runs — including one that prints `()` and exits 0, which is exactly the reply the void-reply check accepts. Resolution does not change this and never claimed to: `LookPath` walks the same PATH `exec` would. Closing it means refusing to run a program whose location cannot be trusted, and a refusal does not lock anyone out, so the fix fails in the direction this project treats as the dangerous one. It needs a decision about which is worse — a lockout that silently stops, or a lockout that can be spoofed — and that is a product call, not a detail. See `internal/platform/exec.go`. |
 
 ## 9. Residual risk, honestly ranked
 
@@ -235,10 +236,14 @@ Listed because an unlisted gap is indistinguishable from an oversight.
    ignores logind's `Lock` signal. The chain's shape does not depend on which way that turns out,
    but the *operator experience* does: if Plasma honours it, the chain confirms on logind and the
    desktop backend is a no-op; if it does not, the desktop backend is load-bearing.
-3. **`gdbus` is resolved from `$PATH` at exec time.** A child who can write a directory on the
-   daemon's `PATH` can answer the lock call themselves. Root's `PATH` normally contains nothing
-   world-writable, so this is a host assumption rather than a hole — but it is the one place the
-   daemon lets the child's environment decide which binary runs.
+3. **`gdbus` and `loginctl` are resolved from the daemon's `$PATH`.** A child who can write a
+   directory on that PATH can answer the lock call themselves. Root's `PATH` normally contains
+   nothing world-writable, so this is a host assumption rather than a hole. It is *not* the child's
+   environment doing the resolving: `exec.CommandContext` calls `LookPath` when it is constructed,
+   reading the daemon's `os.Getenv("PATH")`, before `cmd.Env` is assigned — measured with two
+   copies of one tool, `cmd.Path` is the daemon's copy and the daemon's copy runs. The exposure is
+   the daemon's own PATH, which is why it applies identically to `loginctl` and why resolving the
+   name in advance closes nothing.
 4. **The audit trail proves the daemon acted, not that the screen locked.** That distinction is the
    whole content of §5, and it survives every defense there: on a backend that cannot corroborate,
    the honest answer is "unconfirmed", and the trail says so.

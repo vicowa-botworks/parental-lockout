@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"path"
 	"sync"
 	"testing"
 	"time"
@@ -34,7 +35,11 @@ type shapeRunner struct {
 }
 
 func (r *shapeRunner) Run(ctx context.Context, argv []string, _ []string, _ uint32) ([]byte, error) {
-	prog := argv[0]
+	// Keyed by basename on purpose. The backend resolves gdbus through PATH and execs the
+	// absolute path it found, so argv[0] is /usr/bin/gdbus on a real host and whatever the
+	// fixture's PATH yields here. The quantity this test exists to pin is how many times a
+	// Chain.Lock invokes the tool, which does not depend on how the invocation is spelled.
+	prog := path.Base(argv[0])
 	r.mu.Lock()
 	if r.counts == nil {
 		r.counts = map[string]int{}
