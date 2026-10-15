@@ -58,6 +58,20 @@ def compiles(pkg):
     )
 
 
+# Every key the runner and this checker actually read. A key outside this list is a key
+# nothing prints, and the two ways that happens are both silent:
+#
+#   - a rationale written under a name the runner does not know (`_why`, `why`, `reason`)
+#     never reaches the battery's output, so the equivalence claim a reviewer needs to
+#     audit is in the file and nowhere a human will look;
+#   - a typo in a key that DOES matter (`equivalant`, `packge`) drops the mutant into the
+#     default path -- an equivalent mutant starts reporting as a survivor, or a mutant
+#     aimed at another package runs against the wrong one.
+#
+# Both look like a working set. `make verify` stays green and the battery prints a tally.
+KNOWN_KEYS = {"id", "file", "old", "new", "package", "count", "equivalent", "note"}
+
+
 def check(path):
     """Return a list of (mutant_id, problem) for one set."""
     doc = load(path)
@@ -69,6 +83,10 @@ def check(path):
     try:
         for m in doc["mutants"]:
             mid, rel, old, new = m["id"], m["file"], m["old"], m["new"]
+            for key in sorted(set(m) - KNOWN_KEYS):
+                problems.append((mid, f"key {key!r} is read by nothing: whatever it says is "
+                                      f"in the file but never printed, and a near-miss spelling "
+                                      f"of a real key would silently disable that key"))
             if rel not in original:
                 try:
                     with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:

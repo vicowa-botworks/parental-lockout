@@ -305,37 +305,36 @@
       "file": "internal/platform/exec.go",
       "old": "\tctx, cancel := context.WithTimeoutCause(ctx, callTimeout, errCallBudget)",
       "new": "\tctx, cancel := context.WithCancel(ctx)",
-      "about": "drop the default bound: a caller with no deadline (plock doctor) is wedged by a service that never replies",
-      "note": "the per-command bound is not applied to the child, so a bus that never replies parks the tick"
+      "note": "the per-command bound is not applied to the child, so a bus that never replies parks the tick  drop the default bound: a caller with no deadline (plock doctor) is wedged by a service that never replies"
     },
     {
       "id": "E2",
       "file": "internal/platform/exec.go",
       "old": "\tif r.CallTimeout != 0 {",
       "new": "\tif false {",
-      "about": "ignore a configured CallTimeout, so the resolution from zero to the default is the only path and a tuned runner silently keeps the default"
+      "note": "ignore a configured CallTimeout, so the resolution from zero to the default is the only path and a tuned runner silently keeps the default"
     },
     {
       "id": "E3",
       "file": "internal/platform/exec.go",
       "old": "\tif ctx.Err() != nil {",
       "new": "\tif false {",
-      "about": "report a timed-out call as a plain killed-child failure, losing the distinction between 'the bus never answered' and 'the tool crashed'"
+      "note": "report a timed-out call as a plain killed-child failure, losing the distinction between 'the bus never answered' and 'the tool crashed'"
     },
     {
       "id": "E4",
       "file": "cmd/plock/doctor.go",
       "old": "\t\tfmt.Fprintf(&report, \"would try first: %s\\n\", first)",
       "new": "\t\tfmt.Fprintf(&report, \"would use: %s\\n\", first)",
-      "about": "claim the first usable backend is the one a lock reaches, which is the false answer W1 was raised against",
-      "package": "./cmd/plock/"
+      "package": "./cmd/plock/",
+      "note": "claim the first usable backend is the one a lock reaches, which is the false answer W1 was raised against"
     },
     {
       "id": "E5",
       "file": "internal/platform/desktop.go",
       "old": "That is all Probe can see: it has no user session to ask, so \\\"usable\\\" means the tool \"+\n\t\t\t\"is present, not that a lock would land here. ",
       "new": "",
-      "about": "let Probe report usable as if a lock were guaranteed, on machines where no screensaver exists at all"
+      "note": "let Probe report usable as if a lock were guaranteed, on machines where no screensaver exists at all"
     },
     {
       "id": "G1",
@@ -589,9 +588,8 @@
       "file": "internal/platform/logind.go",
       "old": "\tfor _, e := range entries {\n\t\tif isDesktopEntry(e) {\n\t\t\treturn e.Session\n\t\t}\n\t}",
       "new": "\tfor _, e := range entries {\n\t\tif true {\n\t\t\treturn e.Session\n\t\t}\n\t}",
-      "note": "the property-presence probe asks about whichever row is first, so a manager row testifies about a property only class=user carries (#25 item 4)",
-      "package": "./internal/platform/",
-      "_why": "probeTarget stops preferring a lock candidate and asks about the first row it is given -- the manager-first order the probe exists to reject"
+      "note": "the property-presence probe asks about whichever row is first, so a manager row testifies about a property only class=user carries (#25 item 4)  probeTarget stops preferring a lock candidate and asks about the first row it is given -- the manager-first order the probe exists to reject",
+      "package": "./internal/platform/"
     },
     {
       "id": "R2",
@@ -606,14 +604,14 @@
       "file": "internal/platform/logind.go",
       "old": "\tfor _, e := range entries {\n\t\tif e.Session != \"\" {\n\t\t\treturn e.Session\n\t\t}\n\t}\n\treturn \"\"\n}",
       "new": "\tif len(entries) > 0 {\n\t\treturn entries[0].Session\n\t}\n\treturn \"\"\n}",
-      "_why": "the fallback hands back row zero even when it has no session id, so the caller's `target != \"\"` check skips the probe and the package goes quiet instead of reporting"
+      "note": "the fallback hands back row zero even when it has no session id, so the caller's `target != \"\"` check skips the probe and the package goes quiet instead of reporting"
     },
     {
       "id": "R4",
       "file": "internal/platform/logind.go",
       "old": "\treturn e.Class == \"user\" && e.Seat != nil && *e.Seat != \"\" && e.Session != \"\"",
       "new": "\treturn e.Class == \"user\" && e.Seat != nil && *e.Seat != \"\"",
-      "_why": "a row with no session id counts as a desktop session, so the listing would try to detail a session that does not exist"
+      "note": "a row with no session id counts as a desktop session, so the listing would try to detail a session that does not exist"
     }
   ]
 }
