@@ -796,6 +796,20 @@
       "new": "\tstatus.Detail = fmt.Sprintf(\"%s (configured command)\", b.path)",
       "package": "./internal/platform/",
       "note": "the not-a-production warning is dropped from doctor. The field is documented as a hook for tests and a developer's loop, and doctor is the one screen where an operator would otherwise conclude a command backend is a normal thing to be running"
+    },
+    {
+      "id": "K28",
+      "file": "internal/platform/self.go",
+      "old": "\treturn l.InUserSlice && uid == l.UID",
+      "new": "\treturn uid == l.UID",
+      "note": "Declines dropping the slice half of the pair: a system daemon under system.slice stops enforcing every session of the uid it happens to share with nobody, which is the fail-open the pair exists to prevent. TestDeclinesNeedsBothHalvesOfThePair."
+    },
+    {
+      "id": "K29",
+      "file": "internal/platform/self.go",
+      "old": "\treturn l.InUserSlice && uid == l.UID",
+      "new": "\treturn l.InUserSlice",
+      "note": "Declines dropping the uid half: inside any user slice the daemon declines every account on the machine, enforcing nobody. TestDeclinesNeedsBothHalvesOfThePair."
     }
   ]
 }

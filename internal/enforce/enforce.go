@@ -216,6 +216,32 @@ type Engine struct {
 	// shown a hard lock failure. See KindUnenforceable.
 	unenforceable map[string]int
 
+	// Self says whether this process is running inside someone's per-user slice, and
+	// whose. See platform.SelfLocation and platform.UserSliceUID for what the signal
+	// is and why the cgroup is the only one of the candidates a controlled user cannot
+	// write.
+	//
+	// The caller resolves it; New deliberately does not. Reading /proc inside the
+	// constructor would make every engine on this machine report "inside uid 1000's
+	// slice", and every enforcement test would then depend on which kind of host runs
+	// it -- green on a desktop, silently different on a headless runner, which is the
+	// class of defect this repo has already been burned by twice.
+	//
+	// The zero value is the supported deployment and the safe one: a systemd system
+	// unit lives under system.slice, so the rule never applies. A fixture that leaves
+	// this unset therefore gets exactly what a production daemon gets.
+	Self platform.SelfLocation
+
+	// selfSkipped holds the session ids the daemon has already announced it will not
+	// lock, because they are its own.
+	//
+	// It is keyed separately from state rather than stored inside it for a specific
+	// reason: both release paths reset the per-lockout "already told you" flag, and
+	// this condition does not end with the lockout. Storing the flag in state would
+	// mean one audit line per tick for a deployment mistake that will never fix itself
+	// -- the exact volume #35 exists to prevent.
+	selfSkipped map[string]bool
+
 	// degraded holds the last schedule-complaint signature per session, so
 	// KindScheduleDegraded fires when the set changes rather than every tick. It is
 	// keyed separately from state rather than stored inside it because a degraded
@@ -677,9 +703,14 @@ func (e *Engine) watchInterval() time.Duration {
 //  2. not a managed, enabled account   → never touch it
 //  3. no window open right now         → release, and audit the exit once
 //  4. an unexpired override            → release, and remember to audit expiry
-//  5. otherwise                        → lock, and audit it, on EVERY tick
+//  5. the daemon's own login session   → refuse, and say why once
+//  6. otherwise                        → lock, and audit it, on EVERY tick
 //
-// There is no "the session says it is already locked" step between 4 and 5, and
+// Step 5 is the only step that declines to lock for a reason other than the policy
+// saying not to, and it is inert in the supported deployment; see the comment where it
+// is issued.
+//
+// There is no "the session says it is already locked" step between 4 and 6, and
 // there must never be one again; see the comment where the lock is issued.
 //
 // Steps 1 and 2 come before any evaluation so an unmanaged account is never
@@ -745,7 +776,64 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 	}
 	e.clearOverride(rep, s, now)
 
-	// 5. Lock it. Every tick, while the window is open, whatever the session says
+	// 5. A session inside the daemon's own user slice is one it must not lock.
+	//
+	// The hazard is not the child's screen. It is the operator's: a daemon that locks
+	// the session it is running in cannot be stopped, because stopping it needs a
+	// keyboard and the keyboard is behind the lock it just put up. The override path is
+	// no help either — it needs the web UI or the CLI, and both need the admin to be at
+	// the machine that is now locked.
+	//
+	// This is a deliberate, stated fail-open, and it is worth being exact about what it
+	// opens. It fires only when the daemon is running inside a per-user slice, which a
+	// systemd system unit never is; in the supported deployment the rule is inert and
+	// enforcement is unchanged for every account including the admin's own. Where it
+	// does fire is a daemon started from a desktop — `make run-dev`, or someone
+	// running `plock serve` by hand to see what it does — and there the alternative is
+	// not "the child gets locked", it is "the daemon locked its own operator out and
+	// must be rebooted to be stopped".
+	//
+	// Why the uid comparison is enough here, when #67 is right that uid alone does not
+	// decide the policy question. This is not asking "is this the child's session"; it
+	// is asking "would locking this session lock the screen I am sitting behind". When
+	// an admin and a child genuinely share one account they share a uid, and no signal
+	// available to a root daemon distinguishes the two sessions either — so the rule
+	// declines, and says so in the audit trail rather than going quiet.
+	//
+	// The signal is the kernel's own record of this process's cgroup, which is what
+	// makes it pass the test #29 applies to LockedHint: a controlled user cannot place
+	// a root service in their slice, and cannot move one that is already running.
+	// Process ancestry — the comparison Session.Leader's comment proposes — was
+	// measured on a live Plasma session and matches only the user@.service "manager"
+	// row, because a systemd user manager reparents GUI processes onto itself. A guard
+	// built on it would never fire on the session actually on the screen, and a guard
+	// that cannot fire reads as a guard that passed.
+	if e.Self.Declines(s.UID) {
+		// release(), not releaseState(), on purpose — but be exact about what that
+		// buys, because it is defence and not a live path. No state can exist here in
+		// the supported flow: Self is resolved once before Run and never changes, so a
+		// session that reaches this line has never been locked by this process and has
+		// no lockout to exit. release() is the call that keeps state and audit
+		// consistent if that ever stops being true, and releaseState() would delete the
+		// state while leaving its "entered" line unanswered.
+		e.release(rep, s, now, "this is the session the daemon is running in")
+		if e.selfSkipped == nil {
+			e.selfSkipped = map[string]bool{}
+		}
+		if !e.selfSkipped[s.ID] {
+			e.selfSkipped[s.ID] = true
+			e.emit(rep, Event{At: now, Kind: KindUnenforceable, Username: s.Username,
+				SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
+				Detail: fmt.Sprintf(
+					"this session belongs to uid %d, whose login session the daemon itself is "+
+						"running in, so locking it would lock the screen the daemon is stopped "+
+						"from: this account is not being locked out. Run plock as a system "+
+						"service (deploy/plock.service) to enforce this account", e.Self.UID)})
+		}
+		return
+	}
+
+	// 6. Lock it. Every tick, while the window is open, whatever the session says
 	// about itself.
 	//
 	// There used to be a step here that skipped the lock when s.Locked was true, on

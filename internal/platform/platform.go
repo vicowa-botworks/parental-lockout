@@ -46,12 +46,26 @@ type Session struct {
 	Locked   bool // best effort: logind's LockedHint
 
 	// Leader is the pid of the session's leader process and TTY its controlling
-	// terminal. Both come from the listing, and both exist for one question that
-	// nothing else can answer: "is this the session I am running in?" A daemon that
-	// locks its own session locks itself out of ever unlocking it, and the uid policy
-	// alone does not catch that when the admin and the child share an account. The
-	// caller compares Leader against its own process ancestry; this package does not
-	// decide the policy.
+	// terminal. Both come from the listing.
+	//
+	// This field used to claim it existed for the question "is this the session I am
+	// running in?", and to instruct the caller to answer it by comparing Leader against
+	// its own process ancestry. That instruction does not work, and the reason is worth
+	// keeping rather than deleting, because it is not obvious and the wrong answer here
+	// is a guard that silently never fires.
+	//
+	// Measured on a live Plasma session: a shell in a GUI terminal has the ancestry
+	// bash → the agent → systemd(6695), and 6695 is the leader of the user@1000.service
+	// "manager" row, not of session 3 — the seat0/tty2 desktop session on the screen. A
+	// systemd user manager reparents GUI processes onto itself rather than onto the
+	// session leader, so ancestry reaches the manager session (which IsLockable already
+	// refuses) and never reaches the one that matters.
+	//
+	// The question is answered in Engine.tickSession instead, from this process's
+	// cgroup; see UserSliceUID for why that is the signal a controlled user cannot
+	// write. Leader and TTY stay because they are in the listing, are shown by
+	// `plock status`, and are what an operator reads when working out which of three
+	// sessions a log line means — a reporting job, not a policy one.
 	Leader int
 	TTY    string
 }

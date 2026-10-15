@@ -50,6 +50,16 @@ lock request it cannot finish.
 // passes here and asserts nothing on the next machine.
 var serveRunner platform.Runner = platform.ExecRunner{}
 
+// serveSelfLocation is how the daemon learns which user slice it is running in, behind
+// a var for the same reason serveRunner is one: the answer comes from /proc, so without
+// the seam the only way to test the self-session rule is to start the daemon from
+// inside a login session, which is true here and false on a headless runner. A test
+// that inherits that answer passes for the wrong reason on one of the two.
+var serveSelfLocation func() platform.SelfLocation = func() platform.SelfLocation {
+	uid, inside := platform.ReadSelfUserSlice()
+	return platform.SelfLocation{UID: uid, InUserSlice: inside}
+}
+
 func runServe(stdout, stderr io.Writer, args []string) int {
 	return runServeContext(context.Background(), stdout, stderr, args)
 }
@@ -158,7 +168,28 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		fmt.Fprintf(stderr, "plock serve: no usable lock backend, so there is nothing to enforce; refusing to start\n")
 		return 1
 	}
-	srv, err := serveServer(cfg, chain, users.Source{}, *path, *stateDir, ctx, stdout, stderr)
+	// Which login session, if any, this process is inside. Resolved once, here, and
+	// handed to both halves of the daemon: the enforcement loop that decides whether to
+	// lock, and the dashboard that says what is being locked. One value to both is what
+	// keeps them from disagreeing about a child in front of an unlocked screen.
+	//
+	// It is resolved here rather than inside enforce.New so that a test of the
+	// enforcement loop never depends on the kind of host running it, and it is resolved
+	// after the no-usable-backend refusal above on purpose: a daemon that refuses to
+	// start has declined to lock nobody, and printing this warning there would attach a
+	// second, unrelated problem to a clean refusal.
+	//
+	// It goes on stderr with the other things that are wrong about this start, and it
+	// does not stop the daemon: a system unit never trips it, and a hand-started daemon
+	// still enforces every other account.
+	self := serveSelfLocation()
+	if self.InUserSlice {
+		fmt.Fprintf(stderr, "plock serve: this process is running inside uid %d's login "+
+			"session, so sessions of that uid will NOT be locked: locking the screen this "+
+			"daemon runs behind means it can no longer be stopped. Install the unit in "+
+			"deploy/plock.service to enforce that account\n", self.UID)
+	}
+	srv, err := serveServer(cfg, chain, users.Source{}, self, *path, *stateDir, ctx, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "plock serve: %v\n", err)
 		return 1
@@ -191,6 +222,8 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 
 	engine := enforce.New(*path, chain, auditSink{w: trail})
 	engine.Logf = logf(stdout)
+
+	engine.Self = self
 
 	runners := []func(context.Context) error{
 		srv.Serve,
@@ -293,8 +326,8 @@ type sessionSource interface {
 // credential the daemon consults and the operator did not rotate — which is issue #37
 // itself. Server.Auth exists only for a caller with no Config seam at all, and serve always
 // has one.
-func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
-	srv, err := web.New(web.Options{
+func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, self platform.SelfLocation, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
+	opts := web.Options{
 		Listen:   cfg.Settings.Listen,
 		TLSMode:  cfg.Settings.TLS,
 		CertFile: cfg.Settings.CertFile,
@@ -329,7 +362,20 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, c
 			// to a child who is missing from the table.
 			return users.List(src)
 		},
-	})
+	}
+	// Assigned as a statement rather than as a field in the literal above, and that is
+	// load-bearing: a composite literal's fields are aligned by gofmt to its longest
+	// key, so a future key longer than Lockables rewrites every other line in it --
+	// including the line a mutation pattern is anchored on, which then matches nothing
+	// and retires itself while the suite stays green. A statement does not move.
+	//
+	// The wiring itself is what TestServeHandsTheDashboardTheSameLocationItHandsTheEngine
+	// pins: the same value the enforcement loop was handed has to reach the dashboard,
+	// or the page announces an account as locked out while the engine declines to lock
+	// it -- and only the dashboard is in front of the parent.
+	opts.Self = self
+
+	srv, err := web.New(opts)
 	if err != nil {
 		return nil, err
 	}

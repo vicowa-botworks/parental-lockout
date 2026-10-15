@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ import (
 // flag has to be false for the overwhelming majority of rows, which are accounts that
 // simply have no override.
 func TestARowWithNoOverrideClaimsNone(t *testing.T) {
-	v := Build(cfg(casey(true)), nil, insideWindow)
+	v := Build(cfg(casey(true)), nil, platform.SelfLocation{}, insideWindow)
 	if len(v.Rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(v.Rows))
 	}

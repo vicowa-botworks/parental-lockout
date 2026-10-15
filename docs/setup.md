@@ -325,6 +325,7 @@ would catch.
 | dashboard unreachable | `listen` in the config, then the firewall |
 | browser name mismatch | §5 — re-mint by deleting `plock.crt` |
 | service in `failed` | `journalctl -u plock -n 40`; the refusal names its reason |
+| `will NOT be locked` at startup | You started `plock serve` from the desktop you mean to enforce, so the daemon is inside that session and locking it would lock the screen you stop the daemon from. Install the unit (§1) — a system unit shares no login session with anyone and the rule goes away. [docs/security.md](security.md) §4. |
 | enforcement stopped at some hour | `/var/log/plock/audit.jsonl` — one JSON event per line |
 
 The audit trail is the record of what enforcement did and who overrode it. It is 0600 root and
