@@ -218,6 +218,46 @@
       "old": "\t\tif recovered {\n\t\t\te.logf(\"enforce: config readable again\")\n\t\t}",
       "new": "\t\tif false && recovered {\n\t\t\te.logf(\"enforce: config readable again\")\n\t\t}",
       "note": "deletes the recovery signal along with the false line. The transition has two directions and only the healthy one was wrong; the operator's only notice that a stretch of enforcement ran on stale rules has stopped is this line."
+    },
+    {
+      "id": "F28",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tperiod := e.startupPeriod()",
+      "new": "\tperiod := e.interval()",
+      "package": "./internal/enforce/",
+      "note": "the startup line goes back to reading interval() before the first tick has published pollSeconds, so it quotes the compiled default whatever the config says. Measured on the dev loop: pollSeconds 5 printed 'every 30s'. The line exists to tell an operator whether they are waiting 5s or 5m, and it was telling them the wrong one"
+    },
+    {
+      "id": "F29",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif period < 0 {",
+      "new": "\tif false && period < 0 {",
+      "package": "./internal/enforce/",
+      "note": "the unreadable-config branch quotes a period anyway, presenting a default as a measurement in the same breath the first tick is about to report the file as unreadable"
+    },
+    {
+      "id": "F30",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tcfg, err := config.Load(e.Path)\n\tif err != nil {\n\t\treturn -1\n\t}",
+      "new": "\tcfg, err := config.Load(e.Path)\n\tif err != nil {\n\t\treturn 0\n\t}",
+      "package": "./internal/enforce/",
+      "note": "startupPeriod answers 0 for an unreadable config instead of the negative sentinel, so the caller takes the 'we know the period' branch and prints 'every 0s' -- a number nobody configured, on the one line an operator trusts to time their wait"
+    },
+    {
+      "id": "F31",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif s := e.pollSeconds.Load(); s > 0 {",
+      "new": "\tif s := e.pollSeconds.Load(); s >= 0 {",
+      "package": "./internal/enforce/",
+      "note": "interval() accepts a published 0, and time.NewTimer fires immediately for a non-positive duration -- the enforcement loop spins, re-locking as fast as loginctl answers, on the tick that is supposed to be 30 seconds apart"
+    },
+    {
+      "id": "F32",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif period > 0 {\n\t\te.pollSeconds.Store(int64(period / time.Second))\n\t}",
+      "new": "\tif false && period > 0 {\n\t\te.pollSeconds.Store(int64(period / time.Second))\n\t}",
+      "package": "./internal/enforce/",
+      "note": "the configured period is never published before the first timer is armed, so the loop's first wait is the compiled default whatever the config says -- measured as two lock calls 30s apart on a machine whose config said 5s and whose startup line correctly said 5s"
     }
   ]
 }

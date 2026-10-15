@@ -517,7 +517,39 @@ func (e *Engine) Run(ctx context.Context) error {
 	// the loop was indistinguishable in the journal from one running quietly and
 	// correctly. The period belongs in the sentence because an operator watching a
 	// screen that will not lock needs to know whether they are waiting 5s or 5m.
-	e.logf("enforce: running, every %v, config %s", e.interval(), e.Path)
+	//
+	// Which is exactly why it cannot simply read e.interval() here. Nothing has
+	// published pollSeconds yet -- the first reload happens inside the first tick -- so
+	// interval() answers the compiled default and a config that says 5 announces 30s.
+	// Measured on the dev loop: `pollSeconds: 5` printed "every 30s" for the whole run.
+	// The number is therefore read from the same file the tick will read, here on the
+	// goroutine that owns the log line, before the tick starts and while nothing else
+	// can race with it.
+	period := e.startupPeriod()
+	if period < 0 {
+		// Unreadable, so the honest sentence is that the period is not known yet. The
+		// default would be a guess presented as a measurement, and the first tick is
+		// about to report the same load failure anyway.
+		e.logf("enforce: running, period not yet known (config unreadable), config %s", e.Path)
+	} else {
+		e.logf("enforce: running, every %v, config %s", period, e.Path)
+	}
+
+	// The announced period has to be the period actually run at, and it was not: the
+	// first timer was armed from interval() before any reload had published
+	// pollSeconds, so a config asking for 5s sat 30s before its second tick. Measured on
+	// the dev loop -- two lock calls 30s apart on a machine whose config said 5 and whose
+	// startup line, after the previous fix, correctly said 5s. Announcing one number and
+	// running another is worse than announcing nothing, because the operator now has a
+	// figure to trust and it is still wrong.
+	//
+	// Publishing here is safe: pollSeconds is an atomic whose only other writer is
+	// reload, which will store the same number from the same file on the first tick. An
+	// unreadable config leaves it alone, so interval() keeps the documented default and
+	// the line above already said the period is not known.
+	if period > 0 {
+		e.pollSeconds.Store(int64(period / time.Second))
+	}
 
 	e.startTick(ctx, &wg)
 
@@ -605,6 +637,29 @@ func (e *Engine) interval() time.Duration {
 		return time.Duration(s) * time.Second
 	}
 	return config.DefaultPollSeconds * time.Second
+}
+
+// startupPeriod reads the tick period straight from the config for the startup line.
+//
+// It returns a negative duration when the file cannot be read, which the caller words as
+// "not yet known" rather than falling back to the default: the default is what interval()
+// already reports, and the whole defect this exists to fix was a default being printed as
+// though it were the configured value.
+//
+// Safe to call from Run before startTick because nothing else has the config yet. Once the
+// tick is running, pollSeconds is the only channel and this must not be called again.
+func (e *Engine) startupPeriod() time.Duration {
+	cfg, err := config.Load(e.Path)
+	if err != nil {
+		return -1
+	}
+	// No zero check here, and none is missing: config's decode step replaces an absent
+	// pollSeconds with DefaultPollSeconds (config.go, "if s.PollSeconds == 0"), so a
+	// loaded document never carries 0. The guard this replaces was written on the
+	// assumption that Load hands back the raw JSON, and a mutation battery proved it
+	// unreachable. interval() keeps its own > 0 test for the opposite reason -- the
+	// published atomic really is 0 before the first reload.
+	return time.Duration(cfg.Settings.PollSeconds) * time.Second
 }
 
 func (e *Engine) watchInterval() time.Duration {
