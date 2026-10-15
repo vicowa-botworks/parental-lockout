@@ -32,6 +32,14 @@ It reads the same config file the daemon and the web UI read, and it changes not
 // running the test. Same reason chainView exists for doctor.
 type statusCommand interface {
 	Sessions(context.Context) ([]platform.Session, error)
+	// Names and Unknown are here because the report promises both: docs/cli.md documents
+	// `backends` as the configured order and `unknownBackends` as the names that resolved to
+	// nothing, and a field that is never assigned marshals as null -- which is worse than
+	// absent, because `"backends":null` reads as "the machine has none" rather than "this
+	// command did not ask". *platform.Chain already answers both for doctor's seam, so this
+	// costs no new code in platform, only the two lines that read it.
+	Names() []string
+	Unknown() []string
 }
 
 // buildStatusChain is the production wiring, behind a var for the same reason buildChain
@@ -154,6 +162,15 @@ func runStatus(stdout, stderr io.Writer, args []string) int {
 		rep.Warnings = append(rep.Warnings, chainErr.Error())
 	}
 	if chain != nil {
+		// Assigned here rather than in buildStatus, because buildStatus deliberately never
+		// touches the machine and these two fields are what the chain resolved to. An empty
+		// slice, not nil: the JSON contract is an array, and a reader doing `.backends | length`
+		// should not get a type error on a machine with no backends configured.
+		rep.Backends = chain.Names()
+		if rep.Backends == nil {
+			rep.Backends = []string{}
+		}
+		rep.UnknownBackends = chain.Unknown()
 		sessions, err := chain.Sessions(context.Background())
 		if err != nil {
 			// Sessions are a section of the report, not a precondition for it. The
@@ -276,7 +293,14 @@ func writeStatus(w io.Writer, rep StatusReport, now time.Time) error {
 	r.Field("config", rep.ConfigPath)
 	r.Field("modified", rep.ConfigModifiedAt)
 	r.Field("poll", fmt.Sprintf("%ds", rep.PollSeconds))
-	r.Field("backends", strings.Join(rep.Backends, " -> "))
+	// An empty list is a finding, not a blank. `backends` with nothing after it is the shape
+	// this command shipped with -- the field was never assigned -- so the line has to be able
+	// to tell "nothing is configured" apart from "this command did not look".
+	if len(rep.Backends) == 0 {
+		r.Field("backends", "none — settings.lockBackends is empty, so nothing can be locked")
+	} else {
+		r.Field("backends", strings.Join(rep.Backends, " -> "))
+	}
 	if len(rep.UnknownBackends) > 0 {
 		r.Field("unknown", strings.Join(rep.UnknownBackends, ", "))
 	}

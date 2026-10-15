@@ -135,6 +135,14 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 	rep := &report{GeneratedAt: time.Now()}
 	rep.add(checkRoot(currentUID))
 	rep.add(checkConfigPath(*path, osStat))
+	// Registered next to config.file rather than after config.loads, because it answers a
+	// different question and stays answerable when the document is unreadable: config.file
+	// says "the file is there and not world-readable", this says "the daemon could save it".
+	// A read-only mount or a full filesystem is otherwise discovered the first time a parent
+	// clicks Save and the form says nothing useful -- and docs/cli.md promises this line, so
+	// a green doctor would otherwise read as "the daemon can persist" on a machine where it
+	// cannot.
+	rep.add(checkConfigWritable(*path, osAccess))
 
 	cfg, cfgErr := config.Load(*path)
 	if cfgErr != nil {

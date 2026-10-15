@@ -100,6 +100,11 @@ func declaredFlags(t *testing.T) map[string][]string {
 			}
 			var usage string
 			var names []string
+			// Which locals in this function are FlagSets. Found by looking for the
+			// assignment from flag.NewFlagSet rather than by matching the name `fs`, so a
+			// command that names its FlagSet something else is still covered and a
+			// coincidentally-named variable is not.
+			flagSets := flagSetVars(fn)
 			ast.Inspect(fn, func(n ast.Node) bool {
 				switch e := n.(type) {
 				case *ast.AssignStmt:
@@ -114,16 +119,23 @@ func declaredFlags(t *testing.T) map[string][]string {
 					}
 				case *ast.CallExpr:
 					sel, ok := e.Fun.(*ast.SelectorExpr)
-					if !ok {
+					if !ok || len(e.Args) == 0 {
 						break
 					}
-					if sel.Sel.Name != "Bool" && sel.Sel.Name != "String" {
+					if !flagSets[exprString(sel.X)] {
 						break
 					}
-					if len(e.Args) == 0 {
-						break
-					}
-					if lit, ok := e.Args[0].(*ast.BasicLit); ok {
+					// Deliberately NOT an allowlist of flag kinds. The first version named
+					// Bool and String, and `fs.Int("minutes", …)` in unlock.go sat outside
+					// it -- so deleting --minutes from unlock's help text stayed green, which
+					// is the same bug this test was written for. The rule is now structural:
+					// any method on the FlagSet whose first argument is a string literal is
+					// declaring a flag. That covers String/Bool/Int and the Var forms today,
+					// and a kind added later is covered without anyone remembering to edit a
+					// list. Every other FlagSet method is excluded by construction -- Arg,
+					// Args, Name, NArg, Parse and SetOutput none of them take a string
+					// literal first.
+					if lit, ok := e.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						names = append(names, strings.Trim(lit.Value, `"`))
 					}
 				}
@@ -169,12 +181,17 @@ func usageTexts(t *testing.T) map[string]string {
 				if !strings.HasSuffix(name, "Usage") {
 					continue
 				}
-				lit, ok := vs.Values[0].(*ast.BasicLit)
-				if !ok {
+				// Not every *Usage const is a bare literal. unlockUsage is a BinaryExpr --
+				// `…` + "`plock override clear <user>`" + `…` -- and requiring a BasicLit
+				// here silently dropped it, which meant unlock's four flags were never
+				// checked at all while the test still reported itself as covering the
+				// package. Folding every string literal in the expression, in source order,
+				// rebuilds the same text the compiler would.
+				body := concatStrings(vs.Values[0])
+				if body == "" {
 					continue
 				}
-				// The value is a raw string literal, so its Value includes the backticks.
-				out[name] = strings.Trim(lit.Value, "`")
+				out[name] = body
 			}
 		}
 	}
@@ -202,6 +219,62 @@ func sourceFiles(t *testing.T) []string {
 		t.Fatal("no non-test sources in the package directory")
 	}
 	return out
+}
+
+// flagSetVars returns the identifiers in a function bound from flag.NewFlagSet.
+func flagSetVars(fn *ast.FuncDecl) map[string]bool {
+	out := map[string]bool{}
+	ast.Inspect(fn, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for _, rhs := range as.Rhs {
+			call, ok := rhs.(*ast.CallExpr)
+			if !ok {
+				continue
+			}
+			if exprString(call.Fun) != "flag.NewFlagSet" {
+				continue
+			}
+			for _, lhs := range as.Lhs {
+				if id, ok := lhs.(*ast.Ident); ok {
+					out[id.Name] = true
+				}
+			}
+		}
+		return true
+	})
+	return out
+}
+
+// concatStrings rebuilds the text of a string expression that may be a concatenation of
+// raw and interpreted literals.
+//
+// It only folds literals. An expression that calls a function or references another const
+// has no statically known text, and returning "" says that honestly rather than guessing --
+// the caller treats "" as "no usage text here", which is the same answer as a const the
+// walker never saw.
+func concatStrings(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.BasicLit:
+		if v.Kind != token.STRING {
+			return ""
+		}
+		// A raw literal's Value includes the backticks; an interpreted one's includes the
+		// quotes and leaves escapes in. Every usage literal in this package is raw or plain
+		// text with no escapes, so trimming the delimiters is enough to compare against a
+		// flag name.
+		return strings.Trim(v.Value, "`\"")
+	case *ast.BinaryExpr:
+		if v.Op != token.ADD {
+			return ""
+		}
+		return concatStrings(v.X) + concatStrings(v.Y)
+	case *ast.ParenExpr:
+		return concatStrings(v.X)
+	}
+	return ""
 }
 
 func exprString(e ast.Expr) string {

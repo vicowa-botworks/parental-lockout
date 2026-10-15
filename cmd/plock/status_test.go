@@ -25,6 +25,10 @@ type statusFixture struct {
 	now      time.Time
 	sessions []platform.Session
 	sessErr  error
+	// what the chain resolved to. The report publishes both, so a fixture that cannot state
+	// them leaves both fields untested -- which is how `backends` shipped as null.
+	names   []string
+	unknown []string
 }
 
 func withStatusMachine(t *testing.T, f statusFixture) string {
@@ -36,7 +40,8 @@ func withStatusMachine(t *testing.T, f statusFixture) string {
 
 	prevChain := buildStatusChain
 	buildStatusChain = func(config.Settings) (statusCommand, error) {
-		return &fakeSessions{sessions: f.sessions, err: f.sessErr}, nil
+		return &fakeSessions{sessions: f.sessions, err: f.sessErr,
+			names: f.names, unknown: f.unknown}, nil
 	}
 	t.Cleanup(func() { buildStatusChain = prevChain })
 
@@ -46,11 +51,19 @@ func withStatusMachine(t *testing.T, f statusFixture) string {
 type fakeSessions struct {
 	sessions []platform.Session
 	err      error
+	// names and unknown are what the chain resolved to. The report publishes both, so the
+	// fake has to be able to state them -- otherwise the fields stay untested and a null
+	// `backends` in the JSON is invisible to the suite that exists to catch exactly that.
+	names   []string
+	unknown []string
 }
 
 func (f *fakeSessions) Sessions(context.Context) ([]platform.Session, error) {
 	return f.sessions, f.err
 }
+
+func (f *fakeSessions) Names() []string   { return f.names }
+func (f *fakeSessions) Unknown() []string { return f.unknown }
 
 // statusConfig is a two-child house: one inside a curfew right now, one free with a window
 // later tonight.

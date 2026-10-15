@@ -195,7 +195,7 @@ func checkConfigPath(path string, stat func(string) (os.FileInfo, error)) check 
 //
 // A read-only mount or a full filesystem is otherwise discovered at the moment a parent
 // clicks Save in the web UI and the form says nothing useful.
-func checkConfigWritable(path string, access func(string, int) error) check {
+func checkConfigWritable(path string, access func(string, uint32) error) check {
 	// W_OK on the file, not the directory: config.Save writes a temporary file in the
 	// directory and renames it, so the directory has to be writable too. Both are checked
 	// because they fail independently — a read-only bind mount of the file over a writable

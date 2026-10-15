@@ -143,13 +143,13 @@ func TestCheckConfigWritableChecksTheDirectoryToo(t *testing.T) {
 
 	// Both writable: the control, so the two failures below cannot be an artifact of the
 	// fixture being unwritable for an unrelated reason.
-	okAccess := func(string, int) error { return nil }
+	okAccess := func(string, uint32) error { return nil }
 	if got := checkConfigWritable(path, okAccess); got.Status != verdictOK {
 		t.Fatalf("control refused a writable file and directory: %s", got.Detail)
 	}
 
 	// The file writable, the directory not.
-	fileOnly := func(p string, _ int) error {
+	fileOnly := func(p string, _ uint32) error {
 		if p == path {
 			return nil
 		}
@@ -167,7 +167,7 @@ func TestCheckConfigWritableChecksTheDirectoryToo(t *testing.T) {
 
 	// The directory writable, the file not: the read-only bind mount over a writable
 	// directory, which is a real container layout.
-	dirOnly := func(p string, _ int) error {
+	dirOnly := func(p string, _ uint32) error {
 		if p == path {
 			return errors.New("read-only file system")
 		}
