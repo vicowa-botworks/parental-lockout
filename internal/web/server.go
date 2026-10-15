@@ -135,6 +135,14 @@ type Options struct {
 	// redirected while its stderr is what the journal flags. Defaulting to Logf keeps
 	// every caller that does not care about the split working unchanged.
 	Warn func(format string, args ...any)
+
+	// Static is the asset filesystem. Nil means the embedded bundle.
+	//
+	// It is on Options rather than only on Server because the asset map is built in New,
+	// and a check that can only be reached by assembling a Server by hand is a check no
+	// caller of the documented constructor can ever trip -- which is also a check no test
+	// can write without duplicating the constructor.
+	Static fs.FS
 }
 
 // New builds a Server and resolves its transport, failing on anything the first
@@ -147,6 +155,7 @@ func New(opts Options) (*Server, error) {
 	s := &Server{
 		Logf:     opts.Logf,
 		warn:     opts.Warn,
+		Static:   opts.Static,
 		Listen:   opts.Listen,
 		TLSMode:  opts.TLSMode,
 		CertFile: opts.CertFile,

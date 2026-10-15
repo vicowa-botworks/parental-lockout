@@ -1,344 +1,351 @@
 {
- "package": "./internal/web/",
- "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
- "mutants": [
-  {
-   "id": "W1",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\tif remaining := leaf.NotAfter.Sub(now); remaining < rotateWhenUnder {\n",
-   "new": "\tif remaining := leaf.NotAfter.Sub(now); remaining < 0 {\n",
-   "note": "the rotation window is gone, so a certificate is served until the day it expires"
-  },
-  {
-   "id": "W2",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\tif !now.Before(leaf.NotAfter) {\n",
-   "new": "\tif false {\n",
-   "note": "an expired certificate is served again instead of replaced"
-  },
-  {
-   "id": "W3",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\t\treturn existing, nil\n",
-   "new": "\t\t_, _ = existing, 0\n\t\treturn tls.Certificate{}, nil\n",
-   "note": "a usable certificate on disk is never reused, so every restart re-mints and the pinned fingerprint changes"
-  },
-  {
-   "id": "W4",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\tif err := writeFilePrivate(keyPath, pem.EncodeToMemory(&pem.Block{Type: \"EC PRIVATE KEY\", Bytes: keyDER}), 0o600); err != nil {\n",
-   "new": "\tif err := writeFilePrivate(keyPath, pem.EncodeToMemory(&pem.Block{Type: \"EC PRIVATE KEY\", Bytes: keyDER}), 0o644); err != nil {\n",
-   "note": "the private key is written world-readable"
-  },
-  {
-   "id": "W5",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\t\tNotAfter:     now.Add(certValidityDays * 24 * time.Hour),\n",
-   "new": "\t\tNotAfter:     now.Add(24 * time.Hour),\n",
-   "note": "the certificate lasts a day, so the parent re-trusts it every fortnight"
-  },
-  {
-   "id": "W6",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\tif h == \"\" || !isDNSName(h) || seenHost[h] {\n",
-   "new": "\tif h == \"\" || seenHost[h] {\n",
-   "note": "a hostname that is not a legal DNS label goes into the SANs, and Safari rejects the whole certificate for it"
-  },
-  {
-   "id": "W7",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\t\t\tif !ok || !ip.IsGlobalUnicast() {\n",
-   "new": "\t\t\tif !ok {\n",
-   "note": "link-local addresses go into the SANs"
-  },
-  {
-   "id": "W8",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\tif err := tmp.Chmod(mode); err != nil {\n",
-   "new": "\tif err := func() error { return nil }(); err != nil {\n",
-   "note": "the temp file keeps CreateTemp's 0600-or-umask mode, so the requested mode is never applied"
-  },
-  {
-   "id": "W9",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\tif !at.Before(leaf.NotAfter) {\n",
-   "new": "\tif false {\n",
-   "note": "tls: custom accepts an expired certificate at startup and fails on the first handshake instead"
-  },
-  {
-   "id": "W10",
-   "package": "./internal/web/",
-   "file": "internal/web/tls.go",
-   "old": "\tif certFile == \"\" || keyFile == \"\" {\n",
-   "new": "\tif certFile == \"\" && keyFile == \"\" {\n",
-   "note": "one empty path out of two is accepted, so the daemon starts and cannot serve"
-  },
-  {
-   "id": "W11",
-   "package": "./internal/web/",
-   "file": "internal/web/dir_unix.go",
-   "old": "\t\tif li.Mode().Perm()&^0o700 != 0 {\n",
-   "new": "\t\tif false {\n",
-   "note": "a private key is stored in a directory anybody can read"
-  },
-  {
-   "id": "W12",
-   "package": "./internal/web/",
-   "file": "internal/web/dir_unix.go",
-   "old": "syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)",
-   "new": "syscall.O_DIRECTORY, 0)",
-   "note": "the directory is opened following symlinks and able to block"
-  },
-  {
-   "id": "W13",
-   "package": "./internal/web/",
-   "file": "internal/web/session.go",
-   "old": "\t\tSecure:   s.TLSMode != TLSOff,\n",
-   "new": "\t\tSecure:   true,\n",
-   "note": "Secure is set on a plain-HTTP listener, so the browser discards the cookie and login loops forever"
-  },
-  {
-   "id": "W14",
-   "package": "./internal/web/",
-   "file": "internal/web/session.go",
-   "old": "\t\tSecure:   s.TLSMode != TLSOff,\n",
-   "new": "\t\tSecure:   false,\n",
-   "note": "the session cookie crosses a TLS connection in a form any network observer can replay"
-  },
-  {
-   "id": "W15",
-   "package": "./internal/web/",
-   "file": "internal/web/session.go",
-   "old": "\t\tSameSite: http.SameSiteStrictMode,\n",
-   "new": "\t\tSameSite: http.SameSiteLaxMode,\n",
-   "note": "Lax still sends the cookie on a top-level cross-site navigation"
-  },
-  {
-   "id": "W16",
-   "package": "./internal/web/",
-   "file": "internal/web/session.go",
-   "old": "\tif !c.clock().Before(e.expiresAt) {\n",
-   "new": "\tif false {\n",
-   "note": "a CSRF token outlives the session it belongs to"
-  },
-  {
-   "id": "W17",
-   "package": "./internal/web/",
-   "file": "internal/web/session.go",
-   "old": "\tcsrf, ok := s.csrf.lookup(c.Value)\n",
-   "new": "\tcsrf, ok := c.Value, true\n",
-   "note": "the CSRF token is taken from the session token itself, so anything that can echo the cookie can authorise a POST"
-  },
-  {
-   "id": "W18",
-   "package": "./internal/web/",
-   "file": "internal/web/session.go",
-   "old": "\tc.MaxAge = -1\n",
-   "new": "\tc.MaxAge = 0\n",
-   "note": "logout does not expire the cookie, so a browser keeps presenting a revoked session"
-  },
-  {
-   "id": "W19",
-   "package": "./internal/web/",
-   "file": "internal/web/handlers.go",
-   "old": "\tif ok, wait := s.Throttle.Allow(key); !ok {\n",
-   "new": "\tif ok, wait := s.Throttle.Allow(key); !ok && false {\n",
-   "note": "the throttle never refuses, so every attempt reaches PBKDF2"
-  },
-  {
-   "id": "W21",
-   "package": "./internal/web/",
-   "file": "internal/web/handlers.go",
-   "old": "\t\ts.Throttle.Failure(key)\n",
-   "new": "\t\t_ = key\n",
-   "note": "a failed login is not counted, so the bucket never fills"
-  },
-  {
-   "id": "W22",
-   "package": "./internal/web/",
-   "file": "internal/web/handlers.go",
-   "old": "\tif i := strings.IndexByte(addr, '%'); i >= 0 {\n",
-   "new": "\tif i := strings.IndexByte(addr, '!'); i >= 0 {\n",
-   "note": "the IPv6 zone stays in the key, so one host gets a bucket per interface"
-  },
-  {
-   "id": "W23",
-   "package": "./internal/web/",
-   "file": "internal/web/handlers.go",
-   "old": "\tcase errors.Is(err, auth.ErrNoCredential):\n",
-   "new": "\tcase errors.Is(err, auth.ErrNoCredential) && false:\n",
-   "note": "a machine with no credential answers \"wrong password\", sending the operator looking in the wrong place"
-  },
-  {
-   "id": "W24",
-   "package": "./internal/web/",
-   "file": "internal/web/handlers.go",
-   "old": "\tcase !ok:\n\t\ts.Throttle.Failure(key)\n",
-   "new": "\tcase !ok:\n\t\tif false {\n\t\t\ts.Throttle.Failure(key)\n\t\t}\n",
-   "note": "the wrong-credential branch stops counting failures"
-  },
-  {
-   "id": "W25",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\t\tif isPublic(r.URL.Path) {\n",
-   "new": "\t\tif false {\n",
-   "note": "the login POST is CSRF-gated, so nobody can ever sign in"
-  },
-  {
-   "id": "W26",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\tcase http.MethodGet, http.MethodHead, http.MethodOptions:\n",
-   "new": "\tcase http.MethodOptions:\n",
-   "note": "a GET is required to carry a CSRF token, which no browser can do"
-  },
-  {
-   "id": "W27",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\treturn subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1\n",
-   "new": "\treturn got == want || subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1\n",
-   "note": "the CSRF comparison leaks timing on a secret",
-   "equivalent": true,
-   "equivalence": "The mutant adds `got == want ||` in front of the constant-time compare. The two\nexpressions return the same bool for every possible pair of inputs, so no test can\ndistinguish them: the only difference is how long the comparison takes, and timing\nis not an observable a unit test in this package has.\n\nMarking it equivalent is a claim, so it is checkable: delete the `got == want ||`\nprefix and every test in internal/web still passes -- in particular\nTestAPostWithoutACSRFTokenIsRefusedAndDoesNothing,\nTestAPostWithTheSessionsTokenIsAccepted and\nTestAnotherSessionsCSRFTokenIsNotAccepted, which together pin that a correct token\nis accepted, a missing one is refused, and another session's token is refused. All\nthree go through this comparison, so they pin that it exists and is reached; none of\nthem can pin that it is constant-time.\n\nWhat the mutant is really guarding against -- someone swapping the constant-time\ncompare for a plain == -- is therefore a review property, not a test property."
-  },
-  {
-   "id": "W28",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\th.Set(\"X-Frame-Options\", \"DENY\")\n",
-   "new": "\t_ = h\n",
-   "note": "the login form can be framed by a hostile page"
-  },
-  {
-   "id": "W29",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\t\tif !strings.HasPrefix(r.URL.Path, \"/static/\") {\n",
-   "new": "\t\tif false {\n",
-   "note": "a dynamic page is cacheable, so who is locked out stays readable after logout"
-  },
-  {
-   "id": "W30",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n",
-   "new": "\t\thttp.Error(w, fmt.Sprintf(\"%v\", rec), http.StatusInternalServerError)\n",
-   "note": "the panic text reaches the client, mapping the binary for anybody on the LAN"
-  },
-  {
-   "id": "W31",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\t\ts.logf(\"web: %s panic: %v\\n%s\", requestID(r), rec, debug.Stack())\n",
-   "new": "\t\t_ = debug.Stack()\n",
-   "note": "a panic is turned into a 500 and never logged, so nobody knows it happened"
-  },
-  {
-   "id": "W32",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\treturn strings.Contains(accept, \"application/json\")\n",
-   "new": "\treturn false\n",
-   "note": "a JSON client following a redirect gets an HTML login page where it expected a status code"
-  },
-  {
-   "id": "W33",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\ts.audit(\"csrf.rejected\", r.URL.Path)\n",
-   "new": "\t_ = r.URL.Path\n",
-   "note": "a refused CSRF check leaves no trace"
-  },
-  {
-   "id": "W34",
-   "package": "./internal/web/",
-   "file": "internal/web/server.go",
-   "old": "\tcfg.MinVersion = tls.VersionTLS12\n",
-   "new": "\tcfg.MinVersion = tls.VersionSSL30\n",
-   "note": "the transport accepts anything a client offers"
-  },
-  {
-   "id": "W35",
-   "package": "./internal/web/",
-   "file": "internal/web/server.go",
-   "old": "\tw.Header().Set(\"Cache-Control\", \"public, max-age=31536000, immutable\")\n",
-   "new": "\t_ = 0\n",
-   "note": "a content-addressed asset is re-fetched on every page view"
-  },
-  {
-   "id": "W36",
-   "package": "./internal/web/",
-   "file": "internal/web/server.go",
-   "old": "\tname, ok := s.assets[\"/static/\"+requested]\n",
-   "new": "\tname, ok := requested, true\n",
-   "note": "an unknown hash falls back to the literal name, so the immutable header can pin a stale file forever"
-  },
-  {
-   "id": "W37",
-   "package": "./internal/web/",
-   "file": "internal/web/middleware.go",
-   "old": "\t\tif _, ok := s.sessionFrom(r); !ok {\n\t\t\ts.wantsLogin(w, r)\n\t\t\treturn\n\t\t}\n",
-   "new": "\t\t_, _ = s.sessionFrom(r)\n",
-   "note": "the auth gate lets an anonymous request through"
-  },
-  {
-   "id": "W38",
-   "package": "./internal/web/",
-   "file": "internal/web/server.go",
-   "old": "\t\treturn nil, fmt.Errorf(\"web: unknown tls mode %q (expected auto, off or custom)\", s.TLSMode)\n",
-   "new": "\t\ts.TLSMode = TLSAuto\n",
-   "note": "an unknown tls mode falls through to a transport instead of refusing to start"
-  },
-  {
-   "id": "W39",
-   "package": "./internal/web/",
-   "file": "internal/web/server.go",
-   "old": "\tif err := httpSrv.Shutdown(drain); err != nil {\n",
-   "new": "\tif err := httpSrv.Shutdown(drain); err != nil && false {\n",
-   "note": "in-flight requests are cut off instead of drained"
-  },
-  {
-   "id": "W40",
-   "package": "./internal/web/",
-   "file": "internal/web/assets.go",
-   "old": "\tsum := sha256.Sum256(b)\n",
-   "new": "\tsum := sha256.Sum256(append([]byte(name), b[:0]...))\n",
-   "note": "the asset URL hashes the filename, so a content change keeps the same URL and the immutable header pins the old bytes"
-  },
-  {
-   "id": "W41",
-   "old": "\tif cfg := s.tlsConfig(); cfg != nil {\n\t\tln = tls.NewListener(ln, cfg)\n\t}",
-   "new": "\t_ = s.tlsConfig()",
-   "note": "Serve stops terminating TLS, so a daemon configured `auto` answers plain HTTP on a port it logs as https:// and the Secure cookie can never be set",
-   "package": "./internal/web/",
-   "file": "internal/web/server.go"
-  },
-  {
-   "id": "W42",
-   "old": "\tm, err := AssetMap(s.Static)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"web: %w\", err)\n\t}",
-   "new": "\tm, _ := AssetMap(s.Static)",
-   "note": "a broken asset bundle is swallowed, so every /static/ request 404s and the operator gets the unstyled page with nothing in the log",
-   "package": "./internal/web/",
-   "file": "internal/web/server.go"
-  },
-  {
-   "id": "W43",
-   "old": "\tif s.warn != nil {\n\t\ts.warn(format, args...)\n\t\treturn\n\t}",
-   "new": "\tif false {\n\t\ts.warn(format, args...)\n\t\treturn\n\t}",
-   "note": "the disabled-transport warning ignores Options.Warn and goes to stdout, the stream an operator redirects away",
-   "package": "./internal/web/",
-   "file": "internal/web/server.go"
-  }
- ]
+  "package": "./internal/web/",
+  "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
+  "mutants": [
+    {
+      "id": "W1",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif remaining := leaf.NotAfter.Sub(now); remaining < rotateWhenUnder {\n",
+      "new": "\tif remaining := leaf.NotAfter.Sub(now); remaining < 0 {\n",
+      "note": "the rotation window is gone, so a certificate is served until the day it expires"
+    },
+    {
+      "id": "W2",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif !now.Before(leaf.NotAfter) {\n",
+      "new": "\tif false {\n",
+      "note": "an expired certificate is served again instead of replaced"
+    },
+    {
+      "id": "W3",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\t\treturn existing, nil\n",
+      "new": "\t\t_, _ = existing, 0\n\t\treturn tls.Certificate{}, nil\n",
+      "note": "a usable certificate on disk is never reused, so every restart re-mints and the pinned fingerprint changes"
+    },
+    {
+      "id": "W4",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif err := writeFilePrivate(keyPath, pem.EncodeToMemory(&pem.Block{Type: \"EC PRIVATE KEY\", Bytes: keyDER}), 0o600); err != nil {\n",
+      "new": "\tif err := writeFilePrivate(keyPath, pem.EncodeToMemory(&pem.Block{Type: \"EC PRIVATE KEY\", Bytes: keyDER}), 0o644); err != nil {\n",
+      "note": "the private key is written world-readable"
+    },
+    {
+      "id": "W5",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\t\tNotAfter:     now.Add(certValidityDays * 24 * time.Hour),\n",
+      "new": "\t\tNotAfter:     now.Add(24 * time.Hour),\n",
+      "note": "the certificate lasts a day, so the parent re-trusts it every fortnight"
+    },
+    {
+      "id": "W6",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif h == \"\" || !isDNSName(h) || seenHost[h] {\n",
+      "new": "\tif h == \"\" || seenHost[h] {\n",
+      "note": "a hostname that is not a legal DNS label goes into the SANs, and Safari rejects the whole certificate for it"
+    },
+    {
+      "id": "W7",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\t\t\tif !ok || !ip.IsGlobalUnicast() {\n",
+      "new": "\t\t\tif !ok {\n",
+      "note": "link-local addresses go into the SANs"
+    },
+    {
+      "id": "W8",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif err := tmp.Chmod(mode); err != nil {\n",
+      "new": "\tif err := func() error { return nil }(); err != nil {\n",
+      "note": "the temp file keeps CreateTemp's 0600-or-umask mode, so the requested mode is never applied"
+    },
+    {
+      "id": "W9",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif !at.Before(leaf.NotAfter) {\n",
+      "new": "\tif false {\n",
+      "note": "tls: custom accepts an expired certificate at startup and fails on the first handshake instead"
+    },
+    {
+      "id": "W10",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif certFile == \"\" || keyFile == \"\" {\n",
+      "new": "\tif certFile == \"\" && keyFile == \"\" {\n",
+      "note": "one empty path out of two is accepted, so the daemon starts and cannot serve"
+    },
+    {
+      "id": "W11",
+      "package": "./internal/web/",
+      "file": "internal/web/dir_unix.go",
+      "old": "\t\tif li.Mode().Perm()&^0o700 != 0 {\n",
+      "new": "\t\tif false {\n",
+      "note": "a private key is stored in a directory anybody can read"
+    },
+    {
+      "id": "W12",
+      "package": "./internal/web/",
+      "file": "internal/web/dir_unix.go",
+      "old": "syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)",
+      "new": "syscall.O_DIRECTORY, 0)",
+      "note": "the directory is opened following symlinks and able to block"
+    },
+    {
+      "id": "W13",
+      "package": "./internal/web/",
+      "file": "internal/web/session.go",
+      "old": "\t\tSecure:   s.TLSMode != TLSOff,\n",
+      "new": "\t\tSecure:   true,\n",
+      "note": "Secure is set on a plain-HTTP listener, so the browser discards the cookie and login loops forever"
+    },
+    {
+      "id": "W14",
+      "package": "./internal/web/",
+      "file": "internal/web/session.go",
+      "old": "\t\tSecure:   s.TLSMode != TLSOff,\n",
+      "new": "\t\tSecure:   false,\n",
+      "note": "the session cookie crosses a TLS connection in a form any network observer can replay"
+    },
+    {
+      "id": "W15",
+      "package": "./internal/web/",
+      "file": "internal/web/session.go",
+      "old": "\t\tSameSite: http.SameSiteStrictMode,\n",
+      "new": "\t\tSameSite: http.SameSiteLaxMode,\n",
+      "note": "Lax still sends the cookie on a top-level cross-site navigation"
+    },
+    {
+      "id": "W16",
+      "package": "./internal/web/",
+      "file": "internal/web/session.go",
+      "old": "\tif !c.clock().Before(e.expiresAt) {\n",
+      "new": "\tif false {\n",
+      "note": "a CSRF token outlives the session it belongs to"
+    },
+    {
+      "id": "W17",
+      "package": "./internal/web/",
+      "file": "internal/web/session.go",
+      "old": "\tcsrf, ok := s.csrf.lookup(c.Value)\n",
+      "new": "\tcsrf, ok := c.Value, true\n",
+      "note": "the CSRF token is taken from the session token itself, so anything that can echo the cookie can authorise a POST"
+    },
+    {
+      "id": "W18",
+      "package": "./internal/web/",
+      "file": "internal/web/session.go",
+      "old": "\tc.MaxAge = -1\n",
+      "new": "\tc.MaxAge = 0\n",
+      "note": "logout does not expire the cookie, so a browser keeps presenting a revoked session"
+    },
+    {
+      "id": "W19",
+      "package": "./internal/web/",
+      "file": "internal/web/handlers.go",
+      "old": "\tif ok, wait := s.Throttle.Allow(key); !ok {\n",
+      "new": "\tif ok, wait := s.Throttle.Allow(key); !ok && false {\n",
+      "note": "the throttle never refuses, so every attempt reaches PBKDF2"
+    },
+    {
+      "id": "W21",
+      "package": "./internal/web/",
+      "file": "internal/web/handlers.go",
+      "old": "\t\ts.Throttle.Failure(key)\n",
+      "new": "\t\t_ = key\n",
+      "note": "a failed login is not counted, so the bucket never fills"
+    },
+    {
+      "id": "W22",
+      "package": "./internal/web/",
+      "file": "internal/web/handlers.go",
+      "old": "\tif i := strings.IndexByte(addr, '%'); i >= 0 {\n",
+      "new": "\tif i := strings.IndexByte(addr, '!'); i >= 0 {\n",
+      "note": "the IPv6 zone stays in the key, so one host gets a bucket per interface"
+    },
+    {
+      "id": "W23",
+      "package": "./internal/web/",
+      "file": "internal/web/handlers.go",
+      "old": "\tcase errors.Is(err, auth.ErrNoCredential):\n",
+      "new": "\tcase errors.Is(err, auth.ErrNoCredential) && false:\n",
+      "note": "a machine with no credential answers \"wrong password\", sending the operator looking in the wrong place"
+    },
+    {
+      "id": "W24",
+      "package": "./internal/web/",
+      "file": "internal/web/handlers.go",
+      "old": "\tcase !ok:\n\t\ts.Throttle.Failure(key)\n",
+      "new": "\tcase !ok:\n\t\tif false {\n\t\t\ts.Throttle.Failure(key)\n\t\t}\n",
+      "note": "the wrong-credential branch stops counting failures"
+    },
+    {
+      "id": "W25",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\t\tif isPublic(r.URL.Path) {\n",
+      "new": "\t\tif false {\n",
+      "note": "the login POST is CSRF-gated, so nobody can ever sign in"
+    },
+    {
+      "id": "W26",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\tcase http.MethodGet, http.MethodHead, http.MethodOptions:\n",
+      "new": "\tcase http.MethodOptions:\n",
+      "note": "a GET is required to carry a CSRF token, which no browser can do"
+    },
+    {
+      "id": "W27",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\treturn subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1\n",
+      "new": "\treturn got == want || subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1\n",
+      "note": "the CSRF comparison leaks timing on a secret",
+      "equivalent": true,
+      "equivalence": "The mutant adds `got == want ||` in front of the constant-time compare. The two\nexpressions return the same bool for every possible pair of inputs, so no test can\ndistinguish them: the only difference is how long the comparison takes, and timing\nis not an observable a unit test in this package has.\n\nMarking it equivalent is a claim, so it is checkable: delete the `got == want ||`\nprefix and every test in internal/web still passes -- in particular\nTestAPostWithoutACSRFTokenIsRefusedAndDoesNothing,\nTestAPostWithTheSessionsTokenIsAccepted and\nTestAnotherSessionsCSRFTokenIsNotAccepted, which together pin that a correct token\nis accepted, a missing one is refused, and another session's token is refused. All\nthree go through this comparison, so they pin that it exists and is reached; none of\nthem can pin that it is constant-time.\n\nWhat the mutant is really guarding against -- someone swapping the constant-time\ncompare for a plain == -- is therefore a review property, not a test property."
+    },
+    {
+      "id": "W28",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\th.Set(\"X-Frame-Options\", \"DENY\")\n",
+      "new": "\t_ = h\n",
+      "note": "the login form can be framed by a hostile page"
+    },
+    {
+      "id": "W29",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\t\tif !strings.HasPrefix(r.URL.Path, \"/static/\") {\n",
+      "new": "\t\tif false {\n",
+      "note": "a dynamic page is cacheable, so who is locked out stays readable after logout"
+    },
+    {
+      "id": "W30",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n",
+      "new": "\t\thttp.Error(w, fmt.Sprintf(\"%v\", rec), http.StatusInternalServerError)\n",
+      "note": "the panic text reaches the client, mapping the binary for anybody on the LAN"
+    },
+    {
+      "id": "W31",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\t\ts.logf(\"web: %s panic: %v\\n%s\", requestID(r), rec, debug.Stack())\n",
+      "new": "\t\t_ = debug.Stack()\n",
+      "note": "a panic is turned into a 500 and never logged, so nobody knows it happened"
+    },
+    {
+      "id": "W32",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\treturn strings.Contains(accept, \"application/json\")\n",
+      "new": "\treturn false\n",
+      "note": "a JSON client following a redirect gets an HTML login page where it expected a status code"
+    },
+    {
+      "id": "W33",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\ts.audit(\"csrf.rejected\", r.URL.Path)\n",
+      "new": "\t_ = r.URL.Path\n",
+      "note": "a refused CSRF check leaves no trace"
+    },
+    {
+      "id": "W34",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go",
+      "old": "\tcfg.MinVersion = tls.VersionTLS12\n",
+      "new": "\tcfg.MinVersion = tls.VersionSSL30\n",
+      "note": "the transport accepts anything a client offers"
+    },
+    {
+      "id": "W35",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go",
+      "old": "\tw.Header().Set(\"Cache-Control\", \"public, max-age=31536000, immutable\")\n",
+      "new": "\t_ = 0\n",
+      "note": "a content-addressed asset is re-fetched on every page view"
+    },
+    {
+      "id": "W36",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go",
+      "old": "\tname, ok := s.assets[\"/static/\"+requested]\n",
+      "new": "\tname, ok := requested, true\n",
+      "note": "an unknown hash falls back to the literal name, so the immutable header can pin a stale file forever"
+    },
+    {
+      "id": "W37",
+      "package": "./internal/web/",
+      "file": "internal/web/middleware.go",
+      "old": "\t\tif _, ok := s.sessionFrom(r); !ok {\n\t\t\ts.wantsLogin(w, r)\n\t\t\treturn\n\t\t}\n",
+      "new": "\t\t_, _ = s.sessionFrom(r)\n",
+      "note": "the auth gate lets an anonymous request through"
+    },
+    {
+      "id": "W38",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go",
+      "old": "\t\treturn nil, fmt.Errorf(\"web: unknown tls mode %q (expected auto, off or custom)\", s.TLSMode)\n",
+      "new": "\t\ts.TLSMode = TLSAuto\n",
+      "note": "an unknown tls mode falls through to a transport instead of refusing to start"
+    },
+    {
+      "id": "W39",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go",
+      "old": "\tif err := httpSrv.Shutdown(drain); err != nil {\n",
+      "new": "\tif err := httpSrv.Shutdown(drain); err != nil && false {\n",
+      "note": "in-flight requests are cut off instead of drained"
+    },
+    {
+      "id": "W40",
+      "package": "./internal/web/",
+      "file": "internal/web/assets.go",
+      "old": "\tsum := sha256.Sum256(b)\n",
+      "new": "\tsum := sha256.Sum256(append([]byte(name), b[:0]...))\n",
+      "note": "the asset URL hashes the filename, so a content change keeps the same URL and the immutable header pins the old bytes"
+    },
+    {
+      "id": "W41",
+      "old": "\tif cfg := s.tlsConfig(); cfg != nil {\n\t\tln = tls.NewListener(ln, cfg)\n\t}",
+      "new": "\t_ = s.tlsConfig()",
+      "note": "Serve stops terminating TLS, so a daemon configured `auto` answers plain HTTP on a port it logs as https:// and the Secure cookie can never be set",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go"
+    },
+    {
+      "id": "W42",
+      "old": "\tm, err := AssetMap(s.Static)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"web: %w\", err)\n\t}",
+      "new": "\tm, _ := AssetMap(s.Static)",
+      "note": "a broken asset bundle is swallowed, so every /static/ request 404s and the operator gets the unstyled page with nothing in the log",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go"
+    },
+    {
+      "id": "W43",
+      "old": "\tif s.warn != nil {\n\t\ts.warn(format, args...)\n\t\treturn\n\t}",
+      "new": "\tif false {\n\t\ts.warn(format, args...)\n\t\treturn\n\t}",
+      "note": "the disabled-transport warning ignores Options.Warn and goes to stdout, the stream an operator redirects away",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go"
+    },
+    {
+      "id": "W44",
+      "file": "internal/web/server.go",
+      "old": "\t\tStatic:   opts.Static,\n",
+      "new": "\t\tStatic:   nil,\n",
+      "why": "an injected asset bundle is dropped, so Options.Static does nothing and the constructor's asset check is unreachable again"
+    }
+  ]
 }
