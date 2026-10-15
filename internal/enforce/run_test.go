@@ -117,7 +117,15 @@ func TestRunSkipsATickThatOutlivesItsPeriod(t *testing.T) {
 	cancel, _ := startRun(t, e)
 	defer cancel()
 
-	waitFor(t, "a skipped tick", func() bool { return e.Skipped() > 0 })
+	// Wait for the audit event, not for the counter.
+	//
+	// noteSkipped increments the counter and *then* emits, so waiting on Skipped() > 0
+	// and asserting countOf(KindTickSkipped) races the emit -- and lost under CI load,
+	// where the gap between the two is wide enough to schedule a goroutine into. The
+	// assertion below is about the event, so the event is what the wait has to be for.
+	// Waiting on the counter tested the wrong thing while pretending to test the right
+	// one, which is the shape this repo keeps being bitten by.
+	waitFor(t, "a tick.skipped event", func() bool { return sink.countOf(KindTickSkipped) > 0 })
 
 	// One tick in flight, and everything after it refused rather than stacked. Two
 	// ticks locking the same session at once would double every audit line and race
