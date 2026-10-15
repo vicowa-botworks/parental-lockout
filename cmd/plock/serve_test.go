@@ -422,6 +422,14 @@ func TestServeStartsWhenOneBackendIsUsable(t *testing.T) {
 func TestServeRefusesToStartWhenTheAuditPathIsUnusable(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := writeServeConfig(t, dir)
+	// The backend has to be answered for, not inherited. The startup guard now sits
+	// ahead of trail.Open() -- that is the point of it, so a refusal cannot leave a
+	// 0-byte trail behind -- which means on a machine where no backend is usable the
+	// backend refusal wins and this test never reaches the guard it is about. It passed
+	// here and failed on a headless runner for exactly that reason, so the runner is
+	// installed rather than the assertion loosened: the audit path is the fault under
+	// test, and the backend must not be whatever the machine happens to be.
+	installServeRunner(t, workingLoginctl)
 
 	var out, errOut syncBuffer
 	code := refuseWithin(t, &out, &errOut, []string{
