@@ -28,3 +28,48 @@ jobs:
       # cannot drift apart.
       - name: Verify
         run: make verify
+
+  # The shell that ships with the product: the installer runs as root and deletes
+  # directories, and the two guards in scripts/ are what CI and every local gate lean on.
+  # A quoting bug in install.sh is not a lint nit -- it is a `rm -rf` with an empty
+  # variable.
+  #
+  # shellcheck is fetched at a pinned version and verified against its published digest
+  # rather than run through a third-party action. An action would itself be unpinned code
+  # executing on every PR to a repo whose whole subject is a root daemon, and pinning by
+  # tag is not pinning. The digest is what makes the version tag mean something.
+  #
+  # Scope is the shipped scripts, by name, and it is deliberately not a repo-wide find:
+  # .opencode/ holds agent tooling that is not installed anywhere and is written in bash
+  # with POSIX-undefined builtins. Linting it here would only teach whoever reads the next
+  # red tick that this job is noise.
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    env:
+      SHELLCHECK_VERSION: v0.10.0
+      SHELLCHECK_SHA256: 6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch shellcheck at a pinned digest
+        run: |
+          set -euo pipefail
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -sSfL --retry 3 -o /tmp/sc.tar.xz "$url"
+          echo "${SHELLCHECK_SHA256}  /tmp/sc.tar.xz" | sha256sum --check --status || {
+            echo "the downloaded shellcheck does not match the pinned digest" >&2
+            echo "refusing to run an unverified binary" >&2
+            exit 1
+          }
+          tar -xf /tmp/sc.tar.xz -C /tmp
+          "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" --version
+
+      - name: Lint the shipped scripts
+        run: |
+          set -euo pipefail
+          "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" \
+            deploy/install.sh \
+            scripts/check-builds.sh \
+            scripts/check-deps.sh

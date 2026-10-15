@@ -1,0 +1,170 @@
+# /etc/systemd/system/plock.service -- installed by deploy/install.sh
+#
+# Two properties have to hold at once, and they pull against each other: the unit must be
+# hardened enough that a technically able child cannot use the daemon to gain root, and it
+# must stay able to lock the screen -- which means reaching logind, reaching each logged-in
+# user's session bus, and reading /proc for another user's processes. Every directive below
+# is sorted into "affordable", "affordable with a stated reason", and "refused, and here is
+# what it would break". The refused list is the part a reviewer should attack: a hardened
+# unit that cannot lock is a worse product than a less-hardened one that can, because it
+# fails silently and looks healthy.
+#
+# Proof status is marked per directive. PROVE: means the reasoning is from the source and
+# the live check has not been run -- docs/setup.md "Verifying the hardening" is the recipe,
+# and it is a five-minute check on the machine this is for.
+
+[Unit]
+Description=Parental lockout enforcement
+Documentation=file:/usr/share/doc/plock/docs/setup.md
+Documentation=https://github.com/vicowa-botworks/parental-lockout
+
+# logind is D-Bus activated and the daemon's first act is to ask it which sessions exist, so
+# ordering after the bus is not cosmetic. Without it the first start after boot logs a probe
+# failure and retries on the next tick -- which works, but turns every boot into a race whose
+# loser is a line in a journal nobody reads.
+Wants=dbus.service
+After=systemd-user-sessions.service dbus.service
+
+# Deliberately NOT ConditionPathExists=/etc/plock/config.json. A condition that is not
+# satisfied leaves the unit cleanly inactive: a child who deletes or truncates the config
+# would switch enforcement off with no failing service, no alert and a green `systemctl
+# is-enabled`. Letting the daemon refuse and exit instead makes `Restart=always` produce a
+# crash loop, which is loud, is visible in `systemctl --failed`, and is the correct outcome
+# for a machine whose policy file has gone missing.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/plock serve --config /etc/plock/config.json
+
+# root, not a dedicated user. The daemon has to read a 0600 root-owned policy file, and it
+# has to setuid/setgid down to each session user to run the locker on their bus (see
+# internal/platform/exec.go's Credential use). A non-root user could do neither, and the
+# failure is not an error message -- it is a screen that stays unlocked.
+User=root
+Group=root
+
+# ---------------------------------------------------------------------------
+# Filesystem
+# ---------------------------------------------------------------------------
+
+# The policy file is read and never written by the daemon; the certificate and the audit
+# trail are the only two things it writes, and both are declared below. strict is the whole
+# tree read-only except /dev, /proc, /sys and the declared paths.
+#
+# What strict does NOT break, and this is the part worth stating because it is the usual
+# reason strict gets backed out: connecting to another user's session bus at
+# /run/user/<uid>/bus is a connect(2) on a socket inode. The kernel checks write permission
+# on that inode, not writability of the mount, so a read-only /run still permits the
+# connect. Daemons under strict talk to /run/dbus/system_bus_socket routinely for the same
+# reason.
+# PROVE: docs/setup.md step 2 -- `plock doctor` under the unit, then a real lock.
+ProtectSystem=strict
+
+# read-only, NOT true. internal/users stats each account's home directory out of /etc/passwd
+# to report whether it is present, and ProtectHome=true masks /home entirely -- every
+# account would then read as homeless. Enforcement itself goes through logind and the session
+# bus and would survive, so this is the quiet kind of breakage: a dashboard that is wrong
+# about the children on the machine, with the lock path untouched and nothing in the log.
+# read-only keeps stat() working and still denies writes into a child's home.
+ProtectHome=read-only
+
+# The certificate and the admin state. 0700 because the directory holds a private key.
+StateDirectory=plock
+StateDirectoryMode=0700
+
+# The audit trail. The writer refuses a world-writable parent of its own (internal/audit),
+# so this mode is checked twice rather than trusted.
+LogsDirectory=plock
+LogsDirectoryMode=0755
+
+# 0077 rather than systemd's 0022 default: the certificate, the key and the audit file are
+# all created by this process, and a group-readable private key is a second thing to explain.
+UMask=0077
+
+PrivateTmp=true
+PrivateDevices=true
+
+# ---------------------------------------------------------------------------
+# Processes and /proc -- the directives that must stay OFF
+# ---------------------------------------------------------------------------
+#
+# The KDE locker is corroborated by reading /proc/<pid>/status and /proc/<pid>/cmdline to
+# prove the locker process is parented by ksmserver (internal/platform/locker.go). That is
+# the second signal behind issue #29: logind's LockedHint is writable by the session user
+# with no privilege at all, so a lock is only believed when a real locker process is running
+# under the session's own ksmserver.
+#
+# Any directive that hides other users' processes therefore deletes the security property
+# rather than protecting it: the corroborator would find no locker, every lock would report
+# unconfirmed, and enforcement would keep re-arming forever while the operator was told the
+# machine could not confirm. So these are pinned to their permissive values on purpose, with
+# the reason here rather than left to the next person's guess:
+PIDNamespace=no
+ProtectProc=no
+HidePID=no
+
+# ---------------------------------------------------------------------------
+# Privileges
+# ---------------------------------------------------------------------------
+
+# Affordable, and the reason matters: NoNewPrivileges blocks *gaining* privilege through
+# execve -- a setuid bit or a file capability. This daemon only ever drops: it runs as root
+# and calls setuid/setgid down to the session user, which NNP does not restrict. Nothing in
+# the tree execs a setuid helper; the two external programs are loginctl and gdbus, both
+# resolved to absolute paths (issue #53) so a PATH the child controls cannot answer the call.
+# PROVE: docs/setup.md step 1.
+NoNewPrivileges=true
+
+# Not set, on purpose: CapabilityBoundingSet. The daemon needs CAP_SETUID and CAP_SETGID to
+# drop, and it needs to keep them for the life of the process because every tick may target
+# a different user. Narrowing the bounding set to a list is the kind of directive that reads
+# well in review and produces a daemon that logs "operation not permitted" once per tick
+# while the screen stays unlocked. If a future release stops dropping privileges, revisit.
+
+# Not set, on purpose: ExecPaths. It would have to list /usr/bin/loginctl and gdbus, and
+# gdbus's path is not stable across distributions -- a wrong list is a unit that cannot lock.
+# The exposure ExecPaths is meant to close (executing a program the child chose) is already
+# closed by resolving both binaries to absolute paths before invoking them.
+
+# ---------------------------------------------------------------------------
+# Kernel, network, misc
+# ---------------------------------------------------------------------------
+
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectClock=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# AF_UNIX for the session and system buses, AF_INET/AF_INET6 for the admin listener. Nothing
+# else opens a socket: no outbound calls, no DNS (the daemon resolves no hostnames).
+# PROVE: docs/setup.md step 3 -- reach the dashboard from another machine.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+# Not set, on purpose: MemoryDenyWriteExecute and SystemCallFilter=@system-service. Both are
+# plausible for a Go binary and neither is provable from this source tree -- the Go runtime
+# makes syscalls outside @system-service on some kernel and architecture combinations, and a
+# filter that trips is a SIGSYS, which under Restart=always looks like a crash loop with a
+# message that names no application code. Excluded until measured, not because they are
+# wrong.
+
+# ---------------------------------------------------------------------------
+# Lifecycle
+# ---------------------------------------------------------------------------
+
+# The daemon handles SIGTERM by draining: in-flight admin requests finish and the audit
+# writer is closed so the last event is not lost mid-line. control-group (the default) sends
+# SIGTERM to every process in the cgroup, which includes a gdbus that is mid-lock -- killing
+# it there is how a lock request gets half-sent. mixed sends SIGTERM to the main process
+# only, then SIGKILL to the rest after TimeoutStopSec.
+KillMode=mixed
+TimeoutStopSec=30s
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
