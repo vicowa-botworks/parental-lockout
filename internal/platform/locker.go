@@ -83,7 +83,12 @@ func lockerRunning(ctx context.Context, uid uint32) (bool, error) {
 		// The uid filter runs before anything is resolved. It is the cheapest read in
 		// this loop and it discards the whole machine except the session being locked,
 		// and the walk runs on every confirmation inside the settle window.
-		_, puid, err := procParent(name)
+		// One read of this pid, used for both the uid filter and the parent. Asking
+		// twice was two snapshots of a process that can exit between them, which is not
+		// a correctness problem -- a torn answer fails closed -- but it did mean the two
+		// fields could disagree about which process they described, and it doubled the
+		// status reads in the hottest part of the loop.
+		ppid, puid, err := procParent(name)
 		if err != nil || puid != uid {
 			continue
 		}
@@ -94,10 +99,6 @@ func lockerRunning(ctx context.Context, uid uint32) (bool, error) {
 			continue // vanished, or a kernel thread with no argv
 		}
 		if filepath.Base(argv[0]) != kdeLockerProgram {
-			continue
-		}
-		ppid, _, err := procParent(name)
-		if err != nil {
 			continue
 		}
 		if !isLockerBinary(name, uid) {
@@ -194,6 +195,25 @@ func procExe(root, pid string) (string, error) {
 // of not corroborating, because the cost of a false "locked" is an audit line saying a
 // child was locked out when they were not.
 func binaryWritableBy(path string, uid uint32) bool {
+	// The file's own mode is not the question. Who can change a binary is decided by
+	// the directory it sits in: a root-owned 0755 kscreenlocker_greet inside a shared
+	// prefix installed root:staff 0775 is a locker whose bytes the session group owns,
+	// and nothing about the file says so. Checking the file alone would pass that tree
+	// while the comment claimed the rule was about authorship.
+	for _, p := range []string{path, filepath.Dir(path)} {
+		if writableByOneOf(p, uid) {
+			return true
+		}
+	}
+	return false
+}
+
+// writableByOneOf reports whether uid could replace or edit this one path: it owns it,
+// or the mode lets the session's group or the world write it.
+//
+// Group and world bits are included because the session user is a member of ordinary
+// groups (users, video) and a directory writable by those is writable by them.
+func writableByOneOf(path string, uid uint32) bool {
 	owner, ok := fileOwner(path)
 	if !ok {
 		return true

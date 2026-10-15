@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -84,7 +85,33 @@ func wantArgv(t testing.TB, got, want [][]string) {
 // fixture that invents a locker at 1000 while the session is 1001 does not "fail to
 // corroborate for a reason", it silently tests the wrong thing. The uid check is real,
 // so the uid has to be shared on purpose.
-const desktopUID = uint32(1001)
+//
+// It is derived from the process, not written down, because the corroborator also asks
+// whether the session user could have written the binary -- and the fixture's binaries
+// are owned by whoever runs the tests. A literal that happens to equal the runner's uid
+// makes every honest tree look forgeable. GitHub-hosted ubuntu-latest runs as `runner`,
+// uid 1001, which is exactly what this constant used to be: four tests red on the runner
+// and green on any developer machine, with the tempting wrong fix being to weaken the
+// rule. See the self-check in linkExe, which refuses to run at all if the collision
+// comes back.
+var desktopUID = fixtureSessionUID()
+
+// fixtureSessionUID picks a uid that cannot be the one running the tests.
+//
+// os.Getuid()+1 is enough for the collision to be impossible in the common case, and the
+// writability rule then sees what a real machine shows: a root-owned locker the session
+// user cannot touch.
+//
+// uid 0 is refused rather than worked around. Running the suite as root makes every file
+// on the box owned by the session, so the writability rule would reject everything for a
+// reason that has nothing to do with the code under test -- and a test that always
+// rejects cannot tell an honest tree from a forged one.
+func fixtureSessionUID() uint32 {
+	if os.Getuid() == 0 {
+		return 60000
+	}
+	return uint32(os.Getuid()) + 1
+}
 
 // desktopSession is the shape logind reports for a real desktop session. Tests build
 // through it rather than spelling the fields out, because isLockable requires Class and

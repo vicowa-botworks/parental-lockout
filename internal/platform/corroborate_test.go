@@ -140,7 +140,7 @@ func TestChainWithNoConfirmerSaysItCannotReadTheState(t *testing.T) {
 	m := &Mock{BackendName: "legacy"}
 	c := &Chain{backends: []Platform{m}}
 
-	_, err := c.lockState(context.Background(), desktopSession("3"))
+	_, err, _ := c.lockState(context.Background(), desktopSession("3"))
 	if err == nil || !strings.Contains(err.Error(), "no backend") {
 		t.Errorf("lockState = %v, want a sentence naming that nothing here can confirm", err)
 	}
@@ -345,5 +345,40 @@ func TestProbeSaysWhetherConfirmationIsCorroborated(t *testing.T) {
 				t.Errorf("the %s backend's Probe does not say %q:\n%s", tc.id, tc.want, detail)
 			}
 		})
+	}
+}
+
+// A confirmer that faults on the way to an answer is not the verdict, but it is not
+// nothing either.
+//
+// lockState used to collect these errors and then discard them whenever a later
+// corroborated backend answered cleanly -- so "the fault is reported rather than
+// swallowed" was true only in the case where nobody could answer. The comment promised a
+// guarantee the code did not give, which is the class of defect this repo keeps being
+// asked to remove: a sentence in the source that the diff has moved past.
+func TestAFaultedConfirmerIsReportedEvenWhenALaterOneAnswers(t *testing.T) {
+	fault := errors.New("dbus: transport is closed")
+	c := &Chain{backends: []Platform{
+		confirming{Mock: &Mock{BackendName: "logind"}, err: fault},
+		corroborating{Mock: &Mock{BackendName: "kde"}, yes: true},
+	}}
+
+	yes, err, notes := c.lockState(context.Background(), desktopSession("3"))
+	if err != nil {
+		t.Fatalf("lockState returned a verdict-level error %v; a clean fallback answer is a verdict", err)
+	}
+	if !yes {
+		t.Fatal("the corroborated backend said locked and the chain did not believe it")
+	}
+	if len(notes) == 0 {
+		t.Fatal("the faulted confirmer's error was dropped: the chain knows a backend is broken and reports nothing")
+	}
+	// The fault has to be findable in what the chain says, not merely counted.
+	joined := errors.Join(notes...)
+	if !errors.Is(joined, fault) {
+		t.Errorf("the reported notes do not carry the underlying fault: %v", joined)
+	}
+	if !strings.Contains(joined.Error(), "logind") {
+		t.Errorf("the report does not name which backend faulted, so an operator cannot act on it: %v", joined)
 	}
 }

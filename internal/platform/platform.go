@@ -507,7 +507,14 @@ func corroborated(conf Confirmer) bool {
 // When every confirmer corroborates there is no uncorroborated signal left to discount,
 // and the fallback answer is never used: such a backend returns nil before the value is
 // consulted.
-func (c *Chain) lockState(ctx context.Context, s Session) (bool, error) {
+// lockState asks the chain what it believes is true right now.
+//
+// Three answers, not two. `err` is the verdict-level failure -- nothing in this chain
+// could tell us anything -- and only that should discount a later uncorroborated yes.
+// `notes` carries the confirmers that faulted on the way but did not decide the answer;
+// they are not the verdict and they are not nothing, so they go to the caller to be
+// reported rather than being collected and dropped.
+func (c *Chain) lockState(ctx context.Context, s Session) (bool, error, []error) {
 	var fallback Confirmer
 	var fallbackName string
 	// Every uncorroborated confirmer, not just the first. See the loop below.
@@ -540,20 +547,26 @@ func (c *Chain) lockState(ctx context.Context, s Session) (bool, error) {
 			errs = append(errs, fmt.Errorf("%s: %w", plainNames[i], err))
 			continue
 		}
-		return yes, nil
+		return yes, nil, errs
 	}
 	if fallback == nil {
 		if len(errs) > 0 {
-			return false, errors.Join(errs...)
+			return false, errors.Join(errs...), nil
 		}
-		return false, fmt.Errorf("no backend in this chain can confirm a lock")
+		return false, fmt.Errorf("no backend in this chain can confirm a lock"), nil
 	}
 	yes, err := fallback.LockConfirmed(ctx, s)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%s: %w", fallbackName, err))
-		return false, errors.Join(errs...)
+		return false, errors.Join(errs...), nil
 	}
-	return yes, nil
+	// The fallback answered, so nothing above decided the verdict -- but a confirmer
+	// that faulted on the way is still worth saying. Dropping it made the comment on
+	// this function a promise the code did not keep: the fault was collected and then
+	// discarded whenever some later backend happened to answer cleanly. It goes back to
+	// the caller as notes now, which is where Chain.Lock already puts everything worth
+	// reporting that is not the verdict.
+	return yes, nil, errs
 }
 
 // Lock asks each backend in configured order until one confirms the lock took effect.
@@ -609,9 +622,12 @@ func (c *Chain) Lock(ctx context.Context, s Session) error {
 	//
 	// One read for the whole operation, not one per backend: the question is what held
 	// when we started, and every backend here confirms off the same property.
-	wasLocked, preErr := c.lockState(ctx, s)
+	wasLocked, preErr, preNotes := c.lockState(ctx, s)
 
-	var notes []error // everything worth saying, in backend order
+	// Everything the pre-read learned but could not make a verdict, in front: it is the
+	// earliest thing worth saying, and a confirmer that faults before anyone is asked is
+	// the one a reader needs first to understand the rest.
+	notes := preNotes // everything worth saying, in backend order
 	var failures int  // backends that returned an error rather than accepting
 	for _, b := range c.backends {
 		if err := b.Lock(ctx, s); err != nil {

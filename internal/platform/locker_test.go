@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -112,9 +113,30 @@ func (f *procFixture) linkExe(dir, program string, mode os.FileMode) {
 	if err := os.Chmod(path, mode); err != nil {
 		f.t.Fatalf("chmod %s: %v", path, err)
 	}
+	// The fixture cannot express the situation this package's rule is about if the
+	// binary's owner and the session's uid are the same person: every tree would be
+	// rejected as forgeable, including the honest ones, and the only way to make the
+	// tests go green would be to weaken the rule. Say that out loud instead of leaving
+	// the next reader to discover it as four red assertions.
+	if owner, ok := fileOwnerUID(path); ok && owner == desktopUID {
+		f.t.Fatalf("fixture binary %s is owned by uid %d, which is the session uid this tree is checked against; the honest tree would be rejected for the wrong reason. desktopUID is derived from os.Getuid() and must not collide with the user running the suite", path, owner)
+	}
 	if err := os.Symlink(path, filepath.Join(dir, "exe")); err != nil {
 		f.t.Fatalf("link exe: %v", err)
 	}
+}
+
+// fileOwnerUID reports the uid that owns path, and whether that could be determined.
+func fileOwnerUID(path string) (uint32, bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return st.Uid, true
 }
 
 // forge writes a process whose argv[0] claims to be one program while its exe resolves
@@ -354,22 +376,25 @@ func TestLockerRunningMatchesTheEffectiveUidNotTheRealOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// real 1000, effective 1001, both different from the fixture's own uid so the
-	// distinction is the only thing that can decide the answer.
+	// A real/effective pair where only the effective uid is the session's, so the
+	// distinction is the only thing that can decide the answer. Both are derived rather
+	// than written down: a literal here eventually equals some runner's uid, and the
+	// writability rule then rejects the tree for a reason this test is not about.
+	realUID := desktopUID + 7
 	if err := os.WriteFile(filepath.Join(dir, "status"),
 		[]byte(strings.Replace(string(raw),
 			fmt.Sprintf("Uid:\t%d\t%d\t%d\t%d", fixtureUID, fixtureUID, fixtureUID, fixtureUID),
-			"Uid:\t1000\t1001\t1000\t1000", 1)), 0o644); err != nil {
+			fmt.Sprintf("Uid:\t%d\t%d\t%d\t%d", realUID, desktopUID, realUID, realUID), 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	f.use()
 
-	yes, err := lockerRunning(context.Background(), 1001)
+	yes, err := lockerRunning(context.Background(), desktopUID)
 	if err != nil || !yes {
 		t.Fatalf("lockerRunning for the effective uid = %v, %v; want it to count", yes, err)
 	}
 	// And the real uid is not the session's.
-	if yes, err := lockerRunning(context.Background(), fixtureUID); err != nil || yes {
+	if yes, err := lockerRunning(context.Background(), realUID); err != nil || yes {
 		t.Errorf("lockerRunning for the real uid = %v, %v; want it not to count", yes, err)
 	}
 }
@@ -494,5 +519,42 @@ func TestProcParentRejectsWhatItCannotTrust(t *testing.T) {
 				t.Errorf("accepted a status it cannot read: %q", body)
 			}
 		})
+	}
+}
+
+// The file's mode is not the whole question, and this is the tree that shows it.
+//
+// A root-owned 0755 locker inside a directory the session user's group can write -- a
+// shared prefix installed root:staff 0775, exactly the non-canonical layout the
+// "don't pin a canonical path" decision has to tolerate -- is a locker whose bytes are
+// theirs: unlink and recreate, and the name and the mode both still read honest. Checking
+// only the file passed this tree while the comment claimed the rule was about authorship.
+func TestALockerInAWriteableDirectoryIsRejectedEvenThoughTheBinaryIsNot(t *testing.T) {
+	f := newProcFixture(t).
+		add(6695, 1, fixtureUID, "/usr/lib/systemd/systemd --user").
+		add(7619, 6695, fixtureUID, measuredKsmserver).
+		add(2224790, 7619, fixtureUID, measuredLocker, "--graceTime", "5000", "--ksldfd", "56")
+	// The binary itself stays root-style: 0755, owned by whoever runs the suite, which
+	// is not the session uid -- the self-check in linkExe guarantees that half.
+	if err := os.Chmod(f.binDir(), 0o775); err != nil {
+		t.Fatal(err)
+	}
+	f.use()
+
+	yes, err := lockerRunning(context.Background(), fixtureUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if yes {
+		t.Error("a locker sitting in a group-writable directory corroborated a lock: whoever owns the directory owns the bytes, and nothing about the file says so")
+	}
+
+	// Control: the same tree with the directory back to 0755 corroborates, so the
+	// rejection above is about the directory and not about something else in the fixture.
+	if err := os.Chmod(f.binDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if yes, err := lockerRunning(context.Background(), fixtureUID); err != nil || !yes {
+		t.Errorf("with the directory at 0755 the same tree gave %v, %v; want it to corroborate, so the assertion above proves nothing", yes, err)
 	}
 }
