@@ -101,6 +101,22 @@ func TestRunSkipsATickThatOutlivesItsPeriod(t *testing.T) {
 	e.Interval = 5 * time.Millisecond
 	e.WatchInterval = -1
 
+	// The audit sink is deliberately slow here, and this is the whole point of the
+	// shape of this test rather than an incidental detail.
+	//
+	// The bug is about which predicate the loop waits on, and a wait on the counter is
+	// only wrong when there is a gap between counting and emitting. With the default
+	// sink that gap is microseconds, so reverting the wait to e.Skipped() > 0 passes
+	// this test five times out of five -- the test would keep claiming to pin the bug
+	// while pinning nothing. A 250 ms emit opens the gap wide enough that the counter
+	// wait returns before the event exists, the assertion below runs against an empty
+	// log, and the test fails in a quarter second on any machine.
+	//
+	// To reproduce a race between a counter and the thing the counter stands for, slow
+	// down the thing. Do not speed up the machine.
+	slow := &slowSink{inner: sink}
+	e.Sink = slow
+
 	gate := make(chan struct{})
 	p.mu.Lock()
 	p.block = gate
@@ -125,7 +141,7 @@ func TestRunSkipsATickThatOutlivesItsPeriod(t *testing.T) {
 	// assertion below is about the event, so the event is what the wait has to be for.
 	// Waiting on the counter tested the wrong thing while pretending to test the right
 	// one, which is the shape this repo keeps being bitten by.
-	waitFor(t, "a tick.skipped event", func() bool { return sink.countOf(KindTickSkipped) > 0 })
+	waitFor(t, "a tick.skipped event", func() bool { return slow.countOf(KindTickSkipped) > 0 })
 
 	// One tick in flight, and everything after it refused rather than stacked. Two
 	// ticks locking the same session at once would double every audit line and race
@@ -133,7 +149,7 @@ func TestRunSkipsATickThatOutlivesItsPeriod(t *testing.T) {
 	if got := p.totalLocks(); got != 1 {
 		t.Errorf("%d Lock calls while one was blocked, want 1: a late tick must be refused, not queued", got)
 	}
-	if sink.countOf(KindTickSkipped) == 0 {
+	if slow.countOf(KindTickSkipped) == 0 {
 		t.Error("no tick.skipped event: a daemon that falls behind leaves no trace in the audit log")
 	}
 	if e.Skipped() == 0 {
@@ -563,43 +579,6 @@ func TestAShutdownPartwayThroughTheListStopsThePass(t *testing.T) {
 			t.Errorf("session 3 was reported unconfirmed after the shutdown: %q", ev.Detail)
 		}
 	}
-}
-
-// The reviewer reproduced this race by giving the sink a slow Emit -- 250 ms, three runs
-// out of three -- where my attempts to lose it by stressing the machine did not reproduce
-// in 2600 runs. That asymmetry is the reason this test exists: a wait that only holds when
-// the emit is fast is not a wait on the emit.
-//
-// So the sink is slow on purpose. If the loop ever goes back to waiting on the counter,
-// this fails in a quarter second rather than on a loaded runner once a week.
-func TestASlowAuditSinkDoesNotHideTheSkippedTickEvent(t *testing.T) {
-	e, p, _, _, _ := newEngine(t, kidDoc(), refInside)
-	slow := &slowSink{inner: &recSink{}}
-	e.Sink = slow
-	e.Interval = 5 * time.Millisecond
-	e.WatchInterval = -1
-
-	gate := make(chan struct{})
-	p.mu.Lock()
-	p.block = gate
-	p.entered = make(chan struct{})
-	p.mu.Unlock()
-	t.Cleanup(func() {
-		select {
-		case <-gate:
-		default:
-			close(gate)
-		}
-	})
-
-	cancel, _ := startRun(t, e)
-	defer cancel()
-
-	// The counter is already visible here while the event is still inside Emit. Waiting
-	// on it would let this test pass with nothing in the audit log.
-	waitFor(t, "a tick.skipped event through a slow sink", func() bool {
-		return slow.countOf(KindTickSkipped) > 0
-	})
 }
 
 // slowSink records like recSink and then holds the event for a beat, standing in for an
