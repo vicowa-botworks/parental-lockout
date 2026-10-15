@@ -105,13 +105,20 @@ func newCommand(s config.Settings, lister sessionLister) (*commandBackend, error
 		// Reaching here means lockBackends named "command" with no path. Validate
 		// refuses that document, so this error is what a hand-built Settings produces
 		// -- and it must be an error rather than a backend that locks nothing.
-		return nil, errors.New("command: settings.lockCommandPath is required when lockBackends names \"command\"")
+		// No "command: " prefix, unlike logind's constructor. Registry errors are
+		// wrapped as "lockBackends: <id>: <err>" (platform.go), and logind's own
+		// "logind: no runner" is unreachable from New -- so this is the first backend
+		// error anyone has actually read, and prefixed it printed
+		// "lockBackends: command: command: settings.lockCommandPath ...". The field
+		// name already identifies the backend unambiguously; nothing else reads
+		// lockCommandPath.
+		return nil, errors.New("settings.lockCommandPath is required when lockBackends names \"command\"")
 	case !strings.HasPrefix(path, "/"):
 		// The same rule as Validate, enforced here because New is reachable with a
 		// Settings nobody validated. A relative path would resolve against the daemon's
 		// working directory, which under systemd is "/" and is not a thing the person
 		// who wrote the config chose.
-		return nil, fmt.Errorf("command: settings.lockCommandPath %q must be an absolute path; a bare or relative name is refused rather than looked up in PATH", path)
+		return nil, fmt.Errorf("settings.lockCommandPath %q must be an absolute path; a bare or relative name is refused rather than looked up in PATH", path)
 	}
 	if lister == nil {
 		return nil, errors.New("command: no session lister")
