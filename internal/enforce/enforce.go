@@ -258,6 +258,23 @@ type sessionState struct {
 	// shared counter would have to be reset differently by each path.
 	unenforceableReported bool
 
+	// unconfirmedReported is true once KindLockUnconfirmed has fired for the current
+	// run of unconfirmed ticks, and is cleared by any tick that does confirm.
+	//
+	// This is the transition rule #35 asks for. A GNOME-only configuration confirms on
+	// the tick the hint moves and reports ErrUnconfirmed on every tick after, because
+	// GNOME draws its lock screen inside gnome-shell and nothing corroborates a lock
+	// once it has taken. Before this, a correctly locked GNOME screen wrote an
+	// operator-actionable "the child may still be at the desktop" line every 30 seconds
+	// forever -- and a signal that fires on a healthy machine every 30 seconds is a
+	// signal the operator learns to skip, which is how the one case that IS actionable
+	// gets missed.
+	//
+	// Enforcement is untouched: the loop still calls platform.Lock every tick, and
+	// Report.Errors still carries the fault every tick, so the live verdict is unchanged.
+	// What dedupes is the audit file.
+	unconfirmedReported bool
+
 	// profileErrs is the schedule complaint set this session was last reported with,
 	// so KindScheduleDegraded fires when the set changes rather than every tick. The
 	// empty string means nothing was wrong last time.
@@ -705,6 +722,12 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 			SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
 			Detail: assertedDetail(hinted)})
 
+		// A confirmed tick ends any run of unconfirmed ticks, so the next one is a
+		// transition and gets its line again. Without this the alarm would fire once
+		// per process rather than once per episode, and an episode that starts hours
+		// after a healthy stretch is exactly the one worth reading.
+		e.ensure(s.ID).unconfirmedReported = false
+
 	case errors.Is(err, platform.ErrUnconfirmed):
 		// The request reached a backend; nobody could prove the screen locked.
 		// Treat it as enforcing — we asked, and the next tick asks again — but say
@@ -734,7 +757,10 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 					SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
 					Detail: "this session type has no desktop to lock, so no backend will ever be able to confirm a lock on it; this account is not being locked out"})
 			}
-		} else {
+		} else if !st.unconfirmedReported {
+			// First unconfirmed tick of this episode. Later ones are silent in the
+			// audit file and loud in Report.Errors; see the field's note on #35.
+			st.unconfirmedReported = true
 			e.emit(rep, Event{At: now, Kind: KindLockUnconfirmed, Username: s.Username,
 				SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
 				Detail: unconfirmedDetail(hinted)})
@@ -885,6 +911,12 @@ func (e *Engine) release(rep *Report, s platform.Session, now time.Time, detail 
 		// unenforceable last night is never escalated again, because the flag says
 		// "already told you" for a lockout that has since ended.
 		st.unenforceableReported = false
+		// No unconfirmedReported reset here, deliberately. The delete below drops the
+		// whole entry whenever no override is holding it, and when one is, this path is
+		// not reached -- the override branch returns before the window check. So the
+		// delete is the thing keeping this correct, which is worth saying out loud:
+		// releaseState is where the equivalent reset lives, and a future change to that
+		// delete condition is what would turn a missing alarm into the silent default.
 		if !st.overrideActive {
 			delete(e.state, s.ID)
 		}
@@ -900,6 +932,12 @@ func (e *Engine) releaseState(id string) {
 		st.enforcing = false
 		st.ruleID, st.ruleName = "", ""
 		st.unenforceableReported = false
+		// Per-lockout bookkeeping again, and this is the reset that actually fires: the
+		// override path is the only one where the state entry survives a release, so it
+		// is the only one that can carry "already told you" into the next lockout.
+		// TestAnOverrideExpiringDoesNotCarryTheAlarmFlagIntoTheNextLockout fails if this
+		// line and the one in release both go.
+		st.unconfirmedReported = false
 	}
 	delete(e.unenforceable, id)
 }

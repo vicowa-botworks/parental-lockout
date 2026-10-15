@@ -46,9 +46,9 @@
       "id": "F6",
       "package": "./internal/enforce/",
       "file": "internal/enforce/enforce.go",
-      "old": "\t\tst.unenforceableReported = false\n\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
-      "new": "\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
-      "note": "EQUIVALENT, and here is the proof: for the flag to be set, a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false — so the very next statement deletes the state entry and the next lockout starts from a fresh one. No input reaches the release with flag set and the entry kept. The line stays as insurance against a future change to that delete condition; TestASecondLockoutReEscalates pins the behaviour it protects, via the delete.",
+      "old": "\t\tst.unenforceableReported = false\n\t\t// No unconfirmedReported reset here, deliberately. The delete below drops the\n\t\t// whole entry whenever no override is holding it, and when one is, this path is\n\t\t// not reached -- the override branch returns before the window check. So the\n\t\t// delete is the thing keeping this correct, which is worth saying out loud:\n\t\t// releaseState is where the equivalent reset lives, and a future change to that\n\t\t// delete condition is what would turn a missing alarm into the silent default.\n\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
+      "new": "\t\t// No unconfirmedReported reset here, deliberately. The delete below drops the\n\t\t// whole entry whenever no override is holding it, and when one is, this path is\n\t\t// not reached -- the override branch returns before the window check. So the\n\t\t// delete is the thing keeping this correct, which is worth saying out loud:\n\t\t// releaseState is where the equivalent reset lives, and a future change to that\n\t\t// delete condition is what would turn a missing alarm into the silent default.\n\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
+      "note": "EQUIVALENT, and here is the proof: for the flag to be set, a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false \u2014 so the very next statement deletes the state entry and the next lockout starts from a fresh one. No input reaches the release with flag set and the entry kept. The line stays as insurance against a future change to that delete condition; TestASecondLockoutReEscalates pins the behaviour it protects, via the delete.",
       "equivalent": true,
       "why": ""
     },
@@ -171,6 +171,30 @@
       "old": "\tif err != nil && ctx.Err() != nil {\n",
       "new": "\tif err != nil && false {\n",
       "note": "a lock cancelled mid-flight is filed under unconfirmed, whose rule is keep re-arming, so a shutdown claims the child is at the desktop"
+    },
+    {
+      "id": "F22",
+      "old": "\t\t} else if !st.unconfirmedReported {",
+      "new": "\t\t} else {",
+      "note": "the unconfirmed alarm is written on every tick again, so a correctly locked GNOME screen floods the audit file (#35)",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go"
+    },
+    {
+      "id": "F23",
+      "old": "\t\te.ensure(s.ID).unconfirmedReported = false",
+      "new": "\t\t_ = e.ensure(s.ID)",
+      "note": "a confirmed tick does not re-arm the alarm, so the second episode of an uptime is silent",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go"
+    },
+    {
+      "id": "F24",
+      "old": "\t\tst.unconfirmedReported = false\n\t}\n\tdelete(e.unenforceable, id)",
+      "new": "\t}\n\tdelete(e.unenforceable, id)",
+      "note": "the override path leaves the alarm flag set, so the lockout after an exemption never reports unconfirmed",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go"
     }
   ]
 }

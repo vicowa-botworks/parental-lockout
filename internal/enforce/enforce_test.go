@@ -299,7 +299,9 @@ func TestAnUnconfirmedLockIsEnforcingButSaidOutLoud(t *testing.T) {
 	if got := p.lockCount("2"); got != 2 {
 		t.Errorf("locked %d times, want 2: unconfirmed means keep re-arming", got)
 	}
-	mustCount(t, sink, KindLockUnconfirmed, 2)
+	// One line for the episode, not one per tick (#35). The per-tick verdict is still
+	// in rep.Errors, which the check above reads; what changed is the audit file.
+	mustCount(t, sink, KindLockUnconfirmed, 1)
 	mustCount(t, sink, KindLockoutEntered, 1)
 	// A desktop session that cannot confirm today has not been shown to be
 	// unenforceable — the screensaver interface exposes no Locked property at all,
@@ -569,4 +571,119 @@ func TestASecondLockoutReEscalates(t *testing.T) {
 	}
 
 	mustCount(t, sink, KindUnenforceable, 2)
+}
+
+// TestALockedGNOMEScreenDoesNotWriteAnAlarmEveryTick is #35.
+//
+// GNOME draws its lock screen inside gnome-shell, so there is no separate locker
+// process and nothing corroborates a lock once it has taken: a GNOME-only chain
+// confirms on the tick the hint moves and answers ErrUnconfirmed on every tick after.
+// Before #35 that wrote "the child may still be at the desktop" every 30 seconds
+// forever on a machine that is working correctly.
+//
+// The volume is the bug. A signal that fires on a healthy machine is a signal the
+// operator learns to skip, and the one time it is true -- the screen really did come
+// unlocked -- is then read as more of the same.
+func TestALockedGNOMEScreenDoesNotWriteAnAlarmEveryTick(t *testing.T) {
+	e, p, sink, _, _ := newEngine(t, kidDoc(), refInside)
+
+	// Tick 1: the lock corroborates. This is the healthy GNOME tick.
+	tick(e)
+	mustCount(t, sink, KindLockAsserted, 1)
+	mustCount(t, sink, KindLockUnconfirmed, 0)
+
+	// Ticks 2-10: corroboration stops, which is GNOME's steady state.
+	p.setLockErr("2", fmt.Errorf("gnome: %w", platform.ErrUnconfirmed))
+	var last Report
+	for i := 0; i < 9; i++ {
+		last = tick(e)
+	}
+
+	mustCount(t, sink, KindLockUnconfirmed, 1)
+	if got := p.lockCount("2"); got != 10 {
+		t.Errorf("locked %d times, want 10: quieting the audit line must not quiet the asking", got)
+	}
+	// The live verdict is undiminished. Every tick still tells the caller the lock
+	// could not be proven; only the file stops repeating it.
+	if len(last.Errors) != 1 {
+		t.Errorf("the tick reported %d errors, want the unconfirmed fault on every tick", len(last.Errors))
+	}
+}
+
+// The episode boundary is what the alarm means, so a second one has to produce a
+// second line. A rule that fired once per process would go silent for the rest of an
+// uptime measured in weeks, which is a worse failure than the flooding it replaced.
+func TestCorroborationReturningArmsTheAlarmAgain(t *testing.T) {
+	e, p, sink, _, _ := newEngine(t, kidDoc(), refInside)
+	p.setLockErr("2", fmt.Errorf("gnome: %w", platform.ErrUnconfirmed))
+
+	tick(e)
+	tick(e)
+	mustCount(t, sink, KindLockUnconfirmed, 1)
+
+	// Corroboration comes back: the hint moves, the lock confirms.
+	p.setLockErr("2", nil)
+	tick(e)
+	mustCount(t, sink, KindLockAsserted, 1)
+
+	// And goes away again. That is a new episode and the operator should hear about it.
+	p.setLockErr("2", fmt.Errorf("gnome: %w", platform.ErrUnconfirmed))
+	tick(e)
+	tick(e)
+	mustCount(t, sink, KindLockUnconfirmed, 2)
+}
+
+// A lockout that ends and starts again is a new episode too. The state entry survives
+// the release so the exit event can name the rule that ended, which means the flag has
+// to be cleared explicitly rather than relying on the entry being fresh.
+func TestANewLockoutReportsUnconfirmedAgain(t *testing.T) {
+	e, p, sink, clock, _ := newEngine(t, kidDoc(), refInside)
+	p.setLockErr("2", fmt.Errorf("gnome: %w", platform.ErrUnconfirmed))
+
+	tick(e)
+	tick(e)
+	mustCount(t, sink, KindLockUnconfirmed, 1)
+	mustCount(t, sink, KindLockoutExited, 0)
+
+	// Walk out of the window, then back into it.
+	clock.Add(36 * time.Hour)
+	tick(e)
+	mustCount(t, sink, KindLockoutExited, 1)
+
+	// Back to Wednesday 22:30, inside the 20:00-06:30 curfew.
+	clock.Add(-12 * time.Hour)
+	tick(e)
+	mustCount(t, sink, KindLockoutEntered, 2)
+	mustCount(t, sink, KindLockUnconfirmed, 2)
+}
+
+// An override does not delete the session's state entry -- the entry has to survive so
+// override.expired can be audited when the exemption ends. That makes it the one release
+// path where per-lockout bookkeeping can leak into the next lockout, and the alarm going
+// missing is the failure: the parent granted an hour, the exemption ended, the screen
+// stopped corroborating, and nothing says so.
+func TestAnOverrideExpiringDoesNotCarryTheAlarmFlagIntoTheNextLockout(t *testing.T) {
+	doc := kidDoc()
+	e, p, sink, _, path := newEngine(t, doc, refInside)
+	p.setLockErr("2", fmt.Errorf("gnome: %w", platform.ErrUnconfirmed))
+
+	tick(e)
+	tick(e)
+	mustCount(t, sink, KindLockUnconfirmed, 1)
+
+	doc.Overrides = []config.Override{{Username: "kid", Until: refInside.Add(time.Hour)}}
+	writeDoc(t, path, doc)
+	tick(e)
+
+	// The exemption ends and the same window is still open.
+	doc.Overrides = nil
+	writeDoc(t, path, doc)
+	tick(e)
+	tick(e)
+
+	mustCount(t, sink, KindOverrideExpired, 1)
+	if got := p.lockCount("2"); got < 4 {
+		t.Errorf("locked %d times, want the asking to resume after the override", got)
+	}
+	mustCount(t, sink, KindLockUnconfirmed, 2)
 }
