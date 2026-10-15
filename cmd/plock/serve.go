@@ -41,6 +41,15 @@ lock request it cannot finish.
 // "stop" mean stop. If the web server and the enforcement loop each held their own,
 // a SIGTERM would leave one of them running, and the one still running would be
 // locking a screen while systemd counts down to SIGKILL.
+// serveRunner is how the daemon reaches the outside world, behind a var so a test
+// can hand it a loginctl that fails.
+//
+// The guard below decides whether this machine can lock anybody out by asking the
+// backends, and the backends ask a subprocess. Without the seam the only way to test
+// the refusal is to install a broken loginctl on the host, which produces a test that
+// passes here and asserts nothing on the next machine.
+var serveRunner platform.Runner = platform.ExecRunner{}
+
 func runServe(stdout, stderr io.Writer, args []string) int {
 	return runServeContext(context.Background(), stdout, stderr, args)
 }
@@ -90,7 +99,7 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	chain, chainErr := platform.New(cfg.Settings, platform.ExecRunner{})
+	chain, chainErr := platform.New(cfg.Settings, serveRunner)
 	if chainErr != nil {
 		// A partial chain is usable: `doctor` exists precisely because some backends
 		// are missing on most machines. The error is printed and the daemon starts
@@ -103,9 +112,25 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 	// chain: on a machine where nothing was detected, the daemon comes up, serves
 	// the UI, and locks nothing — and without this line the operator has no way to
 	// know that until the first night the screen stays unlocked.
+	// The probe answers two questions and both are asked here, from one pass.
+	//
+	// The first is the report: which backends answered. The second is the guard, and
+	// the reason they are the same loop is that the guard needs exactly the predicate
+	// the report computes. Counting chain.Names() instead -- which is what this did
+	// -- asks a different question: Names() lists backends the registry could
+	// *construct*, and a constructor only fails on a nil runner or an unknown name.
+	// So the guard fired on a typo in lockBackends and stayed silent on the machine
+	// where loginctl exists and exits 1, which is the machine the guard exists for and
+	// the machine every CI runner is. The daemon came up, announced that enforcement
+	// was running, served the admin UI, and could lock nobody.
+	//
+	// Refusing here also happens before the audit trail is opened and before the
+	// listener is bound, so a refusal leaves nothing behind to unwind.
+	usable := 0
 	if chain != nil {
 		for _, st := range chain.Probe(ctx) {
 			if st.Available {
+				usable++
 				fmt.Fprintf(stdout, "plock serve: backend %s is available\n", st.Name)
 				continue
 			}
@@ -163,15 +188,17 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		}
 	}
 
-	// Enforcement. A chain that came back nil means nothing on this machine can be
-	// locked, and serving an admin UI that enforces nothing is the one failure mode
-	// this project treats as worse than crashing -- the operator sees a dashboard
-	// that looks healthy. A *partial* chain is fine and normal; that is what the
-	// Probe lines above are for.
-	// The condition is an empty chain, not a nil one: platform.New always returns a
-	// Chain and reports what it could not build as an error alongside it, so a nil
-	// check here would be a guard that can never fire.
-	if chain == nil || len(chain.Names()) == 0 {
+	// The condition is "nothing answered the probe", not "no backend was configured"
+	// and not "the chain is nil". platform.New always returns a Chain, so a nil check
+	// here could never fire; and an empty Names() list is a config typo, which is the
+	// least dangerous of the three because the operator gets an error line naming the
+	// unknown backend. What has to be refused is a machine where every configured
+	// backend is present and broken: that is the one that looks healthy from outside.
+	//
+	// A partial chain stays allowed, and that is what the per-backend lines above are
+	// for -- refusing to start on a machine with no GNOME would make the product
+	// unusable on the one it is for.
+	if usable == 0 {
 		fmt.Fprintf(stderr, "plock serve: no usable lock backend, so there is nothing to enforce; refusing to start\n")
 		return 1
 	}

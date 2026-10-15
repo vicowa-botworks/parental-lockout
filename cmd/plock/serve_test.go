@@ -54,6 +54,44 @@ func waitFor(t *testing.T, b *syncBuffer, want string, timeout time.Duration) {
 }
 
 // A config the daemon will accept, written where serve expects to find one.
+// serveRunnerFunc adapts a function to platform.Runner so a test can decide what
+// loginctl does rather than what the host's does.
+type serveRunnerFunc func(ctx context.Context, argv []string, env []string, uid uint32) ([]byte, error)
+
+func (f serveRunnerFunc) Run(ctx context.Context, argv, env []string, uid uint32) ([]byte, error) {
+	return f(ctx, argv, env, uid)
+}
+
+// workingLoginctl answers a listing with one desktop session, which is all a probe
+// needs to call this machine lockable.
+//
+// The table is the shape loginctl prints today: nine columns, SINCE last because it
+// is the only multi-word one. The parser maps columns by header name, so this fixture
+// is a statement about the names rather than about positions.
+func workingLoginctl(context.Context, []string, []string, uint32) ([]byte, error) {
+	return []byte("SESSION  UID USER   SEAT   LEADER CLASS TTY  IDLE SINCE\n" +
+		"2        1000 casey  seat0  4001   user  tty2 no  5min\n"), nil
+}
+
+// brokenLoginctl is the machine the refusal guard exists for: the binary is there, it
+// answers, and what it says is no.
+func brokenLoginctl(_ context.Context, _ []string, _ []string, _ uint32) ([]byte, error) {
+	return nil, errors.New("loginctl exited with 1: exit status 1")
+}
+
+// installServeRunner swaps the process seam for the duration of one test.
+//
+// Every serve test needs this now that the startup guard asks the backends whether
+// this machine can lock anybody: without it the suite refuses to start on a headless
+// runner and passes on a desktop, which is the exact defect the guard is meant to
+// remove.
+func installServeRunner(t *testing.T, fn serveRunnerFunc) {
+	t.Helper()
+	previous := serveRunner
+	serveRunner = fn
+	t.Cleanup(func() { serveRunner = previous })
+}
+
 func writeServeConfig(t *testing.T, dir string) string {
 	t.Helper()
 	path := filepath.Join(dir, "config.json")
@@ -82,6 +120,7 @@ func writeServeConfig(t *testing.T, dir string) string {
 // "prove" the warning works by asserting on a stream it was never written to.
 func startServe(t *testing.T, extra ...string) (*syncBuffer, *syncBuffer, context.CancelFunc, <-chan int) {
 	t.Helper()
+	installServeRunner(t, workingLoginctl)
 	dir := t.TempDir()
 	cfgPath := writeServeConfig(t, dir)
 	var out, errOut syncBuffer
@@ -267,6 +306,79 @@ func TestServeRefusesToStartWithNoUsableBackend(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "refusing to start") {
 		t.Errorf("stderr does not say it refused:\n%s", errOut.String())
+	}
+}
+
+// The machine the guard exists for, and the one the previous version of the guard
+// let through.
+//
+// The config is well-formed and every named backend exists -- so the chain is not
+// empty and Names() is not zero -- but loginctl answers with an error. That is a
+// desktop where polkit refuses the lock, or a loginctl that is present and broken, and
+// it is also every headless CI runner there is. The daemon used to come up anyway:
+// it announced that enforcement was running, served the admin UI, and could lock
+// nobody. A dashboard that looks healthy on exactly that machine is the failure this
+// project ranks worse than crashing.
+//
+// The config-typo case above is the weaker test and it is kept, not merged into this
+// one: it pins that an unknown id is also refused. It is not sufficient, because it
+// exercises a chain with nothing in it, and a guard that merely counts names passes
+// it while failing here.
+func TestServeRefusesToStartWhenEveryBackendIsPresentAndBroken(t *testing.T) {
+	installServeRunner(t, brokenLoginctl)
+	dir := t.TempDir()
+	cfgPath := writeServeConfig(t, dir)
+
+	// The premise, checked rather than assumed: the config names a backend that
+	// really exists. If this stopped being true the test would silently be the
+	// config-typo case again.
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("fixture config: %v", err)
+	}
+	if c, _ := platform.New(cfg.Settings, platform.ExecRunner{}); len(c.Names()) == 0 {
+		t.Fatalf("the fixture names no constructible backend (%v); this would be testing the wrong refusal", cfg.Settings.LockBackends)
+	}
+
+	var out, errOut syncBuffer
+	code := refuseWithin(t, &out, &errOut, []string{
+		"--config", cfgPath, "--state-dir", dir, "--audit-path", filepath.Join(dir, "audit.jsonl"),
+	})
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1: every backend failed, so nothing can be locked", code)
+	}
+	if !strings.Contains(errOut.String(), "refusing to start") {
+		t.Errorf("stderr does not say it refused:\n%s", errOut.String())
+	}
+	// The refusal must not be preceded by the announcement that enforcement is
+	// running. Saying both is how a healthy-looking log gets written about a machine
+	// that enforces nothing.
+	if strings.Contains(out.String(), "enforce: running") {
+		t.Errorf("the daemon announced enforcement and then refused:\n%s", out.String())
+	}
+}
+
+// The other side of the guard: a machine that can lock somebody must come up, and
+// must not be talked out of it by a backend that merely is not installed.
+//
+// Without this the refusal could be satisfied by refusing always, which would look
+// safe in the log and would take the product down with it.
+func TestServeStartsWhenOneBackendIsUsable(t *testing.T) {
+	// startServe installs the working runner and writes a config that names logind,
+	// which is the shape being tested here; nothing needs to be passed in.
+	out, errOut, cancel, code := startServe(t)
+	waitFor(t, out, "starting, config", 10*time.Second)
+	if strings.Contains(errOut.String(), "refusing to start") {
+		t.Errorf("a machine with a usable backend was refused:\n%s", errOut.String())
+	}
+	if !strings.Contains(out.String(), "backend logind is available") {
+		t.Errorf("the probe report is missing, so a partial chain could not be diagnosed:\n%s", out.String())
+	}
+	cancel()
+	select {
+	case <-code:
+	case <-time.After(15 * time.Second):
+		t.Error("serve did not exit after cancel")
 	}
 }
 

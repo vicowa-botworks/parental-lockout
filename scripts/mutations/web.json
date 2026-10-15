@@ -385,9 +385,9 @@
     {
       "id": "W51",
       "file": "cmd/plock/serve.go",
-      "old": "\tif chain == nil || len(chain.Names()) == 0 {",
-      "new": "\tif chain == nil {",
-      "note": "the empty-chain guard weakened to a nil check, which platform.New can never satisfy -- it always returns a Chain and reports unbuildable backends as an error alongside it. The daemon then starts with zero backends and enforces nothing",
+      "old": "\tif usable == 0 {",
+      "new": "\tif chain == nil || len(chain.Names()) == 0 {",
+      "note": "the guard counts constructed backends instead of usable ones -- the exact defect a review caught. Names() lists what the registry could build, and a constructor only fails on a nil runner or an unknown id, so this fires on a typo in lockBackends and stays silent on a machine where loginctl exists and exits 1. The daemon then announces that enforcement is running, serves the admin UI, and can lock nobody. Written as the regression rather than as a generic weakening, so the battery keeps guarding the specific mistake",
       "package": "./cmd/plock/"
     },
     {
@@ -405,6 +405,14 @@
       "new": "\t_, _ = fmt.Fprintf(io.Discard, \"plock serve: starting, config %s\\n\", *path)",
       "package": "./cmd/plock/",
       "note": "the startup line sent nowhere. This is the guard whose absence broke CI and not the author's desktop: it is the only stdout write that does not depend on a lock backend answering the probe, so TestTheTLSSWarningIsNotOnStdout's premise -- that stdout carries something before the warning -- was quietly a fact about the machine. A daemon whose log records only exceptions does not say it came up, and does not say which config it opened, which is the one mistake that reads as success"
+    },
+    {
+      "id": "W54",
+      "file": "cmd/plock/serve.go",
+      "old": "\t\t\t\tusable++\n",
+      "new": "\t\t\t\tusable += 0\n",
+      "package": "./cmd/plock/",
+      "note": "the availability report is printed but never counted, so usable stays 0 and a machine that can lock somebody is refused at startup. This is the direction the guard could be 'fixed' in to look safe: refusing always passes every refusal test, so the control -- a usable backend must start -- is what this mutant needs, and TestServeStartsWhenOneBackendIsUsable is what kills it"
     }
   ]
 }
