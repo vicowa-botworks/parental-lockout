@@ -315,50 +315,134 @@ func TestVerificationTimeDoesNotDependOnHowCloseTheGuessIs(t *testing.T) {
 	unrelated := strings.Repeat("q", len(secret))
 
 	const rounds = 12
-	closeN, unrelatedN, exactN := measure(h, close, verifier, rounds), measure(h, unrelated, verifier, rounds), measure(h, secret, verifier, rounds)
+	// One loop, three guesses, in a fixed order that is not the order they are
+	// compared in. Measured one-after-the-other, the first guess pays for the pages
+	// the later ones get for free, and a systematic gap appears between paths that do
+	// identical work. Interleaving puts every guess in the same page-cache state.
+	taken := measureTogether(h, verifier, rounds, close, unrelated, secret)
+	closeN, unrelatedN, exactN := taken[0], taken[1], taken[2]
 
-	// A correct-prefix wrong password must not be materially faster than a
-	// completely wrong one, and neither must be materially faster than the correct
-	// password — an early return on "the derived key matches" would show up here.
+	// A correct-prefix wrong password must not be materially faster than a completely
+	// wrong one, and neither must the correct password: an early return shows up as one
+	// path finishing sooner, never later.
+	//
+	// That direction is the only one that means anything, and the previous version of
+	// this assertion failed on the other one. It divided the two numbers whichever way
+	// round they came out, so a near-miss measured as *slower* -- which is what a loaded
+	// runner actually produces, because preemption only ever adds time -- tripped it.
+	// CI caught it at ratio 0.58 with the near-miss at 145 ms against an unrelated guess
+	// at 85 ms: a guess that takes longer than another guess is not a side channel, and
+	// no early return can make a path slower. Taking the minimum did not fix that,
+	// because the minimum of a path that is genuinely slower on this runner is still
+	// slower; the bug was the assertion, not the statistic.
 	for _, pair := range []struct {
-		name       string
-		fast, slow time.Duration
+		name            string
+		candidate, base time.Duration
 	}{
 		{"near-miss vs unrelated", closeN, unrelatedN},
 		{"correct vs unrelated", exactN, unrelatedN},
 	} {
-		ratio := float64(pair.slow+1) / float64(pair.fast+1)
-		if ratio < 0.6 {
+		if ratio, suspect := suspectEarlyReturn(pair.candidate, pair.base); suspect {
 			// Not "one path returns early". That is one possible cause and the least
 			// likely one; what this measurement can actually establish is that the two
 			// paths were not indistinguishable on this run. Saying it that way keeps a
 			// noisy runner from reporting a side channel in the password verifier as a
 			// finding -- which is what the old message did, and it is the reason #44 was
 			// opened.
-			t.Errorf("%s: %v vs %v are not within 0.6x of each other (ratio %.2f) — inconclusive on this run, not proof of an early return; PBKDF2's cost is fixed, so re-run before believing it",
-				pair.name, pair.fast, pair.slow, ratio)
+			t.Errorf("%s: %v vs %v (ratio %.2f) -- the first is materially faster, which an early return is one explanation for; inconclusive on this run, not proof of one; PBKDF2's cost is fixed, so re-run before believing it",
+				pair.name, pair.candidate, pair.base, ratio)
 		}
 	}
 }
 
-func measure(h Hasher, password, verifier string, rounds int) time.Duration {
-	// The minimum, not the mean. Preemption can only ever add time to a measurement, never
-	// take it away, so the shortest round is the closest estimate of the work itself and
-	// every scheduling hiccup lands outside the statistic instead of inside it.
-	//
-	// The mean did not have that property and the test failed for it: averaging 12 calls
-	// that each cost ~180 ms means one preemption moves the average by ~8 ms per round,
-	// against a total margin of a factor of 1.67. On a loaded runner that was enough to
-	// make the near-miss path look slower than the unrelated one and report a side channel
-	// that does not exist -- PBKDF2 runs its full iteration count whatever the guess is, so
-	// both paths do literally the same work.
-	best := time.Duration(math.MaxInt64)
-	for i := 0; i < rounds; i++ {
-		start := time.Now()
-		h.Verify(password, verifier)
-		if d := time.Since(start); d < best {
-			best = d
+// suspectEarlyReturn reports whether a candidate path ran materially faster than the
+// baseline it is being compared against, and with what ratio.
+//
+// Only the faster direction is a finding. An early return makes a path finish sooner;
+// nothing in this package can make a wrong guess cost less work by being slower, so a
+// candidate measured at 145 ms against an 85 ms baseline is a runner that preempted
+// one loop, not a side channel. The assertion on main divides the two numbers whichever
+// way round they come out and so fails on that noise -- which is exactly how #53's CI
+// went red at ratio 0.58 on a branch that does not touch this package.
+func suspectEarlyReturn(candidate, base time.Duration) (float64, bool) {
+	if candidate >= base {
+		return 1, false
+	}
+	ratio := float64(candidate+1) / float64(base+1)
+	return ratio, ratio < 0.6
+}
+
+// measureTogether times several guesses against one verifier in an interleaved order
+// and returns the shortest round each one had, in the order given.
+//
+// The interleaving is the point; see the note at the call site. The per-guess minimum
+// keeps the reason measure() takes a minimum: preemption can only add time.
+func measureTogether(h Hasher, verifier string, rounds int, passwords ...string) []time.Duration {
+	best := make([]time.Duration, len(passwords))
+	for i := range best {
+		best[i] = time.Duration(math.MaxInt64)
+	}
+	for r := 0; r < rounds; r++ {
+		for i, p := range passwords {
+			start := time.Now()
+			_ = h.Verify(p, verifier)
+			if d := time.Since(start); d < best[i] {
+				best[i] = d
+			}
 		}
 	}
 	return best
+}
+
+// The direction is the whole content of this assertion, so it gets asserted directly
+// rather than only through a measurement that can only ever be suggestive. A runner
+// that preempts one loop makes a same-cost path look slower; if that counts as a
+// finding, the suite goes red on unrelated branches, which is what happened to #53.
+func TestASlowerCandidateIsNotTreatedAsAnEarlyReturn(t *testing.T) {
+	const base = 85 * time.Millisecond
+	for _, tc := range []struct {
+		name      string
+		candidate time.Duration
+		suspect   bool
+	}{
+		{"identical", base, false},
+		// The CI measurement that turned a green branch red: the near-miss took
+		// longer, which is not a side channel in any reading.
+		{"near-miss slower, as CI measured it", 145 * time.Millisecond, false},
+		{"slower still", time.Second, false},
+		{"marginally faster is noise", 80 * time.Millisecond, false},
+		// A path that skips most of the KDF is the shape this test exists for, and a
+		// 16x gap is what injecting one actually measured.
+		{"materially faster", base / 16, true},
+		{"returns immediately", time.Microsecond, true},
+	} {
+		ratio, got := suspectEarlyReturn(tc.candidate, base)
+		if got != tc.suspect {
+			t.Errorf("%s: suspectEarlyReturn(%v, %v) = %v, want %v",
+				tc.name, tc.candidate, base, got, tc.suspect)
+		}
+
+		// The ratio is asserted as well as the verdict, because the two are different claims
+		// and only one of them was pinned. `suspect == false` says "do not raise this"; the
+		// direction guard additionally reports `ratio == 1`, meaning *no evidence was
+		// produced*. Drop the guard and the function still answers false for a slower
+		// candidate -- while handing back a ratio above 1, which is a number describing a
+		// comparison that the function has just declined to interpret.
+		//
+		// That is what mutant C4 does, and it survived for a round because this line read
+		// `if _, got :=`. A caller that prints the ratio in its failure message would print
+		// 1.71 for a candidate that merely lost a scheduler race, and "ratio 1.71" reads like
+		// a measurement of something.
+		if tc.candidate >= base {
+			if ratio != 1 {
+				t.Errorf("%s: a candidate at or above the baseline must report ratio 1 (no "+
+					"evidence), got %v -- the direction guard was dropped and this row is now "+
+					"a number describing a comparison nobody interpreted",
+					tc.name, ratio)
+			}
+		} else if !(ratio > 0 && ratio < 1) {
+			t.Errorf("%s: a genuinely faster candidate must report its real ratio in (0,1), got %v",
+				tc.name, ratio)
+		}
+	}
 }
