@@ -154,18 +154,25 @@ func TestAnAccountNameIsRenderedAsTextNotMarkup(t *testing.T) {
 // absent.
 func TestThePageHasNoInlineScriptOrStyleToBeBlockedByTheCSP(t *testing.T) {
 	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
-	rec := authGet(t, s, "/")
-	csp := rec.Header().Get("Content-Security-Policy")
-	if csp == "" {
-		t.Fatal("no Content-Security-Policy header on a page that shows who is locked out")
-	}
-	if strings.Contains(csp, "unsafe-inline") {
-		t.Errorf("the CSP allows inline script, so the markup check below proves nothing: %q", csp)
-	}
-	body := rec.Body.String()
-	for _, bad := range []string{" onclick=", " onload=", " onerror=", " style="} {
-		if strings.Contains(strings.ToLower(body), bad) {
-			t.Errorf("the page carries %q, which the CSP blocks: the control works in a test and fails in a browser", bad)
+
+	// Every page, not just the dashboard. A page added later with a style="" attribute
+	// works in every test that only looks at "/" and fails only in a browser.
+	for _, path := range []string{"/", "/users", "/profiles", "/login"} {
+		rec := authGet(t, s, path)
+		csp := rec.Header().Get("Content-Security-Policy")
+		if csp == "" {
+			t.Fatalf("%s: no Content-Security-Policy header on a page that shows who is locked out", path)
+		}
+		if strings.Contains(csp, "unsafe-inline") {
+			t.Errorf("%s: the CSP allows inline script, so the markup check below proves nothing: %q",
+				path, csp)
+		}
+		body := rec.Body.String()
+		for _, bad := range []string{" onclick=", " onload=", " onerror=", " style="} {
+			if strings.Contains(strings.ToLower(body), bad) {
+				t.Errorf("%s: the page carries %q, which the CSP blocks: the control works in a "+
+					"test and fails in a browser", path, bad)
+			}
 		}
 	}
 }

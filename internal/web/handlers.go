@@ -188,10 +188,16 @@ func (s *Server) throttleKey(r *http.Request) string {
 
 // loginPageTmpl is the form itself.
 //
-// html/template, not text/template, and no interpolation of anything from the
-// request: the page has no dynamic content today, and the reason it is a template
-// rather than a string constant is that #10 adds the error line and the CSRF
-// hidden field to it.
+// html/template, not text/template. Nothing from the request reaches it -- Execute is
+// called with nil -- so the page has no dynamic content today and the escaper is
+// insurance here rather than the only thing between an input and the document.
+//
+// Note what must NOT be added here. A line saying "wrong password" would tell an
+// attacker which half of the pair was right, which is why a failed login redirects
+// back to this page with no message at all. A CSRF hidden field cannot be added here
+// either: there is no session yet to bind a token to, which is why /login sits outside
+// the CSRF gate. It stays a template rather than a string constant so that a future
+// change is a template edit rather than a concatenation.
 var loginPageTmpl = template.Must(template.New("login").Parse(`<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Sign in &middot; plock</title>

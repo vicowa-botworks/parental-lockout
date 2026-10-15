@@ -378,3 +378,117 @@ func TestTheProfilesPageSaysWhenEnforcementIsOff(t *testing.T) {
 			"it locks someone out;\n%s", rec.Body.String())
 	}
 }
+
+// Criterion: "Every route has a handler test: unauthenticated -> rejected".
+//
+// One table over every route rather than a test per route, because the per-route form
+// rots: a new route ships without its test and nothing notices. A table that has to be
+// read against the router is the same problem, so this one asserts the route set it covers
+// is the set the server actually serves.
+func TestEveryRouteRefusesAnUnauthenticatedRequest(t *testing.T) {
+	f := newOverrideFixture(t)
+	before := f.savesCount()
+
+	// A refusal is answered the way the caller asked: a browser is redirected to the
+	// form it can render, a program gets 401 it can read. Asserting "not 200" would
+	// pass on either, and would also pass on a 303 that meant success.
+	gets := []string{"/", "/users", "/profiles", "/login"}
+	posts := []string{
+		"/profiles/school/rules",
+		"/profiles/school/delete",
+		"/users/casey/override",
+		"/users/casey/override/clear",
+	}
+
+	// The login form is the one page an anonymous caller is allowed to see; everything
+	// else must send them there.
+	allowed := map[string]bool{"/login": true}
+
+	check := func(method, path string) {
+		t.Helper()
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, path, strings.NewReader("csrf=bogus&name=x&days=mon"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Accept", "text/html")
+		f.s.Handler().ServeHTTP(rec, req)
+
+		if allowed[path] {
+			if rec.Code != http.StatusOK {
+				t.Errorf("%s %s: status = %d, want 200 -- nothing can sign in otherwise",
+					method, path, rec.Code)
+			}
+		} else if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/login" {
+			t.Errorf("%s %s: anonymous browser request got %d (Location %q), want 303 to /login",
+				method, path, rec.Code, rec.Header().Get("Location"))
+		}
+
+		// A program gets 401, not a redirect into an HTML form it cannot render.
+		rec2 := httptest.NewRecorder()
+		req2 := httptest.NewRequest(method, path, nil)
+		req2.Header.Set("Accept", "application/json")
+		f.s.Handler().ServeHTTP(rec2, req2)
+		if !allowed[path] && rec2.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s: anonymous JSON request got %d, want 401", method, path, rec2.Code)
+		}
+	}
+
+	for _, path := range gets {
+		check("GET", path)
+	}
+	for _, path := range posts {
+		check("POST", path)
+	}
+
+	if got := f.savesCount(); got != before {
+		t.Errorf("an unauthenticated request wrote anyway: saves went %d -> %d", before, got)
+	}
+}
+
+// A rule name is attacker-influenced for the same reason a username is: the config file is
+// root-owned, but a name typed once on this UI is read back on every page forever.
+func TestARuleNameIsRenderedAsTextNotMarkup(t *testing.T) {
+	f := newOverrideFixture(t)
+
+	name := `<script>alert(1)</script>`
+	rec := authPost(t, f.s, "/profiles/school/rules",
+		"name="+url.QueryEscape(name)+"&days=mon&start=21%3A00&end=06%3A30")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303; body %q", rec.Code, rec.Body.String())
+	}
+
+	page := authGet(t, f.s, "/profiles").Body.String()
+	if strings.Contains(page, "<script>alert(1)</script>") {
+		t.Error("the rule name was written into the document as markup")
+	}
+	if !strings.Contains(page, "&lt;script&gt;") {
+		t.Error("the rule name is not in the page at all, escaped or otherwise")
+	}
+	// The delete confirmation is the other place a name reappears, and it is a form
+	// attribute as well as text.
+	if n := strings.Count(page, "<script>"); n != 0 {
+		t.Errorf("the page contains %d live <script> tags after rendering a hostile name", n)
+	}
+}
+
+// A hostile name must also be inert where it is used as an identifier rather than as text:
+// the rule id reaches a form action, and an action is a URL.
+func TestAHostileProfileIDCannotEscapeAFormAction(t *testing.T) {
+	f := newOverrideFixture(t)
+
+	f.mu.Lock()
+	f.doc.UpsertProfile(config.Profile{
+		ID: `x" formaction="/evil`, Name: "Weird", Timezone: "UTC",
+		Rules: []config.Rule{{ID: "r", Name: "r", Days: []string{"mon"},
+			Start: "21:00", End: "06:00", Enabled: true}},
+	})
+	f.mu.Unlock()
+
+	page := authGet(t, f.s, "/profiles").Body.String()
+	if strings.Contains(page, `formaction="/evil`) {
+		t.Error("a profile id escaped its attribute and injected a competing form action")
+	}
+	if !strings.Contains(page, "Weird") {
+		t.Error("the profile is not on the page, so the escape test proves nothing")
+	}
+}
