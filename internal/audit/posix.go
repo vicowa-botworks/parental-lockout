@@ -41,6 +41,43 @@ func openAppend(path string, mode os.FileMode) (*os.File, error) {
 	return f, err
 }
 
+// openRead opens the audit file, or one of its rotated generations, to read it back.
+//
+// The same two flags the writer needs, for the same reasons and one of its own.
+//
+// O_NOFOLLOW because a reader is a disclosure primitive: a root daemon asked to show the
+// trail will read whatever a link in that directory points at, and `plock status --json`
+// hands the result to whoever is holding the terminal. The writer's guard would be worth
+// little if the reader skipped it.
+//
+// O_NONBLOCK because the same FIFO that parks the enforcement tick would park whatever
+// rendered the audit view, and a reader that blocks is a denial of service on the
+// diagnostic whose whole job is say what is wrong. It does not, however, make the open fail:
+// see the note below on where the FIFO is actually refused.
+//
+// O_RDONLY is what makes the missing O_CREAT and O_TRUNC below unnecessary rather than
+// merely absent: opening a log for reading must not be able to create it, because
+// "no trail yet" and "I made an empty trail so now there is one" are different answers to
+// the operator's question.
+func openRead(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("%s is a symlink: refusing to read a trail through it: %w", path, err)
+	}
+	// There is deliberately no ENXIO branch here.
+	//
+	// O_NONBLOCK makes a read-only open of a FIFO SUCCEED rather than fail with ENXIO; the
+	// errno only appears when the open would have blocked, and O_NONBLOCK is exactly what
+	// stops it blocking. Measured on this box: pointing the reader at a FIFO returns
+	// "is not a regular file (mode prw-------)", which is the shape check on the held
+	// descriptor in reader.go, not a translation of ENXIO.
+	//
+	// The guard that matters is therefore the one on the descriptor, and it is the one that
+	// runs. A branch here would be dead code with a comment claiming credit for the
+	// protection.
+	return f, err
+}
+
 // geteuid is the effective uid this process writes the trail as. It is a
 // variable so the ownership guard can be exercised by an unprivileged test: the
 // rule only ever fires for a file owned by somebody else, and a test running as

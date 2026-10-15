@@ -208,8 +208,8 @@
     {
       "id": "A32",
       "file": "internal/audit/audit.go",
-      "old": "\tif fi, err := f.Stat(); err == nil {\n\t\tw.size = fi.Size()\n\t} else {",
-      "new": "\tif fi, err := f.Stat(); err == nil {\n\t\t_, _ = fi, err\n\t\tw.size = 0\n\t} else {",
+      "old": "\tif fi, err := statFile(f); err == nil {\n\t\tw.size = fi.Size()\n\t} else {",
+      "new": "\tif fi, err := statFile(f); err == nil {\n\t\t_, _ = fi, err\n\t\tw.size = 0\n\t} else {",
       "note": "the bug #33 found: the bound counted from process start, so every restart added another MaxBytes before the first rotation"
     },
     {
@@ -225,6 +225,140 @@
       "old": "\t\tf.Close()\n\t\tw.f = nil\n\t\t// w.size is deliberately left alone.",
       "new": "\t\tf.Close()\n\t\tw.f = nil\n\t\tw.size = 0\n\t\t// w.size is deliberately left alone.",
       "note": "noteFailure re-zeroing the size: a stretch of failures mid-file silently moved the bound"
+    },
+    {
+      "id": "A35",
+      "file": "internal/audit/reader.go",
+      "old": "\tif r.Path == \"\" {\n\t\treturn Tail{}, errors.New(\"audit: Reader.Path is empty\")\n\t}",
+      "new": "\tif false {\n\t\treturn Tail{}, errors.New(\"audit: Reader.Path is empty\")\n\t}",
+      "note": "an empty Path reads the file named \"\" and reports an empty trail as a clean answer"
+    },
+    {
+      "id": "A36",
+      "file": "internal/audit/reader.go",
+      "old": "\tif n <= 0 {\n\t\treturn Tail{}, fmt.Errorf(\"audit: Tail wants a positive count, got %d\", n)\n\t}",
+      "new": "\tif false {\n\t\treturn Tail{}, fmt.Errorf(\"audit: Tail wants a positive count, got %d\", n)\n\t}",
+      "note": "Tail(0) renders as an empty audit list, which a dashboard cannot tell from 'nothing happened'"
+    },
+    {
+      "id": "A37",
+      "file": "internal/audit/reader.go",
+      "old": "\t\t\tif len(res.records) >= n {\n\t\t\t\t// Stopping mid-file is normal",
+      "new": "\t\t\tif false {\n\t\t\t\t// Stopping mid-file is normal",
+      "note": "the limit stops meaning anything, so a caller asking for 20 records gets the whole trail"
+    },
+    {
+      "id": "A38",
+      "file": "internal/audit/reader.go",
+      "old": "\tif !fi.Mode().IsRegular() {\n\t\treturn tailResult{}, fmt.Errorf(\"%s is not a regular file (mode %v)\", path, fi.Mode())\n\t}",
+      "new": "\tif false {\n\t\treturn tailResult{}, fmt.Errorf(\"%s is not a regular file (mode %v)\", path, fi.Mode())\n\t}",
+      "note": "a device node at the audit path is read as a trail; the check on the held descriptor is the only guard left"
+    },
+    {
+      "id": "A39",
+      "file": "internal/audit/reader.go",
+      "old": "\tif len(rest) > 0 && rest[len(rest)-1] != '\\n' {",
+      "new": "\tif false {",
+      "equivalent": true,
+      "note": "Without the guard the peel loop still cannot return a torn line as a record: body drops the final byte, so the fragment fails to decode and is counted as skipped -- the same observable outcome (records unchanged, Skipped +1). Verified on both shapes: a multi-record file with a torn tail, and a single unterminated line. The guard is what makes the loop's invariant ('rest ends with a newline') explicit rather than emergent, so it stays; no test can distinguish it from its absence. a torn final line is returned as if it were a complete record, so a half-written event reads as a real one"
+    },
+    {
+      "id": "A40",
+      "file": "internal/audit/reader.go",
+      "old": "\tif len(firstPartial) > 0 {\n\t\tres.skipped++",
+      "new": "\tif false {\n\t\tres.skipped++",
+      "note": "a torn tail is dropped silently, so '49 shown' and '49 shown, 1 torn' become the same page"
+    },
+    {
+      "id": "A41",
+      "file": "internal/audit/reader.go",
+      "old": "\t\t\tif atStart {\n\t\t\t\tout.complete = append(out.complete, body)\n\t\t\t} else {",
+      "new": "\t\t\tif true {\n\t\t\t\tout.complete = append(out.complete, body)\n\t\t\t} else {",
+      "note": "a record straddling a block boundary is emitted as its left half and counted as unreadable"
+    },
+    {
+      "id": "A42",
+      "file": "internal/audit/reader.go",
+      "old": "\t\t\t\tout.carry = rest\n\t\t\t}",
+      "new": "\t\t\t\tout.carry = body\n\t\t\t}",
+      "note": "the carried fragment loses its terminator, so the reassembled record reads as a torn tail and exactly one record per boundary vanishes"
+    },
+    {
+      "id": "A43",
+      "file": "internal/audit/reader.go",
+      "old": "\t\t\tif atStart {\n\t\t\t\tout.complete = append(out.complete, body)\n\t\t\t} else {",
+      "new": "\t\t\tif false {\n\t\t\t\tout.complete = append(out.complete, body)\n\t\t\t} else {",
+      "note": "the file's first record is carried as a fragment instead of emitted, so every trail loses one record"
+    },
+    {
+      "id": "A44",
+      "file": "internal/audit/reader.go",
+      "old": "\tfor gen := 0; gen < r.keep() && len(out.Records) < n; gen++ {",
+      "new": "\tfor gen := 0; gen < 1 && len(out.Records) < n; gen++ {",
+      "note": "the reader stops crossing rotations, so 'nothing happened' is reported for as long as it takes to rotate"
+    },
+    {
+      "id": "A45",
+      "file": "internal/audit/reader.go",
+      "old": "\tif r.Keep <= 0 {\n\t\treturn DefaultKeep\n\t}",
+      "new": "\tif false {\n\t\treturn DefaultKeep\n\t}",
+      "note": "a zero-value Reader resolves Keep to 0 and reads no generations at all -- the dangerous default"
+    },
+    {
+      "id": "A46",
+      "file": "internal/audit/reader.go",
+      "old": "\tif user == \"\" {\n\t\treturn Record{}, false, errors.New(\"audit: NewestUser needs a username\")\n\t}",
+      "new": "\tif false {\n\t\treturn Record{}, false, errors.New(\"audit: NewestUser needs a username\")\n\t}",
+      "note": "an empty username matches the records that have no username, reporting a daemon event as an action on nobody"
+    },
+    {
+      "id": "A47",
+      "file": "internal/audit/reader.go",
+      "old": "\t\tif rec.Username == user {\n\t\t\treturn rec, true, err\n\t\t}",
+      "new": "\t\tif false {\n\t\t\treturn rec, true, err\n\t\t}",
+      "note": "NewestUser never matches, so the CLI reports 'no recorded action' for an account with a full trail"
+    },
+    {
+      "id": "A48",
+      "file": "internal/audit/reader.go",
+      "old": "\t\tg := Generation{Path: path, Index: gen, Size: fi.Size(), Regular: fi.Mode().IsRegular()}",
+      "new": "\t\tg := Generation{Path: path, Index: gen, Size: fi.Size(), Regular: true}",
+      "note": "a non-regular generation is reported as a normal log file, hiding the tamper finding"
+    },
+    {
+      "id": "A49",
+      "file": "internal/audit/reader.go",
+      "old": "\t\tif !g.Regular {\n\t\t\t// Reported, not sized",
+      "new": "\t\tif false {\n\t\t\t// Reported, not sized",
+      "note": "the size of somebody else's file is added to the trail's total bytes"
+    },
+    {
+      "id": "A50",
+      "file": "internal/audit/reader.go",
+      "old": "\t\tif errors.Is(err, os.ErrNotExist) {\n\t\t\tbreak\n\t\t}",
+      "new": "\t\tif false {\n\t\t\tbreak\n\t\t}",
+      "note": "a gap in the generation numbering is walked past, so a trail with a hole in it is reported as contiguous"
+    },
+    {
+      "id": "A51",
+      "file": "internal/audit/reader.go",
+      "old": "func (r *Reader) logf(format string, args ...any) {\n\tif r.Logf != nil {",
+      "new": "func (r *Reader) logf(format string, args ...any) {\n\tif false {",
+      "note": "the configured sink is bypassed, so a caller that captures the log sees a clean trail"
+    },
+    {
+      "id": "A52",
+      "file": "internal/audit/posix.go",
+      "old": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)\n\tif errors.Is(err, syscall.ELOOP) {",
+      "new": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)\n\tif false && errors.Is(err, syscall.ELOOP) {",
+      "note": "the reader's symlink refusal is replaced by a bare ELOOP, so it no longer says what it refused and why"
+    },
+    {
+      "id": "A54",
+      "file": "internal/audit/posix.go",
+      "old": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)",
+      "new": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)",
+      "note": "the reader follows a symlink out of the audit directory, turning a reader into a disclosure primitive"
     }
   ]
 }

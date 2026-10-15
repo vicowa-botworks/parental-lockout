@@ -13,6 +13,14 @@ func openAppend(path string, mode os.FileMode) (*os.File, error) {
 	return os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, mode)
 }
 
+// openRead opens the audit file to read it back. This platform has no O_NOFOLLOW, so the
+// symlink guard cannot be applied; the reader therefore checks the shape it actually
+// opened (reader.go) and refuses anything that is not a regular file, which is the guard
+// that survives without POSIX flags.
+func openRead(path string) (*os.File, error) {
+	return os.Open(path)
+}
+
 // ownerIsWriter has no answer on this platform. Reporting that is deliberate: the
 // guard fails closed, so a future port has to implement this instead of quietly
 // losing the rule that the trail belongs to root.
