@@ -37,6 +37,7 @@ DOC_DIR=${DESTDIR}/usr/share/doc/plock
 # under -- so the guidance a packager sees on a staged run is the guidance an
 # operator needs, rather than a path inside a build root.
 BIN_AT=/usr/local/bin/plock
+UNIT_AT=/etc/systemd/system/plock.service
 CONF_AT=/etc/plock
 STATE_AT=/var/lib/plock
 LOG_AT=/var/log/plock
@@ -155,7 +156,7 @@ ran or who granted an override."
   say "  $STATE_AT  the TLS certificate and key"
   say
   say "To remove those too, once you are sure you do not need the trail:"
-  say "  deploy/install.sh --uninstall --purge"
+  say "  $0 --uninstall --purge"
   exit 0
 fi
 
@@ -233,7 +234,11 @@ for d in "$CONF_DIR" "$STATE_DIR" "$LOG_DIR"; do
   fi
 done
 # The state directory holds the private key; the log directory holds the trail. Neither is
-# readable by the accounts being locked out, and 0700 is what the unit asks systemd for.
+# readable by the accounts being locked out. 0700 and 0750 are what the unit asks systemd for
+# in StateDirectoryMode and LogsDirectoryMode -- they have to agree, because systemd re-applies
+# its own mode to the innermost directory on every start and silently overwrites whatever the
+# installer set here. A 0755 /var/log/plock leaks nothing of the file contents (the trail is
+# 0600 root) but it does name which accounts have profiles, which is why it is 0750 in both.
 chmod 0700 "$CONF_DIR" "$STATE_DIR"
 chmod 0750 "$LOG_DIR"
 
@@ -241,7 +246,7 @@ sysd daemon-reload
 
 say "installed:"
 say "  $BIN_AT"
-say "  $UNIT_DST"
+say "  $UNIT_AT"
 say "  $CONF_AT $STATE_AT $LOG_AT"
 say
 say "Nothing is running yet, and nothing will start until you say so."
@@ -260,8 +265,15 @@ else
   say
   say "    $BIN_AT init --username YOUR_LOGIN --password-stdin"
   say
-  say "Then read it back and check the rules are the ones you meant:"
-  say "    $BIN_AT status"
+  # Not `plock status`: status is a stub on this revision -- it prints "not implemented yet"
+  # and exits 1 -- so telling an operator to read their policy back with it teaches them the
+  # install is broken on the first troubleshooting command they type. Reading the file is
+  # what actually works, and the parse check is the one docs/setup.md §2 gives, so the two
+  # documents cannot drift into naming different tools for the same mistake.
+  say "Then check it parses before you start the daemon -- a file the daemon refuses is"
+  say "louder at this point than after a restart:"
+  say
+  say "    python3 -c \"import json; json.load(open('$CONF_AT/config.json'))\""
 fi
 say
 say "Then check this machine can actually lock its screen before you make it a service:"

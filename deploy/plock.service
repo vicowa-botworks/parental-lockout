@@ -66,6 +66,9 @@ ProtectSystem=strict
 # bus and would survive, so this is the quiet kind of breakage: a dashboard that is wrong
 # about the children on the machine, with the lock path untouched and nothing in the log.
 # read-only keeps stat() working and still denies writes into a child's home.
+# PROVE: docs/setup.md step 2 -- the dashboard must still name the children. This is the
+# directive that actually names /run/user; ProtectSystem=strict below is the one that makes
+# everything outside the declared paths unwritable, so both belong to the same bus question.
 ProtectHome=read-only
 
 # The certificate and the admin state. 0700 because the directory holds a private key.
@@ -74,8 +77,15 @@ StateDirectoryMode=0700
 
 # The audit trail. The writer refuses a world-writable parent of its own (internal/audit),
 # so this mode is checked twice rather than trusted.
+#
+# 0750, and it has to be the unit that says so: systemd.exec(5) adjusts the innermost
+# LogsDirectory to LogsDirectoryMode on every start, so whatever the installer chmods is
+# overwritten the first time the service comes up. The trail file itself is 0600 root, so a
+# 0755 directory leaks nothing of the contents -- but it does leak the filename, and a
+# listing of /var/log/plock names which accounts have profiles on this machine. That is the
+# same argument that keeps /etc/plock at 0700 instead of 0755, so the two agree.
 LogsDirectory=plock
-LogsDirectoryMode=0755
+LogsDirectoryMode=0750
 
 # 0077 rather than systemd's 0022 default: the certificate, the key and the audit file are
 # all created by this process, and a group-readable private key is a second thing to explain.
@@ -97,11 +107,16 @@ PrivateDevices=true
 # Any directive that hides other users' processes therefore deletes the security property
 # rather than protecting it: the corroborator would find no locker, every lock would report
 # unconfirmed, and enforcement would keep re-arming forever while the operator was told the
-# machine could not confirm. So these are pinned to their permissive values on purpose, with
-# the reason here rather than left to the next person's guess:
-PIDNamespace=no
-ProtectProc=no
-HidePID=no
+# machine could not confirm.
+#
+# Only ProtectProc is a real directive here, and it is written at its default so the intent is
+# visible in the file rather than merely unmentioned. The two keys that used to sit beside it
+# -- PIDNamespace= and HidePID= -- are not unit directives in any released systemd, and
+# ProtectProc=no is not a value it accepts: systemd.analyze(1) reports all three as ignored,
+# which means the block below once claimed to pin three things that were thrown away with a
+# journal warning on every daemon-reload. The permissive behaviour is what omitting them gives,
+# so what is kept here is the argument, plus the one line that actually says it.
+ProtectProc=default
 
 # ---------------------------------------------------------------------------
 # Privileges
@@ -139,10 +154,21 @@ LockPersonality=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 
-# AF_UNIX for the session and system buses, AF_INET/AF_INET6 for the admin listener. Nothing
-# else opens a socket: no outbound calls, no DNS (the daemon resolves no hostnames).
-# PROVE: docs/setup.md step 3 -- reach the dashboard from another machine.
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# AF_UNIX for the session and system buses, AF_INET/AF_INET6 for the admin listener, and
+# AF_NETLINK for the certificate's SAN list. Nothing else opens a socket: no outbound calls,
+# no DNS (the daemon resolves no hostnames).
+#
+# AF_NETLINK is not slack, it is a read-only dump. internal/web/tls.go falls back to
+# net.Interfaces() to build the SAN list, and on Linux that is netlink rather than getifaddrs
+# -- Go's net/interface_linux.go calls syscall.NetlinkRIB(RTM_GETLINK, AF_UNSPEC). Without
+# this family the socket is refused, mint takes the error path it already has, and the
+# certificate comes out loopback-only while the daemon starts and looks healthy. The failure
+# is silent in exactly the way that costs an evening: the operator reaches the dashboard by
+# LAN IP and gets a name mismatch, and the documented remedy (delete the cert, restart)
+# re-mints loopback-only again.
+# PROVE: docs/setup.md step 3 -- reach the dashboard from another machine, by the name in the
+# cert, and read the SANs back rather than trusting that curl succeeded.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 # Not set, on purpose: MemoryDenyWriteExecute and SystemCallFilter=@system-service. Both are
 # plausible for a Go binary and neither is provable from this source tree -- the Go runtime

@@ -72,16 +72,10 @@ The daemon validates on load and refuses a file it cannot make sense of, which s
 crash loop rather than a silent partial policy — the right way round, but easier to fix while
 you still have the terminal open.
 
-Then confirm the daemon accepts it:
-
-```
-sudo systemctl restart plock
-journalctl -u plock -n 20 --no-pager
-```
-
-Read those twenty lines before moving on. A rule that is wrong in a permissive direction is
-otherwise invisible until the week you notice nothing was ever locked, and the daemon's
-startup lines are where a degraded schedule announces itself.
+Deliberately **not** `systemctl restart plock` here: §4 is where the service is enabled and
+started, and a restart in this section would start it two steps early while making §3's "check
+this machine can lock before you enable anything" false. Reading the daemon's own startup lines
+is still the check that matters, so it lives in §4 where there is a daemon to read them from.
 
 ## 3. Check this machine can lock at all
 
@@ -118,6 +112,11 @@ web: listening on https://127.0.0.1:18443
 The `enforce: running` line is the one to look for. It exists because its absence used to be
 invisible: `serve` started the web UI, logged a cheerful line about listening, and enforced
 nothing. If the daemon comes up without that line, it is not enforcing.
+
+Read the whole startup block rather than scanning for that one line. A rule that is wrong in a
+permissive direction is otherwise invisible until the week you notice nothing was ever locked,
+and the startup lines are where a degraded schedule announces itself — an unknown timezone
+falling back to a default, or a rule that can never fire, is reported here and nowhere else.
 
 ### If it crash-loops instead
 
@@ -204,7 +203,7 @@ A 303 to `/login` is the healthy answer: the server is up, and it is refusing to
 anything until you authenticate.
 
 There is no firewall rule opened for you. If the dashboard is unreachable from the other
-device while `curl` from the daemon's own machine works, that is `ufn`/`firewalld` and it is
+device while `curl` from the daemon's own machine works, that is `ufw`/`firewalld` and it is
 yours to decide — publishing a root admin interface on the LAN is a choice worth making
 consciously rather than having a script make it for you.
 
@@ -240,10 +239,13 @@ would see the permission error once per tick and no locker — and the screen wo
 unlocked, which is the part that matters, because the daemon keeps trying and the dashboard
 keeps looking normal.
 
-**Step 2 — `ProtectSystem=strict` and the session bus.** The unit makes the whole filesystem
-read-only except the declared paths, on the reasoning that `connect(2)` to another user's
-socket at `/run/user/<uid>/bus` checks permission on the socket inode and not writability of
-the mount. If that reasoning is wrong, the desktop backend cannot reach the bus:
+**Step 2 — `ProtectSystem=strict`, `ProtectHome=read-only`, and the session bus.** The unit
+makes the whole filesystem read-only except the declared paths, and mounts `/home`, `/root` and
+`/run/user` read-only rather than masked, on the reasoning that `connect(2)` to another user's
+socket at `/run/user/<uid>/bus` checks permission on the socket inode and not writability of the
+mount. `ProtectHome` is the directive that actually names `/run/user`, so it is the one to reach
+for first when this check fails; `ProtectSystem` is the one that makes everything outside the
+declared paths unwritable. If the reasoning is wrong, the desktop backend cannot reach the bus:
 
 ```
 sudo systemctl restart plock
@@ -255,18 +257,39 @@ error after this change is the claim falsified — in which case the fix is
 `ReadWritePaths=/run/user` in the `[Service]` section, not backing `ProtectSystem` off to
 `full` and losing the rest.
 
-**Step 3 — `RestrictAddressFamilies`.** The unit allows `AF_UNIX AF_INET AF_INET6` and nothing
-else. AF_UNIX is the bus, the other two are the listener. Step 2 proves the bus; step 6's
-`curl` from another device proves the listener. Both passing means the filter is affordable.
+**Step 3 — `RestrictAddressFamilies`.** The unit allows `AF_UNIX AF_INET AF_INET6 AF_NETLINK`
+and nothing else. AF_UNIX is the bus, the two INET families are the listener, and AF_NETLINK is
+the certificate's SAN list: `internal/web/tls.go` falls back to `net.Interfaces()`, which on
+Linux is `syscall.NetlinkRIB(RTM_GETLINK, …)` rather than `getifaddrs`. It is a read-only dump,
+not a listener, so allowing it costs nothing the filter is buying.
 
-**And the one that must stay off.** `PIDNamespace`, `ProtectProc` and `HidePID` are pinned to
-their permissive values on purpose. The KDE locker is corroborated by reading
-`/proc/<pid>/status` and `/proc/<pid>/cmdline` to prove the locker process is parented by
-ksmserver — the second signal behind issue #29, because logind's `LockedHint` is writable by
-the session user with no privilege at all. Hide other users' processes and the corroborator
-finds no locker, every lock reports unconfirmed, and enforcement re-arms forever while the
-dashboard says the machine cannot confirm. If you are hardening this unit further, that is the
-line you do not cross.
+Without it the failure is quiet and expensive: mint logs one line and carries on with a
+**loopback-only** certificate, the daemon starts, and everything looks healthy until you open
+the dashboard by LAN address and get a name mismatch. So do not check this step by `curl`-ing
+and calling it done — read the names back:
+
+```
+sudo openssl x509 -in /var/lib/plock/tls/plock.crt -noout -text | grep -A1 'Subject Alternative Name'
+```
+
+A SAN list containing only `localhost` and `127.0.0.1` on a machine with real interfaces means
+the netlink socket was refused. Note that deleting the certificate and restarting — the
+documented remedy for a name mismatch — re-mints loopback-only again, so if you are in that
+loop, the family list is the thing to look at, not the certificate.
+
+**And the one that must stay off.** `ProtectProc` is written at its default on purpose, and the
+two keys that used to sit beside it in this file — `PIDNamespace=` and `HidePID=` — are not
+systemd directives at all, so `systemd-analyze verify` was discarding them with a warning on
+every daemon-reload while this section described them as deliberate. Read the unit's comment for
+the argument, which is the part worth keeping. The behaviour it argues for is real: the KDE
+locker is corroborated by reading `/proc/<pid>/status` and `/proc/<pid>/cmdline` to prove the
+locker process is parented by ksmserver — the second signal behind issue #29, because logind's
+`LockedHint` is writable by the session user with no privilege at all. Hide other users'
+processes and the corroborator finds no locker, every lock reports unconfirmed, and enforcement
+re-arms forever while the dashboard says the machine cannot confirm. If you harden this unit
+further, `ProtectProc=invisible` and `PrivatePIDs=` (removed in v255) are the settings to leave
+alone — verify any directive you add with `systemd-analyze verify deploy/plock.service`, which
+is how the three phantom keys were caught.
 
 ## 8. Confirming it survives
 
