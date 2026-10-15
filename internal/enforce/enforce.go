@@ -84,6 +84,15 @@ const (
 	// purpose: "the request was refused" and "the request was accepted and the
 	// screen may not be locked" need different sentences in front of an operator,
 	// and only the second one means the child might still be at the desktop.
+	//
+	// Cadence: once per unconfirmed episode, not per tick. The engine re-asserts the
+	// lock every poll while a window stays open, so a per-tick line meant a machine that
+	// can never confirm its lock — a GNOME-only configuration, per #35 — wrote the same
+	// audit line every 30 seconds for as long as the curfew ran, and a trail that floods
+	// is a trail nobody reads. It is emitted on the transition into unconfirmed and
+	// cleared on the first confirmed tick, so a lock that flaps reports each episode.
+	// Report.Errors and platform.Lock are unchanged: the live verdict is still per-tick,
+	// and the daemon still re-arms every tick. Only the audit line deduplicates.
 	KindLockUnconfirmed = "lock.unconfirmed"
 
 	// KindConfigStale is emitted on every tick that runs on a previously loaded
@@ -906,17 +915,32 @@ func (e *Engine) release(rep *Report, s platform.Session, now time.Time, detail 
 		}
 		st.enforcing = false
 		st.ruleID, st.ruleName = "", ""
-		// Per-lockout bookkeeping starts again the next time this session is inside
-		// a window. Leaving unenforceableReported set would mean a child who was
+		// Per-lockout bookkeeping starts again the next time this session is inside a
+		// window. Leaving unenforceableReported set would mean a child who was
 		// unenforceable last night is never escalated again, because the flag says
 		// "already told you" for a lockout that has since ended.
+		//
+		// No unconfirmedReported reset here, and the reason is not what this comment used
+		// to claim. It said the override branch returns before the window check, so this
+		// path is unreachable with an override held -- backwards. The window check is step
+		// 3 and the override branch is step 4, so an account whose override is holding and
+		// whose window has closed arrives here, with overrideActive still true.
+		//
+		// The conclusion holds anyway, for a different reason: the flag can never be set
+		// while an override holds. Only the lock-attempt path sets it, and every tick that
+		// runs under an override returns through releaseState before reaching a lock, and
+		// releaseState clears the flag at the moment the exemption starts. So a flag set
+		// before the override was granted is gone by the first exempt tick, and this path
+		// can only ever see it false.
+		//
+		// When no override is holding, the delete below drops the whole entry and the next
+		// lockout starts from a fresh one.
+		//
+		// The reset below sits flush against the `if` on purpose. A mutation pattern that
+		// spans a comment breaks every time someone improves the prose -- which has now
+		// happened to this mutant twice -- and the guard it stands for is worth more than
+		// the sentence next to it.
 		st.unenforceableReported = false
-		// No unconfirmedReported reset here, deliberately. The delete below drops the
-		// whole entry whenever no override is holding it, and when one is, this path is
-		// not reached -- the override branch returns before the window check. So the
-		// delete is the thing keeping this correct, which is worth saying out loud:
-		// releaseState is where the equivalent reset lives, and a future change to that
-		// delete condition is what would turn a missing alarm into the silent default.
 		if !st.overrideActive {
 			delete(e.state, s.ID)
 		}
@@ -932,11 +956,11 @@ func (e *Engine) releaseState(id string) {
 		st.enforcing = false
 		st.ruleID, st.ruleName = "", ""
 		st.unenforceableReported = false
-		// Per-lockout bookkeeping again, and this is the reset that actually fires: the
-		// override path is the only one where the state entry survives a release, so it
-		// is the only one that can carry "already told you" into the next lockout.
-		// TestAnOverrideExpiringDoesNotCarryTheAlarmFlagIntoTheNextLockout fails if this
-		// line and the one in release both go.
+		// The only reset of unconfirmedReported besides the clear-on-confirm at the top of
+		// the lock path. It is load-bearing: this is the one place the state entry survives
+		// a release, so it is the only place "already told you" can be carried into the next
+		// lockout. TestAnOverrideExpiringDoesNotCarryTheAlarmFlagIntoTheNextLockout fails
+		// if this line goes.
 		st.unconfirmedReported = false
 	}
 	delete(e.unenforceable, id)

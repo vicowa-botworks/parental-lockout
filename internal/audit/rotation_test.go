@@ -20,9 +20,11 @@ func now() time.Time { return time.Unix(1700000000, 0).UTC() }
 // That is not a rounding error. DefaultMaxBytes was a per-run bound, so every restart added
 // up to another MaxBytes before the first rotation, and the "five generations at 8 MiB is
 // 40 MiB worst case" arithmetic behind DefaultKeep did not hold. The shape that grows the
-// log is the shape that restarts the daemon: the engine emits KindPlatformError and
-// KindLockUnconfirmed per tick, and a machine whose desktop has died is a machine whose
-// supervisor is restarting it.
+// log is the shape that restarts the daemon: the engine emits KindPlatformError per tick,
+// and a machine whose desktop has died is a machine whose supervisor is restarting it.
+// (KindLockUnconfirmed used to be named alongside it; it is now once per unconfirmed episode,
+// per #35. The bound is unchanged — a bound that depends on the engine staying quiet is not
+// a bound.)
 func TestRotationCountsTheBytesAlreadyInTheFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.jsonl")
