@@ -1,588 +1,588 @@
 {
- "package": "./internal/platform/",
- "_about": "Each entry puts one known bug back into internal/platform and the suite must fail. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
- "mutants": [
-  {
-   "id": "C1",
-   "file": "internal/platform/platform.go",
-   "old": "\t\tif yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
-   "new": "\t\tif yes || true {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
-   "note": "the pre-fix behaviour: logind's zero exit on Plasma ended the chain and the KDE backend was never reached. Re-pointed onto the confirmation gate, which now opens into the #29 discounting rather than a bare return."
-  },
-  {
-   "id": "C2",
-   "file": "internal/platform/platform.go",
-   "old": "\t\tif yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
-   "new": "\t\tif !yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
-   "note": "releasing the chain on the wrong side of the confirmation"
-  },
-  {
-   "id": "C3",
-   "file": "internal/platform/platform.go",
-   "old": "\t\tconf, ok := b.(Confirmer)\n\t\tif !ok {\n\t\t\t// Success we cannot stand behind.",
-   "new": "\t\tconf, ok := b.(Confirmer)\n\t\tif !ok || true {\n\t\t\t// Success we cannot stand behind.",
-   "note": "a backend that cannot confirm would end the chain, so adding a confirming backend behind it would change nothing"
-  },
-  {
-   "id": "C4",
-   "file": "internal/platform/platform.go",
-   "old": "\tif failures == len(c.backends) {",
-   "new": "\tif false && failures == len(c.backends) {",
-   "note": "nothing reached the desktop, which is a different report from 'we asked and cannot prove it'"
-  },
-  {
-   "id": "C5",
-   "file": "internal/platform/platform.go",
-   "old": "func (e *unconfirmedError) Unwrap() []error { return e.reasons }",
-   "new": "func (e *unconfirmedError) Unwrap() []error { return nil }",
-   "note": "the loop distinguishes a timeout from a refusal through errors.Is, without matching on message text"
-  },
-  {
-   "id": "L1",
-   "file": "internal/platform/logind.go",
-   "old": "\treturn props.flag(\"LockedHint\"), nil",
-   "new": "\treturn props.flag(\"LockedHint\") || true, nil",
-   "note": "the exact Plasma failure: exit 0 with the screen unlocked, reported as a lock"
-  },
-  {
-   "id": "L2",
-   "file": "internal/platform/logind.go",
-   "old": "\tif !validSessionID(id) {\n\t\treturn nil, fmt.Errorf(\"loginctl show-session: refusing to query session %q: not a plausible session id\", id)",
-   "new": "\tif false && !validSessionID(id) {\n\t\treturn nil, fmt.Errorf(\"loginctl show-session: refusing to query session %q: not a plausible session id\", id)",
-   "note": "show() is the only route to loginctl for a query, so it is where the id rule lives"
-  },
-  {
-   "id": "P1",
-   "file": "internal/platform/platform.go",
-   "old": "\tif s.Class != \"user\" {",
-   "new": "\tif false && s.Class != \"user\" {",
-   "note": "a greeter or manager session shares a uid with a real one and must never be locked"
-  },
-  {
-   "id": "P2",
-   "file": "internal/platform/platform.go",
-   "old": "\tif s.Seat == \"\" {",
-   "new": "\tif false && s.Seat == \"\" {",
-   "note": "no seat means not on any console"
-  },
-  {
-   "id": "P3",
-   "file": "internal/platform/platform.go",
-   "old": "func isLockable(s Session) bool {\n\tif s.Remote {",
-   "new": "func isLockable(s Session) bool {\n\tif false && s.Remote {",
-   "note": "the admin's own session is usually the remote one"
-  },
-  {
-   "id": "P4",
-   "file": "internal/platform/platform.go",
-   "old": "\tif s.State == \"closing\" {",
-   "new": "\tif false && s.State == \"closing\" {",
-   "note": "a closing session is on its way out; locking it does nothing and hides the real target"
-  },
-  {
-   "id": "P5",
-   "file": "internal/platform/platform.go",
-   "old": "\tif s.Type == \"\" || s.Type == \"unspecified\" {",
-   "new": "\tif false && s.Type == \"\" || s.Type == \"unspecified\" {",
-   "note": "an unspecified type is not a desktop anyone is looking at"
-  },
-  {
-   "id": "T1",
-   "file": "internal/platform/table.go",
-   "old": "\t\tif !looksLikeHeader(fields) {",
-   "new": "\t\tif !(len(fields) > 1 && fields[0] == \"SESSION\") {",
-   "note": "the position-locked header read that a single inserted column would silently corrupt"
-  },
-  {
-   "id": "T2",
-   "file": "internal/platform/table.go",
-   "old": "\tif len(fields) < len(cols) {",
-   "new": "\tif false && len(fields) < len(cols) {",
-   "note": "a silently dropped row is a session that never gets enforced"
-  },
-  {
-   "id": "T3",
-   "file": "internal/platform/table.go",
-   "old": "\t\t\t\tcols = append(cols, -1)\n\t\t\t\tcontinue",
-   "new": "\t\t\t\tcontinue",
-   "note": "dropping the slot shifts every column after an unknown one, which is the bug this file exists to prevent"
-  },
-  {
-   "id": "T4",
-   "file": "internal/platform/table.go",
-   "old": "\t\t\te.Since = tableField(f)",
-   "new": "\t\t\t_ = f",
-   "note": "SINCE is the column after the unknown one in the test, so it is what proves the mapping survived"
-  },
-  {
-   "id": "T5",
-   "file": "internal/platform/table.go",
-   "old": "\t\t\tn, err := strconv.ParseUint(f, 10, 32)\n\t\t\tif err != nil {\n\t\t\t\treturn e, fmt.Errorf(\"UID column is %q, not a number\", f)",
-   "new": "\t\t\tn, err := strconv.ParseUint(f, 10, 32)\n\t\t\tif err != nil {\n\t\t\t\tn = 0",
-   "note": "a UID parsed as 0 is root, and the lock would aim at the wrong account"
-  },
-  {
-   "id": "T6",
-   "file": "internal/platform/table.go",
-   "old": "\t\tif len(missing) > 0 {",
-   "new": "\t\tif false && len(missing) > 0 {",
-   "note": "falling through to guess at a later line is worse than refusing a header you cannot read"
-  },
-  {
-   "id": "X1",
-   "file": "internal/platform/platform.go",
-   "old": "\t\tif yes {\n\t\t\treturn true, nil\n\t\t}",
-   "new": "\t\tif !yes {\n\t\t\treturn true, nil\n\t\t}",
-   "note": "a backend that cannot see the session must not veto one that can see it locked"
-  },
-  {
-   "id": "X2",
-   "file": "internal/platform/platform.go",
-   "old": "\treturn false, nil\n}\n\n// Platform is a source",
-   "new": "\treturn true, nil\n}\n\n// Platform is a source",
-   "note": "claiming a lock on nothing but failures is the fail-open this whole file is about"
-  },
-  {
-   "id": "W1",
-   "file": "internal/platform/table.go",
-   "old": "\t\treturn nil, nil\n\t}\n\treturn entries, nil",
-   "new": "\t\treturn nil, fmt.Errorf(\"loginctl table describes no sessions\")\n\t}\n\treturn entries, nil",
-   "note": "the pre-fix behaviour: an idle machine became a backend failure, so nothing was enforced and doctor blamed logind"
-  },
-  {
-   "id": "W2",
-   "file": "internal/platform/table.go",
-   "old": "if strings.HasSuffix(line, \"listed.\") || isNoRowsLegend(line) {",
-   "new": "if strings.HasSuffix(line, \"listed.\") || false && isNoRowsLegend(line) {",
-   "note": "only the count trailer is recognised, so loginctl's actual empty legend reaches the row parser and fails"
-  },
-  {
-   "id": "W3",
-   "file": "internal/platform/table.go",
-   "old": "\t\tif cols[len(cols)-1] != colSince {",
-   "new": "\t\tif false && cols[len(cols)-1] != colSince {",
-   "note": "the SINCE-position guard off: a mid-table SINCE shifts every column after it and the row parses with plausible wrong values"
-  },
-  {
-   "id": "W4",
-   "file": "internal/platform/logind.go",
-   "old": "\t\t\tif len(absent) > 0 {",
-   "new": "\t\t\tif false && len(absent) > 0 {",
-   "note": "Probe stops naming the properties loginctl did not answer, and absence becomes invisible again"
-  },
-  {
-   "id": "W5",
-   "file": "internal/platform/logind.go",
-   "old": "[]string{\"loginctl\", noAsk, \"lock-session\", s.ID}",
-   "new": "[]string{\"loginctl\", \"lock-session\", s.ID}",
-   "note": "--no-ask-password dropped: an unanswerable polkit challenge prompts instead of failing, and doctor hangs"
-  },
-  {
-   "id": "W6",
-   "file": "internal/platform/logind.go",
-   "old": "var sessionProps = []string{\"Name\", \"Type\", \"State\", \"Remote\", \"LockedHint\"}",
-   "new": "var sessionProps = []string{\"Name\", \"Type\", \"State\", \"Remote\", \"UID\", \"LockedHint\"}",
-   "note": "re-asks for UID, a property org.freedesktop.login1.Session does not have; loginctl answers exit 0 with no line"
-  },
-  {
-   "id": "W7",
-   "file": "internal/platform/logind.go",
-   "old": "\t\ts.Leader = e.Leader\n\t\ts.TTY = seatString(e.TTY)",
-   "new": "\t\ts.Leader = 0\n\t\ts.TTY = seatString(e.TTY)",
-   "note": "the session leader pid is dropped, so no caller can tell its own session from a child's"
-  },
-  {
-   "id": "C7",
-   "file": "internal/platform/platform.go",
-   "old": "\tfor i := 0; i < confirmReads; i++ {",
-   "new": "\tfor i := 0; i < 0; i++ {",
-   "note": "the pre-fix behaviour: LockedHint read once, immediately, so a desktop that takes milliseconds to react is reported as a failed lock"
-  },
-  {
-   "id": "C8",
-   "file": "internal/platform/platform.go",
-   "old": "\t\tyes, err = conf.LockConfirmed(ctx, s)\n\t\tif err != nil || yes {",
-   "new": "\t\tyes, err = conf.LockConfirmed(ctx, s)\n\t\tif yes {",
-   "note": "errors get retried: a backend that cannot be queried holds up the rest of the chain for no information"
-  },
-  {
-   "id": "C9",
-   "file": "internal/platform/platform.go",
-   "old": "\tif len(errs) > 0 {\n\t\t// Nothing could establish that the screen is locked.",
-   "new": "\tif false && len(errs) > 0 {\n\t\t// Nothing could establish that the screen is locked.",
-   "note": "the mixed error+unlocked verdict loses its reasons and reports a plain unlocked"
-  },
-  {
-   "id": "C10",
-   "file": "internal/platform/platform.go",
-   "old": "\tif s.Type == \"\" || s.Type == \"unspecified\" {",
-   "new": "\tif s.Type == \"\" || s.Type == \"unspecified\" || s.Type == \"tty\" {",
-   "note": "the tempting wrong fix for a raw VT: refusing it makes Sessions report nobody for that child and the loop goes silent"
-  },
-  {
-   "id": "D1",
-   "file": "internal/platform/desktop.go",
-   "old": "\t\tif reply := strings.TrimSpace(string(out)); reply != \"()\" {",
-   "new": "\t\tif reply := strings.TrimSpace(string(out)); false && reply != \"()\" {",
-   "note": "drops the void-reply check: qdbus-style exit 0 with garbage on stdout becomes a reported lock, and the fallback chain stops dead"
-  },
-  {
-   "id": "D2",
-   "file": "internal/platform/sessionbus.go",
-   "old": "\tif s.UID == 0 {",
-   "new": "\tif false && s.UID == 0 {",
-   "note": "accepts a uid-0 target: the privilege drop drops nothing and the lock runs as root against root's bus"
-  },
-  {
-   "id": "D3",
-   "file": "internal/platform/sessionbus.go",
-   "old": "\t\tif allowedEnv(name) {",
-   "new": "\t\tif allowedEnv(name) || true {",
-   "note": "inherits the whole root environment into a user session command (LD_PRELOAD and friends)"
-  },
-  {
-   "id": "D4",
-   "file": "internal/platform/sessionbus.go",
-   "old": "\truntime := \"/run/user/\" + strconv.Itoa(uid)",
-   "new": "\truntime := \"/run/user/\" + strconv.Itoa(0)",
-   "note": "always targets root's runtime dir; the call then fails as a broken desktop rather than a misbuilt command"
-  },
-  {
-   "id": "D5",
-   "file": "internal/platform/sessionbus.go",
-   "old": "\t\t\"HOME=\",",
-   "new": "\t\t\"HOME=/root\",",
-   "note": "hands a session command root's HOME"
-  },
-  {
-   "id": "D6",
-   "file": "internal/platform/desktop.go",
-   "old": "\t\tif err != nil {\n\t\t\terrs = append(errs, fmt.Errorf(\"%s: %w\", dest, err))\n\t\t\tcontinue\n\t\t}",
-   "new": "\t\tif err != nil {\n\t\t\terrs = append(errs, fmt.Errorf(\"%s: %w\", dest, err))\n\t\t\tbreak\n\t\t}",
-   "note": "the first bus name that is not owned ends the fallback list instead of moving to the next"
-  },
-  {
-   "id": "D7",
-   "file": "internal/platform/desktop.go",
-   "old": "\tyes, err := d.hint.LockConfirmed(ctx, s)",
-   "new": "\tyes, err := false, error(nil)",
-   "note": "the desktop backend's own read of the hint replaced by a constant no: nothing it does can ever be confirmed, so a locked machine is re-locked every tick forever. The opposite direction -- confirming unconditionally -- is now I1, because the hint read is no longer the last word in this function."
-  },
-  {
-   "id": "D8",
-   "file": "cmd/plock/doctor.go",
-   "old": "\t\tif st.Available {\n\t\t\tfirst = st.Name\n\t\t\tbreak\n\t\t}",
-   "new": "\t\tif st.Available {\n\t\t\tfirst = st.Name\n\t\t}",
-   "note": "picks the LAST usable backend instead of the first, so configured order stops meaning anything",
-   "package": "./cmd/plock/"
-  },
-  {
-   "id": "D9",
-   "file": "cmd/plock/doctor.go",
-   "old": "\tif err := writeAll(stdout, report.String()); err != nil {",
-   "new": "\tif err := writeAll(stdout, report.String()); err != nil && false {",
-   "note": "ignores a failed report write: a closed pipe or full disk prints nothing and exits 0",
-   "package": "./cmd/plock/"
-  },
-  {
-   "id": "D10",
-   "file": "cmd/plock/doctor.go",
-   "old": "\tif first == \"\" {\n\t\treturn exitFailure\n\t}",
-   "new": "\tif first == \"\" {\n\t\treturn exitOK\n\t}",
-   "note": "exits 0 when nothing can lock, the state that looks identical to nothing needing locking",
-   "package": "./cmd/plock/"
-  },
-  {
-   "id": "D11",
-   "file": "cmd/plock/doctor.go",
-   "old": "\t\tif errors.Is(err, flag.ErrHelp) {",
-   "new": "\t\tif false && errors.Is(err, flag.ErrHelp) {",
-   "note": "`plock doctor -h` exits 2 like a typo",
-   "package": "./cmd/plock/"
-  },
-  {
-   "id": "E1",
-   "file": "internal/platform/exec.go",
-   "old": "\tctx, cancel := context.WithTimeoutCause(ctx, callTimeout, errCallBudget)",
-   "new": "\tctx, cancel := context.WithCancel(ctx)",
-   "about": "drop the default bound: a caller with no deadline (plock doctor) is wedged by a service that never replies",
-   "note": "the per-command bound is not applied to the child, so a bus that never replies parks the tick"
-  },
-  {
-   "id": "E2",
-   "file": "internal/platform/exec.go",
-   "old": "\tif r.CallTimeout != 0 {",
-   "new": "\tif false {",
-   "about": "ignore a configured CallTimeout, so the resolution from zero to the default is the only path and a tuned runner silently keeps the default"
-  },
-  {
-   "id": "E3",
-   "file": "internal/platform/exec.go",
-   "old": "\tif ctx.Err() != nil {",
-   "new": "\tif false {",
-   "about": "report a timed-out call as a plain killed-child failure, losing the distinction between 'the bus never answered' and 'the tool crashed'"
-  },
-  {
-   "id": "E4",
-   "file": "cmd/plock/doctor.go",
-   "old": "\t\tfmt.Fprintf(&report, \"would try first: %s\\n\", first)",
-   "new": "\t\tfmt.Fprintf(&report, \"would use: %s\\n\", first)",
-   "about": "claim the first usable backend is the one a lock reaches, which is the false answer W1 was raised against",
-   "package": "./cmd/plock/"
-  },
-  {
-   "id": "E5",
-   "file": "internal/platform/desktop.go",
-   "old": "That is all Probe can see: it has no user session to ask, so \\\"usable\\\" means the tool \"+\n\t\t\t\"is present, not that a lock would land here. ",
-   "new": "",
-   "about": "let Probe report usable as if a lock were guaranteed, on machines where no screensaver exists at all"
-  },
-  {
-   "id": "G1",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\tctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)",
-   "new": "\tctx, cancel := context.WithCancel(ctx)",
-   "note": "the bound is per command again: one Chain.Lock can spend minutes on a session that is not answering while nothing else on the machine is enforced"
-  },
-  {
-   "id": "G2",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\tif c.LockBudget != 0 {\n\t\treturn c.LockBudget\n\t}",
-   "new": "\tif true {\n\t\treturn c.LockBudget\n\t}",
-   "note": "the default stops resolving, so a chain built by New gets a zero budget"
-  },
-  {
-   "id": "G3",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\tctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)",
-   "new": "\tctx, cancel := context.WithTimeout(ctx, c.lockBudget())",
-   "note": "the deadline loses its cause, so a note from a backend blames a hung tool instead of the lock running out of time"
-  },
-  {
-   "id": "G4",
-   "package": "./internal/platform/",
-   "file": "internal/platform/exec.go",
-   "old": "\t\tif cause := context.Cause(ctx); !errors.Is(cause, errCallBudget) {",
-   "new": "\t\tif cause := context.Cause(ctx); errors.Is(cause, errCallBudget) && false {",
-   "note": "every timeout blames the runner's own guard, including the ones where the caller's deadline was the limit"
-  },
-  {
-   "id": "G5",
-   "package": "./internal/platform/",
-   "file": "internal/platform/exec.go",
-   "old": "\treturn out, fmt.Errorf(\"%s: %w\", argv[0], err)",
-   "new": "\treturn out, err",
-   "note": "the stdlib's own text already contains the path, so the substring check alone let this survive once; the prefix assertion is what pins the wrap"
-  },
-  {
-   "id": "G6",
-   "package": "./cmd/plock/",
-   "file": "cmd/plock/doctor.go",
-   "old": "\tif unknown := chain.Unknown(); len(unknown) > 0 {",
-   "new": "\tif unknown := chain.Unknown(); first != \"\" && len(unknown) > 0 {",
-   "note": "a misspelled backend is only named when nothing works, which is the case that almost never happens; the body is what gets pasted into a bug report"
-  },
-  {
-   "id": "G7",
-   "package": "./cmd/plock/",
-   "file": "cmd/plock/doctor.go",
-   "old": "\t\tfmt.Fprintln(&report, \"           A backend is finished with only once its lock is confirmed, so\")\n\t\tfmt.Fprintln(&report, \"           the lock that lands may come from a later one in the list.\")\n",
-   "new": "",
-   "note": "\"would try first\" on its own is the overclaim W1 was raised against; the explanation is what makes the line honest"
-  },
-  {
-   "id": "H1",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\twasLocked, preErr, preNotes := c.lockState(ctx, s)",
-   "new": "\twasLocked, preErr, preNotes := false, error(nil), []error(nil)",
-   "note": "never read the state before asking: a pre-set hint is credited as this request's result, which is the whole of #29"
-  },
-  {
-   "id": "H2",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\t\t\tif corroborated(conf) {\n\t\t\t\treturn nil\n\t\t\t}\n",
-   "new": "",
-   "note": "discount a corroborated yes too: a genuinely locked machine reports unconfirmed from the second tick on"
-  },
-  {
-   "id": "H3",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\t\t\tif wasLocked {",
-   "new": "\t\t\tif wasLocked && false {",
-   "note": "the discount itself removed: the chain stops at logind off the spoofed hint and kde is never asked"
-  },
-  {
-   "id": "H4",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\t\t\tif preErr != nil {",
-   "new": "\t\t\tif preErr != nil && false {",
-   "note": "credit a yes even when the before-state could not be read, which is the case that cannot be argued"
-  },
-  {
-   "id": "H5",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\t\tif !corroborated(conf) {",
-   "new": "\t\tif true {",
-   "note": "the before-state read from the first confirmer rather than the raw-hint one, so a [kde logind] chain credits logind's bare yes"
-  },
-  {
-   "id": "H6",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\t\treturn false, fmt.Errorf(\"no backend in this chain can confirm a lock\")",
-   "new": "\t\treturn false, nil",
-   "note": "a chain with no confirmer reports the session as unlocked rather than saying it cannot look"
-  },
-  {
-   "id": "H7",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\"(%w), so this cannot be told apart from a hint that was already true\",",
-   "new": "\"(%v), so this cannot be told apart from a hint that was already true\",",
-   "note": "the reason the before-state was unreadable stops being reachable by errors.Is"
-  },
-  {
-   "id": "I1",
-   "package": "./internal/platform/",
-   "file": "internal/platform/desktop.go",
-   "old": "\tif !d.corroborate {\n\t\treturn true, nil\n\t}",
-   "new": "\tif true || !d.corroborate {\n\t\treturn true, nil\n\t}",
-   "note": "the KDE corroborator never consulted: the hint alone confirms again"
-  },
-  {
-   "id": "I2",
-   "package": "./internal/platform/",
-   "file": "internal/platform/desktop.go",
-   "old": "\t\t\tcorroborate: true,",
-   "new": "\t\t\tcorroborate: false,",
-   "note": "the kde flavour registered as uncorroborated"
-  },
-  {
-   "id": "I3",
-   "package": "./internal/platform/",
-   "file": "internal/platform/desktop.go",
-   "old": "func (d *desktop) Corroborated() bool { return d.corroborate }",
-   "new": "func (d *desktop) Corroborated() bool { return false }",
-   "note": "the backend stops telling the chain its yes is corroborated, so a locked machine goes unconfirmed"
-  },
-  {
-   "id": "I4",
-   "package": "./internal/platform/",
-   "file": "internal/platform/desktop.go",
-   "old": "\tif corroborated {",
-   "new": "\tif true || corroborated {",
-   "note": "Probe claims corroboration for a flavour that has none"
-  },
-  {
-   "id": "I5",
-   "package": "./internal/platform/",
-   "file": "internal/platform/desktop.go",
-   "old": "\t\treturn false, fmt.Errorf(\"%s: the session reports itself locked but the locker could not be checked: %w\", d.id, err)",
-   "new": "\t\treturn false, nil",
-   "note": "an unconsultable corroborator reports 'unlocked' instead of a fault"
-  },
-  {
-   "id": "J1",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\t\tif err != nil || puid != uid {",
-   "new": "\t\tif err != nil || puid != uid && false {",
-   "note": "another user's locked session corroborates this one"
-  },
-  {
-   "id": "J2",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\t\tif filepath.Base(parentArgv[0]) != ksmserverProgram {\n\t\t\tcontinue\n\t\t}\n\t\tif !isCompositorBinary(strconv.Itoa(ppid), uid) {\n\t\t\tcontinue\n\t\t}",
-   "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n\t\tif false {\n\t\t\tcontinue\n\t\t}",
-   "note": "the parent is never asked to be the compositor -- both the argv[0] name and the resolved-binary check, because either one alone catches the impostor and mutating only the cheap pre-filter is masked by the guard after it"
-  },
-  {
-   "id": "J3",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\t\tif filepath.Base(argv[0]) != kdeLockerProgram {\n\t\t\tcontinue\n\t\t}\n\t\tif !isLockerBinary(name, uid) {\n\t\t\tcontinue\n\t\t}",
-   "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n\t\tif false {\n\t\t\tcontinue\n\t\t}",
-   "note": "the candidate is never asked to be the locker -- both the argv[0] name and the resolved-binary check, for the same reason as J2"
-  },
-  {
-   "id": "J4",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\t\treturn false, fmt.Errorf(\"cannot open %s to look for the locker: %w\", procRoot, err)",
-   "new": "\t\treturn false, nil",
-   "note": "'cannot look' reported as 'looked and found nothing'"
-  },
-  {
-   "id": "J5",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn false, err\n\t\t}\n",
-   "new": "",
-   "note": "the walk ignores its context and outruns the lock budget"
-  },
-  {
-   "id": "J6",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\tfor len(fields) > 0 && fields[len(fields)-1] == \"\" {\n\t\tfields = fields[:len(fields)-1]\n\t}\n",
-   "new": "",
-   "note": "the cmdline's trailing NUL is left as an empty argv field"
-  },
-  {
-   "id": "J7",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\t\t\tu, err := strconv.ParseUint(fields[1], 10, 32)",
-   "new": "\t\t\tu, err := strconv.ParseUint(fields[0], 10, 32)",
-   "note": "the real uid read instead of the effective one"
-  },
-  {
-   "id": "J8",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\tif seen < 2 {",
-   "new": "\tif seen < 0 {",
-   "note": "a status carrying neither PPid nor Uid accepted as read"
-  },
-  {
-   "id": "J9",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\t\t\tif ppid, err = strconv.Atoi(val); err != nil {",
-   "new": "\t\t\tif ppid, err = strconv.Atoi(val); false {",
-   "note": "an unparsable PPid swallowed as pid 0"
-  },
-  {
-   "id": "I6",
-   "file": "internal/platform/platform.go",
-   "old": "\tc, ok := conf.(Corroborator)\n\treturn ok && c.Corroborated()",
-   "new": "\t_, ok := conf.(Corroborator)\n\treturn ok",
-   "note": "the chain goes back to deciding corroboration by type assertion, which is true for gnome, so a pre-set hint confirms on a gnome-only chain"
-  },
-  {
-   "id": "K1",
-   "package": "./internal/platform/",
-   "file": "internal/platform/locker.go",
-   "old": "\tfor _, p := range []string{path, filepath.Dir(path)} {",
-   "new": "\tfor _, p := range []string{path} {",
-   "note": "the locker's own mode is honest and the directory that decides who can replace it is never asked about"
-  },
-  {
-   "id": "K2",
-   "package": "./internal/platform/",
-   "file": "internal/platform/platform.go",
-   "old": "\treturn yes, nil, errs\n}",
-   "new": "\treturn yes, nil, nil\n}",
-   "note": "a confirmer that faulted on the way to an answer is collected and then dropped"
-  }
- ]
+  "package": "./internal/platform/",
+  "_about": "Each entry puts one known bug back into internal/platform and the suite must fail. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
+  "mutants": [
+    {
+      "id": "C1",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tif yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
+      "new": "\t\tif yes || true {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
+      "note": "the pre-fix behaviour: logind's zero exit on Plasma ended the chain and the KDE backend was never reached. Re-pointed onto the confirmation gate, which now opens into the #29 discounting rather than a bare return."
+    },
+    {
+      "id": "C2",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tif yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
+      "new": "\t\tif !yes {\n\t\t\t// A backend that stands behind its yes with evidence the controlled user",
+      "note": "releasing the chain on the wrong side of the confirmation"
+    },
+    {
+      "id": "C3",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tconf, ok := b.(Confirmer)\n\t\tif !ok {\n\t\t\t// Success we cannot stand behind.",
+      "new": "\t\tconf, ok := b.(Confirmer)\n\t\tif !ok || true {\n\t\t\t// Success we cannot stand behind.",
+      "note": "a backend that cannot confirm would end the chain, so adding a confirming backend behind it would change nothing"
+    },
+    {
+      "id": "C4",
+      "file": "internal/platform/platform.go",
+      "old": "\tif failures == len(c.backends) {",
+      "new": "\tif false && failures == len(c.backends) {",
+      "note": "nothing reached the desktop, which is a different report from 'we asked and cannot prove it'"
+    },
+    {
+      "id": "C5",
+      "file": "internal/platform/platform.go",
+      "old": "func (e *unconfirmedError) Unwrap() []error { return e.reasons }",
+      "new": "func (e *unconfirmedError) Unwrap() []error { return nil }",
+      "note": "the loop distinguishes a timeout from a refusal through errors.Is, without matching on message text"
+    },
+    {
+      "id": "L1",
+      "file": "internal/platform/logind.go",
+      "old": "\treturn props.flag(\"LockedHint\"), nil",
+      "new": "\treturn props.flag(\"LockedHint\") || true, nil",
+      "note": "the exact Plasma failure: exit 0 with the screen unlocked, reported as a lock"
+    },
+    {
+      "id": "L2",
+      "file": "internal/platform/logind.go",
+      "old": "\tif !validSessionID(id) {\n\t\treturn nil, fmt.Errorf(\"loginctl show-session: refusing to query session %q: not a plausible session id\", id)",
+      "new": "\tif false && !validSessionID(id) {\n\t\treturn nil, fmt.Errorf(\"loginctl show-session: refusing to query session %q: not a plausible session id\", id)",
+      "note": "show() is the only route to loginctl for a query, so it is where the id rule lives"
+    },
+    {
+      "id": "P1",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.Class != \"user\" {",
+      "new": "\tif false && s.Class != \"user\" {",
+      "note": "a greeter or manager session shares a uid with a real one and must never be locked"
+    },
+    {
+      "id": "P2",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.Seat == \"\" {",
+      "new": "\tif false && s.Seat == \"\" {",
+      "note": "no seat means not on any console"
+    },
+    {
+      "id": "P3",
+      "file": "internal/platform/platform.go",
+      "old": "func isLockable(s Session) bool {\n\tif s.Remote {",
+      "new": "func isLockable(s Session) bool {\n\tif false && s.Remote {",
+      "note": "the admin's own session is usually the remote one"
+    },
+    {
+      "id": "P4",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.State == \"closing\" {",
+      "new": "\tif false && s.State == \"closing\" {",
+      "note": "a closing session is on its way out; locking it does nothing and hides the real target"
+    },
+    {
+      "id": "P5",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.Type == \"\" || s.Type == \"unspecified\" {",
+      "new": "\tif false && s.Type == \"\" || s.Type == \"unspecified\" {",
+      "note": "an unspecified type is not a desktop anyone is looking at"
+    },
+    {
+      "id": "T1",
+      "file": "internal/platform/table.go",
+      "old": "\t\tif !looksLikeHeader(fields) {",
+      "new": "\t\tif !(len(fields) > 1 && fields[0] == \"SESSION\") {",
+      "note": "the position-locked header read that a single inserted column would silently corrupt"
+    },
+    {
+      "id": "T2",
+      "file": "internal/platform/table.go",
+      "old": "\tif len(fields) < len(cols) {",
+      "new": "\tif false && len(fields) < len(cols) {",
+      "note": "a silently dropped row is a session that never gets enforced"
+    },
+    {
+      "id": "T3",
+      "file": "internal/platform/table.go",
+      "old": "\t\t\t\tcols = append(cols, -1)\n\t\t\t\tcontinue",
+      "new": "\t\t\t\tcontinue",
+      "note": "dropping the slot shifts every column after an unknown one, which is the bug this file exists to prevent"
+    },
+    {
+      "id": "T4",
+      "file": "internal/platform/table.go",
+      "old": "\t\t\te.Since = tableField(f)",
+      "new": "\t\t\t_ = f",
+      "note": "SINCE is the column after the unknown one in the test, so it is what proves the mapping survived"
+    },
+    {
+      "id": "T5",
+      "file": "internal/platform/table.go",
+      "old": "\t\t\tn, err := strconv.ParseUint(f, 10, 32)\n\t\t\tif err != nil {\n\t\t\t\treturn e, fmt.Errorf(\"UID column is %q, not a number\", f)",
+      "new": "\t\t\tn, err := strconv.ParseUint(f, 10, 32)\n\t\t\tif err != nil {\n\t\t\t\tn = 0",
+      "note": "a UID parsed as 0 is root, and the lock would aim at the wrong account"
+    },
+    {
+      "id": "T6",
+      "file": "internal/platform/table.go",
+      "old": "\t\tif len(missing) > 0 {",
+      "new": "\t\tif false && len(missing) > 0 {",
+      "note": "falling through to guess at a later line is worse than refusing a header you cannot read"
+    },
+    {
+      "id": "X1",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tif yes {\n\t\t\treturn true, nil\n\t\t}",
+      "new": "\t\tif !yes {\n\t\t\treturn true, nil\n\t\t}",
+      "note": "a backend that cannot see the session must not veto one that can see it locked"
+    },
+    {
+      "id": "X2",
+      "file": "internal/platform/platform.go",
+      "old": "\treturn false, nil\n}\n\n// Platform is a source",
+      "new": "\treturn true, nil\n}\n\n// Platform is a source",
+      "note": "claiming a lock on nothing but failures is the fail-open this whole file is about"
+    },
+    {
+      "id": "W1",
+      "file": "internal/platform/table.go",
+      "old": "\t\treturn nil, nil\n\t}\n\treturn entries, nil",
+      "new": "\t\treturn nil, fmt.Errorf(\"loginctl table describes no sessions\")\n\t}\n\treturn entries, nil",
+      "note": "the pre-fix behaviour: an idle machine became a backend failure, so nothing was enforced and doctor blamed logind"
+    },
+    {
+      "id": "W2",
+      "file": "internal/platform/table.go",
+      "old": "if strings.HasSuffix(line, \"listed.\") || isNoRowsLegend(line) {",
+      "new": "if strings.HasSuffix(line, \"listed.\") || false && isNoRowsLegend(line) {",
+      "note": "only the count trailer is recognised, so loginctl's actual empty legend reaches the row parser and fails"
+    },
+    {
+      "id": "W3",
+      "file": "internal/platform/table.go",
+      "old": "\t\tif cols[len(cols)-1] != colSince {",
+      "new": "\t\tif false && cols[len(cols)-1] != colSince {",
+      "note": "the SINCE-position guard off: a mid-table SINCE shifts every column after it and the row parses with plausible wrong values"
+    },
+    {
+      "id": "W4",
+      "file": "internal/platform/logind.go",
+      "old": "\t\t\tif len(absent) > 0 {",
+      "new": "\t\t\tif false && len(absent) > 0 {",
+      "note": "Probe stops naming the properties loginctl did not answer, and absence becomes invisible again"
+    },
+    {
+      "id": "W5",
+      "file": "internal/platform/logind.go",
+      "old": "[]string{\"loginctl\", noAsk, \"lock-session\", s.ID}",
+      "new": "[]string{\"loginctl\", \"lock-session\", s.ID}",
+      "note": "--no-ask-password dropped: an unanswerable polkit challenge prompts instead of failing, and doctor hangs"
+    },
+    {
+      "id": "W6",
+      "file": "internal/platform/logind.go",
+      "old": "var sessionProps = []string{\"Name\", \"Type\", \"State\", \"Remote\", \"LockedHint\"}",
+      "new": "var sessionProps = []string{\"Name\", \"Type\", \"State\", \"Remote\", \"UID\", \"LockedHint\"}",
+      "note": "re-asks for UID, a property org.freedesktop.login1.Session does not have; loginctl answers exit 0 with no line"
+    },
+    {
+      "id": "W7",
+      "file": "internal/platform/logind.go",
+      "old": "\t\ts.Leader = e.Leader\n\t\ts.TTY = seatString(e.TTY)",
+      "new": "\t\ts.Leader = 0\n\t\ts.TTY = seatString(e.TTY)",
+      "note": "the session leader pid is dropped, so no caller can tell its own session from a child's"
+    },
+    {
+      "id": "C7",
+      "file": "internal/platform/platform.go",
+      "old": "\tfor i := 0; i < confirmReads; i++ {",
+      "new": "\tfor i := 0; i < 0; i++ {",
+      "note": "the pre-fix behaviour: LockedHint read once, immediately, so a desktop that takes milliseconds to react is reported as a failed lock"
+    },
+    {
+      "id": "C8",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tyes, err = conf.LockConfirmed(ctx, s)\n\t\tif err != nil || yes {",
+      "new": "\t\tyes, err = conf.LockConfirmed(ctx, s)\n\t\tif yes {",
+      "note": "errors get retried: a backend that cannot be queried holds up the rest of the chain for no information"
+    },
+    {
+      "id": "C9",
+      "file": "internal/platform/platform.go",
+      "old": "\tif len(errs) > 0 {\n\t\t// Nothing could establish that the screen is locked.",
+      "new": "\tif false && len(errs) > 0 {\n\t\t// Nothing could establish that the screen is locked.",
+      "note": "the mixed error+unlocked verdict loses its reasons and reports a plain unlocked"
+    },
+    {
+      "id": "C10",
+      "file": "internal/platform/platform.go",
+      "old": "\tif s.Type == \"\" || s.Type == \"unspecified\" {",
+      "new": "\tif s.Type == \"\" || s.Type == \"unspecified\" || s.Type == \"tty\" {",
+      "note": "the tempting wrong fix for a raw VT: refusing it makes Sessions report nobody for that child and the loop goes silent"
+    },
+    {
+      "id": "D1",
+      "file": "internal/platform/desktop.go",
+      "old": "\t\tif reply := strings.TrimSpace(string(out)); reply != \"()\" {",
+      "new": "\t\tif reply := strings.TrimSpace(string(out)); false && reply != \"()\" {",
+      "note": "drops the void-reply check: qdbus-style exit 0 with garbage on stdout becomes a reported lock, and the fallback chain stops dead"
+    },
+    {
+      "id": "D2",
+      "file": "internal/platform/sessionbus.go",
+      "old": "\tif s.UID == 0 {",
+      "new": "\tif false && s.UID == 0 {",
+      "note": "accepts a uid-0 target: the privilege drop drops nothing and the lock runs as root against root's bus"
+    },
+    {
+      "id": "D3",
+      "file": "internal/platform/sessionbus.go",
+      "old": "\t\tif allowedEnv(name) {",
+      "new": "\t\tif allowedEnv(name) || true {",
+      "note": "inherits the whole root environment into a user session command (LD_PRELOAD and friends)"
+    },
+    {
+      "id": "D4",
+      "file": "internal/platform/sessionbus.go",
+      "old": "\truntime := \"/run/user/\" + strconv.Itoa(uid)",
+      "new": "\truntime := \"/run/user/\" + strconv.Itoa(0)",
+      "note": "always targets root's runtime dir; the call then fails as a broken desktop rather than a misbuilt command"
+    },
+    {
+      "id": "D5",
+      "file": "internal/platform/sessionbus.go",
+      "old": "\t\t\"HOME=\",",
+      "new": "\t\t\"HOME=/root\",",
+      "note": "hands a session command root's HOME"
+    },
+    {
+      "id": "D6",
+      "file": "internal/platform/desktop.go",
+      "old": "\t\tif err != nil {\n\t\t\terrs = append(errs, fmt.Errorf(\"%s: %w\", dest, err))\n\t\t\tcontinue\n\t\t}",
+      "new": "\t\tif err != nil {\n\t\t\terrs = append(errs, fmt.Errorf(\"%s: %w\", dest, err))\n\t\t\tbreak\n\t\t}",
+      "note": "the first bus name that is not owned ends the fallback list instead of moving to the next"
+    },
+    {
+      "id": "D7",
+      "file": "internal/platform/desktop.go",
+      "old": "\tyes, err := d.hint.LockConfirmed(ctx, s)",
+      "new": "\tyes, err := false, error(nil)",
+      "note": "the desktop backend's own read of the hint replaced by a constant no: nothing it does can ever be confirmed, so a locked machine is re-locked every tick forever. The opposite direction -- confirming unconditionally -- is now I1, because the hint read is no longer the last word in this function."
+    },
+    {
+      "id": "D8",
+      "file": "cmd/plock/doctor.go",
+      "old": "\t\tif st.Available {\n\t\t\tfirst = st.Name\n\t\t\tbreak\n\t\t}",
+      "new": "\t\tif st.Available {\n\t\t\tfirst = st.Name\n\t\t}",
+      "note": "picks the LAST usable backend instead of the first, so configured order stops meaning anything",
+      "package": "./cmd/plock/"
+    },
+    {
+      "id": "D9",
+      "file": "cmd/plock/doctor.go",
+      "old": "\tif err := writeAll(stdout, report.String()); err != nil {",
+      "new": "\tif err := writeAll(stdout, report.String()); err != nil && false {",
+      "note": "ignores a failed report write: a closed pipe or full disk prints nothing and exits 0",
+      "package": "./cmd/plock/"
+    },
+    {
+      "id": "D10",
+      "file": "cmd/plock/doctor.go",
+      "old": "\tif first == \"\" {\n\t\treturn exitFailure\n\t}",
+      "new": "\tif first == \"\" {\n\t\treturn exitOK\n\t}",
+      "note": "exits 0 when nothing can lock, the state that looks identical to nothing needing locking",
+      "package": "./cmd/plock/"
+    },
+    {
+      "id": "D11",
+      "file": "cmd/plock/doctor.go",
+      "old": "\t\tif errors.Is(err, flag.ErrHelp) {",
+      "new": "\t\tif false && errors.Is(err, flag.ErrHelp) {",
+      "note": "`plock doctor -h` exits 2 like a typo",
+      "package": "./cmd/plock/"
+    },
+    {
+      "id": "E1",
+      "file": "internal/platform/exec.go",
+      "old": "\tctx, cancel := context.WithTimeoutCause(ctx, callTimeout, errCallBudget)",
+      "new": "\tctx, cancel := context.WithCancel(ctx)",
+      "about": "drop the default bound: a caller with no deadline (plock doctor) is wedged by a service that never replies",
+      "note": "the per-command bound is not applied to the child, so a bus that never replies parks the tick"
+    },
+    {
+      "id": "E2",
+      "file": "internal/platform/exec.go",
+      "old": "\tif r.CallTimeout != 0 {",
+      "new": "\tif false {",
+      "about": "ignore a configured CallTimeout, so the resolution from zero to the default is the only path and a tuned runner silently keeps the default"
+    },
+    {
+      "id": "E3",
+      "file": "internal/platform/exec.go",
+      "old": "\tif ctx.Err() != nil {",
+      "new": "\tif false {",
+      "about": "report a timed-out call as a plain killed-child failure, losing the distinction between 'the bus never answered' and 'the tool crashed'"
+    },
+    {
+      "id": "E4",
+      "file": "cmd/plock/doctor.go",
+      "old": "\t\tfmt.Fprintf(&report, \"would try first: %s\\n\", first)",
+      "new": "\t\tfmt.Fprintf(&report, \"would use: %s\\n\", first)",
+      "about": "claim the first usable backend is the one a lock reaches, which is the false answer W1 was raised against",
+      "package": "./cmd/plock/"
+    },
+    {
+      "id": "E5",
+      "file": "internal/platform/desktop.go",
+      "old": "That is all Probe can see: it has no user session to ask, so \\\"usable\\\" means the tool \"+\n\t\t\t\"is present, not that a lock would land here. ",
+      "new": "",
+      "about": "let Probe report usable as if a lock were guaranteed, on machines where no screensaver exists at all"
+    },
+    {
+      "id": "G1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\tctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)",
+      "new": "\tctx, cancel := context.WithCancel(ctx)",
+      "note": "the bound is per command again: one Chain.Lock can spend minutes on a session that is not answering while nothing else on the machine is enforced"
+    },
+    {
+      "id": "G2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\tif c.LockBudget != 0 {\n\t\treturn c.LockBudget\n\t}",
+      "new": "\tif true {\n\t\treturn c.LockBudget\n\t}",
+      "note": "the default stops resolving, so a chain built by New gets a zero budget"
+    },
+    {
+      "id": "G3",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\tctx, cancel := context.WithTimeoutCause(ctx, c.lockBudget(), errLockBudget)",
+      "new": "\tctx, cancel := context.WithTimeout(ctx, c.lockBudget())",
+      "note": "the deadline loses its cause, so a note from a backend blames a hung tool instead of the lock running out of time"
+    },
+    {
+      "id": "G4",
+      "package": "./internal/platform/",
+      "file": "internal/platform/exec.go",
+      "old": "\t\tif cause := context.Cause(ctx); !errors.Is(cause, errCallBudget) {",
+      "new": "\t\tif cause := context.Cause(ctx); errors.Is(cause, errCallBudget) && false {",
+      "note": "every timeout blames the runner's own guard, including the ones where the caller's deadline was the limit"
+    },
+    {
+      "id": "G5",
+      "package": "./internal/platform/",
+      "file": "internal/platform/exec.go",
+      "old": "\treturn out, fmt.Errorf(\"%s: %w\", argv[0], err)",
+      "new": "\treturn out, err",
+      "note": "the stdlib's own text already contains the path, so the substring check alone let this survive once; the prefix assertion is what pins the wrap"
+    },
+    {
+      "id": "G6",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/doctor.go",
+      "old": "\tif unknown := chain.Unknown(); len(unknown) > 0 {",
+      "new": "\tif unknown := chain.Unknown(); first != \"\" && len(unknown) > 0 {",
+      "note": "a misspelled backend is only named when nothing works, which is the case that almost never happens; the body is what gets pasted into a bug report"
+    },
+    {
+      "id": "G7",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/doctor.go",
+      "old": "\t\tfmt.Fprintln(&report, \"           A backend is finished with only once its lock is confirmed, so\")\n\t\tfmt.Fprintln(&report, \"           the lock that lands may come from a later one in the list.\")\n",
+      "new": "",
+      "note": "\"would try first\" on its own is the overclaim W1 was raised against; the explanation is what makes the line honest"
+    },
+    {
+      "id": "H1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\twasLocked, preErr, preNotes := c.lockState(ctx, s)",
+      "new": "\twasLocked, preErr, preNotes := false, error(nil), []error(nil)",
+      "note": "never read the state before asking: a pre-set hint is credited as this request's result, which is the whole of #29"
+    },
+    {
+      "id": "H2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\t\tif corroborated(conf) {\n\t\t\t\treturn nil\n\t\t\t}\n",
+      "new": "",
+      "note": "discount a corroborated yes too: a genuinely locked machine reports unconfirmed from the second tick on"
+    },
+    {
+      "id": "H3",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\t\tif wasLocked {",
+      "new": "\t\t\tif wasLocked && false {",
+      "note": "the discount itself removed: the chain stops at logind off the spoofed hint and kde is never asked"
+    },
+    {
+      "id": "H4",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\t\tif preErr != nil {",
+      "new": "\t\t\tif preErr != nil && false {",
+      "note": "credit a yes even when the before-state could not be read, which is the case that cannot be argued"
+    },
+    {
+      "id": "H5",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\tif !corroborated(conf) {",
+      "new": "\t\tif true {",
+      "note": "the before-state read from the first confirmer rather than the raw-hint one, so a [kde logind] chain credits logind's bare yes"
+    },
+    {
+      "id": "H6",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\t\treturn false, fmt.Errorf(\"no backend in this chain can confirm a lock\")",
+      "new": "\t\treturn false, nil",
+      "note": "a chain with no confirmer reports the session as unlocked rather than saying it cannot look"
+    },
+    {
+      "id": "H7",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\"(%w), so this cannot be told apart from a hint that was already true\",",
+      "new": "\"(%v), so this cannot be told apart from a hint that was already true\",",
+      "note": "the reason the before-state was unreadable stops being reachable by errors.Is"
+    },
+    {
+      "id": "I1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "\tif !d.corroborate {\n\t\treturn true, nil\n\t}",
+      "new": "\tif true || !d.corroborate {\n\t\treturn true, nil\n\t}",
+      "note": "the KDE corroborator never consulted: the hint alone confirms again"
+    },
+    {
+      "id": "I2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "\t\t\tcorroborate: true,",
+      "new": "\t\t\tcorroborate: false,",
+      "note": "the kde flavour registered as uncorroborated"
+    },
+    {
+      "id": "I3",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "func (d *desktop) Corroborated() bool { return d.corroborate }",
+      "new": "func (d *desktop) Corroborated() bool { return false }",
+      "note": "the backend stops telling the chain its yes is corroborated, so a locked machine goes unconfirmed"
+    },
+    {
+      "id": "I4",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "\tif corroborated {",
+      "new": "\tif true || corroborated {",
+      "note": "Probe claims corroboration for a flavour that has none"
+    },
+    {
+      "id": "I5",
+      "package": "./internal/platform/",
+      "file": "internal/platform/desktop.go",
+      "old": "\t\treturn false, fmt.Errorf(\"%s: the session reports itself locked but the locker could not be checked: %w\", d.id, err)",
+      "new": "\t\treturn false, nil",
+      "note": "an unconsultable corroborator reports 'unlocked' instead of a fault"
+    },
+    {
+      "id": "J1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\tif err != nil || puid != uid {",
+      "new": "\t\tif err != nil || puid != uid && false {",
+      "note": "another user's locked session corroborates this one"
+    },
+    {
+      "id": "J2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\tif filepath.Base(parentArgv[0]) != ksmserverProgram {\n\t\t\tcontinue\n\t\t}\n\t\tif !isCompositorBinary(strconv.Itoa(ppid), uid) {\n\t\t\tcontinue\n\t\t}",
+      "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n\t\tif false {\n\t\t\tcontinue\n\t\t}",
+      "note": "the parent is never asked to be the compositor -- both the argv[0] name and the resolved-binary check, because either one alone catches the impostor and mutating only the cheap pre-filter is masked by the guard after it"
+    },
+    {
+      "id": "J3",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\tif filepath.Base(argv[0]) != kdeLockerProgram {\n\t\t\tcontinue\n\t\t}\n\t\tif !isLockerBinary(name, uid) {\n\t\t\tcontinue\n\t\t}",
+      "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n\t\tif false {\n\t\t\tcontinue\n\t\t}",
+      "note": "the candidate is never asked to be the locker -- both the argv[0] name and the resolved-binary check, for the same reason as J2"
+    },
+    {
+      "id": "J4",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\treturn false, fmt.Errorf(\"cannot open %s to look for the locker: %w\", procRoot, err)",
+      "new": "\t\treturn false, nil",
+      "note": "'cannot look' reported as 'looked and found nothing'"
+    },
+    {
+      "id": "J5",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn false, err\n\t\t}\n",
+      "new": "",
+      "note": "the walk ignores its context and outruns the lock budget"
+    },
+    {
+      "id": "J6",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\tfor len(fields) > 0 && fields[len(fields)-1] == \"\" {\n\t\tfields = fields[:len(fields)-1]\n\t}\n",
+      "new": "",
+      "note": "the cmdline's trailing NUL is left as an empty argv field"
+    },
+    {
+      "id": "J7",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\t\tu, err := strconv.ParseUint(fields[1], 10, 32)",
+      "new": "\t\t\tu, err := strconv.ParseUint(fields[0], 10, 32)",
+      "note": "the real uid read instead of the effective one"
+    },
+    {
+      "id": "J8",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\tif seen < 2 {",
+      "new": "\tif seen < 0 {",
+      "note": "a status carrying neither PPid nor Uid accepted as read"
+    },
+    {
+      "id": "J9",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\t\t\tif ppid, err = strconv.Atoi(val); err != nil {",
+      "new": "\t\t\tif ppid, err = strconv.Atoi(val); false {",
+      "note": "an unparsable PPid swallowed as pid 0"
+    },
+    {
+      "id": "I6",
+      "file": "internal/platform/platform.go",
+      "old": "\tc, ok := conf.(Corroborator)\n\treturn ok && c.Corroborated()",
+      "new": "\t_, ok := conf.(Corroborator)\n\treturn ok",
+      "note": "the chain goes back to deciding corroboration by type assertion, which is true for gnome, so a pre-set hint confirms on a gnome-only chain"
+    },
+    {
+      "id": "K1",
+      "package": "./internal/platform/",
+      "file": "internal/platform/locker.go",
+      "old": "\tfor _, p := range []string{path, filepath.Dir(path)} {",
+      "new": "\tfor _, p := range []string{path} {",
+      "note": "the locker's own mode is honest and the directory that decides who can replace it is never asked about"
+    },
+    {
+      "id": "K2",
+      "package": "./internal/platform/",
+      "file": "internal/platform/platform.go",
+      "old": "\treturn yes, nil, errs\n}",
+      "new": "\treturn yes, nil, nil\n}",
+      "note": "a confirmer that faulted on the way to an answer is collected and then dropped"
+    }
+  ]
 }
