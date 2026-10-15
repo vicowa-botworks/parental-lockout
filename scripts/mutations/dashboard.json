@@ -190,10 +190,24 @@
     {
       "id": "B24",
       "file": "internal/dashboard/banner.go",
-      "old": "\tif v.NotEnforcing > 0 {",
-      "new": "\tif false && v.NotEnforcing > 0 {",
+      "old": "\n\tif v.NotEnforcing > 0 {",
+      "new": "\n\tif false && v.NotEnforcing > 0 {",
       "package": "./internal/dashboard/",
       "note": "with nothing scheduled and a profile that could not be read, the banner says no window is scheduled -- the fail-open reading of a broken profile"
+    },
+    {
+      "id": "B25",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tv := View{Now: now, SessionsKnown: true}",
+      "new": "\tv := View{Now: now}",
+      "note": "every dashboard says \"session list unavailable\", including the one where the read worked and found nobody -- the honest sentence paid for with a machine that always looks broken"
+    },
+    {
+      "id": "B26",
+      "file": "internal/dashboard/banner.go",
+      "old": "\t\tif v.NotEnforcing > 0 {",
+      "new": "\t\tif false && v.NotEnforcing > 0 {",
+      "note": "the upcoming-window sentence returns alone, so a row sitting scheduled and unenforced is hidden behind \"nobody is locked out right now\""
     }
   ]
 }

@@ -10,6 +10,19 @@
   {{end}}
 </p>
 
+{{- /* The listing's own notes: which files it read, which bounds it applied, and every
+       record it had to guess about. Without this block a child who was excluded by a
+       UID_MIN the operator never meant is simply not in the table. */ -}}
+{{if .Notes}}
+<aside class="notes" aria-label="How this list was produced">
+  <h2>How this list was produced</h2>
+  <p>Accounts between uid {{.UIDMin}} and {{.UIDMax}} were considered.</p>
+  <ul>
+    {{range .Notes}}<li>{{.}}</li>{{end}}
+  </ul>
+</aside>
+{{end}}
+
 <table class="rows">
   <caption>
     Accounts on the machine, and what the daemon does with each.
@@ -49,8 +62,9 @@
           <span class="problem">no account entry</span>
         {{- else if not .Configured -}}
           {{if .OnMachine.Home}}{{else}}<span class="problem">no home directory</span>{{end}}
-          {{if .OnMachine.Shell}}{{else}}<span class="problem">no login shell</span>{{end}}
+          {{- if .OnMachine.Shell}}{{else}}<span class="muted">no login shell recorded, so the default is used</span>{{end}}
         {{- else -}}&mdash;{{end -}}
+        {{range .Problems}}<span class="problem">{{.}}</span>{{end}}
       </td>
     </tr>
     {{else}}

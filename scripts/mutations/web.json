@@ -466,8 +466,8 @@
     {
       "id": "W58",
       "file": "internal/web/pages.go",
-      "old": "\trows := users.Union(accounts, configured)",
-      "new": "\t_ = accounts\n\trows := []users.Managed{}",
+      "old": "\trows := users.Union(listing.Accounts, configured)",
+      "new": "\t_ = listing\n\trows := []users.Managed{}",
       "note": "the accounts page is rendered from an empty union, so the unmanaged count and the table both describe a machine nobody logged into"
     },
     {
@@ -483,6 +483,22 @@
       "old": "\t\"html/template\"\n",
       "new": "\t\"text/template\"\n",
       "note": "the pages are rendered with text/template, so an account name -- the one field on the page a child with a shell on the box can plausibly control -- is written into the document as markup instead of as a name"
+    },
+    {
+      "id": "W64",
+      "file": "internal/web/pages.go",
+      "old": "\t\tview.SessionsKnown = false\n",
+      "new": "",
+      "package": "./internal/web/",
+      "note": "a failed session read renders as an empty session list: \"no desktop session\" is a claim about who is logged in that the failed read did not establish, and it makes a broken backend look like a quiet house"
+    },
+    {
+      "id": "W65",
+      "file": "internal/web/sources.go",
+      "old": "\t\tcsrf = sess.CSRFToken",
+      "new": "\t\tcsrf = sess.CSRFToken[:0]",
+      "package": "./internal/web/",
+      "note": "the shell renders an empty token: the sign-out form 403s against csrfMiddleware on every page and the button does nothing. Sliced rather than replaced with a literal so the session stays referenced and the mutant still compiles"
     }
   ]
 }

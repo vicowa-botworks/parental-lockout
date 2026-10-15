@@ -110,6 +110,18 @@ type View struct {
 	// LockedOut counts the rows actually being held.
 	LockedOut int
 
+	// SessionsKnown says whether the session list in these rows came from a read that
+	// worked.
+	//
+	// Its zero value is false -- "we could not look" -- on purpose. An empty list and a
+	// failed read are different facts, and the one that is safe to guess wrong about is
+	// the one that makes the page claim less than it knows. Rendering a failed read as
+	// an empty list tells a parent nobody has a desktop session, which is a positive
+	// claim about the machine that the failed read did not establish; it is also the
+	// identical rendering to a daemon whose session backend is broken, which is the
+	// thing a parent needs to be told.
+	SessionsKnown bool
+
 	// NotEnforcing counts rows that are scheduled to be held and are not — the master
 	// switch, or an override, or a profile that could not be read.
 	NotEnforcing int
@@ -133,7 +145,10 @@ type View struct {
 // config store is copy-on-write, so a View taken from a document keeps naming the
 // rules that document had.
 func Build(cfg *config.Config, sessions []platform.Session, now time.Time) View {
-	v := View{Now: now}
+	v := View{Now: now, SessionsKnown: true}
+	// A caller that could not read the sessions says so by clearing this after the
+	// call; an empty list that arrived normally is knowledge, not ignorance, and must
+	// not be rendered as "unavailable".
 	if cfg == nil {
 		v.Banner = "Nothing is being enforced: there is no configuration to enforce."
 		return v

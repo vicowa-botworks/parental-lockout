@@ -1,6 +1,48 @@
 package users
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// noteCaseCollisions marks rows whose names differ only by case.
+//
+// They stay separate rows, because on Linux they really are separate accounts and
+// joining them would silently hand one child another child's profile. What must not
+// happen is the silent split: the common cause is a parent who wrote `Casey` in the
+// config for the `casey` in /etc/passwd, and the result of that typo is a ghost account
+// that cannot be locked out plus an unmanaged child -- one kid, two rows, and nothing on
+// the page saying the two names are the same name. config's own validation only rejects
+// empty and byte-identical duplicates, so nothing upstream prevents it.
+//
+// This records the judgement rather than resolving it, which is the rule this package
+// already follows for every other ambiguity it cannot settle.
+func noteCaseCollisions(byName map[string]*Managed, order []string) {
+	byFold := make(map[string][]string, len(order))
+	for _, name := range order {
+		k := strings.ToLower(name)
+		byFold[k] = append(byFold[k], name)
+	}
+	for _, names := range byFold {
+		if len(names) < 2 {
+			continue
+		}
+		sort.Strings(names)
+		for i, name := range names {
+			others := make([]string, 0, len(names)-1)
+			for j, other := range names {
+				if i != j {
+					others = append(others, strconv.Quote(other))
+				}
+			}
+			byName[name].Problems = append(byName[name].Problems,
+				fmt.Sprintf("this name differs only by case from %s; they are treated as separate accounts",
+					strings.Join(others, ", ")))
+		}
+	}
+}
 
 // Managed is one row of the account screen: what the machine says, what the config
 // says, and the disagreement between them.
@@ -30,6 +72,11 @@ type Managed struct {
 	// cannot be locked out any more is a different thing to show than a row that can,
 	// and that judgement belongs next to the code that made it.
 	Stale bool
+
+	// Problems are the disagreements this package noticed but could not settle. They
+	// are rendered on the row rather than only logged, because the person who can fix
+	// a name typed into the wrong box is the person looking at this page.
+	Problems []string
 }
 
 // ConfiguredUser is the slice of a config entry this package needs.
@@ -88,6 +135,7 @@ func Union(discovered []Account, configured []ConfiguredUser) []Managed {
 		// The judgement is made here rather than in the template. See Managed.Stale.
 		m.Stale = m.OnMachine == nil
 	}
+	noteCaseCollisions(byName, order)
 
 	sort.Strings(order)
 	out := make([]Managed, 0, len(order))

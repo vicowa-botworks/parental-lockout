@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -24,6 +25,15 @@ var pageFS embed.FS
 type pageData struct {
 	CSS string
 	JS  string
+	// CSRF is the session's token, emitted twice: as a hidden field on the shell's
+	// logout form and as the `meta name="csrf-token"` that static/app.js reads.
+	//
+	// It belongs on the shell rather than on each view because every page carries the
+	// same sign-out form, and a control that cannot post is not a control. Without it
+	// the one interactive element in the shell 403s against csrfMiddleware on every
+	// page -- and every logout test written by hand-building a `csrf=<token>` body
+	// stays green while it does.
+	CSRF string
 	// Data is the view model. The templates reach it as ".", because the alternative
 	// -- writing "{{.Data.Banner}}" in twelve places -- makes the markup unreadable
 	// and hides what the page actually shows.
@@ -32,12 +42,16 @@ type pageData struct {
 
 // pageTemplates holds the parsed pages, keyed by name.
 //
-// Parsing happens once per process rather than per request. The templates are
-// embedded, so they cannot change while the daemon runs, and re-parsing on every
-// request would mean a syntax error in a .tmpl file is discovered by whichever
-// request happens to arrive rather than at startup -- and a daemon that answers 500
-// with nothing in the log is the failure mode this project keeps having to design
-// against.
+// Parsing happens once per process rather than per request. The templates are embedded,
+// so they cannot change while the daemon runs.
+//
+// sync.OnceValue is LAZY, so this declaration alone does not parse anything at startup;
+// New calls parsePagesAtStartup to get that. Without it a syntax error in a .tmpl is
+// found by whichever request happens to arrive, and worse than late: a panic inside the
+// OnceValue still marks it done, so the first request panics and every request after it
+// takes the "no template named X is embedded" branch -- a message pointing at a missing
+// file rather than the parse failure that actually happened, forever, with nothing in the
+// log to say so.
 var pageTemplates = sync.OnceValue(func() map[string]*template.Template {
 	shell, err := fs_read(pageFS, "templates/page.tmpl")
 	if err != nil {
@@ -94,6 +108,23 @@ func fs_glob(f embed.FS, pattern string) ([]string, error) {
 // half-written document on the wire with a 200 already sent, and a browser renders
 // half a table as a whole table. Buffering costs one allocation per request on a
 // page a human loads by hand.
+// parsePagesAtStartup turns the templates' parse-time panic into a startup error.
+//
+// The templates are embedded, so a parse failure is a build-time bug rather than
+// something an operator can cause -- but the alternative is a daemon that comes up and
+// answers 500 forever with a message about a missing file, which is the failure mode this
+// project keeps having to design against. Refusing to start is the readable version of
+// the same fact.
+func parsePagesAtStartup() (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("web: the page templates are unusable: %v", p)
+		}
+	}()
+	pageTemplates()
+	return nil
+}
+
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, view any) {
 	t, ok := pageTemplates()[name]
 	if !ok {
@@ -105,9 +136,19 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, vie
 		return
 	}
 	var buf bytes.Buffer
+	// The session is always present here: every page route sits behind the auth gate,
+	// and the CSRF layer has already matched this token against the session. Asking
+	// again rather than threading it through keeps the shell honest -- a page rendered
+	// with no session gets an empty token, and the form it renders then fails the same
+	// way an attacker's forged post does, which is the safe direction.
+	csrf := ""
+	if sess, ok := s.sessionFrom(r); ok {
+		csrf = sess.CSRFToken
+	}
 	if err := t.ExecuteTemplate(&buf, "page", pageData{
 		CSS:  s.assetURL("app.css"),
 		JS:   s.assetURL("app.js"),
+		CSRF: csrf,
 		Data: view,
 	}); err != nil {
 		s.logf("web: %s %s could not render: %v", requestID(r), name, err)
@@ -164,11 +205,21 @@ func (s *Server) readSessions() ([]platform.Session, error) {
 	return s.Lockables()
 }
 
-func (s *Server) readAccounts() ([]users.Account, error) {
+func (s *Server) readAccounts() (*users.Listing, error) {
 	if s.Accounts == nil {
 		return nil, errors.New("no account source is wired")
 	}
-	return s.Accounts()
+	l, err := s.Accounts()
+	if err != nil {
+		return nil, err
+	}
+	if l == nil {
+		// A nil listing with a nil error is not "nobody was found"; it is a source that
+		// answered nothing at all, and rendering it would say "no accounts" about a
+		// read that produced no answer.
+		return nil, errors.New("the account source returned no listing")
+	}
+	return l, nil
 }
 
 // assetURL is the hashed URL for one embedded file, or "" when it is not in the

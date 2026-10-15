@@ -25,6 +25,9 @@ cached as immutable for a year.
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+{{- /* The token app.js looks for. Without this element the script's csrfToken()
+       always returns "", and every fetch it makes is rejected. */ -}}
+{{with .CSRF}}<meta name="csrf-token" content="{{.}}">{{end}}
 <title>{{template "title" .}} · parental lockout</title>
 {{with .CSS}}<link rel="stylesheet" href="{{.}}">{{end}}
 </head>
@@ -34,7 +37,10 @@ cached as immutable for a year.
   <nav>
     <a href="/">Status</a>
     <a href="/users">Accounts</a>
+    {{- /* A plain POST form, so the token has to travel in the body: csrfMiddleware
+         reads the `csrf` field (or the header, which a form cannot set). */ -}}
     <form method="post" action="/logout" class="inline-form">
+      {{with .CSRF}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
       <button type="submit" class="linklike">Sign out</button>
     </form>
   </nav>

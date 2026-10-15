@@ -96,9 +96,15 @@ type Server struct {
 	// A nil seam is not a silent empty page. readConfig and friends turn it into an
 	// error the page says out loud, because "no accounts" and "I could not look" are
 	// different claims and the first one is a reassurance the daemon has not earned.
+	//
+	// Accounts returns the whole Listing rather than its []Account, because the notes
+	// are the half a parent needs. A seam that carried only the rows would render a
+	// page where a child is simply absent -- no UID_MIN line, no "declares no home",
+	// no "declares no login shell" -- and this package exists so that absence is
+	// explained rather than implied.
 	Config    func() (*config.Config, error)
 	Lockables func() ([]platform.Session, error)
-	Accounts  func() ([]users.Account, error)
+	Accounts  func() (*users.Listing, error)
 
 	// csrf holds the per-session token this package owns.
 	csrf *csrfStore
@@ -175,7 +181,7 @@ type Options struct {
 	// that way is a seam no test of the real path can set.
 	Config    func() (*config.Config, error)
 	Lockables func() ([]platform.Session, error)
-	Accounts  func() ([]users.Account, error)
+	Accounts  func() (*users.Listing, error)
 }
 
 // New builds a Server and resolves its transport, failing on anything the first
@@ -257,6 +263,11 @@ func New(opts Options) (*Server, error) {
 		// lists drifted. Refusing to start is the only safe reading of an unknown
 		// transport mode: guessing "off" would silently downgrade.
 		return nil, fmt.Errorf("web: unknown tls mode %q (expected auto, off or custom)", s.TLSMode)
+	}
+	// The pages are parsed here so that a broken template stops the daemon instead of
+	// surfacing as a permanent 500 on whichever page a parent happens to open first.
+	if err := parsePagesAtStartup(); err != nil {
+		return nil, err
 	}
 	return s, nil
 }

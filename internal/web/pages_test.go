@@ -68,9 +68,11 @@ func pageServer(t *testing.T, cfg *config.Config, sessions []platform.Session, a
 	}
 	s.Lockables = func() ([]platform.Session, error) { return sessions, nil }
 	if acctErr != nil {
-		s.Accounts = func() ([]users.Account, error) { return nil, acctErr }
+		s.Accounts = func() (*users.Listing, error) { return nil, acctErr }
 	} else {
-		s.Accounts = func() ([]users.Account, error) { return accounts, nil }
+		s.Accounts = func() (*users.Listing, error) {
+			return &users.Listing{Accounts: accounts, UIDMin: users.DefaultUIDMin, UIDMax: users.DefaultUIDMax}, nil
+		}
 	}
 	return s
 }
@@ -188,6 +190,12 @@ func TestAContentSeamThatWasNeverWiredIsRefused(t *testing.T) {
 
 // The session column is the one thing that can be missing without taking the page
 // down: which child is held, and until when, does not depend on who is logged in.
+//
+// What it must not do is say "no desktop session". That sentence is a claim that nobody
+// has a session, and a failed read establishes nothing of the kind -- it is the same
+// rendering the page gives a machine where nobody is logged in, so a broken session
+// backend looks like a quiet house. The page has to distinguish "nobody is logged in"
+// from "we could not look", and the two cases are pinned separately below.
 func TestTheDashboardStillRendersWhenTheSessionListIsGone(t *testing.T) {
 	c := pageConfig()
 	s := pageServer(t, c, nil, nil, nil, nil)
@@ -196,13 +204,34 @@ func TestTheDashboardStillRendersWhenTheSessionListIsGone(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("the whole page went down for the session column: %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "casey") {
+	body := rec.Body.String()
+	if !strings.Contains(body, "casey") {
 		t.Error("the accounts vanished with the sessions")
 	}
-	// And the absence is said, not hidden: "locked out" without the session column
-	// reads as "the screen is locked right now".
-	if !strings.Contains(rec.Body.String(), "no desktop session") {
-		t.Error("the missing session column is indistinguishable from an unlocked machine")
+	if !strings.Contains(body, "session list unavailable") {
+		t.Errorf("a failed session read is not said as a failure; the body says %q instead, which is "+
+			"a claim about who is logged in that the failed read did not establish", "no desktop session")
+	}
+	if strings.Contains(body, "no desktop session") {
+		t.Error("the failed read rendered as an empty session list; a parent cannot tell a broken " +
+			"session backend from a machine nobody is logged into")
+	}
+}
+
+// The other half of the same column: a read that worked and found nobody. This is the
+// case "no desktop session" is true for, and it must keep that wording -- otherwise the
+// new failure sentence is paid for by making the honest case vague.
+func TestAnEmptySessionListStillSaysNobodyIsLoggedIn(t *testing.T) {
+	rec := authGet(t, pageServer(t, pageConfig(), nil, nil, nil, nil), "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "no desktop session") {
+		t.Error("a successful read that found no sessions does not say so")
+	}
+	if strings.Contains(body, "session list unavailable") {
+		t.Error("a read that worked is reported as a failure")
 	}
 }
 
@@ -307,5 +336,48 @@ func TestAnUnnamedProfileIsStillNamedSomething(t *testing.T) {
 	// The id is the fallback, so the row still says which profile is attached.
 	if !strings.Contains(body, "school") {
 		t.Errorf("an unnamed profile lost its identity entirely:\n%s", body)
+	}
+}
+
+// The listing's notes have to arrive on the page, which is the reason the accounts seam
+// carries a *users.Listing rather than its []Account.
+//
+// Before the seam was widened, internal/users could write as many notes as it liked and
+// none of them could reach a browser: the seam's signature had nowhere to put them. A
+// child excluded by a UID_MIN the operator never meant was simply absent from the table,
+// which is the exact failure the package's own doc comment says it exists to prevent.
+func TestTheAccountsPageRendersTheListingsNotes(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	s.Accounts = func() (*users.Listing, error) {
+		return &users.Listing{
+			Accounts: []users.Account{{Username: "casey", UID: 1000, GID: 1000, Home: "/home/casey", Shell: "/bin/bash"}},
+			UIDMin:   1000,
+			UIDMax:   60000,
+			Notes:    []string{"the file sets no UID_MIN; assuming 1000, which hides any account below it"},
+		}, nil
+	}
+	rec := authGet(t, s, "/users")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /users = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "the file sets no UID_MIN") {
+		t.Error("the listing's note never reached the page; the seam is dropping it somewhere")
+	}
+	// The bounds are part of the same explanation: "where is my kid" is answered by the
+	// numbers that were applied.
+	if !strings.Contains(body, "1000") || !strings.Contains(body, "60000") {
+		t.Error("the uid range that was actually applied is not shown")
+	}
+}
+
+// A source that answers with no listing at all is a failure, not an empty machine.
+func TestAnAccountSourceThatAnswersNothingIsRefused(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	s.Accounts = func() (*users.Listing, error) { return nil, nil }
+	rec := authGet(t, s, "/users")
+	if rec.Code == http.StatusOK {
+		t.Fatal("a nil listing rendered as \"no accounts\", which is a claim about the machine that " +
+			"a source returning nothing did not establish")
 	}
 }

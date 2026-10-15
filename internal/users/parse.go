@@ -2,6 +2,7 @@ package users
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,7 +28,9 @@ func readLoginDefs(path string) (lo, hi uint32, notes []string, err error) {
 	}
 	defer f.Close()
 
-	minSet, maxSet := false, false
+	// "the key is in the file" and "the key gave us a usable number" are different
+	// facts; the notes have to know which one failed.
+	minSeen, maxSeen := false, false
 	lo, hi = DefaultUIDMin, DefaultUIDMax
 
 	sc := bufio.NewScanner(f)
@@ -50,29 +53,35 @@ func readLoginDefs(path string) (lo, hi uint32, notes []string, err error) {
 
 		switch key {
 		case "UID_MIN":
-			v, err := parseUint(value)
+			// Seen and usable are two facts, and conflating them made the file lie
+			// about itself: a UID_MIN that was present but unreadable produced both
+			// "is not a number" and "sets no UID_MIN", and the second sentence sent an
+			// operator to grep for a key sitting in front of them.
+			minSeen = true
+			v, err := parseDefsUint(value)
 			if err != nil {
-				notes = append(notes, fmt.Sprintf("%s line %d: UID_MIN %q is not a number; using %d", path, lineNo, value, DefaultUIDMin))
-				continue
+				notes = append(notes, fmt.Sprintf("%s line %d: UID_MIN %q %s; using %d", path, lineNo, value, whyNotABound(err), DefaultUIDMin))
+				break
 			}
-			lo, minSet = v, true
+			lo = v
 		case "UID_MAX":
-			v, err := parseUint(value)
+			maxSeen = true
+			v, err := parseDefsUint(value)
 			if err != nil {
-				notes = append(notes, fmt.Sprintf("%s line %d: UID_MAX %q is not a number; using %d", path, lineNo, value, DefaultUIDMax))
-				continue
+				notes = append(notes, fmt.Sprintf("%s line %d: UID_MAX %q %s; using %d", path, lineNo, value, whyNotABound(err), DefaultUIDMax))
+				break
 			}
-			hi, maxSet = v, true
+			hi = v
 		}
 	}
 	if err := sc.Err(); err != nil {
 		return 0, 0, nil, err
 	}
 
-	if !minSet {
+	if !minSeen {
 		notes = append(notes, fmt.Sprintf("%s sets no UID_MIN; assuming %d, which hides any account below it", path, lo))
 	}
-	if !maxSet {
+	if !maxSeen {
 		notes = append(notes, fmt.Sprintf("%s sets no UID_MAX; assuming %d", path, hi))
 	}
 	// An inverted range is not a range a human meant. It is reported rather than
@@ -84,16 +93,17 @@ func readLoginDefs(path string) (lo, hi uint32, notes []string, err error) {
 	return lo, hi, notes, nil
 }
 
-// parseUint accepts a plain non-negative decimal and nothing else.
+// parseUint accepts a plain non-negative decimal and nothing else. That is the grammar
+// passwd(5) gives a uid and a gid, and it is the grammar used for /etc/passwd only --
+// login.defs numbers are read by parseDefsUint, which is wider.
 //
-// It is a thin wrapper rather than a hand-rolled filter, because base 10 already
-// gives exactly that grammar: ParseUint with an explicit base rejects a sign, an
-// exponent, and a 0x prefix (measured: "+1000", "-1000", "1e3" and "0x10" are all
-// "invalid syntax"). An earlier version of this function also checked for a leading
-// "+" by hand. That check was dead — no input reaches ParseUint that it would have
-// caught and ParseUint would have accepted — and dead code that reads like a policy
-// is worse than none, because the next reader looks to that line for the rule
-// instead of to the call that actually enforces it.
+// It is a thin wrapper rather than a hand-rolled filter, because base 10 already gives
+// exactly that grammar: ParseUint with an explicit base rejects a sign, an exponent, and
+// a 0x prefix (measured: "+1000", "-1000", "1e3" and "0x10" are all "invalid syntax"). An
+// earlier version of this function also checked for a leading "+" by hand. That check was
+// dead — no input reaches ParseUint that it would have caught and ParseUint would have
+// accepted — and dead code that reads like a policy is worse than none, because the next
+// reader looks to that line for the rule instead of to the call that actually enforces it.
 //
 // The behaviour is still pinned by TestAPlusPrefixedBoundIsNotAcceptedSilently. That
 // test guards the contract against a future edit that swaps in ParseInt or base 0,
@@ -106,16 +116,61 @@ func parseUint(s string) (uint32, error) {
 	return uint32(v), nil
 }
 
+// parseDefsUint reads a login.defs numeric parameter in the grammar login.defs(5)
+// actually documents: "Numbers (both regular and long) may be either decimal values,
+// octal values (precede the value with 0) or hexadecimal values (precede the value with
+// 0x)".
+//
+// Base 10 is narrower than the file format, and the divergence goes the dangerous way
+// without saying so. `UID_MIN 01750` is octal for 1000; read as decimal it is 1750, which
+// quietly raises the floor and removes every child between 1000 and 1749 from the only
+// screen where a parent could add a rule for them -- with no note, because the value
+// parsed "fine". Base 0 is the documented grammar exactly, and it is narrower than it
+// sounds: ParseUint still rejects a sign, whitespace and an exponent, so "+1000",
+// "-1000" and "1e3" stay errors.
+//
+// The two things base 0 accepts that login.defs does not document are Go's underscore
+// separator and a 0b binary prefix, so both are refused by hand rather than let through.
+// A maintainer who writes `UID_MIN 0b100` has made a mistake, and the mistake this
+// package must never make is quietly agreeing to one.
+func parseDefsUint(s string) (uint32, error) {
+	if strings.ContainsRune(s, '_') {
+		return 0, fmt.Errorf("%q: underscores are not part of the login.defs number format", s)
+	}
+	if len(s) > 2 && (s[0] == '0' && (s[1] == 'b' || s[1] == 'B')) {
+		return 0, fmt.Errorf("%q: binary is not part of the login.defs number format", s)
+	}
+	v, err := strconv.ParseUint(s, 0, 32)
+	if err != nil {
+		return 0, err
+	}
+	return uint32(v), nil
+}
+
+// whyNotABound words the two ways a login.defs number can fail, which are different
+// problems to have. "is not a number" sent an operator to squint at a value that is
+// perfectly well formed and simply does not fit the field.
+func whyNotABound(err error) string {
+	if errors.Is(err, strconv.ErrRange) {
+		return "is a number too large for this file to express"
+	}
+	return "is not a number in any of the bases login.defs allows"
+}
+
 // noLoginShells are the shells that mean "this account cannot hold a session".
 //
 // The list is by exact path rather than by substring. Matching "nologin" loosely
 // would also match a real shell installed under a name containing it, and the
 // direction of that error is hiding a child.
 //
-// An empty shell field is treated the same way: shadow itself refuses to give such
-// an account a session, so there is nothing for the daemon to lock.
+// An empty shell field is deliberately NOT in this list. passwd(5) says that when the
+// shell field is empty it "defaults to the value /bin/sh", so a record with nothing
+// written in field 7 is an account that can log in and can be locked out. An earlier
+// version treated it as a no-login shell on the reasoning that shadow refuses such an
+// account a session; that is the opposite of what the format specifies, and it dropped
+// the account with no note, which is the one failure mode this package exists to
+// prevent.
 var noLoginShells = map[string]bool{
-	"":                  true,
 	"/bin/false":        true,
 	"/usr/bin/false":    true,
 	"/sbin/false":       true,
@@ -124,6 +179,11 @@ var noLoginShells = map[string]bool{
 	"/usr/sbin/nologin": true,
 	"/sbin/nologin":     true,
 }
+
+// defaultShell is what passwd(5) specifies for a record whose shell field is empty.
+// It is named rather than inlined because the users page has to say the same thing the
+// parser decided, and two copies of a spec'd default are two chances to disagree.
+const defaultShell = "/bin/sh"
 
 // declaredNoHome are home values that are a statement rather than a path.
 //
@@ -198,9 +258,15 @@ func parsePasswd(r io.Reader, lo, hi uint32, homeExists func(string) bool, out *
 			// system accounts on a normal machine.
 			continue
 		}
-		if noLoginShells[shell] {
-			// Also silent, and for the same reason: a machine has dozens of nologin
-			// service accounts and a note per one would bury the real notes.
+		if shell == "" {
+			// Kept, and noted. passwd(5) defaults an empty shell field to /bin/sh, so
+			// this is a person with a shell, and the daemon just inferred the shell
+			// rather than reading one. That inference is exactly the kind of judgement
+			// this package records.
+			out.Notes = append(out.Notes, fmt.Sprintf("%s (uid %d) declares no login shell; %s is used", name, uid, defaultShell))
+		} else if noLoginShells[shell] {
+			// Silent, and for the same reason as the uid filter: a machine has dozens of
+			// nologin service accounts and a note per one would bury the real notes.
 			continue
 		}
 		if declaredNoHome[home] {

@@ -213,6 +213,11 @@ UID_MAX 1000
 
 // Every spelling of "no interactive login" has to be caught, and none of them by a
 // substring match that could also catch a real shell.
+//
+// The empty shell field is in this test as the case that is NOT excluded, because it was
+// excluded once. passwd(5) says an empty shell field "defaults to the value /bin/sh", so
+// `g` is a person with a shell; treating the blank as a second spelling of nologin read
+// the format backwards and dropped them with no note at all.
 func TestNoLoginShellsAreExcludedByExactPath(t *testing.T) {
 	src := fixture(t, `a:x:1000:1000::/home/a:/bin/false
 b:x:1001:1001::/home/b:/usr/bin/false
@@ -229,9 +234,29 @@ UID_MAX 60000
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	// The last row is the point of the test: a real shell whose name happens to
-	// contain "nologin" is a shell.
-	wantNames(t, l, "kept")
+	// Two things are being pinned here. A real shell whose name happens to contain
+	// "nologin" is a shell, and an account that wrote no shell down is a person.
+	wantNames(t, l, "g", "kept")
+	for _, a := range l.Accounts {
+		if a.Username == "kept" {
+			continue
+		}
+		if a.Shell != "" {
+			t.Errorf("%s was kept with shell %q; only an empty shell is a default, a real "+
+				"nologin path means the account cannot hold a session", a.Username, a.Shell)
+		}
+	}
+	// The inference is a judgement, and every judgement this package makes is recorded.
+	var noted bool
+	for _, n := range l.Notes {
+		if strings.Contains(n, "g (uid 1006)") && strings.Contains(n, defaultShell) {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Errorf("the account with no shell was kept silently; notes = %v, want one naming %s as "+
+			"the shell that gets used", l.Notes, defaultShell)
+	}
 }
 
 // A home that is merely missing from disk is not a declaration of no home. Dropping
@@ -437,5 +462,154 @@ func TestZeroSourceResolvesToTheDefaultPaths(t *testing.T) {
 	passwd, _, _ = Source{PasswdPath: "/tmp/fixture-passwd"}.resolve()
 	if passwd != "/tmp/fixture-passwd" {
 		t.Errorf("an explicit path was overwritten with the default: %q", passwd)
+	}
+}
+
+// login.defs(5): "Numbers (both regular and long) may be either decimal values, octal
+// values (precede the value with 0) or hexadecimal values (precede the value with 0x)."
+//
+// Reading `UID_MIN 01750` with base 10 gives 1750, not the 1000 the maintainer wrote.
+// The damage is silent and it is the bad direction: every child between 1000 and 1749
+// vanishes from the only screen where a parent could add a rule for them, and nothing is
+// noted, because the value parsed perfectly well.
+func TestLoginDefsAcceptsTheBasesItDocuments(t *testing.T) {
+	const passwd = `kidA:x:1000:1000::/home/kidA:/bin/bash
+kidB:x:1200:1200::/home/kidB:/bin/bash
+kidC:x:1800:1800::/home/kidC:/bin/bash
+`
+	for _, tc := range []struct {
+		name, defs string
+		lo         uint32
+		want       []string
+	}{
+		{"decimal", "UID_MIN 1000\nUID_MAX 60000\n", 1000, []string{"kidA", "kidB", "kidC"}},
+		{"octal", "UID_MIN 01750\nUID_MAX 60000\n", 1000, []string{"kidA", "kidB", "kidC"}},
+		{"hex", "UID_MIN 0x3e8\nUID_MAX 60000\n", 1000, []string{"kidA", "kidB", "kidC"}},
+		// 02700 is 1472, which really is above kidA and kidB, so they are correctly out.
+		{"octal that really does exclude", "UID_MIN 02700\nUID_MAX 60000\n", 1472, []string{"kidC"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l, err := List(fixture(t, passwd, tc.defs))
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if l.UIDMin != tc.lo {
+				t.Errorf("UID_MIN = %d, want %d", l.UIDMin, tc.lo)
+			}
+			wantNames(t, l, tc.want...)
+		})
+	}
+}
+
+// A sign is still not a number, in any base. This is the guard against a future edit
+// swapping in ParseInt or strconv.Atoi on the way to "support more bases".
+func TestASignIsStillRejectedInEveryBase(t *testing.T) {
+	// No whitespace case: strings.Fields splits on whitespace before the value is ever
+	// seen, so "UID_MIN  1000" arrives as "1000" and that is correct, not a hole.
+	for _, v := range []string{"+1000", "-1000", "1e3", "1_000", "0b111", "08"} {
+		t.Run(v, func(t *testing.T) {
+			l, err := List(fixture(t, `casey:x:1000:1000::/home/casey:/bin/bash
+`, "UID_MIN "+v+"\nUID_MAX 60000\n"))
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if l.UIDMin != DefaultUIDMin {
+				t.Errorf("UID_MIN %q was taken as %d; it is not in the grammar login.defs documents", v, l.UIDMin)
+			}
+			if !strings.Contains(joined(l.Notes), "not a number") {
+				t.Errorf("UID_MIN %q was rejected without saying so: %v", v, l.Notes)
+			}
+		})
+	}
+}
+
+// Two sentences the file did not say, both produced by one value.
+//
+// A UID_MIN that is present but unusable used to emit "is not a number" AND "sets no
+// UID_MIN". The second is false -- the key is sitting right there -- and it sends an
+// operator to grep for something they can already see. And a value that is a perfectly
+// good number which merely does not fit was reported as a typo in the digits.
+func TestAKeyThatIsPresentButUnusableSaysSoOnce(t *testing.T) {
+	for _, tc := range []struct{ name, value, phrase string }{
+		{"too large for the field", "4294967296", "too large"},
+		{"not a number at all", "1000k", "not a number"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l, err := List(fixture(t, `casey:x:1000:1000::/home/casey:/bin/bash
+`, "UID_MIN "+tc.value+"\nUID_MAX 60000\n"))
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			joined := joined(l.Notes)
+			if !strings.Contains(joined, tc.phrase) {
+				t.Errorf("notes = %v, want one saying %q", l.Notes, tc.phrase)
+			}
+			if strings.Contains(joined, "sets no UID_MIN") {
+				t.Errorf("the file does set UID_MIN; notes = %v must not claim otherwise", l.Notes)
+			}
+			// Exactly one note about this key: the per-line failure already names the
+			// fallback, so a second "assuming 1000" line is noise that hides the cause.
+			if n := strings.Count(joined, "UID_MIN"); n != 1 {
+				t.Errorf("UID_MIN is mentioned %d time(s) in %v, want the failure said once", n, l.Notes)
+			}
+		})
+	}
+}
+
+// The "sets no UID_MIN" note is still owed when the key genuinely is absent -- that is
+// the case it was written for, and DefaultUIDMin of 1000 hides the first human on an old
+// Red Hat box where humans start at 500.
+func TestAFileWithNoUIDMinAtAllStillSaysSo(t *testing.T) {
+	l, err := List(fixture(t, `casey:x:1000:1000::/home/casey:/bin/bash
+`, `UID_MAX 60000
+`))
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if !strings.Contains(joined(l.Notes), "sets no UID_MIN") {
+		t.Errorf("a file with no UID_MIN produced %v", l.Notes)
+	}
+}
+
+// A config that spells a name differently from /etc/passwd used to split into two rows
+// with nothing to connect them: `Casey` stale (an account that no longer exists, so
+// nothing can be locked out) and `casey` unmanaged. One kid, a ghost and a gap, and no
+// note anywhere -- config's validation only rejects empty and byte-identical duplicates,
+// so nothing upstream stops the mismatch either.
+//
+// The rows stay separate. On Linux `casey` and `Casey` really are two accounts, and
+// joining them on a folded key would hand one child another child's profile, which is
+// worse than a confusing table. What changed is that the split is now said.
+func TestNamesDifferingOnlyByCaseAreSaidToCollide(t *testing.T) {
+	rows := Union(
+		[]Account{{Username: "casey", UID: 1000, GID: 1000, Home: "/home/casey", Shell: "/bin/bash"}},
+		[]ConfiguredUser{{Username: "Casey", ProfileID: "school nights", Enabled: true}},
+	)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2; folding them together would give one child the other's profile", len(rows))
+	}
+	for _, r := range rows {
+		if len(r.Problems) == 0 {
+			t.Errorf("%q carries no problem note; a parent sees a ghost account and an unmanaged "+
+				"child for the same kid", r.Username)
+			continue
+		}
+		if !strings.Contains(strings.Join(r.Problems, " "), "case") {
+			t.Errorf("%q's problems = %v, want one naming a case-only difference", r.Username, r.Problems)
+		}
+	}
+}
+
+// Two machine accounts that differ only by case are also worth saying, and two names
+// that genuinely differ must not be flagged.
+func TestACaseCollisionIsNotInventedWhereThereIsNone(t *testing.T) {
+	rows := Union([]Account{
+		{Username: "ada", UID: 1000, GID: 1000, Home: "/home/ada", Shell: "/bin/bash"},
+		{Username: "casey", UID: 1001, GID: 1001, Home: "/home/casey", Shell: "/bin/bash"},
+	}, nil)
+	for _, r := range rows {
+		if len(r.Problems) != 0 {
+			t.Errorf("%q was flagged as colliding: %v", r.Username, r.Problems)
+		}
 	}
 }

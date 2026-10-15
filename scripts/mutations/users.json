@@ -19,15 +19,15 @@
     {
       "id": "U3",
       "file": "internal/users/parse.go",
-      "old": "\t\tif noLoginShells[shell] {",
-      "new": "\t\tif false {",
+      "old": "\t\t} else if noLoginShells[shell] {",
+      "new": "\t\t} else if false {",
       "note": "service accounts that cannot hold a session are listed as lockable, burying the real accounts in dozens of rows"
     },
     {
       "id": "U4",
       "file": "internal/users/parse.go",
-      "old": "\t\tif noLoginShells[shell] {",
-      "new": "\t\tif strings.Contains(shell, \"nologin\") || strings.Contains(shell, \"false\") {",
+      "old": "\t\t} else if noLoginShells[shell] {",
+      "new": "\t\t} else if strings.Contains(shell, \"nologin\") || strings.Contains(shell, \"false\") {",
       "note": "no-login shells matched by substring, which also drops a real shell whose name happens to contain the word -- the direction that hides a child"
     },
     {
@@ -97,15 +97,15 @@
     {
       "id": "U14",
       "file": "internal/users/parse.go",
-      "old": "\tif !minSet {",
-      "new": "\tif false && !minSet {",
+      "old": "\tif !minSeen {",
+      "new": "\tif false && !minSeen {",
       "note": "the assumed UID_MIN is never announced. The assumption is not neutral -- 1000 hides the first human on an old Red Hat system -- so making it silently is the failure"
     },
     {
       "id": "U15",
       "file": "internal/users/parse.go",
-      "old": "\tif !maxSet {",
-      "new": "\tif false && !maxSet {",
+      "old": "\tif !maxSeen {",
+      "new": "\tif false && !maxSeen {",
       "note": "the assumed UID_MAX is never announced"
     },
     {
@@ -191,6 +191,41 @@
       "old": "\tfor i := range configured {\n\t\tc := configured[i]\n\t\ttouch(c.Username).Configured = &c\n\t}",
       "new": "\tfor i := range configured {\n\t\tc := configured[i]\n\t\ttouch(c.Username).Configured = &configured[i]\n\t}",
       "note": "the config half aliases the caller's slice, so a page can disagree with the file it claims to show"
+    },
+    {
+      "id": "U28",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif shell == \"\" {",
+      "new": "\t\tif false {",
+      "note": "an account that wrote no login shell is kept but never noted. passwd(5) defaults field 7 to /bin/sh, so the account is real and the shell is an inference -- and an inference nobody is told about is the failure this package exists to prevent"
+    },
+    {
+      "id": "U29",
+      "file": "internal/users/parse.go",
+      "old": "\tv, err := strconv.ParseUint(s, 0, 32)",
+      "new": "\tv, err := strconv.ParseUint(s, 10, 32)",
+      "note": "login.defs read in base 10: `UID_MIN 01750` becomes 1750 instead of the 1000 the maintainer wrote, and every child between those uids disappears with no note because the value parsed fine"
+    },
+    {
+      "id": "U30",
+      "file": "internal/users/parse.go",
+      "old": "\tif strings.ContainsRune(s, '_') {",
+      "new": "\tif false {",
+      "note": "Go's underscore separator accepted as a login.defs number. login.defs(5) documents decimal, octal and hex only, so `UID_MIN 1_000` becomes a floor nobody wrote"
+    },
+    {
+      "id": "U31",
+      "file": "internal/users/parse.go",
+      "old": "\tif len(s) > 2 && (s[0] == '0' && (s[1] == 'b' || s[1] == 'B')) {",
+      "new": "\tif false && (s[0] == '0' && (s[1] == 'b' || s[1] == 'B')) {",
+      "note": "base 0's binary prefix let through: `UID_MIN 0b100` reads as 4, a floor no login.defs grammar produces"
+    },
+    {
+      "id": "U32",
+      "file": "internal/users/managed.go",
+      "old": "\tnoteCaseCollisions(byName, order)\n",
+      "new": "",
+      "note": "a config that spells a name differently from /etc/passwd splits into a stale ghost row and an unmanaged row for the same child, silently"
     }
   ]
 }

@@ -336,3 +336,30 @@ func TestAnInactiveRowCarriesNoEndsAt(t *testing.T) {
 		t.Errorf("an inactive row names a responsible rule: %q", r.RuleName)
 	}
 }
+
+// A successful read is knowledge, even when it found nobody.
+//
+// SessionsKnown is what separates "nobody has a desktop session" from "we could not
+// look", and the web layer renders the two differently. Build is the thing that claims
+// knowledge, so Build is where it gets pinned -- otherwise the flag is only observable
+// through a page test in another package, and a dashboard test that builds a View
+// directly never learns the difference exists.
+func TestABuildThatWasGivenSessionsSaysItKnowsThem(t *testing.T) {
+	if v := Build(cfg(casey(true)), nil, insideWindow); !v.SessionsKnown {
+		t.Error("Build reported an empty session list as a read that failed; a machine nobody is " +
+			"logged into would be described as a broken session backend")
+	}
+	sessions := []platform.Session{{Username: "casey", Type: "wayland"}}
+	if v := Build(cfg(casey(true)), sessions, insideWindow); !v.SessionsKnown {
+		t.Error("a read that returned sessions is not marked as knowledge")
+	}
+}
+
+// The other side is the caller's to say, and only the caller's: a nil session list from
+// a source that worked is not the same as a source that failed, so Build must not guess.
+func TestBuildNeverInventsAFailedRead(t *testing.T) {
+	v := Build(cfg(casey(true)), nil, insideWindow)
+	if v.Rows[0].Sessions != nil && len(v.Rows[0].Sessions) != 0 {
+		t.Error("an empty session list produced sessions")
+	}
+}

@@ -158,3 +158,54 @@ func TestTheUnenforcedClauseAgreesWithItsCount(t *testing.T) {
 		}
 	}
 }
+
+// The ordering case the earlier sentence used to hide.
+//
+// Enforcement on; one row scheduled and not enforced (an override, or an unreadable
+// profile); a second row with a window later tonight. The upcoming-window branch used to
+// return first, so the banner read "Nobody is locked out right now; casey is locked out
+// again at 06:30." -- an all-clear about the machine, while a row that is being silently
+// unenforced went unmentioned. The row itself shows "open override"; the one sentence a
+// parent reads from the next room did not, and this function's own header says the banner
+// must not give that all-clear.
+func TestAnUpcomingWindowDoesNotVetoTheUnenforcedRow(t *testing.T) {
+	zone := time.FixedZone("schoolnight", 2*3600)
+	later := time.Date(2026, 10, 15, 20, 0, 0, 0, zone)
+	v := View{
+		EnforcementOn: true,
+		NotEnforcing:  1,
+		Rows: []Row{
+			{Username: "ada", Enabled: true, OverrideActive: true, OverrideReason: "film night"},
+			{Username: "casey", Enabled: true, NextLockAt: later},
+		},
+	}
+	got := v.banner()
+	if !strings.Contains(got, "06:30") && !strings.Contains(got, "20:00") {
+		t.Errorf("the upcoming window was dropped in favour of the other clause: %q", got)
+	}
+	if !strings.Contains(got, "one account is scheduled to be locked out and is not") {
+		t.Errorf("the unenforced row is missing from the one sentence a parent reads: %q", got)
+	}
+	// And it must still not read as an all-clear.
+	if strings.HasPrefix(got, "Nobody is locked out right now.") {
+		t.Errorf("the banner is a bare all-clear: %q", got)
+	}
+}
+
+// The control: with nothing unenforced, the upcoming-window sentence stays as it was.
+// Without this the new clause could be paid for by mentioning an override on every
+// ordinary evening.
+func TestAnUpcomingWindowAloneStaysAPlainSentence(t *testing.T) {
+	zone := time.FixedZone("schoolnight", 2*3600)
+	v := View{
+		EnforcementOn: true,
+		Rows:          []Row{{Username: "casey", Enabled: true, NextLockAt: time.Date(2026, 10, 15, 20, 0, 0, 0, zone)}},
+	}
+	got := v.banner()
+	if strings.Contains(got, "override") || strings.Contains(got, "cannot read") {
+		t.Errorf("a machine with nothing wrong is described as though something is: %q", got)
+	}
+	if !strings.Contains(got, "casey") {
+		t.Errorf("the upcoming window lost its subject: %q", got)
+	}
+}

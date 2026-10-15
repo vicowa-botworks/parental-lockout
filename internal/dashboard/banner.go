@@ -33,6 +33,15 @@ func (v View) banner() string {
 	// its own reads as an all-clear at exactly the moment a parent is deciding whether
 	// to hand the machine over.
 	if next, who, ok := v.nextWindow(); ok {
+		if v.NotEnforcing > 0 {
+			// Both halves, not the earlier one alone. The upcoming window is the more
+			// urgent fact, but on its own it is an all-clear about the machine as a
+			// whole -- "nobody is locked out right now; casey is back at 06:30" says
+			// nothing about the second row sitting scheduled and unenforced, which is
+			// precisely the thing this sentence must not hide.
+			return fmt.Sprintf("Nobody is locked out right now; %s is locked out again at %s. Meanwhile %s — an override, or a profile this page cannot read.",
+				who, wallClock(next), unenforcedClause(v.NotEnforcing))
+		}
 		return fmt.Sprintf("Nobody is locked out right now; %s is locked out again at %s.", who, wallClock(next))
 	}
 

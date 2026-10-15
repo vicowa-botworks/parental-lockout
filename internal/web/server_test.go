@@ -169,6 +169,12 @@ func (l *logSink) Lines() []string {
 
 // login performs a real login and returns the cookie plus the CSRF token, so the
 // authenticated tests are not hand-assembling state the server never issues.
+//
+// The token is read back out of the server's own store rather than invented. It used to
+// return "" while being documented as returning the token, which meant no test could
+// obtain a real one through this helper -- and that is how the shell's sign-out form
+// shipped posting no token at all: every logout test that passed built its `csrf=` body
+// by hand, and none of them rendered the page.
 func login(t *testing.T, s *Server, user, pass string) (*http.Response, string) {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -181,7 +187,12 @@ func login(t *testing.T, s *Server, user, pass string) (*http.Response, string) 
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("login status = %d, want a 303 redirect; body %q", resp.StatusCode, rec.Body.String())
 	}
-	return resp, ""
+	c := cookieOf(t, resp)
+	token, ok := s.csrf.lookup(c.Value)
+	if !ok {
+		t.Fatalf("the session the server just issued has no CSRF token; the shell cannot render one")
+	}
+	return resp, token
 }
 
 func cookieOf(t *testing.T, resp *http.Response) *http.Cookie {

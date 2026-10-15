@@ -33,7 +33,11 @@ func pageWithSeams(t *testing.T) (*Server, *logSink) {
 	s.Now = func() time.Time { return insideWindow }
 	s.Config = func() (*config.Config, error) { return pageConfig(), nil }
 	s.Lockables = func() ([]platform.Session, error) { return nil, nil }
-	s.Accounts = func() ([]users.Account, error) { return nil, nil }
+	// A wired source that found nobody -- not a nil return, which readAccounts now
+	// refuses as "answered nothing at all" rather than "nobody is here".
+	s.Accounts = func() (*users.Listing, error) {
+		return &users.Listing{UIDMin: users.DefaultUIDMin, UIDMax: users.DefaultUIDMax}, nil
+	}
 	return s, logged
 }
 

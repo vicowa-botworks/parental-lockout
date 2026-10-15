@@ -27,15 +27,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessions, err := s.readSessions()
+	view := dashboard.Build(cfg, sessions, s.now())
 	if err != nil {
 		// The dashboard is still worth showing: which child is held and until when
-		// does not depend on who is currently logged in. Saying nothing about the
-		// missing column would leave a parent reading "locked out" as "the screen is
-		// locked right now", which is the one thing that column means.
+		// does not depend on who is currently logged in. But the session column has to
+		// say it could not look. Rendering this as an empty list would tell a parent
+		// "no desktop session" -- a positive claim the failed read did not establish --
+		// and would make a broken session backend look exactly like a quiet house.
 		s.logf("web: %s session list unavailable: %v", requestID(r), err)
+		view.SessionsKnown = false
 		w.Header().Set("X-Plock-Note", "sessions-unavailable")
 	}
-	s.render(w, r, "dashboard", dashboard.Build(cfg, sessions, s.now()))
+	s.render(w, r, "dashboard", view)
 }
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +47,7 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 		s.pageError(w, r, "the configuration could not be read", err)
 		return
 	}
-	accounts, err := s.readAccounts()
+	listing, err := s.readAccounts()
 	if err != nil {
 		s.pageError(w, r, "the account list could not be read", err)
 		return
@@ -58,12 +61,18 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	// Union is computed once and reused. Calling it twice would be two answers to the
 	// same question, and if they disagreed the count above and the table below would
 	// be describing different machines.
-	rows := users.Union(accounts, configured)
+	rows := users.Union(listing.Accounts, configured)
 	s.render(w, r, "users", usersPage{
 		Rows:   rows,
 		Names:  profileNames(cfg),
 		Gaps:   users.Unmanaged(rows),
 		Manage: cfg.Settings.Enforcement,
+		// The listing's notes are the difference between a page that shows a child
+		// missing and one that says why. They are the package's own words, so they are
+		// passed through rather than paraphrased here.
+		Notes:  listing.Notes,
+		UIDMin: listing.UIDMin,
+		UIDMax: listing.UIDMax,
 	})
 }
 
@@ -79,6 +88,14 @@ type usersPage struct {
 	Names  map[string]string
 	Gaps   int
 	Manage bool
+
+	// Notes, UIDMin and UIDMax come straight off the Listing. They are here because a
+	// page that shows an empty table and no explanation is the exact failure internal/
+	// users was written to prevent -- and the notes only count as "rendered" if a
+	// template actually renders them, which is what the seam was widened for.
+	Notes  []string
+	UIDMin uint32
+	UIDMax uint32
 }
 
 // profileNames maps a profile id to the name the parent typed.
