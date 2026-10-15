@@ -289,8 +289,16 @@ func TestTryTickRefusesWhileATickIsInFlight(t *testing.T) {
 	inFlight := make(chan Report, 1)
 	go func() {
 		e.mu.Lock()
-		defer e.mu.Unlock()
-		inFlight <- e.Tick(context.Background())
+		rep := e.Tick(context.Background())
+		// Released before the send, not by a defer after it. TryTick uses TryLock, so
+		// a test that signals while still holding the mutex is racing its own last
+		// assertion: `<-inFlight` returns, the goroutine has not run its deferred unlock
+		// yet, and the manual tick is refused on a machine that is fast enough to
+		// schedule the next line first. That is not a product bug and it is not a
+		// scheduler flake to be tolerated -- it is this test claiming the tick is over
+		// at a moment when it demonstrably is not.
+		e.mu.Unlock()
+		inFlight <- rep
 	}()
 	waitFor(t, "the first tick to reach the platform", func() bool { return p.totalLocks() == 1 })
 
