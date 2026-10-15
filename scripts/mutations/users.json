@@ -148,6 +148,48 @@
       "old": "\thomes = s.HomeExists\n\tif homes == nil {\n\t\thomes = pathExists\n\t}",
       "new": "\thomes = s.HomeExists\n\tif homes == nil {\n\t\thomes = func(string) bool { return true }\n\t}",
       "note": "the default home check stops checking, so the declared-no-home rule is the only one left and every phantom home is presented as a real one"
+    },
+    {
+      "id": "U22",
+      "file": "internal/users/managed.go",
+      "old": "\t\tm.Stale = m.OnMachine == nil",
+      "new": "\t\tm.Stale = false",
+      "note": "every row claims to be live, so an account that left the machine keeps reporting itself as protected"
+    },
+    {
+      "id": "U23",
+      "file": "internal/users/managed.go",
+      "old": "\t\tif r.Stale || r.Configured == nil || !r.Configured.Enabled {",
+      "new": "\t\tif r.Configured == nil || !r.Configured.Enabled {",
+      "note": "a configured-and-enabled row for an account that no longer exists counts as coverage. The code says the parent did everything right; the row protects nobody"
+    },
+    {
+      "id": "U24",
+      "file": "internal/users/managed.go",
+      "old": "\t\tif r.Stale || r.Configured == nil || !r.Configured.Enabled {",
+      "new": "\t\tif r.Stale || r.Configured == nil {",
+      "note": "an account configured but switched off counts as managed, so the dashboard reports full coverage on a machine where nothing is enabled"
+    },
+    {
+      "id": "U25",
+      "file": "internal/users/managed.go",
+      "old": "\tsort.Strings(order)",
+      "new": "\tsort.Strings(nil)",
+      "note": "rows come back in map order. The screen paginates, so a row that moves between loads is worse than a slow load"
+    },
+    {
+      "id": "U26",
+      "file": "internal/users/managed.go",
+      "old": "\tfor i := range discovered {\n\t\ta := discovered[i]\n\t\ttouch(a.Username).OnMachine = &a\n\t}",
+      "new": "\tfor i := range discovered {\n\t\ttouch(discovered[i].Username).OnMachine = &discovered[i]\n\t}",
+      "note": "the row aliases the caller's slice. internal/config is copy-on-write, so an edit leaves this row reading a document nothing still calls current"
+    },
+    {
+      "id": "U27",
+      "file": "internal/users/managed.go",
+      "old": "\tfor i := range configured {\n\t\tc := configured[i]\n\t\ttouch(c.Username).Configured = &c\n\t}",
+      "new": "\tfor i := range configured {\n\t\tc := configured[i]\n\t\ttouch(c.Username).Configured = &configured[i]\n\t}",
+      "note": "the config half aliases the caller's slice, so a page can disagree with the file it claims to show"
     }
   ]
 }
