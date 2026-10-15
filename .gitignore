@@ -5,6 +5,13 @@
 # tree next to the package it built. It is not an artefact anybody wants tracked.
 *.exe
 
+# The same binary for the host: `go build ./cmd/plock` with no -o writes ./plock in the
+# module root, and that is exactly what a mutation-proofing step runs. `*.exe` covers the
+# cross-compiled name and nothing covered this one, so a `git add -A` swept a 10 MB blob
+# onto four separate branches. An ignore rule does not untrack a file that is already
+# tracked -- `git rm --cached plock` does that -- but it stops the next one.
+/plock
+
 # Test and coverage artefacts
 *.test
 *.out
