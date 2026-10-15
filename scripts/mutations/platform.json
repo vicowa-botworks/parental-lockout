@@ -5,8 +5,8 @@
     {
       "id": "D10",
       "file": "cmd/plock/doctor.go",
-      "old": "\tif first == \"\" {\n\t\treturn exitFailure\n\t}",
-      "new": "\tif first == \"\" {\n\t\treturn exitOK\n\t}",
+      "old": "\tif first == \"\" {\n\t\trep.add(failCheck(\"backends\",",
+      "new": "\tif first == \"\" && false {\n\t\trep.add(failCheck(\"backends\",",
       "note": "exits 0 when nothing can lock, the state that looks identical to nothing needing locking",
       "package": "./cmd/plock/"
     },
@@ -29,16 +29,16 @@
     {
       "id": "D9",
       "file": "cmd/plock/doctor.go",
-      "old": "\tif err := writeAll(stdout, report.String()); err != nil {",
-      "new": "\tif err := writeAll(stdout, report.String()); err != nil && false {",
+      "old": "\tif err := writeAll(stdout, out.String()); err != nil {",
+      "new": "\tif err := writeAll(stdout, out.String()); err != nil && false {",
       "note": "ignores a failed report write: a closed pipe or full disk prints nothing and exits 0",
       "package": "./cmd/plock/"
     },
     {
       "id": "E4",
       "file": "cmd/plock/doctor.go",
-      "old": "\t\tfmt.Fprintf(&report, \"would try first: %s\\n\", first)",
-      "new": "\t\tfmt.Fprintf(&report, \"would use: %s\\n\", first)",
+      "old": "\t\tfmt.Fprintf(&out, \"would try first: %s\\n\", first)",
+      "new": "\t\tfmt.Fprintf(&out, \"would use: %s\\n\", first)",
       "package": "./cmd/plock/",
       "note": "claim the first usable backend is the one a lock reaches, which is the false answer W1 was raised against"
     },
@@ -54,7 +54,7 @@
       "id": "G7",
       "package": "./cmd/plock/",
       "file": "cmd/plock/doctor.go",
-      "old": "\t\tfmt.Fprintln(&report, \"           A backend is finished with only once its lock is confirmed, so\")\n\t\tfmt.Fprintln(&report, \"           the lock that lands may come from a later one in the list.\")\n",
+      "old": "\t\tfmt.Fprintln(&out, \"           A backend is finished with only once its lock is confirmed, so\")\n\t\tfmt.Fprintln(&out, \"           the lock that lands may come from a later one in the list.\")\n",
       "new": "",
       "note": "\"would try first\" on its own is the overclaim W1 was raised against; the explanation is what makes the line honest"
     },
