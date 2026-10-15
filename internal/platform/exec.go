@@ -37,6 +37,47 @@ type Runner interface {
 	Run(ctx context.Context, argv []string, env []string, uid uint32) ([]byte, error)
 }
 
+// resolveProgram turns the program a backend asked for into the file to exec.
+//
+// A name that already contains a separator is taken as given: a caller that named a
+// path said which file it meant, and second-guessing it would break `plock doctor
+// --try /opt/whatever/gdbus` for no security gain, since the caller is root.
+//
+// lookPath is behind a variable for the same reason Runner is an interface: whether a
+// given tool is installed is a fact about the host, and a test cannot make gdbus or
+// loginctl appear or disappear from the machine it runs on. Without the seam the
+// "not runnable" branch is untestable on any one box and silently unchecked.
+//
+// It lives here rather than in the backend that first needed it because Run is the one
+// place every program this package starts passes through, so this is the one place the
+// seam has to exist for the guarantee to be impossible to forget.
+var lookPath = exec.LookPath
+
+// lookupReason says why a program could not be resolved, in this package's words.
+//
+// exec's wording is deliberately not passed through. The contract for a missing binary
+// is a clear single line naming it, and `exec: "loginctl": executable file not found in
+// $PATH` is not clearer than `loginctl: not found in PATH` -- it is the same fact with a
+// package name stapled on, and a test in this package pins that stapling out.
+//
+// ErrDot is the one case worth separating out, because it is the only one where the file
+// exists: Go refuses to run a program found relative to the working directory. Telling
+// an operator "not found in PATH" then would send them to install a package they already
+// have.
+func lookupReason(err error) string {
+	if errors.Is(err, exec.ErrDot) {
+		return "present only relative to the working directory, which is not run"
+	}
+	return "not found in PATH"
+}
+
+func resolveProgram(program string) (string, error) {
+	if strings.ContainsRune(program, os.PathSeparator) {
+		return program, nil
+	}
+	return lookPath(program)
+}
+
 // ErrBinaryNotFound means the program named by argv[0] is not there.
 //
 // It is a distinct error rather than a wrapped exec.ErrNotFound because the caller's
@@ -126,7 +167,32 @@ func (r ExecRunner) Run(ctx context.Context, argv []string, env []string, uid ui
 	ctx, cancel := context.WithTimeoutCause(ctx, callTimeout, errCallBudget)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// Resolve a bare program name to the file that will actually be run, and exec that.
+	//
+	// The resolution is the daemon's, taken here, against the daemon's own PATH.
+	// exec.CommandContext calls LookPath itself when argv[0] holds no separator, and
+	// LookPath reads os.Getenv("PATH") in the daemon's process. Assigning cmd.Env two
+	// lines below cannot steer it, because the answer was already taken by then.
+	// Measured, with the repo's exact ordering and two copies of one tool:
+	//
+	//	daemon PATH -> .../daemon/tool,  cmd.Env PATH -> .../child/tool
+	//	cmd.Path = .../daemon/tool      and the child's stdout says DAEMON
+	//
+	// So this does not close a hole where a hole was claimed to be. What it does buy is
+	// three things worth having: one resolution instead of two, an error that names the
+	// program instead of the exec package's chain, and a command whose path is the file
+	// this function checked. What it does not buy is protection from a directory the
+	// session user can write sitting on the daemon's PATH -- LookPath walks that PATH and
+	// finds an impostor exactly as happily as exec would. That exposure is identical for
+	// every program started through here, loginctl included, and closing it means
+	// refusing to run a program whose location cannot be trusted, which fails toward
+	// not locking anyone. It is a separate decision for those reasons, not a detail.
+	program, err := resolveProgram(argv[0])
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s: %s", ErrBinaryNotFound, argv[0], lookupReason(err))
+	}
+
+	cmd := exec.CommandContext(ctx, program, argv[1:]...)
 	if env != nil {
 		cmd.Env = env
 	} else {

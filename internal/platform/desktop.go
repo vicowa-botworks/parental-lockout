@@ -3,7 +3,6 @@ package platform
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -86,13 +85,6 @@ func init() {
 
 func (d *desktop) Name() string { return d.id }
 
-// lookPath is exec.LookPath behind a variable, for the same reason the logind backend
-// takes a Runner: Probe's two answers are the whole of what an operator reads when a
-// lock never happens, and a test cannot make gdbus appear or disappear from the host.
-// Without the seam, one of the two branches is untestable on any given machine and
-// silently unchecked.
-var lookPath = exec.LookPath
-
 // Sessions returns nothing, deliberately. Session discovery is logind's job; this
 // backend exists to reach a bus that root cannot reach. A chain configured without
 // logind therefore finds no sessions and enforces nothing, which Probe says out loud
@@ -120,23 +112,28 @@ func (d *desktop) Lock(ctx context.Context, s Session) error {
 	}
 	env := sessionEnv(int(s.UID))
 
-	// Resolve the tool before building any argv, and run what the resolution found.
+	// Resolve once, here, and hand the runner an absolute path.
 	//
-	// A bare "gdbus" in argv is not a fixed thing: exec resolves it against the PATH in the
-	// environment handed to the child, and sessionEnv deliberately lets the daemon's PATH
-	// through. The child is the account we are locking out. So if any directory on that PATH is
-	// writable by that account, the child picks which binary the daemon executes, and the pick
-	// can print "()" and exit 0 without touching a bus. That passes the void-reply check — the
-	// check exists to catch a tool that lies about what it did, and here it is being handed the
-	// exact reply the check wants — so the backend reports success, the chain stops, and the
-	// trail records a lock that never happened.
+	// ExecRunner.Run now resolves any bare program name itself, so loginctl's four call
+	// sites and every future one are covered without each backend repeating the check. This
+	// backend asks anyway, for one reason specific to it: `kde` tries several bus names in
+	// order, and if each attempt resolved on its own, the second attempt could exec a
+	// different binary than the first. Resolving once and passing the result as a path makes
+	// that impossible -- Run takes a name containing a separator as given.
 	//
-	// Resolving as root and execing the resolved path takes the choice away: the answer is
-	// whatever root's PATH says, and a directory the child can write to would have to be one
-	// root put on its own PATH, which is a different and much louder mistake.
+	// What the resolution is NOT is a defence against the session user choosing the binary.
+	// It cannot be. The lookup happens in the daemon's process, from the daemon's
+	// os.Getenv("PATH"), and exec.CommandContext takes that answer when it is constructed --
+	// before cmd.Env is assigned, so the PATH handed to the child never enters into it.
+	// Measured with the repo's own ordering and two copies of one tool: cmd.Path is the
+	// daemon's copy, and the daemon's copy is what runs.
 	//
-	// Probe already resolves it and throws the answer away, so the daemon was resolving twice
-	// and guarding neither.
+	// The exposure that does exist is a directory the session user can write sitting on the
+	// daemon's own PATH. LookPath walks that PATH and finds an impostor exactly as happily as
+	// exec would, so nothing here closes it, and it is the same for loginctl as for gdbus.
+	// Closing it means declining to run a program whose location cannot be trusted, which
+	// fails toward not locking anyone out at all. That trade is a decision rather than a
+	// detail, so it is written up in docs/security.md instead of being taken quietly.
 	gdbusPath, err := lookPath(gdbusProgram)
 	if err != nil {
 		return fmt.Errorf("%s: %s is not runnable: %w", d.id, gdbusProgram, err)

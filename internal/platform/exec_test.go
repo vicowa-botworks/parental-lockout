@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -273,5 +274,141 @@ func TestExecRunnerReportsAFailedStartThatIsNotAMissingBinary(t *testing.T) {
 	// operator to install it sends them to the wrong thing.
 	if errors.Is(err, ErrBinaryNotFound) {
 		t.Errorf("a present file with a broken shebang was reported as %v", ErrBinaryNotFound)
+	}
+}
+
+// writeProgram drops an executable script that prints its own argv[0] into a directory
+// the test owns, so a resolution can be checked against a file that really exists rather
+// than against a path the runner was told to believe in.
+func writeProgram(t *testing.T, dir, name, body string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	return path
+}
+
+// The guarantee that moved here from the desktop backend: whatever a backend asked for by
+// name, the file that runs is the one this package resolved, and the resolution happens
+// once per call.
+//
+// It lives here rather than per-backend because Run is the only door. loginctl is named at
+// four call sites and gdbus at one; a per-site resolution would have had to be written
+// five times and added again for the sixth program somebody writes next year, and the
+// failure mode of forgetting it is invisible -- the lock still looks like it happened.
+func TestExecRunnerRunsTheResolvedProgram(t *testing.T) {
+	dir := t.TempDir()
+	want := writeProgram(t, dir, "plock-resolved-tool", `echo "$0"`)
+
+	prev := lookPath
+	lookPath = func(string) (string, error) { return want, nil }
+	t.Cleanup(func() { lookPath = prev })
+
+	out, err := ExecRunner{}.Run(context.Background(), []string{"plock-resolved-tool"}, nil, 0)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	// The script prints $0, which is the path the kernel was handed. Asserting on what
+	// the child reports is the only assertion that reaches past this package's own
+	// bookkeeping: a runner that resolved correctly and then execed the bare name anyway
+	// would still record the resolved path in its own variables.
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Errorf("the program ran as %q, want the resolved path %q", got, want)
+	}
+}
+
+// One lookup per call, not one per retry or per internal step. A second lookup is not
+// merely slower: it is a second answer to the same question, and two answers is what lets
+// successive attempts inside one operation exec different files.
+func TestExecRunnerResolvesExactlyOnce(t *testing.T) {
+	dir := t.TempDir()
+	prog := writeProgram(t, dir, "plock-counted-tool", `true`)
+
+	var calls []string
+	prev := lookPath
+	lookPath = func(name string) (string, error) {
+		calls = append(calls, name)
+		return prog, nil
+	}
+	t.Cleanup(func() { lookPath = prev })
+
+	if _, err := (ExecRunner{}).Run(context.Background(), []string{"plock-counted-tool"}, nil, 0); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Errorf("the program was resolved %d times (%v), want exactly once", len(calls), calls)
+	}
+}
+
+// A caller that named a path said which file it meant. Re-resolving it would both break
+// `plock doctor --try /opt/whatever/gdbus` and, worse, hand a PATH lookup back to the one
+// case where a human had already removed the ambiguity.
+func TestExecRunnerTakesAPathAsGivenWithoutConsultingPATH(t *testing.T) {
+	dir := t.TempDir()
+	prog := writeProgram(t, dir, "plock-absolute-tool", `echo ran`)
+
+	prev := lookPath
+	lookPath = func(name string) (string, error) {
+		return "", errors.New("lookPath was consulted for a program that named its own path")
+	}
+	t.Cleanup(func() { lookPath = prev })
+
+	out, err := ExecRunner{}.Run(context.Background(), []string{prog}, nil, 0)
+	if err != nil {
+		t.Fatalf("Run(%s): %v", prog, err)
+	}
+	if strings.TrimSpace(string(out)) != "ran" {
+		t.Errorf("output = %q, want the program to have run", out)
+	}
+}
+
+// The resolution failure has to stay a sentence an operator can act on, and the one case
+// worth separating from "not installed" is Go's refusal to run something found relative
+// to the working directory -- the file is there, and telling somebody to install it is
+// the wrong advice.
+func TestExecRunnerReportsADotRelativeProgramAsPresentButUnrun(t *testing.T) {
+	prev := lookPath
+	lookPath = func(string) (string, error) { return "./loginctl", exec.ErrDot }
+	t.Cleanup(func() { lookPath = prev })
+
+	_, err := ExecRunner{}.Run(context.Background(), []string{"loginctl", "lock-session", "2"}, nil, 0)
+	if err == nil {
+		t.Fatal("a program that could not be resolved was run anyway")
+	}
+	if !errors.Is(err, ErrBinaryNotFound) {
+		t.Errorf("err = %v, want it to match ErrBinaryNotFound", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "working directory") {
+		t.Errorf("a program found relative to the working directory was reported as merely missing: %q", msg)
+	}
+	// The generic wording is checked on the reason, not on the whole line: the sentinel
+	// this error wraps is itself named "not found in PATH", so a substring test over the
+	// composed message fires on every message ever produced and proves nothing.
+	if generic := lookupReason(exec.ErrNotFound); strings.Contains(msg[strings.Index(msg, "loginctl:")+len("loginctl:"):], generic) {
+		t.Errorf("the file exists, so the reason must not be the generic %q: %q", generic, msg)
+	}
+	if strings.Contains(msg, "exec:") {
+		t.Errorf("error leaks the exec package's wording instead of ours: %q", msg)
+	}
+}
+
+// The distinction that makes the dot-relative case worth separating is a property of the
+// reason string, so it is asserted on the function that produces it rather than only
+// through a composed error message.
+func TestLookupReasonSeparatesAFileThatExistsFromAFileThatDoesNot(t *testing.T) {
+	missing := lookupReason(exec.ErrNotFound)
+	dot := lookupReason(exec.ErrDot)
+	if missing == dot {
+		t.Fatalf("both failures produce %q, so an operator is told to install a package they have", missing)
+	}
+	if !strings.Contains(dot, "working directory") {
+		t.Errorf("ErrDot reason = %q, want it to name the working directory", dot)
+	}
+	for _, r := range []string{missing, dot} {
+		if strings.Contains(r, "exec:") {
+			t.Errorf("reason %q leaks the exec package's wording", r)
+		}
 	}
 }
