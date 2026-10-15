@@ -54,15 +54,63 @@ func (a *stubAuth) Authenticate(username, password string) (bool, error) {
 // TLS is off so the tests can drive Handler() with httptest and still assert the
 // cookie's Secure attribute separately, in the one test that is about that
 // attribute.
+// stepClock is a clock a test advances by hand.
+//
+// The throttle measures penalties and rolling windows against a clock, and a test that
+// drives it with wall time is asserting whatever the runner's speed happened to allow.
+// Advancing it explicitly is also the only way to say "the penalty is not what refused
+// this; the bucket is", which is the distinction several of these tests exist to make.
+type stepClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func newStepClock() *stepClock {
+	return &stepClock{t: time.Unix(1700000000, 0).UTC()}
+}
+
+func (c *stepClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *stepClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
+
+// newThrottledServer is a server whose throttle runs on a clock the test owns, with the
+// production penalty schedule left in place.
+func newThrottledServer(t *testing.T, a auth.Authenticator) (*Server, *stepClock, *logSink) {
+	t.Helper()
+	clock := newStepClock()
+	th := auth.NewThrottle()
+	th.Now = clock.Now
+	s, logged, _ := newTestServerWith(t, a, th)
+	return s, clock, logged
+}
+
 func newTestServer(t *testing.T, a auth.Authenticator) (*Server, *logSink, *logSink) {
 	t.Helper()
 	return newTestServerWith(t, a, &auth.Throttle{
-		// The production penalty starts at a second and doubles, which is right for
-		// a person and unusable in a test that wants to reach the bucket limit.
-		// Everything else is left at the zero value and defaulted by the throttle
-		// itself.
-		PenaltyStart: time.Millisecond,
-		PenaltyCap:   2 * time.Millisecond,
+		// Long enough that no test can outrun it.
+		//
+		// The production penalty starts at a second and doubles. The obvious test
+		// setting is a millisecond so a sweep can sit out each penalty -- and that is
+		// what this was, which made every "the throttle refused this" assertion a race
+		// against the runner's speed: twelve POSTs plus the thirteenth have to land
+		// inside two milliseconds. Locally they do. On a loaded CI runner the penalty
+		// from the last failure expires before the request under test is dispatched, the
+		// login succeeds, and the failure reads as "the attacker chose their own bucket",
+		// which is a sentence about a completely different bug.
+		//
+		// Nothing here needs the penalty to expire. The tests are about *which key* the
+		// throttle uses and whether refusal skips the PBKDF2 work; a test that wants to
+		// watch a bucket recover should drive the throttle's clock, not wall time.
+		PenaltyStart: time.Hour,
+		PenaltyCap:   time.Hour,
 	})
 }
 
@@ -206,15 +254,19 @@ func TestAWrongPasswordIsOneAnswerForBothWrongHalves(t *testing.T) {
 	s, _, audited := newTestServer(t, &stubAuth{username: "parent", password: "hunter2"})
 
 	bodies := map[int]string{}
-	for _, tc := range [][2]string{{"parent", "wrong"}, {"nobody", "hunter2"}, {"nobody", "wrong"}} {
-		// The penalty blocks the attempt immediately after a failure. Waiting it out
-		// keeps this test about whether the two halves of a wrong credential are
-		// distinguishable, which is a different property from the throttle.
-		time.Sleep(5 * time.Millisecond)
+	for i, tc := range [][2]string{{"parent", "wrong"}, {"nobody", "hunter2"}, {"nobody", "wrong"}} {
+		// One address per case.
+		//
+		// This test is about whether the three responses are indistinguishable, which
+		// has nothing to do with which bucket a request lands in. Sharing one address
+		// meant the second and third cases arrived while the first one's penalty was
+		// still running and got a 429 -- so the test used to sleep to wait the penalty
+		// out, which made it depend on wall-clock timing for a property that is not about
+		// timing. Separate buckets keep the throttle out of it entirely.
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/login", strings.NewReader("username="+tc[0]+"&password="+tc[1]))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.RemoteAddr = "192.0.2.11:1"
+		req.RemoteAddr = fmt.Sprintf("192.0.2.1%d:1", i)
 		s.Handler().ServeHTTP(rec, req)
 		resp := rec.Result()
 		if resp.StatusCode != http.StatusUnauthorized {
@@ -235,15 +287,20 @@ func TestAWrongPasswordIsOneAnswerForBothWrongHalves(t *testing.T) {
 
 // The throttle has to stop the work, not merely hide its result.
 func TestRepeatedFailuresFromOneAddressAreThrottled(t *testing.T) {
-	s, _, _ := newTestServer(t, &stubAuth{username: "parent", password: "hunter2"})
+	s, clock, _ := newThrottledServer(t, &stubAuth{username: "parent", password: "hunter2"})
 	authStub := s.Auth.(*stubAuth)
 
 	attemptsBefore := authStub.calls
 	for i := 0; i < 12; i++ {
-		// Wait out the per-failure penalty so that what trips on the thirteenth
-		// attempt is the bucket limit, and the assertion below ("PBKDF2 must not run
-		// at all") is testing the bucket rather than a 1ms penalty.
-		time.Sleep(5 * time.Millisecond)
+		// Step past the per-failure penalty -- it caps at 30s -- so that what trips on
+		// the thirteenth attempt is the bucket limit. Sleeping a few milliseconds used to
+		// do this and made the test measure the runner's speed; stepping the clock says
+		// which mechanism the assertion below is about.
+		//
+		// The step has to stay well inside the ten-minute window. Advancing a full minute
+		// twelve times walks the oldest failures out of the rolling window and the bucket
+		// never fills, which is a way of testing nothing.
+		clock.Advance(31 * time.Second)
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/login", strings.NewReader("username=parent&password=nope"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -293,8 +350,15 @@ func TestRepeatedFailuresFromOneAddressAreThrottled(t *testing.T) {
 // X-Forwarded-For is not consulted, because there is no proxy in front of this
 // server and trusting it is the same as having no throttle.
 func TestAForwardedForHeaderDoesNotChooseTheThrottleBucket(t *testing.T) {
-	s, _, _ := newTestServer(t, &stubAuth{username: "parent", password: "hunter2"})
+	s, clock, _ := newThrottledServer(t, &stubAuth{username: "parent", password: "hunter2"})
+	// The clock steps past each penalty so the only thing that can refuse these is the
+	// bucket -- and the bucket only fills if every attempt lands in the same key. Were
+	// X-Forwarded-For consulted, each of these twelve would open its own bucket and none
+	// would be refused, which is the attack this test is named for.
 	for i := 0; i < 12; i++ {
+		// Past the penalty, inside the window. See the same step in
+		// TestRepeatedFailuresFromOneAddressAreThrottled.
+		clock.Advance(31 * time.Second)
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/login", strings.NewReader("username=parent&password=nope"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -302,6 +366,7 @@ func TestAForwardedForHeaderDoesNotChooseTheThrottleBucket(t *testing.T) {
 		req.RemoteAddr = "192.0.2.30:1"
 		s.Handler().ServeHTTP(rec, req)
 	}
+	clock.Advance(31 * time.Second)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/login", strings.NewReader("username=parent&password=hunter2"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

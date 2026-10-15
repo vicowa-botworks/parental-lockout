@@ -42,12 +42,21 @@ type Throttle struct {
 	// It is a ceiling, not a duration to be re-armed: see the note on the type.
 	GlobalCooldown time.Duration
 
+	// Now is the clock the allowance is measured against. Nil means time.Now.
+	//
+	// It is exported because the alternative was tests that sleep. A penalty measured in
+	// milliseconds let a test sweep a bucket in wall time, and that made every "this
+	// attempt was refused" assertion a race against the runner's speed -- green locally,
+	// red on a loaded CI host, with a failure message describing a different bug. A test
+	// that wants the bucket to be what refuses has to be able to move the clock past the
+	// penalty, and saying which mechanism it is exercising is the whole point of the test.
+	Now func() time.Time
+
 	mu   sync.Mutex
 	keys map[string]*keyState
 	// global counts failures across every key, as timestamps so the window rolls.
 	global      []time.Time
 	globalUntil time.Time
-	now         func() time.Time
 }
 
 type keyState struct {
@@ -68,7 +77,6 @@ func NewThrottle() *Throttle {
 		GlobalLimit:    200,
 		GlobalCooldown: 5 * time.Minute,
 		keys:           map[string]*keyState{},
-		now:            time.Now,
 	}
 }
 
@@ -253,8 +261,8 @@ func keepAfter(ts []time.Time, cutoff time.Time) []time.Time {
 // The same reasoning is why internal/enforce's Logf and internal/audit's Logf
 // default rather than staying nil.
 func (t *Throttle) clock() time.Time {
-	if t.now != nil {
-		return t.now()
+	if t.Now != nil {
+		return t.Now()
 	}
 	return time.Now()
 }

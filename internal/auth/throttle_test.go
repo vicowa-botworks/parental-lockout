@@ -10,7 +10,7 @@ import (
 func newTestThrottle() (*Throttle, *fakeClock) {
 	clock := newClock()
 	t := NewThrottle()
-	t.now = clock.Now
+	t.Now = clock.Now
 	// Shrink the real numbers so the tests exercise the rules rather than waiting
 	// on them. Every assertion names the value it is checking against, so a
 	// shortened window cannot hide a broken rule.
