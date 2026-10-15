@@ -120,11 +120,18 @@ func TestCheckSessionTargetRefusesUID0(t *testing.T) {
 	}
 }
 
+// stubGdbus is the path the desktop tests pretend gdbus resolves to.
+//
+// It is deliberately not where gdbus really lives. If the fixture used /usr/bin/gdbus, an
+// implementation that hardcoded that path would pass, and the whole point of resolving is that
+// the backend runs what the resolution returned.
+const stubGdbus = "/usr/local/bin/gdbus"
+
 // lockArgv is the command the backend must produce, spelled out rather than derived
 // from the code so a change to the flags has to be made here too.
 func lockArgv(dest string) []string {
 	return []string{
-		"gdbus", "call", "--session",
+		stubGdbus, "call", "--session",
 		"--dest", dest,
 		"--object-path", "/ScreenSaver",
 		"--method", "org.freedesktop.ScreenSaver.Lock",
@@ -132,8 +139,9 @@ func lockArgv(dest string) []string {
 }
 
 func TestDesktopLockRunsGdbusAsTheSessionUser(t *testing.T) {
+	stubGdbusPath(t, stubGdbus)
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		if argv[0] == "gdbus" {
+		if isProgram(argv, "gdbus") {
 			return []byte("()\n"), nil
 		}
 		return nil, nil
@@ -277,7 +285,7 @@ func TestDesktopConfirmUsesLockedHintAndNeverAsksTheScreensaver(t *testing.T) {
 		if strings.Contains(joined, "GetActive") {
 			t.Errorf("confirmation asked the screensaver GetActive, which is true on an unlocked desktop: %v", c.argv)
 		}
-		if c.argv[0] == "gdbus" {
+		if isProgram(c.argv, "gdbus") {
 			t.Errorf("confirmation ran a gdbus command (%v); confirming must not call anything that could lock", c.argv)
 		}
 	}
@@ -390,6 +398,7 @@ func registeredIDs() []string {
 // separate config-selectable id. Asserted through the registry so a config saying
 // "gnome" is checked against what a config saying "gnome" gets.
 func TestGnomeBackendPrefersTheGnomeServiceName(t *testing.T) {
+	stubGdbusPath(t, stubGdbus)
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) { return []byte("()"), nil }}
 	b, err := newRegistered(t, "gnome", r)
 	if err != nil {

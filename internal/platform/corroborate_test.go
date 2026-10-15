@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"testing"
 
@@ -228,7 +229,7 @@ func TestTheRegisteredKdeBackendIsTheOneTheChainBelieves(t *testing.T) {
 	// on a machine the desktop already locked, which is the shape that would go
 	// permanently unconfirmed if a corroborated yes were discounted.
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		switch argv[0] {
+		switch path.Base(argv[0]) {
 		case gdbusProgram:
 			return []byte("()\n"), nil
 		case "loginctl":
@@ -270,7 +271,7 @@ func TestAGnomeOnlyChainNeverConfirmsOffAPreSetHint(t *testing.T) {
 		use()
 
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
-		switch argv[0] {
+		switch path.Base(argv[0]) {
 		case gdbusProgram:
 			return []byte("()\n"), nil
 		case "loginctl":

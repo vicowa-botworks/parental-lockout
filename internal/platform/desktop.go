@@ -120,10 +120,32 @@ func (d *desktop) Lock(ctx context.Context, s Session) error {
 	}
 	env := sessionEnv(int(s.UID))
 
+	// Resolve the tool before building any argv, and run what the resolution found.
+	//
+	// A bare "gdbus" in argv is not a fixed thing: exec resolves it against the PATH in the
+	// environment handed to the child, and sessionEnv deliberately lets the daemon's PATH
+	// through. The child is the account we are locking out. So if any directory on that PATH is
+	// writable by that account, the child picks which binary the daemon executes, and the pick
+	// can print "()" and exit 0 without touching a bus. That passes the void-reply check — the
+	// check exists to catch a tool that lies about what it did, and here it is being handed the
+	// exact reply the check wants — so the backend reports success, the chain stops, and the
+	// trail records a lock that never happened.
+	//
+	// Resolving as root and execing the resolved path takes the choice away: the answer is
+	// whatever root's PATH says, and a directory the child can write to would have to be one
+	// root put on its own PATH, which is a different and much louder mistake.
+	//
+	// Probe already resolves it and throws the answer away, so the daemon was resolving twice
+	// and guarding neither.
+	gdbusPath, err := lookPath(gdbusProgram)
+	if err != nil {
+		return fmt.Errorf("%s: %s is not runnable: %w", d.id, gdbusProgram, err)
+	}
+
 	var errs []error
 	for _, dest := range d.dests {
 		argv := []string{
-			"gdbus", "call",
+			gdbusPath, "call",
 			"--session",
 			"--dest", dest,
 			"--object-path", screensaverPath,

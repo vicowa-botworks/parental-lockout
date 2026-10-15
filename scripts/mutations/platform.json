@@ -644,6 +644,14 @@
       "old": "\t\tif cols[len(cols)-1] != colSince {",
       "new": "\t\tif false && cols[len(cols)-1] != colSince {",
       "note": "the SINCE-position guard off: a mid-table SINCE shifts every column after it and the row parses with plausible wrong values"
+    },
+    {
+      "id": "K9",
+      "file": "internal/platform/desktop.go",
+      "old": "\tgdbusPath, err := lookPath(gdbusProgram)",
+      "new": "\tgdbusPath, err := gdbusProgram, error(nil)",
+      "note": "the backend passes the bare name, so each bus name in kde's fallback list is resolved separately by exec.CommandContext and a later attempt may exec a different file than the first. NOT a child-PATH story: resolution reads the daemon's os.Getenv at construction, before cmd.Env is assigned, which is what the first version of this note claimed and measurement disproved",
+      "package": "./internal/platform/"
     }
   ]
 }
