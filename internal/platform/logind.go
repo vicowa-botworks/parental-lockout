@@ -225,8 +225,19 @@ func probeTarget(entries []listEntry) string {
 			return e.Session
 		}
 	}
-	if len(entries) > 0 {
-		return entries[0].Session
+	// Nothing is a lock candidate. Ask about any row that can be asked about anyway: the
+	// question the probe answers is about what this loginctl reports, not about the
+	// session it happens to ask, and a headless box with only manager rows still has to
+	// be told whether Type is reportable at all.
+	//
+	// "any row" is deliberately not "the first row". A JSON row with a missing or empty
+	// `session` key parses without complaint, and returning it means the caller's
+	// `target != ""` check skips the probe entirely — the silence this package keeps
+	// refusing, arriving through a fallback that looked like a safety net.
+	for _, e := range entries {
+		if e.Session != "" {
+			return e.Session
+		}
 	}
 	return ""
 }

@@ -587,10 +587,11 @@
     {
       "id": "R1",
       "file": "internal/platform/logind.go",
-      "old": "\tfor _, e := range entries {\n\t\tif isDesktopEntry(e) {\n\t\t\treturn e.Session\n\t\t}\n\t}\n\tif len(entries) > 0 {",
-      "new": "\tif len(entries) > 0 {",
+      "old": "\tfor _, e := range entries {\n\t\tif isDesktopEntry(e) {\n\t\t\treturn e.Session\n\t\t}\n\t}",
+      "new": "\tfor _, e := range entries {\n\t\tif true {\n\t\t\treturn e.Session\n\t\t}\n\t}",
       "note": "the property-presence probe asks about whichever row is first, so a manager row testifies about a property only class=user carries (#25 item 4)",
-      "package": "./internal/platform/"
+      "package": "./internal/platform/",
+      "_why": "probeTarget stops preferring a lock candidate and asks about the first row it is given -- the manager-first order the probe exists to reject"
     },
     {
       "id": "R2",
@@ -599,6 +600,20 @@
       "new": "\treturn e.Session != \"\"",
       "note": "every listed session counts as a desktop session, so the probe and the listing both stop filtering non-candidates",
       "package": "./internal/platform/"
+    },
+    {
+      "id": "R3",
+      "file": "internal/platform/logind.go",
+      "old": "\tfor _, e := range entries {\n\t\tif e.Session != \"\" {\n\t\t\treturn e.Session\n\t\t}\n\t}\n\treturn \"\"\n}",
+      "new": "\tif len(entries) > 0 {\n\t\treturn entries[0].Session\n\t}\n\treturn \"\"\n}",
+      "_why": "the fallback hands back row zero even when it has no session id, so the caller's `target != \"\"` check skips the probe and the package goes quiet instead of reporting"
+    },
+    {
+      "id": "R4",
+      "file": "internal/platform/logind.go",
+      "old": "\treturn e.Class == \"user\" && e.Seat != nil && *e.Seat != \"\" && e.Session != \"\"",
+      "new": "\treturn e.Class == \"user\" && e.Seat != nil && *e.Seat != \"\"",
+      "_why": "a row with no session id counts as a desktop session, so the listing would try to detail a session that does not exist"
     }
   ]
 }
