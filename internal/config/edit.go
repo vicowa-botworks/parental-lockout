@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -62,12 +64,26 @@ func (c *Config) UpsertProfile(p Profile) {
 // from under a user would leave a dangling profileID, which Validate rejects
 // and the enforcement loop would have to guess a meaning for — silently
 // enforcing nothing is the wrong guess.
+//
+// Every blocking account is named, not the first one found. A profile is usually shared
+// (that is why it is a profile), and a message that names one account makes the operator
+// reassign alice, retry, and be told about bob — which reads as the tool failing twice
+// rather than as one refusal with two parts. The names come back in config order so the
+// message is stable across retries.
 func (c *Config) DeleteProfile(id string) error {
+	var blocked []string
 	for _, u := range c.Users {
 		if u.ProfileID == id {
-			return fmt.Errorf("config: profile %q is still assigned to account %q; reassign that account first",
-				id, u.Username)
+			blocked = append(blocked, u.Username)
 		}
+	}
+	if len(blocked) > 0 {
+		verb := "reassign that account first"
+		if len(blocked) > 1 {
+			verb = "reassign them first"
+		}
+		return fmt.Errorf("config: profile %q is still assigned to %s; %s",
+			id, quotedList(blocked), verb)
 	}
 
 	kept, found := cut(c.Profiles, func(p Profile) bool { return p.ID == id })
@@ -208,4 +224,17 @@ func cut[T any](in []T, pred func(T) bool) ([]T, bool) {
 		kept = append(kept, v)
 	}
 	return kept, found
+}
+
+// quotedList renders names as "a", "b", "c" for a refusal a person has to act on.
+//
+// Quoting matters here: an account name is whatever passwd holds, and a name containing a
+// space would otherwise run into its neighbour in a list the operator is reading off to
+// decide which child to reassign.
+func quotedList(names []string) string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = strconv.Quote(n)
+	}
+	return strings.Join(out, ", ")
 }
