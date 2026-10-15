@@ -45,6 +45,10 @@ make verify    # gofmt, vet, build, race tests, dependency guard
 
 - [docs/PLAN.md](docs/PLAN.md) — architecture, data model, enforcement loop,
   platform abstraction, security posture.
+- [docs/security.md](docs/security.md) — the threat model: who the adversary is, what they
+  control, every defense with the test behind it, and an explicit list of what is *not* defended.
+- [docs/platforms.md](docs/platforms.md) — what was measured on real hardware, and where the
+  design's platform claims came from.
 - Target platform is KDE Plasma on Ubuntu; the locking mechanism sits behind an
   interface so GNOME and others can follow.
 
