@@ -104,6 +104,12 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		// after the fact, that one line would go to the default logger and the
 		// operator's redirect would miss it.
 		Logf: func(format string, args ...any) { fmt.Fprintf(stdout, format+"\n", args...) },
+		// The disabled-transport warning goes to stderr, everywhere else goes to
+		// stdout. A daemon's stdout is routinely redirected to a file nobody reads;
+		// stderr is the stream the journal marks and the operator's pager stops on.
+		// This is the one line that must not be skippable, and it is the one line
+		// whose absence means the admin password is on the LAN in clear text.
+		Warn: func(format string, args ...any) { fmt.Fprintf(stderr, format+"\n", args...) },
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "plock serve: %v\n", err)

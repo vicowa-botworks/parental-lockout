@@ -71,6 +71,12 @@ type Server struct {
 	// Logf is the structured request log. A nil Logf means io.Discard.
 	Logf func(format string, args ...any)
 
+	// warn is Options.Warn: the sink for the one line that must survive a stdout
+	// redirect. Unexported because it is resolved once, in New, and a caller that
+	// reassigns it after startup would be moving the warning out from under the only
+	// code path that emits it.
+	warn func(format string, args ...any)
+
 	// Now defaults to time.Now.
 	Now func() time.Time
 
@@ -93,7 +99,6 @@ type Server struct {
 	extraRoutes func(mux *http.ServeMux)
 
 	mu       sync.Mutex
-	srv      *http.Server
 	listener net.Listener
 	minted   *tls.Config
 
@@ -124,6 +129,12 @@ type Options struct {
 	// most important line the daemon writes at startup. A caller that assigned the
 	// sink after New would lose exactly that line.
 	Logf func(format string, args ...any)
+
+	// Warn is where the disabled-transport warning goes, separately from Logf, because
+	// it is the one line the operator must not miss and a daemon's stdout is routinely
+	// redirected while its stderr is what the journal flags. Defaulting to Logf keeps
+	// every caller that does not care about the split working unchanged.
+	Warn func(format string, args ...any)
 }
 
 // New builds a Server and resolves its transport, failing on anything the first
@@ -135,6 +146,7 @@ type Options struct {
 func New(opts Options) (*Server, error) {
 	s := &Server{
 		Logf:     opts.Logf,
+		warn:     opts.Warn,
 		Listen:   opts.Listen,
 		TLSMode:  opts.TLSMode,
 		CertFile: opts.CertFile,
@@ -153,9 +165,15 @@ func New(opts Options) (*Server, error) {
 	if s.Static == nil {
 		s.Static = Assets()
 	}
-	if m, err := AssetMap(s.Static); err == nil {
-		s.assets = m
+	// A broken asset tree is a startup failure, not a shrug. Swallowing this left
+	// s.assets nil, every /static/ request 404ing, and the operator looking at the
+	// unstyled page that embedding the assets exists to prevent -- with nothing in the
+	// log saying the bundle was never readable.
+	m, err := AssetMap(s.Static)
+	if err != nil {
+		return nil, fmt.Errorf("web: %w", err)
 	}
+	s.assets = m
 
 	if s.Sessions == nil {
 		s.Sessions = auth.NewSessions()
@@ -168,7 +186,7 @@ func New(opts Options) (*Server, error) {
 	case TLSOff:
 		// Loud on every start, by design. A quiet plain-HTTP mode is how a
 		// password-ending-up-on-the-LAN configuration survives a security review.
-		s.logf("web: TLS IS DISABLED. The admin password and the session cookie cross the network in clear text. " +
+		s.warnf("web: TLS IS DISABLED. The admin password and the session cookie cross the network in clear text. " +
 			"This is only defensible on a machine you reach over a localhost port-forward; set settings.tls back to \"auto\" for anything else.")
 	case TLSCustom:
 		cert, err := LoadCustom(s.CertFile, s.KeyFile, s.now)
@@ -203,6 +221,16 @@ func (s *Server) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+// warnf writes the one line that must survive a stdout redirect. Falling back to Logf,
+// and then to the package logger, means a Server built without Options.Warn still says it.
+func (s *Server) warnf(format string, args ...any) {
+	if s.warn != nil {
+		s.warn(format, args...)
+		return
+	}
+	s.logf(format, args...)
 }
 
 func (s *Server) logf(format string, args ...any) {
@@ -257,6 +285,27 @@ func (s *Server) Serve(ctx context.Context) error {
 		return err
 	}
 
+	// The transport is put on the wire here, and nowhere else. tls.go mints a
+	// certificate, checks the directory and key modes and works out the rotation
+	// window; tlsConfig() assembles the policy. None of that means anything until a
+	// listener speaks it, and until this line none of it did: Serve handed the raw TCP
+	// socket to http.Server, so a daemon configured `auto` -- the default -- answered
+	// plain HTTP on a port it had just logged as https://.
+	//
+	// That is worse than TLS being off, because TLS being off is said out loud. The
+	// `TLS IS DISABLED` warning fires only for TLSOff, so under `auto` the wire was
+	// identical and the warning never printed: the admin password and a Secure cookie
+	// crossing the LAN in clear text under a log line claiming otherwise. And the
+	// cookie being Secure made login impossible in a browser, because a browser drops
+	// a Secure cookie on an http:// origin -- the infinite /login redirect this file's
+	// own comment warns about, reached from the other side.
+	//
+	// A test on the tls.Config struct could not see any of this, and one existed. The
+	// assertion has to be on the socket.
+	if cfg := s.tlsConfig(); cfg != nil {
+		ln = tls.NewListener(ln, cfg)
+	}
+
 	httpSrv := &http.Server{
 		Handler: s.Handler(),
 		// A slow-loris body has no business holding a worker on a home server, and
@@ -265,14 +314,20 @@ func (s *Server) Serve(ctx context.Context) error {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
-		// 1 MiB is far past the largest form this UI posts and small enough that a
-		// flood of connections cannot exhaust memory on bodies nobody reads.
+		// 64 KiB. Far past the largest form this UI posts, and small enough that a
+		// flood of connections cannot exhaust memory on headers nobody reads. The
+		// net/http default is 1 MiB, which is four times more header than a login
+		// page can use and four times more to hold per connection.
 		MaxHeaderBytes: 1 << 16,
+		// net/http's own complaints -- a TLS handshake that failed, a request with a
+		// malformed request line, a connection closed mid-body -- go here. Left unset
+		// they go to the log package's default logger, which on a daemon means the
+		// journal via stderr and on a test means nowhere. On a daemon reachable from
+		// the LAN, a burst of failed handshakes is the single most interesting thing
+		// this server can report, and it is exactly the thing that would be missing
+		// from the configured sink.
+		ErrorLog: log.New(&logWriter{fn: s.logf}, "", 0),
 	}
-	s.mu.Lock()
-	s.srv = httpSrv
-	s.mu.Unlock()
-
 	errCh := make(chan error, 1)
 	go func() {
 		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -439,4 +494,20 @@ func contentType(name string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// logWriter adapts the daemon's Logf to the io.Writer that log.Logger wants, so
+// net/http's own diagnostics land in the same sink as everything else this server says.
+//
+// The trailing newline is dropped rather than passed through: Logf is a format function
+// and the logger hands it a line that already ends in one, so forwarding it verbatim
+// writes a blank line after every message.
+type logWriter struct{ fn func(string, ...any) }
+
+func (w *logWriter) Write(p []byte) (int, error) {
+	msg := strings.TrimRight(string(p), "\n")
+	if msg != "" {
+		w.fn("web: http: %s", msg)
+	}
+	return len(p), nil
 }

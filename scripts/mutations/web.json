@@ -315,6 +315,30 @@
    "old": "\tsum := sha256.Sum256(b)\n",
    "new": "\tsum := sha256.Sum256(append([]byte(name), b[:0]...))\n",
    "note": "the asset URL hashes the filename, so a content change keeps the same URL and the immutable header pins the old bytes"
+  },
+  {
+   "id": "W41",
+   "old": "\tif cfg := s.tlsConfig(); cfg != nil {\n\t\tln = tls.NewListener(ln, cfg)\n\t}",
+   "new": "\t_ = s.tlsConfig()",
+   "note": "Serve stops terminating TLS, so a daemon configured `auto` answers plain HTTP on a port it logs as https:// and the Secure cookie can never be set",
+   "package": "./internal/web/",
+   "file": "internal/web/server.go"
+  },
+  {
+   "id": "W42",
+   "old": "\tm, err := AssetMap(s.Static)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"web: %w\", err)\n\t}",
+   "new": "\tm, _ := AssetMap(s.Static)",
+   "note": "a broken asset bundle is swallowed, so every /static/ request 404s and the operator gets the unstyled page with nothing in the log",
+   "package": "./internal/web/",
+   "file": "internal/web/server.go"
+  },
+  {
+   "id": "W43",
+   "old": "\tif s.warn != nil {\n\t\ts.warn(format, args...)\n\t\treturn\n\t}",
+   "new": "\tif false {\n\t\ts.warn(format, args...)\n\t\treturn\n\t}",
+   "note": "the disabled-transport warning ignores Options.Warn and goes to stdout, the stream an operator redirects away",
+   "package": "./internal/web/",
+   "file": "internal/web/server.go"
   }
  ]
 }

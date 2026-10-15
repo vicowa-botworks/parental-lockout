@@ -74,7 +74,10 @@ func writeServeConfig(t *testing.T, dir string) string {
 //
 // Every test that starts the daemon goes through here so none of them decides the
 // daemon is "up" by sleeping.
-func startServe(t *testing.T, extra ...string) (*syncBuffer, context.CancelFunc, <-chan int) {
+// startServe returns both streams. The second one matters: the disabled-transport
+// warning is deliberately written to stderr, so a test that reads only stdout would
+// "prove" the warning works by asserting on a stream it was never written to.
+func startServe(t *testing.T, extra ...string) (*syncBuffer, *syncBuffer, context.CancelFunc, <-chan int) {
 	t.Helper()
 	dir := t.TempDir()
 	cfgPath := writeServeConfig(t, dir)
@@ -92,7 +95,7 @@ func startServe(t *testing.T, extra ...string) (*syncBuffer, context.CancelFunc,
 		case <-time.After(15 * time.Second):
 		}
 	})
-	return &out, cancel, code
+	return &out, &errOut, cancel, code
 }
 
 func TestServeRejectsABrokenConfigAtStartup(t *testing.T) {
@@ -184,7 +187,7 @@ func TestOneRunnerFailingCancelsTheOthers(t *testing.T) {
 // the runners hold, because the enforcement loop is not a socket and will only stop
 // when the context says so.
 func TestServeStopsWhenTheContextIsCancelled(t *testing.T) {
-	out, cancel, code := startServe(t)
+	out, _, cancel, code := startServe(t)
 	waitFor(t, out, "listening on", 10*time.Second)
 
 	cancel()
@@ -203,18 +206,39 @@ func TestServeStopsWhenTheContextIsCancelled(t *testing.T) {
 // This is the one line in serve that a reader would skip, and it is the line that
 // decides whether an operator on a half-built daemon knows they are on one.
 func TestServeSaysOutLoudThatTheEnforcementLoopIsAbsent(t *testing.T) {
-	out, _, _ := startServe(t)
+	out, _, _, _ := startServe(t)
 	waitFor(t, out, "enforcement loop is not wired", 10*time.Second)
 }
 
 // tls: off is a loud warning on every start, not a quiet mode.
 //
-// It is asserted on the writer the caller passed rather than on the process's
-// stdout, because the failure mode this guards is the warning going somewhere the
-// operator's redirect does not catch it.
+// It is asserted on the writers the caller passed rather than on the process's streams,
+// because the failure mode this guards is the warning going somewhere the operator's
+// redirect does not catch it. It is asserted on stderr in particular: stdout is the
+// stream a daemon's operator redirects, and a warning that lands there is a warning that
+// gets read by nobody.
 func TestServeWarnsEveryTimeTLSIsOff(t *testing.T) {
-	out, _, _ := startServe(t)
-	waitFor(t, out, "TLS IS DISABLED", 10*time.Second)
+	_, errOut, _, _ := startServe(t)
+	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)
+}
+
+// The other half of the last test. "The warning is on stderr" is only useful if it is not
+// also being buried in the stream that gets redirected -- and a change that sent every
+// line to both streams would satisfy the test above while proving nothing about where the
+// operator looks.
+func TestTheTLSSWarningIsNotOnStdout(t *testing.T) {
+	out, errOut, _, _ := startServe(t)
+	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)
+	// The daemon writes its startup banner to stdout, so by the time the warning has
+	// appeared there is something to compare against; an empty stdout would make this
+	// pass for the wrong reason.
+	if !strings.Contains(out.String(), "plock serve") {
+		t.Errorf("stdout is empty, so this test cannot tell a split from a silence: %q", out.String())
+	}
+	if strings.Contains(out.String(), "TLS IS DISABLED") {
+		t.Errorf("the warning is on stdout, the stream an operator redirects away: %q", out.String())
+	}
+
 }
 
 // The warning has to arrive through the sink the caller configured, not the default
@@ -223,10 +247,10 @@ func TestServeWarnsEveryTimeTLSIsOff(t *testing.T) {
 // The default logger stamps every line with a date, so the stamp's absence is what
 // proves the line came through the caller's writer.
 func TestTheTLSSWarningReachesTheConfiguredSink(t *testing.T) {
-	out, _, _ := startServe(t)
-	waitFor(t, out, "TLS IS DISABLED", 10*time.Second)
+	_, errOut, _, _ := startServe(t)
+	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)
 
-	for _, line := range strings.Split(out.String(), "\n") {
+	for _, line := range strings.Split(errOut.String(), "\n") {
 		if !strings.Contains(line, "TLS IS DISABLED") {
 			continue
 		}
