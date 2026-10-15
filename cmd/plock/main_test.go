@@ -18,7 +18,7 @@ import (
 // from day one. It is hard-coded on purpose — deriving it from `planned` or
 // from globalUsage would let the surface shrink to nothing and keep the suite
 // green, which is exactly the failure these tests exist to catch.
-var wantCommands = []string{"serve", "init", "status", "lock", "unlock", "override", "doctor", "version"}
+var wantCommands = []string{"serve", "init", "status", "lock", "unlock", "override", "profile", "user", "doctor", "version"}
 
 // plockPath is the real cmd/plock binary, built once for this package, or empty
 // when the source tree could not be found. The process tests exec that artifact
@@ -109,6 +109,7 @@ func runProcess(t *testing.T, args ...string) (code int, stdout, stderr string) 
 var implementedCommands = []string{"version", "doctor", "init", "serve", "status"}
 var implementedCommands = []string{"version", "doctor", "init", "status", "unlock", "override"}
 var implementedCommands = []string{"version", "doctor", "init", "status", "lock", "unlock", "override"}
+var implementedCommands = []string{"version", "doctor", "init", "status", "lock", "unlock", "override", "profile", "user"}
 
 func TestCommandSurfaceIsComplete(t *testing.T) {
 	var stubs []string
@@ -497,6 +498,55 @@ func TestProcessWriteFailure(t *testing.T) {
 
 		if err == nil {
 			t.Errorf("plock %v to /dev/full exited 0, want a failure", args)
+		}
+	}
+}
+
+// TestEveryCommandHasHelp closes the hole the helpTopics table opened. A command added to
+// the dispatch and the overview but not to that table answers `plock <cmd> -h` with "no
+// help for unknown command" -- which reads as though the command does not exist, on a tool
+// people are reading help from precisely because they do not know the surface yet.
+func TestEveryCommandHasHelp(t *testing.T) {
+	topics := map[string]bool{}
+	for _, h := range helpTopics {
+		topics[h.topic] = true
+	}
+	for _, cmd := range wantCommands {
+		if topics[cmd] {
+			continue
+		}
+		if _, stub := planned[cmd]; stub {
+			continue // a stub's synopsis is its help, until it has its own
+		}
+		t.Errorf("%q is on the command surface with no help topic", cmd)
+	}
+	// And the reverse: a help topic for a command nobody can invoke is a lie about the
+	// surface.
+	for topic := range topics {
+		var listed bool
+		for _, cmd := range wantCommands {
+			if cmd == topic {
+				listed = true
+			}
+		}
+		if !listed {
+			t.Errorf("help topic %q is not on the command surface", topic)
+		}
+	}
+}
+
+func TestHelpForEveryCommandIsNotAnError(t *testing.T) {
+	for _, cmd := range wantCommands {
+		code, stdout, stderr := runCmd(t, "help", cmd)
+		if code != exitOK {
+			t.Errorf("plock help %s: exit %d, want 0\n%s", cmd, code, stderr)
+			continue
+		}
+		if stdout == "" {
+			t.Errorf("plock help %s: empty", cmd)
+		}
+		if stderr != "" {
+			t.Errorf("plock help %s: stderr = %q", cmd, stderr)
 		}
 	}
 }

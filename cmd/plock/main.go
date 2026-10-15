@@ -39,6 +39,8 @@ Commands:
   lock      lock a user's session immediately, ignoring the schedule
   unlock    grant a temporary override that suspends enforcement
   override  list or clear temporary overrides
+  profile   list, show, add, edit and remove schedules and their rules
+  user      list and manage the accounts plock enforces
   doctor    diagnose whether locking actually works on this machine
   version   print version information
 
@@ -54,6 +56,29 @@ Print the version, commit and build date.
 // implemented yet, so `plock <cmd> -h` is accurate before the code exists.
 // Every entry here is also listed in globalUsage; a test pins the two together
 // so neither can quietly drift away from the other.
+// helpTopic is one entry of `plock help <command>`.
+type helpTopic struct {
+	topic string
+	usage string
+}
+
+// helpTopics covers every implemented command. A command missing from here answers `-h`
+// with "no help for unknown command", which reads as though the command does not exist;
+// a test walks the command surface against this list so that cannot happen quietly.
+var helpTopics = []helpTopic{
+	// serve is absent on purpose: it is still a stub, and the `planned` fallback below is
+	// what gives it an accurate synopsis before its own usage text exists.
+	{"init", initUsage},
+	{"status", statusUsage},
+	{"lock", lockUsage},
+	{"unlock", unlockUsage},
+	{"override", overrideUsage},
+	{"profile", profileUsage},
+	{"user", userUsage},
+	{"doctor", doctorUsage},
+	{"version", versionUsage},
+}
+
 var planned = map[string]string{
 	"serve":  "[--config PATH]",
 	"status": "[--json]",
@@ -94,6 +119,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runUnlock(stdout, stderr, rest)
 	case "override":
 		return runOverride(stdout, stderr, rest)
+	case "profile":
+		return runProfile(stdout, stderr, rest)
+	case "user":
+		return runUser(stdout, stderr, rest)
 	default:
 		if synopsis, ok := planned[command]; ok {
 			return notImplemented(stdout, stderr, command, synopsis, rest)
@@ -120,31 +149,25 @@ func runHelp(stdout, stderr io.Writer, args []string) int {
 	}
 
 	topic := args[0]
-	switch {
-	case topic == "version":
-		if err := writeAll(stdout, versionUsage); err != nil {
-			return exitFailure
-		}
-		return exitOK
-	case topic == "doctor":
-		if err := writeAll(stdout, doctorUsage); err != nil {
-			return exitFailure
-		}
-		return exitOK
-	case topic == "init":
-		if err := writeAll(stdout, initUsage); err != nil {
-			return exitFailure
-		}
-		return exitOK
-	default:
-		if synopsis, ok := planned[topic]; ok {
-			if err := writeAll(stdout, stubUsage(topic, synopsis)); err != nil {
+	// One table rather than a growing switch. A command whose usage string exists but is
+	// not listed here answers `plock <cmd> -h` with "no help for unknown command", which
+	// reads as though the command itself does not exist -- and the test below walks the
+	// command surface, so a new command cannot slip past unlisted.
+	for _, h := range helpTopics {
+		if h.topic == topic {
+			if err := writeAll(stdout, h.usage); err != nil {
 				return exitFailure
 			}
 			return exitOK
 		}
 	}
-
+	// A command that is announced but not built yet still has accurate help: its synopsis.
+	if synopsis, ok := planned[topic]; ok {
+		if err := writeAll(stdout, stubUsage(topic, synopsis)); err != nil {
+			return exitFailure
+		}
+		return exitOK
+	}
 	if err := writeAll(stderr,
 		fmt.Sprintf("plock: no help for unknown command %q\n\n", topic), globalUsage); err != nil {
 		return exitFailure
