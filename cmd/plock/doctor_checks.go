@@ -111,10 +111,20 @@ func (r *report) writeJSON(w io.Writer) error {
 	return enc.Encode(r)
 }
 
-// writeTextErr is writeText with the write error surfaced.
+// writeTextErr renders the report for a human, and surfaces the write error.
+//
+// One line per check, prefixed by the verdict, with the fix indented under the failure that
+// needs it. A check that passed still gets a line: "config: ok, mode 0600" is evidence, and
+// a tool that only prints problems leaves the operator wondering whether it looked.
 //
 // The error has to come out of the LAST write, not the first: a partial report followed by
 // exit 0 is the failure this command cannot have.
+//
+// There used to be a second, error-ignoring copy of this layout next to it. Nothing called
+// it -- `doctor` has always gone through this function -- and coverage reported it at 0%
+// rather than reporting it as absent, which is how a duplicated renderer survives: the two
+// copies drift on the first edit to either, and the one a reader assumes is the real one is
+// the one nobody runs.
 func (r *report) writeTextErr(w io.Writer) error {
 	for _, c := range r.Checks {
 		if _, err := fmt.Fprintf(w, "%-6s %-22s %s\n", c.Status, c.Name, c.Detail); err != nil {
@@ -136,29 +146,6 @@ func (r *report) writeTextErr(w io.Writer) error {
 	}
 	_, err := fmt.Fprintln(w, summary)
 	return err
-}
-
-// writeText renders the report for a human.
-//
-// One line per check, prefixed by the verdict, with the fix indented under the failure that
-// needs it. A check that passed still gets a line: "config: ok, mode 0600" is evidence, and
-// a tool that only prints problems leaves the operator wondering whether it looked.
-func (r *report) writeText(w io.Writer) {
-	for _, c := range r.Checks {
-		fmt.Fprintf(w, "%-6s %-22s %s\n", c.Status, c.Name, c.Detail)
-		if c.Fix != "" {
-			fmt.Fprintf(w, "       fix: %s\n", c.Fix)
-		}
-	}
-	if len(r.Failed) == 0 && len(r.Warned) == 0 {
-		fmt.Fprintln(w, "\nnothing failed")
-		return
-	}
-	fmt.Fprintf(w, "\n%d failed, %d warned", len(r.Failed), len(r.Warned))
-	if len(r.Failed) > 0 {
-		fmt.Fprintf(w, ": %s", strings.Join(r.Failed, ", "))
-	}
-	fmt.Fprintln(w)
 }
 
 // checkRoot reports whether the process has the privilege the daemon needs.
