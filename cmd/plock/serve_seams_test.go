@@ -9,6 +9,7 @@ import (
 
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
+	"github.com/vicowa-botworks/parental-lockout/internal/users"
 )
 
 // The pages refuse rather than render an empty table when a seam is missing, which is
@@ -27,7 +28,7 @@ func TestServeWiresEverySeamThePagesRead(t *testing.T) {
 	}
 	chain, _ := platform.New(cfg.Settings, platform.ExecRunner{})
 
-	srv, err := serveServer(cfg, chain, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+	srv, err := serveServer(cfg, chain, users.Source{}, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}
@@ -56,7 +57,7 @@ func TestTheServedConfigSourceReReadsTheFileTheOperatorNamed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	srv, err := serveServer(cfg, nil, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+	srv, err := serveServer(cfg, nil, users.Source{}, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}

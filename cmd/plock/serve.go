@@ -159,7 +159,7 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		fmt.Fprintf(stderr, "plock serve: no usable lock backend, so there is nothing to enforce; refusing to start\n")
 		return 1
 	}
-	srv, err := serveServer(cfg, chain, *path, *stateDir, ctx, stdout, stderr)
+	srv, err := serveServer(cfg, chain, users.Source{}, *path, *stateDir, ctx, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "plock serve: %v\n", err)
 		return 1
@@ -290,7 +290,11 @@ func (a auditSink) Emit(e enforce.Event) {
 // Auth and Audit are deliberately not set here. The caller owns them: Audit has to write to the
 // shared audit trail, which this function neither creates nor sees, and setting a stdout stub here
 // would quietly win over the real hook by ordering.
-func serveServer(cfg *config.Config, chain *platform.Chain, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
+// serveServer assembles the admin server. src is where the account listing reads from, and
+// it is a parameter rather than a call to users.Source{} inside the Accounts seam for the
+// same reason the runner is one: /etc/passwd is a fact about the host, and a wiring test
+// that reads the host can only assert that something came back.
+func serveServer(cfg *config.Config, chain *platform.Chain, src users.Source, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
 	srv, err := web.New(web.Options{
 		Listen:   cfg.Settings.Listen,
 		TLSMode:  cfg.Settings.TLS,
@@ -324,7 +328,7 @@ func serveServer(cfg *config.Config, chain *platform.Chain, cfgPath, stateDir st
 			// explanation back out of reach on the one path a parent actually uses:
 			// "which files did you read, and what did you have to guess" is the answer
 			// to a child who is missing from the table.
-			return users.List(users.Source{})
+			return users.List(src)
 		},
 	})
 	if err != nil {
