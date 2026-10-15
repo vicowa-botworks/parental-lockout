@@ -28,7 +28,9 @@
       "file": "internal/cli/cli.go",
       "old": "\tif pad < len(label) {",
       "new": "\tif false {",
-      "_why": "the label column stops widening to fit, so values are printed over each other and a report that looks parsed is not"
+      "_why": "the label column stops widening to fit, so values are printed over each other and a report that looks parsed is not",
+      "equivalent": true,
+      "note": "Go's %-*s never truncates, so the rendered width is max(pad,len(label)) either way: with the guard pad=max(width,len), giving max(max(width,len),len)==max(width,len); without it pad=width, giving max(width,len). Identical for every input, so no test can distinguish them. The guard is defensive against a formatter that did truncate, not load-bearing against fmt. Verified by running both variants and diffing the output."
     },
     {
       "id": "CU1",
