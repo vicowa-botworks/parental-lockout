@@ -54,6 +54,7 @@ Print the version, commit and build date.
 // Every entry here is also listed in globalUsage; a test pins the two together
 // so neither can quietly drift away from the other.
 var planned = map[string]string{
+	"serve":  "[--config PATH]",
 	"status": "[--json]",
 	"lock":   "<user> [--all]",
 	"unlock": "<user> --minutes N --reason TEXT",
@@ -83,6 +84,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runInit(stdout, stderr, rest)
 	case "serve":
 		return runServe(stdout, stderr, rest)
+	case "status":
+		return runStatus(stdout, stderr, rest)
 	default:
 		if synopsis, ok := planned[command]; ok {
 			return notImplemented(stdout, stderr, command, synopsis, rest)
