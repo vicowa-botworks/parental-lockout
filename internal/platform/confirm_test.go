@@ -18,6 +18,12 @@ import (
 // park becomes instant here, and sleepCtx's own two branches are pinned directly by
 // TestSleepCtxBothBranches rather than being left untested behind the substitution.
 func TestMain(m *testing.M) {
+	// A process re-exec'd to be part of a forged process tree never runs the suite. See
+	// locker_forged_test.go, which needs a real /proc entry whose argv[0] is a lie.
+	if os.Getenv(forgedEnv) == "child" {
+		runForgedParent()
+		return
+	}
 	settleWait = func(context.Context, time.Duration) bool { return true }
 	os.Exit(m.Run())
 }
@@ -81,10 +87,11 @@ func TestChainLockGivesUpAfterTheSettleWindow(t *testing.T) {
 	if !errors.Is(err, ErrUnconfirmed) {
 		t.Fatalf("Lock = %v, want ErrUnconfirmed", err)
 	}
-	// Bounded: the first read plus the window's worth of retries, and no more. A
-	// settle with no bound would park the enforcement loop on a machine where the
-	// desktop never answers.
-	if want := 1 + confirmReads; f.reads != want {
+	// Bounded: the state read before anyone was asked, plus the first read of the
+	// settle window, plus the window's worth of retries, and no more. A settle with no
+	// bound would park the enforcement loop on a machine where the desktop never
+	// answers.
+	if want := 2 + confirmReads; f.reads != want {
 		t.Errorf("confirmation read %d time(s), want exactly %d: the window must be bounded", f.reads, want)
 	}
 }
@@ -92,7 +99,12 @@ func TestChainLockGivesUpAfterTheSettleWindow(t *testing.T) {
 func TestChainLockDoesNotRetryAnError(t *testing.T) {
 	m := &Mock{BackendName: "logind"}
 	boom := errors.New("dbus gone")
-	f := &flipConfirmer{Mock: m, errOn: 1, err: boom}
+	// errOn 2, not 1: the first read is the state Chain.Lock takes before asking
+	// anybody, and an error spent there is spent on a different question. What this
+	// test is about is the settle window not retrying, so the failure has to land on
+	// the first read of the window. TestChainLockDiscountsAYesWhoseBeforeStateIsUnreadable
+	// pins the pre-read's own failure.
+	f := &flipConfirmer{Mock: m, errOn: 2, err: boom}
 	c := &Chain{backends: []Platform{f}}
 
 	err := c.Lock(context.Background(), desktopSession("3"))
@@ -102,8 +114,8 @@ func TestChainLockDoesNotRetryAnError(t *testing.T) {
 	if !errors.Is(err, boom) {
 		t.Errorf("error %q loses why the check failed", err)
 	}
-	if f.reads != 1 {
-		t.Errorf("confirmation read %d time(s), want 1: a backend that cannot be queried will not start answering between polls", f.reads)
+	if f.reads != 2 {
+		t.Errorf("confirmation read %d time(s), want 2: a backend that cannot be queried will not start answering between polls", f.reads)
 	}
 }
 
@@ -121,8 +133,13 @@ func TestChainLockDoesNotRetryAnError(t *testing.T) {
 func TestChainLockSurfacesAnErrorThatArrivesMidSettle(t *testing.T) {
 	m := &Mock{BackendName: "logind"}
 	boom := errors.New("connection closed by bus")
-	// Read 1 answers "not yet", so the settle loop starts; read 2 fails.
-	f := &flipConfirmer{Mock: m, errOn: 2, err: boom}
+	// Read 1 is the state Chain.Lock takes before asking anybody and read 2 is the
+	// first read of the settle window; both answer "not yet", so the retry loop starts
+	// and read 3 fails *inside* it. The distinction is the whole of this test: an error
+	// on the pre-loop read is returned by a different statement, and TestChainLockDoesNotRetryAnError
+	// covers that one. Aiming both at the same read would leave the loop's own error
+	// path unpinned -- it is the one that turns a broken bus into silence.
+	f := &flipConfirmer{Mock: m, errOn: 3, err: boom}
 	c := &Chain{backends: []Platform{f}}
 
 	err := c.Lock(context.Background(), desktopSession("3"))
@@ -140,8 +157,8 @@ func TestChainLockSurfacesAnErrorThatArrivesMidSettle(t *testing.T) {
 	if !errors.Is(err, ErrUnconfirmed) {
 		t.Errorf("a failed confirmation stopped being ErrUnconfirmed: %q -- the loop would stop re-arming a session that may not be locked", err)
 	}
-	if f.reads != 2 {
-		t.Errorf("confirmation read %d time(s), want 2: a failed read is an answer, and retrying it turns a hard failure into silence", f.reads)
+	if f.reads != 3 {
+		t.Errorf("confirmation read %d time(s), want 3: a failed read is an answer, and retrying it turns a hard failure into silence", f.reads)
 	}
 }
 

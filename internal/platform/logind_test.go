@@ -351,12 +351,21 @@ func TestLogindReportsAnUnexpectedSessionFailure(t *testing.T) {
 
 func TestLogindLockPinsArgvAndRefusesWhatItMustNotLock(t *testing.T) {
 	ctx := context.Background()
-	// The lock call, then the confirmation read. LockedHint=yes is what makes Lock
-	// return nil: without a confirmation the chain reports ErrUnconfirmed rather than
-	// claiming a lock it cannot stand behind.
+	// Three commands, in this order: the state read before anyone is asked, the lock
+	// call, then the confirmation read. The pre-read is what makes the answer honest —
+	// LockedHint is the controlled user's own property, so a hint that already said
+	// yes before the request went out proves nothing about it (#29) — and it is why
+	// this fake has to change its answer halfway through rather than say yes
+	// throughout. A fake that always says yes now models a spoofed session, and the
+	// chain correctly refuses to credit it.
+	var reads int
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
 		if sub(argv, 0) == "show-session" {
-			return []byte("LockedHint=yes\n"), nil
+			reads++
+			if reads == 1 {
+				return []byte("LockedHint=no\n"), nil // before the request
+			}
+			return []byte("LockedHint=yes\n"), nil // the desktop caught up
 		}
 		return nil, nil
 	}}
@@ -366,11 +375,16 @@ func TestLogindLockPinsArgvAndRefusesWhatItMustNotLock(t *testing.T) {
 		t.Fatalf("Lock: %v", err)
 	}
 	wantArgv(t, r.Argvs(), [][]string{
+		{"loginctl", "--no-ask-password", "show-session", "3", "-p", "LockedHint"},
 		{"loginctl", "--no-ask-password", "lock-session", "3"},
 		{"loginctl", "--no-ask-password", "show-session", "3", "-p", "LockedHint"},
 	})
-	if c := r.Calls()[0]; c.uid != 0 || c.env != nil {
-		t.Errorf("lock ran as uid %d with env %v, want uid 0 (root) and the inherited environment", c.uid, c.env)
+	// The pre-read is logind's own read and runs as root too; what matters is that
+	// neither command drops privileges or hands the session user an inherited env.
+	for i, c := range r.Calls() {
+		if c.uid != 0 || c.env != nil {
+			t.Errorf("command %d ran as uid %d with env %v, want uid 0 (root) and the inherited environment", i, c.uid, c.env)
+		}
 	}
 
 	// Every non-lockable shape has to be refused before anything is run.

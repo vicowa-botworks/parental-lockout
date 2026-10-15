@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -78,13 +79,47 @@ func wantArgv(t testing.TB, got, want [][]string) {
 	}
 }
 
+// desktopUID is the uid every fixture session and every fixture process agrees on.
+//
+// It is a name rather than a literal because the locker corroborator matches on it: a
+// fixture that invents a locker at 1000 while the session is 1001 does not "fail to
+// corroborate for a reason", it silently tests the wrong thing. The uid check is real,
+// so the uid has to be shared on purpose.
+//
+// It is derived from the process, not written down, because the corroborator also asks
+// whether the session user could have written the binary -- and the fixture's binaries
+// are owned by whoever runs the tests. A literal that happens to equal the runner's uid
+// makes every honest tree look forgeable. GitHub-hosted ubuntu-latest runs as `runner`,
+// uid 1001, which is exactly what this constant used to be: four tests red on the runner
+// and green on any developer machine, with the tempting wrong fix being to weaken the
+// rule. See the self-check in linkExe, which refuses to run at all if the collision
+// comes back.
+var desktopUID = fixtureSessionUID()
+
+// fixtureSessionUID picks a uid that cannot be the one running the tests.
+//
+// os.Getuid()+1 is enough for the collision to be impossible in the common case, and the
+// writability rule then sees what a real machine shows: a root-owned locker the session
+// user cannot touch.
+//
+// uid 0 is refused rather than worked around. Running the suite as root makes every file
+// on the box owned by the session, so the writability rule would reject everything for a
+// reason that has nothing to do with the code under test -- and a test that always
+// rejects cannot tell an honest tree from a forged one.
+func fixtureSessionUID() uint32 {
+	if os.Getuid() == 0 {
+		return 60000
+	}
+	return uint32(os.Getuid()) + 1
+}
+
 // desktopSession is the shape logind reports for a real desktop session. Tests build
 // through it rather than spelling the fields out, because isLockable requires Class and
 // Seat and a bare Session{Type: "x11"} is now correctly refused — a session that never
 // came from a listing is not something to hand to lock-session.
 func desktopSession(id string) Session {
 	return Session{
-		ID: id, Username: "kid", UID: 1001,
+		ID: id, Username: "kid", UID: desktopUID,
 		Class: "user", Seat: "seat0", Type: "x11", State: "active",
 	}
 }
@@ -102,6 +137,27 @@ type confirming struct {
 }
 
 func (c confirming) LockConfirmed(context.Context, Session) (bool, error) { return c.yes, c.err }
+
+// corroborating is a double whose yes the chain is told to believe even when the session
+// was already reporting itself locked.
+//
+// The distinction is the whole of #29. LockedHint is written through a method login1
+// authorizes by uid alone, so "the session says it is locked" is a statement by the party
+// being locked out, and it stops being evidence about *this* lock the moment it was
+// already true beforehand. A backend that can add evidence the controlled user did not
+// put there says so through Corroborator; this is how a test says the same thing.
+//
+// Tests that want "the lock took" now have to pick one of two stories — the state changed
+// under us, or someone can prove it — and that is the point: the old double could not
+// tell them apart, which is how a pre-set hint defeated the chain.
+type corroborating struct {
+	*Mock
+	yes bool
+	err error
+}
+
+func (c corroborating) LockConfirmed(context.Context, Session) (bool, error) { return c.yes, c.err }
+func (c corroborating) Corroborated() bool                                   { return true }
 
 // backendAt takes one backend out of the chain New builds, for tests that need to
 // exercise a backend's optional interfaces. The chain is what callers hold, so this is

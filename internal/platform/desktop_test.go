@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -23,17 +24,22 @@ func TestSessionEnvTargetsTheSessionsBus(t *testing.T) {
 	t.Setenv("LC_NUMERIC", "de_DE")
 	t.Setenv("DISPLAY", ":99")
 
-	env := sessionEnv(1001)
+	env := sessionEnv(int(desktopUID))
 	got := map[string]string{}
 	for _, kv := range env {
 		k, v, _ := strings.Cut(kv, "=")
 		got[k] = v
 	}
 
-	if want := "/run/user/1001"; got["XDG_RUNTIME_DIR"] != want {
+	// Derived, never written down. These three said 1001 outright, which passed on any
+	// machine whose uid was 1000 and failed on the runner, whose uid is 1001 and whose
+	// session uid is therefore 1002 -- the same collision that put desktopUID in the
+	// first place, arriving from the other side: a literal that happens to be right
+	// locally and wrong wherever the suite actually runs.
+	if want := fmt.Sprintf("/run/user/%d", desktopUID); got["XDG_RUNTIME_DIR"] != want {
 		t.Errorf("XDG_RUNTIME_DIR = %q, want %q — the daemon's is root's and a call that used it fails as a broken desktop", got["XDG_RUNTIME_DIR"], want)
 	}
-	if want := "unix:path=/run/user/1001/bus"; got["DBUS_SESSION_BUS_ADDRESS"] != want {
+	if want := fmt.Sprintf("unix:path=/run/user/%d/bus", desktopUID); got["DBUS_SESSION_BUS_ADDRESS"] != want {
 		t.Errorf("DBUS_SESSION_BUS_ADDRESS = %q, want %q", got["DBUS_SESSION_BUS_ADDRESS"], want)
 	}
 
@@ -153,7 +159,7 @@ func TestDesktopLockRunsGdbusAsTheSessionUser(t *testing.T) {
 	if len(calls[0].env) == 0 {
 		t.Fatal("ran with an empty (inheriting) environment; the daemon's bus is not the session's")
 	}
-	if !containsEnv(calls[0].env, "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus") {
+	if !containsEnv(calls[0].env, fmt.Sprintf("DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%d/bus", desktopUID)) {
 		t.Errorf("env lacks the session bus address: %v", calls[0].env)
 	}
 }
@@ -235,7 +241,14 @@ func TestDesktopLockTriesBusNamesInOrderAndStopsAtTheFirstYes(t *testing.T) {
 // Confirmation must not use any screensaver signal. GetActive() was measured returning
 // (true,) on this desktop while it was unlocked and in active use, so a backend that
 // confirmed with it would report every lock as confirmed forever.
+//
+// The locker fixture is what lets the hint confirm at all on KDE: the hint alone is the
+// controlled user's own property (#29), so a bare yes is no longer enough here.
 func TestDesktopConfirmUsesLockedHintAndNeverAsksTheScreensaver(t *testing.T) {
+	newProcFixture(t).
+		add(7619, 6695, desktopUID, measuredKsmserver).
+		add(2224790, 7619, desktopUID, measuredLocker).
+		use()
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
 		if argv[0] == "loginctl" {
 			return []byte("LockedHint=yes\n"), nil
@@ -256,7 +269,7 @@ func TestDesktopConfirmUsesLockedHintAndNeverAsksTheScreensaver(t *testing.T) {
 		t.Fatalf("LockConfirmed: %v", err)
 	}
 	if !yes {
-		t.Error("LockedHint=yes did not confirm")
+		t.Error("LockedHint=yes with the locker running did not confirm")
 	}
 
 	for _, c := range r.Calls() {

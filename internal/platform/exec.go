@@ -60,7 +60,7 @@ var ErrBinaryNotFound = errors.New("not found in PATH")
 // service has stopped answering at all.
 //
 // What it does NOT do is bound a lock. It is a per-command bound, and one Chain.Lock
-// is many commands — measured at 17 subprocess calls when the session bus owns the
+// is many commands — measured at 18 subprocess calls when the session bus owns the
 // name and never replies, and 36 when the desktop accepts the lock but never writes
 // the hint, because every backend then runs its own settle loop. Ten seconds each is
 // 2m50s to 6m for one session, so the operation-level bound is DefaultLockBudget and
