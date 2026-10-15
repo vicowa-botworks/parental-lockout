@@ -271,6 +271,69 @@
       "old": "\t\tif extra := c.fs.Args(); len(extra) > 0 {",
       "new": "\t\tif extra := c.fs.Args(); len(extra) > 99 {",
       "note": "the unclaimed-argument guard disabled. This is the data-loss path: `plock user rm -- bob --config /tmp/test.json` drops --config on the floor and edits /etc/plock/config.json while the operator believes they named a scratch file"
+    },
+    {
+      "id": "CW1",
+      "file": "cmd/plock/doctor.go",
+      "old": "\trep.add(checkConfigWritable(*path, osAccess))\n",
+      "new": "",
+      "note": "the round-2 blocker: the writability check is written, unit-tested and documented at docs/cli.md:282, and never registered -- so a green `plock doctor` reads as \"the daemon can save this\" on a read-only mount or a full filesystem. Killed by TestDoctorRunsTheWritabilityCheck and its --json twin, both of which assert the check RUNS rather than that the check is correct."
+    },
+    {
+      "id": "CB1",
+      "file": "cmd/plock/status.go",
+      "old": "\t\trep.Backends = chain.Names()\n",
+      "new": "",
+      "note": "backends marshals as null again -- declared, documented at docs/cli.md:80, never assigned. null is worse than absent: it reads as \"this machine offers nothing\" rather than \"this command did not ask\"."
+    },
+    {
+      "id": "CB2",
+      "file": "cmd/plock/status.go",
+      "old": "\t\trep.UnknownBackends = chain.Unknown()\n",
+      "new": "",
+      "note": "a typo in settings.lockBackends reaches the text report through Warnings but vanishes from the JSON field a monitoring job reads"
+    },
+    {
+      "id": "CB3",
+      "file": "cmd/plock/status.go",
+      "old": "\t\tr.Field(\"backends\", \"none \u2014 settings.lockBackends is empty, so nothing can be locked\")",
+      "new": "\t\tr.Field(\"backends\", strings.Join(rep.Backends, \" -> \"))",
+      "note": "an empty backend list renders as a bare `backends` label, which is the exact shape the never-assigned field produced. Killed only by an assertion scoped to the backends LINE: a whole-output Contains(out, \"none\") is satisfied by the unrelated \"none \u2014 the config has no users\" line, and that version of the test passed against this mutant."
+    },
+    {
+      "id": "CH1",
+      "file": "cmd/plock/help_flags_test.go",
+      "old": "\t\treturn concatStrings(v.X) + concatStrings(v.Y)\n",
+      "new": "\t\treturn \"\"\n",
+      "note": "stop folding a concatenated *Usage const. unlockUsage is built with `+`, so it disappears from the text map and every flag beside it -- including --minutes -- goes unchecked while the test reports itself as covering the package. This is the blindness the reviewer found, pinned so a future refactor cannot reintroduce it as a tidy-up."
+    },
+    {
+      "id": "CH2",
+      "file": "cmd/plock/help_flags_test.go",
+      "old": "\t\tif lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {\n",
+      "new": "\t\tif sel.Sel.Name != \"Bool\" && sel.Sel.Name != \"String\" {\n\t\t\treturn true\n\t\t}\n\t\tif lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {\n",
+      "note": "restore the flag-kind allowlist. fs.Int(\"minutes\") sits outside it again, so --minutes leaves the checked set and its help text becomes unenforced. The rule is structural now -- any FlagSet method whose first argument is a string literal declares a flag -- precisely so a new kind cannot be silently unlisted."
+    },
+    {
+      "id": "CH3",
+      "file": "cmd/plock/help_flags_test.go",
+      "old": "\t\t\tcase \"newFlagSet\":\n\t\t\t\tkey = \".fs\"\n",
+      "new": "",
+      "note": "forget the package's own FlagSet helper. manage.go declares its flags on `c.fs`, a selector rather than the plain `fs` identifier, so all eight profile/user flags become invisible to the documentation test."
+    },
+    {
+      "id": "CH4",
+      "file": "cmd/plock/help_flags_test.go",
+      "old": "\t\t\t\t\t\t\tif id := usageArgIn(rhs); id != \"\" {\n\t\t\t\t\t\t\t\tusage = id\n\t\t\t\t\t\t\t}\n",
+      "new": "\t\t\t\t\t\t\t_ = rhs\n",
+      "note": "stop reading newFlagSet's usage argument. The flags are still collected and then thrown away, because declaredFlags drops any function whose const it cannot resolve -- so the documentation test checks less and still passes. Killed by the attribution guard, which asks whether every declared flag reached a const. The body keeps `rhs` read: an unused variable is a build failure, and the runner reports that as a non-zero exit like any other catch."
+    },
+    {
+      "id": "CH5",
+      "file": "cmd/plock/help_flags_test.go",
+      "old": "\t\tisSynopsis := i < synopsisEnd ||\n",
+      "new": "\t\tisSynopsis := i == 0 || i < synopsisEnd && false ||\n",
+      "note": "narrow the synopsis back to line prefixes. profileUsage wraps a long invocation and its continuation line carries [--all-day] [--disable], which a `plock ` prefix test cannot see -- that version reported two documented flags as missing. Kept used so the mutant is a narrowing, not a compile error."
     }
   ]
 }

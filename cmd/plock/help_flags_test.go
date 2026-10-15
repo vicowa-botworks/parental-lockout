@@ -36,10 +36,19 @@ func TestEveryDeclaredFlagIsNamedInItsCommandsHelp(t *testing.T) {
 	for usageConst, flags := range flagsByUsage {
 		body, ok := texts[usageConst]
 		if !ok {
-			// Not every command binds its flags through a *Usage const (serve builds no
-			// help topic of its own). Saying so is honest; failing would mean this test
-			// owns a convention it cannot check.
-			t.Logf("%s: no usage text found for the flags declared alongside it", usageConst)
+			// An error, not a log line. This branch is where `unlockUsage` hid: the const is
+			// built by concatenation, so the walker never put it in the map, the flags
+			// declared beside it were silently skipped, and the test still reported itself as
+			// covering the package -- deleting --minutes from unlock's help stayed green.
+			//
+			// The original excuse ("not every command binds its flags through a *Usage const")
+			// was never what this branch was for. declaredFlags only records a const that some
+			// function actually assigns to fs.Usage, so a name in this map is by construction a
+			// const that exists and is in use. If its text cannot be read, the walker is blind
+			// and that is the failure this test exists to report.
+			t.Errorf("%s is assigned to a command's fs.Usage and that command declares flags, "+
+				"but usageTexts found no text for it -- the walker is blind to this const, so "+
+				"every flag beside it is unchecked", usageConst)
 			continue
 		}
 		for _, name := range flags {
@@ -64,9 +73,27 @@ func TestEveryDeclaredFlagIsNamedInItsCommandsHelp(t *testing.T) {
 // of is not documented.
 func documented(usage, name string) bool {
 	dash := "--" + name
-	for i, l := range strings.Split(usage, "\n") {
+	lines := strings.Split(usage, "\n")
+	// The synopsis is the block before the first blank line, not merely the lines that begin
+	// with `plock `. `profileUsage` wraps a long invocation:
+	//
+	//       plock profile rule add <id> <rule-id> --days LIST --start HH:MM --end HH:MM
+	//                                       [--name TEXT] [--all-day] [--disable]
+	//
+	// and a rule keyed on the line prefix cannot see the continuation, so it reported two
+	// documented flags as missing. Everything above the first blank line is an invocation by
+	// construction in this package's help text, and prose only ever starts after it -- so
+	// widening to the block costs nothing the prose rule was protecting.
+	synopsisEnd := len(lines)
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			synopsisEnd = i
+			break
+		}
+	}
+	for i, l := range lines {
 		trimmed := strings.TrimSpace(l)
-		isSynopsis := i == 0 ||
+		isSynopsis := i < synopsisEnd ||
 			strings.HasPrefix(trimmed, "usage:") ||
 			strings.HasPrefix(trimmed, "plock ") ||
 			strings.HasPrefix(trimmed, "Usage:")
@@ -99,15 +126,12 @@ func declaredFlags(t *testing.T) map[string][]string {
 				continue
 			}
 			var usage string
-			var names []string
-			// Which locals in this function are FlagSets. Found by looking for the
-			// assignment from flag.NewFlagSet rather than by matching the name `fs`, so a
-			// command that names its FlagSet something else is still covered and a
-			// coincidentally-named variable is not.
-			flagSets := flagSetVars(fn)
+			names := flagNamesIn(fn)
 			ast.Inspect(fn, func(n ast.Node) bool {
-				switch e := n.(type) {
-				case *ast.AssignStmt:
+				// Only assignments are interesting here: this is the half that pairs a command
+				// with its help const. The flag declarations themselves are collected by
+				// flagNamesIn, which the coverage test calls too.
+				if e, ok := n.(*ast.AssignStmt); ok {
 					// fs.Usage = func() { ... lockUsage ... }
 					for i, rhs := range e.Rhs {
 						if !strings.Contains(exprString(e.Lhs[i]), "Usage") {
@@ -117,26 +141,16 @@ func declaredFlags(t *testing.T) map[string][]string {
 							usage = id
 						}
 					}
-				case *ast.CallExpr:
-					sel, ok := e.Fun.(*ast.SelectorExpr)
-					if !ok || len(e.Args) == 0 {
-						break
-					}
-					if !flagSets[exprString(sel.X)] {
-						break
-					}
-					// Deliberately NOT an allowlist of flag kinds. The first version named
-					// Bool and String, and `fs.Int("minutes", …)` in unlock.go sat outside
-					// it -- so deleting --minutes from unlock's help text stayed green, which
-					// is the same bug this test was written for. The rule is now structural:
-					// any method on the FlagSet whose first argument is a string literal is
-					// declaring a flag. That covers String/Bool/Int and the Var forms today,
-					// and a kind added later is covered without anyone remembering to edit a
-					// list. Every other FlagSet method is excluded by construction -- Arg,
-					// Args, Name, NArg, Parse and SetOutput none of them take a string
-					// literal first.
-					if lit, ok := e.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-						names = append(names, strings.Trim(lit.Value, `"`))
+					// c := newFlagSet("profile add", profileUsage, false) -- the usage text is
+					// an argument here, so a walker that only reads fs.Usage never learns which
+					// const this command's help is, and the flags beside it have nothing to be
+					// checked against.
+					if usage == "" {
+						for _, rhs := range e.Rhs {
+							if id := usageArgIn(rhs); id != "" {
+								usage = id
+							}
+						}
 					}
 				}
 				return true
@@ -221,7 +235,59 @@ func sourceFiles(t *testing.T) []string {
 	return out
 }
 
-// flagSetVars returns the identifiers in a function bound from flag.NewFlagSet.
+// flagNamesIn returns every flag name one command function declares.
+//
+// Both the documentation test and its coverage guard call THIS function, and that is the whole
+// point of it being a function. The coverage test used to carry its own inline traversal, so
+// restoring the Bool/String allowlist here left it green: a guard that re-implements the thing
+// it guards cannot see that thing narrow.
+//
+// Deliberately NOT an allowlist of flag kinds. The first version named Bool and String, and
+// `fs.Int("minutes", …)` in unlock.go sat outside it -- so deleting --minutes from unlock's
+// help text stayed green, which is the same bug this test was written for. The rule is
+// structural: any method on a FlagSet whose first argument is a string literal declares a
+// flag. That covers String/Bool/Int and the Var forms today, and a kind added later is covered
+// without anyone remembering to edit a list. Every other FlagSet method is excluded by
+// construction -- Arg, Args, Name, NArg, Parse and SetOutput take no string literal first.
+func flagNamesIn(fn *ast.FuncDecl) []string {
+	var names []string
+	// Which expressions in this function evaluate to a FlagSet, found by looking for the
+	// assignment from flag.NewFlagSet or the package's own newFlagSet helper rather than by
+	// matching the name `fs`, so a command that names its FlagSet something else is still
+	// covered and a coincidentally-named variable is not.
+	flagSets := flagSetVars(fn)
+	ast.Inspect(fn, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || !flagSets[exprString(sel.X)] {
+			return true
+		}
+		if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			names = append(names, strings.Trim(lit.Value, `"`))
+		}
+		return true
+	})
+	return names
+}
+
+// flagSetVars returns the expressions in a function that evaluate to a FlagSet.
+//
+// Two idioms exist in this package and both have to be recognised, because a receiver that is
+// not in this set is skipped and every flag behind it goes unchecked:
+//
+//	fs := flag.NewFlagSet(...)   -> the receiver is the identifier `fs`
+//	c  := newFlagSet(...)        -> the receiver is the selector `c.fs`
+//
+// The second is manage.go's shared helper, which returns a cmdFlags struct holding the
+// FlagSet in its fs field. Missing it is what left profile and user's eight flags outside the
+// documentation check while the test reported itself as covering the package.
+//
+// The helper is matched by name rather than by return type because the AST has no type
+// information here; if the helper is ever renamed, the coverage test
+// TestTheFlagWalkerSeesEveryFlagThePackageDeclares fails rather than quietly narrowing.
 func flagSetVars(fn *ast.FuncDecl) map[string]bool {
 	out := map[string]bool{}
 	ast.Inspect(fn, func(n ast.Node) bool {
@@ -234,18 +300,41 @@ func flagSetVars(fn *ast.FuncDecl) map[string]bool {
 			if !ok {
 				continue
 			}
-			if exprString(call.Fun) != "flag.NewFlagSet" {
+			var key string
+			switch exprString(call.Fun) {
+			case "flag.NewFlagSet":
+				key = ""
+			case "newFlagSet":
+				key = ".fs"
+			default:
 				continue
 			}
 			for _, lhs := range as.Lhs {
 				if id, ok := lhs.(*ast.Ident); ok {
-					out[id.Name] = true
+					out[id.Name+key] = true
 				}
 			}
 		}
 		return true
 	})
 	return out
+}
+
+// usageArgIn returns the *Usage identifier passed as newFlagSet's second argument.
+//
+// Positional rather than searched, on purpose: newFlagSet's first argument is the command's
+// name, which is a string literal and could be anything, and a subtree search over the whole
+// call would also pick up the `usage` parameter name inside the helper's own body. Naming the
+// slot is what keeps this from matching a call that has nothing to do with help text.
+func usageArgIn(e ast.Expr) string {
+	call, ok := e.(*ast.CallExpr)
+	if !ok || exprString(call.Fun) != "newFlagSet" || len(call.Args) < 2 {
+		return ""
+	}
+	if id, ok := call.Args[1].(*ast.Ident); ok && strings.HasSuffix(id.Name, "Usage") {
+		return id.Name
+	}
+	return ""
 }
 
 // concatStrings rebuilds the text of a string expression that may be a concatenation of
