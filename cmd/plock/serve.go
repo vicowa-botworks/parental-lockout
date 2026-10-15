@@ -71,6 +71,22 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		return 1
 	}
 
+	// The one line that is always printed, on the stream the operator redirects.
+	//
+	// It exists for two reasons. The first is the one this package has already been
+	// bitten by: a process that starts and a process that does not look identical in
+	// a log that records only exceptions, so "did the daemon even come up" was
+	// answerable only by watching a screen stay locked. The second is narrower and
+	// the reason the config path is in the text: --config pointing at the wrong file
+	// is the one mistake that reads as success, because the wrong document still
+	// loads, still validates, and still gets written back. Naming the file that was
+	// opened turns that into a line a reader catches on the first start.
+	//
+	// It goes before the backend probe deliberately. A start that later refuses is
+	// still a start that was attempted, and the path is the thing being questioned in
+	// that case too.
+	fmt.Fprintf(stdout, "plock serve: starting, config %s\n", *path)
+
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

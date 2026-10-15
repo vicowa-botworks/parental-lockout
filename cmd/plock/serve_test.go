@@ -310,16 +310,64 @@ func TestServeWarnsEveryTimeTLSIsOff(t *testing.T) {
 func TestTheTLSSWarningIsNotOnStdout(t *testing.T) {
 	out, errOut, _, _ := startServe(t)
 	waitFor(t, errOut, "TLS IS DISABLED", 10*time.Second)
-	// The daemon writes its startup banner to stdout, so by the time the warning has
-	// appeared there is something to compare against; an empty stdout would make this
-	// pass for the wrong reason.
-	if !strings.Contains(out.String(), "plock serve") {
-		t.Errorf("stdout is empty, so this test cannot tell a split from a silence: %q", out.String())
+	// Something else must already be on stdout, or this passes for the wrong reason:
+	// "the warning is not on stdout" is only evidence of a split when stdout is
+	// carrying something.
+	//
+	// The line asserted on is the startup line, which is printed unconditionally. It
+	// used to assert on any "plock serve" text, and that was true only on a machine
+	// where a lock backend answered the probe -- the backend-available line is
+	// conditional. On a headless runner stdout held nothing but the engine's own
+	// startup, so the test failed here and passed on the author's desktop, which is
+	// the shape of mistake this project keeps being shown.
+	if !strings.Contains(out.String(), "starting, config") {
+		t.Errorf("stdout carries no unconditional startup line, so this test cannot tell a split from a silence: %q", out.String())
 	}
 	if strings.Contains(out.String(), "TLS IS DISABLED") {
 		t.Errorf("the warning is on stdout, the stream an operator redirects away: %q", out.String())
 	}
 
+}
+
+// A daemon that comes up says so, and says which config it opened.
+//
+// Both halves are load-bearing. The announcement is the only evidence in a log that
+// the process started at all, because everything else this daemon writes is an
+// exception. The path is the guard against the one mistake that looks like success:
+// a wrong --config still loads, still validates, and still gets written back, so the
+// operator gets a healthy-looking dashboard for a document nobody meant to edit.
+func TestServeAnnouncesItsStart(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeServeConfig(t, dir)
+	var out, errOut syncBuffer
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	code := make(chan int, 1)
+	go func() {
+		code <- runServeContext(ctx, &out, &errOut, []string{
+			"--config", cfgPath, "--state-dir", dir,
+			"--audit-path", filepath.Join(dir, "audit.jsonl"),
+		})
+	}()
+
+	waitFor(t, &out, "starting, config", 10*time.Second)
+	if !strings.Contains(out.String(), "plock serve") {
+		t.Errorf("the startup line does not identify the program: %q", out.String())
+	}
+	// The exact path, not merely the word "config". The line exists to catch a start
+	// against the wrong document, and an assertion that any path-looking text
+	// appears would survive the line naming a file nobody asked for.
+	if !strings.Contains(out.String(), cfgPath) {
+		t.Errorf("the startup line does not name the config that was opened (%s): %q", cfgPath, out.String())
+	}
+
+	cancel()
+	select {
+	case <-code:
+	case <-time.After(15 * time.Second):
+		t.Error("serve did not exit after cancel")
+	}
 }
 
 // The warning has to arrive through the sink the caller configured, not the default

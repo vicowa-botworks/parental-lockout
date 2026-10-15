@@ -397,6 +397,14 @@
       "new": "\tif err := error(nil); err != nil {",
       "note": "the audit pre-flight removed: the writer opens lazily, so an unwritable trail surfaces as the first dropped event hours later instead of as a startup failure the operator who can fix it is standing in front of",
       "package": "./cmd/plock/"
+    },
+    {
+      "id": "W53",
+      "file": "cmd/plock/serve.go",
+      "old": "\tfmt.Fprintf(stdout, \"plock serve: starting, config %s\\n\", *path)",
+      "new": "\t_, _ = fmt.Fprintf(io.Discard, \"plock serve: starting, config %s\\n\", *path)",
+      "package": "./cmd/plock/",
+      "note": "the startup line sent nowhere. This is the guard whose absence broke CI and not the author's desktop: it is the only stdout write that does not depend on a lock backend answering the probe, so TestTheTLSSWarningIsNotOnStdout's premise -- that stdout carries something before the warning -- was quietly a fact about the machine. A daemon whose log records only exceptions does not say it came up, and does not say which config it opened, which is the one mistake that reads as success"
     }
   ]
 }
