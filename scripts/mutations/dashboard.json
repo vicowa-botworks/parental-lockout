@@ -1,0 +1,199 @@
+{
+  "package": "./internal/dashboard/",
+  "note": "The dashboard decides what a parent is told about the machine. Its mutants are the wrong sentences, not generic operator swaps.",
+  "mutants": [
+    {
+      "id": "B1",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\tcase !v.EnforcementOn:\n\t\t\tr.ScheduledButNotEnforcing = verdict.Active\n",
+      "new": "",
+      "package": "./internal/dashboard/",
+      "note": "the master switch stops being consulted, so a daemon with enforcement off tells the parent the child is sitting at a locked screen when nothing will touch it"
+    },
+    {
+      "id": "B2",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\tcase r.OverrideActive:\n\t\t\tr.ScheduledButNotEnforcing = verdict.Active\n",
+      "new": "",
+      "package": "./internal/dashboard/",
+      "note": "an open override stops suppressing the row, so the unlock the parent just granted shows as still-locked-out"
+    },
+    {
+      "id": "B3",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\tcase !r.Enabled:\n",
+      "new": "\t\tcase false && !r.Enabled:\n",
+      "package": "./internal/dashboard/",
+      "note": "the account's own switch stops being consulted. Distinct from B1: the fix is a checkbox on this row, not the daemon-wide kill switch"
+    },
+    {
+      "id": "B4",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\t\tr.LockedOutNow = verdict.Active\n",
+      "new": "\t\t\tr.LockedOutNow = true\n",
+      "package": "./internal/dashboard/",
+      "note": "every row that reaches the default branch claims to be held, whatever the schedule says"
+    },
+    {
+      "id": "B5",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\t\tr.CannotEvaluate = true\n",
+      "new": "",
+      "package": "./internal/dashboard/",
+      "note": "a managed account whose profile is gone is rendered as an ordinary 'not locked out', which is the fail-open reading of a broken configuration"
+    },
+    {
+      "id": "B6",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\t\tfor _, e := range errs {\n\t\t\t\tr.Problems = append(r.Problems, e.Error())\n\t\t\t}",
+      "new": "\t\t\t_ = errs",
+      "package": "./internal/dashboard/",
+      "note": "a profile read in the machine's zone because its own did not resolve keeps its verdict and loses the warning, so the parent believes a fallback is their setting"
+    },
+    {
+      "id": "B7",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\tif r.ScheduledButNotEnforcing || r.CannotEvaluate {\n\t\t\tv.NotEnforcing++\n\t\t}",
+      "new": "\t\tif r.CannotEvaluate {\n\t\t\tv.NotEnforcing++\n\t\t}",
+      "package": "./internal/dashboard/",
+      "note": "a schedule being silently unenforced stops counting as a gap in coverage"
+    },
+    {
+      "id": "B8",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\tif r.LockedOutNow {\n\t\t\tv.LockedOut++\n\t\t}",
+      "new": "\t\tif r.LockedOutNow || r.ScheduledButNotEnforcing {\n\t\t\tv.LockedOut++\n\t\t}",
+      "package": "./internal/dashboard/",
+      "note": "the count of held accounts includes accounts that are not being held, so the headline number disagrees with every row under it"
+    },
+    {
+      "id": "B9",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tif o.Until.After(now) {\n\t\tr.OverrideActive = true\n\t\treturn\n\t}",
+      "new": "\tif true {\n\t\tr.OverrideActive = true\n\t\treturn\n\t}",
+      "package": "./internal/dashboard/",
+      "note": "an expired override keeps suppressing enforcement forever, which is a permanent unlock granted by a fifteen-minute one"
+    },
+    {
+      "id": "B10",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tif o == nil {\n\t\treturn\n\t}",
+      "new": "\tif o == nil {\n\t\tr.OverrideExpired = true\n\t\treturn\n\t}",
+      "package": "./internal/dashboard/",
+      "note": "every account without an override is shown as having had one that ran out, which is the same lie told in the other direction from B11"
+    },
+    {
+      "id": "B11",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tr.OverrideExpired = true\n",
+      "new": "",
+      "package": "./internal/dashboard/",
+      "note": "an override that ran out vanishes from the row, so a parent cannot tell 'nobody unlocked this child' from 'the unlock I made twenty minutes ago expired'"
+    },
+    {
+      "id": "B12",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tif !v.Active {\n\t\treturn \"\", time.Time{}, v.NextStart\n\t}",
+      "new": "\tif false {\n\t\treturn \"\", time.Time{}, v.NextStart\n\t}",
+      "package": "./internal/dashboard/",
+      "note": "an inactive row carries the verdict's end time and rule name",
+      "equivalent": "equivalent today, and kept as insurance: schedule.Evaluate assigns EndsAt and Rule only inside the branch that sets Active (schedule.go:175-180), so an inactive verdict's are already zero and nil and the guard changes no output. It stays because the row's contract should not depend on an upstream invariant that a future 'next end' field would silently break -- and if that field ever appears, this mutant stops being equivalent and starts being a real catch"
+    },
+    {
+      "id": "B13",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tif v.Rule != nil {\n\t\tname = v.Rule.Name\n\t}",
+      "new": "\tif v.Rule != nil {\n\t\tname = v.Rule.ID\n\t}",
+      "package": "./internal/dashboard/",
+      "note": "the row names the rule's id instead of the name the parent typed, so the banner quotes a slug"
+    },
+    {
+      "id": "B14",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\t\tbyName[s.Username] = append(byName[s.Username], s)",
+      "new": "\t\t_ = s\n\t\tbyName[\"\"] = append(byName[\"\"], s)",
+      "package": "./internal/dashboard/",
+      "note": "every session lands on one bucket, so a child's row shows somebody else's locked screen"
+    },
+    {
+      "id": "B15",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tsort.SliceStable(rows, func(i, j int) bool { return rows[i].Username < rows[j].Username })",
+      "new": "\t_ = sort.SliceStable",
+      "package": "./internal/dashboard/",
+      "note": "rows come back in config order, so the page reorders itself between two loads on a phone"
+    },
+    {
+      "id": "B16",
+      "file": "internal/dashboard/banner.go",
+      "old": "\tif !v.EnforcementOn {",
+      "new": "\tif false && !v.EnforcementOn {",
+      "package": "./internal/dashboard/",
+      "note": "the banner quotes a lockout time while the daemon is switched off, which is a time at which nothing happens"
+    },
+    {
+      "id": "B17",
+      "file": "internal/dashboard/banner.go",
+      "old": "\tif held := v.heldRows(); len(held) > 0 {\n\t\treturn v.heldBanner(held)\n\t}",
+      "new": "\tif held := v.heldRows(); false && len(held) > 0 {\n\t\treturn v.heldBanner(held)\n\t}",
+      "package": "./internal/dashboard/",
+      "note": "a held account produces the 'nobody is locked out' banner, the single most damaging sentence this page can print"
+    },
+    {
+      "id": "B18",
+      "file": "internal/dashboard/banner.go",
+      "old": "\tif first.RuleName != \"\" {\n\t\tfmt.Fprintf(&b, \" by %q\", first.RuleName)\n\t}",
+      "new": "\tif false {\n\t\tfmt.Fprintf(&b, \" by %q\", first.RuleName)\n\t}",
+      "package": "./internal/dashboard/",
+      "note": "the banner gives a time but not the rule, so the school-night rule and the weekend rule the parent forgot cannot be told apart"
+    },
+    {
+      "id": "B19",
+      "file": "internal/dashboard/banner.go",
+      "old": "\tif !first.EndsAt.IsZero() {\n\t\tfmt.Fprintf(&b, \" until %s\", wallClock(first.EndsAt))\n\t}",
+      "new": "\tif false {\n\t\tfmt.Fprintf(&b, \" until %s\", wallClock(first.EndsAt))\n\t}",
+      "package": "./internal/dashboard/",
+      "note": "the banner says who is held and never says for how long"
+    },
+    {
+      "id": "B20",
+      "file": "internal/dashboard/banner.go",
+      "old": "\tif len(held) > 1 {\n\t\tfmt.Fprintf(&b, \", and %d other accounts with it\", len(held)-1)\n\t}",
+      "new": "\tif false {\n\t\tfmt.Fprintf(&b, \", and %d other accounts with it\", len(held)-1)\n\t}",
+      "package": "./internal/dashboard/",
+      "note": "the banner names one held child and stays silent about the others, so a parent fixing the named one leaves the rest locked"
+    },
+    {
+      "id": "B21",
+      "file": "internal/dashboard/banner.go",
+      "old": "\t\tif r.NextLockAt.IsZero() || !r.Enabled {",
+      "new": "\t\tif r.NextLockAt.IsZero() {",
+      "package": "./internal/dashboard/",
+      "note": "a disabled account supplies the 'locked out again at' time, announcing a lockout that will never happen"
+    },
+    {
+      "id": "B22",
+      "file": "internal/dashboard/banner.go",
+      "old": "\t\tif who == \"\" || r.NextLockAt.Before(when) {",
+      "new": "\t\tif who == \"\" {",
+      "package": "./internal/dashboard/",
+      "note": "the first row wins regardless of when it opens, so the banner quotes a later window than the one that is actually next"
+    },
+    {
+      "id": "B23",
+      "file": "internal/dashboard/banner.go",
+      "old": "\treturn t.Format(\"15:04\")",
+      "new": "\treturn t.UTC().Format(\"15:04\")",
+      "package": "./internal/dashboard/",
+      "note": "the clock is rendered in UTC rather than the profile's own zone, so a child on another zone is shown a minute that is not the minute their screen locks"
+    },
+    {
+      "id": "B24",
+      "file": "internal/dashboard/banner.go",
+      "old": "\tif v.NotEnforcing > 0 {",
+      "new": "\tif false && v.NotEnforcing > 0 {",
+      "package": "./internal/dashboard/",
+      "note": "with nothing scheduled and a profile that could not be read, the banner says no window is scheduled -- the fail-open reading of a broken profile"
+    }
+  ]
+}
