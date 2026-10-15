@@ -508,6 +508,14 @@ func (e *Engine) Run(ctx context.Context) error {
 		changes = config.Watch(e.Path, e.watchInterval(), watchDone)
 	}
 
+	// Saying that enforcement started, and at what period, is the difference between
+	// a daemon that is enforcing and a daemon that merely came up. Before this there
+	// was no line at all: Run logged only its exceptions, so a build wired without
+	// the loop was indistinguishable in the journal from one running quietly and
+	// correctly. The period belongs in the sentence because an operator watching a
+	// screen that will not lock needs to know whether they are waiting 5s or 5m.
+	e.logf("enforce: running, every %v, config %s", e.interval(), e.Path)
+
 	e.startTick(ctx, &wg)
 
 	for {

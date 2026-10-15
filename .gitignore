@@ -5,6 +5,11 @@
 # tree next to the package it built. It is not an artefact anybody wants tracked.
 *.exe
 
+# The same artefact with no extension at all, which is what `go build ./cmd/plock`
+# leaves on a unix host. It has been committed twice by `git add -A` after a build
+# run to check a mutation compiles, and a 10 MB binary in a PR is not reviewable.
+/plock
+
 # Test and coverage artefacts
 *.test
 *.out

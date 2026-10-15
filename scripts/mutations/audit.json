@@ -359,6 +359,13 @@
       "old": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)",
       "new": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)",
       "note": "the reader follows a symlink out of the audit directory, turning a reader into a disclosure primitive"
+    },
+    {
+      "id": "A55",
+      "file": "internal/audit/audit.go",
+      "old": "SessionID: r.SessionID, RuleID: r.RuleID, RuleName: r.RuleName,",
+      "new": "SessionID: r.SessionID, RuleID: r.RuleID,",
+      "note": "RuleName dropped from the serialised line: Record still carries it, so every compile stays green and the trail quietly loses the only half of 'which rule' a parent can read -- RuleID survives a rename but names nothing a human recognises"
     }
   ]
 }
