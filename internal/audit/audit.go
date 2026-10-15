@@ -273,13 +273,6 @@ func (w *Writer) marshal(r Record) ([]byte, error) {
 	return append(blob, '\n'), nil
 }
 
-// open gets a descriptor on the audit file, creating the directory and the file
-// with their final modes.
-//
-// The directory is created before the file because the file's mode is set by the
-// open itself: there is no window in which the trail exists and is world-readable,
-// which a create-then-chmod would open on a filesystem where the umask is not what
-// we assumed.
 // Open forces the lazy open to happen now.
 //
 // Write opens on demand, which is right for a caller that just wants to append. A
@@ -294,6 +287,13 @@ func (w *Writer) Open() error {
 	return w.open()
 }
 
+// open gets a descriptor on the audit file, creating the directory and the file
+// with their final modes.
+//
+// The directory is created before the file because the file's mode is set by the
+// open itself: there is no window in which the trail exists and is world-readable,
+// which a create-then-chmod would open on a filesystem where the umask is not what
+// we assumed.
 func (w *Writer) open() error {
 	if w.f != nil {
 		return nil

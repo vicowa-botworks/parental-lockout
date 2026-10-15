@@ -124,8 +124,6 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 	// the machine every CI runner is. The daemon came up, announced that enforcement
 	// was running, served the admin UI, and could lock nobody.
 	//
-	// Refusing here also happens before the audit trail is opened and before the
-	// listener is bound, so a refusal leaves nothing behind to unwind.
 	usable := 0
 	if chain != nil {
 		for _, st := range chain.Probe(ctx) {
@@ -138,6 +136,28 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		}
 	}
 
+	// The condition is "nothing answered the probe", not "no backend was configured"
+	// and not "the chain is nil". platform.New always returns a Chain, so a nil check
+	// here could never fire; and an empty Names() list is a config typo, which is the
+	// least dangerous of the three because the operator gets an error line naming the
+	// unknown backend. What has to be refused is a machine where every configured
+	// backend is present and broken: that is the one that looks healthy from outside.
+	//
+	// A partial chain stays allowed, and that is what the per-backend lines above are
+	// for -- refusing to start on a machine with no GNOME would make the product
+	// unusable on the one it is for.
+	// The position is part of the guarantee, not a convenience: this is the last point at
+	// which the daemon can refuse without leaving something behind. Below it sit web.New,
+	// which starts warning about a transport for a daemon that will never serve, and
+	// trail.Open(), which creates the audit directory and the file. A refusal that opens a
+	// trail leaves a 0-byte audit.jsonl on a machine that never enforced anything -- an
+	// artifact in the one place the operator looks to find out what happened. The sentence
+	// used to live up by the probe loop and describe a placement the code did not have;
+	// TestARefusalLeavesNoAuditTrailBehind is what keeps it true now.
+	if usable == 0 {
+		fmt.Fprintf(stderr, "plock serve: no usable lock backend, so there is nothing to enforce; refusing to start\n")
+		return 1
+	}
 	srv, err := web.New(web.Options{
 		Listen:   cfg.Settings.Listen,
 		TLSMode:  cfg.Settings.TLS,
@@ -188,20 +208,6 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		}
 	}
 
-	// The condition is "nothing answered the probe", not "no backend was configured"
-	// and not "the chain is nil". platform.New always returns a Chain, so a nil check
-	// here could never fire; and an empty Names() list is a config typo, which is the
-	// least dangerous of the three because the operator gets an error line naming the
-	// unknown backend. What has to be refused is a machine where every configured
-	// backend is present and broken: that is the one that looks healthy from outside.
-	//
-	// A partial chain stays allowed, and that is what the per-backend lines above are
-	// for -- refusing to start on a machine with no GNOME would make the product
-	// unusable on the one it is for.
-	if usable == 0 {
-		fmt.Fprintf(stderr, "plock serve: no usable lock backend, so there is nothing to enforce; refusing to start\n")
-		return 1
-	}
 	engine := enforce.New(*path, chain, auditSink{w: trail})
 	engine.Logf = logf(stdout)
 

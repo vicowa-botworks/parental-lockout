@@ -358,6 +358,38 @@ func TestServeRefusesToStartWhenEveryBackendIsPresentAndBroken(t *testing.T) {
 	}
 }
 
+// A refusal has to leave nothing behind, and the audit trail is the artifact that matters.
+//
+// The guard used to sit below trail.Open(), so a daemon that refused to start still
+// created the audit directory and a 0-byte audit.jsonl. That is a record in the one place
+// the operator looks to find out what the daemon did, on a machine where the daemon
+// enforced nothing -- and the comment above the guard asserted the opposite, in words,
+// with no test anywhere near it.
+//
+// So the assertion is on the filesystem, not on the log: the refusal is the last thing
+// that happens, and the trail is not among its effects.
+func TestARefusalLeavesNoAuditTrailBehind(t *testing.T) {
+	installServeRunner(t, brokenLoginctl)
+	dir := t.TempDir()
+	cfgPath := writeServeConfig(t, dir)
+	auditPath := filepath.Join(dir, "trail", "audit.jsonl")
+
+	var out, errOut syncBuffer
+	if code := refuseWithin(t, &out, &errOut, []string{
+		"--config", cfgPath, "--state-dir", dir, "--audit-path", auditPath,
+	}); code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if _, err := os.Stat(auditPath); err == nil {
+		t.Errorf("the refusal created %s: a 0-byte audit file on a machine that enforced nothing", auditPath)
+	} else if !os.IsNotExist(err) {
+		t.Errorf("stat %s: %v", auditPath, err)
+	}
+	if _, err := os.Stat(filepath.Dir(auditPath)); err == nil {
+		t.Errorf("the refusal created %s/: the trail directory is the daemon's, and it never opened one", filepath.Dir(auditPath))
+	}
+}
+
 // The other side of the guard: a machine that can lock somebody must come up, and
 // must not be talked out of it by a backend that merely is not installed.
 //
