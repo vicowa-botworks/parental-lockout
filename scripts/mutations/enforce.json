@@ -196,6 +196,13 @@
       "file": "internal/enforce/enforce.go"
     },
     {
+      "id": "F25",
+      "file": "internal/enforce/run_test.go",
+      "old": "\t\te.mu.Unlock()\n\t\tinFlight <- rep\n",
+      "new": "\t\tinFlight <- rep\n\t\te.mu.Unlock()\n",
+      "note": "the in-flight tick announces itself while still holding e.mu, so the test's own TryTick -- which uses TryLock, deliberately -- can be refused at the moment the test asserts it must succeed. Nothing else in the package notices: the product behaviour is unchanged and only CI fails, one run in several, on a runner that schedules the next line before the deferred unlock. Measured: 240 failures in 240 runs with the window widened, 0 in 240 with the unlock first."
+    },
+    {
       "id": "F26",
       "package": "./internal/enforce/",
       "file": "internal/enforce/enforce.go",
