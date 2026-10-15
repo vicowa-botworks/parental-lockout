@@ -48,7 +48,7 @@
       "file": "internal/enforce/enforce.go",
       "old": "\t\tst.unenforceableReported = false\n\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
       "new": "\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
-      "note": "EQUIVALENT, and here is the proof: for the flag to be set, a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false \u2014 so the very next statement deletes the state entry and the next lockout starts from a fresh one. No input reaches the release with flag set and the entry kept. The line stays as insurance against a future change to that delete condition; TestASecondLockoutReEscalates pins the behaviour it protects, via the delete.  release() stops clearing unenforceableReported. Proven equivalent, and kept as insurance: for the flag to be set a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false -- so the very next statement deletes the entry and the next lockout starts fresh. No input reaches the release with the flag set and the entry kept. Anchored on code only, because a pattern spanning a comment breaks whenever the prose is improved.",
+      "note": "EQUIVALENT, and here is the proof: for the flag to be set, a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false — so the very next statement deletes the state entry and the next lockout starts from a fresh one. No input reaches the release with flag set and the entry kept. The line stays as insurance against a future change to that delete condition; TestASecondLockoutReEscalates pins the behaviour it protects, via the delete.  release() stops clearing unenforceableReported. Proven equivalent, and kept as insurance: for the flag to be set a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false -- so the very next statement deletes the entry and the next lockout starts fresh. No input reaches the release with the flag set and the entry kept. Anchored on code only, because a pattern spanning a comment breaks whenever the prose is improved.",
       "equivalent": true
     },
     {
@@ -194,6 +194,22 @@
       "note": "the override path leaves the alarm flag set, so the lockout after an exemption never reports unconfirmed",
       "package": "./internal/enforce/",
       "file": "internal/enforce/enforce.go"
+    },
+    {
+      "id": "F26",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\trecovered := e.cfgErr != nil",
+      "new": "\t\trecovered := e.cfgErr != nil || e.cfg != nil",
+      "note": "prints the recovery line on every successful read instead of on the transition out of a stale period. This is the bug the live Plasma run caught: the daemon log said 'config readable again' on a machine that had never been stale, once per tick for the life of the process. e.cfg was assigned two lines above, so the extra term is simply always true."
+    },
+    {
+      "id": "F27",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\tif recovered {\n\t\t\te.logf(\"enforce: config readable again\")\n\t\t}",
+      "new": "\t\tif false && recovered {\n\t\t\te.logf(\"enforce: config readable again\")\n\t\t}",
+      "note": "deletes the recovery signal along with the false line. The transition has two directions and only the healthy one was wrong; the operator's only notice that a stretch of enforcement ran on stale rules has stopped is this line."
     }
   ]
 }

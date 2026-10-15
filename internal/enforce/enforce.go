@@ -196,7 +196,10 @@ type Engine struct {
 	// config cannot free a child mid-window.
 	cfg *config.Config
 
-	// cfgErr is why cfg is being reused. Reported every tick while it persists.
+	// cfgErr is why cfg is being reused: the last read failed, so enforcement continues on
+	// the previous document. The per-tick KindConfigStale is built from the load error on the
+	// tick that sees it, not from this field; what the field carries is the fact that a stale
+	// period is open, which is what makes a later good read a recovery worth logging.
 	cfgErr error
 
 	// state is per-session bookkeeping keyed by session id.
@@ -890,15 +893,19 @@ func overrideFor(cfg *config.Config, username string, now time.Time) bool {
 func (e *Engine) reload(now time.Time, rep *Report) (*config.Config, error) {
 	cfg, err := config.Load(e.Path)
 	if err == nil {
-		first := e.cfg == nil
+		// The line closes a stale period, so it belongs to the transition out of one, not to
+		// every successful read. Keying it off "not the first load" printed it on every tick
+		// for the life of the process: the live Plasma run showed it in the daemon log on a
+		// machine whose config had been readable since before the daemon started, with no
+		// KindConfigStale to answer. A diagnostic that lies on a healthy machine is worse than
+		// no diagnostic, because the operator learns to skim past it.
+		recovered := e.cfgErr != nil
 		e.cfg, e.cfgErr = cfg, nil
 		// Published for Run, which must not read e.cfg from another goroutine. A
 		// parent who changes pollSeconds sees the period move on the next tick
 		// without a restart, which is the same reason the file is re-read at all.
 		e.pollSeconds.Store(int64(cfg.Settings.PollSeconds))
-		if !first {
-			// A recovery is worth a line: the operator saw KindConfigStale and
-			// should see it stop.
+		if recovered {
 			e.logf("enforce: config readable again")
 		}
 		return cfg, nil
@@ -908,6 +915,10 @@ func (e *Engine) reload(now time.Time, rep *Report) (*config.Config, error) {
 		return nil, fmt.Errorf("load config %s: %w", e.Path, err)
 	}
 
+	// What makes the next good read a recovery rather than an ordinary tick. Without this
+	// assignment the field is written only as nil, so the transition above can never fire and
+	// the recovery line the field exists to gate would be lost with the bug that printed it.
+	e.cfgErr = err
 	rep.Errors = append(rep.Errors, fmt.Errorf("load config %s (still enforcing the last good document): %w", e.Path, err))
 	e.emit(rep, Event{At: now, Kind: KindConfigStale,
 		Detail: fmt.Sprintf("config %s unreadable (%v); still enforcing the last document that loaded", e.Path, err)})

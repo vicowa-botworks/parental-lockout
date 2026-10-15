@@ -480,11 +480,21 @@ func TestTheDefaultsAreUsableWithoutAnythingInjected(t *testing.T) {
 		}
 	}
 
-	// A second tick that reloads the file goes through the default logger, which is
+	// A reload that comes back from a stale period goes through the default logger, which is
 	// the only thing standing between a missing Logf and a daemon that says nothing.
+	//
+	// The stale period is opened deliberately. This line marks the end of one, so a test that
+	// merely reloads a healthy file asserts a diagnostic the engine correctly never emits —
+	// which is exactly what it used to do, because the line printed on every reload and this
+	// test rode along with it. Earning the line keeps both halves honest: the default logger
+	// is exercised, and the recovery signal is only expected when something recovered.
 	doc := kidDoc()
 	doc.Settings.PollSeconds = 45
 	writeDoc(t, path, doc)
+	good, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back the document: %v", err)
+	}
 
 	// Captured rather than assumed: the claim is that an engine built by New and
 	// never configured still tells somebody when the config comes back, and the
@@ -494,6 +504,19 @@ func TestTheDefaultsAreUsableWithoutAnythingInjected(t *testing.T) {
 	log.SetOutput(&logged)
 	t.Cleanup(func() { log.SetOutput(previous) })
 
+	// Open the stale period: the file is still there but is no longer a document.
+	if err := os.WriteFile(path, []byte("{ truncated"), 0o600); err != nil {
+		t.Fatalf("corrupt the config: %v", err)
+	}
+	if rep := tick(e); rep.Sessions != 1 {
+		t.Errorf("tick on an unreadable config enumerated %d sessions, want enforcement to "+
+			"continue on the last good document", rep.Sessions)
+	}
+
+	// Close it. This is the tick that earns the line.
+	if err := os.WriteFile(path, good, 0o600); err != nil {
+		t.Fatalf("restore the config: %v", err)
+	}
 	if rep := tick(e); rep.Sessions != 1 {
 		t.Errorf("second tick enumerated %d sessions, want 1", rep.Sessions)
 	}
@@ -501,7 +524,7 @@ func TestTheDefaultsAreUsableWithoutAnythingInjected(t *testing.T) {
 		t.Errorf("interval = %v, want 45s from the reloaded file", got)
 	}
 	if !strings.Contains(logged.String(), "config readable again") {
-		t.Errorf("default logger got %q, want the reload diagnostic", logged.String())
+		t.Errorf("default logger got %q, want the recovery diagnostic", logged.String())
 	}
 }
 
