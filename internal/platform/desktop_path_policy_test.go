@@ -89,7 +89,11 @@ func TestDesktopLockStillPassesPathToTheChild(t *testing.T) {
 		t.Fatal("no gdbus call was recorded")
 	}
 	if !hasEnv(env, "PATH=") {
-		t.Error("PATH was dropped from the child's environment; gdbus needs it to be resolvable at all")
+		// Nothing in this package needs the child's PATH any more -- the backend hands
+		// the runner an absolute path -- but the child process does: gdbus itself
+		// resolves helper binaries and talks to a bus launcher through it. Dropping it
+		// is a way to break a lock that no lookup error would ever explain.
+		t.Error("PATH was dropped from the child's environment; the child's own tools consult it, even though this package's lookup no longer does")
 	}
 }
 
