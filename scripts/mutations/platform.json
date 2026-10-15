@@ -652,6 +652,38 @@
       "new": "\tgdbusPath, err := gdbusProgram, error(nil)",
       "note": "the backend passes the bare name, so each bus name in kde's fallback list is resolved separately by exec.CommandContext and a later attempt may exec a different file than the first. NOT a child-PATH story: resolution reads the daemon's os.Getenv at construction, before cmd.Env is assigned, which is what the first version of this note claimed and measurement disproved",
       "package": "./internal/platform/"
+    },
+    {
+      "id": "K10",
+      "file": "internal/platform/exec.go",
+      "old": "\tcmd := exec.CommandContext(ctx, program, argv[1:]...)",
+      "new": "\tcmd := exec.CommandContext(ctx, argv[0], argv[1:]...)\n\t_ = program",
+      "note": "the resolution is taken and then thrown away, so the bare name is execed and each caller's own lookup is decorative",
+      "package": "./internal/platform/"
+    },
+    {
+      "id": "K11",
+      "file": "internal/platform/exec.go",
+      "old": "\tif strings.ContainsRune(program, os.PathSeparator) {\n\t\treturn program, nil\n\t}",
+      "new": "\tif false {\n\t\treturn program, nil\n\t}",
+      "note": "an explicit path is re-resolved through PATH, so a caller that named its own file loses that decision and `doctor --try /opt/x/gdbus` stops working",
+      "package": "./internal/platform/"
+    },
+    {
+      "id": "K12",
+      "file": "internal/platform/exec.go",
+      "old": "\tif errors.Is(err, exec.ErrDot) {",
+      "new": "\tif false && errors.Is(err, exec.ErrDot) {",
+      "note": "a program found relative to the working directory is reported as simply missing, sending the operator to install a package they already have",
+      "package": "./internal/platform/"
+    },
+    {
+      "id": "K13",
+      "file": "internal/platform/exec.go",
+      "old": "\treturn lookPath(program)",
+      "new": "\treturn program, nil",
+      "note": "no lookup at all: every bare name is passed through unchanged, which is the pre-fix behaviour this whole change replaced",
+      "package": "./internal/platform/"
     }
   ]
 }
