@@ -18,7 +18,7 @@ import (
 // from day one. It is hard-coded on purpose — deriving it from `planned` or
 // from globalUsage would let the surface shrink to nothing and keep the suite
 // green, which is exactly the failure these tests exist to catch.
-var wantCommands = []string{"serve", "init", "status", "lock", "unlock", "doctor", "version"}
+var wantCommands = []string{"serve", "init", "status", "lock", "unlock", "override", "doctor", "version"}
 
 // plockPath is the real cmd/plock binary, built once for this package, or empty
 // when the source tree could not be found. The process tests exec that artifact
@@ -107,6 +107,7 @@ func runProcess(t *testing.T, args ...string) (code int, stdout, stderr string) 
 // out of `planned` the test below says so instead of `plock doctor -h` printing a
 // "not implemented" synopsis forever.
 var implementedCommands = []string{"version", "doctor", "init", "serve", "status"}
+var implementedCommands = []string{"version", "doctor", "init", "status", "unlock", "override"}
 
 func TestCommandSurfaceIsComplete(t *testing.T) {
 	var stubs []string
@@ -365,7 +366,6 @@ func TestHelpFlagIsOnlyRecognisedInFlagPosition(t *testing.T) {
 	// stub contract, so it stays pinned.
 	stubCases := [][]string{
 		{"lock", "--reason", "-h"},
-		{"unlock", "kid", "--minutes", "5", "--", "-h"},
 	}
 	for _, args := range stubCases {
 		code, stdout, _ := runCmd(t, args...)

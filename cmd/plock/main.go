@@ -38,6 +38,7 @@ Commands:
   status    show enforcement state and per-user lockout status
   lock      lock a user's session immediately, ignoring the schedule
   unlock    grant a temporary override that suspends enforcement
+  override  list or clear temporary overrides
   doctor    diagnose whether locking actually works on this machine
   version   print version information
 
@@ -58,6 +59,8 @@ var planned = map[string]string{
 	"status": "[--json]",
 	"lock":   "<user> [--all]",
 	"unlock": "<user> --minutes N --reason TEXT",
+	"serve": "[--config PATH]",
+	"lock":  "<user> [--all]",
 }
 
 func main() {
@@ -86,6 +89,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runServe(stdout, stderr, rest)
 	case "status":
 		return runStatus(stdout, stderr, rest)
+	case "unlock":
+		return runUnlock(stdout, stderr, rest)
+	case "override":
+		return runOverride(stdout, stderr, rest)
 	default:
 		if synopsis, ok := planned[command]; ok {
 			return notImplemented(stdout, stderr, command, synopsis, rest)
