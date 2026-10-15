@@ -342,9 +342,9 @@
     {
       "id": "W44",
       "file": "internal/web/server.go",
-      "old": "\t\tStatic:   opts.Static,\n",
-      "new": "\t\tStatic:   nil,\n",
-      "note": "an injected asset bundle is dropped, so Options.Static does nothing and the constructor's asset check is unreachable again"
+      "old": "\t\tStatic:    opts.Static,\n",
+      "new": "\t\tStatic:    nil,\n",
+      "note": "the asset map is built from a nil bundle, so every /static/ request 404s and the operator gets the unstyled page that embedding the assets exists to prevent. Re-pointed when the constructor's fields were realigned by gofmt -- the alignment is part of the pattern, so a field added to Options retires this mutant.. an injected asset bundle is dropped, so Options.Static does nothing and the constructor's asset check is unreachable again"
     },
     {
       "id": "W46",
@@ -413,6 +413,76 @@
       "new": "\t\t\t\tusable += 0\n",
       "package": "./cmd/plock/",
       "note": "the availability report is printed but never counted, so usable stays 0 and a machine that can lock somebody is refused at startup. This is the direction the guard could be 'fixed' in to look safe: refusing always passes every refusal test, so the control -- a usable backend must start -- is what this mutant needs, and TestServeStartsWhenOneBackendIsUsable is what kills it"
+    },
+    {
+      "id": "W59",
+      "file": "internal/web/sources.go",
+      "old": "\tif err := t.ExecuteTemplate(&buf, \"page\", pageData{",
+      "new": "\tif err := t.ExecuteTemplate(w, \"page\", pageData{",
+      "note": "the page is streamed instead of buffered, so a template that fails halfway leaves half a document on the wire behind a 200 and a browser renders half a table as a whole one"
+    },
+    {
+      "id": "W60",
+      "file": "internal/web/sources.go",
+      "old": "\tw.Header().Set(\"Cache-Control\", \"no-store\")\n\t_, _ = buf.WriteTo(w)",
+      "new": "\t_, _ = buf.WriteTo(w)",
+      "note": "the page becomes cacheable, so a parent can be shown a stale answer about whether their child is locked out -- and a shared proxy can hold it"
+    },
+    {
+      "id": "W62",
+      "file": "internal/web/sources.go",
+      "old": "\tif s.Lockables == nil {\n\t\treturn nil, errors.New(\"no session source is wired\")\n\t}",
+      "new": "\tif false {\n\t\treturn nil, errors.New(\"no session source is wired\")\n\t}",
+      "note": "a nil session source becomes an empty session list, which the page renders as 'nobody has a desktop session' -- a claim about the machine the daemon never established"
+    },
+    {
+      "id": "W63",
+      "file": "internal/web/pages.go",
+      "old": "\t\ts.logf(\"web: %s session list unavailable: %v\", requestID(r), err)",
+      "new": "\t\t_ = err",
+      "note": "the session column failing is silent, so 'locked out' on the dashboard reads as 'the screen is locked right now' with nothing saying the column that means that is missing"
+    },
+    {
+      "id": "W55",
+      "file": "internal/web/sources.go",
+      "old": "\tif s.Config == nil {\n\t\treturn nil, errors.New(\"no configuration source is wired\")\n\t}",
+      "new": "\tif false {\n\t\treturn nil, errors.New(\"no configuration source is wired\")\n\t}",
+      "note": "a server built without its configuration source renders a dashboard from a nil config, so the missing wiring advertises an empty household forever instead of refusing"
+    },
+    {
+      "id": "W56",
+      "file": "internal/web/sources.go",
+      "old": "\tif cfg == nil {\n\t\treturn nil, errors.New(\"the configuration source returned no configuration\")\n\t}",
+      "new": "\tif false {\n\t\treturn nil, errors.New(\"the configuration source returned no configuration\")\n\t}",
+      "note": "a source that answers (nil, nil) is handed to the view builder, which reads it as 'no accounts are managed'"
+    },
+    {
+      "id": "W57",
+      "file": "internal/web/sources.go",
+      "old": "\tif s.Accounts == nil {\n\t\treturn nil, errors.New(\"no account source is wired\")\n\t}",
+      "new": "\tif false {\n\t\treturn nil, errors.New(\"no account source is wired\")\n\t}",
+      "note": "the accounts page renders an empty table when it never looked at the password file"
+    },
+    {
+      "id": "W58",
+      "file": "internal/web/pages.go",
+      "old": "\trows := users.Union(accounts, configured)",
+      "new": "\t_ = accounts\n\trows := []users.Managed{}",
+      "note": "the accounts page is rendered from an empty union, so the unmanaged count and the table both describe a machine nobody logged into"
+    },
+    {
+      "id": "W61",
+      "file": "internal/web/sources.go",
+      "old": "\t\tif file == name {\n\t\t\treturn url\n\t\t}",
+      "new": "\t\tif file == name {\n\t\t\t_ = url\n\t\t\treturn \"/static/\" + name\n\t\t}",
+      "note": "the stylesheet is linked by its plain name, so it is served under the page's no-store or not at all, and a fix to app.css does not appear on a parent's phone until the browser feels like revalidating"
+    },
+    {
+      "id": "W69",
+      "file": "internal/web/sources.go",
+      "old": "\t\"html/template\"\n",
+      "new": "\t\"text/template\"\n",
+      "note": "the pages are rendered with text/template, so an account name -- the one field on the page a child with a shell on the box can plausibly control -- is written into the document as markup instead of as a name"
     }
   ]
 }

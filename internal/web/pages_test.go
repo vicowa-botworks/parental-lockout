@@ -1,0 +1,311 @@
+package web
+
+import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/platform"
+	"github.com/vicowa-botworks/parental-lockout/internal/users"
+)
+
+// insideWindow is inside the school-night rule the fixtures below define, so the
+// dashboard has something to report.
+var insideWindow = time.Date(2026, 3, 18, 23, 0, 0, 0, time.UTC)
+
+func pageConfig() *config.Config {
+	c := config.Default()
+	c.Profiles = []config.Profile{{
+		ID: "school", Name: "School nights", Timezone: "UTC",
+		Rules: []config.Rule{{ID: "r1", Name: "weeknights",
+			Days:  []string{"sun", "mon", "tue", "wed", "thu"},
+			Start: "21:00", End: "06:30", Enabled: true}},
+	}}
+	c.Users = []config.User{{Username: "casey", ProfileID: "school", Enabled: true}}
+	return c
+}
+
+// authGet performs a real login and returns the body of an authenticated GET, so
+// none of these tests hand-assemble state the server never issues.
+func authGet(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	resp, _ := login(t, s, "parent", "hunter2")
+	req := httptest.NewRequest("GET", path, nil)
+	// A browser's Accept. Without it the server answers the unauthenticated case as
+	// JSON -- which is right for a programmatic caller -- and the test would be
+	// asserting a status code no parent's browser ever sees.
+	req.Header.Set("Accept", "text/html")
+	for _, c := range resp.Cookies() {
+		req.AddCookie(c)
+	}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+// pageServer is a server with all three content seams wired to fixed state.
+func pageServer(t *testing.T, cfg *config.Config, sessions []platform.Session, accounts []users.Account, cfgErr, acctErr error) *Server {
+	t.Helper()
+	s, _, _ := newTestServer(t, &stubAuth{username: "parent", password: "hunter2"})
+	// newTestServer assembles a Server by hand rather than through New, so the asset
+	// index the shell links the stylesheet from does not exist yet. Building it here
+	// is the same call New makes; without it every page renders unstyled and the
+	// stylesheet test would be asserting nothing.
+	m, err := AssetMap(Assets())
+	if err != nil {
+		t.Fatalf("the embedded assets are not readable: %v", err)
+	}
+	s.assets = m
+	s.Now = func() time.Time { return insideWindow }
+	if cfgErr != nil {
+		s.Config = func() (*config.Config, error) { return nil, cfgErr }
+	} else {
+		s.Config = func() (*config.Config, error) { return cfg, nil }
+	}
+	s.Lockables = func() ([]platform.Session, error) { return sessions, nil }
+	if acctErr != nil {
+		s.Accounts = func() ([]users.Account, error) { return nil, acctErr }
+	} else {
+		s.Accounts = func() ([]users.Account, error) { return accounts, nil }
+	}
+	return s
+}
+
+// Nothing outside the login page is readable without a session.
+func TestTheContentPagesRequireASession(t *testing.T) {
+	s, _, _ := newTestServer(t, &stubAuth{username: "parent", password: "hunter2"})
+	for _, path := range []string{"/", "/users"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Accept", "text/html")
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if got := rec.Result().StatusCode; got != http.StatusSeeOther && got != http.StatusFound {
+			t.Errorf("GET %s without a session = %d, want a redirect to the login page", path, got)
+		}
+	}
+}
+
+// The dashboard names the account and says what is holding it.
+func TestTheDashboardNamesTheAccountAndTheRule(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	rec := authGet(t, s, "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"casey", "locked out", "weeknights", "06:30"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page never says %q:\n%s", want, body)
+		}
+	}
+}
+
+// A username is attacker-influenced text.
+//
+// The password file is root-owned, but a machine can carry accounts created by
+// somebody else, and an account name is the one field a child with a shell on the box
+// can plausibly control. The page must render it as a name.
+func TestAnAccountNameIsRenderedAsTextNotMarkup(t *testing.T) {
+	c := pageConfig()
+	c.Users[0].Username = `<script>alert(1)</script>`
+	s := pageServer(t, c, nil, nil, nil, nil)
+	body := authGet(t, s, "/").Body.String()
+	if strings.Contains(body, "<script>alert(1)</script>") {
+		t.Error("the account name was written into the document as markup")
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Error("the account name is not in the page at all, escaped or otherwise")
+	}
+}
+
+// The response carries a CSP with no 'unsafe-inline', and the page contains no
+// inline handler or style attribute to be blocked by it.
+//
+// Both halves matter. The header alone means a stray onclick silently stops working
+// in a browser while every test still passes; the markup alone means the control is
+// absent.
+func TestThePageHasNoInlineScriptOrStyleToBeBlockedByTheCSP(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	rec := authGet(t, s, "/")
+	csp := rec.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("no Content-Security-Policy header on a page that shows who is locked out")
+	}
+	if strings.Contains(csp, "unsafe-inline") {
+		t.Errorf("the CSP allows inline script, so the markup check below proves nothing: %q", csp)
+	}
+	body := rec.Body.String()
+	for _, bad := range []string{" onclick=", " onload=", " onerror=", " style="} {
+		if strings.Contains(strings.ToLower(body), bad) {
+			t.Errorf("the page carries %q, which the CSP blocks: the control works in a test and fails in a browser", bad)
+		}
+	}
+}
+
+// A page that cannot read the configuration says so.
+//
+// An empty table would be a different claim: it reads as "nothing is managed", which
+// is the most reassuring wrong answer this interface can produce, and it is exactly
+// what a parent sees in the minute when the config file has actually gone missing.
+func TestADashboardThatCannotReadTheConfigSaysSo(t *testing.T) {
+	s := pageServer(t, nil, nil, nil, errors.New("open /etc/plock/config.json: no such file"), nil)
+	rec := authGet(t, s, "/")
+	if rec.Code == http.StatusOK {
+		t.Error("the page rendered as though nothing were wrong")
+	}
+	if !strings.Contains(strings.ToLower(rec.Body.String()), "configuration") {
+		t.Errorf("the refusal does not say what failed: %q", rec.Body.String())
+	}
+}
+
+// The same for the accounts page, where the missing read is the password file.
+func TestTheUsersPageRefusesWhenTheAccountsCannotBeRead(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, errors.New("open /etc/passwd: permission denied"))
+	rec := authGet(t, s, "/users")
+	if rec.Code == http.StatusOK {
+		t.Error("an unreadable account list rendered as an empty one")
+	}
+	if !strings.Contains(strings.ToLower(rec.Body.String()), "account") {
+		t.Errorf("the refusal does not say what failed: %q", rec.Body.String())
+	}
+}
+
+// A missing seam is refused the same way a failing read is.
+//
+// The zero value of `Config` is nil, and a handler that treated nil as "no accounts"
+// would let a daemon built without its wiring advertise an empty household forever.
+func TestAContentSeamThatWasNeverWiredIsRefused(t *testing.T) {
+	s, _, _ := newTestServer(t, &stubAuth{username: "parent", password: "hunter2"})
+	rec := authGet(t, s, "/")
+	if rec.Code == http.StatusOK {
+		t.Error("a server with no configuration source rendered a dashboard anyway")
+	}
+}
+
+// The session column is the one thing that can be missing without taking the page
+// down: which child is held, and until when, does not depend on who is logged in.
+func TestTheDashboardStillRendersWhenTheSessionListIsGone(t *testing.T) {
+	c := pageConfig()
+	s := pageServer(t, c, nil, nil, nil, nil)
+	s.Lockables = func() ([]platform.Session, error) { return nil, errors.New("dbus: transport not connected") }
+	rec := authGet(t, s, "/")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the whole page went down for the session column: %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "casey") {
+		t.Error("the accounts vanished with the sessions")
+	}
+	// And the absence is said, not hidden: "locked out" without the session column
+	// reads as "the screen is locked right now".
+	if !strings.Contains(rec.Body.String(), "no desktop session") {
+		t.Error("the missing session column is indistinguishable from an unlocked machine")
+	}
+}
+
+// Sessions are shown with the state the backend reported.
+func TestTheSessionColumnCarriesTheLockState(t *testing.T) {
+	s := pageServer(t, pageConfig(),
+		[]platform.Session{{ID: "2", Username: "casey", Seat: "seat0", Type: "wayland", Locked: true}},
+		nil, nil, nil)
+	body := authGet(t, s, "/").Body.String()
+	if !strings.Contains(body, "wayland") || !strings.Contains(body, "locked") {
+		t.Errorf("the session column does not show what the backend reported:\n%s", body)
+	}
+}
+
+// The accounts page shows the gap the parent has not been told about: a human account
+// on the machine that nothing enforces.
+func TestTheUsersPageShowsTheUnmanagedCount(t *testing.T) {
+	accounts := []users.Account{
+		{Username: "casey", UID: 1000, Home: "/home/casey", Shell: "/bin/bash"},
+		{Username: "bruce", UID: 1001, Home: "/home/bruce", Shell: "/bin/bash"},
+	}
+	s := pageServer(t, pageConfig(), nil, accounts, nil, nil)
+	body := authGet(t, s, "/users").Body.String()
+	if !strings.Contains(body, "bruce") {
+		t.Error("an account on the machine is missing from the accounts page")
+	}
+	if !strings.Contains(body, "1") || !strings.Contains(strings.ToLower(body), "not managed") {
+		t.Errorf("the page does not count the unmanaged account:\n%s", body)
+	}
+}
+
+// The profile dropdown shows the name the parent typed, not the id.
+func TestTheUsersPageNamesProfilesTheWayTheParentDid(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	body := authGet(t, s, "/users").Body.String()
+	if !strings.Contains(body, "School nights") {
+		t.Errorf("the page shows the profile id rather than its name:\n%s", body)
+	}
+}
+
+// Every page has a template, and every template has a route.
+//
+// The failure this pins is adding a handler and forgetting the .tmpl: the route then
+// answers 500 with a line in the log, which is a bug report that takes an afternoon
+// to read as a missing file.
+func TestEveryContentRouteHasATemplate(t *testing.T) {
+	got := strings.Join(pageNames(), ",")
+	for _, want := range []string{"dashboard", "users"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("no template named %q is embedded; found %q", want, got)
+		}
+	}
+}
+
+// The stylesheet is linked by its hashed URL.
+//
+// A plain /static/app.css would be served with the page's no-store, so the CSS would
+// be re-fetched on every page view -- or, if it were cached instead, a fix would not
+// appear on a parent's phone until the browser felt like revalidating. That second
+// one is the change that gets reported as "you did not deploy it".
+func TestTheStylesheetIsLinkedByItsHashedURL(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	body := authGet(t, s, "/").Body.String()
+	if !strings.Contains(body, "/static/app.") || strings.Contains(body, "/static/app.css\"") {
+		t.Errorf("the stylesheet is not linked by its content hash:\n%s", body)
+	}
+}
+
+// The page is not cacheable.
+func TestTheContentPagesAreNotCacheable(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	for _, path := range []string{"/", "/users"} {
+		if got := authGet(t, s, path).Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("GET %s Cache-Control = %q, want no-store", path, got)
+		}
+	}
+}
+
+// A handler that names a template nobody embedded is a programming error, and the
+// useful answer is a 500 plus a log line naming the page -- not a panic that the
+// recovery middleware turns into an "internal error" with nothing saying which
+// handler was missing what.
+func TestRenderingAPageThatWasNeverEmbeddedSaysWhichOne(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	rec := httptest.NewRecorder()
+	s.render(rec, httptest.NewRequest("GET", "/nope", nil), "nonexistent", struct{}{})
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+}
+
+// A profile with no name is possible in the document, and a dropdown that renders an
+// empty entry is indistinguishable from a broken control.
+func TestAnUnnamedProfileIsStillNamedSomething(t *testing.T) {
+	c := pageConfig()
+	c.Profiles[0].Name = ""
+	s := pageServer(t, c, nil, nil, nil, nil)
+	body := authGet(t, s, "/users").Body.String()
+	if strings.Contains(body, "<option value=\"school\"></option>") || strings.Contains(body, "school</span>\n") {
+		t.Error("the profile rendered as an empty label")
+	}
+	// The id is the fallback, so the row still says which profile is attached.
+	if !strings.Contains(body, "school") {
+		t.Errorf("an unnamed profile lost its identity entirely:\n%s", body)
+	}
+}

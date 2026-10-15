@@ -59,6 +59,19 @@ type Row struct {
 	// second rule opens inside the running window. See schedule.Verdict.NextStart.
 	NextLockAt time.Time
 
+	// EndsAtClock and NextLockAtClock are EndsAt and NextLockAt written as a wall
+	// time in the profile's own zone, which is what a parent actually reads.
+	//
+	// They are strings on the row rather than something the template formats,
+	// because formatting is a decision and the template has no business making it:
+	// each instant carries the location it was evaluated in, so formatting it in the
+	// daemon's zone would print a different minute for a child on another zone --
+	// wrong by the offset, which is the kind of wrong that leaves a parent convinced
+	// the daemon let a lockout go early. Empty when there is no such instant, since
+	// a zero time formats as 00:00 and midnight is a claim rather than a blank.
+	EndsAtClock     string
+	NextLockAtClock string
+
 	// Override is the standing unlock, if any.
 	OverrideActive  bool
 	OverrideUntil   time.Time
@@ -177,6 +190,8 @@ func Build(cfg *config.Config, sessions []platform.Session, now time.Time) View 
 
 		verdict := schedule.Evaluate(p, now)
 		r.RuleName, r.EndsAt, r.NextLockAt = verdictRule(verdict)
+		r.EndsAtClock = wallClock(r.EndsAt)
+		r.NextLockAtClock = wallClock(r.NextLockAt)
 
 		switch {
 		case !r.Enabled:

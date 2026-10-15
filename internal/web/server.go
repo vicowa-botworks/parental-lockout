@@ -23,6 +23,9 @@ import (
 	"time"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/auth"
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/platform"
+	"github.com/vicowa-botworks/parental-lockout/internal/users"
 )
 
 // Server is the daemon's admin endpoint.
@@ -83,6 +86,19 @@ type Server struct {
 	// Static is the asset filesystem. When nil the server serves no assets, which
 	// is what the tests that only exercise routing want.
 	Static fs.FS
+
+	// Config, Lockables and Accounts are the three things outside this package that
+	// the content pages read. They are functions for the reason every other seam
+	// here is one: the answers come from the host -- a file, a D-Bus call, a
+	// password file -- and a handler that reached for those directly could only be
+	// tested on a machine that happens to have them.
+	//
+	// A nil seam is not a silent empty page. readConfig and friends turn it into an
+	// error the page says out loud, because "no accounts" and "I could not look" are
+	// different claims and the first one is a reassurance the daemon has not earned.
+	Config    func() (*config.Config, error)
+	Lockables func() ([]platform.Session, error)
+	Accounts  func() ([]users.Account, error)
 
 	// csrf holds the per-session token this package owns.
 	csrf *csrfStore
@@ -152,6 +168,14 @@ type Options struct {
 	// caller of the documented constructor can ever trip -- which is also a check no test
 	// can write without duplicating the constructor.
 	Static fs.FS
+
+	// Config, Lockables and Accounts are the content pages' view of the host. They
+	// are on Options for the same reason Static is: a caller that assembles a Server
+	// by hand is not using the documented constructor, and a seam only reachable
+	// that way is a seam no test of the real path can set.
+	Config    func() (*config.Config, error)
+	Lockables func() ([]platform.Session, error)
+	Accounts  func() ([]users.Account, error)
 }
 
 // New builds a Server and resolves its transport, failing on anything the first
@@ -162,15 +186,18 @@ type Options struct {
 // network problem, and the operator spends the evening debugging the wrong thing.
 func New(opts Options) (*Server, error) {
 	s := &Server{
-		Logf:     opts.Logf,
-		warn:     opts.Warn,
-		Static:   opts.Static,
-		Listen:   opts.Listen,
-		TLSMode:  opts.TLSMode,
-		CertFile: opts.CertFile,
-		KeyFile:  opts.KeyFile,
-		csrf:     newCSRFStore(),
-		started:  make(chan struct{}),
+		Logf:      opts.Logf,
+		warn:      opts.Warn,
+		Static:    opts.Static,
+		Config:    opts.Config,
+		Lockables: opts.Lockables,
+		Accounts:  opts.Accounts,
+		Listen:    opts.Listen,
+		TLSMode:   opts.TLSMode,
+		CertFile:  opts.CertFile,
+		KeyFile:   opts.KeyFile,
+		csrf:      newCSRFStore(),
+		started:   make(chan struct{}),
 	}
 	if s.Listen == "" {
 		return nil, errors.New("web: nothing to listen on")
@@ -482,7 +509,8 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	// Everything below the auth gate.
-	mux.Handle("GET /{$}", s.requireAuth(http.HandlerFunc(s.handleIndex)))
+	mux.Handle("GET /{$}", s.requireAuth(http.HandlerFunc(s.handleDashboard)))
+	mux.Handle("GET /users", s.requireAuth(http.HandlerFunc(s.handleUsers)))
 	mux.HandleFunc("GET /static/{file}", s.handleStatic)
 
 	chain := s.recoverMiddleware(
@@ -504,11 +532,6 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, "ok\n")
-}
-
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, "<!doctype html><title>plock</title><p>enforcement daemon</p>\n")
 }
 
 // handleStatic serves the embedded assets with an immutable cache header.

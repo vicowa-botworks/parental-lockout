@@ -111,6 +111,11 @@ func (v View) nextWindow() (time.Time, string, bool) {
 // would print a different minute for a child on a different zone, and the whole point
 // of a per-profile timezone is that the two are not the same machine.
 func wallClock(t time.Time) string {
+	if t.IsZero() {
+		// "00:04" for "there is no next window" is not a blank, it is a wrong answer,
+		// and it is the wrong answer a reader can least easily check.
+		return ""
+	}
 	return t.Format("15:04")
 }
 

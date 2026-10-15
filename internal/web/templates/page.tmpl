@@ -1,0 +1,48 @@
+{{/*
+The shared shell.
+
+There is no inline <script> and no style="" attribute anywhere in these templates,
+and that is a security control rather than a preference: the response carries
+`Content-Security-Policy: default-src 'self'` with no 'unsafe-inline', so an inline
+handler would be blocked by the browser. Writing one anyway would produce a page that
+works in a test and silently loses its behaviour in a browser, which is the worst
+possible place to discover a control. Everything interactive is a plain form or a
+link, and app.js attaches its listeners by id and class.
+
+Each page file supplies three definitions -- "title", "pagename" and "body" -- and
+the body block is given the view model as its root, so a page writes {{.Banner}}
+rather than {{.Data.Banner}}. Note that these are `template` invocations, not
+`block`: `block` defines and invokes in one form, so a default in the shell would
+collide with every page's own definition and the set would not parse.
+
+The one thing in the head that looks dynamic is the asset URL, and it is not: it is a
+content hash computed at startup from the embedded bytes, so the response can be
+cached as immutable for a year.
+*/}}
+{{define "page"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{template "title" .}} · parental lockout</title>
+{{with .CSS}}<link rel="stylesheet" href="{{.}}">{{end}}
+</head>
+<body class="page-{{template "pagename" .}}">
+<header class="masthead">
+  <h1><a href="/">parental lockout</a></h1>
+  <nav>
+    <a href="/">Status</a>
+    <a href="/users">Accounts</a>
+    <form method="post" action="/logout" class="inline-form">
+      <button type="submit" class="linklike">Sign out</button>
+    </form>
+  </nav>
+</header>
+<main>
+{{template "body" .Data}}
+</main>
+{{with .JS}}<script src="{{.}}" defer></script>{{end}}
+</body>
+</html>
+{{end}}

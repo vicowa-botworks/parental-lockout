@@ -1,0 +1,61 @@
+{{define "pagename"}}users{{end}}
+{{define "title"}}Accounts{{end}}
+{{define "body"}}
+<p class="banner">
+  {{if .Gaps}}
+    {{.Gaps}} {{if eq .Gaps 1}}account is{{else}}accounts are{{end}}
+    on this machine and not managed.
+  {{else}}
+    Every human account on this machine is managed.
+  {{end}}
+</p>
+
+<table class="rows">
+  <caption>
+    Accounts on the machine, and what the daemon does with each.
+    An account is listed even when it cannot be locked out, because the reason is
+    the thing a parent needs to read.
+  </caption>
+  <thead>
+    <tr>
+      <th scope="col">Account</th>
+      <th scope="col">Managed</th>
+      <th scope="col">Profile</th>
+      <th scope="col">Why not</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Rows}}
+    <tr class="{{if .Stale}}stale{{end}}{{if not .Configured}}unmanaged{{end}}">
+      <th scope="row">{{.Username}}</th>
+      <td>
+        {{- if .Stale -}}
+          <span class="state-unknown">in the configuration, not on the machine</span>
+        {{- else if .Configured -}}
+          {{if .Configured.Enabled}}<span class="state-held">managed</span>{{else}}<span class="disabled">switched off</span>{{end}}
+        {{- else -}}
+          <span class="state-gap">not managed</span>
+        {{- end -}}
+      </td>
+      <td>
+        {{- if and .Configured .Configured.ProfileID -}}
+          {{with index $.Names .Configured.ProfileID}}{{.}}{{else}}<span class="problem">profile {{.Configured.ProfileID}} is missing</span>{{end}}
+        {{- else -}}&mdash;{{end -}}
+      </td>
+      <td>
+        {{- if .Stale -}}
+          <span class="problem">the account no longer exists, so nothing can be locked out</span>
+        {{- else if not .OnMachine -}}
+          <span class="problem">no account entry</span>
+        {{- else if not .Configured -}}
+          {{if .OnMachine.Home}}{{else}}<span class="problem">no home directory</span>{{end}}
+          {{if .OnMachine.Shell}}{{else}}<span class="problem">no login shell</span>{{end}}
+        {{- else -}}&mdash;{{end -}}
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4">Nothing was found to list.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
