@@ -66,6 +66,7 @@ verify:
 	  echo "version stamp mismatch:"; echo "  got  $$got"; echo "  want $$want"; exit 1; \
 	fi; \
 	echo "==> dependencies"; ./scripts/check-deps.sh; \
+	echo "==> cross-builds"; ./scripts/check-builds.sh; \
 	echo "verify: OK"
 
 # mutate puts each known bug back into the source one at a time and insists the suite
