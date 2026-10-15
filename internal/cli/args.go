@@ -23,20 +23,35 @@ import (
 // like a positional, and treating it as one would silently drop the tail of a reason
 // instead of reporting that the reason had an unquoted word in it.
 //
-// A "--" ends flag parsing in the ordinary way, and everything after it is left where it
-// is for flag to turn into positionals — so `unlock -- -x` still means a user literally
-// named "-x", and `unlock --minutes 5 -- -h` does not become help.
+// A "--" ends flag parsing, and every token after it is a value rather than a flag — so
+// `unlock -- -x` means a user literally named "-x", and `unlock --minutes 5 -- -h` does
+// not become help. The separator does not suppress the positional; it protects it. That
+// is only true because the first token after "--" is adopted when nothing before it was
+// one, which is what the `--` branch below does.
 func TakeFirst(fs *flag.FlagSet, args []string) (first string, rest []string, found bool) {
 	rest = make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 
 		if a == "--" {
-			// Everything after the separator is positional by definition. Copy it through
-			// and stop looking: a token that looks like a flag after "--" is a value, and
-			// a value is never the username the caller is asking for.
-			rest = append(rest, args[i:]...)
-			return "", rest, false
+			// The separator ends flag parsing, and every token after it is a value --
+			// including one that looks like a flag, which is the whole reason the form
+			// exists. So the first token after "--" is the positional whenever nothing
+			// before it was one. Returning found=false here instead made the documented
+			// `unlock -- -x` unparseable on all 17 call sites at once, because every
+			// caller reads a missing positional plus a non-empty fs.Args() as evidence
+			// the user made a mistake, and says so.
+			after := args[i+1:]
+			// The separator itself is copied into rest on purpose. Callers hand rest
+			// straight to flag.Parse, and flag only treats what follows as positional
+			// while the separator is there to tell it so -- dropping it would let
+			// `unlock -- casey --minutes 5` adopt casey and then parse --minutes as a
+			// flag, which is the opposite of what a separator promises.
+			rest = append(rest, a)
+			if !found && len(after) > 0 {
+				return after[0], append(rest, after[1:]...), true
+			}
+			return first, append(rest, after...), found
 		}
 
 		if !strings.HasPrefix(a, "-") || a == "-" {

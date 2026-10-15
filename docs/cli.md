@@ -326,4 +326,12 @@ silently parses zero flags. The name is lifted out before parsing, and it is lif
 the declared flag types in hand: `--reason film night` is ambiguous without them, and
 naively taking the last token as the positional would record `film` as the reason while
 using `night` as the account name. An unknown flag is assumed to take a value, so a flag's
-value can never be mistaken for the name. `--` ends the flags.
+value can never be mistaken for the name.
+
+`--` ends the flags and protects the name rather than suppressing it: the first token after
+it is the account name, so an account literally called `-x` is reachable —
+`plock unlock --minutes 5 --reason "late" -- -x`. Everything after `--` stops being a flag,
+including a token that spells one, so put your flags *before* it. A management command that
+finds an argument it did not claim refuses instead of ignoring it, because the alternative
+is `plock user rm -- bob --config /tmp/test.json` dropping `--config` and deleting the user
+from `/etc/plock/config.json` while the operator believes they named a scratch file.

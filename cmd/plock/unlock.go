@@ -77,8 +77,12 @@ func runUnlock(stdout, stderr io.Writer, args []string) int {
 		switch {
 		case name == "" && len(extra) == 0:
 			fmt.Fprint(stderr, "plock unlock: a username is required\n\n")
-		case name == "":
-			fmt.Fprintf(stderr, "plock unlock: expected one username, got %d: %v\n\n", len(extra)+1, extra)
+		// There used to be a middle case here, "expected one username, got N", for a name
+		// that was never adopted while words were left over. TakeFirst now adopts the
+		// first token after `--`, so that combination cannot be produced: every argument
+		// shape either yields a name or leaves nothing behind. It is deleted rather than
+		// left as a branch that can only be reached by a bug in TakeFirst -- a refusal you
+		// cannot reproduce is a refusal you cannot test, and its count was wrong anyway.
 		default:
 			fmt.Fprintf(stderr, "plock unlock: unexpected argument %q after username %q\n"+
 				"(if --reason has a space in it, quote the whole value)\n\n", extra[0], name)
@@ -278,8 +282,11 @@ func runOverrideClear(stdout, stderr io.Writer, args []string) int {
 		if name == "" {
 			fmt.Fprint(stderr, "plock override clear: exactly one username is required\n\n")
 		} else {
-			fmt.Fprintf(stderr, "plock override clear: expected one username, got %v\n\n",
-				append([]string{name}, extra...))
+			// Naming the extra argument rather than printing name and extras as a list of
+			// usernames: the usual way to land here is a flag written after a `--`
+			// separator, and "--config" is not anybody's username.
+			fmt.Fprintf(stderr, "plock override clear: unexpected argument %q after username %q\n\n",
+				extra[0], name)
 		}
 		writeAll(stderr, overrideUsage)
 		return cli.Usage

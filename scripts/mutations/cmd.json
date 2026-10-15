@@ -241,6 +241,37 @@
       "old": "\t\t\tSeat: s.Seat, Locked: s.Locked, Lockable: platform.IsLockable(s),",
       "new": "\t\t\tSeat: s.Seat, Locked: s.Locked, Lockable: true,",
       "_why": "status claims every session is lockable, so a remote or seatless session reads as one the daemon could lock"
+    },
+    {
+      "id": "TS1",
+      "file": "internal/cli/args.go",
+      "package": "./internal/cli/ ./cmd/plock/",
+      "old": "\t\t\trest = append(rest, a)\n\t\t\tif !found && len(after) > 0 {",
+      "new": "\t\t\trest = append(rest, a)\n\t\t\tif false && len(after) > 0 {",
+      "note": "the separator stops protecting the positional. This is the reported bug verbatim: every one of the 17 call sites reads found=false plus leftover args as the operator mistyping, so `unlock --minutes 5 -- casey` is refused while the doc comment promises it"
+    },
+    {
+      "id": "TS2",
+      "file": "internal/cli/args.go",
+      "package": "./internal/cli/ ./cmd/plock/",
+      "old": "\t\t\trest = append(rest, a)\n\t\t\tif !found && len(after) > 0 {",
+      "new": "\t\t\tif !found && len(after) > 0 {",
+      "note": "the `--` itself dropped from the args handed to flag.Parse. The positional is still adopted, so the obvious case passes -- but the remainder is re-parsed as flags, and `unlock -- casey --minutes 5` silently honours a flag the separator said was a word"
+    },
+    {
+      "id": "TS3",
+      "file": "internal/cli/args.go",
+      "package": "./internal/cli/ ./cmd/plock/",
+      "old": "\t\t\tif !found && len(after) > 0 {",
+      "new": "\t\t\tif len(after) > 0 {",
+      "note": "the separator overwrites a positional already taken, so `unlock casey -- anna` operates on anna. The first name typed is the one the operator meant"
+    },
+    {
+      "id": "TS4",
+      "file": "cmd/plock/manage.go",
+      "old": "\t\tif extra := c.fs.Args(); len(extra) > 0 {",
+      "new": "\t\tif extra := c.fs.Args(); len(extra) > 99 {",
+      "note": "the unclaimed-argument guard disabled. This is the data-loss path: `plock user rm -- bob --config /tmp/test.json` drops --config on the floor and edits /etc/plock/config.json while the operator believes they named a scratch file"
     }
   ]
 }

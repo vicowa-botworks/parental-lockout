@@ -51,7 +51,10 @@ def compiles(pkg):
     and selects no test, so this stays fast.
     """
     return subprocess.run(
-        [GO, "test", "-run", "^$", "-count=1", pkg],
+        # Split for the same reason mutate.py splits: a package field may name several
+        # packages, and an unsplit one fails to resolve in a way that reads as a
+        # compile failure rather than as the checker being unable to ask.
+        [GO, "test", "-run", "^$", "-count=1", *pkg.split()],
         capture_output=True,
         text=True,
         cwd=ROOT,

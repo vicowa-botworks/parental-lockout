@@ -75,8 +75,14 @@ def load(path):
 
 
 def run_suite(pkg):
+    # A package field may name more than one package, space-separated. A mutant in a
+    # shared helper is often pinned by tests in the helper's own package AND by the
+    # command-level test that reproduces what the user saw, and only running both proves
+    # which. Passing the field through unsplit handed go a single argument containing a
+    # space, which fails to resolve -- and a suite that cannot run looks exactly like a
+    # suite where every test failed, so every mutant of that helper would read as caught.
     return subprocess.run(
-        [GO, "test", pkg, "-count=1", "-timeout", "900s"],
+        [GO, "test", *pkg.split(), "-count=1", "-timeout", "900s"],
         capture_output=True,
         text=True,
         cwd=ROOT,

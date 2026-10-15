@@ -129,6 +129,18 @@ func newFlagSet(name, usage string, withJSON bool) cmdFlags {
 func (c cmdFlags) parse(stderr io.Writer, args []string) (ok bool, help bool) {
 	err := c.fs.Parse(args)
 	if err == nil {
+		// Nothing in this file takes a second positional, so anything flag left behind is
+		// either a repeated id or -- worse -- a flag that arrived after a `--` separator
+		// and therefore stopped being a flag. The second case used to be ignored in
+		// silence: `plock user rm -- bob --config /tmp/test.json` adopted bob, dropped
+		// --config, and deleted the user from /etc/plock/config.json. A management command
+		// that quietly edits the production config while the operator believes they are
+		// pointing at a scratch file is the one failure this surface cannot have, so an
+		// unclaimed argument is now an error on every command that reaches this parse.
+		if extra := c.fs.Args(); len(extra) > 0 {
+			fmt.Fprintf(stderr, "plock %s: unexpected argument %q\n%s", c.fs.Name(), extra[0], c.out.String())
+			return false, false
+		}
 		return true, false
 	}
 	if errors.Is(err, flag.ErrHelp) {

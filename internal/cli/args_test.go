@@ -75,28 +75,75 @@ func TestTakeFirstLeavesAnUnquotedReasonTailForFlagToComplainAbout(t *testing.T)
 	}
 }
 
+// The separator protects the positional; it does not suppress it.
+//
+// This test used to assert the opposite -- found == false, everything after "--" left as
+// positionals -- while its own comment claimed "a user literally named -x is reachable".
+// That claim was false on all 17 call sites, because every caller reads a missing
+// positional plus a non-empty fs.Args() as the user having made a mistake. The assertions
+// were narrower than the sentence above them, which is how it stayed green.
 func TestTakeFirstRespectsTheDoubleDashSeparator(t *testing.T) {
-	// A user literally named "-x" is reachable, and `unlock --minutes 5 -- -h` must not
-	// turn into help.
+	// `unlock --minutes 5 -- -h`: the username is "-h", and it must not become help.
 	fs := newSet()
 	first, rest, found := TakeFirst(fs, []string{"--minutes", "5", "--", "-h"})
-	if found {
-		t.Errorf("first = %q, want nothing: after -- every token is a value", first)
+	if !found || first != "-h" {
+		t.Fatalf("first = %q found = %v, want \"-h\" and true", first, found)
 	}
 	if err := fs.Parse(rest); err != nil {
 		t.Fatalf("%v (%v)", err, rest)
 	}
-	if fs.NArg() != 1 || fs.Arg(0) != "-h" {
-		t.Errorf("positionals after parsing = %v, want [-h]", fs.Args())
+	if got := fs.Lookup("minutes").Value.String(); got != "5" {
+		t.Errorf("--minutes before the separator was lost: rest=%v", rest)
+	}
+	// Nothing is left as a positional: "-h" was adopted as the username. If it had been
+	// left for flag.Parse instead, an undeclared "-h" would have come back as an error
+	// above, which is exactly how `-- -h` used to turn into a usage failure.
+	if fs.NArg() != 0 {
+		t.Errorf("positionals after parsing = %v, want none -- the username was already taken", fs.Args())
 	}
 
+	// Everything after the separator stays a value, including a token that spells a flag.
+	// Adopting the positional must not quietly re-enable flag parsing for the remainder.
 	fs2 := newSet()
-	first, rest, _ = TakeFirst(fs2, []string{"--", "-x", "--minutes", "5"})
-	if err := fs2.Parse(rest); err != nil {
-		t.Fatalf("%v", err)
+	first, rest, found = TakeFirst(fs2, []string{"--", "-x", "--minutes", "5"})
+	if !found || first != "-x" {
+		t.Fatalf("first = %q found = %v, want \"-x\" and true", first, found)
 	}
-	if first != "" || fs2.NArg() != 3 {
-		t.Errorf("first=%q args=%v, want everything after -- kept as positionals", first, fs2.Args())
+	if err := fs2.Parse(rest); err != nil {
+		t.Fatalf("%v (%v)", err, rest)
+	}
+	if got := fs2.Lookup("minutes").Value.String(); got == "5" {
+		t.Errorf("--minutes after the separator was parsed as a flag; it is a positional here")
+	}
+	if fs2.NArg() != 2 || fs2.Arg(0) != "--minutes" || fs2.Arg(1) != "5" {
+		t.Errorf("positionals after parsing = %v, want [--minutes 5]", fs2.Args())
+	}
+
+	// A separator with nothing after it is not a positional, and must not invent one.
+	fs3 := newSet()
+	if first, rest, found = TakeFirst(fs3, []string{"--"}); found {
+		t.Errorf("found = true with first = %q, want false: an empty tail is not a username", first)
+	}
+	if err := fs3.Parse(rest); err != nil {
+		t.Fatalf("%v (%v)", err, rest)
+	}
+	if fs3.NArg() != 0 {
+		t.Errorf("positionals = %v, want none", fs3.Args())
+	}
+
+	// A positional already taken before the separator is not replaced by the token after
+	// it -- that token is a second value, and the caller's "unexpected argument" path is
+	// the correct answer for it.
+	fs4 := newSet()
+	first, rest, found = TakeFirst(fs4, []string{"casey", "--", "anna"})
+	if !found || first != "casey" {
+		t.Errorf("first = %q, want the positional taken before the separator", first)
+	}
+	if err := fs4.Parse(rest); err != nil {
+		t.Fatalf("%v (%v)", err, rest)
+	}
+	if fs4.NArg() != 1 || fs4.Arg(0) != "anna" {
+		t.Errorf("positionals = %v, want [anna]", fs4.Args())
 	}
 }
 
