@@ -108,6 +108,7 @@ func runProcess(t *testing.T, args ...string) (code int, stdout, stderr string) 
 // "not implemented" synopsis forever.
 var implementedCommands = []string{"version", "doctor", "init", "serve", "status"}
 var implementedCommands = []string{"version", "doctor", "init", "status", "unlock", "override"}
+var implementedCommands = []string{"version", "doctor", "init", "status", "lock", "unlock", "override"}
 
 func TestCommandSurfaceIsComplete(t *testing.T) {
 	var stubs []string
@@ -364,9 +365,10 @@ func TestPlannedCommandsDocumentTheirFlags(t *testing.T) {
 func TestHelpFlagIsOnlyRecognisedInFlagPosition(t *testing.T) {
 	// Stubs: notImplemented prints its synopsis and exits 1. That exact code is the
 	// stub contract, so it stays pinned.
-	stubCases := [][]string{
-		{"lock", "--reason", "-h"},
-	}
+	// Every command in the ticket's list is implemented now, so there is no stub left to
+	// pin. The shape this test exists for -- a help flag outside flag position turning a
+	// no-op into success -- is pinned for the real commands in their own test files.
+	stubCases := [][]string{}
 	for _, args := range stubCases {
 		code, stdout, _ := runCmd(t, args...)
 		if code != exitFailure {
@@ -415,7 +417,10 @@ func TestProcessExitCodes(t *testing.T) {
 		{[]string{"version", "extra"}, exitUsage},
 		{[]string{"serve"}, exitFailure},
 		{[]string{"doctor"}, exitFailure},
-		{[]string{"lock", "--reason", "-h"}, exitFailure},
+		// `lock` is implemented now, so an unknown flag is a usage error rather than the
+		// stub's failure. --reason is not one of its flags at all.
+		{[]string{"lock", "--reason", "-h"}, exitUsage},
+		{[]string{"lock"}, exitUsage},
 	}
 	for _, tc := range cases {
 		code, _, _ := runProcess(t, tc.args...)

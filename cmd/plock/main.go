@@ -60,7 +60,6 @@ var planned = map[string]string{
 	"lock":   "<user> [--all]",
 	"unlock": "<user> --minutes N --reason TEXT",
 	"serve": "[--config PATH]",
-	"lock":  "<user> [--all]",
 }
 
 func main() {
@@ -89,6 +88,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runServe(stdout, stderr, rest)
 	case "status":
 		return runStatus(stdout, stderr, rest)
+	case "lock":
+		return runLock(stdout, stderr, rest)
 	case "unlock":
 		return runUnlock(stdout, stderr, rest)
 	case "override":
