@@ -436,7 +436,7 @@
       "file": "internal/schedule/widenedcost_test.go",
       "old": "\t\tif a.Year() != yr {\n\t\t\tcontinue\n\t\t}\n",
       "new": "\t\tif false {\n\t\t\tcontinue\n\t\t}\n",
-      "about": "let changedDaysIn leak Jan 1 of the next year into this year's list, double-counting a New Year offset change in the cost figures"
+      "note": "let changedDaysIn leak Jan 1 of the next year into this year's list, double-counting a New Year offset change in the cost figures"
     },
     {
       "id": "M1",

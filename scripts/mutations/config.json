@@ -75,14 +75,14 @@
       "file": "internal/config/edit.go",
       "old": "c.Profiles = appended(c.Profiles, p)",
       "new": "c.Profiles = append(c.Profiles, p)",
-      "about": "the UpsertProfile add path appends into an array another Config still holds, so a's saved document gains b's new profile"
+      "note": "the UpsertProfile add path appends into an array another Config still holds, so a's saved document gains b's new profile"
     },
     {
       "id": "CG13",
       "file": "internal/config/edit.go",
       "old": "c.Users = appended(c.Users, u)",
       "new": "c.Users = append(c.Users, u)",
-      "about": "the UpsertUser add path appends into an array another Config still holds, so a's saved document enforces an account a never assigned"
+      "note": "the UpsertUser add path appends into an array another Config still holds, so a's saved document enforces an account a never assigned"
     },
     {
       "id": "K1",
