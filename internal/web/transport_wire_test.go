@@ -250,3 +250,31 @@ func TestWaitReadyAnswersOnceThePortIsReal(t *testing.T) {
 		t.Error("WaitReady returned and Addr() is still empty, so the two disagree about the bind")
 	}
 }
+
+// The third answer WaitReady can give: nobody bound anything while we waited.
+//
+// The bind-failure test above cannot reach this branch -- a failed bind still closes the
+// channel, so the select takes the first case. Without a test for the timeout path,
+// `return ctx.Err()` can become `return nil` and every caller keeps believing the port is
+// live: a daemon that never bound would report itself ready to whatever supervises it.
+func TestWaitReadyReportsTheWaitItGaveUpOn(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod %s: %v", dir, err)
+	}
+	s, err := New(Options{Listen: "127.0.0.1:0", TLSMode: TLSOff, StoreDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Serve is deliberately never called, so the bind signal never arrives.
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	err = s.WaitReady(ctx)
+	if err == nil {
+		t.Fatal("WaitReady reported success for a server that was never asked to bind")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("WaitReady reported %v, want the deadline it waited on", err)
+	}
+}
