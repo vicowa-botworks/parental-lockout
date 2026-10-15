@@ -168,11 +168,12 @@ func TestTheRotatedPasswordWorksAndTheOldOneStopsWorking(t *testing.T) {
 }
 
 // The precedence rule, and the shape that makes it matter: a server handed BOTH a frozen
-// authenticator and a configuration source. That is exactly what `plock serve` was before
-// this change -- `srv.Auth = adminAuthenticator(cfg)` with the config read once at
-// startup -- so "the handed value wins" is not a hypothetical, it is the bug: the daemon
-// keeps accepting the password it booted with while the file says otherwise, and the
-// revocation watcher happily logs that it ended sessions.
+// authenticator and a configuration source. That is exactly what `plock serve` did until
+// the dead `srv.Auth = adminAuthenticator(cfg)` assignment was removed -- the config read
+// once at startup and handed over, while the file kept moving underneath it -- so "the
+// handed value wins" is not a hypothetical, it is the bug that was shipped: the daemon kept
+// accepting the password it booted with while the file said otherwise, and the revocation
+// watcher happily logged that it ended sessions.
 //
 // The configuration is the daemon's only source of truth for the credential, so it wins.
 // A handed Authenticator is what a server with no configuration source falls back to,

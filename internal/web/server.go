@@ -39,14 +39,14 @@ import (
 // spends all of it holding a socket looks hung in the journal.
 const defaultDrainTimeout = 10 * time.Second
 
-// defaultCredentialPoll is how long a rotated admin password can go unnoticed.
+// DefaultCredentialPoll is how long a rotated admin password can go unnoticed.
 //
 // Five seconds is not a number pulled from the air: it is short enough that "I just
 // rotated it" feels immediate to whoever is holding the incident, and long enough that
 // the poll is one small file read per tick on a home server rather than a load. It is
 // not a security boundary either way -- the sessions die the moment the change is
 // noticed, and noticing is bounded by this, not by the 12-hour cookie.
-const defaultCredentialPoll = 5 * time.Second
+const DefaultCredentialPoll = 5 * time.Second
 
 type Server struct {
 	// Auth, Sessions and Throttle are the three pieces from internal/auth. Auth
@@ -68,7 +68,7 @@ type Server struct {
 	// gives up and closes them. Zero means defaultDrainTimeout.
 	DrainTimeout time.Duration
 	// CredentialPoll is how often the daemon re-reads the stored admin verifier to see
-	// whether another process rotated it. Zero means defaultCredentialPoll.
+	// whether another process rotated it. Zero means DefaultCredentialPoll.
 	//
 	// It only matters when Config is wired; without a configuration source there is no
 	// rotated credential to notice and no watcher is started.
@@ -182,7 +182,7 @@ type Options struct {
 	// every caller that does not care about the split working unchanged.
 	Warn func(format string, args ...any)
 	// CredentialPoll overrides how often the stored admin verifier is re-read. Zero
-	// means defaultCredentialPoll. It exists for tests and for an operator who wants the
+	// means DefaultCredentialPoll. It exists for tests and for an operator who wants the
 	// window tighter than five seconds; it is not a knob to turn up to save a read.
 	CredentialPoll time.Duration
 
@@ -412,7 +412,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	if s.Config != nil {
 		every := s.CredentialPoll
 		if every <= 0 {
-			every = defaultCredentialPoll
+			every = DefaultCredentialPoll
 		}
 		go s.watchCredential(ctx, every)
 	}

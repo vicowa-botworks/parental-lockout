@@ -344,7 +344,7 @@
       "file": "internal/web/server.go",
       "old": "\ts.assets = m\n",
       "new": "\t_ = m\n\ts.assets = nil\n",
-      "note": "the resolved asset map is dropped on the floor, so New succeeds and every /static/ request 404s: the pages render unstyled and app.js never loads, with nothing in the log. Anchored on a statement rather than the composite literal because gofmt realigns the literal whenever a longer field name is added, which is what retired this mutant twice"
+      "note": "the resolved asset map is dropped on the floor, so New succeeds and every /static/ request 404s: the operator gets the unstyled page that embedding the assets exists to prevent, with nothing in the log. Re-pointed twice now: it used to match a line in New's composite literal, and gofmt re-spaces those when any field is added, so an unrelated Options field retired the mutant while the suite stayed green. It targets a statement now, whose spacing does not depend on its neighbours."
     },
     {
       "id": "W46",
@@ -485,22 +485,6 @@
       "note": "the pages are rendered with text/template, so an account name -- the one field on the page a child with a shell on the box can plausibly control -- is written into the document as markup instead of as a name"
     },
     {
-      "id": "W64",
-      "file": "internal/web/pages.go",
-      "old": "\t\tview.SessionsKnown = false\n",
-      "new": "",
-      "package": "./internal/web/",
-      "note": "a failed session read renders as an empty session list: \"no desktop session\" is a claim about who is logged in that the failed read did not establish, and it makes a broken backend look like a quiet house"
-    },
-    {
-      "id": "W65",
-      "file": "internal/web/sources.go",
-      "old": "\t\tcsrf = sess.CSRFToken",
-      "new": "\t\tcsrf = sess.CSRFToken[:0]",
-      "package": "./internal/web/",
-      "note": "the shell renders an empty token: the sign-out form 403s against csrfMiddleware on every page and the button does nothing. Sliced rather than replaced with a literal so the session stays referenced and the mutant still compiles"
-    },
-    {
       "id": "W70",
       "package": "./internal/web/",
       "file": "internal/web/credential.go",
@@ -545,8 +529,24 @@
       "package": "./cmd/plock/",
       "file": "cmd/plock/serve.go",
       "old": "\t\tAccounts: func() (*users.Listing, error) {\n",
-      "new": "\t\tAccounts: func() (*users.Listing, error) {\n\t\t\t_, _ = users.List(users.Source{})\n\t\t\treturn nil, nil\n",
-      "note": "the account source is wired but answers nothing, so /users 503s on the real daemon while every test that stubs the seam stays green. The call is kept so the import stays used and the mutant compiles"
+      "new": "\t\tAccounts: func() (*users.Listing, error) {\n\t\t\t_, _ = users.List(src)\n\t\t\treturn nil, nil\n",
+      "note": "the account source is wired but answers nothing, so /users 503s on the real daemon while every test that stubs the seam stays green. The call is kept so the import stays used and the mutant compiles. Re-pointed onto the Listing signature the seam now carries"
+    },
+    {
+      "id": "W76",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\t\tLockables: func() ([]platform.Session, error) {\n",
+      "new": "\t\tLockables: func() ([]platform.Session, error) {\n\t\t\treturn nil, nil\n",
+      "note": "the session listing is wired but returns nothing, so the dashboard says nobody is logged in on a machine with children at desks. This is the fail-open shape of the seam: a missing seam makes the pages refuse loudly, a hollow one reports a quiet house. `srv.Lockables != nil` cannot see it, which is exactly how the original wiring test passed while the body did nothing."
+    },
+    {
+      "id": "W77",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\t\t\treturn sessions.Sessions(ctx)\n",
+      "new": "\t\t\treturn sessions.Sessions(context.Background())\n",
+      "note": "the listing is handed a fresh background context instead of the serve context, so a shutdown has no way to cancel a session query that is already in flight and the drain waits on work it cannot interrupt."
     }
   ]
 }

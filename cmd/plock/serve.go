@@ -11,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/audit"
-	"github.com/vicowa-botworks/parental-lockout/internal/auth"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/enforce"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
@@ -182,7 +181,6 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		}
 	}()
 
-	srv.Auth = adminAuthenticator(cfg)
 	srv.Audit = func(event, detail string) {
 		if err := trail.Write(audit.Record{Kind: event, Detail: detail, Actor: "admin"}); err != nil {
 			// The mutation already happened; failing the request over the bookkeeping
@@ -228,24 +226,6 @@ func runAll(ctx context.Context, runners []func(context.Context) error) error {
 	return <-errs
 }
 
-// adminAuthenticator turns the stored admin record into something the web server
-// can check a password against.
-//
-// The verifier is read from the config rather than from a separate credential
-// file because there is exactly one source of truth for the daemon's state, and a
-// second place a credential lives is a second place for the CLI and the web UI to
-// disagree.
-//
-// An empty verifier is passed through rather than skipped: PasswordAuthenticator
-// answers ErrNoCredential for it, which is the one answer that lets the login page
-// tell the operator to run `plock init` instead of reporting a wrong password.
-func adminAuthenticator(cfg *config.Config) auth.Authenticator {
-	return auth.PasswordAuthenticator{
-		Username: cfg.Admin.Username,
-		Verifier: cfg.Admin.Password,
-	}
-}
-
 // logf sends a daemon diagnostic to stdout. It is a function rather than an inline
 // closure because the web server, the engine, and the audit writer each take a hook
 // of this shape, and all three must land on the same stream or a reader cannot put
@@ -282,19 +262,33 @@ func (a auditSink) Emit(e enforce.Event) {
 	}
 }
 
-// serveServer assembles the admin server the way the real daemon does it, so that a test can ask
-// the assembled object whether it can see the machine. Wiring the seams anywhere else means the
-// only place they are wired is a test fixture, and an unwired seam is a 503 on the real daemon
-// beside a green suite.
+// sessionSource is what the Lockables seam reads. *platform.Chain satisfies it, and a
+// test supplies its own because platform.New builds a chain from a config and a Runner
+// and cannot be handed a fake backend: without this, the only thing a wiring test could
+// assert about the seam is that it is not nil, and a hollowed-out body satisfies that.
+type sessionSource interface {
+	Sessions(context.Context) ([]platform.Session, error)
+}
+
+// serveServer assembles the admin server the way the real daemon does it, so that a test
+// can ask the assembled object whether it can see the machine. Wiring the seams anywhere
+// else means the only place they are wired is a test fixture, and an unwired seam is a 503
+// on the real daemon beside a green suite.
 //
-// Auth and Audit are deliberately not set here. The caller owns them: Audit has to write to the
-// shared audit trail, which this function neither creates nor sees, and setting a stdout stub here
-// would quietly win over the real hook by ordering.
-// serveServer assembles the admin server. src is where the account listing reads from, and
-// it is a parameter rather than a call to users.Source{} inside the Accounts seam for the
-// same reason the runner is one: /etc/passwd is a fact about the host, and a wiring test
-// that reads the host can only assert that something came back.
-func serveServer(cfg *config.Config, chain *platform.Chain, src users.Source, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
+// src and sessions are parameters rather than calls made inside the seams for the same
+// reason the runner is one: /etc/passwd and the live session table are facts about the
+// host, and a wiring test that reads the host can only assert that something came back.
+//
+// Audit is deliberately not set here: it has to write to the shared audit trail, which this
+// function neither creates nor sees, and setting a stdout stub here would quietly win over
+// the real hook by ordering.
+//
+// Auth is not set either, and for a sharper reason. The web layer reads the admin
+// credential through Config on every attempt, so a value frozen here would be a second
+// credential the daemon consults and the operator did not rotate — which is issue #37
+// itself. Server.Auth exists only for a caller with no Config seam at all, and serve always
+// has one.
+func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
 	srv, err := web.New(web.Options{
 		Listen:   cfg.Settings.Listen,
 		TLSMode:  cfg.Settings.TLS,
@@ -321,7 +315,7 @@ func serveServer(cfg *config.Config, chain *platform.Chain, src users.Source, cf
 		// the afternoon.
 		Config: func() (*config.Config, error) { return config.Load(cfgPath) },
 		Lockables: func() ([]platform.Session, error) {
-			return chain.Sessions(ctx)
+			return sessions.Sessions(ctx)
 		},
 		Accounts: func() (*users.Listing, error) {
 			// The whole Listing, notes included. Dropping them here would put the

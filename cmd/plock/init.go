@@ -13,6 +13,7 @@ import (
 
 	"github.com/vicowa-botworks/parental-lockout/internal/auth"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/web"
 )
 
 const initUsage = `Usage: plock init [--username NAME] (--password PASS | --password-stdin) [--force]
@@ -185,10 +186,13 @@ func doInit(f *initFlags, stdout, stderr io.Writer, stdin io.Reader) int {
 			"plock init: %s already has an administrator %q.\n"+
 				"Re-run with --force to replace it. The new password is picked up within one\n"+
 				"engine tick, and sessions already signed in are ended within one credential\n"+
-				"poll (5 seconds by default) once the daemon is serving the admin UI.\n"+
+				"poll (%v by default) once the daemon is serving the admin UI.\n"+
 				"A daemon that is not running the web server holds its sessions until it is\n"+
 				"restarted — run systemctl restart plock if in doubt.",
-			f.configPath, cfg.Admin.Username))
+			// The poll interval is named from the web package rather than typed out: this
+			// sentence promises a number, and a number copied into prose is a number that
+			// goes quietly wrong the day the poll is retuned.
+			f.configPath, cfg.Admin.Username, web.DefaultCredentialPoll))
 	}
 
 	cfg.Admin.Username = strings.TrimSpace(f.username)
