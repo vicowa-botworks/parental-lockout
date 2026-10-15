@@ -168,9 +168,8 @@ alone. **The lock state the daemon reads is a value the adversary can write.**
 
 ## 6. Trust boundary: the admin web UI
 
-Not in this tree yet — the server is on `feat/web-server`. Recorded here so the release checklist
-has somewhere to point, and so the claims below are made *before* the code exists rather than
-after.
+The server is on `main` (`internal/web`, `plock serve`). The claims below were written before
+the code existed; each one now names a test that runs.
 
 | Claim | Test |
 |---|---|
@@ -183,6 +182,10 @@ after.
 | Expired sessions are swept without being looked up | `TestExpiredSessionsAreSweptWithoutBeingLookedUp` |
 | A weak admin password is refused at creation | `TestInitRefusesAWeakPassword` |
 | The listener binds where it says it binds, verified on the wire | `internal/web` transport test |
+| Rotating the admin credential ends the sessions minted under it, and the new password works without a restart | `TestARotatedCredentialEndsSessionsMintedUnderTheOldOne`, `TestTheRotatedPasswordWorksAndTheOldOneStopsWorking` |
+| The credential is read from the config, so a value handed to the server cannot outrank the file | `TestAHandedAuthenticatorDoesNotOutrankTheConfiguration` |
+| A config rewrite that leaves the password alone keeps the operator's own session | `TestAConfigRewriteThatKeepsThePasswordKeepsTheSessions` |
+| A transient config read error is not treated as a rotation, and starting the watcher is not one either | `TestAConfigReadFailureDoesNotLogAnybodyOut`, `TestStartingTheWatcherDoesNotRevokeAnything` |
 
 ---
 
@@ -220,7 +223,6 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 | **A raw VT session** | Deliberately kept lockable even though it can never be confirmed. Refusing `Type == "tty"` would make `Sessions()` report nobody, the loop find nothing to do, and the machine go quiet while the child keeps typing — the same outcome for the child, minus the signal. The loud permanent `ErrUnconfirmed` is the safe failure. |
 | **Application or website filtering** | Out of scope by design. |
 | **The child reading the audit trail** | They cannot — §3 — but there is no reader on this tree yet, so the operator cannot read it either. Issue #46. |
-| **Killing existing web sessions when the admin password rotates** | `Admin.UpdatedAt` has no consumer. Issue #37. |
 | **GNOME corroboration of a lock** | No second signal has been measured on GNOME hardware. A GNOME-only config therefore reports `lock.unconfirmed` on transitions. Issue #35. |
 | **A non-Linux build** | The guards fail closed — `ownerIsWriter` and `fileUID` return `errOwnershipUnsupported` and the writer refuses — but the *race* protection is lost: without `O_NOFOLLOW` a path can still be swapped between check and open. v0.1 ships Linux only. |
 | **A malicious package or supply chain** | There are zero third-party modules, which is the whole mitigation available (`scripts/check-deps.sh`). |

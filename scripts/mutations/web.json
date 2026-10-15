@@ -342,9 +342,9 @@
     {
       "id": "W44",
       "file": "internal/web/server.go",
-      "old": "\t\tStatic:    opts.Static,\n",
-      "new": "\t\tStatic:    nil,\n",
-      "note": "the asset map is built from a nil bundle, so every /static/ request 404s and the operator gets the unstyled page that embedding the assets exists to prevent. Re-pointed when the constructor's fields were realigned by gofmt -- the alignment is part of the pattern, so a field added to Options retires this mutant.. an injected asset bundle is dropped, so Options.Static does nothing and the constructor's asset check is unreachable again"
+      "old": "\ts.assets = m\n",
+      "new": "\t_ = m\n\ts.assets = nil\n",
+      "note": "the resolved asset map is dropped on the floor, so New succeeds and every /static/ request 404s: the pages render unstyled and app.js never loads, with nothing in the log. Anchored on a statement rather than the composite literal because gofmt realigns the literal whenever a longer field name is added, which is what retired this mutant twice"
     },
     {
       "id": "W46",
@@ -499,6 +499,54 @@
       "new": "\t\tcsrf = sess.CSRFToken[:0]",
       "package": "./internal/web/",
       "note": "the shell renders an empty token: the sign-out form 403s against csrfMiddleware on every page and the button does nothing. Sliced rather than replaced with a literal so the session stays referenced and the mutant still compiles"
+    },
+    {
+      "id": "W70",
+      "package": "./internal/web/",
+      "file": "internal/web/credential.go",
+      "old": "\t\ts.Sessions.RevokeAll()\n",
+      "new": "",
+      "note": "the rotation is noticed and nothing is revoked: the stolen session keeps resolving for its full sliding window and the log line still claims the sessions ended. This is the whole of #37 -- the sentence 'every existing admin session ends' was false for exactly this reason."
+    },
+    {
+      "id": "W71",
+      "package": "./internal/web/",
+      "file": "internal/web/credential.go",
+      "old": "\t\t\tseen, have = verifier, true\n\t\t\tcontinue\n",
+      "new": "\t\t\thave = true\n",
+      "note": "the first read is treated as a rotation, so every daemon restart ends every session -- an operator logged out by a config reload, with a log line claiming the credential changed when nobody rotated anything."
+    },
+    {
+      "id": "W72",
+      "package": "./internal/web/",
+      "file": "internal/web/credential.go",
+      "old": "\t\t\ts.logf(\"web: admin credential could not be re-read: %v\", err)\n",
+      "new": "\t\t\ts.Sessions.RevokeAll()\n\t\t\ts.logf(\"web: admin credential could not be re-read: %v\", err)\n",
+      "note": "a transient config read error becomes a mass logout. The file is replaced rather than truncated, so a read can fail because the watcher arrived between the unlink and the rename -- an availability fault dressed up as a security event."
+    },
+    {
+      "id": "W73",
+      "package": "./internal/web/",
+      "file": "internal/web/credential.go",
+      "old": "\tif s.Config == nil {\n\t\tif s.Auth == nil {\n\t\t\treturn nil, errNoAuthenticator\n\t\t}\n\t\treturn s.Auth, nil\n\t}\n",
+      "new": "\tif s.Auth != nil {\n\t\treturn s.Auth, nil\n\t}\n\tif s.Config == nil {\n\t\treturn nil, errNoAuthenticator\n\t}\n",
+      "note": "a handed Authenticator outranks the configuration. That is the shape `plock serve` had: srv.Auth captured the verifier at startup, so the daemon kept accepting the pre-rotation password while the watcher logged that it had ended sessions. The config is the only source of truth for the credential, so it wins."
+    },
+    {
+      "id": "W74",
+      "package": "./internal/web/",
+      "file": "internal/web/server.go",
+      "old": "\tif s.Config != nil {\n\t\tevery := s.CredentialPoll\n",
+      "new": "\tif true {\n\t\tevery := s.CredentialPoll\n",
+      "note": "the watcher starts with no configuration source, so a server that has nothing to read complains on every tick forever -- and the one line that means a rotation took effect is buried in noise the operator learns to ignore."
+    },
+    {
+      "id": "W75",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\t\tAccounts: func() (*users.Listing, error) {\n",
+      "new": "\t\tAccounts: func() (*users.Listing, error) {\n\t\t\t_, _ = users.List(users.Source{})\n\t\t\treturn nil, nil\n",
+      "note": "the account source is wired but answers nothing, so /users 503s on the real daemon while every test that stubs the seam stays green. The call is kept so the import stays used and the mutant compiles"
     }
   ]
 }

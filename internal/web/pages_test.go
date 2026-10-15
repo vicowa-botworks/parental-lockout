@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/auth"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 	"github.com/vicowa-botworks/parental-lockout/internal/users"
@@ -17,8 +18,29 @@ import (
 // dashboard has something to report.
 var insideWindow = time.Date(2026, 3, 18, 23, 0, 0, 0, time.UTC)
 
+// pageVerifier is one production-legal admin credential, minted once for the package.
+//
+// Production-legal is not a detail: the authenticator checks the stored cost at the
+// trust boundary, so a TestIterations fixture is refused there with a 500 -- correctly.
+// A page fixture that cannot log in is not testing the page. The cost is one ~100 ms
+// hash for the whole package rather than one per fixture, because every page test logs
+// in and none of them should pay for the KDF.
+var pageVerifier = func() string {
+	v, err := auth.Hasher{Iterations: auth.MinIterations}.Hash("hunter2")
+	if err != nil {
+		panic("the test verifier could not be minted: " + err.Error())
+	}
+	return v
+}()
+
 func pageConfig() *config.Config {
 	c := config.Default()
+	// A deployable config has an admin in it. This stopped being optional when the
+	// login path started reading its credential through the same Config seam the pages
+	// use: a fixture that stubbed Config for page data was silently also saying "this
+	// machine has no administrator", and every login then failed for a reason the test
+	// had nothing to do with.
+	c.Admin = config.Admin{Username: "parent", Password: pageVerifier}
 	c.Profiles = []config.Profile{{
 		ID: "school", Name: "School nights", Timezone: "UTC",
 		Rules: []config.Rule{{ID: "r1", Name: "weeknights",
@@ -154,8 +176,12 @@ func TestThePageHasNoInlineScriptOrStyleToBeBlockedByTheCSP(t *testing.T) {
 // is the most reassuring wrong answer this interface can produce, and it is exactly
 // what a parent sees in the minute when the config file has actually gone missing.
 func TestADashboardThatCannotReadTheConfigSaysSo(t *testing.T) {
-	s := pageServer(t, nil, nil, nil, errors.New("open /etc/plock/config.json: no such file"), nil)
-	rec := authGet(t, s, "/")
+	s, _ := pageWithSeams(t)
+	rec := authGetAfterBreaking(t, s, func(s *Server) {
+		s.Config = func() (*config.Config, error) {
+			return nil, errors.New("open /etc/plock/config.json: no such file")
+		}
+	}, "/")
 	if rec.Code == http.StatusOK {
 		t.Error("the page rendered as though nothing were wrong")
 	}

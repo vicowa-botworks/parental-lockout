@@ -82,12 +82,33 @@ func TestEachUnwiredSeamNamesItself(t *testing.T) {
 	}
 }
 
+// authGetAfterBreaking signs in while the server still works, breaks it, then asks for
+// the page.
+//
+// The order is the whole point. The login path reads its credential through the same
+// Config seam the pages do, so a test that broke the seam first would be refused at
+// sign-in and then "pass" its page assertion for a reason it was never about -- the
+// masking shape again, arriving through a shared seam rather than a stronger guard.
+func authGetAfterBreaking(t *testing.T, s *Server, breakIt func(*Server), path string) *httptest.ResponseRecorder {
+	t.Helper()
+	resp, _ := login(t, s, "parent", "hunter2")
+	c := cookieOf(t, resp)
+	breakIt(s)
+	req := httptest.NewRequest("GET", path, nil)
+	req.AddCookie(c)
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
 // A source that answers "no error" and hands back nothing is a different fault from an
 // unwired source, and it is the worse one: the page would render an empty machine.
 func TestAConfigSourceThatReturnsNothingIsRefused(t *testing.T) {
 	s, logged := pageWithSeams(t)
-	s.Config = func() (*config.Config, error) { return nil, nil }
-	rec := authGet(t, s, "/")
+	rec := authGetAfterBreaking(t, s, func(s *Server) {
+		s.Config = func() (*config.Config, error) { return nil, nil }
+	}, "/")
 	if rec.Code == http.StatusOK {
 		t.Fatal("a nil configuration rendered a dashboard")
 	}
@@ -134,8 +155,10 @@ func TestThePageWriterSetsNoStoreItself(t *testing.T) {
 // The refusal path carries the same header: "the configuration could not be read" is
 // exactly the answer a cache must not hold on to and replay after the file is fixed.
 func TestAPageErrorIsNeverCacheableEither(t *testing.T) {
-	s := pageServer(t, pageConfig(), nil, nil, errors.New("config file is unreadable"), nil)
-	rec := authGet(t, s, "/")
+	s, _ := pageWithSeams(t)
+	rec := authGetAfterBreaking(t, s, func(s *Server) {
+		s.Config = func() (*config.Config, error) { return nil, errors.New("config file is unreadable") }
+	}, "/")
 	if rec.Code == http.StatusOK {
 		t.Fatal("the page rendered despite the configuration error")
 	}
