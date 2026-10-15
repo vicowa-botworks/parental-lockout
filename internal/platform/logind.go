@@ -74,10 +74,7 @@ func (l *logind) Sessions(ctx context.Context) ([]Session, error) {
 		// non-desktop sessions does not make a dozen pointless calls. class=user
 		// with a seat is the desktop session; everything else (manager, greeter)
 		// has nothing to lock.
-		if e.Class != "user" || e.Seat == nil || *e.Seat == "" {
-			continue
-		}
-		if e.Session == "" {
+		if !isDesktopEntry(e) {
 			continue
 		}
 
@@ -191,8 +188,15 @@ func (l *logind) Probe(ctx context.Context) []BackendStatus {
 	// This is a read-only show-session on one session, never a lock. It is skipped
 	// when there is nothing to ask about, and a session that vanishes between the
 	// listing and this call is not a reason to stop reporting the probe.
-	if len(entries) > 0 {
-		if p, err := l.show(ctx, entries[0].Session, sessionProps...); err == nil {
+	// Ask about a session the daemon would actually try to lock. entries[0] is often a
+	// class=manager row -- no seat, Type=unspecified, never a lock candidate -- and on
+	// some boxes it is the only row besides a greeter. Blaming a property's absence on
+	// the first row therefore reports "this loginctl does not report X" on the evidence
+	// of a session whose class may be exactly why X is missing, while the class the
+	// daemon does lock would have answered it. A machine with no lockable session still
+	// gets asked about, so the report does not go quiet.
+	if target := probeTarget(entries); target != "" {
+		if p, err := l.show(ctx, target, sessionProps...); err == nil {
 			var absent []string
 			for _, k := range sessionProps {
 				if _, ok := p[k]; !ok {
@@ -206,6 +210,36 @@ func (l *logind) Probe(ctx context.Context) []BackendStatus {
 		}
 	}
 	return []BackendStatus{status}
+}
+
+// probeTarget names the session the property-presence probe should ask about: the first
+// row that is a lock candidate, or the first row at all when none is.
+//
+// The "or the first row at all" half is not a courtesy. A loginctl that lists only
+// manager and greeter rows still has an opinion about whether LockedHint exists, and
+// returning "" here would turn a real finding into no finding -- the failure direction
+// this package keeps refusing.
+func probeTarget(entries []listEntry) string {
+	for _, e := range entries {
+		if isDesktopEntry(e) {
+			return e.Session
+		}
+	}
+	if len(entries) > 0 {
+		return entries[0].Session
+	}
+	return ""
+}
+
+// isDesktopEntry is the cheap pre-filter that decides which listed sessions are worth a
+// detail call: class=user with a seat is the desktop session, and everything else
+// (manager, greeter) has nothing to lock.
+//
+// It is a function rather than an inline condition because the property-presence probe
+// has to agree with it. Asking a non-candidate what the daemon would have seen is how a
+// manager row ends up testifying about a property only class=user carries.
+func isDesktopEntry(e listEntry) bool {
+	return e.Class == "user" && e.Seat != nil && *e.Seat != "" && e.Session != ""
 }
 
 // list gets the session rows, preferring JSON and falling back to the table.

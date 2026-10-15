@@ -583,6 +583,22 @@
       "old": "\treturn yes, nil, errs\n}",
       "new": "\treturn yes, nil, nil\n}",
       "note": "a confirmer that faulted on the way to an answer is collected and then dropped"
+    },
+    {
+      "id": "R1",
+      "file": "internal/platform/logind.go",
+      "old": "\tfor _, e := range entries {\n\t\tif isDesktopEntry(e) {\n\t\t\treturn e.Session\n\t\t}\n\t}\n\tif len(entries) > 0 {",
+      "new": "\tif len(entries) > 0 {",
+      "note": "the property-presence probe asks about whichever row is first, so a manager row testifies about a property only class=user carries (#25 item 4)",
+      "package": "./internal/platform/"
+    },
+    {
+      "id": "R2",
+      "file": "internal/platform/logind.go",
+      "old": "\treturn e.Class == \"user\" && e.Seat != nil && *e.Seat != \"\" && e.Session != \"\"",
+      "new": "\treturn e.Session != \"\"",
+      "note": "every listed session counts as a desktop session, so the probe and the listing both stop filtering non-candidates",
+      "package": "./internal/platform/"
     }
   ]
 }
