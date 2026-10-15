@@ -1,176 +1,176 @@
 {
- "package": "./internal/enforce/",
- "_about": "Each entry puts one known bug back into internal/enforce and the suite must fail. F1 is the #29 fail-open: a session that reports itself locked used to be left alone, and LockedHint is writable by the child. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
- "mutants": [
-  {
-   "id": "F1",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\thinted := s.Locked\n\terr := e.Platform.Lock(ctx, s)",
-   "new": "\thinted := s.Locked\n\tif s.Locked {\n\t\te.markEnforcing(rep, s, now, ruleID, ruleName, \"window open; session already reports itself locked\")\n\t\treturn\n\t}\n\terr := e.Platform.Lock(ctx, s)",
-   "note": "the pre-#29 behaviour: one autostart line writing LockedHint would stop enforcement silently forever"
-  },
-  {
-   "id": "F2",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\treturn \"re-asserted although the session reported itself locked; that report is not evidence the screen is locked\"",
-   "new": "\t\treturn \"\"",
-   "note": "the forgery attempt leaves no trace in the audit trail, so an operator cannot see that someone was writing the hint"
-  },
-  {
-   "id": "F3",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "func canNeverConfirm(s platform.Session) bool { return s.Type == \"tty\" }",
-   "new": "func canNeverConfirm(s platform.Session) bool { return false }",
-   "note": "a raw VT's permanent ErrUnconfirmed is never escalated; the operator is never told that account is not being locked out"
-  },
-  {
-   "id": "F4",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "func canNeverConfirm(s platform.Session) bool { return s.Type == \"tty\" }",
-   "new": "func canNeverConfirm(s platform.Session) bool { return true }",
-   "note": "every unconfirmed desktop is declared unenforceable, which is a false alarm: the screensaver interface exposes no Locked property, so a locked screen can read unconfirmed forever"
-  },
-  {
-   "id": "F5",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\t\tif !st.unenforceableReported {\n\t\t\t\tst.unenforceableReported = true",
-   "new": "\t\t\tif true || !st.unenforceableReported {\n\t\t\t\tst.unenforceableReported = true",
-   "note": "the VT verdict is repeated every tick, which is the log flood the once-per-lockout flag exists to prevent"
-  },
-  {
-   "id": "F6",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\tst.unenforceableReported = false\n\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
-   "new": "\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
-   "note": "EQUIVALENT, and here is the proof: for the flag to be set, a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false \u2014 so the very next statement deletes the state entry and the next lockout starts from a fresh one. No input reaches the release with flag set and the entry kept. The line stays as insurance against a future change to that delete condition; TestASecondLockoutReEscalates pins the behaviour it protects, via the delete.",
-   "equivalent": true,
-   "why": ""
-  },
-  {
-   "id": "F7",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\trep.Errors = append(rep.Errors, fmt.Errorf(\"enumerate sessions: %w\", err))",
-   "new": "\t\te.state = nil\n\t\trep.Errors = append(rep.Errors, fmt.Errorf(\"enumerate sessions: %w\", err))",
-   "note": "a logind restart would clear every lockout and re-audit entry, turning 'could not ask' into evidence the window ended"
-  },
-  {
-   "id": "F8",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\treturn e.cfg, nil",
-   "new": "\treturn nil, fmt.Errorf(\"load config %s: %w\", e.Path, err)",
-   "note": "an unreadable config would free the child; the last good document must keep enforcing"
-  },
-  {
-   "id": "F9",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\te.state = nil\n\t\treturn rep",
-   "new": "\t\treturn rep",
-   "note": "switching enforcement back on mid-bedtime would resume locking with no record of having started"
-  },
-  {
-   "id": "F10",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\tst.overrideActive = false\n\te.emit(rep, Event{At: now, Kind: KindOverrideExpired",
-   "new": "\te.emit(rep, Event{At: now, Kind: KindOverrideExpired",
-   "note": "override expiry emitted on every tick after the exemption ends instead of once"
-  },
-  {
-   "id": "F11",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\tif e.degraded[s.ID] == sig {\n\t\treturn\n\t}",
-   "new": "\tif false {\n\t\treturn\n\t}",
-   "note": "a degraded schedule reported every tick instead of when the complaint set changes"
-  },
-  {
-   "id": "F12",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\tif st.enforcing {\n\t\t\te.emit(&rep, Event{\n\t\t\t\tAt:        now,\n\t\t\t\tKind:      KindLockoutExited,",
-   "new": "\t\tif false && st.enforcing {\n\t\t\te.emit(&rep, Event{\n\t\t\t\tAt:        now,\n\t\t\t\tKind:      KindLockoutExited,",
-   "note": "a session that vanished leaves the lockout open in the trail and is never released"
-  },
-  {
-   "id": "F13",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\tst := e.markEnforcing(rep, s, now, ruleID, ruleName, \"lock requested but not confirmed\")",
-   "new": "\t\tst := e.ensure(s.ID)",
-   "note": "an unconfirmed lock would not count as enforcing, so the loop would stop re-arming on the one outcome where the child may still be at the desktop"
-  },
-  {
-   "id": "F14",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\te.startTick(ctx, &wg)\n\n\tfor {\n\t\ttimer := time.NewTimer(e.interval())",
-   "new": "\tfor {\n\t\ttimer := time.NewTimer(e.interval())",
-   "note": "the first tick waits for a whole interval, so a daemon restarted during a curfew hands the machine back for 30 seconds"
-  },
-  {
-   "id": "F15",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\tif !e.mu.TryLock() {\n\t\te.noteSkipped()\n\t\treturn\n\t}\n\twg.Add(1)\n\tgo func() {\n\t\tdefer wg.Done()\n\t\tdefer e.mu.Unlock()",
-   "new": "\twg.Add(1)\n\tgo func() {\n\t\tdefer wg.Done()",
-   "note": "ticks stack: two passes lock the same session at once, race the state map, and double every audit line"
-  },
-  {
-   "id": "F16",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\te.logf(\"enforce: tick skipped, previous one still running (total %d)\", n)\n\tif e.Sink != nil {",
-   "new": "\te.logf(\"enforce: tick skipped, previous one still running (total %d)\", n)\n\tif false && e.Sink != nil {",
-   "note": "a daemon that falls behind leaves nothing in the audit log, only a counter nobody already knows to ask for"
-  },
-  {
-   "id": "F17",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\tif s := e.pollSeconds.Load(); s > 0 {\n\t\treturn time.Duration(s) * time.Second\n\t}",
-   "new": "\tif s := e.pollSeconds.Load(); s > 0 {\n\t\t_ = s\n\t}",
-   "note": "settings.pollSeconds would not reach the timer, so an edited interval silently does nothing"
-  },
-  {
-   "id": "F18",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\te.pollSeconds.Store(int64(cfg.Settings.PollSeconds))",
-   "new": "\t\t_ = cfg.Settings.PollSeconds",
-   "note": "the hand-off from the tick goroutine to the loop is dropped, so Run times itself off a value it never read"
-  },
-  {
-   "id": "F19",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\te.mu.Lock()\n\tdefer e.mu.Unlock()\n\tvar out []string",
-   "new": "\tvar out []string",
-   "note": "State() reads the tick's map with no guard; -race catches it in the reloader test"
-  },
-  {
-   "id": "F20",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\t\tif ctx.Err() != nil {\n\t\t\treturn rep\n\t\t}",
-   "new": "\t\tif false {\n\t\t\treturn rep\n\t\t}",
-   "note": "the pass walks the whole session list on a dead context, so every remaining child is reported unconfirmed during shutdown"
-  },
-  {
-   "id": "F21",
-   "package": "./internal/enforce/",
-   "file": "internal/enforce/enforce.go",
-   "old": "\tif err != nil && ctx.Err() != nil {\n",
-   "new": "\tif err != nil && false {\n",
-   "note": "a lock cancelled mid-flight is filed under unconfirmed, whose rule is keep re-arming, so a shutdown claims the child is at the desktop"
-  }
- ]
+  "package": "./internal/enforce/",
+  "_about": "Each entry puts one known bug back into internal/enforce and the suite must fail. F1 is the #29 fail-open: a session that reports itself locked used to be left alone, and LockedHint is writable by the child. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
+  "mutants": [
+    {
+      "id": "F1",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\thinted := s.Locked\n\terr := e.Platform.Lock(ctx, s)",
+      "new": "\thinted := s.Locked\n\tif s.Locked {\n\t\te.markEnforcing(rep, s, now, ruleID, ruleName, \"window open; session already reports itself locked\")\n\t\treturn\n\t}\n\terr := e.Platform.Lock(ctx, s)",
+      "note": "the pre-#29 behaviour: one autostart line writing LockedHint would stop enforcement silently forever"
+    },
+    {
+      "id": "F2",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\treturn \"re-asserted although the session reported itself locked; that report is not evidence the screen is locked\"",
+      "new": "\t\treturn \"\"",
+      "note": "the forgery attempt leaves no trace in the audit trail, so an operator cannot see that someone was writing the hint"
+    },
+    {
+      "id": "F3",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "func canNeverConfirm(s platform.Session) bool { return s.Type == \"tty\" }",
+      "new": "func canNeverConfirm(s platform.Session) bool { return false }",
+      "note": "a raw VT's permanent ErrUnconfirmed is never escalated; the operator is never told that account is not being locked out"
+    },
+    {
+      "id": "F4",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "func canNeverConfirm(s platform.Session) bool { return s.Type == \"tty\" }",
+      "new": "func canNeverConfirm(s platform.Session) bool { return true }",
+      "note": "every unconfirmed desktop is declared unenforceable, which is a false alarm: the screensaver interface exposes no Locked property, so a locked screen can read unconfirmed forever"
+    },
+    {
+      "id": "F5",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\t\tif !st.unenforceableReported {\n\t\t\t\tst.unenforceableReported = true",
+      "new": "\t\t\tif true || !st.unenforceableReported {\n\t\t\t\tst.unenforceableReported = true",
+      "note": "the VT verdict is repeated every tick, which is the log flood the once-per-lockout flag exists to prevent"
+    },
+    {
+      "id": "F6",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\tst.unenforceableReported = false\n\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
+      "new": "\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
+      "note": "EQUIVALENT, and here is the proof: for the flag to be set, a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false — so the very next statement deletes the state entry and the next lockout starts from a fresh one. No input reaches the release with flag set and the entry kept. The line stays as insurance against a future change to that delete condition; TestASecondLockoutReEscalates pins the behaviour it protects, via the delete.",
+      "equivalent": true,
+      "why": ""
+    },
+    {
+      "id": "F7",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\trep.Errors = append(rep.Errors, fmt.Errorf(\"enumerate sessions: %w\", err))",
+      "new": "\t\te.state = nil\n\t\trep.Errors = append(rep.Errors, fmt.Errorf(\"enumerate sessions: %w\", err))",
+      "note": "a logind restart would clear every lockout and re-audit entry, turning 'could not ask' into evidence the window ended"
+    },
+    {
+      "id": "F8",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\treturn e.cfg, nil",
+      "new": "\treturn nil, fmt.Errorf(\"load config %s: %w\", e.Path, err)",
+      "note": "an unreadable config would free the child; the last good document must keep enforcing"
+    },
+    {
+      "id": "F9",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\te.state = nil\n\t\treturn rep",
+      "new": "\t\treturn rep",
+      "note": "switching enforcement back on mid-bedtime would resume locking with no record of having started"
+    },
+    {
+      "id": "F10",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tst.overrideActive = false\n\te.emit(rep, Event{At: now, Kind: KindOverrideExpired",
+      "new": "\te.emit(rep, Event{At: now, Kind: KindOverrideExpired",
+      "note": "override expiry emitted on every tick after the exemption ends instead of once"
+    },
+    {
+      "id": "F11",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif e.degraded[s.ID] == sig {\n\t\treturn\n\t}",
+      "new": "\tif false {\n\t\treturn\n\t}",
+      "note": "a degraded schedule reported every tick instead of when the complaint set changes"
+    },
+    {
+      "id": "F12",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\tif st.enforcing {\n\t\t\te.emit(&rep, Event{\n\t\t\t\tAt:        now,\n\t\t\t\tKind:      KindLockoutExited,",
+      "new": "\t\tif false && st.enforcing {\n\t\t\te.emit(&rep, Event{\n\t\t\t\tAt:        now,\n\t\t\t\tKind:      KindLockoutExited,",
+      "note": "a session that vanished leaves the lockout open in the trail and is never released"
+    },
+    {
+      "id": "F13",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\tst := e.markEnforcing(rep, s, now, ruleID, ruleName, \"lock requested but not confirmed\")",
+      "new": "\t\tst := e.ensure(s.ID)",
+      "note": "an unconfirmed lock would not count as enforcing, so the loop would stop re-arming on the one outcome where the child may still be at the desktop"
+    },
+    {
+      "id": "F14",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\te.startTick(ctx, &wg)\n\n\tfor {\n\t\ttimer := time.NewTimer(e.interval())",
+      "new": "\tfor {\n\t\ttimer := time.NewTimer(e.interval())",
+      "note": "the first tick waits for a whole interval, so a daemon restarted during a curfew hands the machine back for 30 seconds"
+    },
+    {
+      "id": "F15",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif !e.mu.TryLock() {\n\t\te.noteSkipped()\n\t\treturn\n\t}\n\twg.Add(1)\n\tgo func() {\n\t\tdefer wg.Done()\n\t\tdefer e.mu.Unlock()",
+      "new": "\twg.Add(1)\n\tgo func() {\n\t\tdefer wg.Done()",
+      "note": "ticks stack: two passes lock the same session at once, race the state map, and double every audit line"
+    },
+    {
+      "id": "F16",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\te.logf(\"enforce: tick skipped, previous one still running (total %d)\", n)\n\tif e.Sink != nil {",
+      "new": "\te.logf(\"enforce: tick skipped, previous one still running (total %d)\", n)\n\tif false && e.Sink != nil {",
+      "note": "a daemon that falls behind leaves nothing in the audit log, only a counter nobody already knows to ask for"
+    },
+    {
+      "id": "F17",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif s := e.pollSeconds.Load(); s > 0 {\n\t\treturn time.Duration(s) * time.Second\n\t}",
+      "new": "\tif s := e.pollSeconds.Load(); s > 0 {\n\t\t_ = s\n\t}",
+      "note": "settings.pollSeconds would not reach the timer, so an edited interval silently does nothing"
+    },
+    {
+      "id": "F18",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\te.pollSeconds.Store(int64(cfg.Settings.PollSeconds))",
+      "new": "\t\t_ = cfg.Settings.PollSeconds",
+      "note": "the hand-off from the tick goroutine to the loop is dropped, so Run times itself off a value it never read"
+    },
+    {
+      "id": "F19",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\te.mu.Lock()\n\tdefer e.mu.Unlock()\n\tvar out []string",
+      "new": "\tvar out []string",
+      "note": "State() reads the tick's map with no guard; -race catches it in the reloader test"
+    },
+    {
+      "id": "F20",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\tif ctx.Err() != nil {\n\t\t\treturn rep\n\t\t}",
+      "new": "\t\tif false {\n\t\t\treturn rep\n\t\t}",
+      "note": "the pass walks the whole session list on a dead context, so every remaining child is reported unconfirmed during shutdown"
+    },
+    {
+      "id": "F21",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif err != nil && ctx.Err() != nil {\n",
+      "new": "\tif err != nil && false {\n",
+      "note": "a lock cancelled mid-flight is filed under unconfirmed, whose rule is keep re-arming, so a shutdown claims the child is at the desktop"
+    }
+  ]
 }
