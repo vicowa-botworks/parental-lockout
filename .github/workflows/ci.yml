@@ -71,5 +71,6 @@ jobs:
           set -euo pipefail
           "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" \
             deploy/install.sh \
+            deploy/run-dev.sh \
             scripts/check-builds.sh \
             scripts/check-deps.sh
