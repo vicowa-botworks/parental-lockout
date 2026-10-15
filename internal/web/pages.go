@@ -69,8 +69,11 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 
 // usersPage is what users.tmpl is given.
 //
-// The profile names ride along because the attach control is a dropdown of profiles
-// and a template cannot enumerate them: it only ever sees the row it is rendering.
+// The profile names ride along because a row carries only a profile id and the
+// template only ever sees the row it is rendering, so it cannot look a name up.
+// Showing the raw id would also hide the case the template cares about: an id with no
+// profile behind it is a dangling assignment, and it is rendered as a problem rather
+// than as a name.
 type usersPage struct {
 	Rows   []users.Managed
 	Names  map[string]string
