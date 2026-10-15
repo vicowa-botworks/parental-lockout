@@ -1,0 +1,76 @@
+{{define "pagename"}}status{{end}}
+{{define "title"}}Status{{end}}
+{{define "body"}}
+<p class="banner">{{.Banner}}</p>
+
+{{if gt .NotEnforcing 0}}
+<p class="flag" role="status">
+  {{.NotEnforcing}}
+  {{if eq .NotEnforcing 1}}account is{{else}}accounts are{{end}}
+  scheduled to be locked out and will not be.
+  <a href="/users">Look at the accounts</a>.
+</p>
+{{end}}
+
+<table class="rows">
+  <caption>Every managed account, in the zone its own profile names.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Account</th>
+      <th scope="col">Lockout</th>
+      <th scope="col">Why</th>
+      <th scope="col">Sessions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{- /* Captured outside the range: inside it the dot is a Row, and the row has no
+           opinion about whether the read that produced it worked. */ -}}
+    {{- $sessionsKnown := .SessionsKnown -}}
+    {{range .Rows}}
+    <tr class="{{if .LockedOutNow}}held{{end}}{{if .CannotEvaluate}}unreadable{{end}}">
+      <th scope="row">{{.Username}}</th>
+      <td>
+        {{- if .CannotEvaluate -}}
+          <span class="state-unknown">cannot be decided</span>
+        {{- else if .LockedOutNow -}}
+          <span class="state-held">locked out</span>
+          {{- /* `datetime` is the machine-readable instant for the browser; `data-unix`
+                is the hook static/app.js counts down from. Both are needed -- the
+                script's selector is time[data-unix], and emitting only the standard
+                attribute ships a countdown that never runs. */ -}}
+          {{if not .EndsAt.IsZero}}until <time datetime="{{.EndsAt.Format "2006-01-02T15:04:05Z07:00"}}" data-unix="{{.EndsAt.Unix}}">{{.EndsAtClock}}</time>{{end}}
+        {{- else if .ScheduledButNotEnforcing -}}
+          <span class="state-gap">scheduled, not enforced</span>
+        {{- else if not .NextLockAt.IsZero -}}
+          not now; next at {{.NextLockAtClock}}
+        {{- else -}}
+          nothing scheduled
+        {{- end -}}
+      </td>
+      <td>
+        {{if .RuleName}}<span class="rule">{{.RuleName}}</span>{{end}}
+        {{if .OverrideActive}}<span class="override">open override{{if .OverrideReason}}: {{.OverrideReason}}{{end}}</span>{{end}}
+        {{if .OverrideExpired}}<span class="override-expired">override expired</span>{{end}}
+        {{if not .Enabled}}<span class="disabled">account switched off</span>{{end}}
+        {{range .Problems}}<span class="problem">{{.}}</span>{{end}}
+      </td>
+      <td>
+        {{if .Sessions}}
+        <ul class="sessions">
+          {{range .Sessions}}
+          <li>{{.Type}}{{with .Seat}} · {{.}}{{end}}{{if .Locked}} · locked{{else}} · unlocked{{end}}</li>
+          {{end}}
+        </ul>
+        {{else if $sessionsKnown}}
+          <span class="state-unknown">no desktop session</span>
+        {{else}}
+          <span class="state-unknown">session list unavailable</span>
+        {{end}}
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4">No accounts are managed yet.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

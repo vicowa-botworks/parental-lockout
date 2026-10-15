@@ -13,6 +13,7 @@ import (
 
 	"github.com/vicowa-botworks/parental-lockout/internal/auth"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/web"
 )
 
 const initUsage = `Usage: plock init [--username NAME] (--password PASS | --password-stdin) [--force]
@@ -174,24 +175,24 @@ func doInit(f *initFlags, stdout, stderr io.Writer, stdin io.Reader) int {
 		return initFailure(stderr, fmt.Sprintf("plock init: %v", err))
 	}
 	if cfg.Admin.Username != "" && !f.force {
-		// This sentence used to promise "Every existing admin session ends when you do."
-		// Nothing ends them. Sessions live in the daemon's memory, plock init writes a
-		// config file and exits, and there is no config-watch, no SIGHUP handler, and no
-		// consumer of Admin.UpdatedAt anywhere in the tree. The engine re-reads the config
-		// every tick, so the *verifier* is picked up within 30 seconds — but a token minted
-		// before the rotation keeps resolving against the in-memory store for its full
-		// sliding 12-hour window, refreshed on every request.
+		// This used to promise "every existing admin session ends when you do" when nothing
+		// ended them, and then said the opposite once the promise was caught. Both are the
+		// same failure: the sentence was written before the mechanism existed.
 		//
-		// That is printed at precisely the moment a parent is most likely to be rotating the
-		// password because they believe a session is compromised, and it tells them the thing
-		// that did not happen. Saying less is the fix until the daemon has a consumer for it;
-		// see the ticket referenced in the PR.
+		// The mechanism is web.watchCredential now, so the sentence describes what happens,
+		// including the bound. A parent rotating during an incident needs to know how long
+		// the window is, not just that it closes.
 		return initFailure(stderr, fmt.Sprintf(
 			"plock init: %s already has an administrator %q.\n"+
 				"Re-run with --force to replace it. The new password is picked up within one\n"+
-				"engine tick, but sessions already signed in stay valid until the daemon is\n"+
-				"restarted — run systemctl restart plock to end them now.",
-			f.configPath, cfg.Admin.Username))
+				"engine tick, and sessions already signed in are ended within one credential\n"+
+				"poll (%v by default) once the daemon is serving the admin UI.\n"+
+				"A daemon that is not running the web server holds its sessions until it is\n"+
+				"restarted — run systemctl restart plock if in doubt.",
+			// The poll interval is named from the web package rather than typed out: this
+			// sentence promises a number, and a number copied into prose is a number that
+			// goes quietly wrong the day the poll is retuned.
+			f.configPath, cfg.Admin.Username, web.DefaultCredentialPoll))
 	}
 
 	cfg.Admin.Username = strings.TrimSpace(f.username)

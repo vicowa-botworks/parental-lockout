@@ -545,17 +545,18 @@ func TestInitCreatesEveryMissingLevelUnderARestrictiveUmask(t *testing.T) {
 	}
 }
 
-// The refusal must not promise something the daemon does not do.
+// The refusal must promise exactly what the daemon does -- no less, and no more.
 //
-// The message used to end with "Every existing admin session ends when you do." Nothing
-// ends them: Sessions lives in the daemon's memory, plock init writes a file and exits,
-// and no code consumes Admin.UpdatedAt. That is printed at the moment a parent is most
-// likely rotating the password *because* they believe a session is compromised, and it
-// tells them the mitigation happened.
+// The message has been wrong in both directions, and both times the reason was the same:
+// the sentence was written before the mechanism. It first claimed "Every existing admin
+// session ends when you do" when nothing ended them; the correction then said sessions
+// survive until restart, which stopped being true the moment web.watchCredential landed.
+// A parent rotating during an incident is reading this line to decide whether they are
+// safe yet.
 //
-// The assertion is on the shape of the claim rather than its exact wording: it must name
-// the restart as the thing that ends sessions, and it must not say sessions end on their
-// own.
+// So the assertion is on the shape of the claim in both directions: it must say the
+// sessions end, it must give the bound rather than implying "instantly", and it must keep
+// naming the restart for the case where the watcher is not running at all.
 func TestTheReplaceRefusalSaysHowSessionsActuallyEnd(t *testing.T) {
 	cfgPath, state := initPaths(t)
 	if code, _, stderr := doInitOut(t, "--username", "parent",
@@ -568,12 +569,21 @@ func TestTheReplaceRefusalSaysHowSessionsActuallyEnd(t *testing.T) {
 	if code == exitOK {
 		t.Fatal("replacing an existing administrator without --force succeeded")
 	}
-	if !strings.Contains(stderr, "restart") {
-		t.Errorf("the refusal does not tell the operator how to end existing sessions:\n%s", stderr)
+	low := strings.ToLower(stderr)
+	if !strings.Contains(low, "sessions already signed in are ended") {
+		t.Errorf("the refusal does not say the live sessions end, which watchCredential now does:\n%s", stderr)
 	}
-	for _, claim := range []string{"session ends", "sessions end", "session is ended", "sessions are ended"} {
-		if strings.Contains(strings.ToLower(stderr), claim) {
-			t.Errorf("the refusal claims %q, which no code does; sessions survive until the daemon restarts", claim)
+	if !strings.Contains(low, "poll") {
+		t.Errorf("the refusal promises revocation without a bound; the watcher polls, so say how often:\n%s", stderr)
+	}
+	if !strings.Contains(low, "restart") {
+		t.Errorf("the refusal does not name the restart, which is still the only answer on a daemon not serving the UI:\n%s", stderr)
+	}
+	// The over-promise this file's history is a warning about: "immediately" would be a
+	// claim about a poll, and a poll has a window.
+	for _, claim := range []string{"immediately", "instantly", "right now"} {
+		if strings.Contains(low, claim) {
+			t.Errorf("the refusal claims the revocation is %s, which a poll is not:\n%s", claim, stderr)
 		}
 	}
 }

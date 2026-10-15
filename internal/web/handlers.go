@@ -89,16 +89,31 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.Auth == nil {
+	// Resolved per attempt, not once at startup. The credential lives in a file the
+	// CLI rewrites from another process, so an authenticator captured at boot keeps
+	// accepting the password it was built with after a rotation -- which is the half of
+	// the rotation that matters during an incident, and revoking live sessions would be
+	// theatre without it.
+	a, err := s.authenticator()
+	switch {
+	case errors.Is(err, errNoAuthenticator):
 		s.audit("auth.no_credential", key)
 		s.logf("web: %s a login was attempted but no administrator credential exists; run `plock init`", requestID(r))
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = fmt.Fprint(w, "this machine has no administrator account yet\n")
 		return
+	case err != nil:
+		// The credential could not be read. That is not a wrong password, and it is not
+		// the same sentence as "no account exists": here an account does exist and the
+		// daemon cannot see it. Answering 401 would send the operator at the password.
+		s.audit("auth.credential_unreadable", key)
+		s.logf("web: %s the admin credential could not be read: %v", requestID(r), err)
+		http.Error(w, "the administrator credential could not be read", http.StatusServiceUnavailable)
+		return
 	}
 
-	ok, err := s.Auth.Authenticate(r.FormValue("username"), r.FormValue("password"))
+	ok, err := a.Authenticate(r.FormValue("username"), r.FormValue("password"))
 	switch {
 	case errors.Is(err, auth.ErrNoCredential):
 		// Not a wrong password. Answering 401 here would send the operator chasing

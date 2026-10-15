@@ -1,0 +1,231 @@
+{
+  "description": "internal/users: the account listing. Every mutant here is a way a child stops appearing on the dashboard; the package's whole stance is that a missed account is the dangerous direction, so the guards that keep and report are tested as hard as the ones that drop.",
+  "package": "./internal/users/",
+  "mutants": [
+    {
+      "id": "U1",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif uid < lo || uid > hi {",
+      "new": "\t\tif uid < lo {",
+      "note": "the UID_MAX ceiling stops filtering, so an account parked above it -- a container or LDAP uid -- is offered as a local child"
+    },
+    {
+      "id": "U2",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif uid < lo || uid > hi {",
+      "new": "\t\tif false {",
+      "note": "no uid filter at all: root and every system account appear as people to lock out"
+    },
+    {
+      "id": "U3",
+      "file": "internal/users/parse.go",
+      "old": "\t\t} else if noLoginShells[shell] {",
+      "new": "\t\t} else if false {",
+      "note": "service accounts that cannot hold a session are listed as lockable, burying the real accounts in dozens of rows"
+    },
+    {
+      "id": "U4",
+      "file": "internal/users/parse.go",
+      "old": "\t\t} else if noLoginShells[shell] {",
+      "new": "\t\t} else if strings.Contains(shell, \"nologin\") || strings.Contains(shell, \"false\") {",
+      "note": "no-login shells matched by substring, which also drops a real shell whose name happens to contain the word -- the direction that hides a child"
+    },
+    {
+      "id": "U5",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif declaredNoHome[home] {",
+      "new": "\t\tif false {",
+      "note": "the declared-no-home exclusion is gone, so accounts useradd wrote with no home are offered as people"
+    },
+    {
+      "id": "U6",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif !homeExists(home) {\n\t\t\t// Kept. See declaredNoHome for why this is the safe direction.\n\t\t\tout.Notes = append(out.Notes, fmt.Sprintf(\"%s (uid %d) has home %s, which does not exist; kept anyway\", name, uid, home))\n\t\t}",
+      "new": "\t\tif !homeExists(home) {\n\t\t\tcontinue\n\t\t}",
+      "note": "a home that is merely absent right now -- an unmounted volume, an NFS home that has not mounted -- drops the account. This is the fail-open direction the package exists to avoid, and it drops it in silence"
+    },
+    {
+      "id": "U7",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif !homeExists(home) {",
+      "new": "\t\tif false {",
+      "note": "the missing-home note is never written, so an account kept on a guess is presented as a certainty"
+    },
+    {
+      "id": "U8",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif len(fields) < 7 {",
+      "new": "\t\tif len(fields) < 0 {",
+      "note": "a truncated record is parsed instead of skipped, so a password file cut off mid-write loses its tail without a word"
+    },
+    {
+      "id": "U9",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif len(fields) < 7 {",
+      "new": "\t\tif len(fields) > 7 {",
+      "note": "the field-count test inverted: well-formed records are skipped and malformed ones parsed"
+    },
+    {
+      "id": "U10",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif name == \"\" {",
+      "new": "\t\tif false {",
+      "note": "an empty login name is listed; it cannot be shown or acted on, and it is not the filter working"
+    },
+    {
+      "id": "U11",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif seen[name] {",
+      "new": "\t\tif false {",
+      "note": "a duplicate username is appended without a note, so which home and uid won is invisible"
+    },
+    {
+      "id": "U12",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif line == \"\" || strings.HasPrefix(line, \"#\") {\n\t\t\tcontinue\n\t\t}\n\t\t// Fields, not Cut",
+      "new": "\t\tif line == \"\" {\n\t\t\tcontinue\n\t\t}\n\t\t// Fields, not Cut",
+      "note": "comments in login.defs are parsed as keys; harmless for the two keys read here, but it is the branch that keeps a commented file out of the notes",
+      "equivalent": "equivalent for the switch this loop has, proved rather than assumed. After TrimSpace a matched line begins with '#', and strings.Fields takes its first token from that same byte, so key begins with '#'; ToUpper cannot turn '#' into 'U'. The switch has exactly two labels, UID_MIN and UID_MAX, and neither begins with '#', so no case is reached and the loop body's only observable effects -- the bounds assignment and the notes append -- both live inside those cases. A comment line therefore already falls through whether or not the guard is there. Kept as insurance: the day a third key is added whose name could arrive as a first token, the guard is what keeps a commented-out line out of the bounds."
+    },
+    {
+      "id": "U13",
+      "file": "internal/users/parse.go",
+      "old": "\t\tkey := strings.ToUpper(parts[0])",
+      "new": "\t\tkey := parts[0]",
+      "note": "keys matched case-sensitively, so a file that spells uid_min lower-case silently gets the default floor"
+    },
+    {
+      "id": "U14",
+      "file": "internal/users/parse.go",
+      "old": "\tif !minSeen {",
+      "new": "\tif false && !minSeen {",
+      "note": "the assumed UID_MIN is never announced. The assumption is not neutral -- 1000 hides the first human on an old Red Hat system -- so making it silently is the failure"
+    },
+    {
+      "id": "U15",
+      "file": "internal/users/parse.go",
+      "old": "\tif !maxSeen {",
+      "new": "\tif false && !maxSeen {",
+      "note": "the assumed UID_MAX is never announced"
+    },
+    {
+      "id": "U16",
+      "file": "internal/users/parse.go",
+      "old": "\tif lo > hi {",
+      "new": "\tif false {",
+      "note": "an inverted range is reported as an empty machine rather than as a file that contradicts itself"
+    },
+    {
+      "id": "U17",
+      "file": "internal/users/parse.go",
+      "old": "\tif err := sc.Err(); err != nil {\n\t\treturn 0, 0, nil, err\n\t}",
+      "new": "\tif false {\n\t\treturn 0, 0, nil, err\n\t}",
+      "note": "a login.defs that fails mid-read yields the defaults as if the file had been read cleanly"
+    },
+    {
+      "id": "U18",
+      "file": "internal/users/parse.go",
+      "old": "\tif err := sc.Err(); err != nil {\n\t\treturn nil, err\n\t}",
+      "new": "\tif err := sc.Err(); err != nil && false {\n\t\treturn nil, err\n\t}",
+      "note": "a password file that fails mid-read yields whatever was parsed before the fault, so a truncated file reads as a short machine"
+    },
+    {
+      "id": "U19",
+      "file": "internal/users/users.go",
+      "old": "\tif len(accounts) == 0 {",
+      "new": "\tif false {",
+      "note": "\"nothing looked human\" is returned as success. An empty list is a fact about the machine; this is a fact about the configuration, and the caller cannot tell them apart"
+    },
+    {
+      "id": "U20",
+      "file": "internal/users/users.go",
+      "old": "\tif passwd == \"\" {\n\t\tpasswd = DefaultPasswdPath\n\t}",
+      "new": "\tif passwd == \"\" {\n\t\tpasswd = \"/etc/shadow\"\n\t}",
+      "note": "the zero Source stops pointing at the password file, so an unconfigured web layer reads a file that cannot answer and reports an empty machine"
+    },
+    {
+      "id": "U21",
+      "file": "internal/users/users.go",
+      "old": "\thomes = s.HomeExists\n\tif homes == nil {\n\t\thomes = pathExists\n\t}",
+      "new": "\thomes = s.HomeExists\n\tif homes == nil {\n\t\thomes = func(string) bool { return true }\n\t}",
+      "note": "the default home check stops checking, so the declared-no-home rule is the only one left and every phantom home is presented as a real one"
+    },
+    {
+      "id": "U22",
+      "file": "internal/users/managed.go",
+      "old": "\t\tm.Stale = m.OnMachine == nil",
+      "new": "\t\tm.Stale = false",
+      "note": "every row claims to be live, so an account that left the machine keeps reporting itself as protected"
+    },
+    {
+      "id": "U23",
+      "file": "internal/users/managed.go",
+      "old": "\t\tif r.Stale || r.Configured == nil || !r.Configured.Enabled {",
+      "new": "\t\tif r.Configured == nil || !r.Configured.Enabled {",
+      "note": "a configured-and-enabled row for an account that no longer exists counts as coverage. The code says the parent did everything right; the row protects nobody"
+    },
+    {
+      "id": "U24",
+      "file": "internal/users/managed.go",
+      "old": "\t\tif r.Stale || r.Configured == nil || !r.Configured.Enabled {",
+      "new": "\t\tif r.Stale || r.Configured == nil {",
+      "note": "an account configured but switched off counts as managed, so the dashboard reports full coverage on a machine where nothing is enabled"
+    },
+    {
+      "id": "U25",
+      "file": "internal/users/managed.go",
+      "old": "\tsort.Strings(order)",
+      "new": "\tsort.Strings(nil)",
+      "note": "rows come back in map order. The screen paginates, so a row that moves between loads is worse than a slow load"
+    },
+    {
+      "id": "U26",
+      "file": "internal/users/managed.go",
+      "old": "\tfor i := range discovered {\n\t\ta := discovered[i]\n\t\ttouch(a.Username).OnMachine = &a\n\t}",
+      "new": "\tfor i := range discovered {\n\t\ttouch(discovered[i].Username).OnMachine = &discovered[i]\n\t}",
+      "note": "the row aliases the caller's slice. internal/config is copy-on-write, so an edit leaves this row reading a document nothing still calls current"
+    },
+    {
+      "id": "U27",
+      "file": "internal/users/managed.go",
+      "old": "\tfor i := range configured {\n\t\tc := configured[i]\n\t\ttouch(c.Username).Configured = &c\n\t}",
+      "new": "\tfor i := range configured {\n\t\tc := configured[i]\n\t\ttouch(c.Username).Configured = &configured[i]\n\t}",
+      "note": "the config half aliases the caller's slice, so a page can disagree with the file it claims to show"
+    },
+    {
+      "id": "U28",
+      "file": "internal/users/parse.go",
+      "old": "\t\tif shell == \"\" {",
+      "new": "\t\tif false {",
+      "note": "an account that wrote no login shell is kept but never noted. passwd(5) defaults field 7 to /bin/sh, so the account is real and the shell is an inference -- and an inference nobody is told about is the failure this package exists to prevent"
+    },
+    {
+      "id": "U29",
+      "file": "internal/users/parse.go",
+      "old": "\tv, err := strconv.ParseUint(s, 0, 32)",
+      "new": "\tv, err := strconv.ParseUint(s, 10, 32)",
+      "note": "login.defs read in base 10: `UID_MIN 01750` becomes 1750 instead of the 1000 the maintainer wrote, and every child between those uids disappears with no note because the value parsed fine"
+    },
+    {
+      "id": "U30",
+      "file": "internal/users/parse.go",
+      "old": "\tif strings.ContainsRune(s, '_') {",
+      "new": "\tif false {",
+      "note": "Go's underscore separator accepted as a login.defs number. login.defs(5) documents decimal, octal and hex only, so `UID_MIN 1_000` becomes a floor nobody wrote"
+    },
+    {
+      "id": "U31",
+      "file": "internal/users/parse.go",
+      "old": "\tif len(s) > 2 && (s[0] == '0' && (s[1] == 'b' || s[1] == 'B')) {",
+      "new": "\tif false && (s[0] == '0' && (s[1] == 'b' || s[1] == 'B')) {",
+      "note": "base 0's binary prefix let through: `UID_MIN 0b100` reads as 4, a floor no login.defs grammar produces"
+    },
+    {
+      "id": "U32",
+      "file": "internal/users/managed.go",
+      "old": "\tnoteCaseCollisions(byName, order)\n",
+      "new": "",
+      "note": "a config that spells a name differently from /etc/passwd splits into a stale ghost row and an unmanaged row for the same child, silently"
+    }
+  ]
+}

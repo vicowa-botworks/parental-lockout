@@ -23,6 +23,9 @@ import (
 	"time"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/auth"
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/platform"
+	"github.com/vicowa-botworks/parental-lockout/internal/users"
 )
 
 // Server is the daemon's admin endpoint.
@@ -35,6 +38,15 @@ import (
 // Ten seconds, and no longer: systemd's default stop timeout is 90, and a daemon that
 // spends all of it holding a socket looks hung in the journal.
 const defaultDrainTimeout = 10 * time.Second
+
+// DefaultCredentialPoll is how long a rotated admin password can go unnoticed.
+//
+// Five seconds is not a number pulled from the air: it is short enough that "I just
+// rotated it" feels immediate to whoever is holding the incident, and long enough that
+// the poll is one small file read per tick on a home server rather than a load. It is
+// not a security boundary either way -- the sessions die the moment the change is
+// noticed, and noticing is bounded by this, not by the 12-hour cookie.
+const DefaultCredentialPoll = 5 * time.Second
 
 type Server struct {
 	// Auth, Sessions and Throttle are the three pieces from internal/auth. Auth
@@ -55,6 +67,12 @@ type Server struct {
 	// DrainTimeout is how long shutdown waits for requests already in flight before it
 	// gives up and closes them. Zero means defaultDrainTimeout.
 	DrainTimeout time.Duration
+	// CredentialPoll is how often the daemon re-reads the stored admin verifier to see
+	// whether another process rotated it. Zero means DefaultCredentialPoll.
+	//
+	// It only matters when Config is wired; without a configuration source there is no
+	// rotated credential to notice and no watcher is started.
+	CredentialPoll time.Duration
 
 	// TLSMode is "auto", "off" or "custom". CertFile and KeyFile are the
 	// operator-supplied pair for "custom"; Store owns the minted pair for "auto".
@@ -83,6 +101,25 @@ type Server struct {
 	// Static is the asset filesystem. When nil the server serves no assets, which
 	// is what the tests that only exercise routing want.
 	Static fs.FS
+
+	// Config, Lockables and Accounts are the three things outside this package that
+	// the content pages read. They are functions for the reason every other seam
+	// here is one: the answers come from the host -- a file, a D-Bus call, a
+	// password file -- and a handler that reached for those directly could only be
+	// tested on a machine that happens to have them.
+	//
+	// A nil seam is not a silent empty page. readConfig and friends turn it into an
+	// error the page says out loud, because "no accounts" and "I could not look" are
+	// different claims and the first one is a reassurance the daemon has not earned.
+	//
+	// Accounts returns the whole Listing rather than its []Account, because the notes
+	// are the half a parent needs. A seam that carried only the rows would render a
+	// page where a child is simply absent -- no UID_MIN line, no "declares no home",
+	// no "declares no login shell" -- and this package exists so that absence is
+	// explained rather than implied.
+	Config    func() (*config.Config, error)
+	Lockables func() ([]platform.Session, error)
+	Accounts  func() (*users.Listing, error)
 
 	// csrf holds the per-session token this package owns.
 	csrf *csrfStore
@@ -144,6 +181,10 @@ type Options struct {
 	// redirected while its stderr is what the journal flags. Defaulting to Logf keeps
 	// every caller that does not care about the split working unchanged.
 	Warn func(format string, args ...any)
+	// CredentialPoll overrides how often the stored admin verifier is re-read. Zero
+	// means DefaultCredentialPoll. It exists for tests and for an operator who wants the
+	// window tighter than five seconds; it is not a knob to turn up to save a read.
+	CredentialPoll time.Duration
 
 	// Static is the asset filesystem. Nil means the embedded bundle.
 	//
@@ -152,6 +193,14 @@ type Options struct {
 	// caller of the documented constructor can ever trip -- which is also a check no test
 	// can write without duplicating the constructor.
 	Static fs.FS
+
+	// Config, Lockables and Accounts are the content pages' view of the host. They
+	// are on Options for the same reason Static is: a caller that assembles a Server
+	// by hand is not using the documented constructor, and a seam only reachable
+	// that way is a seam no test of the real path can set.
+	Config    func() (*config.Config, error)
+	Lockables func() ([]platform.Session, error)
+	Accounts  func() (*users.Listing, error)
 }
 
 // New builds a Server and resolves its transport, failing on anything the first
@@ -162,15 +211,19 @@ type Options struct {
 // network problem, and the operator spends the evening debugging the wrong thing.
 func New(opts Options) (*Server, error) {
 	s := &Server{
-		Logf:     opts.Logf,
-		warn:     opts.Warn,
-		Static:   opts.Static,
-		Listen:   opts.Listen,
-		TLSMode:  opts.TLSMode,
-		CertFile: opts.CertFile,
-		KeyFile:  opts.KeyFile,
-		csrf:     newCSRFStore(),
-		started:  make(chan struct{}),
+		Logf:           opts.Logf,
+		warn:           opts.Warn,
+		Static:         opts.Static,
+		Config:         opts.Config,
+		Lockables:      opts.Lockables,
+		Accounts:       opts.Accounts,
+		Listen:         opts.Listen,
+		TLSMode:        opts.TLSMode,
+		CredentialPoll: opts.CredentialPoll,
+		CertFile:       opts.CertFile,
+		KeyFile:        opts.KeyFile,
+		csrf:           newCSRFStore(),
+		started:        make(chan struct{}),
 	}
 	if s.Listen == "" {
 		return nil, errors.New("web: nothing to listen on")
@@ -230,6 +283,11 @@ func New(opts Options) (*Server, error) {
 		// lists drifted. Refusing to start is the only safe reading of an unknown
 		// transport mode: guessing "off" would silently downgrade.
 		return nil, fmt.Errorf("web: unknown tls mode %q (expected auto, off or custom)", s.TLSMode)
+	}
+	// The pages are parsed here so that a broken template stops the daemon instead of
+	// surfacing as a permanent 500 on whichever page a parent happens to open first.
+	if err := parsePagesAtStartup(); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -347,6 +405,18 @@ func (s *Server) Serve(ctx context.Context) error {
 		// from the configured sink.
 		ErrorLog: log.New(&logWriter{fn: s.logf}, "", 0),
 	}
+	// Started only when there is a configuration source to notice. A server built
+	// without one has no rotated credential to find, and a watcher that logged "could
+	// not re-read" every five seconds would train the operator to ignore the one line
+	// that says a rotation took effect.
+	if s.Config != nil {
+		every := s.CredentialPoll
+		if every <= 0 {
+			every = DefaultCredentialPoll
+		}
+		go s.watchCredential(ctx, every)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -482,7 +552,8 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	// Everything below the auth gate.
-	mux.Handle("GET /{$}", s.requireAuth(http.HandlerFunc(s.handleIndex)))
+	mux.Handle("GET /{$}", s.requireAuth(http.HandlerFunc(s.handleDashboard)))
+	mux.Handle("GET /users", s.requireAuth(http.HandlerFunc(s.handleUsers)))
 	mux.HandleFunc("GET /static/{file}", s.handleStatic)
 
 	chain := s.recoverMiddleware(
@@ -504,11 +575,6 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, "ok\n")
-}
-
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, "<!doctype html><title>plock</title><p>enforcement daemon</p>\n")
 }
 
 // handleStatic serves the embedded assets with an immutable cache header.

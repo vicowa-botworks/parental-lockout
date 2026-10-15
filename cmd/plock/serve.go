@@ -11,10 +11,10 @@ import (
 	"syscall"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/audit"
-	"github.com/vicowa-botworks/parental-lockout/internal/auth"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/enforce"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
+	"github.com/vicowa-botworks/parental-lockout/internal/users"
 	"github.com/vicowa-botworks/parental-lockout/internal/web"
 )
 
@@ -158,25 +158,7 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		fmt.Fprintf(stderr, "plock serve: no usable lock backend, so there is nothing to enforce; refusing to start\n")
 		return 1
 	}
-	srv, err := web.New(web.Options{
-		Listen:   cfg.Settings.Listen,
-		TLSMode:  cfg.Settings.TLS,
-		CertFile: cfg.Settings.CertFile,
-		KeyFile:  cfg.Settings.KeyFile,
-		StoreDir: *stateDir + "/tls",
-		// Logf is part of Options rather than a field set afterwards, and that is
-		// load-bearing: New is where the transport is resolved, and the "TLS is
-		// disabled" warning it emits is the loudest line the daemon writes. Set
-		// after the fact, that one line would go to the default logger and the
-		// operator's redirect would miss it.
-		Logf: func(format string, args ...any) { fmt.Fprintf(stdout, format+"\n", args...) },
-		// The disabled-transport warning goes to stderr, everywhere else goes to
-		// stdout. A daemon's stdout is routinely redirected to a file nobody reads;
-		// stderr is the stream the journal marks and the operator's pager stops on.
-		// This is the one line that must not be skippable, and it is the one line
-		// whose absence means the admin password is on the LAN in clear text.
-		Warn: func(format string, args ...any) { fmt.Fprintf(stderr, format+"\n", args...) },
-	})
+	srv, err := serveServer(cfg, chain, users.Source{}, *path, *stateDir, ctx, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "plock serve: %v\n", err)
 		return 1
@@ -199,7 +181,6 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		}
 	}()
 
-	srv.Auth = adminAuthenticator(cfg)
 	srv.Audit = func(event, detail string) {
 		if err := trail.Write(audit.Record{Kind: event, Detail: detail, Actor: "admin"}); err != nil {
 			// The mutation already happened; failing the request over the bookkeeping
@@ -245,24 +226,6 @@ func runAll(ctx context.Context, runners []func(context.Context) error) error {
 	return <-errs
 }
 
-// adminAuthenticator turns the stored admin record into something the web server
-// can check a password against.
-//
-// The verifier is read from the config rather than from a separate credential
-// file because there is exactly one source of truth for the daemon's state, and a
-// second place a credential lives is a second place for the CLI and the web UI to
-// disagree.
-//
-// An empty verifier is passed through rather than skipped: PasswordAuthenticator
-// answers ErrNoCredential for it, which is the one answer that lets the login page
-// tell the operator to run `plock init` instead of reporting a wrong password.
-func adminAuthenticator(cfg *config.Config) auth.Authenticator {
-	return auth.PasswordAuthenticator{
-		Username: cfg.Admin.Username,
-		Verifier: cfg.Admin.Password,
-	}
-}
-
 // logf sends a daemon diagnostic to stdout. It is a function rather than an inline
 // closure because the web server, the engine, and the audit writer each take a hook
 // of this shape, and all three must land on the same stream or a reader cannot put
@@ -297,4 +260,73 @@ func (a auditSink) Emit(e enforce.Event) {
 		// who is not locked out, so it is not turned into a tick failure.
 		_ = err
 	}
+}
+
+// sessionSource is what the Lockables seam reads. *platform.Chain satisfies it, and a
+// test supplies its own because platform.New builds a chain from a config and a Runner
+// and cannot be handed a fake backend: without this, the only thing a wiring test could
+// assert about the seam is that it is not nil, and a hollowed-out body satisfies that.
+type sessionSource interface {
+	Sessions(context.Context) ([]platform.Session, error)
+}
+
+// serveServer assembles the admin server the way the real daemon does it, so that a test
+// can ask the assembled object whether it can see the machine. Wiring the seams anywhere
+// else means the only place they are wired is a test fixture, and an unwired seam is a 503
+// on the real daemon beside a green suite.
+//
+// src and sessions are parameters rather than calls made inside the seams for the same
+// reason the runner is one: /etc/passwd and the live session table are facts about the
+// host, and a wiring test that reads the host can only assert that something came back.
+//
+// Audit is deliberately not set here: it has to write to the shared audit trail, which this
+// function neither creates nor sees, and setting a stdout stub here would quietly win over
+// the real hook by ordering.
+//
+// Auth is not set either, and for a sharper reason. The web layer reads the admin
+// credential through Config on every attempt, so a value frozen here would be a second
+// credential the daemon consults and the operator did not rotate — which is issue #37
+// itself. Server.Auth exists only for a caller with no Config seam at all, and serve always
+// has one.
+func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
+	srv, err := web.New(web.Options{
+		Listen:   cfg.Settings.Listen,
+		TLSMode:  cfg.Settings.TLS,
+		CertFile: cfg.Settings.CertFile,
+		KeyFile:  cfg.Settings.KeyFile,
+		StoreDir: stateDir + "/tls",
+		// Logf is part of Options rather than a field set afterwards, and that is
+		// load-bearing: New is where the transport is resolved, and the "TLS is
+		// disabled" warning it emits is the loudest line the daemon writes. Set
+		// after the fact, that one line would go to the default logger and the
+		// operator's redirect would miss it.
+		Logf: func(format string, args ...any) { fmt.Fprintf(stdout, format+"\n", args...) },
+		// The disabled-transport warning goes to stderr, everywhere else goes to
+		// stdout. A daemon's stdout is routinely redirected to a file nobody reads;
+		// stderr is the stream the journal marks and the operator's pager stops on.
+		// This is the one line that must not be skippable, and it is the one line
+		// whose absence means the admin password is on the LAN in clear text.
+		Warn: func(format string, args ...any) { fmt.Fprintf(stderr, format+"\n", args...) },
+		// The three seams the content pages read. Wiring them here is the difference
+		// between a page that works and a page that works in tests: the handlers refuse
+		// rather than render an empty table, so an unwired seam is a 503 on the real
+		// daemon and a green suite. Every one of them re-reads on each call, because a
+		// dashboard that shows the state at process start is a dashboard that lies by
+		// the afternoon.
+		Config: func() (*config.Config, error) { return config.Load(cfgPath) },
+		Lockables: func() ([]platform.Session, error) {
+			return sessions.Sessions(ctx)
+		},
+		Accounts: func() (*users.Listing, error) {
+			// The whole Listing, notes included. Dropping them here would put the
+			// explanation back out of reach on the one path a parent actually uses:
+			// "which files did you read, and what did you have to guess" is the answer
+			// to a child who is missing from the table.
+			return users.List(src)
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return srv, nil
 }
