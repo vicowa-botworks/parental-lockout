@@ -18,6 +18,14 @@ type fakeChain struct {
 	names    []string
 	unknown  []string
 	statuses []platform.BackendStatus
+
+	// sessions is the live session set the unenforced check sees. Empty by default, which
+	// models "nobody is logged in" -- the neutral answer for the tests that are only about
+	// backends, and deliberately not an error, because an error here would make every one of
+	// those tests depend on how the join reports a failure.
+	sessions    []platform.Session
+	sessionsErr error
+	lockErr     error
 }
 
 func (f *fakeChain) Names() []string   { return f.names }
@@ -25,6 +33,13 @@ func (f *fakeChain) Unknown() []string { return f.unknown }
 func (f *fakeChain) Probe(context.Context) []platform.BackendStatus {
 	return f.statuses
 }
+func (f *fakeChain) Sessions(context.Context) ([]platform.Session, error) {
+	return f.sessions, f.sessionsErr
+}
+
+// lockErr is what --try reports. A var rather than a recorder because the tests for --try
+// assert on what the operator is told, and only one lock happens per test.
+func (f *fakeChain) Lock(context.Context, platform.Session) error { return f.lockErr }
 
 // withChain installs a chain builder for one test and puts the real one back after.
 func withChain(t *testing.T, cv chainView, err error) {
@@ -32,6 +47,16 @@ func withChain(t *testing.T, cv chainView, err error) {
 	saved := buildChain
 	buildChain = func(config.Settings) (chainView, error) { return cv, err }
 	t.Cleanup(func() { buildChain = saved })
+}
+
+// withDaemon states what the init system will answer. Without it every doctor test asserts
+// on whether the machine running the test happens to have plock installed as a service,
+// which is the shape of test that passes on the author's box and fails everywhere else.
+func withDaemon(t *testing.T, state string, known bool, err error) {
+	t.Helper()
+	saved := systemdProbe
+	systemdProbe = func() (string, bool, error) { return state, known, err }
+	t.Cleanup(func() { systemdProbe = saved })
 }
 
 // writeConfig drops a minimal readable document so runDoctor gets past Load and the
@@ -54,6 +79,7 @@ func TestDoctorReportsWhichBackendWouldBeUsed(t *testing.T) {
 			{Name: "gnome", Available: true, Detail: "calls org.freedesktop.ScreenSaver.Lock"},
 		},
 	}, nil)
+	withDaemon(t, "active", true, nil)
 
 	code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
 	if code != exitOK {
@@ -99,7 +125,7 @@ func TestDoctorNamesUnknownBackendsInTheBody(t *testing.T) {
 			statuses: []platform.BackendStatus{
 				{Name: "kde", Available: true, Detail: "calls org.freedesktop.ScreenSaver.Lock"},
 			},
-			want:     "not recognised in this binary: kdeeen",
+			want:     `names kdeeen, which this binary does not recognise`,
 			wantCode: exitOK,
 		},
 		{
@@ -109,7 +135,7 @@ func TestDoctorNamesUnknownBackendsInTheBody(t *testing.T) {
 			statuses: []platform.BackendStatus{
 				{Name: "nope", Available: false, Detail: "no such backend"},
 			},
-			want:     "not recognised in this binary: nope",
+			want:     `names nope, which this binary does not recognise`,
 			wantCode: exitFailure,
 		},
 	}
@@ -117,6 +143,7 @@ func TestDoctorNamesUnknownBackendsInTheBody(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			withChain(t, &fakeChain{names: tc.names, unknown: tc.unknown, statuses: tc.statuses}, nil)
+			withDaemon(t, "active", true, nil)
 
 			code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
 			if code != tc.wantCode {
@@ -144,6 +171,7 @@ func TestDoctorExplainsThatFirstIsNotTheBackendThatLocks(t *testing.T) {
 			{Name: "kde", Available: true, Detail: "calls org.freedesktop.ScreenSaver.Lock"},
 		},
 	}, nil)
+	withDaemon(t, "active", true, nil)
 
 	code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
 	if code != exitOK {
@@ -170,6 +198,7 @@ func TestDoctorFailsLoudlyWhenNothingCanLock(t *testing.T) {
 			{Name: "kde", Available: false, Detail: "no gdbus"},
 		},
 	}, nil)
+	withDaemon(t, "active", true, nil)
 
 	code, out, _ := runCmd(t, "doctor", "--config", writeConfig(t))
 	if code == exitOK {
@@ -189,6 +218,7 @@ func TestDoctorReportsUnknownBackendNames(t *testing.T) {
 		unknown:  []string{"kde-x"},
 		statuses: []platform.BackendStatus{{Name: "logind", Available: true, Detail: "ok"}},
 	}, errors.New(`unknown lock backend "kde-x"`))
+	withDaemon(t, "active", true, nil)
 
 	code, out, errOut := runCmd(t, "doctor", "--config", writeConfig(t))
 	if code != exitOK {
@@ -206,19 +236,50 @@ func TestDoctorReportsUnknownBackendNames(t *testing.T) {
 }
 
 func TestDoctorReportsAConfigItCannotRead(t *testing.T) {
-	// No chain installed at all: a config that will not load must stop the command
-	// before anything is probed, or the report describes settings nobody wrote.
+	// No chain installed at all: a config that will not load must stop every check that
+	// would otherwise describe settings nobody wrote.
+	//
+	// It no longer stops the whole command. The original shape returned here, which left the
+	// operator's actual next question -- "is the daemon even running?" -- unanswered, and the
+	// two checks that answer it need no config at all. So the config-dependent checks are
+	// reported as skipped rather than run against defaults, which is what this test is really
+	// guarding against.
+	withDaemon(t, "active", true, nil)
 	path := filepath.Join(t.TempDir(), "absent.json")
 	code, out, errOut := runCmd(t, "doctor", "--config", path)
 	if code != exitFailure {
 		t.Fatalf("exit %d, want %d", code, exitFailure)
 	}
-	if out != "" {
-		t.Errorf("printed a report for a config it could not read:\n%s", out)
-	}
 	if !strings.Contains(errOut, path) {
 		t.Errorf("error does not name the file it failed on: %s", errOut)
 	}
+	// The checks that need no config still ran.
+	for _, want := range []string{"daemon", "config.file"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("a config failure suppressed the %s check, which does not need a config:\n%s", want, out)
+		}
+	}
+	// And the ones that do are named as not checked, never as having passed.
+	for _, want := range []string{"backends", "unenforced"} {
+		line := checkLine(out, want)
+		if !strings.Contains(line, string(verdictSkip)) {
+			t.Errorf("%s reported %q, want it to say it was not checked:\n%s", want, line, out)
+		}
+	}
+	// Nothing may claim success for a check that could not run.
+	if strings.Contains(out, "nothing failed") {
+		t.Errorf("a run whose config could not be read reported no failures:\n%s", out)
+	}
+}
+
+// checkLine pulls the report line for one check name out of the text output.
+func checkLine(out, name string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, " "+name+" ") {
+			return line
+		}
+	}
+	return ""
 }
 
 func TestDoctorRejectsBadArguments(t *testing.T) {
@@ -336,6 +397,7 @@ func TestDoctorReportsAWriteFailure(t *testing.T) {
 		names:    []string{"logind"},
 		statuses: []platform.BackendStatus{{Name: "logind", Available: true, Detail: "ok"}},
 	}, nil)
+	withDaemon(t, "active", true, nil)
 	if code := runDoctor(failWriter{}, failWriter{}, []string{"--config", writeConfig(t)}); code != exitFailure {
 		t.Errorf("exit %d, want %d when the report cannot be written", code, exitFailure)
 	}
