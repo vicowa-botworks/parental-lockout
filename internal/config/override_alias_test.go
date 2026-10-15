@@ -28,7 +28,8 @@ type slot struct {
 func (s slot) kind() string {
 	switch {
 	case s.name == "Profiles", s.name == "Users", s.name == "Overrides",
-		s.name == "Settings.LockBackends":
+		s.name == "Settings.LockBackends",
+		s.name == "Settings.LockCommandArgv":
 		return s.name
 	case strings.HasSuffix(s.name, ".Rules"):
 		return "Rules"
@@ -73,6 +74,7 @@ func TestLoadHandsBackNoSpareCapacity(t *testing.T) {
 		add("Users", len(c.Users), cap(c.Users))
 		add("Overrides", len(c.Overrides), cap(c.Overrides))
 		add("Settings.LockBackends", len(c.Settings.LockBackends), cap(c.Settings.LockBackends))
+		add("Settings.LockCommandArgv", len(c.Settings.LockCommandArgv), cap(c.Settings.LockCommandArgv))
 		for i, p := range c.Profiles {
 			add(fmt.Sprintf("Profiles[%d].Rules", i), len(p.Rules), cap(p.Rules))
 			for j, r := range p.Rules {
@@ -157,7 +159,8 @@ func TestLoadHandsBackNoSpareCapacity(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"Profiles", "Users", "Overrides", "Settings.LockBackends", "Rules", "Days",
+		"Profiles", "Users", "Overrides", "Settings.LockBackends", "Settings.LockCommandArgv",
+		"Rules", "Days",
 	} {
 		if looseByKind[want] == 0 {
 			t.Errorf("no %s list had spare capacity before the clip ran, so the clip on %s is never exercised and a bug there would go undetected (fixture too small: %d of %d lists were loose overall)",
@@ -306,7 +309,16 @@ func TestAddOverrideDoesNotWriteIntoAnArrayAnotherConfigHolds(t *testing.T) {
 // prove nothing; three decode to cap 4 and five to cap 8.
 func wideSample() *Config {
 	c := sample()
-	c.Settings.LockBackends = []string{"logind", "kde", "gnome"}
+	// Three, not four. The decoder hands back a four-element array with cap == len, so
+	// a fixture that grew the list to four to make room for "command" would have left
+	// the LockBackends clip present and never exercised -- which is the failure this
+	// test's per-site check exists to catch, and it fired on exactly that.
+	c.Settings.LockBackends = []string{"logind", "kde", "command"}
+	// Sized to come back loose. Five elements is what the decoder allocates without
+	// spare, so a fixture of three would leave the clip on this field present and
+	// never run -- the exact way the Rules clip shipped unexercised once.
+	c.Settings.LockCommandPath = "/usr/local/bin/plock-locktest"
+	c.Settings.LockCommandArgv = []string{"--session", "%SESSION%", "--user", "%USER%", "--seat"}
 	rules := make([]Rule, 0, 5)
 	for i := 0; i < 5; i++ {
 		rules = append(rules, Rule{

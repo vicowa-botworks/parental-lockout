@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify mutate clean install uninstall
+.PHONY: build fmt vet test verify mutate clean install uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -103,3 +103,21 @@ install: verify
 
 uninstall:
 	@deploy/install.sh --uninstall$(if $(PURGE), --purge,)
+
+# run-dev runs the whole enforcement loop with no desktop session and no root, against a
+# throwaway config under a dev root.
+#
+# It uses the `command` backend rather than internal/platform.Mock, and the reason is a
+# decision rather than an oversight: Mock is deliberately not registered under an id,
+# because a config-selectable backend that reports success and locks nothing is the exact
+# fail-open this project refuses (mock.go). Pointing run-dev at Mock would mean the
+# developer loop exercises a shape the product can never take. The command backend really
+# execs, so the loop, the config, the audit writer and the fallback chain under test are
+# the real ones, and only the thing that would touch a screen is a shell script.
+#
+# verify is a prerequisite for the same reason it is one for install: a loop started
+# against an unverified build teaches you things about a binary the gate would have
+# rejected.
+run-dev: verify
+	@$(MAKE) --no-print-directory build
+	@BIN=$(BIN) deploy/run-dev.sh

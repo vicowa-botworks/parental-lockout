@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"os"
 	"sort"
 	"strings"
@@ -376,11 +377,20 @@ func containsEnv(env []string, want string) bool {
 // nil the test then dereferences.
 func newRegistered(t *testing.T, id string, r Runner) (Platform, error) {
 	t.Helper()
+	return newRegisteredWith(t, id, r, config.Settings{})
+}
+
+// newRegisteredWith is newRegistered for a test that needs to hand the constructor a
+// configuration. Only the command backend reads it, but the seam is the same one a real
+// New call goes through, so a test that wants to prove a config field reaches a backend
+// proves it the way production does.
+func newRegisteredWith(t *testing.T, id string, r Runner, s config.Settings) (Platform, error) {
+	t.Helper()
 	ctor, ok := registry[id]
 	if !ok {
 		t.Fatalf("no backend registered as %q (registered: %s)", id, strings.Join(registeredIDs(), ", "))
 	}
-	return ctor(r)
+	return ctor(r, s)
 }
 
 // registeredIDs lists the backend ids a config could name. Used in failure messages so

@@ -291,7 +291,7 @@ func TestRegisterRejectsAnEmptyID(t *testing.T) {
 			t.Error("Register with an empty id did not panic")
 		}
 	}()
-	Register("", func(r Runner) (Platform, error) { return nil, nil })
+	Register("", func(r Runner, _ config.Settings) (Platform, error) { return nil, nil })
 }
 
 func TestMockSessionsReturnsACopy(t *testing.T) {

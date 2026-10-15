@@ -391,3 +391,90 @@ A raw VT (`Type=tty`) **is** kept lockable. Locking it does nothing, so every po
 `ErrUnconfirmed` forever — and that loud, permanent, reported failure was chosen over
 filtering VTs out, because filtering makes `Sessions()` report nobody, which is the same
 outcome for the child with the signal removed.
+
+## 9. Adding a backend, and the `command` backend
+
+A backend is a Go `init()` calling `Register(id, ctor)`, where the constructor takes the
+runner **and the settings**:
+
+```go
+func init() {
+	Register("kde", func(r platform.Runner, _ config.Settings) (platform.Platform, error) { ... })
+}
+```
+
+The settings argument exists for one registered backend so far, and its presence is the
+whole difference between a backend that can be configured and one that cannot. A backend
+that needs nothing from the document ignores the argument; nothing else changes.
+
+`plock doctor` then reports it in configured order, and `serve` refuses to start if no
+configured backend is usable. That refusal is load-bearing: a daemon that starts, logs a
+cheerful "listening" line and enforces nothing is the worst failure mode this product has.
+
+### `command` -- and why `mock` is not registered
+
+`command` runs a program named by `settings.lockCommandPath`, with
+`settings.lockCommandArgv` as its arguments. It exists so the whole daemon -- `serve`, the
+enforcement tick, the audit writer, the fallback chain -- can run on a machine with no
+graphical session and no root. `make run-dev` is that loop.
+
+The obvious alternative was `platform.Mock`, and `Mock` is deliberately **not** registered:
+
+> A backend named "mock" that the registry would happily build from a config is a way for
+> `lockBackends` to end up pointing at something that reports success and locks nothing --
+> the exact shape of failure this daemon cannot afford, because it looks like it is working.
+> -- `internal/platform/mock.go`
+
+Registering `Mock` to satisfy a developer loop would put that escape hatch in the file the
+daemon reads at boot as root. `command` is safe where `Mock` is not because **it really
+execs something**: "does nothing" is not a hidden property of a magic identifier, it is an
+explicit absolute path in a root-owned 0600 file, visible in `plock doctor`, and it cannot
+be pointed anywhere by anyone who cannot already write the policy. That is the same trust
+boundary `docs/security.md` §2 puts the whole config behind.
+
+Four rules the backend keeps, each of which is a fail-open if dropped:
+
+| Rule | Why |
+|---|---|
+| The path must be absolute; a bare name is refused | A PATH lookup inside the root daemon's lock path is an attack surface. #53 established this for the shipped lock binaries (`internal/platform/exec.go`, `resolveProgram`), and a config field is the same door. Refused in `Validate` *and* at construction, because `platform.New` is reachable with a `Settings` nobody validated. |
+| Session listing delegates to `logind` | A backend that lists nothing makes the enforcement loop find no sessions and enforce nothing while every component reports health. |
+| It does not implement `Confirmer` | Nothing about a subprocess exiting 0 says the screen is locked. Inventing a second signal to corroborate one would be the rubber stamp §5 is entirely about (`docs/security.md` §5 says the same about the real backends). So a chain using it reports `lock.unconfirmed`, which on a dev box is the honest reading. |
+| `Probe` answers the lock-capable question and never runs the program | #25 item 4's direction, the one `probeTarget` implements: a probe that answers from the *listing* reports the backend available on a machine where every lock is about to be refused. And `plock doctor` is what you reach for when you suspect locking is broken -- a probe that locked your screen while diagnosing it would be both a surprise and a false positive. |
+
+**This is not a production option, and nothing here pretends it can be made one.** A
+`lockCommandPath` pointing at `/bin/true` configures a daemon that reports every lock as
+requested and locks nothing, and the daemon cannot tell that apart from a real locker.
+`plock doctor` prints `not a production backend` on the backend's own line so the state is
+visible where an operator would look. Nothing can *refuse* it on a real machine: the config
+is root-only, so configuring it is already an act only root can perform.
+
+### Token substitution
+
+`%SESSION%`, `%USER%`, `%UID%`, `%SEAT%` and `%TTY%` are replaced in every configured
+argument. A token whose field is empty substitutes to an empty argument rather than dropping
+it, because the argument count is part of what a script parses and dropping one shifts every
+later argument into a different option. If the argv names no token at all, the session id is
+appended -- a command backend with no way to learn which session it was asked about can only
+lock whatever it guessed, and on a single-session dev box that looks identical to working.
+
+### Measured, on a machine with no desktop session under test
+
+```
+$ PLOCK_DEV_ROOT=/tmp/plock-dev make run-dev
+plock serve: backend command is available
+enforce: running, every 5s, config /tmp/plock-dev/config.json
+web: listening on http://127.0.0.1:8443
+
+$ cat /tmp/plock-dev/lock-calls.log
+20:58:09 --session 3 --user rodney --uid 1000
+20:58:14 --session 3 --user rodney --uid 1000
+20:58:19 --session 3 --user rodney --uid 1000
+```
+
+Five seconds apart, on a config that says `pollSeconds: 5`. The first version of this loop
+printed 30s and ticked 30s apart while announcing 5s; see the note in
+`internal/enforce/enforce.go` before changing how the period is published.
+
+The audit trail carries `lockout.entered` and one `lock.unconfirmed`, and the unconfirmed
+line appears once rather than every tick -- that is §5's transition rule, not a missing
+event.

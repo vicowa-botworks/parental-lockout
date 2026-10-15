@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"strings"
 	"testing"
 )
@@ -477,7 +478,7 @@ func TestRegisterRejectsADuplicateID(t *testing.T) {
 	saved := registry
 	defer func() { registry = saved }()
 	registry = map[string]Constructor{}
-	ctor := func(r Runner) (Platform, error) { return &Mock{}, nil }
+	ctor := func(r Runner, _ config.Settings) (Platform, error) { return &Mock{}, nil }
 	Register("temp", ctor)
 
 	defer func() {
