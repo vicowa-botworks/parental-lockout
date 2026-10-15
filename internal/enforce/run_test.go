@@ -101,6 +101,22 @@ func TestRunSkipsATickThatOutlivesItsPeriod(t *testing.T) {
 	e.Interval = 5 * time.Millisecond
 	e.WatchInterval = -1
 
+	// The audit sink is deliberately slow here, and this is the whole point of the
+	// shape of this test rather than an incidental detail.
+	//
+	// The bug is about which predicate the loop waits on, and a wait on the counter is
+	// only wrong when there is a gap between counting and emitting. With the default
+	// sink that gap is microseconds, so reverting the wait to e.Skipped() > 0 passes
+	// this test five times out of five -- the test would keep claiming to pin the bug
+	// while pinning nothing. A 250 ms emit opens the gap wide enough that the counter
+	// wait returns before the event exists, the assertion below runs against an empty
+	// log, and the test fails in a quarter second on any machine.
+	//
+	// To reproduce a race between a counter and the thing the counter stands for, slow
+	// down the thing. Do not speed up the machine.
+	slow := &slowSink{inner: sink}
+	e.Sink = slow
+
 	gate := make(chan struct{})
 	p.mu.Lock()
 	p.block = gate
@@ -117,7 +133,15 @@ func TestRunSkipsATickThatOutlivesItsPeriod(t *testing.T) {
 	cancel, _ := startRun(t, e)
 	defer cancel()
 
-	waitFor(t, "a skipped tick", func() bool { return e.Skipped() > 0 })
+	// Wait for the audit event, not for the counter.
+	//
+	// noteSkipped increments the counter and *then* emits, so waiting on Skipped() > 0
+	// and asserting countOf(KindTickSkipped) races the emit -- and lost under CI load,
+	// where the gap between the two is wide enough to schedule a goroutine into. The
+	// assertion below is about the event, so the event is what the wait has to be for.
+	// Waiting on the counter tested the wrong thing while pretending to test the right
+	// one, which is the shape this repo keeps being bitten by.
+	waitFor(t, "a tick.skipped event", func() bool { return slow.countOf(KindTickSkipped) > 0 })
 
 	// One tick in flight, and everything after it refused rather than stacked. Two
 	// ticks locking the same session at once would double every audit line and race
@@ -125,7 +149,7 @@ func TestRunSkipsATickThatOutlivesItsPeriod(t *testing.T) {
 	if got := p.totalLocks(); got != 1 {
 		t.Errorf("%d Lock calls while one was blocked, want 1: a late tick must be refused, not queued", got)
 	}
-	if sink.countOf(KindTickSkipped) == 0 {
+	if slow.countOf(KindTickSkipped) == 0 {
 		t.Error("no tick.skipped event: a daemon that falls behind leaves no trace in the audit log")
 	}
 	if e.Skipped() == 0 {
@@ -556,3 +580,19 @@ func TestAShutdownPartwayThroughTheListStopsThePass(t *testing.T) {
 		}
 	}
 }
+
+// slowSink records like recSink and then holds the event for a beat, standing in for an
+// audit writer that is doing real work when the engine reports something.
+//
+// The sleep sits before the append, so there is a real window in which the engine has
+// already counted the skip and the audit log has not yet seen it.
+type slowSink struct {
+	inner *recSink
+}
+
+func (s *slowSink) Emit(ev Event) {
+	time.Sleep(250 * time.Millisecond)
+	s.inner.Emit(ev)
+}
+
+func (s *slowSink) countOf(kind string) int { return s.inner.countOf(kind) }
