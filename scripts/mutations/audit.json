@@ -208,8 +208,8 @@
     {
       "id": "A32",
       "file": "internal/audit/audit.go",
-      "old": "\tif fi, err := f.Stat(); err == nil {\n\t\tw.size = fi.Size()\n\t} else {",
-      "new": "\tif fi, err := f.Stat(); err == nil {\n\t\t_, _ = fi, err\n\t\tw.size = 0\n\t} else {",
+      "old": "\tif fi, err := statFile(f); err == nil {\n\t\tw.size = fi.Size()\n\t} else {",
+      "new": "\tif fi, err := statFile(f); err == nil {\n\t\t_, _ = fi, err\n\t\tw.size = 0\n\t} else {",
       "note": "the bug #33 found: the bound counted from process start, so every restart added another MaxBytes before the first rotation"
     },
     {
@@ -259,7 +259,9 @@
       "file": "internal/audit/reader.go",
       "old": "\tif len(rest) > 0 && rest[len(rest)-1] != '\\n' {",
       "new": "\tif false {",
-      "_why": "a torn final line is returned as if it were a complete record, so a half-written event reads as a real one"
+      "_why": "a torn final line is returned as if it were a complete record, so a half-written event reads as a real one",
+      "equivalent": true,
+      "note": "Without the guard the peel loop still cannot return a torn line as a record: body drops the final byte, so the fragment fails to decode and is counted as skipped -- the same observable outcome (records unchanged, Skipped +1). Verified on both shapes: a multi-record file with a torn tail, and a single unterminated line. The guard is what makes the loop's invariant ('rest ends with a newline') explicit rather than emergent, so it stays; no test can distinguish it from its absence."
     },
     {
       "id": "A40",
@@ -351,13 +353,6 @@
       "old": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)\n\tif errors.Is(err, syscall.ELOOP) {",
       "new": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)\n\tif false && errors.Is(err, syscall.ELOOP) {",
       "_why": "the reader's symlink refusal is replaced by a bare ELOOP, so it no longer says what it refused and why"
-    },
-    {
-      "id": "A53",
-      "file": "internal/audit/posix.go",
-      "old": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)\n\tif errors.Is(err, syscall.ELOOP) {\n\t\treturn nil, fmt.Errorf(\"%s is a symlink: refusing to read a trail through it: %w\", path, err)\n\t}\n\tif errors.Is(err, syscall.ENXIO) {",
-      "new": "\tf, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)\n\tif errors.Is(err, syscall.ELOOP) {\n\t\treturn nil, fmt.Errorf(\"%s is a symlink: refusing to read a trail through it: %w\", path, err)\n\t}\n\tif false && errors.Is(err, syscall.ENXIO) {",
-      "_why": "a FIFO at the audit path reports a bare ENXIO instead of naming the shape that was refused"
     },
     {
       "id": "A54",

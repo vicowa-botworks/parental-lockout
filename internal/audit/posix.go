@@ -52,7 +52,8 @@ func openAppend(path string, mode os.FileMode) (*os.File, error) {
 //
 // O_NONBLOCK because the same FIFO that parks the enforcement tick would park whatever
 // rendered the audit view, and a reader that blocks is a denial of service on the
-// diagnostic whose whole job is to say what is wrong.
+// diagnostic whose whole job is say what is wrong. It does not, however, make the open fail:
+// see the note below on where the FIFO is actually refused.
 //
 // O_RDONLY is what makes the missing O_CREAT and O_TRUNC below unnecessary rather than
 // merely absent: opening a log for reading must not be able to create it, because
@@ -63,11 +64,17 @@ func openRead(path string) (*os.File, error) {
 	if errors.Is(err, syscall.ELOOP) {
 		return nil, fmt.Errorf("%s is a symlink: refusing to read a trail through it: %w", path, err)
 	}
-	if errors.Is(err, syscall.ENXIO) {
-		// A read-only open of a FIFO with no writer fails immediately rather than
-		// blocking, so this is the shape reported rather than a hang avoided.
-		return nil, fmt.Errorf("%s is a FIFO: the audit path must be a regular file: %w", path, err)
-	}
+	// There is deliberately no ENXIO branch here.
+	//
+	// O_NONBLOCK makes a read-only open of a FIFO SUCCEED rather than fail with ENXIO; the
+	// errno only appears when the open would have blocked, and O_NONBLOCK is exactly what
+	// stops it blocking. Measured on this box: pointing the reader at a FIFO returns
+	// "is not a regular file (mode prw-------)", which is the shape check on the held
+	// descriptor in reader.go, not a translation of ENXIO.
+	//
+	// The guard that matters is therefore the one on the descriptor, and it is the one that
+	// runs. A branch here would be dead code with a comment claiming credit for the
+	// protection.
 	return f, err
 }
 

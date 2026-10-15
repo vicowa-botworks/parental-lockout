@@ -310,7 +310,7 @@ func (w *Writer) open() error {
 	// A file that cannot be stat'ed is not treated as empty either — that would be the same
 	// mistake in a rarer costume — so the bound is kept at the conservative end and the next
 	// write decides.
-	if fi, err := f.Stat(); err == nil {
+	if fi, err := statFile(f); err == nil {
 		w.size = fi.Size()
 	} else {
 		w.logf("audit: cannot stat %s to measure the existing trail: %v; rotating on the next write", w.Path, err)
@@ -318,6 +318,16 @@ func (w *Writer) open() error {
 	}
 	return nil
 }
+
+// statFile measures a file the writer has just opened.
+//
+// It is a variable for the same reason geteuid is one a few files over: the branch it feeds
+// is a guard against the OS refusing to measure a file it just agreed to open, and there is
+// no portable way for an unprivileged test to arrange that on purpose. A guard that has
+// never fired on any machine is a guard nobody has checked, and the direction it fails in is
+// the direction that matters — treating an unmeasurable trail as empty moves the rotation
+// bound back to zero and lets the file grow past what the operator configured.
+var statFile = func(f *os.File) (os.FileInfo, error) { return f.Stat() }
 
 // prepareDir makes sure the directory holding the trail exists and is private.
 //
