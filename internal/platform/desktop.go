@@ -179,7 +179,7 @@ func (d *desktop) LockConfirmed(ctx context.Context, s Session) (bool, error) {
 	if !d.corroborate {
 		return true, nil
 	}
-	alive, err := lockerRunning(ctx, s.UID)
+	alive, err := lockerRunningCached(ctx, s.UID)
 	if err != nil {
 		// Not the same as "unlocked". The hint said locked and the corroborator
 		// could not look; that belongs in the fault column, and the chain already
