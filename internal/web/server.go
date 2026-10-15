@@ -30,6 +30,12 @@ import (
 // It is built once at startup and then only read, so the request path takes no
 // locks. Everything mutable lives behind the seams it points at (Sessions,
 // Throttle), which are safe on their own.
+// defaultDrainTimeout is the budget for requests already in flight when shutdown begins.
+//
+// Ten seconds, and no longer: systemd's default stop timeout is 90, and a daemon that
+// spends all of it holding a socket looks hung in the journal.
+const defaultDrainTimeout = 10 * time.Second
+
 type Server struct {
 	// Auth, Sessions and Throttle are the three pieces from internal/auth. Auth
 	// may be nil, which means "no account has been created yet": every protected
@@ -45,6 +51,10 @@ type Server struct {
 
 	// Listen is the host:port to bind.
 	Listen string
+
+	// DrainTimeout is how long shutdown waits for requests already in flight before it
+	// gives up and closes them. Zero means defaultDrainTimeout.
+	DrainTimeout time.Duration
 
 	// TLSMode is "auto", "off" or "custom". CertFile and KeyFile are the
 	// operator-supplied pair for "custom"; Store owns the minted pair for "auto".
@@ -280,10 +290,22 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	// 10 seconds, and no longer: systemd's default stop timeout is 90, and a
 	// daemon that spends it all holding a socket looks hung in the journal.
-	s.logf("web: shutting down, up to 10s for requests in flight")
-	drain, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	//
+	// DrainTimeout overrides it. It is a real knob, not a test-only one -- an operator
+	// who raises systemd's TimeoutStopSec because their handlers do slow config writes
+	// should be able to spend more of it draining -- and without it the only way to
+	// observe a drain that gives up is to hold a request open for ten seconds.
+	drainFor := s.DrainTimeout
+	if drainFor <= 0 {
+		drainFor = defaultDrainTimeout
+	}
+	s.logf("web: shutting down, up to %s for requests in flight", drainFor)
+	drain, cancel := context.WithTimeout(context.Background(), drainFor)
 	defer cancel()
 	if err := httpSrv.Shutdown(drain); err != nil {
+		// Saying so is the whole behaviour. A drain that gave up means requests were cut
+		// off mid-flight, and a daemon that exits 0 after that looks like a clean stop --
+		// the operator's next clue would be a half-written config and no explanation.
 		s.logf("web: shutdown drained with an error: %v", err)
 	}
 	return ctx.Err()

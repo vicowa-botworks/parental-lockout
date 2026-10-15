@@ -208,7 +208,9 @@
    "file": "internal/web/middleware.go",
    "old": "\treturn subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1\n",
    "new": "\treturn got == want || subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1\n",
-   "note": "the CSRF comparison leaks timing on a secret"
+   "note": "the CSRF comparison leaks timing on a secret",
+   "equivalent": true,
+   "equivalence": "The mutant adds `got == want ||` in front of the constant-time compare. The two\nexpressions return the same bool for every possible pair of inputs, so no test can\ndistinguish them: the only difference is how long the comparison takes, and timing\nis not an observable a unit test in this package has.\n\nMarking it equivalent is a claim, so it is checkable: delete the `got == want ||`\nprefix and every test in internal/web still passes -- in particular\nTestAPostWithoutACSRFTokenIsRefusedAndDoesNothing,\nTestAPostWithTheSessionsTokenIsAccepted and\nTestAnotherSessionsCSRFTokenIsNotAccepted, which together pin that a correct token\nis accepted, a missing one is refused, and another session's token is refused. All\nthree go through this comparison, so they pin that it exists and is reached; none of\nthem can pin that it is constant-time.\n\nWhat the mutant is really guarding against -- someone swapping the constant-time\ncompare for a plain == -- is therefore a review property, not a test property."
   },
   {
    "id": "W28",
