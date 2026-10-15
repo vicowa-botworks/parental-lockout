@@ -302,10 +302,16 @@ func (w *Writer) open() error {
 	// worst case" is a per-run bound wearing a per-file bound's clothes.
 	//
 	// The shape that grows the log is the shape that restarts the daemon. KindPlatformError
-	// and KindLockUnconfirmed are emitted per tick by the engine, and a machine whose
-	// desktop has died is also a machine whose supervisor is restarting it. Disk full is
-	// then the failure that makes this package's own failure mode permanent: the trail stops
-	// being written on the one machine that most needs it.
+	// is emitted per tick by the engine, and a machine whose desktop has died is also a
+	// machine whose supervisor is restarting it. Disk full is then the failure that makes
+	// this package's own failure mode permanent: the trail stops being written on the one
+	// machine that most needs it.
+	//
+	// KindLockUnconfirmed used to be named here as well. It is now emitted once per
+	// unconfirmed episode rather than per tick (#35), so it no longer contributes to the
+	// growth this bound is sized against — which does not relax the bound. The per-tick
+	// producer is still there in KindPlatformError, and a bound that only holds while the
+	// engine behaves as expected is not a bound.
 	//
 	// A file that cannot be stat'ed is not treated as empty either — that would be the same
 	// mistake in a rarer costume — so the bound is kept at the conservative end and the next
