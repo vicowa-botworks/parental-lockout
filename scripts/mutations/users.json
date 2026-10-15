@@ -84,7 +84,8 @@
       "file": "internal/users/parse.go",
       "old": "\t\tif line == \"\" || strings.HasPrefix(line, \"#\") {\n\t\t\tcontinue\n\t\t}\n\t\t// Fields, not Cut",
       "new": "\t\tif line == \"\" {\n\t\t\tcontinue\n\t\t}\n\t\t// Fields, not Cut",
-      "note": "comments in login.defs are parsed as keys; harmless for the two keys read here, but it is the branch that keeps a commented file out of the notes"
+      "note": "comments in login.defs are parsed as keys; harmless for the two keys read here, but it is the branch that keeps a commented file out of the notes",
+      "equivalent": "equivalent for the switch this loop has, proved rather than assumed. After TrimSpace a matched line begins with '#', and strings.Fields takes its first token from that same byte, so key begins with '#'; ToUpper cannot turn '#' into 'U'. The switch has exactly two labels, UID_MIN and UID_MAX, and neither begins with '#', so no case is reached and the loop body's only observable effects -- the bounds assignment and the notes append -- both live inside those cases. A comment line therefore already falls through whether or not the guard is there. Kept as insurance: the day a third key is added whose name could arrive as a first token, the guard is what keeps a commented-out line out of the bounds."
     },
     {
       "id": "U13",
