@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -282,14 +283,20 @@ func TestHashUsesAFreshSaltOfTheRightLength(t *testing.T) {
 	}
 }
 
-// The timing bound the ticket asks for: a guess that is right up to the last
-// character must not come back faster than one that is unrelated.
+// The timing bound the ticket asks for -- with its claim limited to what a wall clock can
+// actually resolve here.
 //
-// It is a loose bound on purpose. PBKDF2 hashes the whole password, so there is no
-// early return to find and the two times should be indistinguishable; what this
-// catches is a future change that compares a prefix, checks a length, or adds a
-// "fast path" for a cached derivation — each of which turns a quarter-second KDF
-// into a per-byte oracle.
+// Measured: pbkdf2.Key at the production floor is 4.3 ms and the 32-byte
+// ConstantTimeCompare is 53 ns, so the comparison is 0.0012% of a Verify. This test's
+// floor is a ratio of 0.6, a 40% difference. It therefore guards the expensive half and
+// nothing else: a "fast path" that skips or caches the KDF moves 4.3 ms and is visible,
+// while a per-byte oracle in the comparison is not, and never was. That was verified
+// rather than reasoned -- an injected early-return comparison passed this test three times
+// running on both the mean and the minimum statistic -- and TestKeyComparisonIsConstantTime
+// in constant_time_test.go is what now covers the comparison.
+//
+// What this test still catches on its own: comparing a length before the bytes, or any
+// change that makes the work depend on the guess rather than on the iteration count.
 func TestVerificationTimeDoesNotDependOnHowCloseTheGuessIs(t *testing.T) {
 	h := Hasher{Iterations: 40_000} // above the floor, still quick enough to time
 	const secret = "a password long enough to be real"
@@ -322,15 +329,36 @@ func TestVerificationTimeDoesNotDependOnHowCloseTheGuessIs(t *testing.T) {
 	} {
 		ratio := float64(pair.slow+1) / float64(pair.fast+1)
 		if ratio < 0.6 {
-			t.Errorf("%s: %v vs %v — one path returns early (ratio %.2f)", pair.name, pair.fast, pair.slow, ratio)
+			// Not "one path returns early". That is one possible cause and the least
+			// likely one; what this measurement can actually establish is that the two
+			// paths were not indistinguishable on this run. Saying it that way keeps a
+			// noisy runner from reporting a side channel in the password verifier as a
+			// finding -- which is what the old message did, and it is the reason #44 was
+			// opened.
+			t.Errorf("%s: %v vs %v are not within 0.6x of each other (ratio %.2f) — inconclusive on this run, not proof of an early return; PBKDF2's cost is fixed, so re-run before believing it",
+				pair.name, pair.fast, pair.slow, ratio)
 		}
 	}
 }
 
 func measure(h Hasher, password, verifier string, rounds int) time.Duration {
-	start := time.Now()
+	// The minimum, not the mean. Preemption can only ever add time to a measurement, never
+	// take it away, so the shortest round is the closest estimate of the work itself and
+	// every scheduling hiccup lands outside the statistic instead of inside it.
+	//
+	// The mean did not have that property and the test failed for it: averaging 12 calls
+	// that each cost ~180 ms means one preemption moves the average by ~8 ms per round,
+	// against a total margin of a factor of 1.67. On a loaded runner that was enough to
+	// make the near-miss path look slower than the unrelated one and report a side channel
+	// that does not exist -- PBKDF2 runs its full iteration count whatever the guess is, so
+	// both paths do literally the same work.
+	best := time.Duration(math.MaxInt64)
 	for i := 0; i < rounds; i++ {
+		start := time.Now()
 		h.Verify(password, verifier)
+		if d := time.Since(start); d < best {
+			best = d
+		}
 	}
-	return time.Since(start) / time.Duration(rounds)
+	return best
 }
