@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -22,6 +23,13 @@ const MinPollSeconds = 5
 // MaxPollSeconds is a day. Anything longer is a mistake rather than a policy:
 // the enforcement loop would not notice a schedule change for over that long.
 const MaxPollSeconds = 86400
+
+// ErrInvalid marks a refusal produced by Validate rather than by the filesystem, so a
+// caller can tell "what you asked for is not a valid document" from "the disk said no".
+// The two need opposite answers on the web UI: one is a 4xx that names what to change, the
+// other is a 503 that says try again. Without a sentinel the only way to tell them apart is
+// to match message text, which this repo's own rule forbids.
+var ErrInvalid = errors.New("configuration is not valid")
 
 // Validate reports every problem it finds, not just the first. The web UI shows
 // this list to a parent who has just submitted a form, and making them fix one
@@ -255,7 +263,7 @@ func (c *Config) validate(skipAdmin bool) error {
 	}
 
 	if len(problems) > 0 {
-		return fmt.Errorf("config: %d problem(s): %s", len(problems), strings.Join(problems, "; "))
+		return fmt.Errorf("%w: %d problem(s): %s", ErrInvalid, len(problems), strings.Join(problems, "; "))
 	}
 	return nil
 }

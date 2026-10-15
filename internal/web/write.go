@@ -36,7 +36,42 @@ func (s *Server) mutateConfig(fn func(*config.Config) error) error {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	return s.Mutate(fn)
+	// Validation is folded into the caller's mutation rather than left to the seam, for
+	// the same reason the mutex is: the seam is supplied by the caller, and a seam that
+	// forgets to check produces a server that writes documents the daemon refuses to load.
+	//
+	// That is not a hypothetical shape. plock serve exits 1 when Validate fails at startup,
+	// so a document written here that fails validation does not merely lose the edit -- it
+	// means the next restart does not come up, and enforcement stops until a human notices.
+	// config.Validate's own doc says refusing to write is "the responsibility of whoever
+	// produced the change"; this is that whoever.
+	//
+	// It runs inside the lock, on the same document the seam is about to save, so a
+	// concurrent mutation cannot slip an unchecked value in between the check and the rename.
+	return s.Mutate(func(c *config.Config) error {
+		if err := fn(c); err != nil {
+			return err
+		}
+		return c.Validate()
+	})
+}
+
+// mutateRefused reports a failed mutation on the right side of the 4xx/5xx line.
+//
+// A document the daemon would refuse to load is the operator's request being wrong -- the
+// same category as "an override needs a reason" -- so it answers 422 and repeats what
+// Validate objected to, because that text already names the field. Anything else is the
+// server failing, and says so. Collapsing the two into 503 would tell a parent to retry a
+// submission that will be refused identically forever.
+func (s *Server) mutateRefused(w http.ResponseWriter, r *http.Request, why string, err error) {
+	if errors.Is(err, config.ErrInvalid) {
+		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+			// The sentinel's own text already says the configuration is not valid, so the
+			// wrapper only adds the consequence. Saying it twice reads like two errors.
+			"refusing to save: "+err.Error())
+		return
+	}
+	s.pageError(w, r, why, err)
 }
 
 // pageRefuse answers a request the server is declining on purpose.

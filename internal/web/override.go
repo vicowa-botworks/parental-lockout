@@ -87,7 +87,7 @@ func (s *Server) handleOverride(w http.ResponseWriter, r *http.Request) {
 				"that account is not managed on this machine")
 			return
 		}
-		s.pageError(w, r, "the override could not be saved", err)
+		s.mutateRefused(w, r, "the override could not be saved", err)
 		return
 	}
 
@@ -113,7 +113,7 @@ func (s *Server) handleOverrideClear(w http.ResponseWriter, r *http.Request) {
 		removed = c.RemoveOverride(name)
 		return nil
 	}); err != nil {
-		s.pageError(w, r, "the override could not be cleared", err)
+		s.mutateRefused(w, r, "the override could not be cleared", err)
 		return
 	}
 	if !removed {

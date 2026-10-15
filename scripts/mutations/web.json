@@ -632,6 +632,29 @@
       "file": "internal/web/override.go",
       "old": "\t\tv := schedule.Evaluate(&c.Profiles[i], now)\n\t\tif !v.Active {\n",
       "new": "\t\tv := schedule.Evaluate(&c.Profiles[i], now)\n\t\tif false {\n",
-      "note": "an inactive window returns its zero EndsAt as a real one, so an override \"until the window ends\" is written with a zero instant -- which reads as already expired, or as never, depending on the reader, and neither is what the parent asked for"    }
+      "note": "an inactive window returns its zero EndsAt as a real one, so an override \"until the window ends\" is written with a zero instant -- which reads as already expired, or as never, depending on the reader, and neither is what the parent asked for"
+    },
+    {
+      "id": "W87",
+      "file": "internal/web/write.go",
+      "old": "\t\treturn c.Validate()\n",
+      "new": "\t\treturn nil\n",
+      "note": "the validate-before-save wrap becomes a no-op that returns success, so a mutation can write a document the daemon refuses to load at startup -- enforcement stops on the next restart with nothing on disk saying why"
+    },
+    {
+      "id": "W88",
+      "file": "internal/web/write.go",
+      "old": "\tif errors.Is(err, config.ErrInvalid) {",
+      "new": "\tif false && errors.Is(err, config.ErrInvalid) {",
+      "note": "a validation refusal falls through to pageError's 503, telling the parent to retry a submission that will be refused identically forever"
+    },
+    {
+      "id": "W89",
+      "file": "internal/config/validate.go",
+      "old": "return fmt.Errorf(\"%w: %d problem(s): %s\", ErrInvalid, len(problems), strings.Join(problems, \"; \"))",
+      "new": "return fmt.Errorf(\"config: %d problem(s): %s\", len(problems), strings.Join(problems, \"; \"))",
+      "note": "Validate's refusal stops carrying the ErrInvalid sentinel, so errors.Is cannot tell a refusal-to-write from a disk failure and the web layer answers every one with 503",
+      "package": "./internal/config/"
+    }
   ]
 }
