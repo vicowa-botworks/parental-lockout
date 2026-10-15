@@ -7,240 +7,239 @@
       "file": "internal/cli/args.go",
       "old": "\t\tif !strings.HasPrefix(a, \"-\") || a == \"-\" {",
       "new": "\t\tif false {",
-      "_why": "TakeFirst stops hoisting the positional at all, so `plock unlock casey --minutes 5` parses as five positionals and zero flags -- the documented form silently stops working"
+      "note": "TakeFirst stops hoisting the positional at all, so `plock unlock casey --minutes 5` parses as five positionals and zero flags -- the documented form silently stops working"
     },
     {
       "id": "CM2",
       "file": "internal/cli/args.go",
       "old": "\t\tif i+1 < len(args) && flagWantsValue(fs, a, name) {",
       "new": "\t\tif i+1 < len(args) && !flagWantsValue(fs, a, name) {",
-      "_why": "the rule is inverted, so a boolean flag swallows the token after it and a value-taking flag leaves its value to be taken as the account name -- the override is granted to the wrong account"
+      "note": "the rule is inverted, so a boolean flag swallows the token after it and a value-taking flag leaves its value to be taken as the account name -- the override is granted to the wrong account"
     },
     {
       "id": "CM3",
       "file": "internal/cli/args.go",
       "old": "\t\trest = append(rest, a)\n\t\tname := strings.TrimLeft(a, \"-\")",
       "new": "\t\tname := strings.TrimLeft(a, \"-\")",
-      "_why": "the flag is dropped instead of kept, so fs.Parse never sees it and never reports the typo -- an unknown flag becomes silently ignored"
+      "note": "the flag is dropped instead of kept, so fs.Parse never sees it and never reports the typo -- an unknown flag becomes silently ignored"
     },
     {
       "id": "CM4",
       "file": "internal/cli/cli.go",
       "old": "\tif pad < len(label) {",
       "new": "\tif false {",
-      "_why": "the label column stops widening to fit, so values are printed over each other and a report that looks parsed is not",
       "equivalent": true,
-      "note": "Go's %-*s never truncates, so the rendered width is max(pad,len(label)) either way: with the guard pad=max(width,len), giving max(max(width,len),len)==max(width,len); without it pad=width, giving max(width,len). Identical for every input, so no test can distinguish them. The guard is defensive against a formatter that did truncate, not load-bearing against fmt. Verified by running both variants and diffing the output."
+      "note": "Go's %-*s never truncates, so the rendered width is max(pad,len(label)) either way: with the guard pad=max(width,len), giving max(max(width,len),len)==max(width,len); without it pad=width, giving max(width,len). Identical for every input, so no test can distinguish them. The guard is defensive against a formatter that did truncate, not load-bearing against fmt. Verified by running both variants and diffing the output. the label column stops widening to fit, so values are printed over each other and a report that looks parsed is not"
     },
     {
       "id": "CU1",
       "file": "cmd/plock/unlock.go",
       "old": "\tif _, ok := cfg.UserFor(name); !ok {",
       "new": "\tif false {",
-      "_why": "an override can be granted to an account that is not managed. It is not harmless: it sits in the file, and if that username is created next week it is already active with a stale reason attached"
+      "note": "an override can be granted to an account that is not managed. It is not harmless: it sits in the file, and if that username is created next week it is already active with a stale reason attached"
     },
     {
       "id": "CL1",
       "file": "cmd/plock/lock.go",
       "old": "\tif target == \"\" && !*all {",
       "new": "\tif target == \"\" && *all {",
-      "_why": "`plock lock --all` on its own is refused, so the documented lock-everyone form can never be typed"
+      "note": "`plock lock --all` on its own is refused, so the documented lock-everyone form can never be typed"
     },
     {
       "id": "CX1",
       "file": "cmd/plock/manage.go",
       "old": "\tif names := assignedUsers(cfg, id); len(names) > 0 {",
       "new": "\tif names := []string(nil); len(names) > 0 {",
-      "_why": "a profile can be removed while children are assigned to it, leaving them with no schedule and therefore no lockout -- the silent release"
+      "note": "a profile can be removed while children are assigned to it, leaving them with no schedule and therefore no lockout -- the silent release"
     },
     {
       "id": "CX2",
       "file": "cmd/plock/manage.go",
       "old": "\tif _, ok := findProfile(cfg, profileID); !ok {",
       "new": "\tif false {",
-      "_why": "a user can be assigned to a profile that does not exist, which means they are enabled for enforcement and enforced by nothing"
+      "note": "a user can be assigned to a profile that does not exist, which means they are enabled for enforcement and enforced by nothing"
     },
     {
       "id": "CX3",
       "file": "cmd/plock/manage.go",
       "old": "\t\tu.Enabled = true",
       "new": "\t\tu.Enabled = false",
-      "_why": "a brand new managed user starts unenforced, so the first `user assign` on a fresh install does nothing at all"
+      "note": "a brand new managed user starts unenforced, so the first `user assign` on a fresh install does nothing at all"
     },
     {
       "id": "CX4",
       "file": "cmd/plock/manage.go",
       "old": "\tif err := cfg.DeleteProfile(id); err != nil {",
       "new": "\tif err := error(nil); err != nil {",
-      "_why": "the writer's own refusal is discarded, so the command prints `removed` over a document it did not change"
+      "note": "the writer's own refusal is discarded, so the command prints `removed` over a document it did not change"
     },
     {
       "id": "CX5",
       "file": "cmd/plock/manage.go",
       "old": "\tif err := cfg.ValidateForEdit(); err != nil {",
       "new": "\tif err := cfg.ValidateForEdit(); err != nil && false {",
-      "_why": "the write gate is removed entirely, so a command can write a document the daemon then refuses to load"
+      "note": "the write gate is removed entirely, so a command can write a document the daemon then refuses to load"
     },
     {
       "id": "CX6",
       "file": "cmd/plock/manage.go",
       "old": "\t\tfmt.Fprintf(stderr, \"plock profile: unknown subcommand %q\\n\\n%s\", sub, profileUsage)",
       "new": "\t\tfmt.Fprintf(stderr, \"plock profile: %q\\n\\n%s\", sub, profileUsage)",
-      "_why": "the unknown-verb message loses the word that says what went wrong, so a typo reads as a result"
+      "note": "the unknown-verb message loses the word that says what went wrong, so a typo reads as a result"
     },
     {
       "id": "CD1",
       "file": "cmd/plock/doctor.go",
       "old": "\trep.add(checkUnenforced(time.Now(), unenforcedCandidates(cfg, chain)))",
       "new": "\trep.add(okCheck(\"unenforced\", \"not checked\"))",
-      "_why": "the \"it is not working\" check disappears: a machine where every child is unlocked during a lockout reports a clean bill of health"
+      "note": "the \"it is not working\" check disappears: a machine where every child is unlocked during a lockout reports a clean bill of health"
     },
     {
       "id": "CD2",
       "file": "cmd/plock/doctor.go",
       "old": "\tif *tryUser != \"\" && *jsonOut {",
       "new": "\tif false {",
-      "_why": "--json can be combined with --try, so a monitoring job reading JSON can lock a child's screen on a schedule"
+      "note": "--json can be combined with --try, so a monitoring job reading JSON can lock a child's screen on a schedule"
     },
     {
       "id": "CD3",
       "file": "cmd/plock/doctor.go",
       "old": "\tif len(rep.Failed) > 0 {\n\t\treturn exitFailure\n\t}",
       "new": "\tif false {\n\t\treturn exitFailure\n\t}",
-      "_why": "doctor exits 0 whatever it finds, so it is useless in a script and misleading in a bug report"
+      "note": "doctor exits 0 whatever it finds, so it is useless in a script and misleading in a bug report"
     },
     {
       "id": "CD4",
       "file": "cmd/plock/doctor.go",
       "old": "\trep.add(okCheck(\"config.loads\", fmt.Sprintf(\"%s parses as version %d\", *path, cfg.Version)))",
       "new": "\trep.add(skipCheck(\"config.loads\", fmt.Sprintf(\"%s parses as version %d\", *path, cfg.Version)))",
-      "_why": "a document that loaded successfully is reported as unchecked, so a reader cannot tell a read config from one the tool never managed to open"
+      "note": "a document that loaded successfully is reported as unchecked, so a reader cannot tell a read config from one the tool never managed to open"
     },
     {
       "id": "CC1",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\t\tif a.DanglingProfile != \"\" {",
       "new": "\t\tif false {",
-      "_why": "an enabled account whose profile does not resolve is never reported, so a child locked out by nothing looks configured"
+      "note": "an enabled account whose profile does not resolve is never reported, so a child locked out by nothing looks configured"
     },
     {
       "id": "CC2",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\t\tcase !a.Managed:",
       "new": "\t\tcase a.Managed:",
-      "_why": "an account disabled on purpose is reported as a failure, which trains the operator to ignore the check"
+      "note": "an account disabled on purpose is reported as a failure, which trains the operator to ignore the check"
     },
     {
       "id": "CC3",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\t\tcase a.Locked:",
       "new": "\t\tcase !a.Locked:",
-      "_why": "a locked screen is reported as unenforced and an unlocked one is not -- the check inverted, which is worse than absent"
+      "note": "a locked screen is reported as unenforced and an unlocked one is not -- the check inverted, which is worse than absent"
     },
     {
       "id": "CC4",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\t\tcase !a.Lockable:",
       "new": "\t\tcase a.Lockable:",
-      "_why": "a session this build cannot lock stops being reported during an open window"
+      "note": "a session this build cannot lock stops being reported during an open window"
     },
     {
       "id": "CC5",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\tif perm := fi.Mode().Perm(); perm&0o077 != 0 {",
       "new": "\tif perm := fi.Mode().Perm(); perm&0o077 != 0 && false {",
-      "_why": "a world-readable config holding the admin credential and every schedule is accepted"
+      "note": "a world-readable config holding the admin credential and every schedule is accepted"
     },
     {
       "id": "CC6",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\tif !fi.Mode().IsRegular() {",
       "new": "\tif false {",
-      "_why": "a non-regular file at the config path is accepted, though the daemon refuses it"
+      "note": "a non-regular file at the config path is accepted, though the daemon refuses it"
     },
     {
       "id": "CC7",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\tif err := access(filepath.Dir(path), 2); err != nil {",
       "new": "\tif err := error(nil); err != nil {",
-      "_why": "the directory is not checked, so the read-only-parent case -- where config.Save cannot rename over the document -- is missed"
+      "note": "the directory is not checked, so the read-only-parent case -- where config.Save cannot rename over the document -- is missed"
     },
     {
       "id": "CC8",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\tcase seconds > 300:",
       "new": "\tcase seconds > 300000000:",
-      "_why": "a poll interval of hours stops being warned about, so a window opening goes unnoticed for that long"
+      "note": "a poll interval of hours stops being warned about, so a window opening goes unnoticed for that long"
     },
     {
       "id": "CC9",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\tcase now.After(notAfter):",
       "new": "\tcase false:",
-      "_why": "an expired certificate is reported as valid, and the browser refuses the page without saying why"
+      "note": "an expired certificate is reported as valid, and the browser refuses the page without saying why"
     },
     {
       "id": "CC10",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\tcase \"active\":\n\t\treturn okCheck(\"daemon\", \"the plock service is active\")",
       "new": "\tcase \"active\":\n\t\treturn warnCheck(\"daemon\", \"the plock service is active\", \"\")",
-      "_why": "a running daemon stops being reported as ok, so the one line the operator scans for is buried among warnings"
+      "note": "a running daemon stops being reported as ok, so the one line the operator scans for is buried among warnings"
     },
     {
       "id": "CC11",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\tdefault:\n\t\treturn failCheck(\"daemon\", fmt.Sprintf(\"the plock service is %s\", state),\n\t\t\t\"start it: systemctl start plock && systemctl enable plock\")",
       "new": "\tdefault:\n\t\treturn okCheck(\"daemon\", fmt.Sprintf(\"the plock service is %s\", state))",
-      "_why": "an inactive or failed service is reported as fine -- the single most common reason the screen never locks"
+      "note": "an inactive or failed service is reported as fine -- the single most common reason the screen never locks"
     },
     {
       "id": "CC12",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\t\tcase verdictFail:\n\t\t\tr.Failed = append(r.Failed, c.Name)",
       "new": "\t\tcase verdictFail:\n\t\t\tr.Warned = append(r.Warned, c.Name)",
-      "_why": "a failure is filed under warned, so --json's `failed` array is empty on a broken machine and the exit code stays 0"
+      "note": "a failure is filed under warned, so --json's `failed` array is empty on a broken machine and the exit code stays 0"
     },
     {
       "id": "CC13",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\t\tif a.DanglingProfile != \"\" {\n\t\t\tdangling = append(dangling, a.Username)",
       "new": "\t\tif a.DanglingProfile != \"\" {\n\t\t\t_ = a",
-      "_why": "the dangling account is not named, so the operator cannot tell which child is unmanaged"
+      "note": "the dangling account is not named, so the operator cannot tell which child is unmanaged"
     },
     {
       "id": "CC14",
       "file": "cmd/plock/doctor_checks.go",
       "old": "\tsort.Strings(dangling)",
       "new": "\t_ = 0",
-      "_why": "the report stops being sorted, so two runs of doctor on the same machine produce output that cannot be diffed"
+      "note": "the report stops being sorted, so two runs of doctor on the same machine produce output that cannot be diffed"
     },
     {
       "id": "CO1",
       "file": "cmd/plock/doctor_os.go",
       "old": "\t\tif isNotFound(err) {\n\t\t\treturn \"\", false, nil\n\t\t}",
       "new": "\t\tif false {\n\t\t\treturn \"\", false, nil\n\t\t}",
-      "_why": "a machine with no systemd is reported as running an unknown service rather than as not checked, sending the operator to look for a service that was never there"
+      "note": "a machine with no systemd is reported as running an unknown service rather than as not checked, sending the operator to look for a service that was never there"
     },
     {
       "id": "CO2",
       "file": "cmd/plock/doctor_os.go",
       "old": "\t\tif word := parseActiveState(out); word != \"\" {\n\t\t\treturn word, true, nil\n\t\t}",
       "new": "\t\tif word := parseActiveState(out); word != \"\" {\n\t\t\treturn word, true, err\n\t\t}",
-      "_why": "the state word is discarded when systemctl exits non-zero to report it, so `inactive` becomes an error rather than an answer"
+      "note": "the state word is discarded when systemctl exits non-zero to report it, so `inactive` becomes an error rather than an answer"
     },
     {
       "id": "CO3",
       "file": "cmd/plock/doctor_os.go",
       "old": "\tblock, _ := pem.Decode(raw)",
       "new": "\tblock, _ := pem.Decode(raw[:0])",
-      "_why": "the certificate is never decoded, so every custom-TLS check reports an unreadable file"
+      "note": "the certificate is never decoded, so every custom-TLS check reports an unreadable file"
     },
     {
       "id": "CS1",
       "file": "cmd/plock/status.go",
       "old": "\t\t\tSeat: s.Seat, Locked: s.Locked, Lockable: platform.IsLockable(s),",
       "new": "\t\t\tSeat: s.Seat, Locked: s.Locked, Lockable: true,",
-      "_why": "status claims every session is lockable, so a remote or seatless session reads as one the daemon could lock"
+      "note": "status claims every session is lockable, so a remote or seatless session reads as one the daemon could lock"
     },
     {
       "id": "TS1",

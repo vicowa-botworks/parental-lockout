@@ -106,10 +106,7 @@ func runProcess(t *testing.T, args ...string) (code int, stdout, stderr string) 
 // the surface grows one entry at a time, and the day somebody forgets to move a command
 // out of `planned` the test below says so instead of `plock doctor -h` printing a
 // "not implemented" synopsis forever.
-var implementedCommands = []string{"version", "doctor", "init", "serve", "status"}
-var implementedCommands = []string{"version", "doctor", "init", "status", "unlock", "override"}
-var implementedCommands = []string{"version", "doctor", "init", "status", "lock", "unlock", "override"}
-var implementedCommands = []string{"version", "doctor", "init", "status", "lock", "unlock", "override", "profile", "user"}
+var implementedCommands = []string{"version", "doctor", "init", "serve", "status", "unlock", "override", "lock", "profile", "user"}
 
 func TestCommandSurfaceIsComplete(t *testing.T) {
 	var stubs []string

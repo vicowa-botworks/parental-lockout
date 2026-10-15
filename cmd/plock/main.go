@@ -95,8 +95,10 @@ type helpTopic struct {
 // with "no help for unknown command", which reads as though the command does not exist;
 // a test walks the command surface against this list so that cannot happen quietly.
 var helpTopics = []helpTopic{
-	// serve is absent on purpose: it is still a stub, and the `planned` fallback below is
-	// what gives it an accurate synopsis before its own usage text exists.
+	// serve has its own topic now. It was absent while it was a stub on this branch, and
+	// main implemented it there -- neither PR's CI could see the other's command list, so
+	// the surface test that walks this table never ran against a tree where serve was real.
+	{"serve", serveUsage},
 	{"init", initUsage},
 	{"status", statusUsage},
 	{"lock", lockUsage},
@@ -108,13 +110,13 @@ var helpTopics = []helpTopic{
 	{"version", versionUsage},
 }
 
-var planned = map[string]string{
-	"serve":  "[--config PATH]",
-	"status": "[--json]",
-	"lock":   "<user> [--all]",
-	"unlock": "<user> --minutes N --reason TEXT",
-	"serve": "[--config PATH]",
-}
+// Empty on purpose, and the emptiness is the point of keeping it: every command that was
+// ever a stub is implemented now -- `serve` landed on main while `status`, `lock`,
+// `unlock`, `override`, `profile` and `user` landed here, and neither PR's CI could see the
+// other's commands, so each branch still listed the other's as unimplemented. The
+// command-surface tests walk this map, so an empty map is what makes them assert that
+// nothing is left to stub rather than asserting nothing at all.
+var planned = map[string]string{}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
