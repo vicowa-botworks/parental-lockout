@@ -416,9 +416,33 @@ func TestASlowerCandidateIsNotTreatedAsAnEarlyReturn(t *testing.T) {
 		{"materially faster", base / 16, true},
 		{"returns immediately", time.Microsecond, true},
 	} {
-		if _, got := suspectEarlyReturn(tc.candidate, base); got != tc.suspect {
+		ratio, got := suspectEarlyReturn(tc.candidate, base)
+		if got != tc.suspect {
 			t.Errorf("%s: suspectEarlyReturn(%v, %v) = %v, want %v",
 				tc.name, tc.candidate, base, got, tc.suspect)
+		}
+
+		// The ratio is asserted as well as the verdict, because the two are different claims
+		// and only one of them was pinned. `suspect == false` says "do not raise this"; the
+		// direction guard additionally reports `ratio == 1`, meaning *no evidence was
+		// produced*. Drop the guard and the function still answers false for a slower
+		// candidate -- while handing back a ratio above 1, which is a number describing a
+		// comparison that the function has just declined to interpret.
+		//
+		// That is what mutant C4 does, and it survived for a round because this line read
+		// `if _, got :=`. A caller that prints the ratio in its failure message would print
+		// 1.71 for a candidate that merely lost a scheduler race, and "ratio 1.71" reads like
+		// a measurement of something.
+		if tc.candidate >= base {
+			if ratio != 1 {
+				t.Errorf("%s: a candidate at or above the baseline must report ratio 1 (no "+
+					"evidence), got %v -- the direction guard was dropped and this row is now "+
+					"a number describing a comparison nobody interpreted",
+					tc.name, ratio)
+			}
+		} else if !(ratio > 0 && ratio < 1) {
+			t.Errorf("%s: a genuinely faster candidate must report its real ratio in (0,1), got %v",
+				tc.name, ratio)
 		}
 	}
 }
