@@ -373,6 +373,30 @@
       "old": "\tcase <-ctx.Done():\n\t\treturn ctx.Err()\n\t}\n}\n\n// Handler returns",
       "new": "\tcase <-ctx.Done():\n\t\treturn nil\n\t}\n}\n\n// Handler returns",
       "note": "a caller that gave up is told the server is ready, so a daemon that never bound looks healthy to the thing supervising it"
+    },
+    {
+      "id": "W50",
+      "file": "cmd/plock/serve.go",
+      "old": "\t\tsrv.Serve,\n\t\tengine.Run,\n",
+      "new": "\t\tsrv.Serve,\n",
+      "note": "the enforcement loop dropped from the daemon's runners: the admin UI is served, the dashboard looks healthy, and nobody is ever locked out. This is the exact regression the branch's own 'not wired into this build' notice existed to catch, and a notice is not a test",
+      "package": "./cmd/plock/"
+    },
+    {
+      "id": "W51",
+      "file": "cmd/plock/serve.go",
+      "old": "\tif chain == nil || len(chain.Names()) == 0 {",
+      "new": "\tif chain == nil {",
+      "note": "the empty-chain guard weakened to a nil check, which platform.New can never satisfy -- it always returns a Chain and reports unbuildable backends as an error alongside it. The daemon then starts with zero backends and enforces nothing",
+      "package": "./cmd/plock/"
+    },
+    {
+      "id": "W52",
+      "file": "cmd/plock/serve.go",
+      "old": "\tif err := trail.Open(); err != nil {",
+      "new": "\tif err := error(nil); err != nil {",
+      "note": "the audit pre-flight removed: the writer opens lazily, so an unwritable trail surfaces as the first dropped event hours later instead of as a startup failure the operator who can fix it is standing in front of",
+      "package": "./cmd/plock/"
     }
   ]
 }

@@ -10,8 +10,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/audit"
 	"github.com/vicowa-botworks/parental-lockout/internal/auth"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/enforce"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 	"github.com/vicowa-botworks/parental-lockout/internal/web"
 )
@@ -21,9 +23,11 @@ const serveUsage = `usage: plock serve [--config PATH]
 
 Run the daemon: the enforcement loop and the admin UI.
 
-  --config PATH   the config file (default /etc/plock/config.json)
-  --state-dir DIR where the self-signed certificate is kept
-                  (default /var/lib/plock)
+  --config PATH     the config file (default /etc/plock/config.json)
+  --state-dir DIR   where the self-signed certificate is kept
+                    (default /var/lib/plock)
+  --audit-path PATH where the audit trail is written
+                    (default /var/log/plock/audit.jsonl)
 
 Signals: SIGINT and SIGTERM both shut the daemon down. Requests in flight get
 ten seconds; the enforcement loop stops between ticks and will not start a new
@@ -46,6 +50,7 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 	fs.Usage = func() { fmt.Fprint(stderr, serveUsage) }
 	path := fs.String("config", defaultConfigPath, "config file")
 	stateDir := fs.String("state-dir", "/var/lib/plock", "directory for the certificate and state")
+	auditPath := fs.String("audit-path", audit.DefaultPath, "where the audit trail is written")
 	if err := fs.Parse(args); err != nil {
 		// flag has already written the complaint, or Usage has written the help.
 		// Either way this is a usage error, and exit code 2 is how the shell tells
@@ -115,18 +120,52 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		fmt.Fprintf(stderr, "plock serve: %v\n", err)
 		return 1
 	}
-	srv.Auth = adminAuthenticator(cfg)
-	srv.Audit = func(event, detail string) { fmt.Fprintf(stdout, "audit: %s %s\n", event, detail) }
+	// The trail is one writer shared by both halves of the daemon. Two writers on one
+	// path would rotate against each other, and the engine's events and the admin's
+	// mutations have to interleave in one file for the trail to answer "what happened
+	// after the parent changed the rule".
+	trail := &audit.Writer{Path: *auditPath, Logf: logf(stdout)}
+	if err := trail.Open(); err != nil {
+		// Refusing to start is the only honest option. A daemon that serves the UI
+		// and locks nobody is bad enough; one that also cannot say it did anything
+		// is unreviewable.
+		fmt.Fprintf(stderr, "plock serve: cannot open the audit trail at %s: %v\n", *auditPath, err)
+		return 1
+	}
+	defer func() {
+		if err := trail.Close(); err != nil {
+			fmt.Fprintf(stderr, "plock serve: closing the audit trail: %v\n", err)
+		}
+	}()
 
-	// The enforcement loop joins `runners` when #7 lands on this branch. Until it
-	// does, serve runs the admin UI and nothing else, and says so out loud rather
-	// than pretending: a daemon that logs "enforcement running" while no loop
-	// exists is the failure mode this whole project treats as the worst one
-	// available.
+	srv.Auth = adminAuthenticator(cfg)
+	srv.Audit = func(event, detail string) {
+		if err := trail.Write(audit.Record{Kind: event, Detail: detail, Actor: "admin"}); err != nil {
+			// The mutation already happened; failing the request over the bookkeeping
+			// would tell the parent their change did not take when it did.
+			fmt.Fprintf(stderr, "plock serve: audit write for %s: %v\n", event, err)
+		}
+	}
+
+	// Enforcement. A chain that came back nil means nothing on this machine can be
+	// locked, and serving an admin UI that enforces nothing is the one failure mode
+	// this project treats as worse than crashing -- the operator sees a dashboard
+	// that looks healthy. A *partial* chain is fine and normal; that is what the
+	// Probe lines above are for.
+	// The condition is an empty chain, not a nil one: platform.New always returns a
+	// Chain and reports what it could not build as an error alongside it, so a nil
+	// check here would be a guard that can never fire.
+	if chain == nil || len(chain.Names()) == 0 {
+		fmt.Fprintf(stderr, "plock serve: no usable lock backend, so there is nothing to enforce; refusing to start\n")
+		return 1
+	}
+	engine := enforce.New(*path, chain, auditSink{w: trail})
+	engine.Logf = logf(stdout)
+
 	runners := []func(context.Context) error{
 		srv.Serve,
+		engine.Run,
 	}
-	fmt.Fprintln(stdout, "plock serve: the enforcement loop is not wired into this build; the admin UI is served and nothing is being locked out")
 
 	if err := runAll(ctx, runners); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(stderr, "plock serve: %v\n", err)
@@ -172,5 +211,41 @@ func adminAuthenticator(cfg *config.Config) auth.Authenticator {
 	return auth.PasswordAuthenticator{
 		Username: cfg.Admin.Username,
 		Verifier: cfg.Admin.Password,
+	}
+}
+
+// logf sends a daemon diagnostic to stdout. It is a function rather than an inline
+// closure because the web server, the engine, and the audit writer each take a hook
+// of this shape, and all three must land on the same stream or a reader cannot put
+// the lines back into order.
+func logf(w io.Writer) func(string, ...any) {
+	return func(format string, args ...any) { fmt.Fprintf(w, format+"\n", args...) }
+}
+
+// auditSink adapts the engine's Sink to the audit writer.
+//
+// The mapping is field for field -- Record is the engine's Event plus the two a
+// config mutation needs -- with one exception worth stating: Emit must not block,
+// because it runs inside the tick and a stalled tick holds the overlap guard and
+// stops the daemon re-locking anyone. The writer's own open is guarded by its mutex
+// and its writes are appends, so the only way this blocks is a filesystem that
+// blocks, which is a machine-level failure no in-process timeout would survive
+// either.
+type auditSink struct{ w *audit.Writer }
+
+func (a auditSink) Emit(e enforce.Event) {
+	if err := a.w.Write(audit.Record{
+		At:        e.At,
+		Kind:      e.Kind,
+		Username:  e.Username,
+		SessionID: e.SessionID,
+		RuleID:    e.RuleID,
+		RuleName:  e.RuleName,
+		Detail:    e.Detail,
+	}); err != nil {
+		// The writer has already reported this through its own Logf and counted it
+		// as dropped. Nothing the tick could do with the error would help the child
+		// who is not locked out, so it is not turned into a tick failure.
+		_ = err
 	}
 }

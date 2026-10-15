@@ -597,3 +597,71 @@ func TestRotationUnderConcurrencyNeverFailsOrTearsALine(t *testing.T) {
 		t.Errorf("Stats = (%d, %d), want (0, 0)", dropped, fails)
 	}
 }
+
+// The rule's human name has to survive the trip to disk.
+//
+// Record carries RuleName and so does the serialised line, but nothing read it back
+// until this test: dropping the field from the serialiser's field list compiles, and
+// every other test stays green, because Record still holds the value in memory. The
+// loss is only visible in the file, which is the only place anyone will ever look for
+// it. RuleID alone answers "which rule" with an opaque key; RuleName is the half a
+// parent recognises, and the engine computes both for exactly this reason.
+func TestRuleNameReachesTheTrail(t *testing.T) {
+	w, path, _ := newWriter(t)
+
+	if err := w.Write(Record{
+		Kind:     "lockout.entered",
+		Username: "casey",
+		RuleID:   "r-7",
+		RuleName: "School week",
+	}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	raw := strings.TrimSpace(mustRead(t, path))
+	// Asserted on the wire, not only on the parsed struct, so renaming the JSON key
+	// fails here too: the reader and every other tool parse by that key.
+	var onWire map[string]any
+	if err := json.Unmarshal([]byte(raw), &onWire); err != nil {
+		t.Fatalf("line is not JSON: %v\n%s", err, raw)
+	}
+	if got := onWire["ruleName"]; got != "School week" {
+		t.Errorf("ruleName on the wire = %#v, want %q (line: %s)", got, "School week", raw)
+	}
+	if got := onWire["ruleId"]; got != "r-7" {
+		t.Errorf("ruleId on the wire = %#v, want %q", got, "r-7")
+	}
+
+	got := readLines(t, path)
+	if got[0].RuleName != "School week" {
+		t.Errorf("parsed RuleName = %q, want %q", got[0].RuleName, "School week")
+	}
+}
+
+// An event with no rule must not grow an empty ruleName.
+//
+// The trail is read by a human grepping for a name, and "ruleName":"" on every
+// daemon-wide line makes it impossible to tell "no rule" from "a rule whose name was
+// lost" -- the omitempty distinction is the whole answer to that question.
+func TestRuleNameOmittedWhenThereIsNoRule(t *testing.T) {
+	w, path, _ := newWriter(t)
+
+	if err := w.Write(Record{Kind: "enforcement.disabled", Detail: "operator stopped it"}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	raw := strings.TrimSpace(mustRead(t, path))
+	if strings.Contains(raw, "ruleName") {
+		t.Errorf("a rule-less line carries ruleName: %s", raw)
+	}
+}
+
+// mustRead returns the file's text. Two tests here need the bytes rather than the
+// parsed records, because what they check is what is on the wire.
+func mustRead(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(b)
+}

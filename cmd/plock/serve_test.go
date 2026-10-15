@@ -11,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 )
 
 // syncBuffer is a bytes.Buffer a test can read while the daemon is still writing.
@@ -86,7 +89,9 @@ func startServe(t *testing.T, extra ...string) (*syncBuffer, *syncBuffer, contex
 	ctx, cancel := context.WithCancel(context.Background())
 	code := make(chan int, 1)
 	go func() {
-		code <- runServeContext(ctx, &out, io.MultiWriter(&errOut), []string{"--config", cfgPath, "--state-dir", dir})
+		args := []string{"--config", cfgPath, "--state-dir", dir,
+			"--audit-path", filepath.Join(dir, "audit.jsonl")}
+		code <- runServeContext(ctx, &out, io.MultiWriter(&errOut), args)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -201,13 +206,89 @@ func TestServeStopsWhenTheContextIsCancelled(t *testing.T) {
 	}
 }
 
-// The daemon must not claim it is enforcing when it is not.
+// The daemon's whole job is enforcement, so a build that serves the UI without the
+// loop is worse than one that crashes: the operator sees a healthy dashboard.
 //
-// This is the one line in serve that a reader would skip, and it is the line that
-// decides whether an operator on a half-built daemon knows they are on one.
-func TestServeSaysOutLoudThatTheEnforcementLoopIsAbsent(t *testing.T) {
-	out, _, _, _ := startServe(t)
-	waitFor(t, out, "enforcement loop is not wired", 10*time.Second)
+// This test used to assert the opposite -- that serve printed "the enforcement loop
+// is not wired into this build" -- because internal/enforce was not on this branch
+// yet. It is now, so the notice was deleted rather than left as insurance, and what
+// is pinned here is the two ways the daemon can get this wrong.
+func TestServeRunsTheEnforcementLoop(t *testing.T) {
+	out, _, cancel, code := startServe(t)
+	waitFor(t, out, "listening on", 10*time.Second)
+
+	// The engine ticks immediately rather than waiting out the first period, so a
+	// running loop announces itself within a second of the listener coming up.
+	// Asserting on the tick rather than on a "starting" banner is deliberate: a
+	// banner proves the code was reached, a tick proves the loop is running.
+	waitFor(t, out, "enforce: running", 15*time.Second)
+
+	cancel()
+	select {
+	case got := <-code:
+		if got != 0 {
+			t.Errorf("a clean shutdown with enforcement running returned %d, want 0", got)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("serve did not return after the context was cancelled")
+	}
+}
+
+// Serving an admin UI that locks nothing is the failure mode this project ranks below
+// crashing, so a machine with no usable backend must not come up at all.
+func TestServeRefusesToStartWithNoUsableBackend(t *testing.T) {
+	// platform.New never returns nil -- it returns a Chain plus an error naming what
+	// it could not build -- so the premise here is a chain with no backends in it,
+	// which is what an unregistered backend id produces.
+	if c, _ := platform.New(config.Settings{LockBackends: []string{"definitely-not-a-backend"}}, platform.ExecRunner{}); len(c.Names()) != 0 {
+		t.Skip("this host resolved a backend that should not exist")
+	}
+
+	dir := t.TempDir()
+	cfgPath := writeServeConfig(t, dir)
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.Replace(string(raw), `"logind"`, `"definitely-not-a-backend"`, 1)
+	if broken == string(raw) {
+		t.Skip("the fixture config does not name logind; the substitution would be a no-op")
+	}
+	if err := os.WriteFile(cfgPath, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut syncBuffer
+	code := refuseWithin(t, &out, &errOut, []string{
+		"--config", cfgPath, "--state-dir", dir, "--audit-path", filepath.Join(dir, "audit.jsonl"),
+	})
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1: a daemon that enforces nothing must not come up", code)
+	}
+	if !strings.Contains(errOut.String(), "refusing to start") {
+		t.Errorf("stderr does not say it refused:\n%s", errOut.String())
+	}
+}
+
+// An audit trail that cannot be opened has to be a startup failure.
+//
+// The writer opens lazily, so without the explicit pre-flight this would surface as
+// the first dropped event hours later -- discovered by whoever reads the gap in the
+// trail next month rather than by the operator who could have fixed it.
+func TestServeRefusesToStartWhenTheAuditPathIsUnusable(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := writeServeConfig(t, dir)
+
+	var out, errOut syncBuffer
+	code := refuseWithin(t, &out, &errOut, []string{
+		"--config", cfgPath, "--state-dir", dir, "--audit-path", dir,
+	})
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(errOut.String(), "audit trail") {
+		t.Errorf("stderr does not name the audit trail:\n%s", errOut.String())
+	}
 }
 
 // tls: off is a loud warning on every start, not a quiet mode.
@@ -258,5 +339,27 @@ func TestTheTLSSWarningReachesTheConfiguredSink(t *testing.T) {
 		if len(line) > 10 && line[0] == '2' && line[4] == '-' && line[7] == '-' {
 			t.Errorf("the warning went to the default logger, so an operator's redirect would miss it: %q", line)
 		}
+	}
+}
+
+// refuseWithin runs serve and insists it returns.
+//
+// A refusal test that calls runServeContext with context.Background() has no way to
+// fail: if serve does not refuse, it starts serving and the call never returns, so
+// the test hangs until the package timeout instead of reporting the defect. The
+// deadline turns "it never refused" into a failure with a name.
+func refuseWithin(t *testing.T, out, errOut *syncBuffer, args []string) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	done := make(chan int, 1)
+	go func() { done <- runServeContext(ctx, out, errOut, args) }()
+	select {
+	case code := <-done:
+		return code
+	case <-ctx.Done():
+		t.Fatal("serve did not return; it was expected to refuse and exit")
+		return 0
 	}
 }

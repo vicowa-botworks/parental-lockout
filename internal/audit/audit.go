@@ -64,7 +64,13 @@ type Record struct {
 	Username  string    `json:"username,omitempty"`
 	SessionID string    `json:"sessionId,omitempty"`
 	RuleID    string    `json:"ruleId,omitempty"`
-	Detail    string    `json:"detail,omitempty"`
+	// RuleName is the schedule window's human name ("School week"). RuleID survives a
+	// rename and RuleName is what an operator recognises, so a trail carrying only the
+	// id answers "which rule" to nobody. The comment above says this field set is the
+	// engine's Event plus two -- and RuleName is in Event, so without this field,
+	// wiring the engine to the writer silently discards the readable half.
+	RuleName string `json:"ruleName,omitempty"`
+	Detail   string `json:"detail,omitempty"`
 
 	// Actor is who caused a mutation, as opposed to who it was about. An engine
 	// event has no actor: nobody did anything, a window opened.
@@ -83,6 +89,7 @@ type line struct {
 	Username  string          `json:"username,omitempty"`
 	SessionID string          `json:"sessionId,omitempty"`
 	RuleID    string          `json:"ruleId,omitempty"`
+	RuleName  string          `json:"ruleName,omitempty"`
 	Detail    string          `json:"detail,omitempty"`
 	Actor     string          `json:"actor,omitempty"`
 	Old       json.RawMessage `json:"old,omitempty"`
@@ -255,7 +262,8 @@ func (w *Writer) marshal(r Record) ([]byte, error) {
 	}
 	l := line{
 		At: at.Format(time.RFC3339Nano), Kind: r.Kind, Username: r.Username,
-		SessionID: r.SessionID, RuleID: r.RuleID, Detail: r.Detail, Actor: r.Actor,
+		SessionID: r.SessionID, RuleID: r.RuleID, RuleName: r.RuleName,
+		Detail: r.Detail, Actor: r.Actor,
 		Old: r.Old, New: r.New,
 	}
 	blob, err := json.Marshal(l)
@@ -272,6 +280,20 @@ func (w *Writer) marshal(r Record) ([]byte, error) {
 // open itself: there is no window in which the trail exists and is world-readable,
 // which a create-then-chmod would open on a filesystem where the umask is not what
 // we assumed.
+// Open forces the lazy open to happen now.
+//
+// Write opens on demand, which is right for a caller that just wants to append. A
+// daemon starting up is not that caller: it wants a bad audit path to be a startup
+// failure with a message, not the first dropped event three hours later. The trail
+// being unwritable is discovered either way -- Open only decides whether it is
+// discovered by the operator who can act on it or by whoever reads the gap next
+// month.
+func (w *Writer) Open() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.open()
+}
+
 func (w *Writer) open() error {
 	if w.f != nil {
 		return nil
