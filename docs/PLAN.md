@@ -23,6 +23,15 @@ as long as the lockout window is active.
 - Accounting for power states across reboot (a reboot during bedtime just gets
   re-locked at the next poll after the session comes back).
 - Non-Linux platforms (the design is abstracted for them, but v0.1 ships Linux only).
+  "Abstracted" means the program *compiles* elsewhere, and `make verify` now insists on it for
+  linux/amd64, darwin/arm64 and windows/amd64. It does not mean the test suites are portable:
+  they poke at `/proc`, `syscall.Umask` and directory modes, so they are host-platform code and
+  run on Linux. Nor does it mean the guards are equivalent there. Where a platform cannot answer
+  a tamper question the answer is an error, not a pass — `ownerIsWriter` and `fileUID` return
+  `errOwnershipUnsupported` and the writer refuses — so a port has to implement them rather than
+  quietly lose the rule. What is genuinely lost on a non-Linux build is the *race* protection:
+  without `O_NOFOLLOW` the path can still be swapped for a symlink between the check and the
+  open, and `plock init` refuses outright because it cannot verify the state directory is private.
 
 ## 3. Language and dependencies
 
