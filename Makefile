@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify mutate clean
+.PHONY: build fmt vet test verify mutate clean install uninstall
 
 build:
 	@mkdir -p bin
@@ -87,3 +87,19 @@ mutate:
 
 clean:
 	rm -rf bin
+
+# install builds, then hands off to deploy/install.sh. It does not start or enable anything:
+# the script prints `systemctl enable --now plock` and stops, because a root daemon that
+# locks other people's sessions should begin on the day the operator decides, not on the day
+# somebody typed `make install`. See the header of deploy/install.sh for why it also never
+# writes the config file.
+#
+# verify runs first on purpose. Installing an unverified build means the machine that is
+# about to enforce tonight is running a binary the repo's own gate would have rejected, and
+# the failure it produces -- a screen that stays unlocked -- is silent until morning.
+install: verify
+	@$(MAKE) --no-print-directory build
+	@deploy/install.sh
+
+uninstall:
+	@deploy/install.sh --uninstall$(if $(PURGE), --purge,)
