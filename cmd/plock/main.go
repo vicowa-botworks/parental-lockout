@@ -55,7 +55,6 @@ Print the version, commit and build date.
 // so neither can quietly drift away from the other.
 var planned = map[string]string{
 	"serve":  "[--config PATH]",
-	"init":   "[--username NAME] (--password PASS | --password-stdin) [--force]",
 	"status": "[--json]",
 	"lock":   "<user> [--all]",
 	"unlock": "<user> --minutes N --reason TEXT",
@@ -81,6 +80,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runVersion(stdout, stderr, rest)
 	case "doctor":
 		return runDoctor(stdout, stderr, rest)
+	case "init":
+		return runInit(stdout, stderr, rest)
 	default:
 		if synopsis, ok := planned[command]; ok {
 			return notImplemented(stdout, stderr, command, synopsis, rest)
@@ -115,6 +116,11 @@ func runHelp(stdout, stderr io.Writer, args []string) int {
 		return exitOK
 	case topic == "doctor":
 		if err := writeAll(stdout, doctorUsage); err != nil {
+			return exitFailure
+		}
+		return exitOK
+	case topic == "init":
+		if err := writeAll(stdout, initUsage); err != nil {
 			return exitFailure
 		}
 		return exitOK

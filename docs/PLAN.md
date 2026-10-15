@@ -327,15 +327,47 @@ tests drive it with a manual ticker.
   `/var/lib/plock/tls/`. `tls: off` is allowed for a trusted-LAN setup and prints
   a loud warning; `tls: custom` takes operator cert/key paths.
 - **Auth:** a single admin account created by `plock init`. Passwords are stored
-  as PBKDF2-SHA256, 600 000 iterations, 16-byte salt, compared with
+  as PBKDF2-SHA256, 600 000 iterations, 16-byte salt, 32-byte key, compared with
   `crypto/subtle.ConstantTimeCompare`. Optional PAM-backed login against real
   system accounts is left as a documented extension point (`auth.Authenticator`
   interface) because it would require cgo and a third-party module.
+
+  Three rules here are load-bearing rather than stylistic:
+
+  - *The encoding records the cost it was made at* (`pbkdf2-sha256$600000$salt$key`),
+    so raising `DefaultIterations` in a later release does not lock the parent out
+    of the one account that turns enforcement off.
+  - *A cost floor of 100 000 is enforced where stored data is trusted, not in the
+    decoder.* A config edited (or corrupted) to say `"10"` still verifies the
+    correct password, so nothing would notice that the KDF had become something a
+    laptop cracks in seconds. `Parse` decodes; `CheckStoredCost` refuses, and only
+    the login path knows the bytes came from `/etc/plock`.
+  - *The username is not a fast path.* It is compared after the password hash is
+    computed, so a wrong username costs the same as a wrong password. Short-circuiting
+    on it would answer in microseconds for one and a quarter second for the other,
+    which is a free oracle for the half of the credential that is not secret.
+
+  `plock init` refuses passwords under 12 characters — the KDF cost is what makes
+  an offline crack expensive, and length is what makes the password not the first
+  thing a guesser tries. It takes `--password-stdin` because a password in argv is
+  readable by any user on the machine for the life of the process and lands in the
+  shell history, and it refuses to replace an existing account without `--force`,
+  so a provisioning script that runs twice cannot silently reset a password the
+  parent has since written down.
 - **Sessions:** 32 random bytes, stored in memory, `HttpOnly` + `SameSite=Strict`
-  + `Secure` cookie, 12-hour sliding expiry, wiped on daemon restart.
+  + `Secure` cookie, 12-hour sliding expiry, wiped on daemon restart. At most 32
+  live sessions; the cap evicts whoever has gone longest without a request, so it
+  cannot be used to lock the parent out by filling the store first. Changing the
+  password revokes every session.
 - **CSRF:** per-session token required on every state-changing request.
-- **Throttling:** per-IP token bucket plus an exponential penalty after failed
-  logins, so a LAN brute-force is not viable.
+- **Throttling:** 10 attempts per 10 minutes per key, then an exponential penalty
+  doubling from 1s to a 30s cap. A wrong login costs a quarter-second of PBKDF2
+  before the throttle is consulted, so the KDF is the first line and the throttle
+  exists to stop a flood from turning into a permanent lockout: above 200 failures
+  across all keys in 10 minutes, everything is refused for 5 minutes. That global
+  cooldown is a **fixed window measured from the moment it trips** — a failure
+  arriving during it does not extend it, because an extensible cooldown lets the
+  attack itself hold the parent out indefinitely.
 - **Headers:** `Content-Security-Policy: default-src 'self'`,
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: no-referrer`.
