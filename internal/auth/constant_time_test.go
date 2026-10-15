@@ -30,13 +30,27 @@ import (
 // is no input that distinguishes constant-time from early-return except time, and time is
 // the instrument that just failed.
 //
-// The rule follows the VALUE, not its spelling. An earlier version looked for the
-// identifier "key" and required both operands to name it, which a local rename disarms:
-// `if derived[0] == p.Key[0] && subtle.ConstantTimeCompare(derived, p.Key) == 1` is a
-// one-bit oracle on the first byte of every failed login and that version called it clean.
-// Anchoring on the operands of the ConstantTimeCompare call instead means the injected
-// oracle is caught by the same rename that used to hide it -- the set of watched names is
-// derived from the call, so it renames with it.
+// The rule follows the operands of the constant-time call, one assignment deep, within one
+// function body. That is the whole of its reach and the whole of its limit:
+//
+//   - Not a spelling. An earlier version looked for the identifier "key" and required both
+//     operands to name it, which a local rename disarms:
+//     `if derived[0] == p.Key[0] && subtle.ConstantTimeCompare(derived, p.Key) == 1` is a
+//     one-bit oracle on the first byte of every failed login and that version called it
+//     clean. The watched set is now derived from the call, so it renames with it.
+//   - One assignment deep. `guessed := key[0]` is watched, because propagateCopies extends
+//     the set with locals assigned from watched values. A value that reaches the oracle
+//     through a call -- `n := len(key)`, or anything computed rather than projected -- is
+//     not, and neither is a conversion, which is a CallExpr in Go's AST.
+//   - One function body. An oracle hoisted into a helper is invisible: the walk is scoped
+//     to verifyWith. C3 in scripts/mutations/auth.json is that injection, kept marked
+//     equivalent with its proof so the battery reports the gap instead of implying the
+//     property is held. Closing it needs go/types to resolve the callee and walk its body.
+//
+// What the guard therefore means: no loop and no non-constant-time comparison inside
+// verifyWith reads the key, the stored key, or a projection of either. It does not mean the
+// comparison is constant-time end to end, and it never will -- that would be a claim about
+// every function the verifier can reach.
 func TestKeyComparisonIsConstantTime(t *testing.T) {
 	raw := sourceBytes(t, "hash.go")
 	fn := functionBody(t, "hash.go", "verifyWith")
@@ -57,6 +71,7 @@ func TestKeyComparisonIsConstantTime(t *testing.T) {
 	if len(watched) == 0 {
 		t.Fatal("the constant-time call reads no named value, so there is nothing to watch")
 	}
+	propagateCopies(fn, raw, watched)
 
 	ast.Inspect(fn, func(n ast.Node) bool {
 		switch e := n.(type) {
@@ -123,6 +138,72 @@ func operandNames(raw []byte, call *ast.CallExpr) map[string]bool {
 		})
 	}
 	return names
+}
+
+// propagateCopies extends the watched set with locals assigned from watched values, so an
+// oracle hoisted behind an assignment is still seen:
+//
+//	guessed := key[0]
+//	stored := p.Key[0]
+//	if guessed == stored && subtle.ConstantTimeCompare(key, p.Key) == 1 { ... }
+//
+// Without this the set is built from the call's operands and a comparison of two copies
+// reads clean -- the same one-bit oracle, one assignment away from the guard.
+//
+// One pass in source order, which is all the hoist needs: an alias is written before it is
+// read, so a single walk sees it. Deliberately not a fixpoint. Iterating to convergence
+// would also watch `n := len(key)` and then anything computed from n, and a guard that
+// flags arithmetic on a length is a guard people learn to ignore. The limit is stated in
+// the doc comment rather than discovered by the next reader.
+func propagateCopies(fn *ast.BlockStmt, raw []byte, watched map[string]bool) {
+	ast.Inspect(fn, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		// A copy, not merely a value computed from one. `key, err := pbkdf2.Key(...,
+		// len(p.Key))` reads a watched name, and watching the err it returns flags
+		// `if err != nil` -- the guard would then be wrong on the real code, which is how
+		// a guard gets deleted. So the right-hand side has to be a projection of a watched
+		// value: an index, a slice, a dereference, a rename. A call produces something new
+		// and its arity says nothing about which result, if any, is the copy.
+		if len(as.Lhs) != 1 || len(as.Rhs) != 1 || !isProjection(as.Rhs[0]) {
+			return true
+		}
+		if !readsAny(as.Rhs[0], raw, watched) {
+			return true
+		}
+		for _, lhs := range as.Lhs {
+			id, ok := lhs.(*ast.Ident)
+			if !ok || id.Name == "_" {
+				continue
+			}
+			watched[id.Name] = true
+		}
+		return true
+	})
+}
+
+// isProjection reports whether the expression is the watched value, or a part of it, and
+// not something derived from it by a call.
+//
+// The shapes left out are the limit of this guard and are stated rather than hidden:
+// a conversion (`[]byte(key)`) is a CallExpr in Go's AST and looks like a call, and a value
+// that reaches the oracle through a helper function in another body is never visited at
+// all. Both are recorded as surviving mutants with their proof, so the battery says out
+// loud what the test does not cover.
+func isProjection(e ast.Expr) bool {
+	switch x := e.(type) {
+	case *ast.Ident, *ast.SelectorExpr, *ast.ParenExpr, *ast.StarExpr:
+		return true
+	case *ast.IndexExpr:
+		return isProjection(x.X)
+	case *ast.SliceExpr:
+		return isProjection(x.X)
+	case *ast.IndexListExpr:
+		return isProjection(x.X)
+	}
+	return false
 }
 
 // readsAny reports whether the subtree reads any of the watched values, using the same
