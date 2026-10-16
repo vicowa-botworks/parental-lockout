@@ -311,6 +311,49 @@ func checkDaemonRunning(isActive func() (state string, known bool, err error)) c
 	}
 }
 
+// checkDaemonSlice asks the question every other check in this report quietly assumes:
+// is the daemon running somewhere that lets it lock the account in front of it?
+//
+// The self-session rule (#67, docs/security.md §4) makes a daemon started from inside a
+// login session decline that session's account for as long as it lives, and the CLI has no
+// way to see that after the fact -- `status` cannot read the daemon's cgroup, so it stays
+// silent (§8). Doctor is where "enforcement is not happening" gets investigated, so the
+// deployment shape belongs here, and this is the one place the rule can be stated to someone
+// who never reads the startup stderr.
+//
+// It reports the shape rather than the daemon's cgroup on purpose. With no service running
+// there is no daemon to inspect, and the only case a human can fix by hand is the one where
+// they are about to start one from a desktop terminal -- which is exactly where this command
+// gets typed.
+func checkDaemonSlice(isActive func() (state string, known bool, err error), self func() platform.SelfLocation) check {
+	state, known, err := isActive()
+	if !known {
+		return skipCheck("daemon.slice",
+			"not checked: there is no systemd to ask, so whether a daemon here runs inside a login session is unknown")
+	}
+	if err != nil {
+		return warnCheck("daemon.slice", fmt.Sprintf("could not ask systemd whether the service is running: %v", err),
+			"check by hand whether the daemon was started from a login session")
+	}
+	// A service the system manager is running sits outside every user's session, which is
+	// the whole point of the unit in deploy/plock.service: it is the deployment where the
+	// rule is inert and every account is enforced.
+	if state == "active" || state == "activating" {
+		return okCheck("daemon.slice",
+			"the service is run by the system manager, outside every login session, so no account is declined")
+	}
+	selfLoc := self()
+	if !selfLoc.InUserSlice {
+		return okCheck("daemon.slice",
+			"this shell is outside every login session, so a daemon started from it declines no account")
+	}
+	return warnCheck("daemon.slice",
+		fmt.Sprintf("no plock service is running, and this shell is inside uid %d's login session: a daemon started "+
+			"from here will NOT lock that account, because locking the screen behind it means it can no longer be "+
+			"stopped", selfLoc.UID),
+		"install the unit in deploy/plock.service, which runs the daemon in system.slice where it declines nobody")
+}
+
 // unenforced is one account that should be locked out right now and is not.
 type unenforced struct {
 	Username string `json:"username"`

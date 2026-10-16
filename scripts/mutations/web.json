@@ -376,11 +376,11 @@
     },
     {
       "id": "W50",
+      "package": "./cmd/plock/",
       "file": "cmd/plock/serve.go",
-      "old": "\t\tsrv.Serve,\n\t\tengine.Run,\n",
-      "new": "\t\tsrv.Serve,\n",
-      "note": "the enforcement loop dropped from the daemon's runners: the admin UI is served, the dashboard looks healthy, and nobody is ever locked out. This is the exact regression the branch's own 'not wired into this build' notice existed to catch, and a notice is not a test",
-      "package": "./cmd/plock/"
+      "old": "\tengine := serveEngine(*path, chain, trail, self, logf(stdout))\n\n\trunners := []func(context.Context) error{\n\t\tsrv.Serve,\n\t\tengine.Run,\n\t}\n",
+      "new": "\tserveEngine(*path, chain, trail, self, logf(stdout))\n\n\trunners := []func(context.Context) error{\n\t\tsrv.Serve,\n\t}\n",
+      "note": "the enforcement loop dropped from the daemon's runners: the admin UI is served, the dashboard looks healthy, and nobody is ever locked out. This is the exact regression the branch's own 'not wired into this build' notice existed to catch, and a notice is not a test. Widened to cover the assembly when serveEngine extracted the field assignments -- deleting `engine.Run,` alone left the variable unused, so the mutant had become a build failure rather than a bug."
     },
     {
       "id": "W51",
@@ -795,6 +795,22 @@
       "old": "\t\trows = rows[:auditWindow]",
       "new": "\t\trows = rows[1:]",
       "note": "Cut the probe off the wrong end: drop the newest event and keep the record that only exists as evidence. The page still shows 200 rows and still says 200 of 200, so nothing about the shape changes except that the first row an operator reads is gone. Killed by the newest-record assertion in TestARecordBehindTheWindowSaysTheReadStoppedEarly."
+    },
+    {
+      "id": "W110",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\tengine.Self = self\n",
+      "new": "",
+      "note": "serve assembles the enforcement loop and never hands it the login session it is running inside. The loop then runs at the zero value, the self-session rule never fires, and the daemon locks the screen it is running behind -- so it can no longer be stopped -- while the dashboard still reports that account as declined. Issue #72: this line had no test and no mutant, and deleting it left the whole suite green, because the loop's own tests set the field by hand. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
+    },
+    {
+      "id": "W111",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\tengine.Logf = log\n",
+      "new": "",
+      "note": "the engine keeps enforce.New's default logger instead of the sink serve was given. Nothing breaks loudly: the daemon runs, and the two lines an operator needs when enforcement quietly stopped -- a tick that fell behind, a config that would not reload -- go to the process's stderr instead of the configured sink, so a redirect misses them. TestServeHandsTheEngineItsLogSink."
     }
   ]
 }

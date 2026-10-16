@@ -283,6 +283,7 @@ array is how "name the failing check" ends up implemented five different ways.
 | `backends` | is each configured backend usable here, and which would a lock try first |
 | `backends.unknown` | names in `lockBackends` that resolve to nothing |
 | `daemon` | is the service running and enabled |
+| `daemon.slice` | would a daemon started from here decline to lock the account it runs inside |
 | `enforcement` | is enforcement on, and is the poll interval sane |
 | `tls` | is the certificate present and unexpired |
 | `unenforced` | is a managed user inside a window with a session that is not locked |

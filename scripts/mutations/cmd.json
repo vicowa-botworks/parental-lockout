@@ -334,6 +334,55 @@
       "old": "\t\tisSynopsis := i < synopsisEnd ||\n",
       "new": "\t\tisSynopsis := i == 0 || i < synopsisEnd && false ||\n",
       "note": "narrow the synopsis back to line prefixes. profileUsage wraps a long invocation and its continuation line carries [--all-day] [--disable], which a `plock ` prefix test cannot see -- that version reported two documented flags as missing. Kept used so the mutant is a narrowing, not a compile error."
+    },
+    {
+      "id": "CD5",
+      "file": "cmd/plock/doctor.go",
+      "old": "\trep.add(checkDaemonSlice(systemdProbe, doctorSelfLocation))\n",
+      "new": "",
+      "note": "the deployment-shape check is written but never added to the report: `plock doctor` prints a clean bill of health on a machine where a daemon started from this terminal will decline the account in front of the operator, and docs/cli.md still promises the line. TestDoctorRunsTheDaemonSliceCheck, TestDoctorJSONCarriesTheDaemonSliceCheck."
+    },
+    {
+      "id": "CC15",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\tif state == \"active\" || state == \"activating\" {",
+      "new": "\tif false && (state == \"active\" || state == \"activating\") {",
+      "note": "an active system service stops counting as 'outside every login session', so doctor warns about a declined account on the one deployment the shipped unit is designed for -- the machine where the rule is inert. A check that cries wolf here is a check the operator learns to scroll past. TestCheckDaemonSlice/service_active_operator_in_a_login_session."
+    },
+    {
+      "id": "CC16",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\tselfLoc := self()\n\tif !selfLoc.InUserSlice {",
+      "new": "\tselfLoc := self()\n\tif false && !selfLoc.InUserSlice {",
+      "note": "the slice flag is ignored, so every machine with no service running gets warned about an account it will not decline -- including a root shell in system.slice, where no account can ever be declined. TestCheckDaemonSlice/no_service_operator_outside_any_session."
+    },
+    {
+      "id": "CC17",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\"stopped\", selfLoc.UID),",
+      "new": "\"stopped\", 0),",
+      "note": "the warning stops naming the uid it is declining, which turns an actionable sentence into a generality: the operator runs doctor precisely to find out WHICH account is going unenforced. TestCheckDaemonSliceNamesTheAccountNotTheShell."
+    },
+    {
+      "id": "CL2",
+      "file": "cmd/plock/lock.go",
+      "old": "\t\t\t\tif s.UID == self.UID && platform.IsLockable(s) {",
+      "new": "\t\t\t\tif false && s.UID == self.UID && platform.IsLockable(s) {",
+      "note": "`plock lock --all` never warns, so the operator learns the self-session rule by losing the desktop they were typing on -- which is the sentence the warning exists to replace. TestLockAllWarnsWhenItIsAboutToLockYourOwnSession."
+    },
+    {
+      "id": "CL3",
+      "file": "cmd/plock/lock.go",
+      "old": "\tif *all {\n\t\tif self := lockSelfLocation(); self.InUserSlice {",
+      "new": "\tif true {\n\t\tif self := lockSelfLocation(); self.InUserSlice {",
+      "note": "the warning escapes the --all scope and fires when the operator names their own account, where it is not news; a warning that fires on the deliberate case stops meaning anything on the sweep. TestLockOneUserDoesNotWarnAboutTheNameTheyTyped."
+    },
+    {
+      "id": "CL4",
+      "file": "cmd/plock/lock.go",
+      "old": "fmt.Fprintf(stderr, \"plock lock: --all includes your own session (%s), so your \"+",
+      "new": "fmt.Fprintf(stdout, \"plock lock: --all includes your own session (%s), so your \"+",
+      "note": "the warning moves onto stdout and lands in front of the --json document, so every script that reads `plock lock --all --json` fails to parse it -- the same reason the missing-backend warning is on stderr. TestLockAllWarningDoesNotPolluteJSON."
     }
   ]
 }

@@ -50,15 +50,24 @@ lock request it cannot finish.
 // passes here and asserts nothing on the next machine.
 var serveRunner platform.Runner = platform.ExecRunner{}
 
+// selfLocation is this process's login-session membership: whose screen would go dark if
+// this process locked a session.
+//
+// It is one function on purpose. The daemon decides whether to decline an account with it,
+// and doctor reports the deployment shape that makes the rule bite with it; two callers
+// reading the same fact through two implementations is how a diagnostic ends up explaining
+// a rule it no longer agrees with.
+func selfLocation() platform.SelfLocation {
+	uid, inside := platform.ReadSelfUserSlice()
+	return platform.SelfLocation{UID: uid, InUserSlice: inside}
+}
+
 // serveSelfLocation is how the daemon learns which user slice it is running in, behind
 // a var for the same reason serveRunner is one: the answer comes from /proc, so without
 // the seam the only way to test the self-session rule is to start the daemon from
 // inside a login session, which is true here and false on a headless runner. A test
 // that inherits that answer passes for the wrong reason on one of the two.
-var serveSelfLocation func() platform.SelfLocation = func() platform.SelfLocation {
-	uid, inside := platform.ReadSelfUserSlice()
-	return platform.SelfLocation{UID: uid, InUserSlice: inside}
-}
+var serveSelfLocation func() platform.SelfLocation = selfLocation
 
 func runServe(stdout, stderr io.Writer, args []string) int {
 	return runServeContext(context.Background(), stdout, stderr, args)
@@ -220,10 +229,7 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 		}
 	}
 
-	engine := enforce.New(*path, chain, auditSink{w: trail})
-	engine.Logf = logf(stdout)
-
-	engine.Self = self
+	engine := serveEngine(*path, chain, trail, self, logf(stdout))
 
 	runners := []func(context.Context) error{
 		srv.Serve,
@@ -308,6 +314,26 @@ type sessionSource interface {
 	Sessions(context.Context) ([]platform.Session, error)
 }
 
+// serveEngine assembles the enforcement loop the way serveServer assembles the admin
+// server, and it exists for one line in the middle of it.
+//
+// engine.Self is what makes the daemon decline to lock the login session it runs inside
+// (#67). Assembled inline, that assignment was invisible to every test: the loop's own
+// tests set the field themselves, and the one assembly test looked at the dashboard's copy
+// of the same value. Deleting the line left the suite green and reintroduced the exact bug
+// #67 was filed for — the daemon locking the account it is running behind, so it can no
+// longer be stopped — while the page cheerfully reported that account as declined.
+//
+// A value the daemon resolves once, at startup, is only observable if the assembly is a
+// function a test can call and inspect. That is the whole reason this takes self as an
+// argument instead of reading it, and the whole reason it returns the engine.
+func serveEngine(cfgPath string, chain platform.Platform, trail *audit.Writer, self platform.SelfLocation, log func(string, ...any)) *enforce.Engine {
+	engine := enforce.New(cfgPath, chain, auditSink{w: trail})
+	engine.Logf = log
+	engine.Self = self
+	return engine
+}
+
 // serveServer assembles the admin server the way the real daemon does it, so that a test
 // can ask the assembled object whether it can see the machine. Wiring the seams anywhere
 // else means the only place they are wired is a test fixture, and an unwired seam is a 503
@@ -388,10 +414,14 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, s
 	// including the line a mutation pattern is anchored on, which then matches nothing
 	// and retires itself while the suite stays green. A statement does not move.
 	//
-	// The wiring itself is what TestServeHandsTheDashboardTheSameLocationItHandsTheEngine
-	// pins: the same value the enforcement loop was handed has to reach the dashboard,
-	// or the page announces an account as locked out while the engine declines to lock
-	// it -- and only the dashboard is in front of the parent.
+	// Both halves are asserted, and that phrase used to be a claim rather than a fact:
+	// TestServeHandsTheDashboardTheSameLocationItHandsTheEngine checked srv.Self only, so
+	// deleting the engine's assignment left the suite green (issue #72). It now calls
+	// serveEngine as well and compares the two, because the two failure directions are
+	// opposite and each one is a lie on its own surface: the dashboard announcing an
+	// account as locked out while the engine declines to lock it, or the engine locking the
+	// login session it runs inside while the page says that account was declined. Only the
+	// dashboard is in front of the parent; only the engine can stop the daemon.
 	opts.Self = self
 
 	// The trail is read from the same path the writer in runServe was given, so the page

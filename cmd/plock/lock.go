@@ -49,6 +49,11 @@ type lockChain interface {
 	Lock(context.Context, platform.Session) error
 }
 
+// lockSelfLocation is the same read the daemon and doctor make, behind its own seam so a
+// test can state whose session the operator is typing in. The answer comes from /proc, and a
+// test that inherits it passes on a desktop and means something else on a runner.
+var lockSelfLocation func() platform.SelfLocation = selfLocation
+
 var buildLockChain = func(s config.Settings) (lockChain, error) {
 	return platform.New(s, platform.ExecRunner{})
 }
@@ -139,6 +144,26 @@ func runLock(stdout, stderr io.Writer, args []string) int {
 			}
 			return opFail(stderr, *asJSON, "plock lock", codeNoLockableSession,
 				fmt.Errorf("%q has no session on this machine", target))
+		}
+	}
+
+	// --all is documented as a smoke test, and it is the command someone types from the
+	// desktop they are about to lose. The daemon declines its own login session (#67) and the
+	// CLI deliberately does not: a one-shot lock is not a lockout, because the operator types
+	// their password and is back (docs/security.md §4). So this says so and carries on.
+	// Refusing would break the smoke test for the person who means it; saying nothing is how
+	// someone discovers the rule by losing their session mid-command.
+	if *all {
+		if self := lockSelfLocation(); self.InUserSlice {
+			for _, s := range want {
+				if s.UID == self.UID && platform.IsLockable(s) {
+					fmt.Fprintf(stderr, "plock lock: --all includes your own session (%s), so your "+
+						"screen is about to go dark; the enforcement loop would decline this one, and "+
+						"the difference is that a lock you asked for once is one you can undo\n",
+						s.Username)
+					break
+				}
+			}
 		}
 	}
 
