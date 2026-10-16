@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
@@ -26,6 +27,36 @@ import (
 // those three, so anything else is a hand-crafted request rather than a use case.
 var overrideMinutes = []int{15, 30, 60}
 
+// maxOverrideReason bounds the free-text field.
+//
+// The other two inputs to this request are bounded -- the minutes come from a set, the
+// scope from a checkbox -- and an unbounded one is the odd shape out. A reason is stored in
+// the config document, written to the audit line, and rendered on the dashboard row, so a
+// megabyte of it is a megabyte in all three. The writer is an authenticated admin, so this
+// is not an attack surface; it is the same guardrail the rest of the form has, and a
+// refusal that names the limit is friendlier than a dashboard row nobody can read.
+const maxOverrideReason = 500
+
+// overrideReason is the one place the reason is judged, so the web form and `plock unlock`
+// cannot answer the same field differently.
+//
+// Blank is refused, and so is whitespace -- `--reason " "` from a shell and a form field
+// the operator typed a space into both produce a stored reason that renders as nothing.
+// The audit line then ends in a colon and the trail says the child was let out with no
+// sentence after it, which is the exact entry the trail exists to settle. An override is
+// the one config entry that REMOVES enforcement.
+func overrideReason(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", errors.New("an override needs a reason; it goes in the audit trail")
+	}
+	if len(trimmed) > maxOverrideReason {
+		return "", fmt.Errorf("the reason is %d characters; keep it under %d so it stays readable on the dashboard and in the audit trail",
+			len(trimmed), maxOverrideReason)
+	}
+	return trimmed, nil
+}
+
 // handleOverride grants or clears an override.
 //
 // The username comes from the path, so it is attacker-shaped text. It is never used to build
@@ -43,10 +74,9 @@ func (s *Server) handleOverride(w http.ResponseWriter, r *http.Request) {
 	// than defaulted. An override with no reason is the entry nobody can reconstruct at
 	// the kitchen table: the audit line says the child was let out and offers nothing about
 	// why, which is exactly the situation the trail exists to settle.
-	reason := r.FormValue("reason")
-	if reason == "" {
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
-			"an override needs a reason; it goes in the audit trail")
+	reason, err := overrideReason(r.FormValue("reason"))
+	if err != nil {
+		s.pageRefuse(w, r, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 

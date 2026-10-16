@@ -20,6 +20,28 @@ import (
 // the runner -- and a test that passes because of what the host occurs to contain also
 // passes when the feature is broken.
 
+// csrfCarrier is the seam between render and a page that posts something back.
+//
+// render already knows the token -- it looked it up to put the meta tag in the shell -- so a
+// page body should not have to ask for it a second time, and a page that forgets to would
+// render a form that is refused on every submit with no clue why.
+type csrfCarrier interface {
+	setCSRF(token string)
+}
+
+// dashboardPage is the dashboard view plus the fields only a rendering needs.
+//
+// The view model itself stays in internal/dashboard and knows nothing about sessions or
+// tokens; this is the web layer's own wrapper around it. Embedding is what lets the template
+// keep saying .Rows and .Banner -- promoted fields resolve through it -- so adding the token
+// did not mean rewriting the page.
+type dashboardPage struct {
+	dashboard.View
+	CSRF string
+}
+
+func (p *dashboardPage) setCSRF(token string) { p.CSRF = token }
+
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.readConfig()
 	if err != nil {
@@ -38,7 +60,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		view.SessionsKnown = false
 		w.Header().Set("X-Plock-Note", "sessions-unavailable")
 	}
-	s.render(w, r, "dashboard", view)
+	// The pointer, not the value: render fills the token through setCSRF, and a copy would
+	// fill a temporary the template never sees.
+	s.render(w, r, "dashboard", &dashboardPage{View: view})
 }
 
 func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {

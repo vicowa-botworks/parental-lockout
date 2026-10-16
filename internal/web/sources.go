@@ -145,6 +145,18 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, vie
 	if sess, ok := s.sessionFrom(r); ok {
 		csrf = sess.CSRFToken
 	}
+	// A page that posts something back needs the token in its form body, because
+	// csrfMiddleware reads the `csrf` field and a form cannot set a header. The shell
+	// passes only .Data into a page body, so the token is not otherwise reachable
+	// there -- and a body that silently omits it renders a form that can never be
+	// accepted, which is the defect #59's review found on the logout button.
+	//
+	// Filling it here rather than in each handler means a page cannot forget it. The
+	// interface is asserted, not required: most pages have no forms and should not
+	// carry a field they never use.
+	if cc, ok := view.(csrfCarrier); ok {
+		cc.setCSRF(csrf)
+	}
 	if err := t.ExecuteTemplate(&buf, "page", pageData{
 		CSS:  s.assetURL("app.css"),
 		JS:   s.assetURL("app.js"),

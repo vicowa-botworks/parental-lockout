@@ -19,6 +19,7 @@
       <th scope="col">Account</th>
       <th scope="col">Lockout</th>
       <th scope="col">Why</th>
+      <th scope="col">Override</th>
       <th scope="col">Sessions</th>
     </tr>
   </thead>
@@ -54,6 +55,38 @@
         {{if not .Enabled}}<span class="disabled">account switched off</span>{{end}}
         {{range .Problems}}<span class="problem">{{.}}</span>{{end}}
       </td>
+      {{- /* The override control, and the reason it is a plain POST form.
+             The handler at these two routes is the only way an override is granted from
+             the web layer, and until now nothing on any page posted to it -- the buttons
+             the ticket describes were never in the markup, so the write path was reachable
+             only by hand-crafted requests. A form rather than a fetch() call because the
+             CSRF layer reads the `csrf` body field, and a form carries it with no script
+             involved; app.js's header path stays the JS route's option, not this one's
+             requirement.
+
+             No maxlength on the reason field. The server bounds it at maxOverrideReason
+             and refuses with the limit named; repeating the number here would be a second
+             home for a constant that a test does not tie the two together on. */ -}}
+      <td>
+        {{- $who := .Username -}}
+        {{if .OverrideActive}}
+        <form method="post" action="/users/{{$who}}/override/clear">
+          {{with $.CSRF}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
+          <button type="submit">Take the override away</button>
+        </form>
+        {{else}}
+        <form method="post" action="/users/{{$who}}/override">
+          {{with $.CSRF}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
+          <label>Reason for letting {{$who}} out
+            <input type="text" name="reason" autocomplete="off">
+          </label>
+          <button type="submit" name="minutes" value="15">15 min</button>
+          <button type="submit" name="minutes" value="30">30 min</button>
+          <button type="submit" name="minutes" value="60">60 min</button>
+          <button type="submit" name="scope" value="window">until the window ends</button>
+        </form>
+        {{end}}
+      </td>
       <td>
         {{if .Sessions}}
         <ul class="sessions">
@@ -69,7 +102,7 @@
       </td>
     </tr>
     {{else}}
-    <tr><td colspan="4">No accounts are managed yet.</td></tr>
+    <tr><td colspan="5">No accounts are managed yet.</td></tr>
     {{end}}
   </tbody>
 </table>

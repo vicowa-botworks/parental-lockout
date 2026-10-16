@@ -588,9 +588,9 @@
     {
       "id": "W80",
       "file": "internal/web/override.go",
-      "old": "\tif reason == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n",
-      "new": "\tif false {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n",
-      "note": "an override with no reason is accepted, so the audit line says a child was let out and offers nothing about why -- the exact situation the trail exists to settle"
+      "old": "\tif trimmed == \"\" {\n\t\treturn \"\", errors.New(\"an override needs a reason; it goes in the audit trail\")\n",
+      "new": "\tif false {\n\t\treturn \"\", errors.New(\"an override needs a reason; it goes in the audit trail\")\n",
+      "note": "an override with no reason is accepted, so the audit line says a child was let out and offers nothing about why -- the exact situation the trail exists to settle. Re-pointed onto overrideReason, which is where the rule moved; the check used to sit inline in the handler."
     },
     {
       "id": "W81",
@@ -655,6 +655,38 @@
       "new": "return fmt.Errorf(\"config: %d problem(s): %s\", len(problems), strings.Join(problems, \"; \"))",
       "note": "Validate's refusal stops carrying the ErrInvalid sentinel, so errors.Is cannot tell a refusal-to-write from a disk failure and the web layer answers every one with 503",
       "package": "./internal/config/"
+    },
+    {
+      "id": "W101",
+      "package": "./internal/web/",
+      "file": "internal/web/override.go",
+      "old": "\ttrimmed := strings.TrimSpace(raw)\n",
+      "new": "\ttrimmed := strings.TrimLeft(raw, \"\")\n",
+      "note": "the trim becomes a no-op, so a reason of one space passes the blank check and is stored and audited as nothing -- and the stored value stops matching what the operator wrote. TrimLeft(raw, \"\") rather than dropping the call: an unused import is a build failure the battery prints as a catch."
+    },
+    {
+      "id": "W102",
+      "package": "./internal/web/",
+      "file": "internal/web/override.go",
+      "old": "\tif len(trimmed) > maxOverrideReason {\n",
+      "new": "\tif false {\n",
+      "note": "the length bound disappears, so a client can store a reason of any size in the one file the daemon must read every tick and in every audit line after it. The writer is an authenticated admin, so this is durability and legibility, not an attack surface -- which is exactly why the refusal has to name the number."
+    },
+    {
+      "id": "W103",
+      "package": "./internal/web/",
+      "file": "internal/web/sources.go",
+      "old": "\tif cc, ok := view.(csrfCarrier); ok {\n",
+      "new": "\tif cc, ok := view.(csrfCarrier); ok && false {\n",
+      "note": "render stops handing the token to page bodies, so every form a page renders is refused by the CSRF gate on submit -- the #59 dead-button defect, arriving again by a different route. `ok && false` rather than an empty body: cc and ok would then be declared and unused, which is a build failure, not a catch."
+    },
+    {
+      "id": "W104",
+      "package": "./internal/web/",
+      "file": "internal/web/pages.go",
+      "old": "\ts.render(w, r, \"dashboard\", &dashboardPage{View: view})\n",
+      "new": "\ts.render(w, r, \"dashboard\", dashboardPage{View: view})\n",
+      "note": "the value instead of the pointer: setCSRF has a pointer receiver, so a value does not satisfy csrfCarrier and the dashboard renders its forms with no token while every other page still works. This is the trap the comment above the call warns about, pinned so it cannot come back quietly."
     }
   ]
 }
