@@ -33,7 +33,8 @@ func TestServeWiresAConfigWritePath(t *testing.T) {
 	chain, _ := platform.New(cfg.Settings, platform.ExecRunner{})
 
 	srv, err := serveServer(cfg, chain, users.Source{}, platform.SelfLocation{}, path,
-		filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+		filepath.Join(dir, "state"), filepath.Join(dir, "trail.jsonl"),
+		context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}
@@ -57,7 +58,8 @@ func TestTheServedWritePathWritesTheFileTheOperatorNamed(t *testing.T) {
 	chain, _ := platform.New(cfg.Settings, platform.ExecRunner{})
 
 	srv, err := serveServer(cfg, chain, users.Source{}, platform.SelfLocation{}, path,
-		filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+		filepath.Join(dir, "state"), filepath.Join(dir, "trail.jsonl"),
+		context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}
@@ -112,7 +114,8 @@ func TestARefusedMutationSavesNothing(t *testing.T) {
 	chain, _ := platform.New(cfg.Settings, platform.ExecRunner{})
 
 	srv, err := serveServer(cfg, chain, users.Source{}, platform.SelfLocation{}, path,
-		filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+		filepath.Join(dir, "state"), filepath.Join(dir, "trail.jsonl"),
+		context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}

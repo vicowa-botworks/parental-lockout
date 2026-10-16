@@ -55,7 +55,7 @@ func TestTheServedAccountSourceIsTheOneThatWasGiven(t *testing.T) {
 	}
 	chain, _ := platform.New(cfg.Settings, platform.ExecRunner{})
 
-	srv, err := serveServer(cfg, chain, src, platform.SelfLocation{}, cfgPath, filepath.Join(dir, "state"),
+	srv, err := serveServer(cfg, chain, src, platform.SelfLocation{}, cfgPath, filepath.Join(dir, "state"), filepath.Join(dir, "trail.jsonl"),
 		context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)

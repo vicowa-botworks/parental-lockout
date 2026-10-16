@@ -70,6 +70,14 @@ func TestEachUnwiredSeamNamesItself(t *testing.T) {
 			drop: func(s *Server) { s.Lockables = nil },
 			want: "no session source is wired",
 		},
+		{
+			// The audit page is the one that would render this as an empty table, which
+			// is a claim about what happened rather than about the wiring.
+			name: "no audit trail",
+			path: "/audit",
+			drop: func(s *Server) { s.Trail = nil },
+			want: "no audit trail is wired",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, logged := pageWithSeams(t)

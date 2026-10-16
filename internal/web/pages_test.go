@@ -102,7 +102,7 @@ func pageServer(t *testing.T, cfg *config.Config, sessions []platform.Session, a
 // Nothing outside the login page is readable without a session.
 func TestTheContentPagesRequireASession(t *testing.T) {
 	s, _, _ := newTestServer(t, &stubAuth{username: "parent", password: "hunter2"})
-	for _, path := range []string{"/", "/users"} {
+	for _, path := range []string{"/", "/users", "/audit"} {
 		req := httptest.NewRequest("GET", path, nil)
 		req.Header.Set("Accept", "text/html")
 		rec := httptest.NewRecorder()
@@ -305,7 +305,9 @@ func TestTheUsersPageNamesProfilesTheWayTheParentDid(t *testing.T) {
 // to read as a missing file.
 func TestEveryContentRouteHasATemplate(t *testing.T) {
 	got := strings.Join(pageNames(), ",")
-	for _, want := range []string{"dashboard", "users"} {
+	// "audit" belongs here for the same reason the others do: a handler without a
+	// .tmpl answers 500 on the real daemon and passes every handler test.
+	for _, want := range []string{"dashboard", "users", "audit"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("no template named %q is embedded; found %q", want, got)
 		}
@@ -329,7 +331,7 @@ func TestTheStylesheetIsLinkedByItsHashedURL(t *testing.T) {
 // The page is not cacheable.
 func TestTheContentPagesAreNotCacheable(t *testing.T) {
 	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
-	for _, path := range []string{"/", "/users"} {
+	for _, path := range []string{"/", "/users", "/audit"} {
 		if got := authGet(t, s, path).Header().Get("Cache-Control"); got != "no-store" {
 			t.Errorf("GET %s Cache-Control = %q, want no-store", path, got)
 		}

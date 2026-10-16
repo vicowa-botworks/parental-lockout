@@ -189,7 +189,7 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 			"daemon runs behind means it can no longer be stopped. Install the unit in "+
 			"deploy/plock.service to enforce that account\n", self.UID)
 	}
-	srv, err := serveServer(cfg, chain, users.Source{}, self, *path, *stateDir, ctx, stdout, stderr)
+	srv, err := serveServer(cfg, chain, users.Source{}, self, *path, *stateDir, *auditPath, ctx, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "plock serve: %v\n", err)
 		return 1
@@ -326,7 +326,7 @@ type sessionSource interface {
 // credential the daemon consults and the operator did not rotate — which is issue #37
 // itself. Server.Auth exists only for a caller with no Config seam at all, and serve always
 // has one.
-func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, self platform.SelfLocation, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
+func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, self platform.SelfLocation, cfgPath, stateDir, auditPath string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
 	opts := web.Options{
 		Listen:   cfg.Settings.Listen,
 		TLSMode:  cfg.Settings.TLS,
@@ -393,6 +393,17 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, s
 	// or the page announces an account as locked out while the engine declines to lock
 	// it -- and only the dashboard is in front of the parent.
 	opts.Self = self
+
+	// The trail is read from the same path the writer in runServe was given, so the page
+	// and the file the daemon appends to are the same file: a reader pointed at
+	// audit.DefaultPath is not nil, it is confident and wrong, and on a machine started
+	// with --audit-path it opens a file nobody writes and reports an empty trail about a
+	// full one. Assigned as a statement for the reason above -- and the reader re-opens
+	// per request rather than being built once, so a rotation between two page loads is
+	// visible on the second one instead of being missed by stale size accounting.
+	opts.Trail = &audit.Reader{Path: auditPath, Logf: func(format string, args ...any) {
+		fmt.Fprintf(stderr, format+"\n", args...)
+	}}
 
 	srv, err := web.New(opts)
 	if err != nil {

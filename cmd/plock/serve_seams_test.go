@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/audit"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 	"github.com/vicowa-botworks/parental-lockout/internal/users"
@@ -28,7 +29,7 @@ func TestServeWiresEverySeamThePagesRead(t *testing.T) {
 	}
 	chain, _ := platform.New(cfg.Settings, platform.ExecRunner{})
 
-	srv, err := serveServer(cfg, chain, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+	srv, err := serveServer(cfg, chain, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), filepath.Join(dir, "trail.jsonl"), context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}
@@ -42,6 +43,9 @@ func TestServeWiresEverySeamThePagesRead(t *testing.T) {
 	}
 	if srv.Accounts == nil {
 		t.Error("serve wired no account source; the accounts page answers 503 on every request")
+	}
+	if srv.Trail == nil {
+		t.Error("serve wired no audit trail; the audit page answers 503 on every request")
 	}
 }
 
@@ -57,7 +61,7 @@ func TestTheServedConfigSourceReReadsTheFileTheOperatorNamed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	srv, err := serveServer(cfg, nil, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+	srv, err := serveServer(cfg, nil, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), filepath.Join(dir, "trail.jsonl"), context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}
@@ -141,7 +145,7 @@ func TestTheServedSessionSourceIsTheOneThatWasGiven(t *testing.T) {
 		{ID: "2", Class: "user", UID: 1500, Seat: "seat0", Type: "x11", State: "active"},
 		{ID: "c1", Class: "greeter", UID: 1500, Seat: "seat0", Type: "unspecified", State: "active"},
 	}}
-	srv, err := serveServer(cfg, src, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), ctx, os.Stdout, os.Stderr)
+	srv, err := serveServer(cfg, src, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), filepath.Join(dir, "trail.jsonl"), ctx, os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}
@@ -173,5 +177,71 @@ func TestTheServedSessionSourceIsTheOneThatWasGiven(t *testing.T) {
 	} else if err := src.got.Err(); err == nil {
 		t.Error("the seam passed a context that outlived the serve context; a session query " +
 			"already in flight at shutdown has nothing that can cancel it, so the drain waits on it")
+	}
+}
+
+// The audit page has to read the file the operator named with --audit-path.
+//
+// The nil check above cannot see this defect: a reader wired to audit.DefaultPath is not
+// nil, it is confident and wrong. On a machine where the daemon was started with a
+// different --audit-path -- which is how a test trail or a second instance is run -- that
+// reader opens a file nobody writes, finds nothing, and the page says the trail is empty
+// about a trail that is full. It is the same shape as the config source above, arriving
+// through a path constant instead of a captured value.
+//
+// The record is written by the real Writer rather than pasted as JSON so the assertion
+// runs against the on-disk shape the reader actually parses.
+func TestTheServedAuditTrailIsTheFileTheOperatorNamed(t *testing.T) {
+	dir := t.TempDir()
+	path := writeServeConfig(t, dir)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// Deliberately not audit.DefaultPath, and not a name the reader could guess.
+	auditPath := filepath.Join(dir, "operator-chosen-trail.jsonl")
+
+	w := &audit.Writer{Path: auditPath}
+	if err := w.Open(); err != nil {
+		t.Fatalf("open the trail: %v", err)
+	}
+	if err := w.Write(audit.Record{
+		Kind: "lockout.entered", Username: "casey", RuleID: "r-2f", RuleName: "weeknights",
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	srv, err := serveServer(cfg, nil, users.Source{}, platform.SelfLocation{}, path,
+		filepath.Join(dir, "state"), auditPath, context.Background(), os.Stdout, os.Stderr)
+	if err != nil {
+		t.Fatalf("serveServer: %v", err)
+	}
+	if srv.Trail == nil {
+		t.Fatal("serve wired no audit trail; GET /audit answers 503 on every request")
+	}
+
+	tail, err := srv.Trail.Tail(200)
+	if err != nil {
+		t.Fatalf("the trail could not be read through the seam: %v", err)
+	}
+	if tail.FilesRead == 0 {
+		t.Fatalf("the served reader opened no file at all, so the page would say the trail is "+
+			"empty about %s", auditPath)
+	}
+	if len(tail.Records) != 1 {
+		t.Fatalf("the served reader found %d records in a trail holding one; it is not reading "+
+			"the path serve was given (%s)", len(tail.Records), auditPath)
+	}
+	rec := tail.Records[0]
+	if rec.Username != "casey" || rec.Kind != "lockout.entered" {
+		t.Errorf("the record read through the seam is %+v, want the one just written", rec)
+	}
+	// RuleName is the half an operator reads, and it is the field a Record/line split has
+	// silently dropped before.
+	if rec.RuleName != "weeknights" {
+		t.Errorf("the rule name did not survive the round trip: %+v", rec)
 	}
 }

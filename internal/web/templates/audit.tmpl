@@ -1,0 +1,99 @@
+{{define "pagename"}}audit{{end}}
+{{define "title"}}Audit trail{{end}}
+{{define "body"}}
+{{- /* Three different empties, three different sentences. Collapsing them is how a page
+       that could not look reports a quiet house. */ -}}
+{{if .NoTrail}}
+<p class="banner">No trail file exists at the configured path yet, so nothing has been
+recorded. It appears the first time the daemon writes an event.</p>
+{{else if and .User (not .Rows)}}
+<p class="banner">None of the {{.Scanned}} most recent {{if eq .Scanned 1}}event is{{else}}events
+are{{end}} for <strong>{{.User}}</strong>.
+{{- /* Whether anything older exists is a fact the page can actually know, and the two
+       answers point the operator in opposite directions. A full window means the read
+       stopped early; a short one with nothing unreadable means the trail ends here and
+       there is no older generation to go looking in. */ -}}
+{{- if .Truncated}} Older events for that account may exist beyond this window; the filter
+only sees the most recent {{.Scanned}}.
+{{- else if .Partial}} Nothing older is in what could be read, and the note above says a
+generation was left out.
+{{- else}} The trail holds nothing older than these, so the search saw every event it can
+show.{{end}}</p>
+{{else if not .Rows}}
+<p class="banner">The trail is empty. The file exists and holds no readable events.</p>
+{{end}}
+
+{{- /* A generation that could not be opened. The rows below are real; they are not all
+       there is, and saying only the first half would understate what happened. */ -}}
+{{if .Partial}}
+<aside class="banner" role="alert">
+  The trail is incomplete: a rotated generation could not be read. What is shown is what
+  could be read, not everything that happened. The daemon's log names the file.
+</aside>
+{{end}}
+
+<form method="get" action="/audit" class="filters">
+  <label for="user">Account</label>
+  <input id="user" name="user" type="text" value="{{.User}}" placeholder="filter by account">
+  <button type="submit">Filter</button>
+  {{- /* A link, not a second submit button: clearing a GET filter is navigating, and a
+       reset button would leave the typed text in the box while showing everything. */ -}}
+  {{if .User}}<a href="/audit">Show all</a>{{end}}
+</form>
+
+{{if .Rows}}
+<table class="rows">
+  <caption>{{len .Rows}} of the {{.Scanned}} most recent events, newest first{{if .User}}
+    for {{.User}}{{end}}.</caption>
+  <thead>
+    <tr>
+      <th scope="col">When</th>
+      <th scope="col">Event</th>
+      <th scope="col">Account</th>
+      <th scope="col">Rule</th>
+      <th scope="col">Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Rows}}
+    {{- /* data-label is not decoration: below 40rem the stylesheet turns each row into a
+         block and prints the heading from the cell's own data-label, because the column
+         header it used to sit under is gone. A column added without one is unlabelled at
+         phone width and nothing in the desktop layout notices. */ -}}
+    <tr>
+      <td data-label="When">
+        <time datetime="{{.At.Format "2006-01-02T15:04:05Z07:00"}}">
+          {{.At.Format "2006-01-02 15:04:05 MST"}}
+        </time>
+      </td>
+      <td data-label="Event">{{.Kind}}</td>
+      <td data-label="Account">{{if .Username}}{{.Username}}{{else}}<span class="muted">nobody</span>{{end}}</td>
+      <td data-label="Rule">
+        {{- /* The name an operator recognises, with the id underneath: a rename leaves the
+             id, and the id is what a bug report has to quote. */ -}}
+        {{if .RuleName}}{{.RuleName}}{{end}}
+        {{- if .RuleID}}<span class="muted">{{if .RuleName}} ({{.RuleID}}){{else}}{{.RuleID}}{{end}}</span>{{end -}}
+      </td>
+      <td data-label="Detail">{{.Detail}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{- /* What the read cost. Skipped is the difference between "49 events" and "49 of 51
+       lines": a trail with unreadable lines is a trail that is losing history, and a
+       table that says nothing about it looks clean. */ -}}
+<aside class="notes" aria-label="How this list was produced">
+  <h2>How this list was produced</h2>
+  <ul>
+    <li>{{.FilesRead}} {{if eq .FilesRead 1}}trail file was{{else}}trail files were{{end}}
+      read, newest first.</li>
+    {{if .Skipped}}
+    <li>{{.Skipped}} {{if eq .Skipped 1}}line was{{else}}lines were{{end}} present but not
+      readable as an event, and skipped.</li>
+    {{end}}
+    <li>The filter is applied to the events above, not to the whole trail.</li>
+  </ul>
+</aside>
+{{end}}
