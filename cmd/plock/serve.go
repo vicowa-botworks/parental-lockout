@@ -381,13 +381,6 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, s
 			}
 			return c.Save(cfgPath)
 		},
-		// The trail is read from the same path the writer in runServe was given, and it is
-		// resolved per request rather than captured: the reader re-opens the file each time,
-		// so a rotation between two page loads is visible on the second one. A reader built
-		// once at startup would keep the old generation's size accounting.
-		Trail: &audit.Reader{Path: auditPath, Logf: func(format string, args ...any) {
-			fmt.Fprintf(stderr, format+"\n", args...)
-		}},
 	}
 	// Assigned as a statement rather than as a field in the literal above, and that is
 	// load-bearing: a composite literal's fields are aligned by gofmt to its longest
@@ -400,6 +393,17 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, s
 	// or the page announces an account as locked out while the engine declines to lock
 	// it -- and only the dashboard is in front of the parent.
 	opts.Self = self
+
+	// The trail is read from the same path the writer in runServe was given, so the page
+	// and the file the daemon appends to are the same file: a reader pointed at
+	// audit.DefaultPath is not nil, it is confident and wrong, and on a machine started
+	// with --audit-path it opens a file nobody writes and reports an empty trail about a
+	// full one. Assigned as a statement for the reason above -- and the reader re-opens
+	// per request rather than being built once, so a rotation between two page loads is
+	// visible on the second one instead of being missed by stale size accounting.
+	opts.Trail = &audit.Reader{Path: auditPath, Logf: func(format string, args ...any) {
+		fmt.Fprintf(stderr, format+"\n", args...)
+	}}
 
 	srv, err := web.New(opts)
 	if err != nil {

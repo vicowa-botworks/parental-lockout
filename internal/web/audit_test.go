@@ -82,11 +82,12 @@ func TestTheAuditPageListsEventsNewestFirst(t *testing.T) {
 		t.Error("the events are not newest first: the login from two minutes ago is " +
 			"rendered before the lock that just happened")
 	}
-	// The page asks for the documented window. 200 is what the issue promises an
-	// operator, so it belongs to the page's contract and not to the reader's.
-	if ft.wantN != auditWindow {
-		t.Errorf("the page asked for %d records, want the documented window %d",
-			ft.wantN, auditWindow)
+	// The page asks for the documented window. 200 is written as a literal on purpose:
+	// asserting against auditWindow would pass no matter what the constant is changed to,
+	// which is the "assertion that cannot fail" shape. The number is what the issue
+	// promises an operator, so it belongs to the page's contract and not to the reader's.
+	if ft.wantN != 200 {
+		t.Errorf("the page asked for %d records, want the 200 the issue promises", ft.wantN)
 	}
 }
 

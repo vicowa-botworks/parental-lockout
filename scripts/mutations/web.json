@@ -688,5 +688,86 @@
       "new": "\ts.render(w, r, \"dashboard\", dashboardPage{View: view})\n",
       "note": "the value instead of the pointer: setCSRF has a pointer receiver, so a value does not satisfy csrfCarrier and the dashboard renders its forms with no token while every other page still works. This is the trap the comment above the call warns about, pinned so it cannot come back quietly."
     }
+,
+    {
+      "id": "W112",
+      "file": "internal/web/sources.go",
+      "package": "./internal/web/",
+      "old": "\t\treturn audit.Tail{}, errors.New(\"no audit trail is wired\")",
+      "new": "\t\treturn audit.Tail{}, nil",
+      "note": "the unwired seam reporting an empty trail instead of refusing. This is the whole reason the seam exists as an interface with a named refusal: a zero Tail and a nil error is indistinguishable from a machine that has recorded nothing, so the page renders 'the trail is empty' about a build that cannot look at all. The dashboard's session seam has the same mutant for the same reason. TestAnUnwiredTrailNeverClaimsTheTrailIsEmpty"
+    },
+    {
+      "id": "W113",
+      "file": "internal/web/audit.go",
+      "package": "./internal/web/",
+      "old": "\tif err != nil && tail.FilesRead == 0 {",
+      "new": "\tif err != nil {",
+      "note": "any read error becoming a page error, so a trail that is one unreadable generation short stops showing the records that were read. The reader's contract is to return both -- records and the reason the page is short -- and treating the reason as fatal throws away the half an operator needs. TestAPartialTrailShowsWhatWasReadAndSaysItIsIncomplete"
+    },
+    {
+      "id": "W114",
+      "file": "internal/web/audit.go",
+      "package": "./internal/web/",
+      "old": "\t\tw.Header().Set(\"X-Plock-Note\", \"trail-incomplete\")\n",
+      "new": "",
+      "note": "a short page presented as a complete one to anything that is not a browser. The sentence on the page is for the parent; the header is for the script, and a monitoring check that parses the page cannot tell 3 of 200 from 200 of 200. Same signal the dashboard sets for a failed session read. TestAPartialTrailShowsWhatWasReadAndSaysItIsIncomplete"
+    },
+    {
+      "id": "W115",
+      "file": "internal/web/audit.go",
+      "package": "./internal/web/",
+      "old": "\t\tif rec.Username == user {",
+      "new": "\t\tif rec.Username != user {",
+      "note": "the filter inverted, which is the shape that survives a careless review because the page still shows a plausible table with plausible names. A substring match is the other way this breaks -- 'cat' merging with 'catie' on the one page whose job is saying who was held -- but that needs a strings import the file does not have, so it cannot be expressed as a single-site mutation; the exact-match test is what pins it. TestTheAuditFilterMatchesAccountsExactly"
+    },
+    {
+      "id": "W116",
+      "file": "internal/web/audit.go",
+      "package": "./internal/web/",
+      "old": "\tscanned := len(tail.Records)",
+      "new": "\tscanned := len(rows)",
+      "note": "the count taken after filtering, so a filtered page claims it read only what it showed. The sentence becomes 'none of the 0 most recent events are for mallory', which reads as an empty trail when the trail has 200 records in the window -- and the whole point of the number is to bound the answer to what was looked at. TestAFilterThatMatchesNothingDoesNotClaimTheTrailIsEmpty"
+    },
+    {
+      "id": "W117",
+      "file": "internal/web/audit.go",
+      "package": "./internal/web/",
+      "old": "\tnoTrail := tail.FilesRead == 0",
+      "new": "\tnoTrail := false",
+      "note": "a machine with no trail file yet told its operator the trail is empty. Those are two different facts and only one of them means the writer is working: 'no trail file exists' is what a fresh install should say, and 'the trail is empty' is what a misconfigured writer says, which is the sentence that should make a parent go and check permissions. TestAMissingTrailFileSaysNothingHasBeenRecorded"
+    },
+    {
+      "id": "W118",
+      "file": "internal/web/server.go",
+      "package": "./internal/web/",
+      "old": "\tmux.Handle(\"GET /audit\", s.requireAuth(http.HandlerFunc(s.handleAudit)))",
+      "new": "\tmux.Handle(\"GET /audit\", http.HandlerFunc(s.handleAudit))",
+      "note": "the audit page registered without the session gate. It is the page that names which accounts were locked out and when, and it is the only route in the table whose data comes from a file rather than from the request, so an unauthenticated read of it is a read of the machine's history. TestTheContentPagesRequireASession"
+    },
+    {
+      "id": "W119",
+      "file": "internal/web/audit.go",
+      "package": "./internal/web/",
+      "old": "const auditWindow = 200",
+      "new": "const auditWindow = 20",
+      "note": "the window quietly shrunk, which is the defect that cannot be seen from the page: 20 events is about four minutes of a busy daemon, and every sentence on the page stays true while the answer to 'when was she last held' walks out of range. The test asserts the literal 200 rather than the constant, which is why this mutant dies at all. TestTheAuditPageListsEventsNewestFirst"
+    },
+    {
+      "id": "W120",
+      "file": "cmd/plock/serve.go",
+      "package": "./cmd/plock/",
+      "old": "\topts.Trail = &audit.Reader{Path: auditPath,",
+      "new": "\topts.Trail = &audit.Reader{Path: audit.DefaultPath,",
+      "note": "the page reading the default path while the daemon writes the one --audit-path named. Nothing about this is nil, so the nil check in TestServeWiresEverySeamThePagesRead passes; the reader opens a file nobody writes, finds nothing, and the page says the trail is empty about a trail that is full. The same shape as the config source, arriving through a path constant. TestTheServedAuditTrailIsTheFileTheOperatorNamed"
+    },
+    {
+      "id": "W121",
+      "file": "cmd/plock/serve.go",
+      "package": "./cmd/plock/",
+      "old": "\topts.Trail = &audit.Reader{Path: auditPath, Logf: func(format string, args ...any) {\n\t\tfmt.Fprintf(stderr, format+\"\\n\", args...)\n\t}}",
+      "new": "\topts.Trail = nil",
+      "note": "serve assembling the page's seam out of a reader that is not there, so GET /audit answers 503 on the real daemon while every page test stays green because each one wires its own seam by hand. This is the failure the whole serve_seams_test.go file exists for. TestServeWiresEverySeamThePagesRead"
+    }
   ]
 }

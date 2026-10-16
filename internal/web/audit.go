@@ -41,16 +41,30 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	if user != "" {
 		rows = auditRowsFor(rows, user)
 	}
+
+	// Named rather than written into the literal below on purpose. A composite literal's
+	// lines are aligned by gofmt, so a pattern matching one of them retires itself the
+	// moment an unrelated field with a longer name is added to the struct -- which has
+	// already happened to this package's mutants twice. A statement's text does not move.
+	//
+	// The three are the page's whole honesty story, and each is a different claim:
+	// scanned is what the read returned before filtering, so a filter that matched nothing
+	// can bound its own answer instead of speaking about the whole trail; noTrail is the
+	// file not existing yet, which is a fresh machine rather than an empty log or a failed
+	// read; partial is a generation that could not be opened, so the rows are real and are
+	// not everything.
+	scanned := len(tail.Records)
+	noTrail := tail.FilesRead == 0
+	partial := err != nil
+
 	s.render(w, r, "audit", auditPage{
 		Rows:      rows,
 		User:      user,
-		Scanned:   len(tail.Records),
+		Scanned:   scanned,
 		Skipped:   tail.Skipped,
 		FilesRead: tail.FilesRead,
-		Partial:   err != nil,
-		// A missing trail file is a fact about a fresh machine, not a failed read and not
-		// a trail with nothing in it. The three say different things below.
-		NoTrail: tail.FilesRead == 0,
+		Partial:   partial,
+		NoTrail:   noTrail,
 	})
 }
 
