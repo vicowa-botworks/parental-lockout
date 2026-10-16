@@ -56,6 +56,12 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	scanned := len(tail.Records)
 	noTrail := tail.FilesRead == 0
 	partial := err != nil
+	// The window is full, so the read stopped for a reason and not because the trail ran
+	// out. This is the only test the page has for "older events may exist": the reader
+	// returns a short list with a nil error when the trail is exhausted, which is the
+	// normal end of the trail rather than a failure, so a short page cannot be told apart
+	// from a truncated one by the error alone.
+	truncated := scanned >= auditWindow
 
 	s.render(w, r, "audit", auditPage{
 		Rows:      rows,
@@ -65,6 +71,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		FilesRead: tail.FilesRead,
 		Partial:   partial,
 		NoTrail:   noTrail,
+		Truncated: truncated,
 	})
 }
 
@@ -112,4 +119,11 @@ type auditPage struct {
 
 	// NoTrail is the trail file not existing yet.
 	NoTrail bool
+
+	// Truncated is the window being full, which is the only thing that entitles the page
+	// to say older events may exist beyond what it showed. Its absence means the trail was
+	// read to the end, and telling an operator to look further back than the trail goes is
+	// its own kind of wrong answer -- one that sends them to check a generation that does
+	// not exist while the account they asked about really has no events.
+	Truncated bool
 }

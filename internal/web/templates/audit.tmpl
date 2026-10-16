@@ -8,8 +8,17 @@
 recorded. It appears the first time the daemon writes an event.</p>
 {{else if and .User (not .Rows)}}
 <p class="banner">None of the {{.Scanned}} most recent {{if eq .Scanned 1}}event is{{else}}events
-are{{end}} for <strong>{{.User}}</strong>. Older events for that account may exist beyond
-this window; the filter only sees the most recent {{.Scanned}}.</p>
+are{{end}} for <strong>{{.User}}</strong>.
+{{- /* Whether anything older exists is a fact the page can actually know, and the two
+       answers point the operator in opposite directions. A full window means the read
+       stopped early; a short one with nothing unreadable means the trail ends here and
+       there is no older generation to go looking in. */ -}}
+{{- if .Truncated}} Older events for that account may exist beyond this window; the filter
+only sees the most recent {{.Scanned}}.
+{{- else if .Partial}} Nothing older is in what could be read, and the note above says a
+generation was left out.
+{{- else}} The trail holds nothing older than these, so the search saw every event it can
+show.{{end}}</p>
 {{else if not .Rows}}
 <p class="banner">The trail is empty. The file exists and holds no readable events.</p>
 {{end}}

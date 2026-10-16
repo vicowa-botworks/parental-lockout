@@ -179,8 +179,9 @@ func TestAFilterThatMatchesNothingDoesNotClaimTheTrailIsEmpty(t *testing.T) {
 		t.Errorf("the page did not bound its own answer to the window it read:\n%s", body)
 	}
 	if strings.Contains(body, "The trail is empty") {
-		t.Error("an account with no events in the window was reported as an empty trail; " +
-			"the events may exist one generation older, which is where the operator would next look")
+		t.Error("an account with no events in the window was reported as an empty trail; the " +
+			"window is a window, and a page that cannot tell a full one from a short one " +
+			"cannot tell the operator where to look next")
 	}
 }
 

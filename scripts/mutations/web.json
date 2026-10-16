@@ -768,6 +768,20 @@
       "old": "\topts.Trail = &audit.Reader{Path: auditPath, Logf: func(format string, args ...any) {\n\t\tfmt.Fprintf(stderr, format+\"\\n\", args...)\n\t}}",
       "new": "\topts.Trail = nil",
       "note": "serve assembling the page's seam out of a reader that is not there, so GET /audit answers 503 on the real daemon while every page test stays green because each one wires its own seam by hand. This is the failure the whole serve_seams_test.go file exists for. TestServeWiresEverySeamThePagesRead"
+    },
+    {
+      "id": "W123",
+      "file": "internal/web/audit.go",
+      "old": "truncated := scanned >= auditWindow",
+      "new": "truncated := true",
+      "note": "every filtered-empty page promises older events may exist beyond the window, which is the reviewed defect arriving through the Go rather than the template: the reader returns a short list with a nil error when the trail is exhausted, so a three-record trail is told to go looking for a generation that does not exist while the account it asked about really has no events. TestAnExhaustedTrailDoesNotPromiseOlderEvents"
+    },
+    {
+      "id": "W124",
+      "file": "internal/web/audit.go",
+      "old": "truncated := scanned >= auditWindow",
+      "new": "truncated := false",
+      "note": "the page never says the read stopped early, so a full window of 200 events reads as the whole trail and an operator concludes an account was never held when the holding is one generation back. The other direction from W123, and only a fixture holding the whole window can tell the two apart. TestAFullWindowSaysTheReadStoppedEarly"
     }
   ]
 }
