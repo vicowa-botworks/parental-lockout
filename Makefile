@@ -77,7 +77,12 @@ verify:
 # It is minutes rather than seconds because it compiles the tree per mutant, which is why it
 # is not folded into verify -- a gate that slow gets skipped. CI runs it as its own job
 # instead, where the cost lands on a runner.
+# The self-test runs first and costs milliseconds: it checks the rules that make a green
+# tick here mean something. Without it, deleting one of those rules is invisible --
+# every real set still passes, because none of them currently violates the rule that
+# was removed.
 check-mutations:
+	@python3 scripts/check-mutations.py --self-test
 	@GO="$(GO)" python3 scripts/check-mutations.py
 
 # mutate puts each known bug back into the source one at a time and insists the suite
@@ -92,8 +97,12 @@ check-mutations:
 # scripts/mutate.py restores the tree between every mutant, refuses to start on a red
 # baseline, and reports a mutant that does not compile as INVALID rather than caught.
 # It depends on check-mutations so the fast guard cannot be skipped by habit: a stale set
-# produces a tally that reads clean while checking nothing, and 2.5 minutes is cheap
-# against twelve spent discovering that afterwards.
+# produces a tally that reads clean while checking nothing. "Fast" is relative to the
+# battery, not to a build -- the checker compiles the tree once per mutant, so it measured
+# 2m39s on the warm module cache of the machine that wrote it, 5m0s on a CI runner (run
+# 38901067736) and 7m12s on another machine entirely. The number a cold cache pays is the
+# one to plan against; the ratio that justifies the dependency is unaffected, because the
+# alternative is discovering a retired mutant hours into a battery, or never.
 # Its docstring lists the four ways a battery like this can report success while
 # testing nothing, which is what the run checks for.
 mutate: check-mutations

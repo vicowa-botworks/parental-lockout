@@ -109,5 +109,8 @@ jobs:
 
       # Exits non-zero and names the set and the mutant id for each problem, so the red tick
       # says which claim to re-point rather than leaving it to be rediscovered by a battery.
+      # The same target the Makefile documents, so "checking the sets" has one definition
+      # and the self-test of the checker's own rules cannot be skipped here while running
+      # locally. It checks the checker first, then every set in the tree.
       - name: Check every mutant still applies and compiles
-        run: python3 scripts/check-mutations.py
+        run: make check-mutations
