@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -258,6 +259,37 @@ func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
 	}
 	if n := strings.Count(err.Error(), "; ") + 1; n < 4 {
 		t.Errorf("error lists %d problems, want at least 4: %v", n, err)
+	}
+}
+
+// TestValidateRefusalCarriesTheErrInvalidSentinel pins the identity of a refusal, not its
+// wording.
+//
+// The message is for a human: Validate names every problem at once so a parent fixes the
+// file in one pass, and the neighbour above pins that text. What a *caller* needs is
+// different. internal/web maps "this document is refused" to 422 and "the disk refused" to
+// 503, and deciding that by matching message text is the mistake this project already
+// forbids in the enforcement loop, which distinguishes causes through errors.Is rather than
+// sentences. So the refusal has to answer errors.Is(err, ErrInvalid) through the %w wrap --
+// and until this test, nothing in this package had ever asked, which is how a mutant that
+// drops the wrap survived a full battery: the only test that observed the sentinel lives one
+// package up, in the HTTP layer that maps it to a status code.
+func TestValidateRefusalCarriesTheErrInvalidSentinel(t *testing.T) {
+	c := valid()
+	c.Settings.PollSeconds = 1
+
+	err := c.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted an out-of-range settings.pollSeconds")
+	}
+	if !errors.Is(err, ErrInvalid) {
+		t.Errorf("a validation refusal must answer errors.Is(err, ErrInvalid), got %v", err)
+	}
+	// The wrap has to be the sentinel itself rather than a copy of its sentence, or the
+	// web layer's 422 mapping silently degrades to a 503 that tells the parent to retry a
+	// submission that will be refused identically forever.
+	if errors.Is(err, ErrUnknownVersion) || errors.Is(err, ErrRefusesSymlink) {
+		t.Errorf("a validation refusal is being reported as a different config failure: %v", err)
 	}
 }
 
