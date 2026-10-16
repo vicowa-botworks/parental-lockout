@@ -588,6 +588,31 @@ func (s *Server) WaitReady(ctx context.Context) error {
 // Tests drive this with httptest rather than going through a socket, which keeps
 // them about routing and headers rather than about TLS.
 func (s *Server) Handler() http.Handler {
+	chain := s.recoverMiddleware(
+		s.requestLog(
+			s.securityHeaders(
+				s.csrfMiddleware(s.router()),
+			),
+		),
+	)
+	return chain
+}
+
+// router registers every route this server has, on a fresh mux.
+//
+// It is a method rather than a handful of lines inside Handler for exactly one reason:
+// http.WalkMux can enumerate a *ServeMux, and the mux used to be a local nobody could ask
+// about. That is what lets TestEveryRegisteredRouteIsEitherListedOrRefused enumerate the
+// routes instead of re-listing them -- a guard that re-lists them can only ever agree with
+// itself, and the whole point is to notice a route nobody added to a table.
+//
+// This is not the shape the repo declined for the drain route. There the choice was
+// between a production field that only tests read and a test seam, and a field nobody
+// serves traffic with rots silently. Here production builds the value it serves through
+// the same method: Handler's argument IS the result of this call, so there is no second
+// copy of the route table for the tests to be right about, and nothing exists only for
+// the test binary.
+func (s *Server) router() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Public, in the order they are matched.
@@ -619,14 +644,7 @@ func (s *Server) Handler() http.Handler {
 		s.requireAuth(http.HandlerFunc(s.handleDeleteProfile)))
 	mux.HandleFunc("GET /static/{file}", s.handleStatic)
 
-	chain := s.recoverMiddleware(
-		s.requestLog(
-			s.securityHeaders(
-				s.csrfMiddleware(mux),
-			),
-		),
-	)
-	return chain
+	return mux
 }
 
 // handleHealthz answers 200 and nothing else.
