@@ -189,7 +189,7 @@ func runServeContext(ctx context.Context, stdout, stderr io.Writer, args []strin
 			"daemon runs behind means it can no longer be stopped. Install the unit in "+
 			"deploy/plock.service to enforce that account\n", self.UID)
 	}
-	srv, err := serveServer(cfg, chain, users.Source{}, self, *path, *stateDir, ctx, stdout, stderr)
+	srv, err := serveServer(cfg, chain, users.Source{}, self, *path, *stateDir, *auditPath, ctx, stdout, stderr)
 	if err != nil {
 		fmt.Fprintf(stderr, "plock serve: %v\n", err)
 		return 1
@@ -326,7 +326,7 @@ type sessionSource interface {
 // credential the daemon consults and the operator did not rotate — which is issue #37
 // itself. Server.Auth exists only for a caller with no Config seam at all, and serve always
 // has one.
-func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, self platform.SelfLocation, cfgPath, stateDir string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
+func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, self platform.SelfLocation, cfgPath, stateDir, auditPath string, ctx context.Context, stdout, stderr io.Writer) (*web.Server, error) {
 	opts := web.Options{
 		Listen:   cfg.Settings.Listen,
 		TLSMode:  cfg.Settings.TLS,
@@ -381,6 +381,13 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, s
 			}
 			return c.Save(cfgPath)
 		},
+		// The trail is read from the same path the writer in runServe was given, and it is
+		// resolved per request rather than captured: the reader re-opens the file each time,
+		// so a rotation between two page loads is visible on the second one. A reader built
+		// once at startup would keep the old generation's size accounting.
+		Trail: &audit.Reader{Path: auditPath, Logf: func(format string, args ...any) {
+			fmt.Fprintf(stderr, format+"\n", args...)
+		}},
 	}
 	// Assigned as a statement rather than as a field in the literal above, and that is
 	// load-bearing: a composite literal's fields are aligned by gofmt to its longest

@@ -84,7 +84,7 @@ func TestServeHandsTheDashboardTheSameLocationItHandsTheEngine(t *testing.T) {
 	}
 	self := platform.SelfLocation{UID: 4123, InUserSlice: true}
 
-	srv, err := serveServer(cfg, nil, users.Source{}, self, path, filepath.Join(dir, "state"),
+	srv, err := serveServer(cfg, nil, users.Source{}, self, path, filepath.Join(dir, "state"), filepath.Join(dir, "trail.jsonl"),
 		context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)

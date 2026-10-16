@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/audit"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 	"github.com/vicowa-botworks/parental-lockout/internal/users"
@@ -262,4 +263,32 @@ func pageNames() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Trail reads the audit log.
+//
+// It is an interface rather than an *audit.Reader because the reader's whole job is
+// opening files, and a page whose data source is a path on disk can only be tested by
+// arranging that disk -- which is how a page about what the daemon did ends up asserting
+// facts about the CI runner's filesystem instead of about the page.
+//
+// Only Tail is here, because that is all this page does. Carrying Generations and
+// NewestUser on the assumption that a later page wants them would oblige every fake in
+// the package to answer questions nothing asks.
+type Trail interface {
+	Tail(n int) (audit.Tail, error)
+}
+
+// readTrail asks the seam for the newest n records.
+//
+// A nil seam is an error rather than an empty Tail. The difference is the whole point: an
+// empty Tail renders "the trail is empty", which is a claim about what happened, and a
+// daemon started without a trail wired has made no claim about anything. The same rule
+// already governs readAccounts, where a nil listing with a nil error is refused for
+// exactly this reason.
+func (s *Server) readTrail(n int) (audit.Tail, error) {
+	if s.Trail == nil {
+		return audit.Tail{}, errors.New("no audit trail is wired")
+	}
+	return s.Trail.Tail(n)
 }

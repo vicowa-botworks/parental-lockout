@@ -120,6 +120,7 @@ type Server struct {
 	Config    func() (*config.Config, error)
 	Lockables func() ([]platform.Session, error)
 	Accounts  func() (*users.Listing, error)
+	Trail     Trail
 
 	// Self is where this daemon is running, as far as the lockout decision cares.
 	//
@@ -226,6 +227,10 @@ type Options struct {
 	Config    func() (*config.Config, error)
 	Lockables func() ([]platform.Session, error)
 	Accounts  func() (*users.Listing, error)
+	// Trail is the audit log, for GET /audit. Nil is not an empty trail: the page
+	// says no trail is wired, because an empty table is a claim that nothing happened
+	// and an unwired seam is a claim about the wiring.
+	Trail Trail
 
 	// Self says which login session this process is inside, so the dashboard can say
 	// which accounts the enforcement loop is declining instead of announcing them as
@@ -267,6 +272,7 @@ func New(opts Options) (*Server, error) {
 	// suite stays green. It has already happened twice to Static. A statement's text
 	// does not move when a neighbour is renamed.
 	s.Self = opts.Self
+	s.Trail = opts.Trail
 
 	if s.Listen == "" {
 		return nil, errors.New("web: nothing to listen on")
@@ -597,6 +603,7 @@ func (s *Server) Handler() http.Handler {
 	// Everything below the auth gate.
 	mux.Handle("GET /{$}", s.requireAuth(http.HandlerFunc(s.handleDashboard)))
 	mux.Handle("GET /users", s.requireAuth(http.HandlerFunc(s.handleUsers)))
+	mux.Handle("GET /audit", s.requireAuth(http.HandlerFunc(s.handleAudit)))
 	// The override routes are the first writes this server accepts. They need no CSRF
 	// wiring of their own: csrfMiddleware gates every non-public non-GET already, so a new
 	// POST route is covered the moment it is registered -- which is the reason the gate
