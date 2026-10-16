@@ -210,3 +210,36 @@ func TestTakeFirstKeepsASingleDashAsAPositional(t *testing.T) {
 type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
+
+func TestTakeFirstDoesNotReadPastTheEndWhenATrailingFlagHasNoValue(t *testing.T) {
+	// `plock unlock casey --minutes` -- a flag typed and abandoned. The bounds check is what
+	// keeps the parser from indexing args[i+1] off the end of the slice, and a panic in the
+	// argument parser of a command an operator runs by hand is a worse outcome than the
+	// usage error the caller would have reported.
+	fs := newSet()
+	first, rest, found := TakeFirst(fs, []string{"casey", "--minutes"})
+	if !found || first != "casey" {
+		t.Fatalf("first = %q found = %v, want casey/true", first, found)
+	}
+	if err := fs.Parse(rest); err == nil {
+		t.Errorf("a flag with no value parsed cleanly instead of being refused: %v", rest)
+	}
+}
+
+func TestTakeFirstDoesNotConsumeAPositionalAfterAnEqualsFormFlag(t *testing.T) {
+	// --minutes=5 carries its value already, so the token after it is the account. The
+	// equals form needs its own case because the space form's rule -- consume the next
+	// token -- is exactly the rule that must NOT fire here, and a test that only ever puts
+	// another flag after the equals form cannot tell the two rules apart.
+	fs := newSet()
+	first, rest, found := TakeFirst(fs, []string{"--minutes=5", "casey"})
+	if !found || first != "casey" {
+		t.Fatalf("first = %q found = %v, want casey/true: an equals-form flag must not adopt the token after it", first, found)
+	}
+	if err := fs.Parse(rest); err != nil {
+		t.Fatalf("%v (%v)", err, rest)
+	}
+	if got := fs.Lookup("minutes").Value.String(); got != "5" {
+		t.Errorf("minutes = %s, want 5", got)
+	}
+}
