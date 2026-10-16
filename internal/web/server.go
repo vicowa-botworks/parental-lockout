@@ -131,6 +131,20 @@ type Server struct {
 	//
 	// Its zero value is the supported deployment, where nothing is declined.
 	Self platform.SelfLocation
+	// Mutate applies one change to the config document and persists it: the write
+	// half of Config, and a seam for the same reason -- only the caller knows the
+	// path, and the policy around it belongs with whoever opened it.
+	//
+	// The server holds a mutex around every call, so an implementation does not
+	// need one and must not assume two may run at once. When fn reports an error
+	// the document is left unsaved; that is the expected shape, not a failure of
+	// the seam.
+	Mutate func(fn func(*config.Config) error) error
+
+	// writeMu serializes config mutations. Held by the server rather than by the Mutate
+	// seam on purpose: a caller that supplies a seam without a lock would otherwise produce
+	// a server that silently loses an edit whenever two requests mutate at once.
+	writeMu sync.Mutex
 
 	// csrf holds the per-session token this package owns.
 	csrf *csrfStore
@@ -217,6 +231,9 @@ type Options struct {
 	// which accounts the enforcement loop is declining instead of announcing them as
 	// locked out. See Server.Self.
 	Self platform.SelfLocation
+	// Mutate is Options.Mutate, copied by New. See mutateConfig for why the lock that
+	// wraps it is the server's rather than the seam's.
+	Mutate func(fn func(*config.Config) error) error
 }
 
 // New builds a Server and resolves its transport, failing on anything the first
@@ -233,6 +250,7 @@ func New(opts Options) (*Server, error) {
 		Config:         opts.Config,
 		Lockables:      opts.Lockables,
 		Accounts:       opts.Accounts,
+		Mutate:         opts.Mutate,
 		Listen:         opts.Listen,
 		TLSMode:        opts.TLSMode,
 		CredentialPoll: opts.CredentialPoll,
@@ -579,6 +597,14 @@ func (s *Server) Handler() http.Handler {
 	// Everything below the auth gate.
 	mux.Handle("GET /{$}", s.requireAuth(http.HandlerFunc(s.handleDashboard)))
 	mux.Handle("GET /users", s.requireAuth(http.HandlerFunc(s.handleUsers)))
+	// The override routes are the first writes this server accepts. They need no CSRF
+	// wiring of their own: csrfMiddleware gates every non-public non-GET already, so a new
+	// POST route is covered the moment it is registered -- which is the reason the gate
+	// wraps the mux rather than sitting in each handler.
+	mux.Handle("POST /users/{name}/override",
+		s.requireAuth(http.HandlerFunc(s.handleOverride)))
+	mux.Handle("POST /users/{name}/override/clear",
+		s.requireAuth(http.HandlerFunc(s.handleOverrideClear)))
 	mux.HandleFunc("GET /static/{file}", s.handleStatic)
 
 	chain := s.recoverMiddleware(

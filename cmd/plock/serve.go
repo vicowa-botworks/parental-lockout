@@ -362,6 +362,25 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, s
 			// to a child who is missing from the table.
 			return users.List(src)
 		},
+		// The write half of the Config seam. It re-reads inside the mutation rather than
+		// closing over a document captured here: the server holds a mutex around the call,
+		// but nothing stops `plock` on the command line from writing the file between two
+		// web requests, and a stale document loaded at startup would quietly roll that edit
+		// back. Reading last is the only ordering that loses the smaller change.
+		//
+		// fn's error is returned without saving. A refusal from the handler -- an unknown
+		// account, a length outside the set -- must not leave a half-applied document on
+		// disk, and "we did not write anything" is the one guarantee the audit line makes.
+		Mutate: func(fn func(*config.Config) error) error {
+			c, err := config.Load(cfgPath)
+			if err != nil {
+				return err
+			}
+			if err := fn(c); err != nil {
+				return err
+			}
+			return c.Save(cfgPath)
+		},
 	}
 	// Assigned as a statement rather than as a field in the literal above, and that is
 	// load-bearing: a composite literal's fields are aligned by gofmt to its longest
