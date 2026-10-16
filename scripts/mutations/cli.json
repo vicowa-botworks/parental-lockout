@@ -13,8 +13,8 @@
       "id": "CI2",
       "file": "internal/cli/args.go",
       "old": "\t\t\tif !found && len(after) > 0 {",
-      "new": "\t\t\tif len(after) > 0 {",
-      "note": "the token after \"--\" is adopted even when a positional was already taken, so the last token wins over the one the operator actually named"
+      "new": "\t\t\tif !found {",
+      "note": "the length check on `after` is dropped, so `TakeFirst` indexes after[0] when the separator is the last token -- `plock unlock --` panics instead of reporting that no account was named. Deliberately NOT cmd.json's TS3, which mutates the SAME line by dropping `!found` instead: that one overwrites a positional already taken (`unlock casey -- anna` acts on anna) and already runs ./internal/cli/ as well as ./cmd/plock/, so re-deriving it here would be one claim counted twice. This is the other half of the condition, and only this package's suite sees it crash."
     },
     {
       "id": "CI3",
