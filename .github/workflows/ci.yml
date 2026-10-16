@@ -74,3 +74,40 @@ jobs:
             deploy/run-dev.sh \
             scripts/check-builds.sh \
             scripts/check-deps.sh
+
+  # Every file under scripts/mutations/ is a list of claims of the form "this guard is
+  # tested, and here is the exact source text that would break if it were removed". Two
+  # things can happen to such a claim and both look like a pass: the text no longer matches
+  # the tree, so the mutant changes nothing (NOT APPLIED), or the replacement no longer
+  # compiles, so nothing runs (INVALID). Neither fails a test. The battery prints a line for
+  # each, and the tally still reads green.
+  #
+  # This has retired mutants repeatedly, by mechanisms nobody intended: a rename, an inserted
+  # comment, gofmt realigning a composite literal, and resolving a merge conflict by taking one
+  # file wholesale. Twice the damage reached `main` with CI green (#57 repaired six dead
+  # rationale keys; rebasing #54 turned up six mutants that no longer applied), because
+  # nothing in `make verify` reads these files at all.
+  #
+  # The checker is deliberately NOT folded into `make verify`, and its own docstring says so:
+  # it compiles the tree once per mutant, minutes rather than seconds, and a gate that slow
+  # is a gate people skip. A parallel job costs nobody any waiting, which is the same split
+  # this repo already draws between `make verify` and `make mutate`.
+  mutation-sets:
+    name: mutation sets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The checker applies each mutant and compiles the package, so it needs a toolchain,
+      # not just a parser. Same version as `verify`, so a set cannot be valid under one
+      # compiler and stale under the other.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      # Exits non-zero and names the set and the mutant id for each problem, so the red tick
+      # says which claim to re-point rather than leaving it to be rediscovered by a battery.
+      - name: Check every mutant still applies and compiles
+        run: python3 scripts/check-mutations.py

@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify mutate clean install uninstall run-dev
+.PHONY: build fmt vet test verify check-mutations mutate clean install uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -69,6 +69,17 @@ verify:
 	echo "==> cross-builds"; ./scripts/check-builds.sh; \
 	echo "verify: OK"
 
+# check-mutations is the fast half of `mutate`: it never runs a test, it only asks whether
+# each mutant still matches the tree and still compiles once applied. That question is worth
+# asking on its own because a mutant that no longer matches is not a failing test, it is a
+# guard nobody is testing any more, and the battery reports it as a printed line.
+#
+# It is minutes rather than seconds because it compiles the tree per mutant, which is why it
+# is not folded into verify -- a gate that slow gets skipped. CI runs it as its own job
+# instead, where the cost lands on a runner.
+check-mutations:
+	@GO="$(GO)" python3 scripts/check-mutations.py
+
 # mutate puts each known bug back into the source one at a time and insists the suite
 # notices. A green `go test` says the code passes the tests; it does not say the tests
 # would fail if the code were wrong, and for a daemon whose failure mode is a lockout
@@ -80,9 +91,12 @@ verify:
 #
 # scripts/mutate.py restores the tree between every mutant, refuses to start on a red
 # baseline, and reports a mutant that does not compile as INVALID rather than caught.
+# It depends on check-mutations so the fast guard cannot be skipped by habit: a stale set
+# produces a tally that reads clean while checking nothing, and 2.5 minutes is cheap
+# against twelve spent discovering that afterwards.
 # Its docstring lists the four ways a battery like this can report success while
 # testing nothing, which is what the run checks for.
-mutate:
+mutate: check-mutations
 	@GO="$(GO)" python3 -u scripts/mutate.py
 
 clean:
