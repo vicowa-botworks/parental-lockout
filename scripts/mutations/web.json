@@ -904,6 +904,13 @@
       "old": "\t\treturn fmt.Errorf(\"config: %w %q\", ErrNoSuchProfile, id)",
       "new": "\t\treturn fmt.Errorf(\"config: no profile %q\", id)",
       "note": "same shape on the other refusal: the wording is unchanged, the identity is gone. TestTheTwoDeletionRefusalsCarryTheirSentinels, plus TestAMissingProfileNamesTheIDItCouldNotFind for the id the CLI prints."
+    },
+    {
+      "id": "W122",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tp.Rules = append(append([]config.Rule(nil), p.Rules...), rule)",
+      "new": "\t\tp.Rules = append(p.Rules, rule)",
+      "note": "the rule-add path appends into the array it copied the header from, so a reader holding a snapshot of the same profile writes its own rule into the slot the handler just saved. TestAddingARuleDoesNotWriteIntoAnArrayAnotherSnapshotHolds gives the slice spare capacity first -- without room the mutation is unobservable, which is why config's own version of this test fails loudly on len==cap Renumbered from W110: #74's serve.go mutant already holds that id on another open branch, and ids are one namespace across concurrently open PRs."
     }
   ]
 }
