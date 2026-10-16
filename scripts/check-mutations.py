@@ -127,9 +127,23 @@ def check(path):
             with open(abs_path, "w", encoding="utf-8") as fh:
                 fh.write(mutated)
             rc = compiles(pkg)
+            # Restore this file before asking about the next mutant. Each write is
+            # `original.replace(old, new, 1)`, so only one edit per file is ever live --
+            # but leaving it on disk means a later mutant of a DIFFERENT file in the same
+            # package is compiled against this mutant's edit too, and a package build
+            # fails on the first file that does not parse. One non-compiling mutant then
+            # reports every mutant after it as broken: this was observed as 10 reported
+            # failures for a single orphaned variable, nine of them pointing at mutants
+            # that were fine. The `finally` below stays as crash insurance.
+            with open(abs_path, "w", encoding="utf-8") as fh:
+                fh.write(original[rel])
             if rc.returncode != 0:
-                first = (rc.stderr or rc.stdout).strip().splitlines()
-                problems.append((mid, "does not compile: " + (first[0] if first else "no output")))
+                lines = (rc.stderr or rc.stdout).strip().splitlines()
+                # The first line is `# <pkg> [<pkg>.test]` -- a header, not a reason. The
+                # reason is below it, and dropping it sends the reader to reproduce the
+                # compile by hand to find out what the mutant actually broke.
+                reasons = lines[1:4] if len(lines) > 1 else lines
+                problems.append((mid, "does not compile: " + "; ".join(reasons or ["no output"])))
     finally:
         for rel in touched:
             with open(os.path.join(ROOT, rel), "w", encoding="utf-8") as fh:

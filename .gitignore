@@ -15,6 +15,12 @@
 *.out
 coverage.*
 
+# `python3 -m py_compile scripts/check-mutations.py` leaves this behind. The two tools
+# run as scripts and create nothing on their own, but every other tool artefact in this
+# file is here because it was swept into a commit by `git add -A`, and the ignore is
+# cheaper than the memory.
+__pycache__/
+
 # Local agent state (Magic Context session/note storage). Never part of the
 # project; it was swept in by `git add -A` twice, which is why it is ignored rather
 # than remembered.
