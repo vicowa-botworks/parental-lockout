@@ -41,8 +41,8 @@
       {{range .Rules}}
       <tr>
         <th scope="row">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</th>
-        <td>{{if .Days}}{{.Days}}{{else}}<span class="problem">no day</span>{{end}}</td>
-        <td>{{.Window}}</td>
+        <td data-label="Days">{{if .Days}}{{.Days}}{{else}}<span class="problem">no day</span>{{end}}</td>
+        <td data-label="Window">{{.Window}}</td>
       </tr>
       {{else}}
       <tr><td colspan="3">No windows yet, so this profile locks nobody out.</td></tr>

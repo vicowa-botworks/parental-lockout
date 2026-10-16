@@ -71,6 +71,15 @@ form.inline {
 	display: inline;
 }
 
+/* The override reason field lives inside a table cell. Left at the browser default it
+   is about 185 px wide on its own, which is more than a phone has to spare, and a cell
+   cannot shrink below the preferred width of its controls. */
+input[type="text"] {
+	width: 100%;
+	max-width: 22ch;
+	box-sizing: border-box;
+}
+
 button {
 	font: inherit;
 	padding: .35rem .8rem;
@@ -93,6 +102,82 @@ input:focus-visible {
 .request-id {
 	font-family: ui-monospace, monospace;
 	user-select: all;
+}
+
+/* Phones. The dashboard row carries five columns, and their combined minimum is wider
+   than a 360 px viewport minus the page padding, so no amount of tightening fits them:
+   measured before this rule, the dashboard asked for 576 px and the account list 401 px,
+   and the sideways scroll hid the exact control a parent on a phone came for -- the
+   override buttons. Below this width a row stops being a row and becomes a block, and
+   each cell prints its own heading from data-label because the column header it used to
+   sit under is no longer anywhere on screen.
+
+   That makes data-label load-bearing markup, not decoration: a column added without one
+   renders as an unlabelled paragraph at phone width and looks fine on a desktop, which is
+   the failure TestEveryCellInARowsTableCarriesItsNarrowLabel guards. */
+@media (max-width: 40rem) {
+	table.rows thead {
+		/* Out of the layout, but not out of the accessibility tree: the header cells
+		   are still real column headers for anything reading this as a table. */
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+
+	table.rows,
+	table.rows tbody,
+	table.rows tr,
+	table.rows td {
+		display: block;
+		width: auto;
+	}
+
+	/* The caption is a table-internal box, so once the table itself is a block it is
+	   laid out against the first row's width instead of the page -- which wraps a
+	   one-sentence explanation into a column of two words per line. As a block it
+	   simply spans the page like the paragraphs above it. */
+	table.rows caption {
+		display: block;
+		text-align: left;
+		padding: 0 0 .5rem;
+	}
+
+	table.rows tr {
+		border-bottom: 1px solid var(--line);
+		padding: .4rem 0;
+	}
+
+	table.rows th[scope="row"] {
+		display: block;
+		padding: .2rem 0;
+		border-bottom: 0;
+		font-size: 1.05rem;
+	}
+
+	table.rows td {
+		padding: .3rem 0;
+		border-bottom: 0;
+	}
+
+	table.rows td::before {
+		content: attr(data-label);
+		display: block;
+		font-size: .8rem;
+		font-weight: 600;
+		color: var(--muted);
+	}
+
+	/* A cell that spans the table is a sentence about the table, not one field of a
+	   record; it has no column to name and no data-label to name it with. */
+	table.rows td[colspan]::before {
+		content: none;
+	}
+
+	table.rows form button {
+		margin: .25rem .3rem 0 0;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
