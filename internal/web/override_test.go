@@ -397,7 +397,24 @@ func TestTwoOverlappingMutationsDoNotLoseOne(t *testing.T) {
 	go func() {
 		first <- authPost(t, f.s, "/users/casey/override", "minutes=15&reason=first").Code
 	}()
-	<-entered
+	// Bounded, for the reason recorded on the drain test's equivalent wait: `<-entered` with no
+	// deadline sat at the 900s package timeout under W25 (nothing is public, so `/login` itself
+	// is gated), because the seam was never entered and `entered` therefore never closes. The
+	// suite neither passed nor failed, it just occupied the run -- and the runner read that
+	// timeout as a catch the test never earned. (#86)
+	//
+	// Which branch fires was measured, not assumed. Under W25 the deadline wins: the login
+	// helper fails inside the request goroutine ("no plock_session cookie was set") and its
+	// t.Fatalf ends that goroutine before anything is sent, so the response channel stays empty
+	// for the whole window. The response branch covers the other shape -- a gate that answers
+	// the grant instead of breaking the login -- where the status is the diagnosis.
+	select {
+	case <-entered:
+	case code := <-first:
+		t.Fatalf("the first grant never reached the write seam, so there was nothing to overlap: status=%d", code)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the first request never reached the write seam within 10s")
+	}
 	second := make(chan int, 1)
 	go func() {
 		second <- authPost(t, f.s, "/users/alexis/override", "minutes=30&reason=second").Code
@@ -470,7 +487,16 @@ func TestAnUnmanagedAccountIsRefusedWithoutTakingTheWriteLock(t *testing.T) {
 	go func() {
 		busy <- authPost(t, f.s, "/users/casey/override", "minutes=15&reason=holding+the+lock").Code
 	}()
-	<-occupied
+	// The same bound, and it hung the same way: under W25 the holding grant is gated before it
+	// reaches the seam, `occupied` never closes, and the test waits on a precondition that has
+	// already failed. See the note on `<-entered` above for which branch fires and why. (#86)
+	select {
+	case <-occupied:
+	case code := <-busy:
+		t.Fatalf("the holding grant never reached the write seam, so no write was in flight: status=%d", code)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the holding request never reached the write seam within 10s")
+	}
 
 	// The same request the earlier test makes, now while a write is in flight. With the outer
 	// check it answers immediately; without it, it waits for `release`.
