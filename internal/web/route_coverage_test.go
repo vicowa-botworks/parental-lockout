@@ -225,41 +225,196 @@ func TestTheRouteScanSeesWhatAServerCouldWrite(t *testing.T) {
 	}
 }
 
-// assignedOnlyInTests reports whether every assignment to a Server field happens in a
-// _test.go file. It is what licenses a source-based route guard at all.
+// fieldIsTestOnly reports whether every write to a Server field happens in a _test.go
+// file, and names every file that writes it. It is what licenses a source-based route
+// guard at all, so it is the one scan in this file where a quiet answer is the worst
+// possible answer.
 func fieldIsTestOnly(t *testing.T, field string) (bool, []string) {
 	t.Helper()
 	fset := token.NewFileSet()
-	// Deliberately includes the test files this time: the question is where assignments live,
+	// Deliberately includes the test files this time: the question is where writes live,
 	// and excluding them is the whole answer.
 	dir, err := parser.ParseDir(fset, ".", nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("the package cannot be parsed: %v", err)
 	}
-	var production []string
+	var written []string
 	for _, pkg := range dir {
-		for name, file := range pkg.Files {
-			ast.Inspect(file, func(n ast.Node) bool {
-				as, ok := n.(*ast.AssignStmt)
-				if !ok {
-					return true
-				}
-				for _, lhs := range as.Lhs {
+		written = append(written, fieldWrites(pkg.Files, field)...)
+	}
+	sort.Strings(written)
+	for _, f := range written {
+		if !strings.HasSuffix(f, "_test.go") {
+			return false, written
+		}
+	}
+	return true, written
+}
+
+// fieldWrites names every file that writes a struct field.
+//
+// Two spellings write a field, and only one of them is an assignment:
+//
+//	s.extraRoutes = f         an AssignStmt with a SelectorExpr on the left
+//	&Server{extraRoutes: f}   a CompositeLit key, which is not a statement at all
+//
+// The second is how a Server is built, so a scan that reads assignments alone reports the
+// field as test-only while production sets it in a constructor -- and the guard that
+// licenses the route scan is exactly where that answer must not be trusted. Both spellings
+// are collected, and TestTheFieldScanSeesBothWaysOfWritingAField proves it against sources
+// the real package does not contain.
+//
+// The scan is package-local. For extraRoutes that is a boundary and not a hole: the field
+// is unexported, so no package outside this one can write it at all, and which file in this
+// package does is precisely what this returns. What the licence therefore proves is WHO may
+// add a route. It does not prove what the registered function does -- a route registered by
+// a function defined in another package is invisible to registeredRoutes -- which is why the
+// failure text below says "written", not "registered", and why a production write to this
+// field needs a second look rather than only a passing guard.
+func fieldWrites(files map[string]*ast.File, field string) []string {
+	var written []string
+	seen := map[string]bool{}
+	report := func(name string) {
+		if !seen[name] {
+			seen[name] = true
+			written = append(written, name)
+		}
+	}
+	for name, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.AssignStmt:
+				for _, lhs := range x.Lhs {
 					sel, ok := lhs.(*ast.SelectorExpr)
 					if ok && sel.Sel.Name == field {
-						production = append(production, name)
+						report(name)
 					}
 				}
-				return true
-			})
-		}
+			case *ast.CompositeLit:
+				if !isServerLiteral(x) {
+					return true
+				}
+				for _, elt := range x.Elts {
+					kv, ok := elt.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					key, ok := kv.Key.(*ast.Ident)
+					if ok && key.Name == field {
+						report(name)
+					}
+				}
+			}
+			return true
+		})
 	}
-	for _, f := range production {
-		if !strings.HasSuffix(f, "_test.go") {
-			return false, production
-		}
+	return written
+}
+
+// isServerLiteral reports whether a composite literal builds a Server.
+//
+// A literal with no written type counts as one. That is the inner element of something like
+// []*Server{{extraRoutes: f}}, where the type is implied by the enclosing literal and the
+// node alone does not say what it builds. Guessing "not a Server" would be the quiet answer
+// again; guessing "Server" costs a loud test failure naming a file, which is the direction
+// this file always picks.
+func isServerLiteral(lit *ast.CompositeLit) bool {
+	switch t := lit.Type.(type) {
+	case nil:
+		return true
+	case *ast.Ident:
+		return t.Name == "Server"
+	case *ast.StarExpr:
+		id, ok := t.X.(*ast.Ident)
+		return ok && id.Name == "Server"
+	case *ast.SelectorExpr:
+		// web.Server, which is how the external test package spells it.
+		return t.Sel.Name == "Server"
 	}
-	return true, production
+	return false
+}
+
+// TestTheFieldScanSeesBothWaysOfWritingAField pins the licence the route guard runs under.
+//
+// The guard's own pass is not evidence here: extraRoutes is written only in test files
+// today, so a scan that sees one of the two spellings still reports "test only" and stays
+// green. Every case that must be caught is therefore a shape this package does not have,
+// fed through the same function -- the collectRegistrations precedent, for the same reason:
+// a branch nothing exercises is a branch that can be deleted, and the deletion looks like a
+// passing suite.
+func TestTheFieldScanSeesBothWaysOfWritingAField(t *testing.T) {
+	cases := []struct {
+		name     string
+		filename string
+		src      string
+		want     bool
+	}{
+		{
+			name:     "an assignment in a production file",
+			filename: "prod.go",
+			src:      "package web\n\nfunc probe(s *Server) { s.extraRoutes = func(m any) {} }\n",
+			want:     true,
+		},
+		{
+			// The reviewer's probe: a composite literal, which is no kind of statement.
+			name:     "a composite literal in a production file",
+			filename: "prod.go",
+			src:      "package web\n\nfunc probe() *Server { return &Server{extraRoutes: nil} }\n",
+			want:     true,
+		},
+		{
+			name:     "the same field written through a slice element, where the literal has no type",
+			filename: "prod.go",
+			src:      "package web\n\nfunc probe() { _ = []*Server{{extraRoutes: nil}} }\n",
+			want:     true,
+		},
+		{
+			name:     "the same literal in a test file, which is licensed",
+			filename: "prod_test.go",
+			src:      "package web\n\nfunc probe() *Server { return &Server{extraRoutes: nil} }\n",
+			want:     false,
+		},
+		{
+			// Control: the scan keys on the TYPE as well as the field name, or every struct
+			// literal in the package with a same-named field would be reported.
+			name:     "a different type's field of the same name",
+			filename: "prod.go",
+			src: "package web\n\ntype other struct{ extraRoutes int }\n\n" +
+				"func probe() *other { return &other{extraRoutes: 1} }\n",
+			want: false,
+		},
+		{
+			// Control for the other direction: a read is not a write.
+			name:     "reading the field is not writing it",
+			filename: "prod.go",
+			src: "package web\n\nfunc probe(s *Server) {\n\tif s.extraRoutes != nil {\n" +
+				"\t\ts.extraRoutes(nil)\n\t}\n}\n",
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, tc.filename, tc.src, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatalf("the synthetic source does not parse: %v", err)
+			}
+			written := fieldWrites(map[string]*ast.File{tc.filename: f}, "extraRoutes")
+			inProduction := false
+			for _, name := range written {
+				if !strings.HasSuffix(name, "_test.go") {
+					inProduction = true
+				}
+			}
+			if inProduction != tc.want {
+				t.Errorf("fieldWrites reported %v for %s, want it to %s a production write",
+					written, tc.filename, map[bool]string{
+						true: "find", false: "ignore",
+					}[tc.want])
+			}
+		})
+	}
 }
 
 // concretePath turns a registered pattern into a path a request can use.
@@ -302,7 +457,7 @@ func TestEveryRegisteredRouteIsEitherListedOrRefused(t *testing.T) {
 	// extraRoutes is a real second way onto the router, and it is a field a production
 	// caller could set.
 	if onlyTests, files := fieldIsTestOnly(t, "extraRoutes"); !onlyTests {
-		t.Errorf("extraRoutes is assigned outside the test files (%s), so routes can now be "+
+		t.Errorf("extraRoutes is written outside the test files (%s), so routes can now be "+
 			"registered at run time and this source scan can no longer see every route. #75's "+
 			"guard needs a different mechanism, not a quieter test.", strings.Join(files, ", "))
 	}

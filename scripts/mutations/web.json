@@ -966,7 +966,39 @@
       "file": "internal/web/route_coverage_test.go",
       "old": "\tif onlyTests, files := fieldIsTestOnly(t, \"extraRoutes\"); !onlyTests {\n",
       "new": "\tif onlyTests, files := fieldIsTestOnly(t, \"extraRoutes\"); onlyTests {\n",
-      "note": "the premise of a source-based route guard inverted. extraRoutes is a real second way onto the router and it is assigned only in tests today, which is the only reason reading the source is enough; the moment a production caller sets it, this guard is coverage theatre and needs a different mechanism. Inverted, it reports that fact on the current tree and stays silent on the tree where it matters."
+      "note": "the premise of a source-based route guard inverted. extraRoutes is a real second way onto the router and it is written, by either spelling, only in tests today, which is the only reason reading the source is enough; the moment a production caller sets it, this guard is coverage theatre and needs a different mechanism. Inverted, it reports that fact on the current tree and stays silent on the tree where it matters."
+    },
+    {
+      "id": "W134",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\t\t\tif !isServerLiteral(x) {\n",
+      "new": "\t\t\t\tif true || !isServerLiteral(x) {\n",
+      "note": "the composite-literal half of the field scan never collects. This is the reviewer's demonstration: `&Server{extraRoutes: f}` writes the field and is not a statement, so a scan that reads only AssignStmts reports the field as test-only while production sets it in a constructor, and the guard that licenses the whole route scan says so with a clear conscience. The synthetic case for this shape is the only thing that can catch it, because extraRoutes is written by neither spelling outside the tests today."
+    },
+    {
+      "id": "W135",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\tcase nil:\n\t\treturn true\n",
+      "new": "\tcase nil:\n\t\treturn false\n",
+      "note": "an untyped composite literal is guessed 'not a Server'. That is the inner element of `[]*Server{{extraRoutes: f}}`, where the type is implied by the enclosing literal and the node alone does not say what it builds. Guessing is the quiet answer again; the cost of guessing the other way is a loud failure naming a file."
+    },
+    {
+      "id": "W136",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\tcase *ast.Ident:\n\t\treturn t.Name == \"Server\"\n",
+      "new": "\tcase *ast.Ident:\n\t\treturn t.Name != \"\"\n",
+      "note": "the literal's TYPE stops being checked and any struct literal with a same-named field counts as a write. Caught by the guard's own negative control, which is the only case that can see it: a scan that reports everything passes every positive assertion in the file, exactly as a scan that reports nothing does."
+    },
+    {
+      "id": "W137",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif ok && sel.Sel.Name == field {\n",
+      "new": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif false && ok && sel.Sel.Name == field {\n",
+      "note": "the assignment half stops collecting, which is the half that worked before this change and the half the original guard was written against. Kept as the pair to W134: the claim is that BOTH spellings are collected, and a claim about two things needs one mutant per thing."
     }
   ]
 }
