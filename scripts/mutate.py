@@ -155,10 +155,7 @@ def run_set(path, label):
         r = run_suite(mpkg)
         out = r.stdout + r.stderr
 
-        # An entry marked equivalent always yields a note string, even an empty one:
-        # None is what tells verdict() this mutant was not marked, so a marked entry
-        # that forgot its note must not fall through and be reported SURVIVED.
-        note = m.get("note", "") if m.get("equivalent") else None
+        note = equivalence_note(m)
         kind, detail = verdict(out, r.returncode, note)
         print(f"{VERDICT_TAG[kind]}{label}{detail}")
         tally[kind] += 1
@@ -188,6 +185,22 @@ VERDICT_TAG = {
     "invalid": "INVALID    ",
     "equivalent": "EQUIVALENT ",
 }
+
+
+def equivalence_note(m):
+    """The equivalence note for a set entry, or None when the entry is not marked.
+
+    None is the ONLY value that means "not marked", so a marked entry yields a string
+    even when its note is missing, empty, or written as JSON null. Falling through to
+    None would report a green run as SURVIVED, which reads as a gap in the tests rather
+    than as the typo in the set that it is.
+
+    `m.get("note", "")` is not enough for that: it defaults only when the key is
+    ABSENT, and `"equivalent": true, "note": null` arrives as None with the key present.
+    """
+    if not m.get("equivalent"):
+        return None
+    return m.get("note") or ""
 
 
 def verdict(out, rc, note=None):
@@ -251,9 +264,26 @@ def self_test():
                               "\trunning tests:\n"
                               "\t\tTestTwoOverlappingMutationsDoNotLoseOne (40s)\n"
                               "FAIL\tgithub.com/vicowa-botworks/parental-lockout/internal/web\t40.2s\n")
+    # A link failure is go's other way to produce a non-zero run with no test in it:
+    # `[setup failed]` instead of `[build failed]`. Both mean nothing ran, and the rule
+    # tests for two markers, so a fixture for one of them pins half the guard.
+    setup = ("# github.com/vicowa-botworks/parental-lockout/internal/web\n"
+             "internal/web/audit.go:12:2: package plock/missing is not in std\n"
+             "FAIL\tgithub.com/vicowa-botworks/parental-lockout/internal/web [setup failed]\n")
+    # A panic that is not a timeout. This is the fixture that pins STALL's exactness:
+    # loosening the prefix to "panic:" turns this run into a stall report for a hang that
+    # does not exist, and the suite would still be green without it.
+    plain_panic = ("panic: runtime error: index out of range [3] with length 2\n"
+                   "FAIL\tgithub.com/vicowa-botworks/parental-lockout/internal/web\t4.2s\n")
+    # Non-zero, no stall, no `--- FAIL:` line, and no panic either: the package noticed
+    # something without naming what. This is the fallback row on its own, so it stays
+    # covered even if the panic shape above stops being the way go reports one.
+    unnamed = ("FAIL\tgithub.com/vicowa-botworks/parental-lockout/internal/web\t4.2s\n"
+               "exit status 2\n")
 
     cases = [
-        # (name, output, exit status, equivalent note, expected kind, must contain)
+        # (name, output, exit status, equivalent note, expected kind, must contain,
+        #  optional: must NOT contain)
         ("a green suite survives", green, 0, None, "survived", ""),
         ("a failing test catches", caught, 1, None, "caught",
          "TestAMachineWithNoCredentialSaysThatRatherThanWrongPassword"),
@@ -272,23 +302,82 @@ def self_test():
         # The control: the stall rule must not swallow a genuine catch.
         ("a stall does not outrun a real failure", stalled_after_failures, 1, None,
          "caught", ""),
+        # The other direction of the same control: a panic that is not a timeout is a
+        # mutant the suite noticed, and it stays a catch only while STALL is matched as
+        # precisely as it is written.
+        ("a panic that is not a timeout is still a catch", plain_panic, 2, None,
+         "caught", "by a test", "timed out"),
+        ("a setup failure is not a catch either", setup, 1, None, "invalid",
+         "did not compile"),
+        # The fallback row: caught with no test named. Without a case here the "a test"
+        # wording could be deleted and nothing would notice.
+        ("a non-zero run naming no test is still a catch", unnamed, 1, None,
+         "caught", "by a test"),
+        # A marked entry whose note is JSON null must reach verdict() as a string, or it
+        # reports SURVIVED on a green run. equivalence_note() is what makes that true, and
+        # this is the end-to-end half of the claim.
+        ("a marked entry with a null note is still equivalent", green, 0,
+         equivalence_note({"equivalent": True, "note": None}), "equivalent", "no note"),
     ]
 
     bad = []
-    for name, out, rc, note, want, needle in cases:
+    checked = 0
+    for name, out, rc, note, want, needle, *rest in cases:
+        checked += 1
+        absent = rest[0] if rest else None
         kind, detail = verdict(out, rc, note)
         if kind != want:
             bad.append(f"{name}: got {kind!r}, want {want!r}")
         elif needle and needle not in detail:
             bad.append(f"{name}: detail {detail!r} does not mention {needle!r}")
+        elif absent and absent in detail:
+            bad.append(f"{name}: detail {detail!r} says {absent!r}, which this case "
+                       f"exists to rule out")
         if kind not in VERDICT_TAG:
             bad.append(f"{name}: kind {kind!r} has no report label")
+
+    # Which value counts as "marked" is a rule of its own, and it is the one a typo in a
+    # set hits. Checked here rather than left to the case above, so each spelling is named.
+    for name, entry, want in [
+        ("unmarked", {"id": "X"}, None),
+        ("marked with a note", {"equivalent": True, "note": "probe is wider"},
+         "probe is wider"),
+        ("marked with no note key", {"equivalent": True}, ""),
+        ("marked with a null note", {"equivalent": True, "note": None}, ""),
+        ("marked with an empty note", {"equivalent": True, "note": ""}, ""),
+        ("marked by a prose proof", {"equivalent": "proved in a scratch file",
+                                     "note": None}, ""),
+        ("explicitly not marked", {"equivalent": False, "note": "stale"}, None),
+    ]:
+        checked += 1
+        got = equivalence_note(entry)
+        if got != want:
+            bad.append(f"equivalence_note {name}: got {got!r}, want {want!r}")
+
+    # The report is a fixed column, and "the tally is read from it" is the reason this
+    # change claims the output is unchanged. Narrowing a label to "CAUGHT" keeps every
+    # verdict assertion green and moves every line in the report, so the width is pinned
+    # rather than trusted to the strings being left alone.
+    checked += 1
+    for kind, tag in sorted(VERDICT_TAG.items()):
+        if len(tag) != 11:
+            bad.append(f"VERDICT_TAG[{kind!r}] = {tag!r} is {len(tag)} wide, want 11 "
+                       f"(the report's column)")
+
+    # Every label must be reachable, or a verdict could print `None` mid-line.
+    checked += 1
+    for kind in ("caught", "survived", "invalid", "equivalent"):
+        if kind not in VERDICT_TAG:
+            bad.append(f"verdict kind {kind!r} has no report label")
     if bad:
         print("self-test FAILED:")
         for b in bad:
             print(f"  - {b}")
         return 1
-    print(f"self-test: {len(cases)} verdict rules hold")
+    # Counted, not derived from len(cases): the number is a claim about how much was
+    # tested, and a count that silently under-reports the rules below it is the same
+    # species of error the rules themselves are here to prevent.
+    print(f"self-test: {checked} verdict rules hold")
     return 0
 
 
