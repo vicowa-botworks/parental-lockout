@@ -3,8 +3,15 @@ name: CI
 on:
   push:
     branches: [main]
+  # Deliberately unfiltered. GitHub evaluates `pull_request.branches` against the pull
+  # request's BASE branch, and a stacked PR's base is a feature branch — so a `branches:
+  # [main]` filter here means the gate silently runs on none of them. Measured on this
+  # repo: heads e321066 and f2113e4 (both stacked at the time) have zero check runs, while
+  # the same PR #69 gained its two checks the moment GitHub retargeted its base to main
+  # (#85). Stacked branches are also where the risk is highest, because the base is
+  # unmerged and nothing has compiled the reviewed diff on a clean runner. Do not restore
+  # the filter as an optimisation: CI running on a stacked PR is the fix, not the cost.
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
