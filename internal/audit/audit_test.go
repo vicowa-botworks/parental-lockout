@@ -598,14 +598,19 @@ func TestRotationUnderConcurrencyNeverFailsOrTearsALine(t *testing.T) {
 	}
 }
 
-// The rule's human name has to survive the trip to disk.
+// The rule's human name has to survive the trip to disk and back.
 //
-// Record carries RuleName and so does the serialised line, but nothing read it back
-// until this test: dropping the field from the serialiser's field list compiles, and
-// every other test stays green, because Record still holds the value in memory. The
-// loss is only visible in the file, which is the only place anyone will ever look for
-// it. RuleID alone answers "which rule" with an opaque key; RuleName is the half a
-// parent recognises, and the engine computes both for exactly this reason.
+// Two separate losses are possible and this test now pins both. Dropping the field from
+// the serialiser's field list compiles, and Record still holds the value in memory, so the
+// loss is only visible in the file. Dropping it from decodeRecord's field list also
+// compiles, and is invisible even in the file -- which is the one this test used to miss.
+// Its last line used to parse with readLines, which unmarshals into `line`, the wire
+// struct, so it asserted the wire shape twice and never once asked the reader for a
+// Record. The comment below it claimed "nothing read it back until this test"; that claim
+// was false, and issue #81 is the bug it let through.
+//
+// RuleID alone answers "which rule" with an opaque key; RuleName is the half a parent
+// recognises, and the engine computes both for exactly this reason.
 func TestRuleNameReachesTheTrail(t *testing.T) {
 	w, path, _ := newWriter(t)
 
@@ -635,6 +640,20 @@ func TestRuleNameReachesTheTrail(t *testing.T) {
 	got := readLines(t, path)
 	if got[0].RuleName != "School week" {
 		t.Errorf("parsed RuleName = %q, want %q", got[0].RuleName, "School week")
+	}
+
+	// And through the reader, which is the only path anything on the dashboard takes.
+	// Without this half the test above is a check on the writer wearing a reader's name.
+	tail, err := (&Reader{Path: path}).Tail(1)
+	if err != nil {
+		t.Fatalf("reading the trail back: %v", err)
+	}
+	if len(tail.Records) != 1 {
+		t.Fatalf("the reader returned %d records, want 1", len(tail.Records))
+	}
+	if tail.Records[0].RuleName != "School week" {
+		t.Errorf("RuleName read back through the reader = %q, want %q: the value is on disk, "+
+			"so this is decodeRecord dropping it", tail.Records[0].RuleName, "School week")
 	}
 }
 

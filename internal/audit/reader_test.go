@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -93,6 +94,7 @@ func TestTailRoundTripsEveryField(t *testing.T) {
 		Username:  "kid",
 		SessionID: "2",
 		RuleID:    "schoolnight",
+		RuleName:  "School week",
 		Detail:    "changed",
 		Actor:     "web:admin",
 		Old:       json.RawMessage(`{"enabled":true}`),
@@ -110,6 +112,23 @@ func TestTailRoundTripsEveryField(t *testing.T) {
 		t.Fatalf("got %d records", len(got.Records))
 	}
 	r := got.Records[0]
+
+	// Every field of Record has to come back, and this loop is what makes that claim
+	// instead of the list below. The list is the one that failed: it was written when
+	// Record had nine fields, stayed green when a tenth was added, and stayed green while
+	// decodeRecord dropped it -- because a field the fixture never sets cannot be observed
+	// missing. Reflecting over the struct means the next field added to Record has to be
+	// put in the fixture on purpose, and a field decodeRecord forgets to copy fails here
+	// even though it compiles.
+	rv := reflect.ValueOf(r)
+	for i := 0; i < rv.NumField(); i++ {
+		if rv.Field(i).IsZero() {
+			t.Errorf("%s came back zero: either this fixture does not set it or decodeRecord "+
+				"does not copy it, and a field dropped there is a value that reaches the disk "+
+				"and never comes back", reflect.TypeOf(r).Field(i).Name)
+		}
+	}
+
 	for _, c := range []struct {
 		name, got, want string
 	}{
@@ -117,6 +136,7 @@ func TestTailRoundTripsEveryField(t *testing.T) {
 		{"Username", r.Username, "kid"},
 		{"SessionID", r.SessionID, "2"},
 		{"RuleID", r.RuleID, "schoolnight"},
+		{"RuleName", r.RuleName, "School week"},
 		{"Detail", r.Detail, "changed"},
 		{"Actor", r.Actor, "web:admin"},
 	} {
