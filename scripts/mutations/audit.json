@@ -366,6 +366,13 @@
       "old": "SessionID: r.SessionID, RuleID: r.RuleID, RuleName: r.RuleName,",
       "new": "SessionID: r.SessionID, RuleID: r.RuleID,",
       "note": "RuleName dropped from the serialised line: Record still carries it, so every compile stays green and the trail quietly loses the only half of 'which rule' a parent can read -- RuleID survives a rename but names nothing a human recognises"
+    },
+    {
+      "id": "A56",
+      "file": "internal/audit/posix.go",
+      "old": "os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK",
+      "new": "os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_TRUNC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK",
+      "note": "the trail is truncated when the daemon restarts. O_APPEND makes 'append to what is already there' the whole contract of this open, and a supervisor restart is the normal case, not the rare one: the second process erases one record from the middle of the retained trail (rotation has already shifted the older ones aside, so it is a hole rather than a shortened file) and nothing about the newest line looks wrong. Ticket #13's 'survives daemon restart' criterion, pinned by TestTheTrailSurvivesARestartAndRotationWithoutLosingARetainedLine"
     }
   ]
 }
