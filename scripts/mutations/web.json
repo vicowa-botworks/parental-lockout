@@ -694,9 +694,9 @@
     {
       "id": "W95",
       "file": "internal/web/profiles.go",
-      "old": "\tif isBlockingRefusal(err) {",
-      "new": "\tif false && isBlockingRefusal(err) {",
-      "note": "the refusal that names the blocking accounts falls through to the 404 branch, so the operator is told the profile does not exist instead of who is holding it"
+      "old": "\t\tcase errors.Is(err, config.ErrProfileInUse):",
+      "new": "\t\tcase false && errors.Is(err, config.ErrProfileInUse):",
+      "note": "the in-use refusal stops matching, so the operator is told the profile could not be deleted (503, retry again) instead of who is holding it -- the answer they could act on. Re-pointed from `isBlockingRefusal(err)`, which this commit deleted: the meaning is the same, the branch it used to fall into is now the default rather than a 404."
     },
     {
       "id": "W96",
@@ -867,6 +867,43 @@
       "old": "\tengine.Logf = log\n",
       "new": "",
       "note": "the engine keeps enforce.New's default logger instead of the sink serve was given. Nothing breaks loudly: the daemon runs, and the two lines an operator needs when enforcement quietly stopped -- a tick that fell behind, a config that would not reload -- go to the process's stderr instead of the configured sink, so a redirect misses them. TestServeHandsTheEngineItsLogSink."
+    },
+    {
+      "id": "W105",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tcase errors.Is(err, config.ErrNoSuchProfile):",
+      "new": "\t\tcase false && errors.Is(err, config.ErrNoSuchProfile):",
+      "note": "an absent profile stops being recognised, so it lands in the default branch and answers 503 'the profile could not be deleted' -- retryable-looking, when retrying can never help. TestDeletingAProfileThatDoesNotExistIsNotFound."
+    },
+    {
+      "id": "W106",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, \"there is no profile with that id\")",
+      "new": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, err.Error())",
+      "note": "the 404 goes back to echoing the error, which puts request-supplied text (the profile id comes from the URL) into the response body. This is the shape that let a hostile id state a falsehood about enforcement. TestAHostileProfileIDCannotChooseWhichRefusalFires."
+    },
+    {
+      "id": "W107",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\ts.mutateRefused(w, r, \"the profile could not be deleted\", err)",
+      "new": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, err.Error())",
+      "note": "the finding the reviewer measured: a seam failure (read-only mount, full disk, corrupt config) reported as 'no such profile' with the raw error echoed. TestASeamFailureIsNotReportedAsAMissingProfile."
+    },
+    {
+      "id": "W108",
+      "package": "./internal/config/",
+      "file": "internal/config/edit.go",
+      "old": "\t\treturn fmt.Errorf(\"config: %w to %s; %s\", ErrProfileInUse, quotedList(blocked), verb)",
+      "new": "\t\treturn fmt.Errorf(\"config: profile is still assigned to %s; %s\", quotedList(blocked), verb)",
+      "note": "the in-use refusal stops carrying its sentinel. The wording is unchanged, so nothing fails until a caller tries to tell this refusal from a disk failure: the web layer's errors.Is misses and a correct refusal is answered 503. Caught at the layer that owns the contract by TestTheTwoDeletionRefusalsCarryTheirSentinels; the web-side consequence is pinned by W105 and W107, which mutate the branches themselves."
+    },
+    {
+      "id": "W109",
+      "package": "./internal/config/",
+      "file": "internal/config/edit.go",
+      "old": "\t\treturn fmt.Errorf(\"config: %w %q\", ErrNoSuchProfile, id)",
+      "new": "\t\treturn fmt.Errorf(\"config: no profile %q\", id)",
+      "note": "same shape on the other refusal: the wording is unchanged, the identity is gone. TestTheTwoDeletionRefusalsCarryTheirSentinels, plus TestAMissingProfileNamesTheIDItCouldNotFind for the id the CLI prints."
     }
   ]
 }

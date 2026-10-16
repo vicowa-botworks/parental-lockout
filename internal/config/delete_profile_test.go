@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,52 @@ func TestBlockingNamesAreQuoted(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, `"mary jane"`) {
 		t.Errorf("a name containing a space is not quoted, so it reads as two names; message: %s", msg)
+	}
+}
+
+// The two refusals carry identities, not just wording.
+//
+// This is the contract the web layer branches on, and it is the reason the message-matching
+// check was deleted: the profile id arrives from a URL and is interpolated into these very
+// sentences, so a Contains check on the fixed part could be steered by the request. Pinning
+// errors.Is here, at the layer that owns the sentinels, means a caller three packages away does
+// not have to re-derive the distinction from a status code.
+func TestTheTwoDeletionRefusalsCarryTheirSentinels(t *testing.T) {
+	c := valid()
+	c.UpsertUser(User{Username: "casey", ProfileID: "schoolnight", Enabled: true})
+
+	if err := c.DeleteProfile("schoolnight"); !errors.Is(err, ErrProfileInUse) {
+		t.Errorf("an in-use refusal does not carry ErrProfileInUse; got %v", err)
+	}
+	if err := c.DeleteProfile("never-existed"); !errors.Is(err, ErrNoSuchProfile) {
+		t.Errorf("an absent profile does not carry ErrNoSuchProfile; got %v", err)
+	}
+
+	// The two must not be confusable, and neither may be mistaken for a validation refusal --
+	// the web layer answers ErrInvalid with "change what you typed" and these with a status
+	// that says the document simply does not have that row.
+	if err := c.DeleteProfile("schoolnight"); errors.Is(err, ErrNoSuchProfile) {
+		t.Errorf("an in-use refusal also reads as a missing profile: %v", err)
+	}
+	if err := c.DeleteProfile("never-existed"); errors.Is(err, ErrProfileInUse) {
+		t.Errorf("a missing profile also reads as in use: %v", err)
+	}
+	for _, err := range []error{c.DeleteProfile("schoolnight"), c.DeleteProfile("never-existed")} {
+		if errors.Is(err, ErrInvalid) {
+			t.Errorf("a deletion refusal was reported as a validation failure: %v", err)
+		}
+	}
+}
+
+// The id still appears in the message. Wrapping the sentinel is easy to do in a way that drops
+// it, and the CLI prints this string verbatim -- `plock profile rm schol` with a typo has to
+// say which name it could not find.
+func TestAMissingProfileNamesTheIDItCouldNotFind(t *testing.T) {
+	err := valid().DeleteProfile("schol")
+	if err == nil {
+		t.Fatal("expected a refusal")
+	}
+	if !strings.Contains(err.Error(), "schol") {
+		t.Errorf("the id the operator typed is not in the message: %s", err)
 	}
 }
