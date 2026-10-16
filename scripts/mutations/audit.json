@@ -373,6 +373,20 @@
       "old": "os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK",
       "new": "os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_TRUNC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK",
       "note": "the trail is truncated when the daemon restarts. O_APPEND makes 'append to what is already there' the whole contract of this open, and a supervisor restart is the normal case, not the rare one: the second process erases one record from the middle of the retained trail (rotation has already shifted the older ones aside, so it is a hole rather than a shortened file) and nothing about the newest line looks wrong. Ticket #13's 'survives daemon restart' criterion, pinned by TestTheTrailSurvivesARestartAndRotationWithoutLosingARetainedLine"
+    },
+    {
+      "id": "A57",
+      "file": "internal/audit/reader.go",
+      "old": "\t\tRuleName: wire.RuleName,\n",
+      "new": "",
+      "note": "issue #81, the bug that shipped: decodeRecord copies line into Record field by field and left RuleName out, so a rule name reaches the disk and never comes back. It compiles and the writer keeps writing the field, so the file is correct and only the read is blind. Two independent things catch it -- the completeness loop in TestTailRoundTripsEveryField, which reflects over Record and so catches the NEXT field a copy forgets as well, and the explicit reader assertion in TestRuleNameReachesTheTrail, which is the one that catches a wrong value rather than a missing one (see A58). The loop alone would have been enough for this mutant, and not enough for that one"
+    },
+    {
+      "id": "A58",
+      "file": "internal/audit/reader.go",
+      "old": "\t\tRuleName: wire.RuleName,",
+      "new": "\t\tRuleName: wire.Detail,",
+      "note": "the copy is present but reads the wrong field, so every field of Record comes back non-zero and the completeness loop passes while the page shows a rule called 'changed'. This mutant exists to keep the guard honest: a loop that only asks whether a field arrived cannot see a field that arrived with someone else's value, so the explicit per-field assertions in TestTailRoundTripsEveryField and TestRuleNameReachesTheTrail are load-bearing and not redundant with it"
     }
   ]
 }

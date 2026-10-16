@@ -317,10 +317,17 @@ func decodeRecord(raw []byte) (Record, error) {
 		Username:  wire.Username,
 		SessionID: wire.SessionID,
 		RuleID:    wire.RuleID,
-		Detail:    wire.Detail,
-		Actor:     wire.Actor,
-		Old:       wire.Old,
-		New:       wire.New,
+		// RuleName was missing from this literal, and the omission is why the copy is now
+		// checked for completeness rather than trusted: a field added to Record and to
+		// line has to be added a third time here, and a field missing here is a value that
+		// reaches the disk and never comes back. It compiles, and every test that parses
+		// the wire shape instead of a Record stays green -- which is exactly how this one
+		// shipped. TestTailRoundTripsEveryField is the guard.
+		RuleName: wire.RuleName,
+		Detail:   wire.Detail,
+		Actor:    wire.Actor,
+		Old:      wire.Old,
+		New:      wire.New,
 	}, nil
 }
 
