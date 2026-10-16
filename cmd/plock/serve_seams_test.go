@@ -28,7 +28,7 @@ func TestServeWiresEverySeamThePagesRead(t *testing.T) {
 	}
 	chain, _ := platform.New(cfg.Settings, platform.ExecRunner{})
 
-	srv, err := serveServer(cfg, chain, users.Source{}, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+	srv, err := serveServer(cfg, chain, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestTheServedConfigSourceReReadsTheFileTheOperatorNamed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	srv, err := serveServer(cfg, nil, users.Source{}, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
+	srv, err := serveServer(cfg, nil, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), context.Background(), os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestTheServedSessionSourceIsTheOneThatWasGiven(t *testing.T) {
 		{ID: "2", Class: "user", UID: 1500, Seat: "seat0", Type: "x11", State: "active"},
 		{ID: "c1", Class: "greeter", UID: 1500, Seat: "seat0", Type: "unspecified", State: "active"},
 	}}
-	srv, err := serveServer(cfg, src, users.Source{}, path, filepath.Join(dir, "state"), ctx, os.Stdout, os.Stderr)
+	srv, err := serveServer(cfg, src, users.Source{}, platform.SelfLocation{}, path, filepath.Join(dir, "state"), ctx, os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("serveServer: %v", err)
 	}

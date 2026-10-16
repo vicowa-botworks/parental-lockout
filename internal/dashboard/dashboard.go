@@ -123,7 +123,8 @@ type View struct {
 	SessionsKnown bool
 
 	// NotEnforcing counts rows that are scheduled to be held and are not — the master
-	// switch, or an override, or a profile that could not be read.
+	// switch, or an override, or a profile that could not be read, or the daemon
+	// declining to lock the session it is running inside.
 	NotEnforcing int
 
 	// Banner is the one-sentence statement of what will happen and when.
@@ -144,7 +145,17 @@ type View struct {
 // cfg is read, never mutated, and the rows copy what they need out of it. The
 // config store is copy-on-write, so a View taken from a document keeps naming the
 // rules that document had.
-func Build(cfg *config.Config, sessions []platform.Session, now time.Time) View {
+//
+// self is where the daemon is running, and it is a parameter for the same reason the
+// engine takes one: the answer comes from the host's /proc, and a view that read it
+// itself would render differently on a desktop and on a headless runner. Its zero
+// value is the supported deployment, in which nothing is declined.
+//
+// It has to be here at all because the enforcement loop declines to lock the session
+// it is running inside. Without it this page announces "casey is locked out until
+// 20:00" about a child sitting at an unlocked screen, which is the fail-open reading
+// of a row and the one this page exists to prevent.
+func Build(cfg *config.Config, sessions []platform.Session, self platform.SelfLocation, now time.Time) View {
 	v := View{Now: now, SessionsKnown: true}
 	// A caller that could not read the sessions says so by clearing this after the
 	// call; an empty list that arrived normally is knowledge, not ignorance, and must
@@ -217,6 +228,18 @@ func Build(cfg *config.Config, sessions []platform.Session, now time.Time) View 
 			r.ScheduledButNotEnforcing = verdict.Active
 		case !v.EnforcementOn:
 			r.ScheduledButNotEnforcing = verdict.Active
+		case declined(self, r.Sessions):
+			// The engine will not lock this account, so the schedule is not being
+			// enforced whatever the verdict says. Reported on the row and not only in
+			// the count, because the fix — run plock as a system service — is not
+			// something a parent can infer from "not locked out".
+			r.ScheduledButNotEnforcing = verdict.Active
+			if verdict.Active {
+				r.Problems = append(r.Problems,
+					"this account owns the login session the daemon is running in, so locking it "+
+						"would lock the screen the daemon is stopped from: it is not being locked "+
+						"out. Run plock as a system service (deploy/plock.service) to enforce it")
+			}
 		default:
 			r.LockedOutNow = verdict.Active
 		}
@@ -235,6 +258,28 @@ func Build(cfg *config.Config, sessions []platform.Session, now time.Time) View 
 	}
 	v.Banner = v.banner()
 	return v
+}
+
+// declined reports whether every session this account has on the machine is one the
+// daemon will not lock.
+//
+// All of them, not any: the engine locks session by session, so an account with a
+// second session somewhere else is still being held and saying otherwise would be a
+// false alarm about a child who is in fact locked out.
+//
+// An account with no session is not declined. There is nothing to decline, which is
+// the case Build already reports from the schedule alone, and folding it in here
+// would mark every logged-out account as unenforced.
+func declined(self platform.SelfLocation, sessions []platform.Session) bool {
+	if len(sessions) == 0 {
+		return false
+	}
+	for i := range sessions {
+		if !self.Declines(sessions[i].UID) {
+			return false
+		}
+	}
+	return true
 }
 
 // applyOverride records the standing unlock, if there is one.

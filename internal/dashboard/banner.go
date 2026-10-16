@@ -39,7 +39,7 @@ func (v View) banner() string {
 			// whole -- "nobody is locked out right now; casey is back at 06:30" says
 			// nothing about the second row sitting scheduled and unenforced, which is
 			// precisely the thing this sentence must not hide.
-			return fmt.Sprintf("Nobody is locked out right now; %s is locked out again at %s. Meanwhile %s — an override, or a profile this page cannot read.",
+			return fmt.Sprintf("Nobody is locked out right now; %s is locked out again at %s. Meanwhile %s — an override, a profile this page cannot read, or the daemon declining to lock its own session.",
 				who, wallClock(next), unenforcedClause(v.NotEnforcing))
 		}
 		return fmt.Sprintf("Nobody is locked out right now; %s is locked out again at %s.", who, wallClock(next))
@@ -52,7 +52,7 @@ func (v View) banner() string {
 		// scheduled" would be the fail-open reading of a broken profile, and claiming
 		// "something is wrong" would alarm a parent who unlocked the child on purpose
 		// ten minutes ago.
-		return fmt.Sprintf("Nobody is locked out right now, but %s — an override, or a profile this page cannot read.", unenforcedClause(v.NotEnforcing))
+		return fmt.Sprintf("Nobody is locked out right now, but %s — an override, a profile this page cannot read, or the daemon declining to lock its own session.", unenforcedClause(v.NotEnforcing))
 	}
 
 	if len(v.Rows) == 0 {

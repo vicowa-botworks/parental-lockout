@@ -54,7 +54,7 @@ func row(t *testing.T, v View, name string) Row {
 // The premise of every other test here, checked rather than assumed: inside the
 // window with everything on, the account really is held.
 func TestInsideTheWindowTheAccountIsHeld(t *testing.T) {
-	v := Build(cfg(casey(true)), nil, insideWindow)
+	v := Build(cfg(casey(true)), nil, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	if !r.LockedOutNow {
 		t.Fatalf("an account inside its window with enforcement on is not held: %+v", r)
@@ -74,7 +74,7 @@ func TestInsideTheWindowTheAccountIsHeld(t *testing.T) {
 // start while the account is still held. A template that recomputed the end from
 // "06:30" would announce a release that has not happened.
 func TestEndsAtIsTheVerdictsOwnEnd(t *testing.T) {
-	v := Build(cfg(casey(true)), nil, insideWindow)
+	v := Build(cfg(casey(true)), nil, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	want := time.Date(2026, 3, 19, 6, 30, 0, 0, time.UTC)
 	if !r.EndsAt.Equal(want) {
@@ -91,7 +91,7 @@ func TestEndsAtIsTheVerdictsOwnEnd(t *testing.T) {
 func TestMasterSwitchOffIsNotReportedAsLockedOut(t *testing.T) {
 	c := cfg(casey(true))
 	c.Settings.Enforcement = false
-	v := Build(c, nil, insideWindow)
+	v := Build(c, nil, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	if r.LockedOutNow {
 		t.Error("the daemon will not touch this account, so it is not locked out by us")
@@ -113,7 +113,7 @@ func TestMasterSwitchOffIsNotReportedAsLockedOut(t *testing.T) {
 func TestBannerWithEnforcementOffSaysOnlyThat(t *testing.T) {
 	c := cfg(casey(true))
 	c.Settings.Enforcement = false
-	v := Build(c, nil, insideWindow)
+	v := Build(c, nil, platform.SelfLocation{}, insideWindow)
 	if !strings.Contains(v.Banner, "switched off") {
 		t.Errorf("banner = %q", v.Banner)
 	}
@@ -130,7 +130,7 @@ func TestAnOpenOverrideReleasesTheRow(t *testing.T) {
 		Username: "casey", Until: insideWindow.Add(30 * time.Minute),
 		Reason: "film night", By: "admin",
 	}}
-	v := Build(c, nil, insideWindow)
+	v := Build(c, nil, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	if r.LockedOutNow {
 		t.Error("an override is open, so the daemon is deliberately not holding this account")
@@ -154,7 +154,7 @@ func TestAnExpiredOverrideIsShownAsExpired(t *testing.T) {
 	c.Overrides = []config.Override{{
 		Username: "casey", Until: insideWindow.Add(-time.Minute), Reason: "film night",
 	}}
-	v := Build(c, nil, insideWindow)
+	v := Build(c, nil, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	if !r.OverrideExpired {
 		t.Error("the override ran out and the row says nothing about it")
@@ -174,7 +174,7 @@ func TestAnExpiredOverrideIsShownAsExpired(t *testing.T) {
 // set. The row has to refuse to answer rather than answer no.
 func TestAMissingProfileIsNotReportedAsNotLockedOut(t *testing.T) {
 	c := cfg(config.User{Username: "casey", ProfileID: "weekend", Enabled: true})
-	v := Build(c, nil, insideWindow)
+	v := Build(c, nil, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	if !r.CannotEvaluate {
 		t.Error("the row must say it could not be decided")
@@ -198,7 +198,7 @@ func TestAMissingProfileIsNotReportedAsNotLockedOut(t *testing.T) {
 func TestADegradedProfileIsReportedAlongsideItsVerdict(t *testing.T) {
 	c := cfg(casey(true))
 	c.Profiles[0].Timezone = "Not/AZone"
-	v := Build(c, nil, insideWindow)
+	v := Build(c, nil, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	if len(r.Problems) == 0 {
 		t.Fatal("a profile read in the wrong zone is a problem worth naming")
@@ -211,7 +211,7 @@ func TestADegradedProfileIsReportedAlongsideItsVerdict(t *testing.T) {
 // The account's own switch is a different fix from the daemon-wide one, so the row
 // keeps them apart.
 func TestADisabledAccountIsNotHeld(t *testing.T) {
-	v := Build(cfg(casey(false)), nil, insideWindow)
+	v := Build(cfg(casey(false)), nil, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	if r.LockedOutNow {
 		t.Error("the account is switched off")
@@ -229,7 +229,7 @@ func TestSessionsAreGroupedOntoTheirOwnRow(t *testing.T) {
 		{ID: "3", Username: "casey", Seat: "", Type: "tty"},
 		{ID: "4", Username: "root", Seat: "seat1", Type: "x11"},
 	}
-	v := Build(cfg(casey(true)), sessions, insideWindow)
+	v := Build(cfg(casey(true)), sessions, platform.SelfLocation{}, insideWindow)
 	r := row(t, v, "casey")
 	if len(r.Sessions) != 2 {
 		t.Fatalf("casey's row carries %d sessions, want the 2 that are theirs", len(r.Sessions))
@@ -247,7 +247,7 @@ func TestSessionsAreGroupedOntoTheirOwnRow(t *testing.T) {
 // Outside the window the row shows when the next one opens, which is the question a
 // parent actually asks.
 func TestOutsideTheWindowTheRowShowsTheNextOpening(t *testing.T) {
-	v := Build(cfg(casey(true)), nil, wednesdayNoon)
+	v := Build(cfg(casey(true)), nil, platform.SelfLocation{}, wednesdayNoon)
 	r := row(t, v, "casey")
 	if r.LockedOutNow {
 		t.Fatal("noon is outside a 21:00 window")
@@ -272,7 +272,7 @@ func TestOutsideTheWindowTheRowShowsTheNextOpening(t *testing.T) {
 // forgot to switch off, and that is the complaint that arrives by text at seven in
 // the morning.
 func TestHeldBannerNamesTheRule(t *testing.T) {
-	v := Build(cfg(casey(true)), nil, insideWindow)
+	v := Build(cfg(casey(true)), nil, platform.SelfLocation{}, insideWindow)
 	// The rule's own name, not the profile's: a profile can hold several rules and the
 	// parent needs the one that is actually holding the child.
 	if !strings.Contains(v.Banner, "Sun\u2013Thu 21:00 \u2192 06:30") {
@@ -287,7 +287,7 @@ func TestHeldBannerNamesTheRule(t *testing.T) {
 func TestRowsAreOrderedByUsername(t *testing.T) {
 	v := Build(cfg(casey(true),
 		config.User{Username: "zed", ProfileID: "school", Enabled: true},
-		config.User{Username: "amy", ProfileID: "school", Enabled: true}), nil, wednesdayNoon)
+		config.User{Username: "amy", ProfileID: "school", Enabled: true}), nil, platform.SelfLocation{}, wednesdayNoon)
 	got := []string{}
 	for _, r := range v.Rows {
 		got = append(got, r.Username)
@@ -304,7 +304,7 @@ func TestRowsAreOrderedByUsername(t *testing.T) {
 // nothing to enforce, and the page has to say so rather than render a blank table
 // that looks like a quiet evening.
 func TestNilConfigSaysNothingIsEnforced(t *testing.T) {
-	v := Build(nil, nil, insideWindow)
+	v := Build(nil, nil, platform.SelfLocation{}, insideWindow)
 	if len(v.Rows) != 0 {
 		t.Fatalf("rows = %d, want 0", len(v.Rows))
 	}
@@ -316,7 +316,7 @@ func TestNilConfigSaysNothingIsEnforced(t *testing.T) {
 // No managed accounts at all is a different sentence from accounts with nothing
 // scheduled: the first is a setup step missing, the second is a normal afternoon.
 func TestNoManagedAccountsIsItsOwnSentence(t *testing.T) {
-	v := Build(cfg(), nil, insideWindow)
+	v := Build(cfg(), nil, platform.SelfLocation{}, insideWindow)
 	if !strings.Contains(v.Banner, "No accounts are managed") {
 		t.Errorf("banner = %q", v.Banner)
 	}
@@ -327,7 +327,7 @@ func TestNoManagedAccountsIsItsOwnSentence(t *testing.T) {
 // EndsAt on an inactive verdict bounds a window that is not running, and a countdown
 // on a row that is not locked out is a clock counting down to nothing.
 func TestAnInactiveRowCarriesNoEndsAt(t *testing.T) {
-	v := Build(cfg(casey(true)), nil, wednesdayNoon)
+	v := Build(cfg(casey(true)), nil, platform.SelfLocation{}, wednesdayNoon)
 	r := row(t, v, "casey")
 	if !r.EndsAt.IsZero() {
 		t.Errorf("an inactive row shows an end time: %s", r.EndsAt)
@@ -345,12 +345,12 @@ func TestAnInactiveRowCarriesNoEndsAt(t *testing.T) {
 // through a page test in another package, and a dashboard test that builds a View
 // directly never learns the difference exists.
 func TestABuildThatWasGivenSessionsSaysItKnowsThem(t *testing.T) {
-	if v := Build(cfg(casey(true)), nil, insideWindow); !v.SessionsKnown {
+	if v := Build(cfg(casey(true)), nil, platform.SelfLocation{}, insideWindow); !v.SessionsKnown {
 		t.Error("Build reported an empty session list as a read that failed; a machine nobody is " +
 			"logged into would be described as a broken session backend")
 	}
 	sessions := []platform.Session{{Username: "casey", Type: "wayland"}}
-	if v := Build(cfg(casey(true)), sessions, insideWindow); !v.SessionsKnown {
+	if v := Build(cfg(casey(true)), sessions, platform.SelfLocation{}, insideWindow); !v.SessionsKnown {
 		t.Error("a read that returned sessions is not marked as knowledge")
 	}
 }
@@ -358,7 +358,7 @@ func TestABuildThatWasGivenSessionsSaysItKnowsThem(t *testing.T) {
 // The other side is the caller's to say, and only the caller's: a nil session list from
 // a source that worked is not the same as a source that failed, so Build must not guess.
 func TestBuildNeverInventsAFailedRead(t *testing.T) {
-	v := Build(cfg(casey(true)), nil, insideWindow)
+	v := Build(cfg(casey(true)), nil, platform.SelfLocation{}, insideWindow)
 	if v.Rows[0].Sessions != nil && len(v.Rows[0].Sessions) != 0 {
 		t.Error("an empty session list produced sessions")
 	}

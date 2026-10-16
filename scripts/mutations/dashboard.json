@@ -208,6 +208,20 @@
       "old": "\t\tif v.NotEnforcing > 0 {",
       "new": "\t\tif false && v.NotEnforcing > 0 {",
       "note": "the upcoming-window sentence returns alone, so a row sitting scheduled and unenforced is hidden behind \"nobody is locked out right now\""
+    },
+    {
+      "id": "B27",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tif len(sessions) == 0 {\n\t\treturn false\n\t}\n\tfor i := range sessions {\n\t\tif !self.Declines(sessions[i].UID) {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true",
+      "new": "\tfor i := range sessions {\n\t\tif self.Declines(sessions[i].UID) {\n\t\t\treturn true\n\t\t}\n\t}\n\treturn false",
+      "note": "declined() reading ANY declined session as the whole account unenforced. The engine locks session by session, so a child with a second session elsewhere really is held, and this reports a false alarm about a child who is locked out. TestOneDeclinedSessionAmongSeveralDoesNotMarkTheAccountUnenforced."
+    },
+    {
+      "id": "B28",
+      "file": "internal/dashboard/dashboard.go",
+      "old": "\tif len(sessions) == 0 {\n\t\treturn false\n\t}",
+      "new": "\tif len(sessions) == 0 {\n\t\treturn true\n\t}",
+      "note": "an account with nobody logged in counted as declined. There is nothing to decline, and folding it in marks every logged-out account unenforced -- burying the rows that mean something is wrong. TestAnAccountWithNoSessionIsNotReportedAsDeclined."
     }
   ]
 }

@@ -121,6 +121,17 @@ type Server struct {
 	Lockables func() ([]platform.Session, error)
 	Accounts  func() (*users.Listing, error)
 
+	// Self is where this daemon is running, as far as the lockout decision cares.
+	//
+	// It is a value and not a function because it is a fact about this process that
+	// cannot change while it lives: the kernel fixed the cgroup at exec. Re-reading
+	// /proc per request would also let the dashboard disagree with the enforcement loop
+	// mid-flight about which accounts are being locked, which is the exact
+	// disagreement this field exists to prevent.
+	//
+	// Its zero value is the supported deployment, where nothing is declined.
+	Self platform.SelfLocation
+
 	// csrf holds the per-session token this package owns.
 	csrf *csrfStore
 
@@ -201,6 +212,11 @@ type Options struct {
 	Config    func() (*config.Config, error)
 	Lockables func() ([]platform.Session, error)
 	Accounts  func() (*users.Listing, error)
+
+	// Self says which login session this process is inside, so the dashboard can say
+	// which accounts the enforcement loop is declining instead of announcing them as
+	// locked out. See Server.Self.
+	Self platform.SelfLocation
 }
 
 // New builds a Server and resolves its transport, failing on anything the first
@@ -225,6 +241,15 @@ func New(opts Options) (*Server, error) {
 		csrf:           newCSRFStore(),
 		started:        make(chan struct{}),
 	}
+	// Assigned as a statement, not as a field in the literal above, and that placement
+	// is load-bearing rather than a style choice: a composite literal's fields are
+	// aligned by gofmt to its longest key, so any field longer than CredentialPoll
+	// rewrites every other line in that literal -- including a line a mutation pattern
+	// is anchored on, which then matches nothing and retires itself while the whole
+	// suite stays green. It has already happened twice to Static. A statement's text
+	// does not move when a neighbour is renamed.
+	s.Self = opts.Self
+
 	if s.Listen == "" {
 		return nil, errors.New("web: nothing to listen on")
 	}

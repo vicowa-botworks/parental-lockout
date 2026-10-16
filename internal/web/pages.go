@@ -27,7 +27,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessions, err := s.readSessions()
-	view := dashboard.Build(cfg, sessions, s.now())
+	view := dashboard.Build(cfg, sessions, s.Self, s.now())
 	if err != nil {
 		// The dashboard is still worth showing: which child is held and until when
 		// does not depend on who is currently logged in. But the session column has to

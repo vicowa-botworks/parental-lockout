@@ -547,6 +547,29 @@
       "old": "\t\t\treturn sessions.Sessions(ctx)\n",
       "new": "\t\t\treturn sessions.Sessions(context.Background())\n",
       "note": "the listing is handed a fresh background context instead of the serve context, so a shutdown has no way to cancel a session query that is already in flight and the drain waits on work it cannot interrupt."
+    },
+    {
+      "id": "W100",
+      "file": "cmd/plock/serve.go",
+      "package": "./cmd/plock/",
+      "old": "\tif self.InUserSlice {",
+      "new": "\tif false && self.InUserSlice {",
+      "note": "serve resolving the location and never saying so: the operator's only startup signal that an account is going unenforced is gone, and the audit line is one line in a file nobody tails. TestServeSaysWhenItWillNotLockItsOwnSession."
+    },
+    {
+      "id": "W98",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\topts.Self = self\n",
+      "new": "",
+      "note": "serve telling the enforcement loop it is inside a login session and telling the dashboard nothing. The page then reports that account as locked out while the engine declines to lock it -- the fail-open reading of a row, on the one surface the parent actually reads. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
+    },
+    {
+      "id": "W99",
+      "file": "internal/web/server.go",
+      "old": "\ts.Self = opts.Self\n",
+      "new": "",
+      "note": "the constructor dropping the location, so every assembled Server behaves as a system unit regardless of what its caller knows. A fixture that sets Server.Self by hand stays green while the documented constructor cannot deliver it. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
     }
   ]
 }

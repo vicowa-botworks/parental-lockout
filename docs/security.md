@@ -145,6 +145,57 @@ session is a child who is not locked and nobody the wiser.
 | An empty table is zero sessions, not an error | `TestParseSessionTableEmptyTableIsZeroSessions` |
 | A `class=manager` session with no seat is filtered out | platform suite, per the multi-session-per-uid constraint |
 
+### The daemon's own session
+
+A daemon that locks the session it is running in cannot be stopped: stopping it needs a keyboard,
+and the keyboard is behind the lock it just put up. The override path does not rescue this, because
+granting one needs the web UI or the CLI on the machine that is now locked.
+
+So the enforcement loop declines to lock a session that lives in the daemon's own per-user slice,
+and says so once in the audit trail and once on stderr at startup.
+
+| Claim | Test |
+|---|---|
+| The signal is this process's cgroup, which a controlled user cannot write | `TestUserSliceUIDRefusesEverythingThatIsNotTheMarker` |
+| The marker is found at any depth, in both cgroup-hierarchy forms | `TestUserSliceUIDFindsTheMarkerAtAnyDepth`, `TestUserSliceUIDReadsTheCgroupV1Form` |
+| Only whole path elements count, so a uid embedded in a longer name does not match | `TestUserSliceUIDMatchesWholeElementsOnly` |
+| An unreadable `/proc` answers "outside any user slice", which is the answer that keeps enforcement on | `TestReadSelfUserSliceAnswersOutsideWhenProcIsUnreadable` |
+| A uid match alone never skips: the pair is required | `TestTheOwnSessionRuleNeedsBothHalvesOfThePair` |
+| Only the daemon's own uid is skipped; every other account is still locked | `TestOnlyTheDaemonsOwnUidIsSkipped` |
+| The refusal is announced once, not on every 30-second tick | `TestTheOwnSessionIsAnnouncedOnceNotEveryTick` |
+| The rule is one predicate, and both halves are required | `TestDeclinesNeedsBothHalvesOfThePair` |
+| The dashboard is handed the same location the engine is | `TestServeHandsTheDashboardTheSameLocationItHandsTheEngine`, `TestNewHandsTheSelfLocationToTheServer` |
+| A declined account is not rendered as locked out, and names the fix on the row | `TestADeclinedAccountIsNotShownAsLockedOut` |
+| One declined session among several still counts as held | `TestOneDeclinedSessionAmongSeveralDoesNotMarkTheAccountUnenforced` |
+| A logged-out account is not reported as declined | `TestAnAccountWithNoSessionIsNotReportedAsDeclined` |
+| The one-sentence banner names the decline among its causes | `TestTheBannerNamesTheDeclineAmongItsCauses` |
+| `serve` resolves the location and warns when the rule is live | `TestServeSaysWhenItWillNotLockItsOwnSession` |
+| The line is split at the first two colons, so a `::` inside a path element cannot move the match | `TestUserSliceUIDSplitsTheLineAtTheFirstTwoColonsNotAtAnyColon` |
+
+**Why the page has to know too.** The dashboard derived `LockedOutNow` from the schedule alone, so
+the moment the engine gained a reason to decline, the page could announce "casey is locked out
+until 06:30" about a child sitting at an unlocked screen — and the banner is the sentence a parent
+reads on a phone from another room. An audit line the operator never tails is not a substitute for a
+page that states the opposite. Both halves are therefore handed the *same* `SelfLocation` value from
+one place in `serve`, and the page renders a declined account as scheduled-and-unenforced with the
+fix named on the row.
+
+**Why not process ancestry.** `Session.Leader`'s comment used to instruct the caller to compare the
+session leader against its own ancestry. Measured on a live Plasma session, a shell in a GUI
+terminal traces `bash → the agent → systemd(6695)`, and 6695 is the leader of the
+`user@1000.service` *manager* row — not of session 3, the seat0/tty2 desktop on the screen. A
+systemd user manager reparents GUI processes onto itself, so ancestry reaches the manager session
+(which `IsLockable` already refuses) and never reaches the one that matters. A guard built on it
+would silently never fire, which is worse than no guard at all: it reads as a guard that passed.
+
+**Why the uid comparison is enough here.** Issue #67 is right that uid alone does not settle the
+policy question — an admin and a child sharing one account share a uid, and nothing available to a
+root daemon separates their sessions. But this is not asking *"is this the child's session?"*; it is
+asking *"would locking this session lock the screen I am sitting behind?"*, and for that question
+the uid is the right and only signal. Where the two genuinely share an account the rule declines
+and says so in the trail rather than going quiet, which is the same rule §4 already applies to a
+session it cannot read.
+
 ---
 
 ## 5. Trust boundary: "did the lock actually take?"
@@ -224,6 +275,7 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 | **Application or website filtering** | Out of scope by design. |
 | **The child reading the audit trail** | They cannot — §3 — but there is no reader on this tree yet, so the operator cannot read it either. Issue #46. |
 | **GNOME corroboration of a lock** | No second signal has been measured on GNOME hardware. A GNOME-only config therefore reports `lock.unconfirmed` on transitions. Issue #35. |
+| **A child sharing an account with the admin, when the daemon was started from that desktop** | The daemon declines to lock its own login session, because locking it removes the only way to stop the daemon. This never applies to the supported deployment — a systemd system unit lives under `system.slice` and shares no slice with any user, so the rule is inert and every account is enforced. Where it does fire, `plock serve` says so on stderr at startup and the trail carries one `lock.unenforceable` line naming `deploy/plock.service` as the fix. |
 | **A non-Linux build** | The guards fail closed — `ownerIsWriter` and `fileUID` return `errOwnershipUnsupported` and the writer refuses — but the *race* protection is lost: without `O_NOFOLLOW` a path can still be swapped between check and open. v0.1 ships Linux only. |
 | **A malicious package or supply chain** | There are zero third-party modules, which is the whole mitigation available (`scripts/check-deps.sh`). |
 | **A child-writable directory on the daemon's `PATH`** | Every program the daemon starts is resolved by `ExecRunner.Run` against the *daemon's* own `os.Getenv("PATH")`, so if the child can write a directory on that PATH, the child's `gdbus` or `loginctl` is what runs — including one that prints `()` and exits 0, which is exactly the reply the void-reply check accepts. Resolution does not change this and never claimed to: `LookPath` walks the same PATH `exec` would. Closing it means refusing to run a program whose location cannot be trusted, and a refusal does not lock anyone out, so the fix fails in the direction this project treats as the dangerous one. It needs a decision about which is worse — a lockout that silently stops, or a lockout that can be spoofed — and that is a product call, not a detail. See `internal/platform/exec.go`. |
