@@ -283,8 +283,14 @@ func TestARuleWithNoDayTickedIsRefusedWithTheFormsOwnWords(t *testing.T) {
 	if got := f.savesCount(); got != before {
 		t.Errorf("saves went %d -> %d", before, got)
 	}
-	if !strings.Contains(rec.Body.String(), "at least one day") {
-		t.Errorf("the refusal is not the form's own sentence; body:\n%s", rec.Body.String())
+	// The form's phrase, not Validate's. "at least one day" appears in both sentences, so
+	// asserting that substring passes with the handler's guard deleted, because the request
+	// then falls through to Validate and 422s on the document-level refusal instead. The
+	// second half pins the direction: reaching Validate at all is the failure this guards.
+	if body := rec.Body.String(); !strings.Contains(body, "pick at least one day") {
+		t.Errorf("the refusal is not the form's own sentence; body:\n%s", body)
+	} else if strings.Contains(body, "days: at least one day is required") {
+		t.Errorf("the request was refused by Validate, so the handler never checked the form; body:\n%s", body)
 	}
 }
 
@@ -363,6 +369,37 @@ func TestTheProfilesPageShowsTheEvaluatorsComplaint(t *testing.T) {
 	}
 }
 
+// An all-day rule renders as the words "all day", not as a clock pair.
+//
+// ruleWindow has a branch for exactly this and nothing on any page exercised it: the
+// fixture carried only clock rules, so deleting the branch left the whole suite green while
+// a weekend all-day rule -- a shape a parent picks deliberately -- rendered as the empty
+// clock pair on the very page a parent uses to check what they configured. The rule is
+// named "Saturday" rather than "weekend all day" so the page cannot contain the phrase by
+// way of the name and leave this test passing for the wrong reason.
+func TestTheProfilesPageRendersAnAllDayRuleAsAllDay(t *testing.T) {
+	f := newOverrideFixture(t)
+
+	// Its own profile rather than a rule added to the shared fixture: two other tests count
+	// that fixture's rules absolutely, so widening it makes this one's subject someone
+	// else's assertion.
+	f.mu.Lock()
+	f.doc.UpsertProfile(config.Profile{
+		ID: "weekend", Name: "Weekends", Timezone: "UTC",
+		Rules: []config.Rule{{ID: "r2", Name: "Saturday",
+			Days: []string{"sat"}, AllDay: true, Enabled: true}},
+	})
+	f.mu.Unlock()
+
+	rec := authGet(t, f.s, "/profiles")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "all day") {
+		t.Errorf("the all-day rule did not render as \"all day\";\n%s", body)
+	}
+}
+
 // The page must not render a rule as healthy when enforcement is switched off globally.
 func TestTheProfilesPageSaysWhenEnforcementIsOff(t *testing.T) {
 	f := newOverrideFixture(t)
@@ -382,9 +419,11 @@ func TestTheProfilesPageSaysWhenEnforcementIsOff(t *testing.T) {
 // Criterion: "Every route has a handler test: unauthenticated -> rejected".
 //
 // One table over every route rather than a test per route, because the per-route form
-// rots: a new route ships without its test and nothing notices. A table that has to be
-// read against the router is the same problem, so this one asserts the route set it covers
-// is the set the server actually serves.
+// rots. What this does NOT do is prove the table is complete: gets/posts are literals, so
+// a route registered later ships without a row here and nothing notices. Making that
+// structural means enumerating the router's patterns, and the only way to reach the mux is
+// a field on Server that nothing but this test reads -- which this repo declines on
+// purpose. Filed rather than papered over.
 func TestEveryRouteRefusesAnUnauthenticatedRequest(t *testing.T) {
 	f := newOverrideFixture(t)
 	before := f.savesCount()

@@ -661,7 +661,7 @@
       "file": "internal/web/profiles.go",
       "old": "\tif len(days) == 0 {",
       "new": "\tif false && len(days) == 0 {",
-      "note": "a rule with no day ticked is saved instead of refused; Validate then refuses the whole document, so the operator's next unrelated save fails too"
+      "note": "a rule with no day ticked reaches Validate instead of the form's own guard, so the operator is refused with the document's sentence rather than the field's -- the rule is never saved, because Validate gates the save inside the same seam"
     },
     {
       "id": "W91",
