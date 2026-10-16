@@ -18,12 +18,19 @@ import (
 
 // auditWindow is the page size, not a limit on the trail. The reader walks rotated
 // generations until it has this many records, so a quiet house shows fewer than this and
-// a busy one shows exactly this many and says how many files that took.
+// a busy one shows exactly this many and says how many files that took. The handler asks
+// the reader for one more than this; see handleAudit for why the extra record is the
+// difference between a guess and a fact.
 const auditWindow = 200
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	user := r.URL.Query().Get("user")
-	tail, err := s.readTrail(auditWindow)
+	// One record more than the page shows, deliberately. Tail returns min(n, total) with
+	// a nil error, so asking for exactly the window makes "the trail is longer than this"
+	// and "the trail is exactly this long" the same result -- and the page has to answer
+	// those two differently. The 201st record's existence is the evidence, and it is the
+	// only evidence that costs nothing.
+	tail, err := s.readTrail(auditWindow + 1)
 	if err != nil && tail.FilesRead == 0 {
 		// Nothing could be read at all, so there is no page to render honestly.
 		s.pageError(w, r, "the audit trail could not be read", err)
@@ -38,8 +45,16 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Plock-Note", "trail-incomplete")
 	}
 	rows := tail.Records
-	if user != "" {
-		rows = auditRowsFor(rows, user)
+	// The window is full, so the read stopped for a reason and not because the trail ran
+	// out. This is the page's whole honesty story about how far back the trail goes, and
+	// the probe above is what makes it exact rather than merely likely: a page holding
+	// more than it may show is proof there is at least one older record, while a page at
+	// or under the limit has read the trail to its end. Inferring it from a full window
+	// instead -- the shape this had -- cannot tell those apart at exactly the limit, and
+	// at that one length it tells the operator to search a generation that does not exist.
+	truncated := len(rows) > auditWindow
+	if truncated {
+		rows = rows[:auditWindow]
 	}
 
 	// Named rather than written into the literal below on purpose. A composite literal's
@@ -47,21 +62,23 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	// moment an unrelated field with a longer name is added to the struct -- which has
 	// already happened to this package's mutants twice. A statement's text does not move.
 	//
-	// The three are the page's whole honesty story, and each is a different claim:
+	// The three are the page's other honesty claims, and each is different:
 	// scanned is what the read returned before filtering, so a filter that matched nothing
 	// can bound its own answer instead of speaking about the whole trail; noTrail is the
 	// file not existing yet, which is a fresh machine rather than an empty log or a failed
 	// read; partial is a generation that could not be opened, so the rows are real and are
 	// not everything.
-	scanned := len(tail.Records)
+	//
+	// scanned is counted after the cut and before the filter on purpose. Counting the
+	// probe would have the page say "the filter only sees the most recent 201", a number
+	// it never showed; counting after the filter would have it report the matches as if
+	// they were the searched set.
+	scanned := len(rows)
 	noTrail := tail.FilesRead == 0
 	partial := err != nil
-	// The window is full, so the read stopped for a reason and not because the trail ran
-	// out. This is the only test the page has for "older events may exist": the reader
-	// returns a short list with a nil error when the trail is exhausted, which is the
-	// normal end of the trail rather than a failure, so a short page cannot be told apart
-	// from a truncated one by the error alone.
-	truncated := scanned >= auditWindow
+	if user != "" {
+		rows = auditRowsFor(rows, user)
+	}
 
 	s.render(w, r, "audit", auditPage{
 		Rows:      rows,
@@ -120,10 +137,11 @@ type auditPage struct {
 	// NoTrail is the trail file not existing yet.
 	NoTrail bool
 
-	// Truncated is the window being full, which is the only thing that entitles the page
-	// to say older events may exist beyond what it showed. Its absence means the trail was
-	// read to the end, and telling an operator to look further back than the trail goes is
-	// its own kind of wrong answer -- one that sends them to check a generation that does
-	// not exist while the account they asked about really has no events.
+	// Truncated is the read having stopped with a record still behind it, which is the only
+	// thing that entitles the page to say older events may exist beyond what it showed. Its
+	// absence means the trail was read to the end, and telling an operator to look further
+	// back than the trail goes is its own kind of wrong answer -- one that sends them to
+	// check a generation that does not exist while the account they asked about really has
+	// no events. It is decided by the probe record, not by the page being full.
 	Truncated bool
 }

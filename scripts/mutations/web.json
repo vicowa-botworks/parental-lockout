@@ -687,8 +687,7 @@
       "old": "\ts.render(w, r, \"dashboard\", &dashboardPage{View: view})\n",
       "new": "\ts.render(w, r, \"dashboard\", dashboardPage{View: view})\n",
       "note": "the value instead of the pointer: setCSRF has a pointer receiver, so a value does not satisfy csrfCarrier and the dashboard renders its forms with no token while every other page still works. This is the trap the comment above the call warns about, pinned so it cannot come back quietly."
-    }
-,
+    },
     {
       "id": "W112",
       "file": "internal/web/sources.go",
@@ -725,9 +724,9 @@
       "id": "W116",
       "file": "internal/web/audit.go",
       "package": "./internal/web/",
-      "old": "\tscanned := len(tail.Records)",
-      "new": "\tscanned := len(rows)",
-      "note": "the count taken after filtering, so a filtered page claims it read only what it showed. The sentence becomes 'none of the 0 most recent events are for mallory', which reads as an empty trail when the trail has 200 records in the window -- and the whole point of the number is to bound the answer to what was looked at. TestAFilterThatMatchesNothingDoesNotClaimTheTrailIsEmpty"
+      "old": "\tscanned := len(rows)",
+      "new": "\tscanned := len(tail.Records)",
+      "note": "Scanned counts the probe record instead of the window. The caption then tells the operator the filter only saw the most recent 201 -- a number the page never showed -- and the row count and the searched count stop describing the same read. Killed by the caption assertion in TestARecordBehindTheWindowSaysTheReadStoppedEarly."
     },
     {
       "id": "W117",
@@ -772,16 +771,30 @@
     {
       "id": "W123",
       "file": "internal/web/audit.go",
-      "old": "truncated := scanned >= auditWindow",
-      "new": "truncated := true",
-      "note": "every filtered-empty page promises older events may exist beyond the window, which is the reviewed defect arriving through the Go rather than the template: the reader returns a short list with a nil error when the trail is exhausted, so a three-record trail is told to go looking for a generation that does not exist while the account it asked about really has no events. TestAnExhaustedTrailDoesNotPromiseOlderEvents"
+      "old": "\ttruncated := len(rows) > auditWindow",
+      "new": "\ttruncated := true",
+      "note": "Always claim the read stopped early. A trail that ends at the window then sends the operator to search older events that do not exist, which is the over-claim #91 is about, arrived at by removing the test instead of weakening it. Killed by TestATrailOfExactlyTheWindowIsExhaustedNotTruncated."
     },
     {
       "id": "W124",
       "file": "internal/web/audit.go",
-      "old": "truncated := scanned >= auditWindow",
-      "new": "truncated := false",
-      "note": "the page never says the read stopped early, so a full window of 200 events reads as the whole trail and an operator concludes an account was never held when the holding is one generation back. The other direction from W123, and only a fixture holding the whole window can tell the two apart. TestAFullWindowSaysTheReadStoppedEarly"
+      "old": "\ttruncated := len(rows) > auditWindow",
+      "new": "\ttruncated := false",
+      "note": "Never claim the read stopped early. With a record genuinely behind the window the page says the trail holds nothing older, and an operator concludes an account was never held when the older events are one record away. Killed by TestARecordBehindTheWindowSaysTheReadStoppedEarly."
+    },
+    {
+      "id": "W132",
+      "file": "internal/web/audit.go",
+      "old": "tail, err := s.readTrail(auditWindow + 1)",
+      "new": "tail, err := s.readTrail(auditWindow)",
+      "note": "Drop the probe: ask the reader for exactly the window. Tail returns min(n, total) with a nil error, so a trail of exactly 200 and a trail of 500 become the same result again and the page is back to guessing at the boundary. Killed by the request assertion in TestTheAuditPageListsEventsNewestFirst, which pins 201 as a literal so it cannot drift with the constant."
+    },
+    {
+      "id": "W133",
+      "file": "internal/web/audit.go",
+      "old": "\t\trows = rows[:auditWindow]",
+      "new": "\t\trows = rows[1:]",
+      "note": "Cut the probe off the wrong end: drop the newest event and keep the record that only exists as evidence. The page still shows 200 rows and still says 200 of 200, so nothing about the shape changes except that the first row an operator reads is gone. Killed by the newest-record assertion in TestARecordBehindTheWindowSaysTheReadStoppedEarly."
     }
   ]
 }
