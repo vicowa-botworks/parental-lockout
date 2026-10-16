@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -58,6 +59,25 @@ func (c *Config) UpsertProfile(p Profile) {
 	c.Profiles = appended(c.Profiles, p)
 }
 
+// ErrProfileInUse marks a deletion refused because accounts still point at the profile, and
+// ErrNoSuchProfile marks one refused because no profile carries that id.
+//
+// Both exist so a caller can tell three outcomes apart without reading message text: this
+// refusal, a validation refusal (ErrInvalid), and the disk saying no. The web UI has to answer
+// them differently — 422 with the reason, 422 naming what to change, and 503 "try again" — and
+// the last of those must not be reported as "no such profile", which is a sentence about the
+// document rather than about the failure, and reads as though retrying with a different id
+// would help when the real problem is a read-only mount.
+//
+// Matching on text was the previous approach and it was worse than it looked: the profile id
+// arrives from the URL and is interpolated into these very messages, so a Contains check on the
+// fixed part could be steered by the request. An id of `x" is still assigned to "y` made a
+// profile that does not exist report that it is in use.
+var (
+	ErrProfileInUse  = errors.New("profile is still assigned")
+	ErrNoSuchProfile = errors.New("no such profile")
+)
+
 // DeleteProfile removes a profile by ID.
 //
 // It refuses while an account still points at that profile. Dropping it out
@@ -82,13 +102,12 @@ func (c *Config) DeleteProfile(id string) error {
 		if len(blocked) > 1 {
 			verb = "reassign them first"
 		}
-		return fmt.Errorf("config: profile %q is still assigned to %s; %s",
-			id, quotedList(blocked), verb)
+		return fmt.Errorf("config: %w to %s; %s", ErrProfileInUse, quotedList(blocked), verb)
 	}
 
 	kept, found := cut(c.Profiles, func(p Profile) bool { return p.ID == id })
 	if !found {
-		return fmt.Errorf("config: no profile %q", id)
+		return fmt.Errorf("config: %w %q", ErrNoSuchProfile, id)
 	}
 	c.Profiles = kept
 	return nil

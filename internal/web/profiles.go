@@ -221,28 +221,28 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	if err := s.mutateConfig(func(c *config.Config) error {
 		return c.DeleteProfile(id)
 	}); err != nil {
-		if isBlockingRefusal(err) {
-			// The message already names the accounts, which is the whole answer, so it
-			// goes through as a refusal rather than being paraphrased into vagueness.
+		switch {
+		case errors.Is(err, config.ErrProfileInUse):
+			// The message already names every blocking account, which is the whole answer, so
+			// it goes through as a refusal rather than being paraphrased into vagueness.
 			s.pageRefuse(w, r, http.StatusUnprocessableEntity, err.Error())
-			return
+		case errors.Is(err, config.ErrNoSuchProfile):
+			// Its own sentence rather than err.Error(): the id came from the URL, and reflecting
+			// request text back into a response body is a habit worth not having even when the
+			// response is plain text and nothing can execute.
+			s.pageRefuse(w, r, http.StatusNotFound, "there is no profile with that id")
+		default:
+			// Everything left is the seam failing: config.Load could not read the file, or
+			// Save could not write it. That is "the daemon could not do the work", which is a
+			// 503 and retryable, not a statement that the profile does not exist -- and the raw
+			// error (a parse failure, a permission denial) is logged, not echoed.
+			s.mutateRefused(w, r, "the profile could not be deleted", err)
 		}
-		if errors.Is(err, config.ErrInvalid) {
-			s.mutateRefused(w, r, "", err)
-			return
-		}
-		s.pageRefuse(w, r, http.StatusNotFound, err.Error())
 		return
 	}
 
 	s.audit("profile.deleted", fmt.Sprintf("profile %s by %s", id, sessionName(s, r)))
 	http.Redirect(w, r, "/profiles", http.StatusSeeOther)
-}
-
-// isBlockingRefusal recognises "still assigned to" without matching on the account names,
-// which are attacker-shaped. The config package's own wording is the thing being recognised.
-func isBlockingRefusal(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "is still assigned to")
 }
 
 var errUnknownProfile = errors.New("no such profile")
