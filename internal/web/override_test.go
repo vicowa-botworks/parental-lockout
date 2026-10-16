@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -327,7 +328,8 @@ func TestClearingAnOverrideThatDoesNotExistSaysSo(t *testing.T) {
 // This is the property the mutex exists for, and it is the one a test of the handler alone
 // cannot see: two sequential requests each pass, and the lost write needs genuine overlap.
 // The seam here counts entries rather than replacing them, so a serialized pair ends with
-// two and an unserialized pair ends with one.
+// two and an unserialized pair ends with one -- and an unserialized pair says so the instant
+// it happens, because the second entry is what the counter is watching for.
 // TestTwoOverlappingMutationsDoNotLoseOne is the reason the server holds a mutex.
 //
 // config.Save is atomic, and it is easy to read that as the end of the story. It is not: the
@@ -350,11 +352,23 @@ func TestTwoOverlappingMutationsDoNotLoseOne(t *testing.T) {
 	f.mu.Unlock()
 
 	entered := make(chan struct{})
+	arrived := make(chan struct{})
 	release := make(chan struct{})
-	var once sync.Once
+	var entries sync.Once
 	var inside sync.WaitGroup
+	// Counting entries into the seam is the whole instrument, and where the mutex lives is
+	// what makes the count meaningful: the lock is in mutateConfig, OUTSIDE this function,
+	// so a second entry here can only mean the lock did not hold.
+	//
+	// It also means the obvious construction -- wait for the second entry, then release --
+	// deadlocks on a working lock, because a working lock is exactly why the second entry
+	// never happens. So the second entry is observed, not waited for.
+	var entryCount atomic.Int32
 	f.s.Mutate = func(fn func(*config.Config) error) error {
-		once.Do(func() { close(entered) })
+		entries.Do(func() { close(entered) })
+		if entryCount.Add(1) == 2 {
+			close(arrived)
+		}
 		inside.Add(1)
 		defer inside.Done()
 
@@ -389,10 +403,30 @@ func TestTwoOverlappingMutationsDoNotLoseOne(t *testing.T) {
 		second <- authPost(t, f.s, "/users/alexis/override", "minutes=30&reason=second").Code
 	}()
 
-	// Let the second request reach the mutex before releasing the first. If the lock is real
-	// it is parked there at this instant; if it is not, both are inside the seam together.
-	time.Sleep(50 * time.Millisecond)
+	// Did the two requests end up inside the seam together?
+	//
+	// This is a bounded observation, not a timing assumption, and the difference is which
+	// outcome depends on speed. When the lock is missing, both goroutines park inside the
+	// seam on their own and `arrived` closes in microseconds -- the race runtime slowing the
+	// login round-trip does not help, because nothing has to happen quickly for the overlap
+	// to be seen. When the lock works, the second request is parked on the mutex and
+	// `arrived` never closes at all, so the window expiring IS the pass case.
+	//
+	// The version this replaces slept for 50 ms and then released, which needed the overlap
+	// to happen before the release. Under `go test -race` -- what `make verify` runs -- the
+	// slowed-down login overran the sleep, the two requests never overlapped, and the test
+	// passed while checking nothing.
+	overlap := false
+	select {
+	case <-arrived:
+		overlap = true
+	case <-time.After(time.Second):
+	}
 	close(release)
+	if overlap {
+		t.Error("two mutateConfig calls ran inside the seam at the same time; the server's " +
+			"write lock does not serialize them")
+	}
 
 	// Drain both responses before sampling anything shared: the seam finishing is not the
 	// request finishing, and the handler still audits and logs after it returns.
