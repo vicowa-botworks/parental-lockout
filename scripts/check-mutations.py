@@ -25,7 +25,6 @@ seconds per set and would make the gate something people skip. `make mutate` is 
 the slow target; this is the fast one that tells you the slow one is worth running.
 """
 
-import json
 import os
 import subprocess
 import sys
@@ -33,13 +32,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GO = os.environ.get("GO", "go")
 
-
-def load(path):
-    with open(path) as fh:
-        doc = json.load(fh)
-    if "mutants" not in doc:
-        sys.exit(f"{path}: expected an object with a 'mutants' list")
-    return doc
+# Shape rules come from mutset, the same module the battery loads. Two validators that
+# disagree are how a set ends up green at this gate and refused at the battery.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mutset import duplicate_claims, load, validate  # noqa: E402
 
 
 def compiles(pkg):
@@ -54,30 +50,19 @@ def compiles(pkg):
         # Split for the same reason mutate.py splits: a package field may name several
         # packages, and an unsplit one fails to resolve in a way that reads as a
         # compile failure rather than as the checker being unable to ask.
-        [GO, "test", "-run", "^$", "-count=1", *pkg.split()],
+        # -timeout matched with mutate.py:82 on purpose. `-run ^$` selects no test but
+        # still runs the binary, so a mutated package whose init hangs would hang this
+        # process too -- and this now runs as a required check, where the default is
+        # GitHub's six-hour job limit rather than a human noticing and pressing ctrl-C.
+        [GO, "test", "-run", "^$", "-count=1", "-timeout", "900s", *pkg.split()],
         capture_output=True,
         text=True,
         cwd=ROOT,
     )
 
 
-# Every key the runner and this checker actually read. A key outside this list is a key
-# nothing prints, and the two ways that happens are both silent:
-#
-#   - a rationale written under a name the runner does not know (`_why`, `why`, `reason`)
-#     never reaches the battery's output, so the equivalence claim a reviewer needs to
-#     audit is in the file and nowhere a human will look;
-#   - a typo in a key that DOES matter (`equivalant`, `packge`) drops the mutant into the
-#     default path -- an equivalent mutant starts reporting as a survivor, or a mutant
-#     aimed at another package runs against the wrong one.
-#
-# Both look like a working set. `make verify` stays green and the battery prints a tally.
-KNOWN_KEYS = {"id", "file", "old", "new", "package", "count", "equivalent", "note"}
-
-
-def check(path):
-    """Return a list of (mutant_id, problem) for one set."""
-    doc = load(path)
+def check(doc):
+    """Return a list of (mutant_id, problem) for one already-validated set."""
     default_pkg = doc.get("package")
     problems = []
     # Cache file contents, and restore them all on the way out even if we are interrupted.
@@ -86,10 +71,12 @@ def check(path):
     try:
         for m in doc["mutants"]:
             mid, rel, old, new = m["id"], m["file"], m["old"], m["new"]
-            for key in sorted(set(m) - KNOWN_KEYS):
-                problems.append((mid, f"key {key!r} is read by nothing: whatever it says is "
-                                      f"in the file but never printed, and a near-miss spelling "
-                                      f"of a real key would silently disable that key"))
+            # A mutant may ask for its `old` to appear N times, and the runner replaces every
+            # occurrence. Both halves of that have to be honoured here or the gate is testing
+            # a tree the battery never runs: a count>1 mutant used to be rejected for matching
+            # twice, and if it had been accepted the gate would have compiled a one-occurrence
+            # mutation while the battery applied all of them.
+            want = m.get("count", 1)
             if rel not in original:
                 try:
                     with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
@@ -99,27 +86,18 @@ def check(path):
                     continue
             src = original[rel]
             hits = src.count(old)
-            if hits == 0:
-                problems.append((mid, f"`old` matches nothing in {rel}: this mutant tests "
-                                      f"nothing, and the behaviour it was written for is unchecked"))
-                continue
-            if hits > 1:
-                problems.append((mid, f"`old` matches {hits} places in {rel}: which one gets mutated "
-                                      f"is whichever the runner happens to reach first"))
+            if hits != want:
+                problems.append((mid, f"`old` matches {hits} places in {rel}, expected {want}: this "
+                                      f"mutant does not apply, so the behaviour it was written for "
+                                      f"is unchecked"))
                 continue
 
-            mutated = src.replace(old, new, 1)
+            mutated = src.replace(old, new)
             if mutated == src:
                 problems.append((mid, "replacement is identical to the original: a no-op mutant"))
                 continue
 
-            # A mutant may name its own package (a set can span packages) or inherit the
-            # set's. Neither being present is a defect in the tree, so say which is missing
-            # rather than crashing on it.
             pkg = m.get("package", default_pkg)
-            if not pkg:
-                problems.append((mid, "no 'package' on the mutant or the set, so nothing can be compiled"))
-                continue
 
             abs_path = os.path.join(ROOT, rel)
             if rel not in touched:
@@ -151,16 +129,117 @@ def check(path):
     return problems
 
 
+def self_test():
+    """Check the shape rules against synthetic sets, without a toolchain or the tree.
+
+    Why this lives here rather than in a test file: the rules in mutset are the reason a
+    green CI tick means something, and nothing else in the repository exercises them. A
+    battery needs Go and minutes; these assertions need neither, so they can run on the same
+    path that checks the sets and fail for the same reason the gate would.
+
+    Every assertion goes through one of the three helpers below, and they share a counter.
+    The count printed at the end is a claim about how much was tested, so it is counted
+    rather than derived from the length of one of the lists -- an earlier version of this
+    printed `len(cases) + 2` and went stale the moment a case was added, which is the exact
+    species of error this whole change is about.
+
+    The controls (the `expect_accepts` and the `want=False` calls) are what make the
+    rejections evidence: a validator that rejects everything would pass every "refused"
+    assertion in here.
+    """
+    good = {"id": "T1", "file": "x.go", "old": "a", "new": "b"}
+    problems = []
+    checked = 0
+
+    def expect_rejects(name, doc, want):
+        nonlocal checked
+        checked += 1
+        found = validate(doc)
+        if not any(want in p for p in found):
+            problems.append(f"{name}: expected a problem containing {want!r}, got {found or 'none'}")
+
+    def expect_accepts(name, doc):
+        nonlocal checked
+        checked += 1
+        if validate(doc):
+            problems.append(f"{name}: control set was rejected: {validate(doc)}")
+
+    def expect_claims(name, docs, want):
+        nonlocal checked
+        checked += 1
+        got = bool(duplicate_claims(docs))
+        if got != want:
+            problems.append(f"{name}: expected {'a duplicate report' if want else 'silence'}, "
+                            f"got {got}")
+
+    expect_rejects("one id used twice in a set",
+                   {"package": "./x/", "mutants": [good, dict(good, id="T1", new="c")]},
+                   "is used twice in this set")
+    expect_rejects("a rationale filed under a key nothing reads",
+                   {"package": "./x/", "mutants": [dict(good, _why="proved it in a scratch file")]},
+                   "is read by nothing")
+    expect_rejects("a mutant no package would be run against",
+                   {"mutants": [good]}, "no 'package' on the mutant or the set")
+    expect_rejects("an `equivalent` that says the opposite of what it means",
+                   {"package": "./x/", "mutants": [dict(good, equivalent="false")]},
+                   "which is TRUTHY")
+    expect_rejects("a count that is not a count",
+                   {"package": "./x/", "mutants": [dict(good, count="2")]},
+                   "must be an integer of 1 or more")
+    expect_rejects("a required field that is not a string",
+                   {"package": "./x/", "mutants": [dict(good, old="")]},
+                   "'old' must be a non-empty string")
+
+    # An empty `new` is a DELETION and 19 mutants in these sets are one, so the validator
+    # must not treat it as missing -- the same mistake would have rejected a valid set.
+    expect_accepts("an empty `new`, which is a deletion mutant",
+                   {"package": "./x/", "mutants": [dict(good, new="")]})
+    # Three sets keep the equivalence PROOF in `equivalent`, so a string is a valid claim.
+    expect_accepts("`equivalent` holding the proof as prose",
+                   {"package": "./x/", "mutants": [dict(good, equivalent="proved in a scratch file")]})
+    expect_accepts("a control set with every rule satisfied",
+                   {"package": "./x/", "mutants": [good, dict(good, id="T2", count=2, equivalent=True)]})
+
+    expect_claims("the same mutation in two sets",
+                  [("a.json", {"mutants": [good]}), ("b.json", {"mutants": [good]})], True)
+    expect_claims("two different mutations of one line",
+                  [("a.json", {"mutants": [good]}),
+                   ("b.json", {"mutants": [dict(good, new="a different bug")]})], False)
+
+    # A mutant's claim includes WHICH package it asks, so containment is the test and two
+    # spellings of a package list are not two claims. This is the real shape: a set added for
+    # one package re-deriving a mutant another set already runs against that package and more.
+    narrow = {"package": "./internal/cli/", "mutants": [good]}
+    wider = {"package": "./cmd/", "mutants": [dict(good, package="./internal/cli/ ./cmd/plock/")]}
+    expect_claims("a mutant whose packages are a subset of another's",
+                  [("cli.json", narrow), ("cmd.json", wider)], True)
+    expect_claims("control: the same mutation against two disjoint packages",
+                  [("cli.json", narrow),
+                   ("other.json", {"package": "./internal/version/", "mutants": [good]})], False)
+
+    if problems:
+        print("self-test FAILED:")
+        for p in problems:
+            print(f"  {p}")
+        return 1
+    print(f"self-test: {checked} shape rules hold")
+    return 0
+
+
 def main(argv):
+    if argv[1:] == ["--self-test"]:
+        return self_test()
     paths = argv[1:]
     if not paths:
         dirn = os.path.join(ROOT, "scripts", "mutations")
         paths = sorted(os.path.join(dirn, f) for f in os.listdir(dirn) if f.endswith(".json"))
 
     total = bad = 0
+    named = []
     for path in paths:
         doc = load(path)
-        problems = check(path)
+        named.append((os.path.relpath(path, ROOT), doc))
+        problems = check(doc)
         total += len(doc["mutants"])
         bad += len(problems)
         label = os.path.relpath(path, ROOT)
@@ -170,6 +249,17 @@ def main(argv):
                 print(f"  {mid}: {why}")
         else:
             print(f"{label}: all {len(doc['mutants'])} mutants apply and compile")
+
+    # One claim counted twice is a tally that overstates what the battery proved, and it is
+    # invisible from inside a single set -- which is how a mutant added to guard a shared
+    # helper can duplicate one that already exists in another file's set. Checked across
+    # every set this run was given.
+    dupes = duplicate_claims(named)
+    bad += len(dupes)
+    if dupes:
+        print(f"\n{len(dupes)} duplicated claim(s) across these sets:")
+        for why in dupes:
+            print(f"  {why}")
 
     if bad:
         print(f"\n{bad} of {total} mutants would run without testing anything.")

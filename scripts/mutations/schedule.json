@@ -217,7 +217,8 @@
       "id": "W9",
       "file": "internal/schedule/wall.go",
       "old": "return ly == y && lmo == mo && ld == day && lh*60+lm == min",
-      "new": "return ly == y && lmo == mo && ld == day && lh*60+lm >= 0"
+      "new": "return ly == y && lmo == mo && ld == day && lh*60+lm >= 0",
+      "note": "P7 was this same mutation under a second id and has been removed, so the tally counts one claim rather than two for the same line."
     },
     {
       "id": "W10",
@@ -331,12 +332,6 @@
       "file": "internal/schedule/wall.go",
       "old": "for h := -36; h <= 36; h += 6 {",
       "new": "for h := -12; h <= 12; h += 6 {"
-    },
-    {
-      "id": "P7",
-      "file": "internal/schedule/wall.go",
-      "old": "return ly == y && lmo == mo && ld == day && lh*60+lm == min",
-      "new": "return ly == y && lmo == mo && ld == day && lh*60+lm >= 0"
     },
     {
       "id": "P8",

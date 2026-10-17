@@ -59,19 +59,16 @@ import subprocess
 import tempfile
 import sys
 
+# The set format is validated in one place, shared with the pre-flight, so a set the
+# gate accepts can never be a set the battery refuses to load.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mutset import load  # noqa: E402
+
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The Makefile takes GO ?= go; honouring it here keeps `make mutate GO=...` testing
 # the compiler it names rather than whatever else is on PATH.
 GO = os.environ.get("GO", "go")
 ROOT = SRC  # main() points this at the throwaway copy
-
-
-def load(path):
-    with open(path) as fh:
-        doc = json.load(fh)
-    if "package" not in doc or "mutants" not in doc:
-        sys.exit(f"{path}: expected an object with 'package' and 'mutants'")
-    return doc
 
 
 def run_suite(pkg):
@@ -100,7 +97,7 @@ def failing_tests(out):
 
 def run_set(path, label):
     doc = load(path)
-    pkg, mutants = doc["package"], doc["mutants"]
+    pkg, mutants = doc.get("package"), doc["mutants"]
     # A mutant's tests live wherever its behaviour is observable, which is not always
     # the set's default package: a cmd/plock mutant is invisible to the platform suite.
     # Without this, a mutant whose tests never ran was reported as SURVIVED and looked
