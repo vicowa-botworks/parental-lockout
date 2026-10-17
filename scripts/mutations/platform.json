@@ -810,6 +810,34 @@
       "old": "\treturn l.InUserSlice && uid == l.UID",
       "new": "\treturn l.InUserSlice",
       "note": "Declines dropping the uid half: inside any user slice the daemon declines every account on the machine, enforcing nobody. TestDeclinesNeedsBothHalvesOfThePair."
+    },
+    {
+      "id": "K30",
+      "file": "internal/platform/self.go",
+      "old": "\tif pid <= 0 {",
+      "new": "\tif false && pid <= 0 {",
+      "note": "LocationOf letting a pid of 0 or less through: /proc/0/cgroup is a real path belonging to the kernel's swapper, so a unit systemd says has no main process gets an answer about a process nobody asked about. TestLocationOfRefusesAPidThatIsNotAProcess"
+    },
+    {
+      "id": "K31",
+      "file": "internal/platform/self.go",
+      "old": "\tb, err := read(CgroupPathOf(pid))\n\tif err != nil {\n\t\treturn SelfLocation{}, err",
+      "new": "\tb, err := read(CgroupPathOf(pid))\n\tif err != nil {\n\t\treturn SelfLocation{}, nil",
+      "note": "A failed cgroup read answered as the zero location with no error, which is exactly 'outside anybody's session': the reporting surface then states that no session is declined on evidence that it could not read anything. TestLocationOfReportsAFailedReadRatherThanAnsweringOutside"
+    },
+    {
+      "id": "K32",
+      "file": "internal/platform/self.go",
+      "old": "func CgroupPathOf(pid int) string { return \"/proc/\" + strconv.Itoa(pid) + \"/cgroup\" }",
+      "new": "func CgroupPathOf(pid int) string { return \"/proc/self/cgroup\" }",
+      "note": "CgroupPathOf ignoring the pid and reading this process's own cgroup: every caller asking about the daemon gets the caller's answer, so `plock status` reports the operator's slice as the engine's. TestLocationOfReadsThePidItWasGiven, TestCgroupPathOfIsTheKernelLocationForThatPid"
+    },
+    {
+      "id": "K33",
+      "file": "internal/platform/self.go",
+      "old": "\tif read == nil {",
+      "new": "\tif false && read == nil {",
+      "note": "A nil reader accepted and then called: a wiring mistake surfaces as a nil dereference or, once someone guards the call, as 'outside' -- a deployment fact invented out of a bug. TestLocationOfRefusesANilReader"
     }
   ]
 }

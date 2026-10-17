@@ -29,6 +29,11 @@ type statusFixture struct {
 	// them leaves both fields untested -- which is how `backends` shipped as null.
 	names   []string
 	unknown []string
+	// daemon is where the enforcement engine is running. nil means "systemd answered
+	// and no unit is running", which is the state a test runner's machine is actually
+	// in; a test that needs the engine placed inside somebody's login session states
+	// it rather than inheriting it.
+	daemon *daemonState
 }
 
 func withStatusMachine(t *testing.T, f statusFixture) string {
@@ -44,6 +49,21 @@ func withStatusMachine(t *testing.T, f statusFixture) string {
 			names: f.names, unknown: f.unknown}, nil
 	}
 	t.Cleanup(func() { buildStatusChain = prevChain })
+
+	// Installed, never inherited. Without this every status test would ask the machine
+	// it happens to run on where plock is, and a box with the service installed would
+	// render a different report than a headless runner -- the same failure that made a
+	// test pass on the author's desktop and redden CI for everyone else.
+	//
+	// The default is the state a test runner's machine is actually in: systemd answers,
+	// and no plock unit is running.
+	d := daemonState{SystemdKnown: true}
+	if f.daemon != nil {
+		d = *f.daemon
+	}
+	prevDaemon := daemonProbe
+	daemonProbe = func() daemonState { return d }
+	t.Cleanup(func() { daemonProbe = prevDaemon })
 
 	return f.writeConfig(t)
 }

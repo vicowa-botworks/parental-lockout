@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -102,6 +104,40 @@ func ReadSelfUserSlice() (uid uint32, insideUserSlice bool) {
 		return 0, false
 	}
 	return UserSliceUID(string(b))
+}
+
+// CgroupPathOf is where the kernel records the cgroup of a process other than this one.
+func CgroupPathOf(pid int) string { return "/proc/" + strconv.Itoa(pid) + "/cgroup" }
+
+// LocationOf answers, about another process, the question ReadSelfUserSlice answers
+// about this one.
+//
+// It returns the error rather than swallowing it, which is the opposite of what
+// ReadSelfUserSlice does, and the difference is who asks. The daemon needs an answer
+// in order to decide, and its safe answer when /proc is unusual is "outside" -- the
+// answer every supported deployment already gets. A reporting surface has no such
+// licence: "could not tell" rendered as "declines nobody" is the same lie as a
+// dashboard calling a declined session enforced, just quieter. So the caller decides
+// what an unreadable probe is worth, and says so.
+//
+// The pid is read from /proc rather than taken from systemd's ControlGroup property on
+// purpose: this is the same file, parsed by the same function, that the daemon reads
+// about itself. Two surfaces answering from one parser cannot drift; answering one of
+// them from a property the init system formats would put a second source of truth
+// between them.
+func LocationOf(pid int, read func(string) ([]byte, error)) (SelfLocation, error) {
+	if pid <= 0 {
+		return SelfLocation{}, fmt.Errorf("no process id to read: %d", pid)
+	}
+	if read == nil {
+		return SelfLocation{}, errors.New("no cgroup reader supplied")
+	}
+	b, err := read(CgroupPathOf(pid))
+	if err != nil {
+		return SelfLocation{}, err
+	}
+	uid, inside := UserSliceUID(string(b))
+	return SelfLocation{UID: uid, InUserSlice: inside}, nil
 }
 
 // SelfLocation is where this process is running, as far as the lockout decision
