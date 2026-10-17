@@ -30,7 +30,7 @@
     {{range .Rows}}
     <tr class="{{if .LockedOutNow}}held{{end}}{{if .CannotEvaluate}}unreadable{{end}}">
       <th scope="row">{{.Username}}</th>
-      <td>
+      <td data-label="Lockout">
         {{- if .CannotEvaluate -}}
           <span class="state-unknown">cannot be decided</span>
         {{- else if .LockedOutNow -}}
@@ -48,7 +48,7 @@
           nothing scheduled
         {{- end -}}
       </td>
-      <td>
+      <td data-label="Why">
         {{if .RuleName}}<span class="rule">{{.RuleName}}</span>{{end}}
         {{if .OverrideActive}}<span class="override">open override{{if .OverrideReason}}: {{.OverrideReason}}{{end}}</span>{{end}}
         {{if .OverrideExpired}}<span class="override-expired">override expired</span>{{end}}
@@ -67,7 +67,7 @@
              No maxlength on the reason field. The server bounds it at maxOverrideReason
              and refuses with the limit named; repeating the number here would be a second
              home for a constant that a test does not tie the two together on. */ -}}
-      <td>
+      <td data-label="Override">
         {{- $who := .Username -}}
         {{if .OverrideActive}}
         <form method="post" action="/users/{{$who}}/override/clear">
@@ -87,7 +87,7 @@
         </form>
         {{end}}
       </td>
-      <td>
+      <td data-label="Sessions">
         {{if .Sessions}}
         <ul class="sessions">
           {{range .Sessions}}

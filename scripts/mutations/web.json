@@ -415,34 +415,6 @@
       "note": "the availability report is printed but never counted, so usable stays 0 and a machine that can lock somebody is refused at startup. This is the direction the guard could be 'fixed' in to look safe: refusing always passes every refusal test, so the control -- a usable backend must start -- is what this mutant needs, and TestServeStartsWhenOneBackendIsUsable is what kills it"
     },
     {
-      "id": "W59",
-      "file": "internal/web/sources.go",
-      "old": "\tif err := t.ExecuteTemplate(&buf, \"page\", pageData{",
-      "new": "\tif err := t.ExecuteTemplate(w, \"page\", pageData{",
-      "note": "the page is streamed instead of buffered, so a template that fails halfway leaves half a document on the wire behind a 200 and a browser renders half a table as a whole one"
-    },
-    {
-      "id": "W60",
-      "file": "internal/web/sources.go",
-      "old": "\tw.Header().Set(\"Cache-Control\", \"no-store\")\n\t_, _ = buf.WriteTo(w)",
-      "new": "\t_, _ = buf.WriteTo(w)",
-      "note": "the page becomes cacheable, so a parent can be shown a stale answer about whether their child is locked out -- and a shared proxy can hold it"
-    },
-    {
-      "id": "W62",
-      "file": "internal/web/sources.go",
-      "old": "\tif s.Lockables == nil {\n\t\treturn nil, errors.New(\"no session source is wired\")\n\t}",
-      "new": "\tif false {\n\t\treturn nil, errors.New(\"no session source is wired\")\n\t}",
-      "note": "a nil session source becomes an empty session list, which the page renders as 'nobody has a desktop session' -- a claim about the machine the daemon never established"
-    },
-    {
-      "id": "W63",
-      "file": "internal/web/pages.go",
-      "old": "\t\ts.logf(\"web: %s session list unavailable: %v\", requestID(r), err)",
-      "new": "\t\t_ = err",
-      "note": "the session column failing is silent, so 'locked out' on the dashboard reads as 'the screen is locked right now' with nothing saying the column that means that is missing"
-    },
-    {
       "id": "W55",
       "file": "internal/web/sources.go",
       "old": "\tif s.Config == nil {\n\t\treturn nil, errors.New(\"no configuration source is wired\")\n\t}",
@@ -471,11 +443,39 @@
       "note": "the accounts page is rendered from an empty union, so the unmanaged count and the table both describe a machine nobody logged into"
     },
     {
+      "id": "W59",
+      "file": "internal/web/sources.go",
+      "old": "\tif err := t.ExecuteTemplate(&buf, \"page\", pageData{",
+      "new": "\tif err := t.ExecuteTemplate(w, \"page\", pageData{",
+      "note": "the page is streamed instead of buffered, so a template that fails halfway leaves half a document on the wire behind a 200 and a browser renders half a table as a whole one"
+    },
+    {
+      "id": "W60",
+      "file": "internal/web/sources.go",
+      "old": "\tw.Header().Set(\"Cache-Control\", \"no-store\")\n\t_, _ = buf.WriteTo(w)",
+      "new": "\t_, _ = buf.WriteTo(w)",
+      "note": "the page becomes cacheable, so a parent can be shown a stale answer about whether their child is locked out -- and a shared proxy can hold it"
+    },
+    {
       "id": "W61",
       "file": "internal/web/sources.go",
       "old": "\t\tif file == name {\n\t\t\treturn url\n\t\t}",
       "new": "\t\tif file == name {\n\t\t\t_ = url\n\t\t\treturn \"/static/\" + name\n\t\t}",
       "note": "the stylesheet is linked by its plain name, so it is served under the page's no-store or not at all, and a fix to app.css does not appear on a parent's phone until the browser feels like revalidating"
+    },
+    {
+      "id": "W62",
+      "file": "internal/web/sources.go",
+      "old": "\tif s.Lockables == nil {\n\t\treturn nil, errors.New(\"no session source is wired\")\n\t}",
+      "new": "\tif false {\n\t\treturn nil, errors.New(\"no session source is wired\")\n\t}",
+      "note": "a nil session source becomes an empty session list, which the page renders as 'nobody has a desktop session' -- a claim about the machine the daemon never established"
+    },
+    {
+      "id": "W63",
+      "file": "internal/web/pages.go",
+      "old": "\t\ts.logf(\"web: %s session list unavailable: %v\", requestID(r), err)",
+      "new": "\t\t_ = err",
+      "note": "the session column failing is silent, so 'locked out' on the dashboard reads as 'the screen is locked right now' with nothing saying the column that means that is missing"
     },
     {
       "id": "W69",
@@ -657,6 +657,62 @@
       "package": "./internal/config/"
     },
     {
+      "id": "W90",
+      "file": "internal/web/profiles.go",
+      "old": "\tif len(days) == 0 {",
+      "new": "\tif false && len(days) == 0 {",
+      "note": "a rule with no day ticked reaches Validate instead of the form's own guard, so the operator is refused with the document's sentence rather than the field's -- the rule is never saved, because Validate gates the save inside the same seam"
+    },
+    {
+      "id": "W91",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tp.Rules = append(append([]config.Rule(nil), p.Rules...), rule)",
+      "new": "\t\tp.Rules = append(append([]config.Rule(nil), p.Rules...))",
+      "note": "the new rule is dropped after the profile is looked up, so the form reports success and nothing is added"
+    },
+    {
+      "id": "W92",
+      "file": "internal/web/profiles.go",
+      "old": "\t\treturn errUnknownProfile",
+      "new": "\t\treturn nil",
+      "note": "posting to a nonexistent profile stops being an error, so the handler answers 303 as though a rule had been created"
+    },
+    {
+      "id": "W93",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\tif r.ID == candidate {",
+      "new": "\t\t\tif false && r.ID == candidate {",
+      "note": "the id-collision check never fires, so a second rule of the same name gets a duplicate id and Validate then refuses the whole document"
+    },
+    {
+      "id": "W94",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tif errs := schedule.ProfileErrors(&p); len(errs) > 0 {",
+      "new": "\t\tif errs := schedule.ProfileErrors(&p); false && len(errs) > 0 {",
+      "note": "a profile the evaluator reports as degraded renders as healthy, which is the fail-open this page exists to make visible"
+    },
+    {
+      "id": "W95",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tcase errors.Is(err, config.ErrProfileInUse):",
+      "new": "\t\tcase false && errors.Is(err, config.ErrProfileInUse):",
+      "note": "the in-use refusal stops matching, so the operator is told the profile could not be deleted (503, retry again) instead of who is holding it -- the answer they could act on. Re-pointed from `isBlockingRefusal(err)`, which this commit deleted: the meaning is the same, the branch it used to fall into is now the default rather than a 404."
+    },
+    {
+      "id": "W96",
+      "file": "internal/web/sources.go",
+      "old": "\tif cc, ok := view.(csrfCarrier); ok {",
+      "new": "\tif cc, ok := view.(csrfCarrier); ok && false {",
+      "note": "render stops handing the token to page bodies, so every form on the profiles page renders without one and every submit is refused -- the logout-form defect again"
+    },
+    {
+      "id": "W97",
+      "file": "internal/web/profiles.go",
+      "old": "\tif rl.AllDay {\n\t\treturn \"all day\"\n\t}",
+      "new": "\tif false && rl.AllDay {\n\t\treturn \"all day\"\n\t}",
+      "note": "an all-day rule renders its ignored clock pair, so a parent reads a minute-short window as the rule they meant"
+    },
+    {
       "id": "W101",
       "package": "./internal/web/",
       "file": "internal/web/override.go",
@@ -811,6 +867,50 @@
       "old": "\tengine.Logf = log\n",
       "new": "",
       "note": "the engine keeps enforce.New's default logger instead of the sink serve was given. Nothing breaks loudly: the daemon runs, and the two lines an operator needs when enforcement quietly stopped -- a tick that fell behind, a config that would not reload -- go to the process's stderr instead of the configured sink, so a redirect misses them. TestServeHandsTheEngineItsLogSink."
+    },
+    {
+      "id": "W105",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tcase errors.Is(err, config.ErrNoSuchProfile):",
+      "new": "\t\tcase false && errors.Is(err, config.ErrNoSuchProfile):",
+      "note": "an absent profile stops being recognised, so it lands in the default branch and answers 503 'the profile could not be deleted' -- retryable-looking, when retrying can never help. TestDeletingAProfileThatDoesNotExistIsNotFound."
+    },
+    {
+      "id": "W106",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, \"there is no profile with that id\")",
+      "new": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, err.Error())",
+      "note": "the 404 goes back to echoing the error, which puts request-supplied text (the profile id comes from the URL) into the response body. This is the shape that let a hostile id state a falsehood about enforcement. TestAHostileProfileIDCannotChooseWhichRefusalFires."
+    },
+    {
+      "id": "W107",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\ts.mutateRefused(w, r, \"the profile could not be deleted\", err)",
+      "new": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, err.Error())",
+      "note": "the finding the reviewer measured: a seam failure (read-only mount, full disk, corrupt config) reported as 'no such profile' with the raw error echoed. TestASeamFailureIsNotReportedAsAMissingProfile."
+    },
+    {
+      "id": "W108",
+      "package": "./internal/config/",
+      "file": "internal/config/edit.go",
+      "old": "\t\treturn fmt.Errorf(\"config: %w to %s; %s\", ErrProfileInUse, quotedList(blocked), verb)",
+      "new": "\t\treturn fmt.Errorf(\"config: profile is still assigned to %s; %s\", quotedList(blocked), verb)",
+      "note": "the in-use refusal stops carrying its sentinel. The wording is unchanged, so nothing fails until a caller tries to tell this refusal from a disk failure: the web layer's errors.Is misses and a correct refusal is answered 503. Caught at the layer that owns the contract by TestTheTwoDeletionRefusalsCarryTheirSentinels; the web-side consequence is pinned by W105 and W107, which mutate the branches themselves."
+    },
+    {
+      "id": "W109",
+      "package": "./internal/config/",
+      "file": "internal/config/edit.go",
+      "old": "\t\treturn fmt.Errorf(\"config: %w %q\", ErrNoSuchProfile, id)",
+      "new": "\t\treturn fmt.Errorf(\"config: no profile %q\", id)",
+      "note": "same shape on the other refusal: the wording is unchanged, the identity is gone. TestTheTwoDeletionRefusalsCarryTheirSentinels, plus TestAMissingProfileNamesTheIDItCouldNotFind for the id the CLI prints."
+    },
+    {
+      "id": "W122",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tp.Rules = append(append([]config.Rule(nil), p.Rules...), rule)",
+      "new": "\t\tp.Rules = append(p.Rules, rule)",
+      "note": "the rule-add path appends into the array it copied the header from, so a reader holding a snapshot of the same profile writes its own rule into the slot the handler just saved. TestAddingARuleDoesNotWriteIntoAnArrayAnotherSnapshotHolds gives the slice spare capacity first -- without room the mutation is unobservable, which is why config's own version of this test fails loudly on len==cap Renumbered from W110: #74's serve.go mutant already holds that id on another open branch, and ids are one namespace across concurrently open PRs."
     }
   ]
 }
