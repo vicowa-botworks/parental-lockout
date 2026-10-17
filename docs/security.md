@@ -165,6 +165,7 @@ and says so once in the audit trail and once on stderr at startup.
 | The refusal is announced once, not on every 30-second tick | `TestTheOwnSessionIsAnnouncedOnceNotEveryTick` |
 | The rule is one predicate, and both halves are required | `TestDeclinesNeedsBothHalvesOfThePair` |
 | The dashboard is handed the same location the engine is | `TestServeHandsTheDashboardTheSameLocationItHandsTheEngine`, `TestNewHandsTheSelfLocationToTheServer` |
+| Both halves are asserted, not just the page's — the engine is assembled by a function a test can call, and a dropped field is caught | `TestServeHandsTheDashboardTheSameLocationItHandsTheEngine`, `TestServeHandsTheEngineItsLogSink` |
 | A declined account is not rendered as locked out, and names the fix on the row | `TestADeclinedAccountIsNotShownAsLockedOut` |
 | One declined session among several still counts as held | `TestOneDeclinedSessionAmongSeveralDoesNotMarkTheAccountUnenforced` |
 | A logged-out account is not reported as declined | `TestAnAccountWithNoSessionIsNotReportedAsDeclined` |
@@ -195,6 +196,28 @@ asking *"would locking this session lock the screen I am sitting behind?"*, and 
 the uid is the right and only signal. Where the two genuinely share an account the rule declines
 and says so in the trail rather than going quiet, which is the same rule §4 already applies to a
 session it cannot read.
+
+**Scope: the daemon, not every process that can lock a screen.** The rule belongs to the
+long-running loop, and the CLI deliberately does not consult it. `plock lock <user>` and
+`plock lock --all` lock the operator's own session if it is in the set, because a one-shot
+lock is not a lockout: the operator types their password and is back at their desktop in one
+keystroke. The daemon's re-assertion is a different thing — it re-locks every tick for the
+whole window, so a daemon running behind a locked screen can never be stopped, reconfigured,
+or turned off from the account it is enforcing against. That asymmetry is the whole rule, and
+it is why the guard sits in `internal/enforce` rather than in `platform.Chain.Lock`.
+
+Two consequences are written down rather than left to be discovered:
+
+- `plock lock --all` is documented as a smoke test, and it is the command someone types from
+  the desktop they are about to lose. It now says so on stderr when the account it is about to
+  lock is the one they are typing in, and still locks it — the warning is not a refusal,
+  because refusing would break the smoke test for the person who means it.
+- `plock status` cannot report a declined session, and does not pretend to. Rendering
+  `lockable / unlocked` as "declined" needs the *daemon's* slice, and the slice of the process
+  running `status` is a different fact: doctor and status are run from a desktop terminal by an
+  operator whose own session is in a user slice even when the daemon is a system unit that
+  declines nobody. Guessing from the CLI's own process would put a confident wrong label on the
+  row — the failure this document calls the worst kind several times over. See §8.
 
 ---
 
@@ -273,7 +296,8 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 | **Power states across reboot** | Out of scope by design. A reboot during bedtime is re-locked at the next poll after the session returns. |
 | **A raw VT session** | Deliberately kept lockable even though it can never be confirmed. Refusing `Type == "tty"` would make `Sessions()` report nobody, the loop find nothing to do, and the machine go quiet while the child keeps typing — the same outcome for the child, minus the signal. The loud permanent `ErrUnconfirmed` is the safe failure. |
 | **Application or website filtering** | Out of scope by design. |
-| **The child reading the audit trail** | They cannot — §3 — but there is no reader on this tree yet, so the operator cannot read it either. Issue #46. |
+| **The child reading the audit trail** | They cannot — §3. The operator can: `internal/audit` has a reader that follows rotation, but no command exposes it yet, so today the trail is read with `tail` and `jq` over a root-owned file. |
+| **`plock status` naming a declined session** | The rule is the daemon's, and the CLI cannot see the daemon's cgroup from its own process — see §4. Labelling a row "declined" from the slice of whoever ran `status` would be a confident wrong answer on the surface a bug report is pasted from, so `status` says nothing and this row says why. |
 | **GNOME corroboration of a lock** | No second signal has been measured on GNOME hardware. A GNOME-only config therefore reports `lock.unconfirmed` on transitions. Issue #35. |
 | **A child sharing an account with the admin, when the daemon was started from that desktop** | The daemon declines to lock its own login session, because locking it removes the only way to stop the daemon. This never applies to the supported deployment — a systemd system unit lives under `system.slice` and shares no slice with any user, so the rule is inert and every account is enforced. Where it does fire, `plock serve` says so on stderr at startup and the trail carries one `lock.unenforceable` line naming `deploy/plock.service` as the fix. |
 | **A non-Linux build** | The guards fail closed — `ownerIsWriter` and `fileUID` return `errOwnershipUnsupported` and the writer refuses — but the *race* protection is lost: without `O_NOFOLLOW` a path can still be swapped between check and open. v0.1 ships Linux only. |

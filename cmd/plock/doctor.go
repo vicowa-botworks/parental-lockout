@@ -58,6 +58,11 @@ Exits 0 when nothing failed, 1 when a check failed -- and --json names which in 
 // author's box and failing on every other one.
 var systemdProbe = func() (string, bool, error) { return systemdState(platform.ExecRunner{}) }
 
+// doctorSelfLocation is doctor's copy of the seam serve uses (serveSelfLocation), over the
+// same read. Two seams rather than one because a test states one surface's answer without
+// dragging the other along; one read, because the fact is the same fact.
+var doctorSelfLocation func() platform.SelfLocation = selfLocation
+
 type chainView interface {
 	Names() []string
 	Unknown() []string
@@ -165,6 +170,7 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 	rep.add(checkPollInterval(cfg.Settings.PollSeconds))
 	rep.add(checkTLS(cfg.Settings.TLS, cfg.Settings.CertFile, time.Now(), certValidity))
 	rep.add(checkDaemonRunning(systemdProbe))
+	rep.add(checkDaemonSlice(systemdProbe, doctorSelfLocation))
 
 	chain, chainErr := buildChain(cfg.Settings)
 	if chainErr != nil {

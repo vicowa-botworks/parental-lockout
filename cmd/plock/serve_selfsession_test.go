@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/audit"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 	"github.com/vicowa-botworks/parental-lockout/internal/users"
@@ -75,6 +77,44 @@ func TestServeStaysQuietAboutItsOwnSessionWhenItHasNone(t *testing.T) {
 // so the drop would be invisible in the deployment where the rule never fires and fatal
 // in the one where it does: the page would announce the child as locked out while the
 // engine declines to lock them.
+// TestServeHandsTheEngineItsLogSink pins the other thing serveEngine wires.
+//
+// enforce.New defaults Logf to the standard logger, because an engine left unconfigured
+// would otherwise drop the three loudest things it has to say. That default is a safety net
+// for a library caller, not for the daemon: a daemon whose operator redirects stdout gets
+// nothing, and the lines that vanish are a tick that fell behind and a config that would not
+// reload -- exactly the two a parent needs to hear when enforcement quietly stopped. So the
+// sink has to arrive through the assembly, and a field assigned once at startup is only
+// visible if a test can call the assembly and look.
+func TestServeHandsTheEngineItsLogSink(t *testing.T) {
+	dir := t.TempDir()
+	path := writeServeConfig(t, dir)
+
+	var logged strings.Builder
+	eng := serveEngine(path, nil, &audit.Writer{Path: filepath.Join(dir, "trail.jsonl")},
+		platform.SelfLocation{}, func(format string, args ...any) {
+			fmt.Fprintf(&logged, format+"\n", args...)
+		})
+	if eng.Logf == nil {
+		t.Fatal("the assembled engine has no log sink at all")
+	}
+	eng.Logf("tick %d fell behind", 3)
+	if got := logged.String(); !strings.Contains(got, "tick 3 fell behind") {
+		t.Errorf("the engine's diagnostics did not reach the sink serve was given; got %q, and "+
+			"anything the engine logs instead went to the process's default logger, which a "+
+			"redirect cannot capture", got)
+	}
+}
+
+// The dashboard is handed the same location the enforcement loop was handed, and this
+// asserts it through the production assembly rather than a hand-built web.Options.
+//
+// The value is deliberately odd. A test that passes the zero value and asserts the zero
+// value came back would pass when serve drops the field, because dropping it and
+// forwarding it look identical at zero -- and zero is what a systemd unit gets anyway,
+// so the drop would be invisible in the deployment where the rule never fires and fatal
+// in the one where it does: the page would announce the child as locked out while the
+// engine declines to lock them.
 func TestServeHandsTheDashboardTheSameLocationItHandsTheEngine(t *testing.T) {
 	dir := t.TempDir()
 	path := writeServeConfig(t, dir)
@@ -93,5 +133,25 @@ func TestServeHandsTheDashboardTheSameLocationItHandsTheEngine(t *testing.T) {
 		t.Errorf("the served server was handed %+v, want %+v; the enforcement loop is told "+
 			"it is inside uid 4123's session and the dashboard is not, so the page can report "+
 			"that account as locked out while the loop declines to lock it", srv.Self, self)
+	}
+
+	// The half the name has always promised and the body never checked. Issue #72 is the
+	// record of what that cost: engine.Self could be deleted, the loop would run at the
+	// zero value, the rule would never fire, and the daemon would lock the session it runs
+	// behind -- the bug #67 was filed for -- with the suite green throughout. The loop's
+	// own tests set the field by hand, so only an assembly test can see whether serve
+	// actually hands it over.
+	eng := serveEngine(path, nil, &audit.Writer{Path: filepath.Join(dir, "trail.jsonl")},
+		self, func(string, ...any) {})
+	if eng.Self != self {
+		t.Errorf("the enforcement loop was handed %+v, want %+v; a dropped field here means "+
+			"the daemon locks the login session it runs inside, and the dashboard still "+
+			"reports that account as declined", eng.Self, self)
+	}
+	// One value, not two that happen to agree today. The dashboard explaining a declined
+	// account the loop did not decline is the same lie in the other direction.
+	if eng.Self != srv.Self {
+		t.Errorf("serve hands the loop %+v and the dashboard %+v; they must be one decision",
+			eng.Self, srv.Self)
 	}
 }
