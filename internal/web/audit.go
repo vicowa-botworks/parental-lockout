@@ -101,9 +101,25 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	// the same condition is invisible to every test, because audit.tmpl only renders the
 	// note inside its filtered-empty branch and would mask any change to it.
 	userUnknown := false
+	// The bounds travel with the answer, because the listing is a filter and not a census.
+	// parsePasswd drops every uid outside UID_MIN..UID_MAX and every nologin shell in
+	// silence -- no note, because a machine has hundreds of those and a note each would
+	// bury the real ones. So an account created with `useradd -u 900` is a real local
+	// account the listing does not carry, and its absence is never recorded. A sentence
+	// about the machine would be a claim this input cannot support; a sentence about what
+	// plock can manage is exactly what it can, and naming the bounds tells the operator
+	// which filter said no.
+	var uidMin, uidMax uint32
 	if user != "" && len(rows) == 0 {
-		if listing, lerr := s.readAccounts(); lerr == nil {
+		listing, lerr := s.readAccounts()
+		if lerr != nil {
+			// The trail's failed read gets a line two screens up for the same reason
+			// this one does: "the page stayed silent" and "the page had nothing to say"
+			// are indistinguishable afterwards, and on this page silence is a verdict.
+			s.logf("web: %s audit account listing unavailable, so the page will not say whether %q exists: %v", requestID(r), user, lerr)
+		} else if listing != nil {
 			userUnknown = accountIsUnknown(user, rows, listing)
+			uidMin, uidMax = listing.UIDMin, listing.UIDMax
 		}
 	}
 
@@ -122,6 +138,11 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	// one of its lines -- which has already happened to this package's mutants twice. A
 	// statement's text does not move.
 	page.UserUnknown = userUnknown
+	// Statements, not literal fields, for the reason above. Both travel together: a note
+	// that names bounds the listing did not apply is the same over-claim in the other
+	// direction.
+	page.ManagedUIDMin = uidMin
+	page.ManagedUIDMax = uidMax
 
 	s.render(w, r, "audit", page)
 }
@@ -219,10 +240,22 @@ type auditPage struct {
 	Truncated bool
 
 	// UserUnknown is the filtered-empty page having checked, and found no account by that
-	// exact name on this machine right now. It says nothing about the trail: the events of
-	// an account deleted last week are still its events. It is set only when the account
-	// listing answered, and only when no row matched, so it can never contradict rows the
-	// operator is looking at, and a listing that could not be read leaves the page silent
-	// about existence rather than inventing a second answer.
+	// exact name among the accounts plock can manage on this machine right now. Not on the
+	// machine: the listing is filtered by uid range and login shell, and an account outside
+	// the filter is absent from it in silence, so the listing cannot settle what exists.
+	// It says nothing about the trail: the events of an account deleted last week are still
+	// its events. It is set only when the account listing answered, and only when no row
+	// matched, so it can never contradict rows the operator is looking at, and a listing
+	// that could not be read leaves the page silent about existence rather than inventing a
+	// second answer.
 	UserUnknown bool
+
+	// ManagedUIDMin and ManagedUIDMax are the uid bounds the listing actually applied, so
+	// the note can name the filter that said no instead of leaving it implicit. They come
+	// from Listing.UIDMin/UIDMax, which users.List sets to the bounds in force -- including
+	// the defaults it fell back to when login.defs was unreadable, which is the case where
+	// naming them matters most. A hand-built listing leaves them zero, and the template
+	// then says nothing about bounds rather than rendering "UID 0-0".
+	ManagedUIDMin uint32
+	ManagedUIDMax uint32
 }

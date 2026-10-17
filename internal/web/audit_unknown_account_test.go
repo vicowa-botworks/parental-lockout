@@ -16,7 +16,7 @@ import (
 // answer is *you typed a name that does not exist*. These tests pin the existence note and,
 // just as much, the three situations in which the page must stay silent about existence.
 
-const unknownNote = "There is no local account named"
+const unknownNote = "There is no account named"
 
 // sentences is the page's prose with its markup removed. The banner wraps the account name
 // in <strong>, so asserting on flat() bytes would pin the markup rather than the sentence --
@@ -86,7 +86,7 @@ func TestATypoedAccountIsNamedAsATypo(t *testing.T) {
 }
 
 // A name the listing knows, with nothing in the window. The honest answer is "no events for
-// this account", and adding "there is no local account named" to it would send the operator
+// this account", and adding the existence note to it would send the operator
 // off to look for an account that is sitting in front of them.
 func TestAKnownAccountWithNoEventsIsNotCalledUnknown(t *testing.T) {
 	tail := audit.Tail{Records: []audit.Record{
@@ -272,4 +272,97 @@ func TestTheListingIsReadOnlyWhenTheFilterFoundNothing(t *testing.T) {
 			t.Errorf("the account listing was opened %d times; the page needs it exactly once to answer", calls)
 		}
 	})
+}
+
+// #94's review finding, and it is the same failure this PR exists to close. The listing is a
+// filter, not a census: parsePasswd drops every uid outside UID_MIN..UID_MAX and every
+// nologin shell in silence, because a machine has hundreds of those and a note each would
+// bury the real ones. So a name missing from the listing is evidence about the filter, not
+// about the machine -- and `useradd -u 900` is a real child that no read at UID_MIN=1000 will
+// ever return. The sentence that ran here said he does not exist and then pointed at the
+// spelling, which is the one thing that makes an operator stop looking.
+func TestTheNoteNamesTheFilterThatSaidNoRatherThanTheMachine(t *testing.T) {
+	tail := audit.Tail{Records: []audit.Record{
+		{At: insideWindow, Kind: "lockout.entered", Username: "casey", RuleName: "weeknights"},
+	}, FilesRead: 1}
+	listing := &users.Listing{UIDMin: 500, UIDMax: 1500}
+	listing.Accounts = append(listing.Accounts, users.Account{Username: "casey"})
+	s, _ := pageWithTrailAndAccounts(t, tail, listing, nil)
+
+	body := sentences(authGet(t, s, "/audit?user=robert").Body.String())
+	if !strings.Contains(body, "among the accounts plock can manage") {
+		t.Errorf("the note speaks about the machine rather than the managed set:\n%s", body)
+	}
+	// The bounds are the operator's way out. Without them the narrowed sentence is still a
+	// black box, and the only way to notice the filter was the wrong one is to see which
+	// filter answered. They are the bounds actually applied, not the compiled defaults:
+	// users.List reports what login.defs said, including the fallback it noted.
+	if !strings.Contains(body, "uid 500-1500") {
+		t.Errorf("the note does not name the uid bounds that were applied:\n%s", body)
+	}
+	// The claim the page is no longer allowed to make, pinned so a rewording cannot creep
+	// back to it by way of "tidying the sentence up".
+	if strings.Contains(body, "no local account") {
+		t.Errorf("the page is asserting what accounts exist on the machine:\n%s", body)
+	}
+}
+
+// A listing with no bounds is a hand-built one, and "uid 0-0" would be a range the page made
+// up. The narrowed sentence is still exactly true without it, so the page says that and stops.
+func TestAListingWithoutBoundsInventsNoRange(t *testing.T) {
+	tail := audit.Tail{Records: []audit.Record{
+		{At: insideWindow, Kind: "lockout.entered", Username: "casey", RuleName: "weeknights"},
+	}, FilesRead: 1}
+	s, _ := pageWithTrailAndAccounts(t, tail, listingWith("casey"), nil)
+
+	body := sentences(authGet(t, s, "/audit?user=robert").Body.String())
+	if !strings.Contains(body, unknownNote+" robert") {
+		t.Fatalf("the note was withheld along with the bounds, so the typo is a closed search again:\n%s", body)
+	}
+	if strings.Contains(body, "uid 0-0") {
+		t.Errorf("the page invented a uid range out of a zero value:\n%s", body)
+	}
+}
+
+// A withheld note and an absent note look identical on the page, and this page's whole
+// contract is that silence is a verdict. The trail's failed read gets a log line for the same
+// reason; without one, "the page chose not to speak" and "the page could not look" cannot be
+// told apart after the fact by anyone but the operator standing at the machine.
+func TestAFailedAccountListingIsLoggedWhenTheNoteIsWithheld(t *testing.T) {
+	tail := audit.Tail{Records: []audit.Record{
+		{At: insideWindow, Kind: "lockout.entered", Username: "casey", RuleName: "weeknights"},
+	}, FilesRead: 1}
+	s, _ := pageWithTrailAndAccounts(t, tail, nil, errors.New("passwd unreadable"))
+	sink := newLogSink()
+	s.Logf = sink.log
+
+	rec := authGet(t, s, "/audit?user=Mallory")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a listing failure must not turn the page into an error, got %d", rec.Code)
+	}
+	body := sentences(rec.Body.String())
+	if strings.Contains(body, unknownNote) {
+		t.Errorf("the page answered existence from a listing it could not read:\n%s", body)
+	}
+	var said bool
+	for _, l := range sink.Lines() {
+		if strings.Contains(l, "account listing unavailable") && strings.Contains(l, "passwd unreadable") {
+			said = true
+		}
+	}
+	if !said {
+		t.Errorf("nothing was logged about the refused listing; lines: %q", sink.Lines())
+	}
+
+	// The control: a listing that answered must not log. Without this half, a page that
+	// logs on every filtered request passes the test above just as well.
+	clean, _ := pageWithTrailAndAccounts(t, tail, listingWith("casey"), nil)
+	cleanSink := newLogSink()
+	clean.Logf = cleanSink.log
+	authGet(t, clean, "/audit?user=Mallory")
+	for _, l := range cleanSink.Lines() {
+		if strings.Contains(l, "account listing unavailable") {
+			t.Errorf("a listing that answered was logged as though it had failed: %q", l)
+		}
+	}
 }
