@@ -1001,6 +1001,14 @@
       "note": "the assignment half stops collecting, which is the half that worked before this change and the half the original guard was written against. Kept as the pair to W134: the claim is that BOTH spellings are collected, and a claim about two things needs one mutant per thing."
     },
     {
+      "id": "W163",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/dashboard.tmpl",
+      "old": "          {{/* `datetime` is the machine-readable instant for the browser; `data-unix`\n               is the hook static/app.js counts down from. Both are needed -- the\n               script's selector is time[data-unix], and emitting only the standard\n               attribute ships a countdown that never runs.\n\n               No trim markers here, deliberately: this comment sits between the state\n               and its deadline, and trimming both sides deletes the only space between\n               them, so the cell renders \"locked outuntil 06:30\". */}}\n",
+      "new": "          {{- /* `datetime` is the machine-readable instant for the browser; `data-unix`\n               is the hook static/app.js counts down from. Both are needed -- the\n               script's selector is time[data-unix], and emitting only the standard\n               attribute ships a countdown that never runs.\n\n               No trim markers here, deliberately: this comment sits between the state\n               and its deadline, and trimming both sides deletes the only space between\n               them, so the cell renders \"locked outuntil 06:30\". */ -}}\n",
+      "note": "trim markers on both sides of the comment between the state and its deadline, which is the shape that shipped: both trims together delete the only whitespace between them and the cell renders \"locked outuntil 06:30\". Both sides are needed -- trimming one leaves the other newline and the mutant is equivalent, which is what the first version of this pattern was. Caught by the real dashboard rendering and by the hand-built joined cell in TestTheLockoutCheckRejectsAJoinedCell."
+    },
+    {
       "id": "W164",
       "package": "./internal/web/",
       "file": "internal/web/narrow_width_test.go",
@@ -1023,6 +1031,14 @@
       "old": "\t\tcomplaints = append(complaints,\n\t\t\tpath+\" renders a rows table with no ordinary cells, so nothing was checked\")\n",
       "new": "",
       "note": "a table that prints its headers and no rows stops being reported. This is the vacuity half of the guard: without it an empty fixture reads as a clean page, and the same deletion applied to a page test would silently drop that page from coverage. Caught by the empty-table case in TestTheLabelCheckRejectsAHandBuiltTable."
+    },
+    {
+      "id": "W167",
+      "package": "./internal/web/",
+      "file": "internal/web/dashboard_lockout_cell_test.go",
+      "old": "joinedWordRe = regexp.MustCompile(`locked out[^\\s]`)",
+      "new": "joinedWordRe = regexp.MustCompile(`locked outuntil`)",
+      "note": "the rule is narrowed to the one string the old template happened to produce, so it stops being a rule about joins and becomes a match against a fossil: any other word glued to the state (\"locked outnow\", a future countdown) passes. Caught by the hand-built joined cell, which is written as markup rather than as that string."
     }
   ]
 }
