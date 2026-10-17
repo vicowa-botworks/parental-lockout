@@ -18,7 +18,27 @@ only sees the most recent {{.Scanned}}.
 {{- else if .Partial}} Nothing older is in what could be read, and the note above says a
 generation was left out.
 {{- else}} The trail holds nothing older than these, so the search saw every event it can
-show.{{end}}</p>
+show.{{end}}
+{{- /* A different question from what the trail holds, and the one the operator actually
+       asked. Only ever rendered when the account listing answered and nothing matched, so
+       it cannot contradict rows on screen and cannot be a guess about a read that failed.
+       Phrased about now, because an account deleted last week still owns the events it
+       made.
+
+       Phrased about the accounts plock can manage, not about the machine, because the
+       listing is a filter: parsePasswd drops every uid outside UID_MIN..UID_MAX and every
+       nologin shell without a note, so `useradd -u 900` is a real child this list has
+       never seen. Saying "there is no local account named X" from that input sends the
+       operator to the spelling -- the one thing that makes them stop looking -- about an
+       account that exists. Naming the bounds is what turns the sentence back into a
+       report: it says which filter answered no, and an operator who knows the child was
+       created outside it stops believing the filter instead of the child. The bounds are
+       only said when the listing carried them; a listing with none must not invent a
+       range. */ -}}
+{{- if .UserUnknown}} There is no account named <strong>{{.User}}</strong> among the
+accounts plock can manage on this machine right now{{if and .ManagedUIDMin .ManagedUIDMax}}
+(uid {{.ManagedUIDMin}}-{{.ManagedUIDMax}}){{end}}, and account names are case-sensitive, so
+the spelling may be what failed here.{{end}}</p>
 {{else if not .Rows}}
 <p class="banner">The trail is empty. The file exists and holds no readable events.</p>
 {{end}}

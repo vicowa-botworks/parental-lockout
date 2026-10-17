@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/audit"
+	"github.com/vicowa-botworks/parental-lockout/internal/users"
 )
 
 // GET /audit -- the trail, newest first, filterable by account.
@@ -80,7 +81,49 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		rows = auditRowsFor(rows, user)
 	}
 
-	s.render(w, r, "audit", auditPage{
+	// A filter that matched nothing has two causes and the banner below only names one.
+	// "None of these events are for Mallory" is read as "this child was not locked out",
+	// when the true answer may be "nobody on this machine is called Mallory" -- the
+	// difference is whether the operator stops looking. Existence is a separate question
+	// from what the trail holds, so it is asked of the account listing rather than
+	// inferred from the rows, and it is only ever said when the listing actually
+	// answered: readAccounts treats an unwired seam, an error, and a nil listing with a
+	// nil error all as "no answer", and no answer keeps the page silent here rather than
+	// letting a failed read become a confident "no such account".
+	//
+	// Restricted to the filtered-empty branch on purpose. When rows are on screen the
+	// trail itself disagrees with the listing -- a deleted account's events outlive the
+	// account -- and the page must not contradict what the operator is looking at.
+	// Two halves, deliberately. This guard decides whether the account listing is read at
+	// all: a page that already found the account has no business opening /etc/passwd, and
+	// a listing that fails must not be able to change an answer it was not asked for. The
+	// rule itself lives in accountIsUnknown, where it can be pinned directly -- left here,
+	// the same condition is invisible to every test, because audit.tmpl only renders the
+	// note inside its filtered-empty branch and would mask any change to it.
+	userUnknown := false
+	// The bounds travel with the answer, because the listing is a filter and not a census.
+	// parsePasswd drops every uid outside UID_MIN..UID_MAX and every nologin shell in
+	// silence -- no note, because a machine has hundreds of those and a note each would
+	// bury the real ones. So an account created with `useradd -u 900` is a real local
+	// account the listing does not carry, and its absence is never recorded. A sentence
+	// about the machine would be a claim this input cannot support; a sentence about what
+	// plock can manage is exactly what it can, and naming the bounds tells the operator
+	// which filter said no.
+	var uidMin, uidMax uint32
+	if user != "" && len(rows) == 0 {
+		listing, lerr := s.readAccounts()
+		if lerr != nil {
+			// The trail's failed read gets a line two screens up for the same reason
+			// this one does: "the page stayed silent" and "the page had nothing to say"
+			// are indistinguishable afterwards, and on this page silence is a verdict.
+			s.logf("web: %s audit account listing unavailable, so the page will not say whether %q exists: %v", requestID(r), user, lerr)
+		} else if listing != nil {
+			userUnknown = accountIsUnknown(user, rows, listing)
+			uidMin, uidMax = listing.UIDMin, listing.UIDMax
+		}
+	}
+
+	page := auditPage{
 		Rows:      rows,
 		User:      user,
 		Scanned:   scanned,
@@ -89,7 +132,58 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		Partial:   partial,
 		NoTrail:   noTrail,
 		Truncated: truncated,
-	})
+	}
+	// Assigned after the literal rather than added to it. gofmt aligns the values in a
+	// composite literal, so a longer field name retires any mutation pattern that matches
+	// one of its lines -- which has already happened to this package's mutants twice. A
+	// statement's text does not move.
+	page.UserUnknown = userUnknown
+	// Statements, not literal fields, for the reason above. Both travel together: a note
+	// that names bounds the listing did not apply is the same over-claim in the other
+	// direction.
+	page.ManagedUIDMin = uidMin
+	page.ManagedUIDMax = uidMax
+
+	s.render(w, r, "audit", page)
+}
+
+// accountIsUnknown is the rule behind the note, stated apart from the page so it can be
+// pinned without going through a template that would otherwise be the only thing enforcing
+// it.
+//
+// Three conditions, each ruling out a different wrong sentence:
+//
+//   - no filter, nothing to comment on;
+//   - rows on screen -- the trail itself disagrees with the listing, because an account
+//     deleted last week still owns the events it made, and the page must not contradict
+//     what the operator is looking at;
+//   - no listing, no answer. readAccounts already turns an unwired seam, an error, and a
+//     nil listing with a nil error into "no answer"; a nil here is the same silence.
+//
+// Existence is asked of the listing, never inferred from the rows: "no events for this
+// name" and "no such account" are different facts and the operator needs to know which one
+// the page actually checked.
+func accountIsUnknown(user string, rows []audit.Record, listing *users.Listing) bool {
+	if user == "" || len(rows) > 0 || listing == nil {
+		return false
+	}
+	return !accountNamed(listing, user)
+}
+
+// accountNamed says whether the listing carries this exact account name.
+//
+// Exact, case-sensitive, no trimming. Linux account names are case-sensitive and Mallory
+// and mallory can be two children, so a loose match here would tell an operator that a
+// name they typed does not exist while a differently-cased account does -- which is worse
+// than the typo dead-end this exists to clear. The page's job is to say what the listing
+// said, not to guess what was meant.
+func accountNamed(listing *users.Listing, user string) bool {
+	for _, a := range listing.Accounts {
+		if a.Username == user {
+			return true
+		}
+	}
+	return false
 }
 
 // auditRowsFor keeps the records naming this account.
@@ -144,4 +238,24 @@ type auditPage struct {
 	// check a generation that does not exist while the account they asked about really has
 	// no events. It is decided by the probe record, not by the page being full.
 	Truncated bool
+
+	// UserUnknown is the filtered-empty page having checked, and found no account by that
+	// exact name among the accounts plock can manage on this machine right now. Not on the
+	// machine: the listing is filtered by uid range and login shell, and an account outside
+	// the filter is absent from it in silence, so the listing cannot settle what exists.
+	// It says nothing about the trail: the events of an account deleted last week are still
+	// its events. It is set only when the account listing answered, and only when no row
+	// matched, so it can never contradict rows the operator is looking at, and a listing
+	// that could not be read leaves the page silent about existence rather than inventing a
+	// second answer.
+	UserUnknown bool
+
+	// ManagedUIDMin and ManagedUIDMax are the uid bounds the listing actually applied, so
+	// the note can name the filter that said no instead of leaving it implicit. They come
+	// from Listing.UIDMin/UIDMax, which users.List sets to the bounds in force -- including
+	// the defaults it fell back to when login.defs was unreadable, which is the case where
+	// naming them matters most. A hand-built listing leaves them zero, and the template
+	// then says nothing about bounds rather than rendering "UID 0-0".
+	ManagedUIDMin uint32
+	ManagedUIDMax uint32
 }
