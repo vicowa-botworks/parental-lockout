@@ -35,10 +35,14 @@
           <span class="state-unknown">cannot be decided</span>
         {{- else if .LockedOutNow -}}
           <span class="state-held">locked out</span>
-          {{- /* `datetime` is the machine-readable instant for the browser; `data-unix`
-                is the hook static/app.js counts down from. Both are needed -- the
-                script's selector is time[data-unix], and emitting only the standard
-                attribute ships a countdown that never runs. */ -}}
+          {{/* `datetime` is the machine-readable instant for the browser; `data-unix`
+               is the hook static/app.js counts down from. Both are needed -- the
+               script's selector is time[data-unix], and emitting only the standard
+               attribute ships a countdown that never runs.
+
+               No trim markers here, deliberately: this comment sits between the state
+               and its deadline, and trimming both sides deletes the only space between
+               them, so the cell renders "locked outuntil 06:30". */}}
           {{if not .EndsAt.IsZero}}until <time datetime="{{.EndsAt.Format "2006-01-02T15:04:05Z07:00"}}" data-unix="{{.EndsAt.Unix}}">{{.EndsAtClock}}</time>{{end}}
         {{- else if .ScheduledButNotEnforcing -}}
           <span class="state-gap">scheduled, not enforced</span>
