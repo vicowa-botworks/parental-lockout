@@ -911,6 +911,94 @@
       "old": "\t\tp.Rules = append(append([]config.Rule(nil), p.Rules...), rule)",
       "new": "\t\tp.Rules = append(p.Rules, rule)",
       "note": "the rule-add path appends into the array it copied the header from, so a reader holding a snapshot of the same profile writes its own rule into the slot the handler just saved. TestAddingARuleDoesNotWriteIntoAnArrayAnotherSnapshotHolds gives the slice spare capacity first -- without room the mutation is unobservable, which is why config's own version of this test fails loudly on len==cap Renumbered from W110: #74's serve.go mutant already holds that id on another open branch, and ids are one namespace across concurrently open PRs."
+    },
+    {
+      "id": "W125",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\treturn !strings.HasSuffix(fi.Name(), \"_test.go\")\n",
+      "new": "\t\treturn !strings.HasSuffix(fi.Name(), \"_test.go\") && fi.Name() != \"server.go\"\n",
+      "note": "the scan stops reading the one file that holds every registration. This is the blindness a meta-test dies of: the route set comes back smaller, nothing in the package disagrees, and the guard still reports itself as covering everything. The control assertion inside the test -- the scan must find GET /healthz, which is registered inside a function body -- is what turns this into a failure instead of a shorter list."
+    },
+    {
+      "id": "W126",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\t\tproblems = append(problems, fmt.Sprintf(\n\t\t\t\t\"%s:%d registers a route with a pattern that is not a string literal. This guard \"+\n\t\t\t\t\t\"reads source and cannot see it -- either inline the literal or say there why \"+\n\t\t\t\t\t\"the route set is now dynamic.\", name, line))\n\t\t\treturn true\n",
+      "new": "\t\t\treturn true\n",
+      "note": "a pattern built at run time stops being reported. It is the guard's one real blind spot, so staying quiet about it is the difference between a scan that says what it cannot see and one that claims full coverage. No route on the live tree is computed, so nothing here can catch it -- the synthetic source in TestTheRouteScanSeesWhatAServerCouldWrite is what catches it, which is why that test exists."
+    },
+    {
+      "id": "W127",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\t\tproblems = append(problems, fmt.Sprintf(\"%s:%d: a Handle call with no pattern argument\", name, line))\n",
+      "new": "",
+      "note": "a registration with no pattern argument is skipped instead of reported. Same shape as W126: the case cannot occur in the current source, so only the synthetic case can notice the silence."
+    },
+    {
+      "id": "W128",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "regexp.QuoteMeta(csrfField)",
+      "new": "\"xsrf\"",
+      "note": "the token field is looked for under a name the server never writes. Every form then reads as missing its token -- but the point is the reverse direction: a guard that ties the check to the shared constant follows the field when it is renamed, and one that hard-codes a string keeps checking a name that no longer exists while reporting full coverage."
+    },
+    {
+      "id": "W129",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "path.Match(d.pattern, action)",
+      "new": "path.Match(d.raw, action)",
+      "note": "the reach check matches the template's own action text against the rendered action. A template action is a Go template expression (/users/{{$who}}/override) and a rendered action is a URL (/users/casey/override), so the two never match and every templated form is reported as markup no page renders. The {{...}} to * folding is the whole mechanism, so it gets a mutant."
+    },
+    {
+      "id": "W130",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\t\t} else if matched != d.pattern {\n",
+      "new": "\t\t\t} else if matched == d.pattern {\n",
+      "note": "the liveness check inverted. Reading a registration out of the source is not the same as the router having it: this comparison is what makes 'the scanner read a string' mean 'the server answers that route', and without it a registration behind a branch that never runs would be counted as covered."
+    },
+    {
+      "id": "W131",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\tif onlyTests, files := fieldIsTestOnly(t, \"extraRoutes\"); !onlyTests {\n",
+      "new": "\tif onlyTests, files := fieldIsTestOnly(t, \"extraRoutes\"); onlyTests {\n",
+      "note": "the premise of a source-based route guard inverted. extraRoutes is a real second way onto the router and it is written, by either spelling, only in tests today, which is the only reason reading the source is enough; the moment a production caller sets it, this guard is coverage theatre and needs a different mechanism. Inverted, it reports that fact on the current tree and stays silent on the tree where it matters."
+    },
+    {
+      "id": "W134",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\t\t\tif !isServerLiteral(x) {\n",
+      "new": "\t\t\t\tif true || !isServerLiteral(x) {\n",
+      "note": "the composite-literal half of the field scan never collects. This is the reviewer's demonstration: `&Server{extraRoutes: f}` writes the field and is not a statement, so a scan that reads only AssignStmts reports the field as test-only while production sets it in a constructor, and the guard that licenses the whole route scan says so with a clear conscience. The synthetic case for this shape is the only thing that can catch it, because extraRoutes is written by neither spelling outside the tests today."
+    },
+    {
+      "id": "W135",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\tcase nil:\n\t\treturn true\n",
+      "new": "\tcase nil:\n\t\treturn false\n",
+      "note": "an untyped composite literal is guessed 'not a Server'. That is the inner element of `[]*Server{{extraRoutes: f}}`, where the type is implied by the enclosing literal and the node alone does not say what it builds. Guessing is the quiet answer again; the cost of guessing the other way is a loud failure naming a file."
+    },
+    {
+      "id": "W136",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\tcase *ast.Ident:\n\t\treturn t.Name == \"Server\"\n",
+      "new": "\tcase *ast.Ident:\n\t\treturn t.Name != \"\"\n",
+      "note": "the literal's TYPE stops being checked and any struct literal with a same-named field counts as a write. Caught by the guard's own negative control, which is the only case that can see it: a scan that reports everything passes every positive assertion in the file, exactly as a scan that reports nothing does."
+    },
+    {
+      "id": "W137",
+      "package": "./internal/web/",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif ok && sel.Sel.Name == field {\n",
+      "new": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif false && ok && sel.Sel.Name == field {\n",
+      "note": "the assignment half stops collecting, which is the half that worked before this change and the half the original guard was written against. Kept as the pair to W134: the claim is that BOTH spellings are collected, and a claim about two things needs one mutant per thing."
     }
   ]
 }
