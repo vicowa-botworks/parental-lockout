@@ -175,6 +175,14 @@ input:focus-visible {
 		content: none;
 	}
 
+	/* The assign control is a select, and a select is only as narrow as its longest
+	   option. Without this a profile called "Long weekend during the school holidays"
+	   widens the whole page on a phone -- the exact failure the stacked layout exists to
+	   prevent, arriving through a value somebody typed rather than through markup. */
+	table.rows form select {
+		max-width: 100%;
+	}
+
 	table.rows form button {
 		margin: .25rem .3rem 0 0;
 	}
