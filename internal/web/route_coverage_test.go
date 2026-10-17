@@ -18,6 +18,7 @@ import (
 
 	"github.com/vicowa-botworks/parental-lockout/internal/audit"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/users"
 )
 
 // This file is #75: two properties that hold because of how the mechanism is built, with
@@ -541,8 +542,17 @@ func containsRoute(decls []routeDecl, want string) bool {
 
 // formOnPage is one post form as a browser sees it.
 type formOnPage struct {
-	action   string
+	action string
+	// shape identifies WHICH form this is, not just where it posts. See formShape.
+	shape    string
 	hasToken bool
+}
+
+// servedWhere records where a form of a given shape was actually served, for the failure
+// message: the action says which route took it, the where says which state and page showed it.
+type servedWhere struct {
+	action string
+	where  string
 }
 
 var (
@@ -550,7 +560,63 @@ var (
 	formTagRe   = regexp.MustCompile(`(?is)<form\b[^>]*>`)
 	methodAttr  = regexp.MustCompile(`(?is)\bmethod\s*=\s*"?([a-zA-Z]+)`)
 	actionAttr  = regexp.MustCompile(`(?is)\baction\s*=\s*"?([^">\s]+)"?`)
+	// controlRe picks out the elements that carry a value; buttonLabelRe picks the words on a
+	// submit button, which live between the tags rather than in the attributes.
+	controlRe   = regexp.MustCompile(`(?is)<(input|select|textarea)\b([^>]*)>`)
+	buttonLabel = regexp.MustCompile(`(?is)<button\b[^>]*>(.*?)</button>`)
+	nameAttr    = regexp.MustCompile(`(?is)\bname\s*=\s*"?([^">\s]+)"?`)
+	// tmplAction strips a template's control clauses. {{if .Stale}} and {{end}} say which
+	// arm of a conditional cell a block belongs to, not what that arm contains, and they
+	// differ in spacing between the two arms, so leaving them in would make the same markup
+	// produce two shapes.
+	tmplAction = regexp.MustCompile(`\{\{[^}]*\}\}`)
+	wsRun      = regexp.MustCompile(`\s+`)
 )
+
+// formShape names a form by the fields it posts and the words on its button.
+//
+// The action alone cannot do this. A cell that renders one arm or the other -- an account you
+// can assign a profile to, versus an entry whose account is gone and only un-managing is left
+// -- posts both arms to the same URL on purpose, because the handler decides between them by
+// the value it receives. Keying reach on the action therefore lets the two arms vouch for each
+// other: whichever one the fixture happens to render satisfies the reach check for the one that
+// never renders, and the token check above never looks at the unrendered arm. That is the
+// guard's own stated purpose defeated by its own key, and it is measured, not theorised: with
+// the users page's Assign cell present, deleting the dropdown arm's csrf input left this test
+// green.
+//
+// Fields plus button label separate the arms because that is exactly what differs between them
+// -- one posts an empty profile input and says "Stop managing", the other posts a profile
+// select and an enabled checkbox and says "Save" -- while staying equal between a template and
+// the page it renders, which a shape built from values would not.
+func formShape(block string) string {
+	seen := map[string]bool{}
+	var parts []string
+	add := func(p string) {
+		if !seen[p] {
+			seen[p] = true
+			parts = append(parts, p)
+		}
+	}
+	// A set, not a multiset: a template writes one control inside a {{range}} and the page
+	// serves one per item, so counting them would make every repeated field differ between
+	// the template and the thing it rendered -- the weekday checkboxes turn one
+	// input:days in the template into seven on the page.
+	for _, c := range controlRe.FindAllStringSubmatch(block, -1) {
+		n := nameAttr.FindStringSubmatch(c[2])
+		if n == nil {
+			continue // a field with no name posts nothing, so it identifies nothing
+		}
+		add(strings.ToLower(c[1]) + ":" + n[1])
+	}
+	for _, b := range buttonLabel.FindAllStringSubmatch(block, -1) {
+		text := tmplAction.ReplaceAllString(b[1], "")
+		text = wsRun.ReplaceAllString(strings.TrimSpace(text), " ")
+		add("button:" + text)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
 
 // postForms reads the forms out of a rendered page. A form with no method attribute is a
 // GET form and is not the thing under test, so it is skipped rather than counted.
@@ -567,7 +633,7 @@ func postForms(body string) []formOnPage {
 		if a := actionAttr.FindStringSubmatch(tag); a != nil {
 			action = a[1]
 		}
-		out = append(out, formOnPage{action: action, hasToken: tokenField.MatchString(block[1])})
+		out = append(out, formOnPage{action: action, shape: formShape(block[1]), hasToken: tokenField.MatchString(block[1])})
 	}
 	return out
 }
@@ -580,6 +646,10 @@ type templateForm struct {
 	// browser actually receives.
 	pattern string
 	raw     string
+	// shape is formShape of the template's own block, the counterpart of the shape a
+	// rendered form reports. Two arms of one conditional cell share a pattern and differ
+	// here, which is the whole point.
+	shape string
 }
 
 func templateForms(t *testing.T) []templateForm {
@@ -614,10 +684,66 @@ func templateForms(t *testing.T) []templateForm {
 				template: name,
 				pattern:  expr.ReplaceAllString(a[1], "*"),
 				raw:      a[1],
+				shape:    formShape(block[1]),
 			})
 		}
 	}
 	return out
+}
+
+// TestTheFormDetectorNoticesWhatItClaimsToSee is this guard's own control.
+//
+// Every page in the suite is a page that is currently correct, so the property assertion can
+// pass because nothing was wrong -- and it can also pass because the reader stopped noticing.
+// Two things here can fail on their own, and both have to be able to:
+//
+//   - the token detector, if csrfField or the input pattern drifts, so that every form reads
+//     as protected;
+//   - formShape, if it degenerates to something that does not vary between two arms of one
+//     cell. On main no such cell exists yet, so the reach check above cannot notice that
+//     regression on its own; this can, and it is the assertion that keeps the fix from being
+//     quietly undone by the next tidy-up.
+func TestTheFormDetectorNoticesWhatItClaimsToSee(t *testing.T) {
+	const live = `<form method="post" action="/users/casey/profile">
+	  <input type="hidden" name="csrf" value="tok">
+	  <select name="profile"><option value="school">School nights</option></select>
+	  <input type="checkbox" name="enabled" value="on">
+	  <button type="submit">Save</button>
+	</form>`
+	// The other arm of the same cell: same URL, different fields, different words.
+	const stale = `<form method="post" action="/users/casey/profile">
+	  <input type="hidden" name="csrf" value="tok">
+	  <input type="hidden" name="profile" value="">
+	  <button type="submit">Stop managing</button>
+	</form>`
+
+	forms := postForms(live + stale)
+	if len(forms) != 2 {
+		t.Fatalf("postForms found %d forms in two forms' markup, want 2: %#v", len(forms), forms)
+	}
+	for _, f := range forms {
+		if !f.hasToken {
+			t.Errorf("a form carrying %q was read as unprotected (shape %q), so the token "+
+				"check would fail every page for the wrong reason or pass one for no reason at all.",
+				csrfField, f.shape)
+		}
+	}
+	if forms[0].shape == forms[1].shape {
+		t.Errorf("both arms of one cell report shape %q, so the reach check cannot tell them "+
+			"apart and an unrendered arm is invisible again: %#v", forms[0].shape, forms)
+	}
+
+	// The same markup with the token field renamed must read as unprotected. Without this
+	// half, a detector that always said true would pass everything above.
+	renamed := strings.Replace(live, `name="csrf"`, `name="xsrf"`, 1)
+	got := postForms(renamed)
+	if len(got) != 1 {
+		t.Fatalf("postForms found %d forms, want 1", len(got))
+	}
+	if got[0].hasToken {
+		t.Errorf("a form whose token field is renamed to %q still read as protected, so this "+
+			"guard cannot notice a token going missing at all.", "xsrf")
+	}
 }
 
 // Two channels put a token into a rendered page, and a page can lose either one on its own.
@@ -641,15 +767,24 @@ func templateForms(t *testing.T) []templateForm {
 // form in a template that no page renders is a form nobody ever looked at, and no assertion
 // about fields or interfaces can see that.
 //
-// pageStates are the fixture states the pages are rendered in. Two, not one, because the
-// dashboard swaps its override form depending on whether an override is active: with a
-// single state half the forms in dashboard.tmpl never render, and a guard that never sees a
-// form cannot check it.
+// pageStates are the fixture states the pages are rendered in. A page that swaps its markup
+// depending on state shows only one arm per state, and a guard that never sees a form cannot
+// check it -- so every condition a page branches on needs a state that takes the other way.
+// Two things drive the branching today: whether an override is active (dashboard.tmpl posts
+// two different forms), and whether a listed account actually exists on the machine (a page
+// can offer to manage what is there and only offer cleanup for what is not). The second one
+// arrived late: the fixture passed no accounts at all, which silently pinned every page to its
+// "nothing is here" arm, and the reach check could not say so because it keyed on the action
+// and both arms post to the same URL. See formShape.
 var pageStates = []struct {
 	name   string
 	mutate func(*config.Config)
+	// accounts is the machine's account listing as the pages see it. nil means "this
+	// machine has none of the configured accounts", which is a real state but was the only
+	// one the fixture had.
+	accounts []users.Account
 }{
-	{"no override", func(*config.Config) {}},
+	{"no override", func(*config.Config) {}, nil},
 	{"override active", func(c *config.Config) {
 		c.Overrides = []config.Override{{
 			Username: "casey",
@@ -657,7 +792,14 @@ var pageStates = []struct {
 			By:       "parent",
 			Until:    insideWindow.Add(10 * time.Minute),
 		}}
-	}},
+	}, nil},
+	// The configured account present, so a page asking "is this account real?" answers yes
+	// and shows what it offers for a live one. casey is the account pageConfig configures;
+	// the uid is an ordinary human one, because a uid in the system range would put the page
+	// on its system-account branch instead.
+	{"account present", func(*config.Config) {}, []users.Account{{
+		Username: "casey", UID: 1000, GID: 1000, Home: "/home/casey", Shell: "/bin/bash",
+	}}},
 }
 
 func TestEveryFormOnEveryPageCarriesTheToken(t *testing.T) {
@@ -667,14 +809,15 @@ func TestEveryFormOnEveryPageCarriesTheToken(t *testing.T) {
 	if len(defined) == 0 {
 		t.Fatal("no template defines a post form, so this guard is checking nothing")
 	}
-	// action -> where it was rendered, for the failure messages.
-	rendered := map[string]string{}
+	// shape -> where a form with that shape was served, for the reach check. Keyed by shape
+	// rather than by action so two arms of one conditional cell cannot cover for each other.
+	served := map[string]servedWhere{}
 	examined := 0
 
 	for _, state := range pageStates {
 		cfg := pageConfig()
 		state.mutate(cfg)
-		s := pageServer(t, cfg, nil, nil, nil, nil)
+		s := pageServer(t, cfg, nil, state.accounts, nil, nil)
 		// The trail seam. pageServer wires the three seams the content pages were
 		// built with; the audit page added a fourth, and without it /audit answers
 		// 503 -- and a page that never rendered is a page this walk cannot ask what
@@ -700,7 +843,7 @@ func TestEveryFormOnEveryPageCarriesTheToken(t *testing.T) {
 			}
 			for _, f := range postForms(rec.Body.String()) {
 				examined++
-				rendered[f.action] = "state " + state.name + " on " + p
+				served[f.shape] = servedWhere{action: f.action, where: "state " + state.name + " on " + p}
 				if !f.hasToken {
 					t.Errorf("the form posting to %q on %s (%s) carries no %q field. The CSRF "+
 						"gate refuses it with 403, so a parent presses the button, nothing "+
@@ -721,23 +864,26 @@ func TestEveryFormOnEveryPageCarriesTheToken(t *testing.T) {
 	}
 
 	// Reach, in the direction that matters: a form defined in a template that no walked page
-	// ever rendered would have been skipped above, silently and forever.
+	// ever rendered would have been skipped above, silently and forever. The match is on the
+	// form's shape AND its action, because a cell that renders one arm or the other posts both
+	// to the same URL: matching on the action alone let the rendered arm vouch for the arm that
+	// never rendered, which is how a tokenless form in the unrendered arm stayed green.
 	for _, d := range defined {
-		if _, ok := rendered[d.raw]; ok {
-			continue
-		}
 		var matched string
-		for action, where := range rendered {
-			if ok, err := path.Match(d.pattern, action); err == nil && ok {
-				matched = where
-				break
+		if sw, ok := served[d.shape]; ok {
+			if ok, err := path.Match(d.pattern, sw.action); err == nil && ok {
+				matched = sw.where
+			} else if err != nil {
+				t.Fatalf("%s defines the action %q, which is not a matchable pattern: %v",
+					d.template, d.pattern, err)
 			}
 		}
 		if matched == "" {
-			t.Errorf("%s defines a form posting to %s and no page this server registers ever "+
-				"served it. Either it is dead markup or it belongs to a route this guard did "+
-				"not reach; both mean the token check above never looked at it.",
-				d.template, d.raw)
+			t.Errorf("%s defines a form posting to %s with fields [%s] and no page this server "+
+				"registers ever served that form. Either it is dead markup, or it is one arm of a "+
+				"conditional cell and the fixture never takes that branch; both mean the token "+
+				"check above never looked at it. Add a pageStates entry that renders it.",
+				d.template, d.raw, d.shape)
 		}
 	}
 }

@@ -948,8 +948,8 @@
       "id": "W129",
       "package": "./internal/web/",
       "file": "internal/web/route_coverage_test.go",
-      "old": "path.Match(d.pattern, action)",
-      "new": "path.Match(d.raw, action)",
+      "old": "path.Match(d.pattern, sw.action)",
+      "new": "path.Match(d.raw, sw.action)",
       "note": "the reach check matches the template's own action text against the rendered action. A template action is a Go template expression (/users/{{$who}}/override) and a rendered action is a URL (/users/casey/override), so the two never match and every templated form is reported as markup no page renders. The {{...}} to * folding is the whole mechanism, so it gets a mutant."
     },
     {
@@ -1124,6 +1124,27 @@
       "old": "\t\tif lerr != nil {",
       "new": "\t\tif true {",
       "note": "every filtered-empty request is logged as a refused listing, including the ones that answered. The control half of W161: without it a handler that logs unconditionally passes the log assertion. It also stops computing the note at all, so the typo test fails with it. TestAFailedAccountListingIsLoggedWhenTheNoteIsWithheld's control."
+    },
+    {
+      "id": "W168",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\tout = append(out, formOnPage{action: action, shape: formShape(block[1]), hasToken: tokenField.MatchString(block[1])})",
+      "new": "\t\t_ = tokenField\n\t\tout = append(out, formOnPage{action: action, shape: formShape(block[1]), hasToken: true})",
+      "note": "The token detector reports every form as carrying the field, whatever the markup says. No page can then fail the property, and the guard's own control catches it: TestTheFormDetectorNoticesWhatItClaimsToSee feeds markup whose token field is renamed and requires it to read as unprotected. This mutant is why that control exists -- every other page in the suite is a page that is currently correct, so without it the guard could pass because it stopped noticing."
+    },
+    {
+      "id": "W169",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\treturn strings.Join(parts, \",\")",
+      "new": "\tsort.Strings(parts)\n\treturn strings.Join(parts[:0], \",\")",
+      "note": "formShape returns the empty string, so every form reports the same identity and the two arms of a conditional cell vouch for each other again -- the regression this change exists to close. Killed twice: TestTheFormDetectorNoticesWhatItClaimsToSee requires the two arms' shapes to differ, and TestEveryFormOnEveryPageCarriesTheToken's reach check can no longer tie a defined form to a served one. sort.Strings is repeated in `new` only to keep the import referenced; a mutant that fails to build is invalid, not caught."
+    },
+    {
+      "id": "W170",
+      "file": "internal/web/route_coverage_test.go",
+      "old": "\t\t\t\tserved[f.shape] = servedWhere{action: f.action, where: \"state \" + state.name + \" on \" + p}",
+      "new": "\t\t\t\tserved[f.action] = servedWhere{action: f.action, where: \"state \" + state.name + \" on \" + p}",
+      "note": "Reach keyed back on the action instead of the form's shape: the exact pre-fix behaviour, where a cell posting both arms of one conditional to one URL lets the rendered arm satisfy the reach check for the arm no fixture ever renders. TestEveryFormOnEveryPageCarriesTheToken fails because no defined form's shape is ever found among the served keys."
     }
   ]
 }
