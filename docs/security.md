@@ -260,6 +260,7 @@ the code existed; each one now names a test that runs.
 | The credential is read from the config, so a value handed to the server cannot outrank the file | `TestAHandedAuthenticatorDoesNotOutrankTheConfiguration` |
 | A config rewrite that leaves the password alone keeps the operator's own session | `TestAConfigRewriteThatKeepsThePasswordKeepsTheSessions` |
 | A transient config read error is not treated as a rotation, and starting the watcher is not one either | `TestAConfigReadFailureDoesNotLogAnybodyOut`, `TestStartingTheWatcherDoesNotRevokeAnything` |
+| An assignment names an account the machine has, and a listing that could not be read is answered as the server's failure rather than as "no such account" | `TestAssigningAnAccountNobodyHasIsRefused`, `TestAFailedAccountListingIsNotAnsweredAsNoSuchAccount` |
 
 ---
 

@@ -605,14 +605,20 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /users", s.requireAuth(http.HandlerFunc(s.handleUsers)))
 	mux.Handle("GET /audit", s.requireAuth(http.HandlerFunc(s.handleAudit)))
 	mux.Handle("GET /profiles", s.requireAuth(http.HandlerFunc(s.handleProfiles)))
-	// The override routes are the first writes this server accepts. They need no CSRF
-	// wiring of their own: csrfMiddleware gates every non-public non-GET already, so a new
-	// POST route is covered the moment it is registered -- which is the reason the gate
-	// wraps the mux rather than sitting in each handler.
+	// Every write route below sits behind the same two gates and needs no wiring of its
+	// own for either: requireAuth is applied per route because the public pair is a
+	// deliberate exception, and csrfMiddleware gates every non-public non-GET already --
+	// which is the reason the gate wraps the mux rather than sitting in each handler. A
+	// new POST is covered the moment it is registered, and TestEveryRouteRefusesAnUnauthenticatedRequest
+	// is what stops that sentence from going stale.
 	mux.Handle("POST /users/{name}/override",
 		s.requireAuth(http.HandlerFunc(s.handleOverride)))
 	mux.Handle("POST /users/{name}/override/clear",
 		s.requireAuth(http.HandlerFunc(s.handleOverrideClear)))
+	// Assigning a profile is the write that connects an account to a set of rules; every
+	// profile page before this one could describe a lockout that nothing was under.
+	mux.Handle("POST /users/{name}/profile",
+		s.requireAuth(http.HandlerFunc(s.handleAssignProfile)))
 	mux.Handle("POST /profiles/{id}/rules",
 		s.requireAuth(http.HandlerFunc(s.handleAddRule)))
 	mux.Handle("POST /profiles/{id}/delete",
