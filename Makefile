@@ -47,6 +47,7 @@ verify:
 	echo "==> gofmt"; \
 	dirty=$$($(GOFMT) -l .); \
 	if [ -n "$$dirty" ]; then echo "not gofmt-clean:"; echo "$$dirty"; exit 1; fi; \
+	echo "==> mutation verdict rules"; python3 scripts/mutate.py --self-test; \
 	echo "==> go vet"; $(GO) vet ./...; \
 	echo "==> go build"; $(GO) build ./...; \
 	echo "==> go test -race"; $(GO) test -race ./...; \
@@ -103,8 +104,11 @@ check-mutations:
 # 38901067736) and 7m12s on another machine entirely. The number a cold cache pays is the
 # one to plan against; the ratio that justifies the dependency is unaffected, because the
 # alternative is discovering a retired mutant hours into a battery, or never.
-# Its docstring lists the four ways a battery like this can report success while
-# testing nothing, which is what the run checks for.
+# Its docstring lists the five ways a battery like this can report success while
+# testing nothing, which is what the run checks for. The rules that decide a verdict
+# are a pure function over captured output, so `scripts/mutate.py --self-test` checks
+# them in well under a second with no Go and no battery -- which is why verify runs
+# it: a guard nobody runs is the same gap #76 was filed for.
 mutate: check-mutations
 	@GO="$(GO)" python3 -u scripts/mutate.py
 
