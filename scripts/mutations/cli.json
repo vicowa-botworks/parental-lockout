@@ -1,0 +1,146 @@
+{
+  "description": "internal/cli: the shared CLI plumbing. The package had no set at all until #76's CI job made an untested mutant visible as a class of problem; TakeFirst is here because it is what makes `plock unlock <user> --minutes N` parse at all (the flag-order data-loss bug), and Fail/JSON/Keys are here because they are the single implementation of the --json contract every command routes through.",
+  "package": "./internal/cli/",
+  "mutants": [
+    {
+      "id": "CI1",
+      "file": "internal/cli/args.go",
+      "old": "\t\tif a == \"--\" {",
+      "new": "\t\tif false {",
+      "note": "the \"--\" separator stops being special, so it falls into the flag branch and swallows the token after it: the documented `unlock -- -x` can no longer name an account called -x, which is the only reason the separator exists"
+    },
+    {
+      "id": "CI2",
+      "file": "internal/cli/args.go",
+      "old": "\t\t\tif !found && len(after) > 0 {",
+      "new": "\t\t\tif !found {",
+      "note": "the length check on `after` is dropped, so `TakeFirst` indexes after[0] when the separator is the last token -- `plock unlock --` panics instead of reporting that no account was named. Deliberately NOT cmd.json's TS3, which mutates the SAME line by dropping `!found` instead: that one overwrites a positional already taken (`unlock casey -- anna` acts on anna) and already runs ./internal/cli/ as well as ./cmd/plock/, so re-deriving it here would be one claim counted twice. This is the other half of the condition, and only this package's suite sees it crash."
+    },
+    {
+      "id": "CI3",
+      "file": "internal/cli/args.go",
+      "old": "\t\t\t\treturn after[0], append(rest, after[1:]...), true",
+      "new": "\t\t\t\treturn after[0], append(rest, after[1:]...), false",
+      "note": "the adopted token is returned with found=false -- the exact bug the comment above it records: every caller reads a missing positional plus a non-empty fs.Args() as the user making a mistake, so all 17 call sites refuse a valid line at once"
+    },
+    {
+      "id": "CI4",
+      "file": "internal/cli/args.go",
+      "old": "\t\t\trest = append(rest, a)\n\t\t\tif !found && len(after) > 0 {",
+      "new": "\t\t\t_ = a\n\t\t\tif !found && len(after) > 0 {",
+      "note": "the separator is dropped from the remainder instead of copied into it, so flag.Parse sees no separator and `unlock -- casey --minutes 5` adopts casey and then parses --minutes as a flag -- the opposite of what a separator promises (anchored on the following line because `rest = append(rest, a)` also appears in the positional branch below, at the same indent)"
+    },
+    {
+      "id": "CI5",
+      "file": "internal/cli/args.go",
+      "old": "\t\tif !strings.HasPrefix(a, \"-\") || a == \"-\" {",
+      "new": "\t\tif !strings.HasPrefix(a, \"-\") {",
+      "note": "a lone \"-\" stops counting as a positional and is treated as a flag instead"
+    },
+    {
+      "id": "CI6",
+      "file": "internal/cli/args.go",
+      "old": "\t\t\tif !found {",
+      "new": "\t\t\tif true {",
+      "note": "the first positional rule becomes \"last one wins\", so a second bare token silently replaces the account the operator named"
+    },
+    {
+      "id": "CI7",
+      "file": "internal/cli/args.go",
+      "old": "\t\tif i+1 < len(args) && flagWantsValue(fs, a, name) {",
+      "new": "\t\tif flagWantsValue(fs, a, name) {",
+      "note": "the bounds check goes, so a trailing flag with no value reads past the end of args -- a panic in the argument parser of a command the operator runs by hand"
+    },
+    {
+      "id": "CI8",
+      "file": "internal/cli/args.go",
+      "old": "\t\tname := strings.TrimLeft(a, \"-\")",
+      "new": "\t\tname := a",
+      "note": "the lookup is done with the dashes still on, so every known flag looks unknown and inherits the unknown-flag rule -- a boolean flag then eats the following positional"
+    },
+    {
+      "id": "CI9",
+      "file": "internal/cli/args.go",
+      "old": "\tif strings.Contains(arg, \"=\") {",
+      "new": "\tif false {",
+      "note": "--minutes=5 is no longer recognised as carrying its own value, so it consumes the next token as a value it already has and the positional after it disappears"
+    },
+    {
+      "id": "CI10",
+      "file": "internal/cli/args.go",
+      "old": "\t\treturn true",
+      "new": "\t\treturn false",
+      "note": "an unknown flag is assumed valueless instead, which is the direction the comment refuses on purpose: a typo'd flag's value becomes the username, turning a clear complaint about the flag into a confident wrong answer about a child's account"
+    },
+    {
+      "id": "CI11",
+      "file": "internal/cli/args.go",
+      "old": "\t_, isBool := f.Value.(boolFlag)",
+      "new": "\t_, isBool := any(nil).(boolFlag)",
+      "note": "the bool-flag detector never fires, so every flag looks like it takes a value and `--verbose casey` loses casey to the flag -- flag itself never consumes a value after a bool. Mutating the assertion rather than `return !isBool` is deliberate: replacing the return orphans isBool, which is a build failure and not a catch"
+    },
+    {
+      "id": "CI12",
+      "file": "internal/cli/cli.go",
+      "old": "\tif asJSON {",
+      "new": "\tif false {",
+      "note": "--json failures print as a human line, so a script reading the failure parses nothing; this is the one implementation of the contract every command routes through"
+    },
+    {
+      "id": "CI13",
+      "file": "internal/cli/cli.go",
+      "old": "\t\treturn Failure",
+      "new": "\t\treturn 0",
+      "note": "a --json failure exits 0 while stdout is empty, so `plock ... --json` looks like a successful run to anything that checks the exit status"
+    },
+    {
+      "id": "CI14",
+      "file": "internal/cli/cli.go",
+      "old": "\t}{Error: code, Message: err.Error()})",
+      "new": "\t}{Error: \"\", Message: err.Error()})",
+      "note": "the machine-readable error code is dropped from the failure document, leaving only prose to branch on"
+    },
+    {
+      "id": "CI15",
+      "file": "internal/cli/cli.go",
+      "old": "\tenc.SetEscapeHTML(false)",
+      "new": "\tenc.SetEscapeHTML(true)",
+      "note": "HTML escaping is turned back on, so a value containing < or > round-trips as \\u003c and the machine-readable format stops being the identity on its own bytes"
+    },
+    {
+      "id": "CI16",
+      "file": "internal/cli/cli.go",
+      "old": "\tif pad < len(label) {",
+      "new": "\tif pad > len(label) {",
+      "note": "the alignment column is computed the wrong way round, so labels are not aligned to the widest one seen so far"
+    },
+    {
+      "id": "CI17",
+      "file": "internal/cli/cli.go",
+      "old": "\tif r.b.Len() > 0 {",
+      "new": "\tif true {",
+      "note": "the blank line before a section is written unconditionally, so a report that starts with a section starts with a stray blank line"
+    },
+    {
+      "id": "CI18",
+      "file": "internal/cli/cli.go",
+      "old": "\tif !strings.HasSuffix(format, \"\\n\") {",
+      "new": "\tif true {",
+      "note": "a line that already ends in a newline gets a second one, so every table in a report grows a blank row"
+    },
+    {
+      "id": "CI19",
+      "file": "internal/cli/cli.go",
+      "old": "\tif d < 0 {",
+      "new": "\tif false {",
+      "note": "a negative remaining time is no longer clamped, so a lockout that has already ended renders as a negative wait"
+    },
+    {
+      "id": "CI20",
+      "file": "internal/cli/cli.go",
+      "old": "\tsort.Strings(out)",
+      "new": "\tsort.Strings(nil)",
+      "note": "Keys stops sorting, and because Go randomises map iteration a machine-readable field built from a map changes between two runs of the same command on the same file"
+    }
+  ]
+}

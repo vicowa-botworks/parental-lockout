@@ -1,0 +1,20 @@
+{
+  "description": "internal/version: the linker-stamped build identity. Small, but it is the output an operator pastes into a bug report and the one a release script greps, and it was the last package with logic and no set.",
+  "package": "./internal/version/",
+  "mutants": [
+    {
+      "id": "V1",
+      "file": "internal/version/version.go",
+      "old": "\treturn fmt.Sprintf(\"plock %s (commit %s, built %s)\", Version, Commit, Date)",
+      "new": "\treturn fmt.Sprintf(\"plock %s (built %s, commit %s)\", Version, Date, Commit)",
+      "note": "the label order is the documented output contract of `plock version`, and the doc comment claims a test pins it -- this mutant is that claim being checked rather than believed"
+    },
+    {
+      "id": "V2",
+      "file": "internal/version/version.go",
+      "old": "\tVersion = \"dev\"",
+      "new": "\tVersion = \"\"",
+      "note": "the empty-by-default rule is what makes a bare `go build` report something honest. An empty version prints as \"plock  (commit none, built unknown)\", which a release script grepping for a version string reads as a version that exists"
+    }
+  ]
+}

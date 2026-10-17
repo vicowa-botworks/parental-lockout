@@ -145,3 +145,48 @@ func TestExitCodesMatchWhatTheCommandsDocument(t *testing.T) {
 type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) { return 0, errors.New("closed pipe") }
+
+func TestFailWritesTheJSONFailureAsJSONAndExitsNonZero(t *testing.T) {
+	// Fail is the one implementation of the failure contract every command routes through,
+	// and #11's criteria name stderr. With --json the document has to be JSON, because a
+	// caller doing `plock status --json 2>&1 | jq` must be able to read the failure too --
+	// a human line on that stream parses as nothing, which is the same silence as no
+	// output at all.
+	var stderr bytes.Buffer
+	code := Fail(&stderr, true, "status", "config_unreadable", errors.New("permission denied"))
+	if code != Failure {
+		t.Errorf("exit code = %d, want %d: a --json failure that exits 0 is indistinguishable from a good run", code, Failure)
+	}
+	got := stderr.String()
+	for _, want := range []string{`"error":"config_unreadable"`, `"message":"permission denied"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("--json failure was not written in the JSON grammar (missing %s): %s", want, got)
+		}
+	}
+}
+
+func TestFailWithoutJSONWritesOneHumanLineAndNoJSON(t *testing.T) {
+	// The other half of the same contract, and the half that keeps the first one honest: no
+	// --json, no JSON. The prefix is what tells an operator which command failed, since
+	// stderr carries no other context, and a trailing newline is what makes the line
+	// appendable to a log without gluing two failures together.
+	var stderr bytes.Buffer
+	if code := Fail(&stderr, false, "status", "config_unreadable", errors.New("permission denied")); code != Failure {
+		t.Errorf("exit code = %d, want %d", code, Failure)
+	}
+	if got, want := stderr.String(), "status: permission denied\n"; got != want {
+		t.Errorf("text failure = %q, want %q", got, want)
+	}
+}
+
+func TestReportLineAddsExactlyOneNewline(t *testing.T) {
+	// Rows inside a section are written in a loop, and some callers terminate their format
+	// string and some do not. Adding a newline unconditionally puts a blank row between
+	// every entry of a table -- which reads as a deliberate separator nobody asked for.
+	r := &Report{}
+	r.Line("casey")
+	r.Line("locked\n")
+	if got, want := r.String(), "casey\nlocked\n"; got != want {
+		t.Errorf("report = %q, want %q", got, want)
+	}
+}
