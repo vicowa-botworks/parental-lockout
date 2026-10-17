@@ -912,5 +912,48 @@
       "new": "\t\tp.Rules = append(p.Rules, rule)",
       "note": "the rule-add path appends into the array it copied the header from, so a reader holding a snapshot of the same profile writes its own rule into the slot the handler just saved. TestAddingARuleDoesNotWriteIntoAnArrayAnotherSnapshotHolds gives the slice spare capacity first -- without room the mutation is unobservable, which is why config's own version of this test fails loudly on len==cap Renumbered from W110: #74's serve.go mutant already holds that id on another open branch, and ids are one namespace across concurrently open PRs."
     }
+,
+    {
+      "id": "W138",
+      "file": "internal/web/audit.go",
+      "old": "\treturn !accountNamed(listing, user)",
+      "new": "\treturn false && !accountNamed(listing, user)",
+      "note": "the rule answers \"the name is fine\" for every filter, so a typo keeps its closed, confident answer and the note never renders. TestTheRuleForWhenANoteIsOwed pins the predicate directly; TestATypoedAccountIsNamedAsATypo pins the sentence the operator reads."
+    },
+    {
+      "id": "W139",
+      "file": "internal/web/audit.go",
+      "old": "\tif user == \"\" || len(rows) > 0 || listing == nil {",
+      "new": "\tif user == \"\" || listing == nil {",
+      "note": "rows on screen stop mattering, so a deleted account's own events are contradicted by \"there is no local account named\". TestTheRuleForWhenANoteIsOwed's \"filter matched, name not in the listing\" case; the page-level version of this survived a battery until the predicate was extracted, because audit.tmpl renders the note only inside its filtered-empty branch and masked the handler's copy of the condition."
+    },
+    {
+      "id": "W140",
+      "file": "internal/web/audit.go",
+      "old": "\tif user == \"\" || len(rows) > 0 || listing == nil {",
+      "new": "\tif user == \"\" || len(rows) > 0 {",
+      "note": "a listing that answered nothing becomes an empty account set, which is the one reading of a failed read that is definitely wrong. TestTheRuleForWhenANoteIsOwed's \"the listing did not answer\" case, and TestAnUnansweredListingKeepsThePageSilentAboutExistence at the page."
+    },
+    {
+      "id": "W141",
+      "file": "internal/web/audit.go",
+      "old": "\tif user != \"\" && len(rows) == 0 {",
+      "new": "\tif user != \"\" {",
+      "note": "the account listing is opened on every filtered request, including the ones that already found the account, so a listing that fails can reach an answer it was never asked for. TestTheListingIsReadOnlyWhenTheFilterFoundNothing counts the seam calls in both directions, because a mutant that deletes the read entirely has to fail the other half."
+    },
+    {
+      "id": "W142",
+      "file": "internal/web/audit.go",
+      "old": "\t\tif a.Username == user {",
+      "new": "\t\tif a.Username != user {",
+      "note": "the existence check stops requiring the name to be present, so any listing at all says the typed name exists. TestACaseVariantIsRefusedAndExplainedRatherThanMatched, which is also the proof the fix did not loosen the match: Linux names are case-sensitive and Mallory and mallory can be two children."
+    },
+    {
+      "id": "W143",
+      "file": "internal/web/audit.go",
+      "old": "\t\tif listing, lerr := s.readAccounts(); lerr == nil {",
+      "new": "\t\tif listing, lerr := s.readAccounts(); lerr != nil {",
+      "note": "the note is computed exactly when the listing failed and skipped when it answered -- the failure direction inverted. TestATypoedAccountIsNamedAsATypo loses the sentence, and TestAnUnansweredListingKeepsThePageSilentAboutExistence would gain one if the predicate's own nil guard were not there to catch it."
+    }
   ]
 }

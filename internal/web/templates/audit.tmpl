@@ -18,7 +18,15 @@ only sees the most recent {{.Scanned}}.
 {{- else if .Partial}} Nothing older is in what could be read, and the note above says a
 generation was left out.
 {{- else}} The trail holds nothing older than these, so the search saw every event it can
-show.{{end}}</p>
+show.{{end}}
+{{- /* A different question from what the trail holds, and the one the operator actually
+       asked. Only ever rendered when the account listing answered and nothing matched, so
+       it cannot contradict rows on screen and cannot be a guess about a read that failed.
+       Phrased about now, because an account deleted last week still owns the events it
+       made. */ -}}
+{{- if .UserUnknown}} There is no local account named <strong>{{.User}}</strong> on this
+machine right now, and account names are case-sensitive, so the spelling may be what failed
+here.{{end}}</p>
 {{else if not .Rows}}
 <p class="banner">The trail is empty. The file exists and holds no readable events.</p>
 {{end}}
