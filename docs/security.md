@@ -212,12 +212,22 @@ Two consequences are written down rather than left to be discovered:
   the desktop they are about to lose. It now says so on stderr when the account it is about to
   lock is the one they are typing in, and still locks it — the warning is not a refusal,
   because refusing would break the smoke test for the person who means it.
-- `plock status` cannot report a declined session, and does not pretend to. Rendering
-  `lockable / unlocked` as "declined" needs the *daemon's* slice, and the slice of the process
-  running `status` is a different fact: doctor and status are run from a desktop terminal by an
-  operator whose own session is in a user slice even when the daemon is a system unit that
-  declines nobody. Guessing from the CLI's own process would put a confident wrong label on the
-  row — the failure this document calls the worst kind several times over. See §8.
+- `plock status` reports a declined session, and says where the answer came from. The
+  label cannot come from the slice of whoever ran `status` — doctor and status are run from
+  a desktop terminal by an operator whose own session is in a user slice even when the
+  daemon is a system unit that declines nobody, so guessing from the CLI's own process
+  would put a confident wrong label on the row. It comes from the daemon's cgroup instead
+  (`platform.LocationOf`, the same parser the daemon runs on itself), and the report keeps
+  three states apart: not running, running and inside `uid`'s session, and running but
+  unreadable — where nothing is marked and a warning says the command could not look
+  (`TestStatusMarksTheSessionTheDaemonRunsIn`,
+  `TestStatusSaysItCannotTellRatherThanDecliningNobody`,
+  `TestStatusSeparatesNoSystemdFromNotRunning`).
+  `doctor`'s `daemon.slice` check answers from the same probe rather than concluding the
+  unit's location from `is-active`, so the two commands cannot disagree about where the
+  daemon is (`TestCheckDaemonSlice`); it consults the shell's own slice only when no service
+  is running, which is the one case where the daemon in question really is the one about to
+  be started from there.
 
 ---
 
@@ -297,9 +307,8 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 | **A raw VT session** | Deliberately kept lockable even though it can never be confirmed. Refusing `Type == "tty"` would make `Sessions()` report nobody, the loop find nothing to do, and the machine go quiet while the child keeps typing — the same outcome for the child, minus the signal. The loud permanent `ErrUnconfirmed` is the safe failure. |
 | **Application or website filtering** | Out of scope by design. |
 | **The child reading the audit trail** | They cannot — §3. The operator can: `internal/audit` has a reader that follows rotation, but no command exposes it yet, so today the trail is read with `tail` and `jq` over a root-owned file. |
-| **`plock status` naming a declined session** | The rule is the daemon's, and the CLI cannot see the daemon's cgroup from its own process — see §4. Labelling a row "declined" from the slice of whoever ran `status` would be a confident wrong answer on the surface a bug report is pasted from, so `status` says nothing and this row says why. |
 | **GNOME corroboration of a lock** | No second signal has been measured on GNOME hardware. A GNOME-only config therefore reports `lock.unconfirmed` on transitions. Issue #35. |
-| **A child sharing an account with the admin, when the daemon was started from that desktop** | The daemon declines to lock its own login session, because locking it removes the only way to stop the daemon. This never applies to the supported deployment — a systemd system unit lives under `system.slice` and shares no slice with any user, so the rule is inert and every account is enforced. Where it does fire, `plock serve` says so on stderr at startup and the trail carries one `lock.unenforceable` line naming `deploy/plock.service` as the fix. |
+| **A child sharing an account with the admin, when the daemon was started from that desktop** | The daemon declines to lock its own login session, because locking it removes the only way to stop the daemon. This never applies to the supported deployment — a systemd system unit lives under `system.slice` and shares no slice with any user, so the rule is inert and every account is enforced. Where it does fire, `plock serve` says so on stderr at startup, the trail carries one `lock.unenforceable` line naming `deploy/plock.service` as the fix, and `plock status` marks the affected session `declinedByDaemon` instead of leaving it to look like a failing backend (§4). |
 | **A non-Linux build** | The guards fail closed — `ownerIsWriter` and `fileUID` return `errOwnershipUnsupported` and the writer refuses — but the *race* protection is lost: without `O_NOFOLLOW` a path can still be swapped between check and open. v0.1 ships Linux only. |
 | **A malicious package or supply chain** | There are zero third-party modules, which is the whole mitigation available (`scripts/check-deps.sh`). |
 | **A child-writable directory on the daemon's `PATH`** | Every program the daemon starts is resolved by `ExecRunner.Run` against the *daemon's* own `os.Getenv("PATH")`, so if the child can write a directory on that PATH, the child's `gdbus` or `loginctl` is what runs — including one that prints `()` and exits 0, which is exactly the reply the void-reply check accepts. Resolution does not change this and never claimed to: `LookPath` walks the same PATH `exec` would. Closing it means refusing to run a program whose location cannot be trusted, and a refusal does not lock anyone out, so the fix fails in the direction this project treats as the dangerous one. It needs a decision about which is worse — a lockout that silently stops, or a lockout that can be spoofed — and that is a product call, not a detail. See `internal/platform/exec.go`. |

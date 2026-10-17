@@ -57,6 +57,19 @@ func withDaemon(t *testing.T, state string, known bool, err error) {
 	saved := systemdProbe
 	systemdProbe = func() (string, bool, error) { return state, known, err }
 	t.Cleanup(func() { systemdProbe = saved })
+
+	// The same daemon, stated in the same breath. checkDaemonSlice reads the running
+	// unit's cgroup instead of concluding its location from the state word, so a test
+	// that states the word and not the location would fall through to "could not be
+	// read" -- and a test that states neither reads the machine running it. The default
+	// is the deployment those tests were written against: the shipped system unit,
+	// outside every login session.
+	running := state == "active" || state == "activating"
+	savedLoc := daemonProbe
+	daemonProbe = func() daemonState {
+		return daemonState{SystemdKnown: known, Running: running, LocationKnown: known && running}
+	}
+	t.Cleanup(func() { daemonProbe = savedLoc })
 }
 
 // writeConfig drops a minimal readable document so runDoctor gets past Load and the

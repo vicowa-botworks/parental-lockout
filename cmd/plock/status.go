@@ -75,8 +75,46 @@ type StatusReport struct {
 	UnknownBackends  []string        `json:"unknownBackends,omitempty"`
 	Users            []StatusUser    `json:"users"`
 	Sessions         []StatusSession `json:"sessions"`
-	Warnings         []string        `json:"warnings,omitempty"`
-	UnsupportedHere  []string        `json:"-"`
+	// Daemon is where the enforcement engine is actually running, which is what makes
+	// a session's declinedByDaemon mean anything. It is a pointer because the probe
+	// can be absent rather than answered: a report assembled without touching the
+	// machine (every buildStatus test) has no daemon to report, and `null` says that,
+	// where an all-false struct would claim a daemon that is not running.
+	Daemon          *StatusDaemon `json:"daemon,omitempty"`
+	Warnings        []string      `json:"warnings,omitempty"`
+	UnsupportedHere []string      `json:"-"`
+}
+
+// StatusDaemon is the running engine's own location, as far as the self-session rule
+// cares.
+//
+// The three states are deliberately distinguishable, because the sentence each one
+// supports is different and collapsing any pair makes the report assert something the
+// probe did not establish:
+//
+//   - Running false — no engine, so nothing is being declined, and an operator who was
+//     wondering why nothing locked has their answer;
+//   - Running true, LocationKnown true — the engine declines exactly the sessions
+//     Declined marks;
+//   - Running true, LocationKnown false — the engine is running and this command cannot
+//     tell whose slice it is in, so no session is marked and the report says so instead
+//     of implying "declines nobody".
+type StatusDaemon struct {
+	// Systemd is false when systemctl could not be executed at all: "no init system
+	// here" is not the same claim as "the service is not running".
+	Systemd bool `json:"systemd"`
+	Running bool `json:"running"`
+	// AskError is systemctl's own sentence for refusing to answer, non-empty exactly
+	// when the init system is present but would not say. While it is set, `running` is
+	// not an answer: a call that failed establishes neither that the service is stopped
+	// nor that it is up.
+	AskError string `json:"askError,omitempty"`
+	// InUserSlice and UID are the engine's location: whose login session it is inside,
+	// if it is inside anybody's. Zero values mean "outside anybody's", which is a real
+	// answer (a system unit) and not a missing one — that is what LocationKnown is for.
+	InUserSlice   bool   `json:"inUserSlice"`
+	UID           uint32 `json:"uid,omitempty"`
+	LocationKnown bool   `json:"locationKnown"`
 }
 
 // StatusUser is one managed user's verdict.
@@ -107,6 +145,11 @@ type StatusSession struct {
 	Seat     string `json:"seat,omitempty"`
 	Locked   bool   `json:"locked"`
 	Lockable bool   `json:"lockable"`
+	// Declined is the reason a lockable session will not be locked: the engine runs
+	// inside this session's own user slice. Only ever true when the report's daemon
+	// location is known; an unknown location marks nothing rather than guessing, and
+	// says so in warnings.
+	Declined bool `json:"declinedByDaemon,omitempty"`
 }
 
 func runStatus(stdout, stderr io.Writer, args []string) int {
@@ -153,6 +196,38 @@ func runStatus(stdout, stderr io.Writer, args []string) int {
 	now := nowFunc()
 	rep := buildStatus(cfg, *path, info, now)
 
+	// Where the engine itself is running, probed once and passed down. A session's
+	// declined mark means nothing without it: this command runs as the operator, and
+	// the operator's own slice answers a different question and gets the opposite
+	// answer in both directions (an operator at a desktop with a system-unit daemon
+	// would mark every one of their own sessions declined; an operator in SSH with a
+	// desktop-started daemon would mark none).
+	daemon := daemonProbe()
+	rep.Daemon = &StatusDaemon{
+		Systemd: daemon.SystemdKnown, Running: daemon.Running,
+		InUserSlice: daemon.Location.InUserSlice, UID: daemon.Location.UID,
+		LocationKnown: daemon.LocationKnown,
+	}
+	if daemon.Err != nil {
+		rep.Daemon.AskError = daemon.Err.Error()
+	}
+	if daemon.AskFailed && daemon.Running {
+		// The location came from the kernel, not from the call that failed, so it
+		// stands -- but the row is being read off a machine whose init system would not
+		// answer, and a report that mentions only the good half invites the operator to
+		// trust the rest of it the same way.
+		rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+			"daemon slice: systemd refused to answer (%v); the location below came from /proc, not from systemd",
+			daemon.Err))
+	}
+	if daemon.Running && !daemon.LocationKnown {
+		// The one case where saying nothing would itself be a claim: the sessions
+		// below are then unmarked, and an unmarked list reads as "the engine declines
+		// nobody" — the reassurance, with no evidence behind it.
+		rep.Warnings = append(rep.Warnings, "daemon slice: the engine is running but its cgroup could not be read, "+
+			"so no session is marked as declined")
+	}
+
 	var sessErr string
 	chain, chainErr := buildStatusChain(cfg.Settings)
 	if chainErr != nil {
@@ -179,7 +254,7 @@ func runStatus(stdout, stderr io.Writer, args []string) int {
 			sessErr = err.Error()
 			rep.Warnings = append(rep.Warnings, "live sessions: "+err.Error())
 		}
-		rep.Sessions = statusSessions(sessions)
+		rep.Sessions = statusSessions(sessions, daemon)
 	}
 
 	if *asJSON {
@@ -266,12 +341,33 @@ func buildStatus(cfg *config.Config, path string, info os.FileInfo, now time.Tim
 
 // statusSessions renders live sessions, sorted so two runs on the same machine produce the
 // same bytes.
-func statusSessions(in []platform.Session) []StatusSession {
+//
+// The daemon state arrives as an argument rather than being probed here, so that the
+// declined marks are a function of data a test can state. Probing inside this function
+// would make every session test depend on whether the machine running it happens to have
+// plock installed, which is the mistake this command's tests were written to avoid.
+func statusSessions(in []platform.Session, daemon daemonState) []StatusSession {
 	out := make([]StatusSession, 0, len(in))
 	for _, s := range in {
+		// The same predicate the engine and the dashboard answer from, so the three
+		// surfaces cannot drift into disagreeing about a session. The known-ness half
+		// is not redundant with the producer leaving Location zero: this rule is
+		// answered through a seam, and the safety property belongs in the rule, not in
+		// the discipline of whoever fills the struct in.
+		//
+		// A statement rather than a field in the literal below, because a composite
+		// literal's text moves when gofmt realigns it for an unrelated field.
+		declined := daemon.LocationKnown && daemon.Location.Declines(s.UID)
 		out = append(out, StatusSession{
 			Session: s.ID, Username: s.Username, UID: s.UID, Type: s.Type,
 			Seat: s.Seat, Locked: s.Locked, Lockable: platform.IsLockable(s),
+			// The reason a lockable session will not be locked even while its profile is
+			// in a lockout window: the engine runs inside this session's own user slice,
+			// and locking it would take away the only screen the daemon can be stopped
+			// from. Separate from lockable rather than folded into it, because "could be
+			// locked" and "will be locked" are different questions, and a reader of
+			// `lockable: true, lockout: true` with no lock arriving needs the second.
+			Declined: declined,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Session < out[j].Session })
@@ -293,6 +389,29 @@ func writeStatus(w io.Writer, rep StatusReport, now time.Time) error {
 	r.Field("config", rep.ConfigPath)
 	r.Field("modified", rep.ConfigModifiedAt)
 	r.Field("poll", fmt.Sprintf("%ds", rep.PollSeconds))
+	// The engine's own location, in the report rather than only behind the sessions it
+	// decides. Every wording here names what the probe established and stops there:
+	// "not running" is only said when systemd answered, and "no session is declined"
+	// is only said when the slice was actually read.
+	if d := rep.Daemon; d != nil {
+		switch {
+		case !d.Systemd:
+			r.Field("daemon", "unknown — no init system reachable, so this cannot say whether the engine is running")
+		case d.AskError != "" && !d.Running:
+			// Between the two answers it does not have. Printing "not running" here is
+			// what the comment above forbids, and it is what a container with systemctl
+			// installed but not booted into used to be told.
+			r.Field("daemon", fmt.Sprintf("unknown — systemd refused to answer: %s", d.AskError))
+		case !d.Running:
+			r.Field("daemon", "not running")
+		case !d.LocationKnown:
+			r.Field("daemon", "running, slice unknown — see warnings")
+		case d.InUserSlice:
+			r.Field("daemon", fmt.Sprintf("running inside uid %d's login session — that account's sessions are never locked", d.UID))
+		default:
+			r.Field("daemon", "running in a system slice — no session is declined")
+		}
+	}
 	// An empty list is a finding, not a blank. `backends` with nothing after it is the shape
 	// this command shipped with -- the field was never assigned -- so the line has to be able
 	// to tell "nothing is configured" apart from "this command did not look".
@@ -340,7 +459,14 @@ func writeStatus(w io.Writer, rep StatusReport, now time.Time) error {
 		if s.Locked {
 			lock = "locked"
 		}
-		r.Line("  %s %s uid %d %s (%s)", s.Session, s.Username, s.UID, s.Type, lock)
+		// The declined reason goes on the row rather than in a footnote, because the
+		// row is what reads as "lockable / unlocked, so the daemon is failing": the
+		// sentence has to arrive in the same breath as the row it explains.
+		declined := ""
+		if s.Declined {
+			declined = " — declined: the daemon runs in this session's own slice, so locking it would stop the daemon"
+		}
+		r.Line("  %s %s uid %d %s (%s)%s", s.Session, s.Username, s.UID, s.Type, lock, declined)
 	}
 
 	// The last action is deliberately absent, and said so. The audit writer is

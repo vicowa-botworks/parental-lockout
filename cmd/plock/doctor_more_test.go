@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/cli"
+	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 )
 
 // The remaining doctor checks, each pinned by the situation it exists to distinguish.
@@ -233,12 +235,29 @@ func TestSystemdStateSeparatesNoSystemdFromCannotAsk(t *testing.T) {
 	})
 
 	t.Run("systemctl missing", func(t *testing.T) {
+		// The error ExecRunner returns, not the stdlib's. lookupReason rewrites exec's
+		// wording on purpose, so this fixture quoting `executable file not found in
+		// $PATH` pinned a string production never produces -- and the real one fell
+		// through to "could not ask systemd", warning about a broken bus on a machine
+		// that has no init system at all.
 		state, known, err := systemdState(runnerFor{
-			err: errors.New(`exec: "systemctl": executable file not found in $PATH`),
+			err: fmt.Errorf("%s: %w", "systemctl", platform.ErrBinaryNotFound),
 		})
 		if known || err != nil || state != "" {
 			t.Errorf("got %q/%v/%v, want \"\"/false/nil: a box with no systemd is not a box with a dead service",
 				state, known, err)
+		}
+	})
+
+	// The other direction of the same prose match. systemctl's bus errors quote errno in
+	// lowercase often enough to matter, and reading one as "there is no init system here"
+	// skips the check on a machine that has one and simply would not answer.
+	t.Run("a bus error quoting ENOENT is still a failure to ask", func(t *testing.T) {
+		state, known, err := systemdState(runnerFor{
+			err: errors.New("systemctl exited with 1: Failed to connect to user scope bus: no such file or directory"),
+		})
+		if !known || err == nil || state != "" {
+			t.Errorf("got %q/%v/%v, want known=true with the error", state, known, err)
 		}
 	})
 

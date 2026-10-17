@@ -216,9 +216,9 @@
     {
       "id": "CO1",
       "file": "cmd/plock/doctor_os.go",
-      "old": "\t\tif isNotFound(err) {\n\t\t\treturn \"\", false, nil\n\t\t}",
-      "new": "\t\tif false {\n\t\t\treturn \"\", false, nil\n\t\t}",
-      "note": "a machine with no systemd is reported as running an unknown service rather than as not checked, sending the operator to look for a service that was never there"
+      "old": "\t\tif errors.Is(err, platform.ErrBinaryNotFound) {\n\t\t\treturn \"\", false, nil\n\t\t}",
+      "new": "\t\tif false && errors.Is(err, platform.ErrBinaryNotFound) {\n\t\t\treturn \"\", false, nil\n\t\t}",
+      "note": "A machine with no systemd is reported as running an unknown service rather than as not checked, sending the operator to look for a service that was never there. TestSystemdStateSeparatesNoSystemdFromCannotAsk/systemctl_missing"
     },
     {
       "id": "CO2",
@@ -338,7 +338,7 @@
     {
       "id": "CD5",
       "file": "cmd/plock/doctor.go",
-      "old": "\trep.add(checkDaemonSlice(systemdProbe, doctorSelfLocation))\n",
+      "old": "\trep.add(checkDaemonSlice(systemdProbe, doctorSelfLocation, daemonProbe))\n",
       "new": "",
       "note": "the deployment-shape check is written but never added to the report: `plock doctor` prints a clean bill of health on a machine where a daemon started from this terminal will decline the account in front of the operator, and docs/cli.md still promises the line. TestDoctorRunsTheDaemonSliceCheck, TestDoctorJSONCarriesTheDaemonSliceCheck."
     },
@@ -383,6 +383,139 @@
       "old": "fmt.Fprintf(stderr, \"plock lock: --all includes your own session (%s), so your \"+",
       "new": "fmt.Fprintf(stdout, \"plock lock: --all includes your own session (%s), so your \"+",
       "note": "the warning moves onto stdout and lands in front of the --json document, so every script that reads `plock lock --all --json` fails to parse it -- the same reason the missing-backend warning is on stderr. TestLockAllWarningDoesNotPolluteJSON."
+    },
+    {
+      "id": "DL1",
+      "file": "cmd/plock/daemon_location.go",
+      "old": "\t\tif !strings.HasPrefix(line, \"MainPID=\") {",
+      "new": "\t\tif !strings.Contains(line, \"MainPID=\") {",
+      "note": "MainPID matched anywhere in the line: systemd prints ExecMainPID as well, and it comes first, so the decoy is stopped at and answered 0 -- 'no daemon' on a running service. TestParseMainPID"
+    },
+    {
+      "id": "DL2",
+      "file": "cmd/plock/daemon_location.go",
+      "old": "\t\treturn daemonState{SystemdKnown: true}\n\t}",
+      "new": "\t\treturn daemonState{}\n\t}",
+      "note": "An inactive unit reported as 'no init system here' rather than 'systemd answered and nothing is running' -- the collapse the two flags exist to prevent, and the one that hides 'the service is stopped' behind a hedge. TestAskDaemonLocation"
+    },
+    {
+      "id": "DL3",
+      "file": "cmd/plock/daemon_location.go",
+      "old": "LocationKnown: lerr == nil",
+      "new": "LocationKnown: true || lerr == nil",
+      "note": "A failed cgroup read reported as a known location: the report then renders 'running in a system slice, no session is declined', the reassurance with nothing behind it. TestAskDaemonLocation"
+    },
+    {
+      "id": "DL4",
+      "file": "cmd/plock/daemon_location.go",
+      "old": "\t\trefused := daemonState{SystemdKnown: true, AskFailed: true, Err: err}",
+      "new": "\t\trefused := daemonState{AskFailed: true, Err: err}",
+      "note": "A systemctl that was found and refused reported as no init system reachable -- the problem the tool was asked to look for, invented. TestAskDaemonLocation/systemctl_refusing_to_answer_is_neither_running_nor_stopped and TestStatusSaysSystemdRefusedRatherThanNotRunning"
+    },
+    {
+      "id": "DL5",
+      "file": "cmd/plock/status.go",
+      "old": "\t\tdeclined := daemon.LocationKnown && daemon.Location.Declines(s.UID)",
+      "new": "\t\tdeclined := false",
+      "note": "The self-session rule dropped from the session rows: a lockable session the engine deliberately declines renders as an ordinary unlocked session, which is the blank the issue was opened for. TestStatusMarksTheSessionTheDaemonRunsIn, TestStatusTextPutsTheDeclineReasonOnTheRowItExplains"
+    },
+    {
+      "id": "DL6",
+      "file": "cmd/plock/status.go",
+      "old": "\t\tdeclined := daemon.LocationKnown && daemon.Location.Declines(s.UID)",
+      "new": "\t\tdeclined := true && daemon.Location.Declines(s.UID)",
+      "note": "The known-ness half dropped, so a mark rests on a location the report itself calls unverified. TestStatusMarksNothingWhenTheDaemonLocationIsUnverified"
+    },
+    {
+      "id": "DL7",
+      "file": "cmd/plock/status.go",
+      "old": "\tif daemon.Running && !daemon.LocationKnown {",
+      "new": "\tif false && daemon.Running && !daemon.LocationKnown {",
+      "note": "The unreadable-slice warning silenced: the sessions below are then unmarked with nothing saying why, and an unmarked list reads as 'declines nobody'. TestStatusSaysItCannotTellRatherThanDecliningNobody"
+    },
+    {
+      "id": "DL8",
+      "file": "cmd/plock/status.go",
+      "old": "\t\tcase d.InUserSlice:",
+      "new": "\t\tcase false && d.InUserSlice:",
+      "note": "The engine-inside-a-login-session wording dropped, so the report falls through to 'no session is declined' for a daemon that is declining one right now. TestStatusTextPutsTheDeclineReasonOnTheRowItExplains"
+    },
+    {
+      "id": "DL9",
+      "file": "cmd/plock/status.go",
+      "old": "\t\tcase !d.Systemd:",
+      "new": "\t\tcase !d.Systemd && d.Running:",
+      "note": "'no init system reachable' collapsed into 'not running': the report tells an operator with an unreachable bus that their service is stopped. TestStatusSeparatesNoSystemdFromNotRunning"
+    },
+    {
+      "id": "DL10",
+      "file": "cmd/plock/status.go",
+      "old": "\t\tcase !d.LocationKnown:",
+      "new": "\t\tcase false && !d.LocationKnown:",
+      "note": "The slice-unknown wording dropped, so an unreadable location falls through to the system-slice sentence and asserts that nothing is declined. TestStatusSaysItCannotTellRatherThanDecliningNobody"
+    },
+    {
+      "id": "DL11",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\t\tswitch d := daemon(); {\n\t\tcase !d.LocationKnown:",
+      "new": "\t\tswitch d := daemon(); {\n\t\tcase false && !d.LocationKnown:",
+      "note": "An unreadable cgroup falling through to the system-slice sentence: doctor tells an operator that no account is declined on evidence that it could not read anything, which is the reassurance this check exists to withhold. TestCheckDaemonSlice/service_active,_cgroup_unreadable"
+    },
+    {
+      "id": "DL12",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\t\tcase d.Location.InUserSlice:",
+      "new": "\t\tcase false && d.Location.InUserSlice:",
+      "note": "A unit running inside somebody's login session reported as the shipped system unit, so the account that will never be locked is certified as enforced. TestCheckDaemonSlice/service_active_inside_a_login_session"
+    },
+    {
+      "id": "DL13",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\tif state == \"active\" || state == \"activating\" {\n\t\tswitch d := daemon(); {",
+      "new": "\tif false && (state == \"active\" || state == \"activating\") {\n\t\tswitch d := daemon(); {",
+      "note": "The active branch skipped, so a running service is reasoned about as a shell: the check answers the manual-start question about a machine where the daemon is already up, and its answer is the operator's own slice rather than the daemon's. TestCheckDaemonSlice/service_active,_operator_in_a_login_session"
+    },
+    {
+      "id": "DL14",
+      "file": "cmd/plock/daemon_location.go",
+      "old": "\t\trefused := daemonState{SystemdKnown: true, AskFailed: true, Err: err}",
+      "new": "\t\trefused := daemonState{SystemdKnown: true}",
+      "note": "A refusal recorded as 'systemd answered', which renders as \"not running\" and marks no session declined -- the assertion the state was added to prevent. TestAskDaemonLocation/systemctl_refusing_to_answer_is_neither_running_nor_stopped"
+    },
+    {
+      "id": "DL15",
+      "file": "cmd/plock/daemon_location.go",
+      "old": "\tcase errors.Is(err, platform.ErrBinaryNotFound):",
+      "new": "\tcase isNotFound(err) && errors.Is(err, platform.ErrBinaryNotFound):",
+      "note": "Classification back on error prose instead of the sentinel. ExecRunner rewrites exec's wording, so the prose match misses the real 'no systemctl' error and a box with no init system is reported as one whose service is stopped. TestAskDaemonLocation/no_systemd_is_not_the_same_answer_as_not_running"
+    },
+    {
+      "id": "DL16",
+      "file": "cmd/plock/daemon_location.go",
+      "old": "\t\tif pid := parseMainPID(out); pid > 0 {",
+      "new": "\t\tif pid := parseMainPID(nil); pid > 0 {",
+      "note": "The kernel's answer thrown away because the call around it failed: a refusal that printed a pid anyway still has a location, and dropping it makes the report less true than the machine. TestAskDaemonLocation/a_refusal_that_printed_a_pid_still_has_a_location"
+    },
+    {
+      "id": "DL17",
+      "file": "cmd/plock/doctor_os.go",
+      "old": "\t\tif errors.Is(err, platform.ErrBinaryNotFound) {",
+      "new": "\t\tif isNotFound(err) && errors.Is(err, platform.ErrBinaryNotFound) {",
+      "note": "doctor's other half of the same prose match: on a machine with no systemctl it warns 'could not ask systemd' and sends the operator to look for a broken bus instead of the absent init system. TestSystemdStateSeparatesNoSystemdFromCannotAsk/systemctl_missing"
+    },
+    {
+      "id": "DL18",
+      "file": "cmd/plock/status.go",
+      "old": "\t\tcase d.AskError != \"\" && !d.Running:",
+      "new": "\t\tcase false && d.AskError != \"\" && !d.Running:",
+      "note": "The refused ask falling through to the sentence it does not license. TestStatusSaysSystemdRefusedRatherThanNotRunning"
+    },
+    {
+      "id": "DL19",
+      "file": "cmd/plock/status.go",
+      "old": "\tif daemon.AskFailed && daemon.Running {",
+      "new": "\tif false && daemon.AskFailed && daemon.Running {",
+      "note": "A location read from /proc printed with no mention that systemd refused, so the report reads as though the init system confirmed it. TestStatusKeepsARefusalsLocationAndSaysWhereItCameFrom"
     }
   ]
 }

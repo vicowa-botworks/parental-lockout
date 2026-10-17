@@ -325,7 +325,7 @@ func checkDaemonRunning(isActive func() (state string, known bool, err error)) c
 // there is no daemon to inspect, and the only case a human can fix by hand is the one where
 // they are about to start one from a desktop terminal -- which is exactly where this command
 // gets typed.
-func checkDaemonSlice(isActive func() (state string, known bool, err error), self func() platform.SelfLocation) check {
+func checkDaemonSlice(isActive func() (state string, known bool, err error), self func() platform.SelfLocation, daemon func() daemonState) check {
 	state, known, err := isActive()
 	if !known {
 		return skipCheck("daemon.slice",
@@ -338,9 +338,28 @@ func checkDaemonSlice(isActive func() (state string, known bool, err error), sel
 	// A service the system manager is running sits outside every user's session, which is
 	// the whole point of the unit in deploy/plock.service: it is the deployment where the
 	// rule is inert and every account is enforced.
+	//
+	// That used to be concluded from `is-active` alone, which does not establish it. The
+	// probe inherits SYSTEMD_ADDRESS on purpose, so a doctor run against somebody's user
+	// manager sees that manager's unit as active — and would have asserted "outside every
+	// login session, no account is declined" about a daemon sitting in one. The claim is
+	// read off the running process now, from the same probe `status` marks its rows with,
+	// so the two commands cannot answer from different sources.
 	if state == "active" || state == "activating" {
-		return okCheck("daemon.slice",
-			"the service is run by the system manager, outside every login session, so no account is declined")
+		switch d := daemon(); {
+		case !d.LocationKnown:
+			return warnCheck("daemon.slice",
+				"the service is active, but its cgroup could not be read, so this cannot say whether it declines any account",
+				"read the cgroup of `systemctl show plock --property=MainPID` by hand")
+		case d.Location.InUserSlice:
+			return warnCheck("daemon.slice",
+				fmt.Sprintf("the service is running inside uid %d's login session: that account is never locked, because "+
+					"locking the screen behind the daemon means it can no longer be stopped", d.Location.UID),
+				"install the unit in deploy/plock.service, which runs the daemon in system.slice where it declines nobody")
+		default:
+			return okCheck("daemon.slice",
+				"the service is run by the system manager, outside every login session, so no account is declined")
+		}
 	}
 	selfLoc := self()
 	if !selfLoc.InUserSlice {

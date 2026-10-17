@@ -28,6 +28,7 @@ func TestCheckDaemonSlice(t *testing.T) {
 		known    bool
 		err      error
 		self     platform.SelfLocation
+		daemon   *daemonState
 		want     checkStatus
 		wantText string
 		wantFix  string
@@ -50,7 +51,28 @@ func TestCheckDaemonSlice(t *testing.T) {
 			wantText: "system manager",
 		},
 		{
-			// The case the check exists for.
+			// The unit is active and the process is inside somebody's login session --
+			// a `systemctl --user` deployment, or a unit given a slice override. This is
+			// the case `is-active` alone could not tell apart from the shipped system
+			// unit, and the check used to assert "no account is declined" about both.
+			name:  "service active inside a login session",
+			state: "active", known: true, self: in,
+			daemon: &daemonState{SystemdKnown: true, Running: true, LocationKnown: true,
+				Location: platform.SelfLocation{UID: 4123, InUserSlice: true}},
+			want:     verdictWarn,
+			wantText: "uid 4123",
+			wantFix:  "deploy/plock.service",
+		},
+		{
+			// Active, and the location could not be read. "Cannot say" is the answer,
+			// and it must not arrive wearing the system-slice sentence.
+			name:  "service active, cgroup unreadable",
+			state: "active", known: true, self: out,
+			daemon:   &daemonState{SystemdKnown: true, Running: true, LocationKnown: false},
+			want:     verdictWarn,
+			wantText: "could not be read",
+		},
+		{
 			name:     "no service, operator in a login session",
 			state:    "inactive",
 			known:    true,
@@ -89,9 +111,20 @@ func TestCheckDaemonSlice(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			state, known, err := tc.state, tc.known, tc.err
 			self := tc.self
+			// The daemon's location, stated rather than inherited. The default is the
+			// deployment the cases below were written against -- the shipped system unit,
+			// running outside every login session -- and a case that needs a different
+			// one says so.
+			d := daemonState{SystemdKnown: known,
+				Running:       state == "active" || state == "activating",
+				LocationKnown: known && (state == "active" || state == "activating")}
+			if tc.daemon != nil {
+				d = *tc.daemon
+			}
 			got := checkDaemonSlice(
 				func() (string, bool, error) { return state, known, err },
-				func() platform.SelfLocation { return self })
+				func() platform.SelfLocation { return self },
+				func() daemonState { return d })
 
 			if got.Name != "daemon.slice" {
 				t.Errorf("check name %q, want daemon.slice; the name is what --json scripts match", got.Name)
@@ -178,6 +211,18 @@ func installDoctorSelfLocation(t *testing.T, self platform.SelfLocation) {
 	t.Cleanup(func() { doctorSelfLocation = prev })
 }
 
+// installDaemonProbe states where the running daemon is, for the checks that read it.
+//
+// The same host-independence rule as every other seam here: without it the check asks the
+// machine running the test, and a box with plock installed renders a different verdict
+// than a headless runner.
+func installDaemonProbe(t *testing.T, d daemonState) {
+	t.Helper()
+	prev := daemonProbe
+	daemonProbe = func() daemonState { return d }
+	t.Cleanup(func() { daemonProbe = prev })
+}
+
 // TestCheckDaemonSliceNamesTheAccountNotTheShell pins the specific half of the warning. A
 // detail that only says "a daemon started here may decline an account" is not actionable: the
 // operator needs the uid, because that is what they compare against the account they expected
@@ -185,7 +230,10 @@ func installDoctorSelfLocation(t *testing.T, self platform.SelfLocation) {
 func TestCheckDaemonSliceNamesTheAccountNotTheShell(t *testing.T) {
 	got := checkDaemonSlice(
 		func() (string, bool, error) { return "inactive", true, nil },
-		func() platform.SelfLocation { return platform.SelfLocation{UID: 1000, InUserSlice: true} })
+		func() platform.SelfLocation { return platform.SelfLocation{UID: 1000, InUserSlice: true} },
+		// No service is running, so nothing is consulted here; the warning is about a
+		// daemon the operator is about to start from this shell.
+		func() daemonState { return daemonState{SystemdKnown: true} })
 
 	if !strings.Contains(got.Detail, "1000") {
 		t.Errorf("the warning does not name the uid it is declining: %q", got.Detail)

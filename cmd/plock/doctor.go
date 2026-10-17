@@ -170,7 +170,7 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 	rep.add(checkPollInterval(cfg.Settings.PollSeconds))
 	rep.add(checkTLS(cfg.Settings.TLS, cfg.Settings.CertFile, time.Now(), certValidity))
 	rep.add(checkDaemonRunning(systemdProbe))
-	rep.add(checkDaemonSlice(systemdProbe, doctorSelfLocation))
+	rep.add(checkDaemonSlice(systemdProbe, doctorSelfLocation, daemonProbe))
 
 	chain, chainErr := buildChain(cfg.Settings)
 	if chainErr != nil {

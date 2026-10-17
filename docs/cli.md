@@ -79,6 +79,13 @@ says so, when it ends, and when the next one opens.
 | `configModifiedAt` | string | RFC 3339, UTC |
 | `backends` | []string | configured order |
 | `unknownBackends` | []string | names that resolved to nothing; absent when there are none |
+| `daemon` | object | where the enforcement engine is actually running — the four states below |
+| `daemon.systemd` | bool | false = systemctl could not be executed, which is not the same finding as "not running" |
+| `daemon.running` | bool | the unit has a main process right now |
+| `daemon.inUserSlice` | bool | true = the engine is inside somebody's login session, and declines that account's sessions |
+| `daemon.uid` | int | the account whose session the engine is inside; absent for a system unit |
+| `daemon.locationKnown` | bool | false = it is running and this command could not read its cgroup, so nothing is marked |
+| `daemon.askError` | string | absent when systemd answered. Non-empty = systemd is installed and refused, so **neither `running` value is an answer** |
 | `warnings` | []string | absent when there are none |
 | `users` | []object | one per managed user |
 | `users[].username` | string | |
@@ -101,6 +108,29 @@ says so, when it ends, and when the next one opens.
 | `sessions[].seat` | string | absent for a session with no seat |
 | `sessions[].lockable` | bool | false for a `class=manager` session |
 | `sessions[].locked` | bool | logind's `LockedHint` |
+| `sessions[].declinedByDaemon` | bool | the engine will not lock this one — absent unless it is |
+
+`daemon` is why `declinedByDaemon` means anything. `plock status` runs as the person typing
+it, so the engine's location cannot come from the shell's surroundings: it is read from the
+daemon's own cgroup, the same file the engine reads about itself. Four states are kept
+apart because each supports a different sentence, and collapsing any pair makes the report
+assert what the probe did not establish:
+
+| `daemon` | What the report says |
+|---|---|
+| `systemd: true, askError` set, `running: false` | systemd would not say. The report says so and marks nothing — this is a container that was not booted into systemd, or a stale `SYSTEMD_ADDRESS` |
+| `systemd: true, running: false` | the engine is not running, so nothing is being declined — and nothing will lock |
+| `running: true, locationKnown: true, inUserSlice: true` | the engine declines the sessions of `uid`, including the one it is running in |
+| `running: true, locationKnown: false` | the engine is running and this command cannot tell whose slice it is in; **no session is marked**, and a warning says so |
+
+The last row is the one to read carefully. An unmarked session list is not evidence that
+the engine declines nobody — it is evidence that this command could not look.
+
+`askError` is the difference between an absent answer and a refused one, and it is decided by
+`errors.Is` against the runner's sentinel rather than by matching error prose: the runner
+rewrites the standard library's wording on purpose, so a sentence match silently stopped
+recognising "there is no systemctl here" and reported a machine with no init system as a
+machine whose service is stopped.
 
 `users[].degraded` is the one to read before believing `lockout`. A rule plock could not
 read cleanly is enforced at its widest reading rather than dropped — so a parent is never
@@ -283,13 +313,19 @@ array is how "name the failing check" ends up implemented five different ways.
 | `backends` | is each configured backend usable here, and which would a lock try first |
 | `backends.unknown` | names in `lockBackends` that resolve to nothing |
 | `daemon` | is the service running and enabled |
-| `daemon.slice` | would a daemon started from here decline to lock the account it runs inside |
+| `daemon.slice` | will any account be declined — the running service's session if there is one, otherwise this shell's |
 | `enforcement` | is enforcement on, and is the poll interval sane |
 | `tls` | is the certificate present and unexpired |
 | `unenforced` | is a managed user inside a window with a session that is not locked |
 
 `unenforced` is the check that answers "it is not working" when every individual component
 reports itself healthy.
+
+`daemon.slice` answers from the running service when there is one — its `MainPID`'s cgroup,
+the same read `plock status` marks its rows with — and from this shell only when no service
+is running, because then the daemon in question is the one about to be started from here.
+`is-active` on its own does not establish whose session the unit is in, so an active service
+whose cgroup cannot be read is reported as *cannot say*, not as the reassuring answer.
 
 ## `plock init`
 
