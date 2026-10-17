@@ -104,6 +104,11 @@ type StatusDaemon struct {
 	// here" is not the same claim as "the service is not running".
 	Systemd bool `json:"systemd"`
 	Running bool `json:"running"`
+	// AskError is systemctl's own sentence for refusing to answer, non-empty exactly
+	// when the init system is present but would not say. While it is set, `running` is
+	// not an answer: a call that failed establishes neither that the service is stopped
+	// nor that it is up.
+	AskError string `json:"askError,omitempty"`
 	// InUserSlice and UID are the engine's location: whose login session it is inside,
 	// if it is inside anybody's. Zero values mean "outside anybody's", which is a real
 	// answer (a system unit) and not a missing one — that is what LocationKnown is for.
@@ -202,6 +207,18 @@ func runStatus(stdout, stderr io.Writer, args []string) int {
 		Systemd: daemon.SystemdKnown, Running: daemon.Running,
 		InUserSlice: daemon.Location.InUserSlice, UID: daemon.Location.UID,
 		LocationKnown: daemon.LocationKnown,
+	}
+	if daemon.Err != nil {
+		rep.Daemon.AskError = daemon.Err.Error()
+	}
+	if daemon.AskFailed && daemon.Running {
+		// The location came from the kernel, not from the call that failed, so it
+		// stands -- but the row is being read off a machine whose init system would not
+		// answer, and a report that mentions only the good half invites the operator to
+		// trust the rest of it the same way.
+		rep.Warnings = append(rep.Warnings, fmt.Sprintf(
+			"daemon slice: systemd refused to answer (%v); the location below came from /proc, not from systemd",
+			daemon.Err))
 	}
 	if daemon.Running && !daemon.LocationKnown {
 		// The one case where saying nothing would itself be a claim: the sessions
@@ -380,6 +397,11 @@ func writeStatus(w io.Writer, rep StatusReport, now time.Time) error {
 		switch {
 		case !d.Systemd:
 			r.Field("daemon", "unknown — no init system reachable, so this cannot say whether the engine is running")
+		case d.AskError != "" && !d.Running:
+			// Between the two answers it does not have. Printing "not running" here is
+			// what the comment above forbids, and it is what a container with systemctl
+			// installed but not booted into used to be told.
+			r.Field("daemon", fmt.Sprintf("unknown — systemd refused to answer: %s", d.AskError))
 		case !d.Running:
 			r.Field("daemon", "not running")
 		case !d.LocationKnown:

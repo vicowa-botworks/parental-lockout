@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -34,6 +35,21 @@ type daemonState struct {
 	// answer is a flag rather than a zero SelfLocation.
 	LocationKnown bool
 	Location      platform.SelfLocation
+	// AskFailed is systemctl having been found and refusing to answer — a container
+	// with systemctl installed but not running as init, a stale SYSTEMD_ADDRESS, a bus
+	// nobody owns. It is kept from SystemdKnown because "there is no init system here"
+	// and "the init system is here and would not say" are different sentences, and
+	// kept from Running because a call that failed establishes neither answer.
+	//
+	// Without it a refusal fell through to "systemd answered, nothing is running",
+	// which is the assertion this struct was introduced to make impossible, arriving
+	// through the other input.
+	AskFailed bool
+	// Err is why the ask failed, for the operator's sentence. The text is systemctl's
+	// rather than this package's because the reason is usually in it ("System has not
+	// been booted with systemd as init system"), and dropping it would leave "the init
+	// system would not say" as the whole of the diagnosis.
+	Err error
 }
 
 // daemonProbe is the seam: a test states the daemon's location rather than asserting on
@@ -56,14 +72,33 @@ func askDaemonLocation(run platform.Runner, read func(string) ([]byte, error)) d
 	// the state. An inactive or unknown unit prints MainPID with no value, which
 	// parses as 0 and means exactly what it says.
 	out, err := run.Run(ctx, []string{"systemctl", "show", "plock", "--property=MainPID"}, nil, 0)
-	if err != nil && isNotFound(err) {
+	switch {
+	case err == nil:
+	case errors.Is(err, platform.ErrBinaryNotFound):
+		// Nothing to ask. Identity rather than prose: ExecRunner rewrites exec's
+		// wording on purpose (see lookupReason), so the sentence this branch used to
+		// match on -- "executable file not found in $PATH" -- is one the production
+		// runner never produces, and the real one fell through to "not running". That
+		// is how a machine with no init system came to be told its service is stopped.
 		return daemonState{}
+	default:
+		// systemctl was found and refused. Whether a unit is running is not something
+		// a failed call establishes in either direction, so the answer is its own
+		// state rather than the absence of one.
+		refused := daemonState{SystemdKnown: true, AskFailed: true, Err: err}
+		// A refusal that printed a pid anyway has said the useful thing: the pid is
+		// the fact and the exit status only says the asking was noisy. The cgroup is
+		// the kernel's answer, independent of the call that failed, so it stands.
+		if pid := parseMainPID(out); pid > 0 {
+			loc, lerr := platform.LocationOf(pid, read)
+			refused.Running, refused.LocationKnown, refused.Location = true, lerr == nil, loc
+		}
+		return refused
 	}
 	pid := parseMainPID(out)
 	if pid <= 0 {
-		// A failed systemctl with no pid is "systemd answered, nothing is running";
-		// a failed systemctl that somehow printed a pid still gets read, because the
-		// pid is the fact and the exit status only says the asking was noisy.
+		// systemd answered and there is no main process: the service is stopped, which
+		// is what an inactive or unknown unit prints (MainPID with no value).
 		return daemonState{SystemdKnown: true}
 	}
 	loc, lerr := platform.LocationOf(pid, read)

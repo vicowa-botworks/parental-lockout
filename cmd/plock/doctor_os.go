@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -60,10 +61,14 @@ func systemdState(run platform.Runner) (state string, known bool, err error) {
 	// operator has set SYSTEMD_ADDRESS to reach a container's init system.
 	out, err := run.Run(ctx, []string{"systemctl", "is-active", "plock"}, nil, 0)
 	if err != nil {
-		// A missing binary is the only error that means "no systemd here". Everything else
-		// is a real failure to ask, and reporting it as "not running" would be the tool
-		// inventing the problem it was asked to look for.
-		if isNotFound(err) {
+		// A missing binary is the only error that means "no systemd here", and it is
+		// recognised by identity. Matching prose matched the stdlib's sentence
+		// ("executable file not found in $PATH") while ExecRunner deliberately rewrites
+		// it to "systemctl: not found in PATH" -- so on a box with no systemctl this
+		// returned a *failure to ask* and doctor warned "could not ask systemd" about a
+		// machine that simply has no init system, sending the operator to look for a
+		// broken bus instead of the absent one.
+		if errors.Is(err, platform.ErrBinaryNotFound) {
 			return "", false, nil
 		}
 		// systemctl itself exits non-zero to report a non-active state, and the state word is

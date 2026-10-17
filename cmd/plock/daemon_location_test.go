@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -108,13 +109,72 @@ func TestAskDaemonLocation(t *testing.T) {
 	})
 
 	t.Run("no systemd is not the same answer as not running", func(t *testing.T) {
-		got := askDaemonLocation(&recRunner{err: errors.New("exec: \"systemctl\": executable file not found in $PATH")},
+		// The error ExecRunner actually returns. The stdlib's own sentence
+		// (`exec: "systemctl": executable file not found in $PATH`) was this fixture
+		// until it was measured that lookupReason rewrites it on purpose -- so the
+		// branch this test pins was matched by a string production never produces, and
+		// a machine with no systemctl was being told its service is stopped.
+		got := askDaemonLocation(&recRunner{err: fmt.Errorf("%s: %w", "systemctl", platform.ErrBinaryNotFound)},
 			func(string) ([]byte, error) { return nil, errors.New("must not be called") })
 		if got.SystemdKnown {
 			t.Error("SystemdKnown true with no systemctl; that is the collapse this separates")
 		}
 		if got.Running {
 			t.Error("Running true with no systemctl")
+		}
+		if got.AskFailed {
+			t.Error("AskFailed true where there was nothing to ask; \"no init system\" and \"it refused\" are different sentences")
+		}
+	})
+
+	// systemctl installed and refusing: a container that was not booted into systemd, a
+	// stale SYSTEMD_ADDRESS, a bus nobody owns. None of these says anything about whether
+	// a unit is running, and the probe used to answer "systemd answered, nothing is
+	// running" for all of them.
+	t.Run("systemctl refusing to answer is neither running nor stopped", func(t *testing.T) {
+		refusal := errors.New("systemctl exited with 1: System has not been booted with systemd as init system (PID 1). Can't operate.")
+		got := askDaemonLocation(&recRunner{err: refusal},
+			func(string) ([]byte, error) { return nil, errors.New("must not be called") })
+		if got.AskFailed == false {
+			t.Error("a refusal must be its own state, not the absence of an answer")
+		}
+		if got.Running {
+			t.Error("Running true on a call that failed")
+		}
+		if !got.SystemdKnown {
+			t.Error("SystemdKnown false although systemctl was found and answered with an error")
+		}
+		if !strings.Contains(got.Err.Error(), "not been booted") {
+			t.Errorf("the operator loses systemctl's reason: %v", got.Err)
+		}
+	})
+
+	// The prose classifier's other direction. A bus failure whose text happens to name
+	// ENOENT in lowercase read as "there is no init system here", sending the operator to
+	// install systemd on a machine that has it.
+	t.Run("a bus error naming ENOENT is still not 'no init system'", func(t *testing.T) {
+		got := askDaemonLocation(&recRunner{err: errors.New(
+			"systemctl exited with 1: Failed to connect to user scope bus via private socket: no such file or directory")},
+			func(string) ([]byte, error) { return nil, errors.New("must not be called") })
+		if !got.SystemdKnown {
+			t.Error("concluded there is no init system from a bus error's prose")
+		}
+		if !got.AskFailed {
+			t.Error("a bus nobody owns is a refusal, not an answer")
+		}
+	})
+
+	// The kernel's answer does not depend on the call that failed, so a refusal that
+	// printed a pid anyway still gets a location -- and the report says which half came
+	// from where.
+	t.Run("a refusal that printed a pid still has a location", func(t *testing.T) {
+		got := askDaemonLocation(&recRunner{out: []byte("MainPID=4321\n"), err: errors.New("systemctl exited with 1: noisy")},
+			func(string) ([]byte, error) { return userSlice, nil })
+		if !got.AskFailed || !got.Running || !got.LocationKnown {
+			t.Fatalf("got %+v, want refused, running, location known", got)
+		}
+		if !got.Location.InUserSlice || got.Location.UID != 1000 {
+			t.Errorf("location %+v, want uid 1000's user slice", got.Location)
 		}
 	})
 
