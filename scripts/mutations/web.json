@@ -1000,5 +1000,90 @@
       "new": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif false && ok && sel.Sel.Name == field {\n",
       "note": "the assignment half stops collecting, which is the half that worked before this change and the half the original guard was written against. Kept as the pair to W134: the claim is that BOTH spellings are collected, and a claim about two things needs one mutant per thing."
     }
+,
+    {
+      "id": "W138",
+      "file": "internal/web/audit.go",
+      "old": "\treturn !accountNamed(listing, user)",
+      "new": "\treturn false && !accountNamed(listing, user)",
+      "note": "the rule answers \"the name is fine\" for every filter, so a typo keeps its closed, confident answer and the note never renders. TestTheRuleForWhenANoteIsOwed pins the predicate directly; TestATypoedAccountIsNamedAsATypo pins the sentence the operator reads."
+    },
+    {
+      "id": "W139",
+      "file": "internal/web/audit.go",
+      "old": "\tif user == \"\" || len(rows) > 0 || listing == nil {",
+      "new": "\tif user == \"\" || listing == nil {",
+      "note": "rows on screen stop mattering, so a deleted account's own events are contradicted by the existence note. TestTheRuleForWhenANoteIsOwed's \"filter matched, name not in the listing\" case; the page-level version of this survived a battery until the predicate was extracted, because audit.tmpl renders the note only inside its filtered-empty branch and masked the handler's copy of the condition. The len(rows) > 0 clause is DEFENSIVE, not reachable: the only caller guards len(rows) == 0 before calling, so this mutant is caught by the predicate test alone and no request can drive it. Stated because a reader who assumes it is reachable will go looking for a caller that does not exist."
+    },
+    {
+      "id": "W140",
+      "file": "internal/web/audit.go",
+      "old": "\tif user == \"\" || len(rows) > 0 || listing == nil {",
+      "new": "\tif user == \"\" || len(rows) > 0 {",
+      "note": "a listing that answered nothing becomes an empty account set, which is the one reading of a failed read that is definitely wrong. TestTheRuleForWhenANoteIsOwed's \"the listing did not answer\" case, and TestAnUnansweredListingKeepsThePageSilentAboutExistence at the page."
+    },
+    {
+      "id": "W141",
+      "file": "internal/web/audit.go",
+      "old": "\tif user != \"\" && len(rows) == 0 {",
+      "new": "\tif user != \"\" {",
+      "note": "the account listing is opened on every filtered request, including the ones that already found the account, so a listing that fails can reach an answer it was never asked for. TestTheListingIsReadOnlyWhenTheFilterFoundNothing counts the seam calls in both directions, because a mutant that deletes the read entirely has to fail the other half."
+    },
+    {
+      "id": "W142",
+      "file": "internal/web/audit.go",
+      "old": "\t\tif a.Username == user {",
+      "new": "\t\tif a.Username != user {",
+      "note": "the existence check stops requiring the name to be present, so any listing at all says the typed name exists. TestACaseVariantIsRefusedAndExplainedRatherThanMatched, which is also the proof the fix did not loosen the match: Linux names are case-sensitive and Mallory and mallory can be two children."
+    },
+    {
+      "id": "W143",
+      "file": "internal/web/audit.go",
+      "old": "\t\tif lerr != nil {",
+      "new": "\t\tif lerr == nil {",
+      "note": "the failure direction inverted: a listing that answered is logged as though it failed and a listing that failed falls through to the branch that answers from it. TestATypoedAccountIsNamedAsATypo loses the sentence and TestAFailedAccountListingIsLoggedWhenTheNoteIsWithheld loses both halves at once. Re-pointed in #94's review round -- the handler used to read `if listing, lerr := s.readAccounts(); lerr == nil {`, and the reason line the reviewer asked for moved the error out of the condition."
+    },
+    {
+      "id": "W157",
+      "file": "internal/web/templates/audit.tmpl",
+      "old": "There is no account named <strong>{{.User}}</strong> among the\naccounts plock can manage on this machine right now",
+      "new": "There is no local account named <strong>{{.User}}</strong> on this\nmachine right now",
+      "note": "the sentence goes back to asserting what accounts exist on the machine, which is the over-claim #94 exists to close and the finding that reopened it: users.List is filtered by uid range and login shell and drops both in silence, so `useradd -u 900` is a real child the listing has never seen. TestTheNoteNamesTheFilterThatSaidNoRatherThanTheMachine fails on both its halves -- the managed-set wording and the pinned absence of the old claim."
+    },
+    {
+      "id": "W158",
+      "file": "internal/web/templates/audit.tmpl",
+      "old": "{{if and .ManagedUIDMin .ManagedUIDMax}}\n(uid {{.ManagedUIDMin}}-{{.ManagedUIDMax}}){{end}}",
+      "new": "",
+      "note": "the narrowed sentence stays but stops naming the filter that answered no, which leaves the operator with a black box and no way to notice the filter is the wrong one. TestTheNoteNamesTheFilterThatSaidNoRatherThanTheMachine's `uid 500-1500` assertion."
+    },
+    {
+      "id": "W159",
+      "file": "internal/web/templates/audit.tmpl",
+      "old": "{{if and .ManagedUIDMin .ManagedUIDMax}}\n(uid {{.ManagedUIDMin}}-{{.ManagedUIDMax}}){{end}}",
+      "new": "(uid {{.ManagedUIDMin}}-{{.ManagedUIDMax}})",
+      "note": "the guard on the range is dropped, so a listing that carries no bounds renders `uid 0-0` -- a number the page made up, and the zero value is the one value that must never read as a fact here. TestAListingWithoutBoundsInventsNoRange."
+    },
+    {
+      "id": "W160",
+      "file": "internal/web/audit.go",
+      "old": "\tpage.ManagedUIDMin = uidMin\n\tpage.ManagedUIDMax = uidMax",
+      "new": "\tpage.ManagedUIDMin = uidMax\n\tpage.ManagedUIDMax = uidMin",
+      "note": "the bounds are carried through in the wrong order, so the page reports a range that was never applied (and one that reads as inverted). Both variables stay read, which is why the mutant swaps rather than zeroes: `= 0` orphans uidMin and the battery would print a build failure as a catch. TestTheNoteNamesTheFilterThatSaidNoRatherThanTheMachine."
+    },
+    {
+      "id": "W161",
+      "file": "internal/web/audit.go",
+      "old": "\t\tif lerr != nil {",
+      "new": "\t\tif lerr != nil && false {",
+      "note": "a refused account listing is swallowed without a trace, which is the failure the reviewer named: the page's contract is that silence is a verdict, and a page that chose not to speak is then indistinguishable in the log from one that could not look. The trail's failed read two screens up logs for the same reason. `&& false` keeps lerr read so the mutant compiles. TestAFailedAccountListingIsLoggedWhenTheNoteIsWithheld."
+    },
+    {
+      "id": "W162",
+      "file": "internal/web/audit.go",
+      "old": "\t\tif lerr != nil {",
+      "new": "\t\tif true {",
+      "note": "every filtered-empty request is logged as a refused listing, including the ones that answered. The control half of W161: without it a handler that logs unconditionally passes the log assertion. It also stops computing the note at all, so the typo test fails with it. TestAFailedAccountListingIsLoggedWhenTheNoteIsWithheld's control."
+    }
   ]
 }
