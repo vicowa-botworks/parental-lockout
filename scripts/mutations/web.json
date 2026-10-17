@@ -999,6 +999,30 @@
       "old": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif ok && sel.Sel.Name == field {\n",
       "new": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif false && ok && sel.Sel.Name == field {\n",
       "note": "the assignment half stops collecting, which is the half that worked before this change and the half the original guard was written against. Kept as the pair to W134: the claim is that BOTH spellings are collected, and a claim about two things needs one mutant per thing."
+    },
+    {
+      "id": "W164",
+      "package": "./internal/web/",
+      "file": "internal/web/narrow_width_test.go",
+      "old": "\t\t\tif label[1] != want {",
+      "new": "\t\t\tif label[1] == \"\" {",
+      "note": "the positional comparison stops comparing: every non-empty label is accepted, so a cell labelled with a neighbouring column's name passes again. The rule was membership before and that is what let the copied label through, which is why the hand-built bad table in TestTheLabelCheckRejectsAHandBuiltTable is what catches this -- no real page in the suite contains a wrong label, so no page test can."
+    },
+    {
+      "id": "W165",
+      "package": "./internal/web/",
+      "file": "internal/web/narrow_width_test.go",
+      "old": "\tpages := narrowPages(t)",
+      "new": "\tpages := []string{\"/\", \"/users\", \"/profiles\"}",
+      "note": "the page list is hand-written again, which is the state that let the audit page ship unvisited while the guard claimed to cover the admin. Caught by the count, not by any per-page assertion: three pages pass every check, and only \"four pages had a cell checked\" notices the fourth is gone."
+    },
+    {
+      "id": "W166",
+      "package": "./internal/web/",
+      "file": "internal/web/narrow_width_test.go",
+      "old": "\t\tcomplaints = append(complaints,\n\t\t\tpath+\" renders a rows table with no ordinary cells, so nothing was checked\")\n",
+      "new": "",
+      "note": "a table that prints its headers and no rows stops being reported. This is the vacuity half of the guard: without it an empty fixture reads as a clean page, and the same deletion applied to a page test would silently drop that page from coverage. Caught by the empty-table case in TestTheLabelCheckRejectsAHandBuiltTable."
     }
   ]
 }
