@@ -1349,6 +1349,97 @@
       "old": "asking it to lock produced.</caption>",
       "new": "the locks that were proved.</caption>",
       "note": "the caption claiming proved locks on a page where the backend refused -- the third sentence on the page and the one no assertion read. TestARefusedLockNamesTheSessionItCouldNotReach."
+    },
+    {
+      "id": "W144",
+      "file": "internal/web/users_write.go",
+      "old": "\tif !known {",
+      "new": "\tif !known && false {",
+      "note": "the assignment route takes the account name out of the URL, so without this check a post for a name that is neither a local account nor already managed writes a document entry for nobody. config.Validate cannot catch it -- 'username is non-empty and unique' is true of every string -- so this line is the only thing that knows whether anybody by that name exists. TestAssigningAnAccountNobodyHasIsRefused."
+    },
+    {
+      "id": "W145",
+      "file": "internal/web/users_write.go",
+      "old": "enabled := r.FormValue(\"enabled\") != \"\"",
+      "new": "enabled := true",
+      "note": "a browser sends nothing for a clear checkbox, so reading absence as enabled switches an account back on every time the operator saves any other field on its row -- the row would look unchanged and the audit would say enabled. TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff."
+    },
+    {
+      "id": "W146",
+      "file": "internal/web/users_write.go",
+      "old": "\t\ts.pageError(w, r, \"the account list could not be read\", err)",
+      "new": "\t\ts.pageRefuse(w, r, http.StatusNotFound, \"no account on this machine is called \"+name)",
+      "note": "a listing that could not be read answered as a statement about the name the operator typed. The account may exist and be perfectly assignable; the refusal also tells them to go create it. Same rule the audit page holds: a failed read never answers 'no such account'. TestAFailedAccountListingIsNotAnsweredAsNoSuchAccount."
+    },
+    {
+      "id": "W147",
+      "file": "internal/web/users_write.go",
+      "old": "\t\t\tif err := c.RemoveUser(name); err != nil {\n\t\t\t\treturn fmt.Errorf(\"%w: %s\", errUnknownAccount, err)\n\t\t\t}",
+      "new": "\t\t\tc.UpsertUser(config.User{Username: name, ProfileID: \"\", Enabled: false})\n\t\t\t_ = errUnknownAccount",
+      "note": "unassigning by writing an empty profile instead of removing the entry. Two bugs in one: Validate refuses an unknown profileID so the save fails after the operator was told the account was unmanaged, and even if it were accepted the account's override would outlive it -- the inheritance RemoveUser exists to prevent. TestStoppingManagementTakesTheOverrideWithTheAssignment."
+    },
+    {
+      "id": "W148",
+      "file": "internal/web/server.go",
+      "old": "\tmux.Handle(\"POST /users/{name}/profile\",\n\t\ts.requireAuth(http.HandlerFunc(s.handleAssignProfile)))",
+      "new": "\t// route not registered",
+      "note": "the handler exists, is tested by hand-built requests, and is reachable from no route -- every unit test stays green because none of them goes through the mux. This is the wiring gap this repo has now been bitten by repeatedly: a seam nothing assembles ships dead. TestAssigningAProfileStoresTheAssignmentAndAuditsIt."
+    },
+    {
+      "id": "W149",
+      "file": "internal/web/pages.go",
+      "old": "s.render(w, r, \"users\", &page)",
+      "new": "s.render(w, r, \"users\", page)",
+      "note": "render fills the CSRF token through setCSRF, which is implemented on *usersPage; handing over a copy fills a temporary the template never sees, so every row on the page renders an empty token and every save is refused with 403. TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts."
+    },
+    {
+      "id": "W150",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <label class=\"opt\" for=\"profile-{{$row.Username}}\">Profile</label>",
+      "new": "            <label class=\"opt\" for=\"profile-{{$row.Username}}\">Profile</label>",
+      "note": "the shipped form loses its token field. A hand-built request still passes, which is exactly why the test posts the rendered markup: this is the defect that let the logout form post a token-less request unnoticed. TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts."
+    },
+    {
+      "id": "W151",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "{{if and $row.Configured (eq $row.Configured.ProfileID .ID)}} selected{{end}}",
+      "new": "",
+      "note": "the dropdown no longer marks the row's current profile, so saving any other field on the row moves the child to whichever option the browser shows first -- a silent reassignment dressed up as a save. TestTheAssignmentFormOffersEveryProfile."
+    },
+    {
+      "id": "W152",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "<td data-label=\"Assign\">",
+      "new": "<td data-label=\"Assignment\">",
+      "note": "the new column's narrow-width label disagrees with its own header. At phone width the cell is labelled with a word that appears nowhere on the page, and the desktop and phone readings of the same value differ. TestEveryCellInARowsTableCarriesItsNarrowLabel."
+    },
+    {
+      "id": "W153",
+      "file": "internal/web/users_write.go",
+      "old": "s.audit(\"user.assigned\", ",
+      "new": "s.audit(\"user.changed\", ",
+      "note": "the audit kind is renamed. The trail is what a parent reads the morning after, and a kind nobody greps for is a mutation that did not happen; the same word also has to match what docs/cli.md tells an operator to look for. TestAssigningAProfileStoresTheAssignmentAndAuditsIt."
+    },
+    {
+      "id": "W154",
+      "file": "internal/web/users_write.go",
+      "old": "return \" switched off\"",
+      "new": "return \" enabled\"",
+      "note": "the audit line claims the assignment is enabled when the checkbox was clear, so the trail records a lockout that will never fire. TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff."
+    },
+    {
+      "id": "W155",
+      "file": "internal/web/pages.go",
+      "old": "return out[i].Name < out[j].Name",
+      "new": "return out[i].Name > out[j].Name",
+      "note": "the dropdown follows document order instead of name order. Two profiles can share a name, and then the only thing distinguishing them is position -- which changes whenever an unrelated profile is created or deleted. TestTheAssignmentDropdownIsInNameOrderNotDocumentOrder."
+    },
+    {
+      "id": "W156",
+      "file": "internal/web/users_write.go",
+      "old": "\t\t\t\treturn fmt.Errorf(\"%w: %s\", errUnknownAccount, err)",
+      "new": "\t\t\t\treturn nil",
+      "note": "stopping management of an account that was never managed answers 303, so the page says the change happened. A refusal that reports success is the shape every other write in this package refuses. TestStoppingManagementOfAnAccountThatWasNeverManagedSaysSo."
     }
   ]
 }

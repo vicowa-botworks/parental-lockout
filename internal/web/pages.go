@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"sort"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/dashboard"
@@ -86,18 +87,24 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	// same question, and if they disagreed the count above and the table below would
 	// be describing different machines.
 	rows := users.Union(listing.Accounts, configured)
-	s.render(w, r, "users", usersPage{
-		Rows:   rows,
-		Names:  profileNames(cfg),
-		Gaps:   users.Unmanaged(rows),
-		Manage: cfg.Settings.Enforcement,
+	// The pointer, not the value: every row on this page now posts something back, and
+	// render fills the token through setCSRF. Handing over a copy would fill a temporary
+	// the template never sees, and every form on the page would render with an empty
+	// token and be refused on submit.
+	page := usersPage{
+		Rows:     rows,
+		Names:    profileNames(cfg),
+		Profiles: profileOptions(cfg),
+		Gaps:     users.Unmanaged(rows),
+		Manage:   cfg.Settings.Enforcement,
 		// The listing's notes are the difference between a page that shows a child
 		// missing and one that says why. They are the package's own words, so they are
 		// passed through rather than paraphrased here.
 		Notes:  listing.Notes,
 		UIDMin: listing.UIDMin,
 		UIDMax: listing.UIDMax,
-	})
+	}
+	s.render(w, r, "users", &page)
 }
 
 // usersPage is what users.tmpl is given.
@@ -113,6 +120,12 @@ type usersPage struct {
 	Gaps   int
 	Manage bool
 
+	// Profiles is the dropdown's content: every profile the document holds, in the order
+	// a person reading the list expects. It is a slice rather than a reuse of Names
+	// because a map's iteration order is not one, and a control whose options reshuffle
+	// between two loads of the same page reads as a page that changed something.
+	Profiles []profileOption
+
 	// Notes, UIDMin and UIDMax come straight off the Listing. They are here because a
 	// page that shows an empty table and no explanation is the exact failure internal/
 	// users was written to prevent -- and the notes only count as "rendered" if a
@@ -120,6 +133,44 @@ type usersPage struct {
 	Notes  []string
 	UIDMin uint32
 	UIDMax uint32
+
+	// CSRF is filled by render through csrfCarrier, never by the handler.
+	CSRF string
+}
+
+func (p *usersPage) setCSRF(token string) { p.CSRF = token }
+
+// profileOption is one choice in the row's dropdown.
+type profileOption struct {
+	ID   string
+	Name string
+}
+
+// profileOptions lists the assignable profiles by name, falling back to the id where a
+// profile has no name -- the same rule profileNames applies to the column, so the two
+// cannot disagree about what a profile is called.
+//
+// Sorted by name and then id, because two profiles can share a name and a dropdown whose
+// duplicates are ordered by document position gives no way to tell which one a save picked.
+func profileOptions(cfg *config.Config) []profileOption {
+	if cfg == nil {
+		return nil
+	}
+	out := make([]profileOption, 0, len(cfg.Profiles))
+	for _, p := range cfg.Profiles {
+		name := p.Name
+		if name == "" {
+			name = p.ID
+		}
+		out = append(out, profileOption{ID: p.ID, Name: name})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
 }
 
 // profileNames maps a profile id to the name the parent typed.
