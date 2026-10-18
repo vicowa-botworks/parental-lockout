@@ -496,3 +496,26 @@ func TestTheLockResultPageKeepsItsNarrowWidthContract(t *testing.T) {
 		t.Errorf("the result page breaks the narrow-width contract: %s", strings.Join(bad, "; "))
 	}
 }
+
+// TestTheLockResultPageHasNothingTheCSPWouldBlock. The shared CSP guard walks the pages a
+// signed-in caller can GET, so a page that only ever answers a POST sits outside it -- the
+// same ceiling the width contract above had to work around, for the same reason. This page
+// prints operator-facing sentences inside spans, which is exactly where a style attribute
+// creeps in, so the check runs on the body this handler actually rendered.
+func TestTheLockResultPageHasNothingTheCSPWouldBlock(t *testing.T) {
+	f := newLockFixture(t)
+	f.setLockErr(platform.ErrUnconfirmed)
+	rec := authPost(t, f.s, "/users/casey/lock-now", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("lock-now answered %d", rec.Code)
+	}
+	body := rec.Body.String()
+	// Without the table this is a refusal page, and a refusal has no verdict markup to
+	// check -- the guard would pass by checking nothing.
+	if !strings.Contains(body, `<table class="rows"`) {
+		t.Fatalf("the result page rendered no rows table, so nothing was checked: %s", body)
+	}
+	for _, complaint := range cspComplaints(rec.Header().Get("Content-Security-Policy"), body) {
+		t.Errorf("/users/casey/lock-now: %s", complaint)
+	}
+}
