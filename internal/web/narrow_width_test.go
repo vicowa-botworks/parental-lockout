@@ -118,18 +118,56 @@ func rowsTableComplaints(path, body string) (complaints []string, cells int) {
 	if !strings.Contains(body, `<table class="rows"`) {
 		return nil, 0 // a page with no table has no cells to label
 	}
+	// Per table, not per page. A page may carry more than one rows table -- the backend
+	// probe prints one for the backends and one for the account's sessions, and they do not
+	// share a single column -- and collecting the headers page-wide pairs the second table's
+	// cells against the first table's columns. That reads as a broken page when the page is
+	// fine, and, in the other direction, lets a genuinely mislabelled cell in a later table
+	// line up with an earlier column that happens to carry the same word.
+	for _, tbl := range rowsTables(body) {
+		c, n := oneTableComplaints(path, tbl)
+		complaints = append(complaints, c...)
+		cells += n
+	}
+	if cells == 0 {
+		complaints = append(complaints,
+			path+" renders a rows table with no ordinary cells, so nothing was checked")
+	}
+	return complaints, cells
+}
 
+// rowsTables cuts a rendered page into its rows tables, in document order.
+func rowsTables(body string) []string {
+	var out []string
+	rest := body
+	for {
+		i := strings.Index(rest, `<table class="rows"`)
+		if i < 0 {
+			return out
+		}
+		rest = rest[i:]
+		j := strings.Index(rest, "</table>")
+		if j < 0 {
+			return append(out, rest)
+		}
+		out = append(out, rest[:j])
+		rest = rest[j:]
+	}
+}
+
+// oneTableComplaints applies the contract to a single table's markup.
+func oneTableComplaints(path, tbl string) (complaints []string, cells int) {
 	// The columns in the order the page prints them, which is the order a stacked cell has
 	// to be labelled against.
 	var heads []string
-	for _, m := range colHeadRe.FindAllStringSubmatch(body, -1) {
+	for _, m := range colHeadRe.FindAllStringSubmatch(tbl, -1) {
 		heads = append(heads, m[1])
 	}
 	if len(heads) == 0 {
 		return []string{path + ": a rows table with no column headers, so a label cannot be checked against anything"}, 0
 	}
 
-	for _, row := range rowRe.FindAllString(body, -1) {
+	for _, row := range rowRe.FindAllString(tbl, -1) {
 		if strings.Contains(row, `scope="col"`) || strings.Contains(row, "colspan") {
 			continue // the header row, or a sentence about an empty table
 		}
@@ -163,10 +201,6 @@ func rowsTableComplaints(path, body string) (complaints []string, cells int) {
 					"; the desktop and phone readings of the same value then disagree, and only one of them is on screen at a time: "+tag)
 			}
 		}
-	}
-	if cells == 0 {
-		complaints = append(complaints,
-			path+" renders a rows table with no ordinary cells, so nothing was checked")
 	}
 	return complaints, cells
 }
@@ -248,6 +282,44 @@ func TestTheLabelCheckRejectsAHandBuiltTable(t *testing.T) {
 	if got, cells := rowsTableComplaints("/probe", empty); cells != 0 || !anyContains(got, "no ordinary cells") {
 		t.Errorf("a table with no rows was reported as %d cells and %v; an empty fixture has to read "+
 			"as nothing measured, not as a pass", cells, got)
+	}
+}
+
+// Two tables on one page are checked against their own columns.
+//
+// The guard used to collect its headers page-wide, which a single-table page cannot reveal:
+// the backend probe prints one table for the backends and one for the account's sessions, and
+// the second table's cells were being paired against the first table's columns. That fails a
+// correct page, and in the other direction it lets a mislabelled cell in a later table pass
+// because an earlier column happens to carry the same word. Both directions are asserted here,
+// because a change that only makes the good page pass is indistinguishable from a change that
+// stopped checking.
+func TestTwoTablesOnOnePageAreCheckedAgainstTheirOwnColumns(t *testing.T) {
+	const good = `<table class="rows">
+<thead><tr><th scope="col">Backend</th><th scope="col">Can lock</th><th scope="col">Detail</th></tr></thead>
+<tbody><tr><th scope="row">kde</th><td data-label="Can lock">yes</td><td data-label="Detail">gdbus found</td></tr></tbody>
+</table>
+<table class="rows">
+<thead><tr><th scope="col">Session</th><th scope="col">Where</th><th scope="col">Would lock</th></tr></thead>
+<tbody><tr><th scope="row">2</th><td data-label="Where">seat0 · x11</td><td data-label="Would lock">yes</td></tr></tbody>
+</table>`
+	if got, cells := rowsTableComplaints("/probe", good); len(got) != 0 || cells != 4 {
+		t.Errorf("a correct two-table page was rejected (%d cells, %v); each table has to be "+
+			"measured against its own headers", cells, got)
+	}
+
+	// The same page with one label copied from the FIRST table into the second. "Detail" is
+	// a real column on this page -- just not in this table -- which is exactly the case a
+	// page-wide header list cannot see.
+	bad := strings.Replace(good, `<td data-label="Where">seat0 · x11</td>`,
+		`<td data-label="Detail">seat0 · x11</td>`, 1)
+	got, cells := rowsTableComplaints("/probe", bad)
+	if cells != 4 {
+		t.Errorf("the two-table page reported %d cells, want 4 -- one of the two tables was "+
+			"never walked", cells)
+	}
+	if !anyContains(got, `data-label "Detail" is not this cell's own column "Where"`) {
+		t.Errorf("a label copied from the other table was not named; the guard produced %v", got)
 	}
 }
 
