@@ -119,8 +119,23 @@ type Server struct {
 	// explained rather than implied.
 	Config    func() (*config.Config, error)
 	Lockables func() ([]platform.Session, error)
-	Accounts  func() (*users.Listing, error)
-	Trail     Trail
+	// Lock asks the platform to lock one session now, for the operator's "lock now"
+	// control on the dashboard. It is the same object Lockables lists: serve hands both
+	// to the enforcement loop and to this server from one platform.New, so the page and
+	// the loop cannot be talking to different backends about the same screen.
+	//
+	// It is a seam of its own rather than a method reached through Lockables because the
+	// dashboard otherwise gets handed the ability to lock. Keeping the listing read-only
+	// is what makes "the pages cannot lock a screen by accident" a fact rather than a
+	// convention, and it keeps every fixture that only wanted to state a set of sessions
+	// from having to implement a lock.
+	//
+	// A nil Lock is not a control that quietly does nothing: the route says this daemon
+	// has no lock path, because a button that reports a lock it never asked for is the
+	// failure this package keeps being asked to prevent.
+	Lock     func(ctx context.Context, sess platform.Session) error
+	Accounts func() (*users.Listing, error)
+	Trail    Trail
 
 	// Self is where this daemon is running, as far as the lockout decision cares.
 	//
@@ -226,7 +241,10 @@ type Options struct {
 	// that way is a seam no test of the real path can set.
 	Config    func() (*config.Config, error)
 	Lockables func() ([]platform.Session, error)
-	Accounts  func() (*users.Listing, error)
+	// Lock is Options.Lock, copied by New. See Options.Lock for why the lock path is a
+	// seam of its own rather than something reached through the read-only listing.
+	Lock     func(ctx context.Context, sess platform.Session) error
+	Accounts func() (*users.Listing, error)
 	// Trail is the audit log, for GET /audit. Nil is not an empty trail: the page
 	// says no trail is wired, because an empty table is a claim that nothing happened
 	// and an unwired seam is a claim about the wiring.
@@ -254,6 +272,7 @@ func New(opts Options) (*Server, error) {
 		Static:         opts.Static,
 		Config:         opts.Config,
 		Lockables:      opts.Lockables,
+		Lock:           opts.Lock,
 		Accounts:       opts.Accounts,
 		Mutate:         opts.Mutate,
 		Listen:         opts.Listen,
@@ -638,6 +657,13 @@ func (s *Server) router() *http.ServeMux {
 		s.requireAuth(http.HandlerFunc(s.handleOverride)))
 	mux.Handle("POST /users/{name}/override/clear",
 		s.requireAuth(http.HandlerFunc(s.handleOverrideClear)))
+	// Locking a session now is a POST because it changes the state of a screen, and it is
+	// per-account rather than a bare /lock-now because the operator has to be able to see
+	// who they are about to lock before the button does it. It is not a config write: no
+	// override is created, and the account returns to its schedule on the daemon's next
+	// tick. The CSRF gate above covers it for the same reason it covers the overrides.
+	mux.Handle("POST /users/{name}/lock-now",
+		s.requireAuth(http.HandlerFunc(s.handleLockNow)))
 	mux.Handle("POST /profiles/{id}/rules",
 		s.requireAuth(http.HandlerFunc(s.handleAddRule)))
 	mux.Handle("POST /profiles/{id}/delete",

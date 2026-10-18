@@ -314,6 +314,23 @@ type sessionSource interface {
 	Sessions(context.Context) ([]platform.Session, error)
 }
 
+// sessionLocker is the other half of the chain: the half that puts a screen to sleep.
+//
+// It is an optional interface rather than a tenth parameter to serveServer for the same
+// reason the chain treats a backend's Confirmer as optional. The callers that hand in a
+// listing -- doctor's unenforced check, and every test that only wants to state a set of
+// sessions -- keep compiling and simply get no lock path, while the one caller that hands
+// in the real chain gets the lock path without eight call sites having to remember another
+// positional argument next to three adjacent strings.
+//
+// What it must never grow into is a decision. Capability is what an assertion may answer
+// here -- "does this object lock screens at all" -- and not a verdict about whether a lock
+// took; that question is answered by calling into the object, which is the distinction
+// #1018 was written for.
+type sessionLocker interface {
+	Lock(ctx context.Context, sess platform.Session) error
+}
+
 // serveEngine assembles the enforcement loop the way serveServer assembles the admin
 // server, and it exists for one line in the middle of it.
 //
@@ -434,6 +451,21 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, s
 	opts.Trail = &audit.Reader{Path: auditPath, Logf: func(format string, args ...any) {
 		fmt.Fprintf(stderr, format+"\n", args...)
 	}}
+
+	// The lock path, for the dashboard's "lock now" control, taken from the same object the
+	// listing above came from. That identity is the whole point: serve builds one chain from
+	// the config's backend list and hands it to the enforcement loop and to this server, so
+	// the page cannot be asking a different set of backends than the loop is enforcing with.
+	// Two chains would be two answers to "did the screen go down", and the operator would
+	// read the wrong one.
+	//
+	// A statement rather than a field in the literal, for the gofmt reason documented above
+	// -- and because it is conditional: a caller that handed in a listing which cannot lock
+	// screens leaves the seam nil, and the page then says this daemon has no lock path
+	// instead of reporting a lock it never asked for. See sessionLocker.
+	if lk, ok := sessions.(sessionLocker); ok {
+		opts.Lock = lk.Lock
+	}
 
 	srv, err := web.New(opts)
 	if err != nil {
