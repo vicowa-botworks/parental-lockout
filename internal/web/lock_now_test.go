@@ -415,6 +415,48 @@ func TestLockingTheDaemonsOwnAccountSaysBothHalves(t *testing.T) {
 	}
 }
 
+// TestTheSelfSessionNoteDoesNotRunIntoTheDetail is a measurement, not a reading. The Detail
+// cell can hold two sentences at once -- what the lock produced, and the schedule note -- and
+// the template trims the whitespace on both sides of each action, so on the raw bytes they
+// arrive as one word: "...not confirmedThis is the session...". flat() cannot see this,
+// because it collapses whitespace that is not there, and a browser collapses nothing; the
+// defect only showed up in a 360 px screenshot of a real unconfirmed lock. So this asserts on
+// the raw body, at the byte before the note begins.
+func TestTheSelfSessionNoteDoesNotRunIntoTheDetail(t *testing.T) {
+	f := newLockFixture(t)
+	f.s.Self = platform.SelfLocation{InUserSlice: true, UID: 1000}
+	f.setLockErr(platform.ErrUnconfirmed)
+	rec := authPost(t, f.s, "/users/casey/lock-now", "")
+	raw := rec.Body.String()
+	// Both halves have to be present or the assertion below is vacuous: a row with no
+	// detail has nothing to run into anything.
+	if !strings.Contains(raw, `class="problem"`) {
+		t.Fatalf("the row rendered no detail, so nothing was tested: %s", raw)
+	}
+	i := strings.Index(raw, `<span class="override">`)
+	if i < 0 {
+		t.Fatalf("the row rendered no self-session note, so nothing was tested: %s", raw)
+	}
+	switch prev := raw[i-1]; prev {
+	case ' ', '\t', '\n', '\r':
+	default:
+		t.Errorf("the detail and the self-session note are separated by %q, not by whitespace; "+
+			"the cell renders as one run-on word: %q", string(prev), around(raw, i, 60, 40))
+	}
+}
+
+// around quotes the bytes either side of a match, clamped to the body, so a failure names the
+// seam it is complaining about rather than dumping the whole page.
+func around(s string, i, before, after int) string {
+	if i-before < 0 {
+		before = i
+	}
+	if i+after > len(s) {
+		after = len(s) - i
+	}
+	return s[i-before : i+after]
+}
+
 // TestALockRequestIsAuditedWithCountsNotAVerdict. The trail is what an operator reads the next
 // week to work out what actually happened, so it carries the three counts rather than a
 // summary word that would have to collapse them.
