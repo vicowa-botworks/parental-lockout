@@ -47,6 +47,12 @@ func TestServeWiresEverySeamThePagesRead(t *testing.T) {
 	if srv.Trail == nil {
 		t.Error("serve wired no audit trail; the audit page answers 503 on every request")
 	}
+	// Wired here, called in serve_lock_test.go: a non-nil lock seam that answers nothing is
+	// a button that reports a lock it never asked for, which no nil check can see.
+	if srv.Lock == nil {
+		t.Error("serve wired no lock path; the dashboard's lock-now button answers that this " +
+			"daemon cannot lock screens, on a daemon that can")
+	}
 }
 
 // The configuration source has to read the file the operator named with --config, and

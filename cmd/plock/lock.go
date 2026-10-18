@@ -10,6 +10,7 @@ import (
 
 	"github.com/vicowa-botworks/parental-lockout/internal/cli"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
+	"github.com/vicowa-botworks/parental-lockout/internal/lockop"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
 )
 
@@ -31,6 +32,9 @@ A machine can answer in three ways, and they are three different sentences:
 // lockOutcome is one session's result. It is a type rather than an error so the three
 // shapes stay distinguishable in --json: collapsing them means a script cannot tell "the
 // screen is locked and the desktop cannot prove it" from "no backend exists".
+//
+// It is the JSON face of lockop.Outcome. The field names are this command's contract with
+// scripts and must not drift; the classification behind them is lockop's.
 type lockOutcome struct {
 	Session  string `json:"session"`
 	Username string `json:"username"`
@@ -128,12 +132,7 @@ func runLock(stdout, stderr io.Writer, args []string) int {
 
 	want := sessions
 	if !*all {
-		want = nil
-		for _, s := range sessions {
-			if s.Username == target {
-				want = append(want, s)
-			}
-		}
+		want = lockop.OwnedBy(sessions, target)
 		// An unknown username is refused rather than reported as "no sessions", because
 		// "no sessions" is also what a child who is logged out looks like, and the
 		// operator needs to know which of the two they are looking at.
@@ -167,35 +166,21 @@ func runLock(stdout, stderr io.Writer, args []string) int {
 		}
 	}
 
-	outcomes := make([]lockOutcome, 0, len(want))
-	var locked, unconfirmed, refused int
-	for _, s := range want {
-		if !platform.IsLockable(s) {
-			// Counted, not silently skipped: a class=manager session is not something the
-			// daemon can lock, and a report that says "locked 0 of 1" without saying why
-			// reads as a broken backend.
-			refused++
-			outcomes = append(outcomes, lockOutcome{
-				Session: s.ID, Username: s.Username,
-				Detail: "not a lockable desktop session (" + s.Type + ")",
-			})
-			continue
-		}
-		err := chain.Lock(context.Background(), s)
-		o := lockOutcome{Session: s.ID, Username: s.Username}
-		switch {
-		case err == nil:
-			o.Locked = true
-			locked++
-		case errors.Is(err, platform.ErrUnconfirmed):
-			o.Unconfirmed = true
-			o.Detail = err.Error()
-			unconfirmed++
-		default:
-			o.Detail = err.Error()
-		}
-		outcomes = append(outcomes, o)
+	// The classification is lockop's, not this file's. `plock lock` and the admin UI's
+	// "lock now" button drive the same chain and have to say the same sentence about what
+	// came back; a loop restated here would be free to disagree with the page.
+	res := lockop.Now(context.Background(), chain, want)
+	outcomes := make([]lockOutcome, 0, len(res.Outcomes))
+	for _, o := range res.Outcomes {
+		outcomes = append(outcomes, lockOutcome{
+			Session:     o.Session,
+			Username:    o.Username,
+			Locked:      o.Locked,
+			Unconfirmed: o.Unconfirmed,
+			Detail:      o.Detail,
+		})
 	}
+	locked, unconfirmed, refused := res.Locked, res.Unconfirmed, res.Refused
 
 	if *asJSON {
 		return writeLockJSON(stdout, stderr, outcomes, locked, unconfirmed, refused, *all)

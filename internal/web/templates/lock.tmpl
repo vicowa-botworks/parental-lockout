@@ -1,0 +1,92 @@
+{{define "pagename"}}lock{{end}}
+{{- /* The title is static on purpose: the shell renders it into <title> before the view
+       model is in scope, so a page that named its target here would fail to render. The
+       account's name is in the banner and the caption, which are inside "body". */ -}}
+{{define "title"}}Lock an account{{end}}
+{{define "body"}}
+{{- /* The banner states the verdict and nothing else. "Locked" is only ever printed when a
+       backend proved the screen went down; anything else says what the daemon actually
+       established, because this page is the operator's evidence and a confident wrong word
+       here is worse than an awkward one. */ -}}
+{{- $n := len .Rows -}}
+<p class="banner">
+  {{- if and (gt .Result.Locked 0) (eq .Result.Locked $n) -}}
+    <strong>{{.Target}}</strong> is locked.
+  {{- else if gt .Result.Locked 0 -}}
+    {{.Result.Locked}} of {{$n}} of <strong>{{.Target}}</strong>'s sessions are locked;
+    the rest are below.
+  {{- else -}}
+    <strong>{{.Target}}</strong> was not locked.
+  {{- end -}}
+</p>
+
+{{- /* The sentence this whole feature exists to make possible. A raw virtual terminal
+       answers "asked, cannot prove" forever, and a page that rounded that to either
+       success or failure would teach an operator to distrust the only signal the machine
+       has. It is also the one case where the page has to say what to DO. */ -}}
+{{- if gt .Result.Unconfirmed 0 -}}
+<p class="flag" role="status">
+  {{.Result.Unconfirmed}} of {{$n}}
+  {{if eq .Result.Unconfirmed 1}}session was{{else}}sessions were{{end}}
+  asked to lock and nothing could prove the screen went down. That is not the same as
+  locked, and it is not the same as failed: the daemon asked the desktop and the desktop
+  gave no signal either way. A virtual machine with no lock backend installed answers this
+  way every time, and it keeps answering this way until one is installed.
+  {{- if gt .Result.Locked 0}} The sessions above that say <em>locked</em> are a different
+  case: those were proved.{{end}}
+  While an account is inside a lockout window the daemon asks again on every tick, so a
+  screen that missed one request gets another. Outside a window nothing asks again, so
+  look at the screen before trusting this line either way.
+</p>
+{{- end -}}
+
+<table class="rows">
+  <caption>Every session <strong>{{.Target}}</strong> holds on this machine, and what
+    asking it to lock produced.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Session</th>
+      <th scope="col">Where</th>
+      <th scope="col">Result</th>
+      <th scope="col">Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Rows}}
+    <tr>
+      <th scope="row">{{.Session}}</th>
+      <td data-label="Where">
+        {{- if .Seat}}{{.Seat}}{{else}}<span class="muted">no seat</span>{{end -}}
+        {{- if .Type}} · {{.Type}}{{end -}}
+      </td>
+      <td data-label="Result">
+        {{- if .Locked -}}
+          <span class="state-held">locked</span>
+        {{- else if .Unconfirmed -}}
+          <span class="state-gap">unconfirmed</span>
+        {{- else -}}
+          <span class="state-unknown">not locked</span>
+        {{- end -}}
+      </td>
+      <td data-label="Detail">
+        {{- if .Detail}}<span class="problem">{{.Detail}}</span>{{end -}}
+        {{- /* The one account where the two ways this daemon locks a screen genuinely
+               point in opposite directions: the schedule will never hold it, and the
+               operator just did. Both halves have to be on screen together, or the
+               contradiction reads as a bug in whichever one they can see. */ -}}
+        {{- /* The separator has to be in the text, not in CSS. Both actions above trim
+               their surrounding whitespace, so with a detail present the two spans land
+               against each other and the browser renders "...cannot confirm itThis is the
+               session..." — a run-on in the one cell an operator quotes as evidence. A
+               margin would separate them visually and still copy out as one word. */ -}}
+        {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="override">This is the session the daemon runs
+          inside. Its schedule never locks it, because the daemon cannot lock itself out of
+          enforcing; you asked for this one, so it happened.</span>{{end -}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+
+<p><a href="/">Back to the status page</a></p>
+{{end}}

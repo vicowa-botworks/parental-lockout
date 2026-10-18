@@ -1146,5 +1146,62 @@
       "new": "\t\t\t\tserved[f.action] = servedWhere{action: f.action, where: \"state \" + state.name + \" on \" + p}",
       "note": "Reach keyed back on the action instead of the form's shape: the exact pre-fix behaviour, where a cell posting both arms of one conditional to one URL lets the rendered arm satisfy the reach check for the arm no fixture ever renders. TestEveryFormOnEveryPageCarriesTheToken fails because no defined form's shape is ever found among the served keys."
     }
+,
+    {
+      "id": "W171",
+      "file": "internal/web/lock_now.go",
+      "old": "\tif s.Lock == nil {\n",
+      "new": "\tif false && s.Lock == nil {\n",
+      "note": "a server assembled without the lock seam answers \"0 of 1 locked\" instead of saying the daemon is the broken half. The refusal is also what keeps the page from reading the table and reporting an empty result for a daemon that never asked. TestAServerWithNoLockPathSaysSo."
+    },
+    {
+      "id": "W172",
+      "file": "internal/web/lock_now.go",
+      "old": "\tif !knownAccount(cfg, name) {\n",
+      "new": "\tif false && !knownAccount(cfg, name) {\n",
+      "note": "a typo'd name walks on to the listing, finds nothing, and is answered \"has no session on this machine\" -- the audit page's dead end arriving through the write path, where the operator then believes the child is logged out. TestLockingAnUnmanagedAccountIsRefused."
+    },
+    {
+      "id": "W173",
+      "file": "internal/web/lock_now.go",
+      "old": "\tif len(sessions) == 0 {\n",
+      "new": "\tif false && len(sessions) == 0 {\n",
+      "note": "an account with no session renders a result page with no rows and a summary of \"locked 0, unconfirmed 0, refused 0\", which reads as a failed lock rather than as an account that is not logged in. TestAnAccountWithNoSessionSaysSo."
+    },
+    {
+      "id": "W174",
+      "file": "internal/web/lock_now.go",
+      "old": "\t\ts.pageError(w, r, \"the session table could not be read\", err)\n",
+      "new": "\t\ts.pageRefuse(w, r, http.StatusConflict, name+\" has no session on this machine\")\n",
+      "note": "the exact lie the guard exists to prevent: a listing that could not be read is rendered as a confident statement that the child has no session. The seam is the one that shells out to loginctl, so it fails on a real machine. TestAFailedSessionListingIsNotReportedAsNoSession."
+    },
+    {
+      "id": "W175",
+      "file": "internal/web/lock_now.go",
+      "old": "\t\t\tif s.Self.Declines(sess.UID) {\n",
+      "new": "\t\t\tif false && s.Self.Declines(sess.UID) {\n",
+      "note": "the page stops saying this account is the one the daemon runs inside, so the operator sees \"locked\" next to an account the schedule will never hold (#67) and believes the machine is protected. TestLockingTheDaemonsOwnAccountSaysBothHalves."
+    },
+    {
+      "id": "W176",
+      "file": "internal/web/lock_now.go",
+      "old": "\tcase r.Unconfirmed:\n\t\treturn \"unconfirmed\"\n",
+      "new": "\tcase r.Unconfirmed:\n\t\treturn \"locked\"\n",
+      "note": "the raw-virtual-terminal answer, which a Plasma desktop gives forever, is rendered as a proven lock. This is the one word on the page an operator trusts as evidence, and it is the word #965 exists to keep separate. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
+    },
+    {
+      "id": "W177",
+      "file": "internal/web/lock_now.go",
+      "old": "\t\tname, res.Locked, res.Unconfirmed, res.Refused, sessionName(s, r)))\n",
+      "new": "\t\tname, 1, res.Unconfirmed, res.Refused, sessionName(s, r)))\n",
+      "note": "the audit line claims a lock on every request whatever the chain answered, so the trail an operator reads afterwards is the page's optimism rather than the machine's record. TestALockRequestIsAuditedWithCountsNotAVerdict."
+    },
+    {
+      "id": "W178",
+      "file": "internal/web/templates/dashboard.tmpl",
+      "old": "          <button type=\"submit\">Lock now</button>\n",
+      "new": "",
+      "note": "the dashboard keeps saying a schedule will never hold the account and stops offering the one action that locks it now -- the half of the sentence that was the complaint. Only the button goes, so the page still parses: the mutant is the missing control, not a broken template. TestTheDashboardOffersToLockAManagedAccount."
+    }
   ]
 }

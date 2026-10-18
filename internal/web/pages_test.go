@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -157,24 +158,40 @@ func TestThePageHasNoInlineScriptOrStyleToBeBlockedByTheCSP(t *testing.T) {
 
 	// Every page, not just the dashboard. A page added later with a style="" attribute
 	// works in every test that only looks at "/" and fails only in a browser.
+	//
+	// The list is the guard's ceiling and it is worth stating out loud: this loop can only
+	// see what a GET renders. A page that exists only as the response to a POST is not
+	// reachable from here no matter what path is added, so such a page has to call
+	// cspComplaints on the body it obtained by posting -- which internal/web/lock_now_test.go
+	// does for the lock result page. Adding a POST-only page without that sibling call is
+	// how this guard goes blind while staying green.
 	for _, path := range []string{"/", "/users", "/profiles", "/login"} {
 		rec := authGet(t, s, path)
-		csp := rec.Header().Get("Content-Security-Policy")
-		if csp == "" {
-			t.Fatalf("%s: no Content-Security-Policy header on a page that shows who is locked out", path)
-		}
-		if strings.Contains(csp, "unsafe-inline") {
-			t.Errorf("%s: the CSP allows inline script, so the markup check below proves nothing: %q",
-				path, csp)
-		}
-		body := rec.Body.String()
-		for _, bad := range []string{" onclick=", " onload=", " onerror=", " style="} {
-			if strings.Contains(strings.ToLower(body), bad) {
-				t.Errorf("%s: the page carries %q, which the CSP blocks: the control works in a "+
-					"test and fails in a browser", path, bad)
-			}
+		for _, complaint := range cspComplaints(rec.Header().Get("Content-Security-Policy"), rec.Body.String()) {
+			t.Errorf("%s: %s", path, complaint)
 		}
 	}
+}
+
+// cspComplaints checks one rendered page against the CSP contract, from both halves.
+//
+// The header alone means a stray onclick silently stops working in a browser while every
+// test still passes; the markup alone means the control is absent. It is a function rather
+// than inline code because the page-by-page loop above can only reach pages a GET renders,
+// and a POST-only page has to check the body it posted for.
+func cspComplaints(csp, body string) (bad []string) {
+	if csp == "" {
+		return []string{"no Content-Security-Policy header on a page that shows who is locked out"}
+	}
+	if strings.Contains(csp, "unsafe-inline") {
+		bad = append(bad, fmt.Sprintf("the CSP allows inline script, so the markup check below proves nothing: %q", csp))
+	}
+	for _, marker := range []string{" onclick=", " onload=", " onerror=", " style="} {
+		if strings.Contains(strings.ToLower(body), marker) {
+			bad = append(bad, fmt.Sprintf("the page carries %q, which the CSP blocks: the control works in a test and fails in a browser", marker))
+		}
+	}
+	return bad
 }
 
 // A page that cannot read the configuration says so.

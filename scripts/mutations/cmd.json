@@ -517,5 +517,20 @@
       "new": "\tif false && daemon.AskFailed && daemon.Running {",
       "note": "A location read from /proc printed with no mention that systemd refused, so the report reads as though the init system confirmed it. TestStatusKeepsARefusalsLocationAndSaysWhereItCameFrom"
     }
+,
+    {
+      "id": "CM5",
+      "file": "cmd/plock/serve.go",
+      "old": "\tif lk, ok := sessions.(sessionLocker); ok {\n",
+      "new": "\tif lk, ok := sessions.(sessionLocker); false && ok {\n",
+      "note": "the dashboard's lock path is never wired, so every lock-now request answers that this daemon cannot lock screens -- on a daemon that can. Caught by both the nil check in TestServeWiresEverySeamThePagesRead and the call in TestTheServedLockPathLocksTheObjectThatListedSessions."
+    },
+    {
+      "id": "CM6",
+      "file": "cmd/plock/serve.go",
+      "old": "\t\topts.Lock = lk.Lock\n",
+      "new": "\t\topts.Lock = func(context.Context, platform.Session) error { _ = lk; return nil }\n",
+      "note": "the seam is present and answers nothing, so the button reports a lock that was never asked for and the audit line counts one. This is W62's shape arriving on the lock path, and it is why the test calls the seam and reads the fixture instead of checking the field is non-nil: a nil check passes here. TestTheServedLockPathLocksTheObjectThatListedSessions."
+    }
   ]
 }

@@ -21,6 +21,7 @@
       <th scope="col">Why</th>
       <th scope="col">Override</th>
       <th scope="col">Sessions</th>
+      <th scope="col">Now</th>
     </tr>
   </thead>
   <tbody>
@@ -104,9 +105,27 @@
           <span class="state-unknown">session list unavailable</span>
         {{end}}
       </td>
+      {{- /* Lock now, per row. A form rather than a fetch() call for the same reason the
+             override above is one: the CSRF gate reads the `csrf` body field and a form
+             carries it with no script involved. Per row rather than one page-wide button
+             because the operator has to see whose screen is about to go down before it
+             does -- and because a "lock everyone" control on a page that lists everyone is
+             one careless click away from locking the parent's own session. The CLI has that
+             control, and says so in its own help text; this page deliberately does not.
+
+             It is always offered, even on a row that shows no session. The session list on
+             this page was read when the page was built, and a control that disappears and
+             reappears with a stale read is worse than a request that answers "has no
+             session on this machine" and says which machine it asked. */ -}}
+      <td data-label="Now">
+        <form method="post" action="/users/{{.Username}}/lock-now">
+          {{with $.CSRF}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
+          <button type="submit">Lock now</button>
+        </form>
+      </td>
     </tr>
     {{else}}
-    <tr><td colspan="5">No accounts are managed yet.</td></tr>
+    <tr><td colspan="6">No accounts are managed yet.</td></tr>
     {{end}}
   </tbody>
 </table>
