@@ -28,6 +28,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 PLOCK=${PLOCK:-$REPO/plock}
 
+# The locker rule and the loginctl reading live in one file, sourced by both scripts here.
+# See testing/e2e/lib.sh for why they are a copy of internal/platform/locker.go and why the
+# harness keeps its own copy rather than asking the daemon.
+# The directive path is relative to where CI runs shellcheck (the repository root),
+# which is the only place the file can be found without a --source-path flag.
+# shellcheck source=testing/e2e/lib.sh
+. "$HERE/lib.sh"
+
 case ${1:-} in
 -h | --help)
 	awk 'NR>1 { if (!/^#/) exit; sub(/^# ?/, ""); print }' "$0"
@@ -37,8 +45,10 @@ esac
 
 # The desktop user, unless named on the command line. Deliberately not keyed to a tty number:
 # tty2 is this machine's layout, and a box whose graphical seat is tty1 would have found no
-# target at all. What identifies the session is class=user with a tty attached to it.
-TARGET=${1:-$(loginctl list-sessions --no-legend 2>/dev/null | awk '$6=="user" && $7!=""{print $3; exit}')}
+# target at all. What identifies the session is class=user with a tty attached to it -- and
+# loginctl writes a literal "-" where a tty would be, so "has a tty" is two tests, not one.
+TARGET=${1:-$(loginctl list-sessions --no-legend 2>/dev/null |
+	awk '$6=="user" && $7!="" && $7!="-"{print $3; exit}')}
 
 CONFDIR=/etc/plock
 STATEDIR=/var/lib/plock
@@ -63,42 +73,15 @@ run() {
 	bash -c "$*" >>"$TRANSCRIPT" 2>&1
 }
 
-# locker_pid prints the pid of a running screen locker, and nothing if there is none.
+# locker_pid, trusted_exe and session_of come from lib.sh. The rule they implement is
+# internal/platform/locker.go's, and lib.sh says why the harness keeps its own copy of it
+# instead of asking the daemon: a second signal read out of the code under test is the code
+# under test agreeing with itself.
 #
-# Why not pgrep: the obvious `pgrep -f 'kscreenlocker_greet|gsd-screensaver'` matches command
-# LINES, so any shell whose argv merely contains that pattern -- a wrapper, a `bash -c`, an editor
-# with the string in its buffer -- reports a locker that does not exist. Measured on the
-# development host: it returned two matches, both of them shells. The alternative, `pgrep -x
-# kscreenlocker_greet`, can never match at all: it compares against comm, which the kernel holds to
-# 15 characters and the binary's name is 19, and pgrep says so itself ("pattern that searches for
-# process name longer than 15 characters will result in zero matches"). `ps -C` does match -- the
-# 2026-10-15 transcript shows it listing the locker -- but it answers "is one of these running"
-# with a table, and the harness needs the pid it is about to describe.
-#
-# This second signal exists precisely because LockedHint is writable by the session user (#29), so
-# a matcher that can be fed a string is one step from the thing it was written to guard against.
-# /proc/<pid>/exe is the executable the kernel actually started, and nothing a user types into a
-# command line can make it point at a locker that is not running.
-locker_pid() {
-	local p exe
-	for p in /proc/[0-9]*; do
-		exe=$(readlink -- "$p/exe" 2>/dev/null) || continue
-		case ${exe##*/} in
-		kscreenlocker_greet | gsd-screensaver)
-			basename -- "$p"
-			return 0
-			;;
-		esac
-	done
-	return 1
-}
-
-# The target's desktop session id. Inlined four times before; the re-lock check needs it as
-# well, and a fifth copy of an awk over loginctl is how two of them end up disagreeing.
-session_id() {
-	loginctl list-sessions --no-legend 2>/dev/null |
-		awk -v u="$(id -u "$TARGET")" '$2==u && $6=="user" && $7!="" {print $1; exit}'
-}
+# Every call below passes the target's uid. That is not a refinement -- without it a root
+# harness walks every process on the machine and a locker belonging to a different account
+# satisfies the check, which on the two-account machine this tool is for means confirming one
+# child's lockout and attributing it to another.
 
 # has_tty is whether there is somebody here to be asked. Step 5 needs a human; if this is running
 # over ssh-without-tty or from a runner, the honest answer is "that step did not happen".
@@ -108,25 +91,62 @@ has_tty() { (exec </dev/tty) 2>/dev/null; }
 [ "$(id -u)" = 0 ] || { echo "run me as root: sudo $0" >&2; exit 1; }
 [ -x "$PLOCK" ] || { echo "no binary at $PLOCK -- run 'make build' first" >&2; exit 1; }
 [ -n "$TARGET" ] || { echo "could not work out the desktop user; pass it as an argument" >&2; exit 1; }
+TARGET_UID=$(id -u "$TARGET" 2>/dev/null) || { echo "no such user: $TARGET" >&2; exit 1; }
 
-mkdir -p "$RUNDIR"
-: >"$TRANSCRIPT"
-if [ -d "$CONFDIR" ]; then
-	cp -a "$CONFDIR" "$BACKUP"
+# Whether /etc/plock existed is recorded here, at the moment it is true. cleanup used to infer
+# it from the backup directory, and `set -uo pipefail` has no -e, so a failed cp -a printed
+# "backed up the existing /etc/plock" and then cleanup's else branch deleted the operator's
+# real config while logging that there had never been one.
+HAD_CONFDIR=no
+[ -d "$CONFDIR" ] && HAD_CONFDIR=yes
+
+mkdir -p "$RUNDIR" || {
+	echo "cannot create $RUNDIR" >&2
+	exit 1
+}
+: >"$TRANSCRIPT" || {
+	echo "cannot write $TRANSCRIPT" >&2
+	exit 1
+}
+if [ "$HAD_CONFDIR" = yes ]; then
+	if ! cp -a "$CONFDIR" "$BACKUP"; then
+		# Refusing here is the point. Without a verified copy there is nothing to restore,
+		# and the only honest thing left is to leave the real config alone -- not to
+		# "restore" it by removing it, and not to restore a half-written backup over it.
+		say "the backup of $CONFDIR failed; refusing to touch it"
+		say "  nothing was changed. Fix the copy (space, or a path unreadable to root) and re-run."
+		exit 1
+	fi
 	say "backed up the existing $CONFDIR to $BACKUP"
 fi
 
 cleanup() {
+	# INT runs cleanup and the EXIT trap then runs it again on the way out. Guarded because
+	# the second pass would report a restore that never happened, in the transcript that is
+	# the deliverable.
+	[ -z "${CLEANED:-}" ] || return 0
+	CLEANED=yes
 	say "--- cleaning up"
 	if [ -n "${DAEMON_PID:-}" ]; then
 		kill "$DAEMON_PID" 2>/dev/null
 		sleep 1
 		kill -9 "$DAEMON_PID" 2>/dev/null
 	fi
-	if [ -d "$BACKUP" ]; then
-		rm -rf "$CONFDIR"
-		cp -a "$BACKUP" "$CONFDIR"
-		say "restored the previous $CONFDIR"
+	if [ "$HAD_CONFDIR" = yes ]; then
+		if [ -d "$BACKUP" ]; then
+			rm -rf "$CONFDIR"
+			if cp -a "$BACKUP" "$CONFDIR"; then
+				say "restored the previous $CONFDIR"
+			else
+				say "WARNING: the restore FAILED. $CONFDIR holds the harness's config."
+				say "  Recover it by hand: rm -rf $CONFDIR && cp -a $BACKUP $CONFDIR"
+			fi
+		else
+			# Nothing to restore from, so nothing gets removed. The harness's own config
+			# stays where it is and the operator is told, rather than a deletion being
+			# reported as a restore.
+			say "WARNING: no backup at $BACKUP; leaving $CONFDIR exactly as it is"
+		fi
 	else
 		rm -rf "$CONFDIR"
 		say "removed $CONFDIR (there was none before)"
@@ -135,12 +155,23 @@ cleanup() {
 	say "  sudo rm -rf $STATEDIR /var/log/plock"
 	say "--- done. transcript: $TRANSCRIPT"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# `trap cleanup INT` ran cleanup and then RETURNED: Ctrl-C killed the daemon inside cleanup,
+# the script carried on through steps 4-8 against a dead daemon, printed a verdict about it,
+# and ran cleanup a second time at exit. Stopping is what Ctrl-C means.
+trap 'cleanup; exit 130' INT TERM
+
+SESS=$(session_of "$TARGET")
+[ -n "$SESS" ] || {
+	echo "$TARGET has no graphical session (class=user with a tty). Log them in, or name the" >&2
+	echo "right account: sudo $0 <username>" >&2
+	exit 1
+}
 
 say "=== plock end-to-end against the real session"
 say "binary   : $PLOCK"
-say "target   : $TARGET (uid $(id -u "$TARGET"))"
-say "desktop  : $(loginctl list-sessions --no-legend | awk -v u="$(id -u "$TARGET")" '$2==u && $6=="user"{print $7, $8}' | head -1)"
+say "target   : $TARGET (uid $TARGET_UID) session $SESS"
+say "desktop  : $(loginctl show-session "$SESS" -p TTY -p Type -p State -p Active --value 2>/dev/null | paste -sd' ' -)"
 say "run dir  : $RUNDIR"
 run "$PLOCK version"
 
@@ -191,11 +222,12 @@ hint=""
 locker=""
 for i in $(seq 1 24); do
 	sleep 2
-	hint=$(loginctl show-session "$(session_id)" -p LockedHint --value 2>/dev/null)
-	locker=$(locker_pid)
+	hint=$(loginctl show-session "$SESS" -p LockedHint --value 2>/dev/null)
+	locker=$(locker_pid "$TARGET_UID")
 	if [ "$hint" = "yes" ] && [ -n "$locker" ]; then
 		locked=yes
 		say "CONFIRMED at $((i * 2))s: LockedHint=yes and the locker is running (pid $locker)"
+		say "  accepted by: $(locker_rule "$(exe_name "$locker")")"
 		break
 	fi
 	[ $((i % 5)) -eq 0 ] && say "  ...$((i * 2))s: LockedHint=${hint:-?} locker=${locker:-none}"
@@ -204,12 +236,15 @@ done
 
 say
 say "=== 4. what the machine looks like while locked"
-run "loginctl show-session $(session_id) -p LockedHint -p Type -p State -p Active"
+run "loginctl show-session $SESS -p LockedHint -p Type -p State -p Active"
 if [ -n "$locker" ]; then
 	run "ps -o pid,ppid,uid,comm,args -p $locker"
+	# The pid is gone by the time anyone reads the transcript, and the claim that made it a
+	# locker is about a file on disk, so the file and its ownership go in the record.
+	while IFS= read -r line; do say "$line"; done < <(describe_exe "$locker")
 else
 	say "no locker process to describe -- the lock did not take, or it took on a backend this"
-	say "host does not recognise; add its executable to locker_pid() rather than trusting the hint"
+	say "host does not recognise; add its executable to locker_pid() in lib.sh rather than trusting the hint"
 fi
 run "$PLOCK status --json"
 run "ls -l /var/log/plock/ 2>&1"
@@ -228,11 +263,12 @@ if has_tty; then
 	say "     never locked. That is the bug #29 is about, and a test trusting the hint cannot see it.)"
 	for i in $(seq 1 20); do
 		sleep 2
-		hint=$(loginctl show-session "$(session_id)" -p LockedHint --value 2>/dev/null)
-		locker=$(locker_pid)
+		hint=$(loginctl show-session "$SESS" -p LockedHint --value 2>/dev/null)
+		locker=$(locker_pid "$TARGET_UID")
 		if [ "$hint" = "yes" ] && [ -n "$locker" ]; then
 			relocked=yes
 			say "RE-LOCKED at $((i * 2))s after the unlock: hint=yes and the locker is running (pid $locker)"
+			say "  accepted by: $(locker_rule "$(exe_name "$locker")")"
 			break
 		fi
 		if [ "$hint" = "yes" ] && [ -z "$locker" ]; then

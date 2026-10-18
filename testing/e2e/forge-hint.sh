@@ -28,6 +28,14 @@
 
 set -uo pipefail
 
+HERE=$(cd "$(dirname "$0")" && pwd)
+# locker_pid, daemon_pid and session_of are shared with e2e.sh; see testing/e2e/lib.sh for
+# the rule they implement and why it is a copy of internal/platform/locker.go's.
+# The directive path is relative to where CI runs shellcheck (the repository root),
+# which is the only place the file can be found without a --source-path flag.
+# shellcheck source=testing/e2e/lib.sh
+. "$HERE/lib.sh"
+
 case ${1:-} in
 -h | --help)
 	awk 'NR>1 { if (!/^#/) exit; sub(/^# ?/, ""); print }' "$0"
@@ -43,18 +51,6 @@ say() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() {
 	say "cannot answer: $*" >&2
 	exit 2
-}
-
-# my_session is the desktop session of whoever is running this, found the same way the e2e harness
-# finds its target: class=user with a tty attached. A manager session or a remote one is not it.
-my_session() {
-	loginctl list-sessions --no-legend 2>/dev/null |
-		awk -v u="$(id -u)" '$2==u && $6=="user" && $7!="" {print $1; exit}'
-}
-
-session_for() {
-	loginctl list-sessions --no-legend 2>/dev/null |
-		awk -v u="$(id -u "$1")" '$2==u && $6=="user" && $7!="" {print $1; exit}'
 }
 
 # object_path maps a session id to the logind object path that actually answers on it. Asked of
@@ -100,37 +96,6 @@ set_hint() { # $1 session  $2 true|false  $3 uid-to-run-as (optional)
 	fi
 }
 
-# locker_pid is the second signal, and it reads the executable the kernel started rather than a
-# command line. Same reasoning as testing/e2e/e2e.sh: pgrep -f matches strings a user controls, and
-# pgrep -x cannot match a 19-character name against a 15-character comm.
-locker_pid() {
-	local p exe
-	for p in /proc/[0-9]*; do
-		exe=$(readlink -- "$p/exe" 2>/dev/null) || continue
-		case ${exe##*/} in
-		kscreenlocker_greet | gsd-screensaver)
-			basename -- "$p"
-			return 0
-			;;
-		esac
-	done
-	return 1
-}
-
-# daemon_pid finds the running plock the same way locker_pid finds a locker: by the executable the
-# kernel started. A command-line match would let any process named "plock serve" in its argv pass
-# for the daemon, which is the same mistake in the other direction.
-daemon_pid() {
-	local p exe
-	for p in /proc/[0-9]*; do
-		exe=$(readlink -- "$p/exe" 2>/dev/null) || continue
-		[ "${exe##*/}" = "plock" ] || continue
-		basename -- "$p"
-		return 0
-	done
-	return 1
-}
-
 # asserted counts the loop's own lock.asserted lines for one account, so the root mode is measuring
 # what the operator would read rather than a process list.
 asserted() {
@@ -153,16 +118,43 @@ print(n)
 PY
 }
 
+# restore_hint puts the session's hint back, once, however this script stops.
+#
+# testing/README.md states the house rule -- "both scripts back up before they write and
+# restore on exit, including on Ctrl-C" -- and there was no trap here at all, which made that
+# sentence untrue in exactly the window where it matters. Root mode forges the target's hint
+# and then sleeps WAIT seconds (20 by default) before restoring it: Ctrl-C in that window left
+# the child's session reading LockedHint=yes with nothing printed about it. Unprivileged mode
+# has the same window between its forge and its restore.
+FORGE_PATH=""    # the logind object path that was written
+FORGE_UID=""     # the uid to write as; empty means whoever is running this
+FORGE_RESTORE="" # what the hint read before
+FORGE_DONE=""    # set once something has actually put it back
+
+restore_hint() {
+	[ -n "$FORGE_PATH" ] && [ -z "$FORGE_DONE" ] || return 0
+	FORGE_DONE=yes
+	if ! set_hint "$FORGE_PATH" "$FORGE_RESTORE" "$FORGE_UID" 2>/dev/null; then
+		say "WARNING: the hint was NOT restored to '$FORGE_RESTORE'. Put it back as uid"
+		say "  ${FORGE_UID:-$(id -u)} with:"
+		say "  busctl call org.freedesktop.login1 $FORGE_PATH org.freedesktop.login1.Session SetLockedHint b $FORGE_RESTORE"
+	fi
+}
+trap restore_hint EXIT
+# The INT handler exits: a trap that only ran restore_hint would let the script carry on
+# forging, which is the opposite of what Ctrl-C was pressed for.
+trap 'restore_hint; exit 130' INT TERM
+
 # ---------------------------------------------------------------- unprivileged mode
 if [ "$(id -u)" != 0 ]; then
-	sess=$(my_session)
+	sess=$(session_of)
 	[ -n "$sess" ] || die "no desktop session for uid $(id -u); this has to run from the graphical login"
 	path=$(object_path "$sess")
 	[ -n "$path" ] || die "logind would not give an object path for session $sess"
 
 	before=$(hint_of "$sess")
 	say "session $sess ($path), uid $(id -u) ($(id -un)), hint starts at '$before'"
-	if [ "$before" = "yes" ] && [ -z "$(locker_pid)" ]; then
+	if [ "$before" = "yes" ] && [ -z "$(locker_pid "$(id -u)")" ]; then
 		# Worth saying out loud: this is the state the script goes on to manufacture on purpose,
 		# and it is already true here. Restoring what was found is still the right contract -- the
 		# operator may have a reason -- but a stale 'yes' is worth clearing deliberately.
@@ -176,6 +168,8 @@ if [ "$(id -u)" != 0 ]; then
 	# also how the session ends up holding its honest state again.
 	want=true
 	[ "$before" = "yes" ] && want=false
+	FORGE_PATH=$path
+	FORGE_RESTORE=$([ "$before" = "yes" ] && echo true || echo false)
 	if err=$(set_hint "$path" "$want" 2>&1); then
 		mid=$(hint_of "$sess")
 		if { [ "$want" = true ] && [ "$mid" = "yes" ]; } ||
@@ -204,14 +198,13 @@ if [ "$(id -u)" != 0 ]; then
 
 	if [ -n "$forge" ]; then
 		say "FORGED: the hint now reads '$mid' and nothing but a D-Bus call by uid $(id -u) did that."
-		locker=$(locker_pid)
+		locker=$(locker_pid "$(id -u)")
 		if [ "$want" = true ] && [ -z "$locker" ]; then
 			say "and no locker is running (pid list empty) while the hint says 'locked'."
 			say "  -> a check that trusts LockedHint alone would report a lock on a screen that is"
 			say "     unlocked. That is the #29 defeat, live on this host, from an unprivileged process."
 		fi
-		set_hint "$path" "$([ "$before" = "yes" ] && echo true || echo false)" ||
-			say "WARNING: could not restore the hint to '$before' -- set it by hand"
+		restore_hint
 		after=$(hint_of "$sess")
 		say "restored: hint reads '$after'"
 		[ "$after" = "$before" ] || say "WARNING: hint did not come back to '$before'"
@@ -221,7 +214,7 @@ if [ "$(id -u)" != 0 ]; then
 		exit 0
 	fi
 
-	set_hint "$path" "$([ "$before" = "yes" ] && echo true || echo false)" 2>/dev/null
+	restore_hint
 	say "VERDICT: NOT forgeable -- the call was accepted and the hint still reads '$mid'."
 	say "  If logind has learned to authorise SetLockedHint, docs/security.md and #29 need"
 	say "  re-reading: the skip rule this project refuses may no longer be the risk it was."
@@ -232,7 +225,7 @@ fi
 TARGET=${1:-}
 [ -n "$TARGET" ] || die "as root, name the account to test: sudo $0 <username>"
 id -u "$TARGET" >/dev/null 2>&1 || die "no such user: $TARGET"
-sess=$(session_for "$TARGET")
+sess=$(session_of "$TARGET")
 [ -n "$sess" ] || die "$TARGET has no desktop session to test"
 path=$(object_path "$sess")
 [ -n "$path" ] || die "logind would not give an object path for session $sess"
@@ -243,23 +236,33 @@ plock_pid=$(daemon_pid)
 
 say "target $TARGET (uid $(id -u "$TARGET")) session $sess, daemon pid $plock_pid"
 before=$(asserted "$TARGET") || die "counting $AUDIT failed"
-locker=$(locker_pid)
+locker=$(locker_pid "$(id -u "$TARGET")")
 say "lock.asserted for $TARGET so far: ${before:-0}; locker running: ${locker:-no}"
 
 before_hint=$(hint_of "$sess")
 say "forging the hint to 'yes' as uid $(id -u "$TARGET") (it was '$before_hint')"
 set_hint "$path" true "$(id -u "$TARGET")" || die "the forged call failed outright"
+FORGE_PATH=$path
+FORGE_UID=$(id -u "$TARGET")
+FORGE_RESTORE=$([ "$before_hint" = "yes" ] && echo true || echo false)
 during=$(hint_of "$sess")
-[ "$during" = "yes" ] || die "the forge did not take (hint reads '$during'), so the defense cannot be tested"
+[ "$during" = "yes" ] || {
+	# Exit 1, not 2. The header says 2 is "the host is not in a state to answer", and a hint
+	# the child could not write is not an unanswerable question -- it is the claim not
+	# holding, which is the finding the whole script exists to look for.
+	say "VERDICT: DID NOT HOLD -- the forged SetLockedHint did not take; the hint reads '$during'."
+	say "  The defense cannot be tested on a session whose hint the child cannot write. Run the"
+	say "  unprivileged mode as $TARGET to check the surface on its own."
+	exit 1
+}
 
 say "watching for $WAIT s while the hint claims the session is already locked..."
 sleep "$WAIT"
 after=$(asserted "$TARGET")
-locker=$(locker_pid)
+locker=$(locker_pid "$(id -u "$TARGET")")
 say "lock.asserted now: ${after:-?} (was ${before:-0}); locker running: ${locker:-no}"
 
-set_hint "$path" "$([ "$before_hint" = "yes" ] && echo true || echo false)" "$(id -u "$TARGET")" 2>/dev/null ||
-	say "WARNING: could not restore the hint to '$before_hint'"
+restore_hint
 
 if [ -n "$after" ] && [ "$after" -gt "${before:-0}" ]; then
 	say "VERDICT: HELD -- the loop asserted the lock $((after - before)) more time(s) while the"
