@@ -1,0 +1,62 @@
+{
+  "package": "./internal/lockop/",
+  "_about": "Each entry puts one known bug back into internal/lockop and the suite must fail. The package has one job -- keeping the three ways a lock can end apart (proved, asked-and-unprovable, nothing reached the desktop) -- so every mutant here collapses two of them into one, which is the failure the package was extracted to prevent: the terminal and the web page agreeing on a sentence the machine never produced. Run: python3 scripts/mutate.py scripts/mutations/lockop.json",
+  "mutants": [
+    {
+      "id": "LO1",
+      "file": "internal/lockop/lockop.go",
+      "old": "\t\tcase errors.Is(err, platform.ErrUnconfirmed):\n",
+      "new": "\t\tcase errors.Is(err, platform.ErrUnconfirmed) && false:\n",
+      "note": "an unconfirmed ask falls through to the hard-error branch, so the operator is told to fix a backend that did its job. The #965 three-way verdict collapses into two, and which way it collapses depends on the caller. TestAnUnconfirmedAskIsNeitherLockedNorFailed and its wrapped-error control."
+    },
+    {
+      "id": "LO2",
+      "file": "internal/lockop/lockop.go",
+      "old": "\t\t\to.Locked = true\n\t\t\tr.Locked++\n",
+      "new": "\t\t\tr.Locked++\n",
+      "note": "the count says a session was locked while the outcome for that session says it was not, so the summary and the list disagree on one page. TestAConfirmedLockIsTheOnlyOutcomeThatSaysLocked."
+    },
+    {
+      "id": "LO3",
+      "file": "internal/lockop/lockop.go",
+      "old": "\t\tif !platform.IsLockable(s) {\n",
+      "new": "\t\tif false && !platform.IsLockable(s) {\n",
+      "note": "the never-lock-the-wrong-thing rule is skipped and a greeter or a remote admin session is handed to the backend -- locking the greeter leaves an uninputtable wall, locking the remote one shuts the admin out of the machine. TestASessionThatCannotBeLockedIsCountedAndNeverTouched."
+    },
+    {
+      "id": "LO4",
+      "file": "internal/lockop/lockop.go",
+      "old": "\t\t\tr.Refused++\n",
+      "new": "",
+      "note": "a refusal is itemised but not counted, so the summary reads \"locked 0 of 0\" while the list below it names a session. TestASessionThatCannotBeLockedIsCountedAndNeverTouched."
+    },
+    {
+      "id": "LO5",
+      "file": "internal/lockop/lockop.go",
+      "old": "\t\t\t})\n\t\t\tcontinue\n",
+      "new": "\t\t\t})\n",
+      "note": "the refusal is recorded and then the session is locked anyway, so a manager session is both refused and asked, and the page shows it twice with opposite things said about it. TestASessionThatCannotBeLockedIsCountedAndNeverTouched."
+    },
+    {
+      "id": "LO6",
+      "file": "internal/lockop/lockop.go",
+      "old": "\t\tif s.Username == username {\n",
+      "new": "\t\tif s.Username != username {\n",
+      "note": "the ownership filter inverted: locking one account asks the backend to lock every other account's sessions. The exact-match rule is also what keeps two accounts differing only by case apart. TestOwnedByTakesEverySessionOfThatAccountExactly."
+    },
+    {
+      "id": "LO7",
+      "file": "internal/lockop/lockop.go",
+      "old": "\tif err != nil {\n\t\treturn nil, err\n\t}\n",
+      "new": "\tif false {\n\t\treturn nil, err\n\t}\n",
+      "note": "a session listing that failed comes back as an empty one, which every caller renders as \"this account is logged out\". That is the fail-open direction on the one surface whose whole job is saying whether a lock was applied. TestAFailedListingIsTheOneError."
+    },
+    {
+      "id": "LO8",
+      "file": "internal/lockop/lockop.go",
+      "old": "func (r Result) Asked() bool { return len(r.Outcomes) > 0 }\n",
+      "new": "func (r Result) Asked() bool { return r.Locked > 0 }\n",
+      "note": "\"was anything touched\" becomes \"did anything lock\", so a run where every session was refused or failed reports that nothing was asked -- and the caller that answers with an exit code reports success. TestAHardErrorIsNeitherLockedNorUnconfirmed."
+    }
+  ]
+}
