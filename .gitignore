@@ -34,6 +34,13 @@ __pycache__/
 # Local agent state (Magic Context); never part of the project
 .cortexkit/
 
+# Manual e2e runs write a transcript, the daemon's log and a copy of /etc/plock into a
+# timestamped directory here. A transcript names a user, a host and a session id, and a
+# backup of /etc/plock is a copy of the admin credential hash -- neither belongs in a
+# commit, and both are produced by the same `git add -A` that has swept this file's other
+# entries in.
+testing/e2e/runs/
+
 # `check-mutations.py` imports scripts/mutset.py, which drops a __pycache__ beside the
 # source on every run. It is generated, it changes with the Python version, and a bulk
 # `git add -A` in a moment of haste would commit it.
