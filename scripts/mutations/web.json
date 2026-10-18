@@ -1202,6 +1202,55 @@
       "old": "          <button type=\"submit\">Lock now</button>\n",
       "new": "",
       "note": "the dashboard keeps saying a schedule will never hold the account and stops offering the one action that locks it now -- the half of the sentence that was the complaint. Only the button goes, so the page still parses: the mutant is the missing control, not a broken template. TestTheDashboardOffersToLockAManagedAccount."
+    }    ,
+    {
+      "id": "W179",
+      "file": "internal/web/test_lock.go",
+      "old": "\tif s.Probe == nil {\n",
+      "new": "\tif false {\n",
+      "note": "an unwired probe seam renders a table with no rows in it, which an operator reads as 'every backend is broken' when what is broken is this daemon's wiring. The refusal is the only honest answer for a nil seam, and it is the answer the assembled-wrong case exists to catch. TestAServerWithNoProbePathSaysSo."
+    },
+    {
+      "id": "W180",
+      "file": "internal/web/test_lock.go",
+      "old": "\t\t\treachable++\n",
+      "new": "",
+      "note": "the banner reports zero reachable backends however many actually answer, so a machine with a working backend is shown as having none and the operator goes hunting for a fault that is not there. TestEachBackendIsReportedWithItsOwnAnswer."
+    },
+    {
+      "id": "W181",
+      "file": "internal/web/test_lock.go",
+      "old": "\t\tpage.SessionsFailed = true\n",
+      "new": "\t\tpage.NoSessions = true\n",
+      "note": "a session table that could not be read is reported as an account with no session. The two sentences look alike and mean opposite things: one is 'nobody is logged in', the other is 'the daemon could not look', and the second is the one that needs fixing. TestAFailedSessionListingStillReportsTheBackends."
+    },
+    {
+      "id": "W182",
+      "file": "internal/web/test_lock.go",
+      "old": "\ts.audit(\"lock.probed\",",
+      "new": "\ts.audit(\"lock.probe_skipped\",",
+      "note": "the probe stops writing the line the operator's own action is supposed to produce, so the trail shows a check being asked for that the record never mentions -- and the trail is the evidence read back afterwards. TestAProbeIsAuditedWithCountsNotAVerdict."
+    },
+    {
+      "id": "W183",
+      "file": "internal/web/test_lock.go",
+      "old": "\t\t\trow.Lockable = platform.IsLockable(sess)\n",
+      "new": "\t\t\trow.Lockable = true\n",
+      "note": "every session is reported as one a lock would be attempted on, including the greeter and the remote session the enforcement loop declines. The page explains a refusal the loop would not make, which is a second, contradicting account of one rule. TestANonLockableSessionIsRefusedInTheLoopsOwnWords."
+    },
+    {
+      "id": "W184",
+      "file": "internal/web/test_lock.go",
+      "old": "\tif !knownAccount(cfg, name) {\n",
+      "new": "\tif !knownAccount(cfg, name) && false {\n",
+      "note": "the route answers for any name in the URL, so the probe page becomes a way to ask about an account this daemon does not manage. The same guard is what makes the lock route refuse, and a page beside it cannot be exempt. TestProbingAnUnmanagedAccountIsRefused."
+    },
+    {
+      "id": "W185",
+      "file": "internal/web/templates/dashboard.tmpl",
+      "old": "          <button type=\"submit\">Check backends</button>\n",
+      "new": "",
+      "note": "the dashboard keeps the row's explanation and drops the control, so the probe is a route nothing links to and no operator will ever press -- the #59 failure, where a feature shipped assembled and unreachable. Only the button goes, so the page still parses: the mutant is the missing control, not a broken template. TestTheDashboardOffersToCheckTheBackends."
     }
   ]
 }

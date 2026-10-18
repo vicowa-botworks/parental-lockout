@@ -165,3 +165,12 @@ func Now(ctx context.Context, c Chain, sessions []platform.Session) Result {
 	}
 	return r
 }
+
+// NotLockable is the reason a session is not lockable, for callers outside this package.
+//
+// The web probe page needs the same sentence the lock loop records, and restating it there
+// would give the two surfaces different explanations of the same refusal -- the reason this
+// package owns the wording in the first place. It is a wrapper rather than a rename because
+// the lowercase name is what the rest of this file reads, and a shared sentence does not have
+// to be spelled the same in both directions to stay the same sentence.
+func NotLockable(s platform.Session) string { return notLockable(s) }

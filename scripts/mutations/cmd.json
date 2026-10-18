@@ -531,6 +531,13 @@
       "old": "\t\topts.Lock = lk.Lock\n",
       "new": "\t\topts.Lock = func(context.Context, platform.Session) error { _ = lk; return nil }\n",
       "note": "the seam is present and answers nothing, so the button reports a lock that was never asked for and the audit line counts one. This is W62's shape arriving on the lock path, and it is why the test calls the seam and reads the fixture instead of checking the field is non-nil: a nil check passes here. TestTheServedLockPathLocksTheObjectThatListedSessions."
+    }    ,
+    {
+      "id": "CM7",
+      "file": "cmd/plock/serve.go",
+      "old": "\t\topts.Probe = pb.Probe\n",
+      "new": "\t\t_ = pb\n",
+      "note": "the session source can report on its backends and the served server is never told, so /users/{name}/test-lock answers that this daemon has no probe path on a machine where everything works. Per-package tests cannot see this: only the assembled server has the seam. TestTheServedProbeAsksTheObjectThatListedSessions."
     }
   ]
 }

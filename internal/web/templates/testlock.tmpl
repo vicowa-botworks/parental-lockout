@@ -1,0 +1,123 @@
+{{define "pagename"}}testlock{{end}}
+{{- /* Static title, for the reason lock.tmpl gives: the shell renders it into <title>
+       before the view model is in scope. */ -}}
+{{define "title"}}Check the lock backends{{end}}
+{{define "body"}}
+{{- /* The banner answers the question that was asked, then says what did NOT happen. The
+       second half is not a disclaimer: the button beside this one is "Lock now", an operator
+       who pressed the wrong one needs to know a screen did not go down, and an operator who
+       pressed this one needs to know the answer they are reading is a capability, not an
+       event. */ -}}
+{{- $n := .Total -}}
+<p class="banner">
+  {{- if eq $n 0 -}}
+    No lock backend is configured on this daemon, so there is nothing to ask.
+  {{- else if and (gt .Reachable 0) (eq .Reachable $n) -}}
+    All {{$n}} configured lock backends answer on this machine.
+  {{- else if gt .Reachable 0 -}}
+    {{.Reachable}} of {{$n}} configured lock backends answer on this machine;
+    the rest are below.
+  {{- else -}}
+    None of the {{$n}} configured lock backends can lock a screen on this machine right now.
+  {{- end -}}
+</p>
+
+<p class="muted">Nothing was locked. This page asks each backend whether it could do its job
+  and reports what it said; it never sends a lock request. To lock <strong>{{.Target}}</strong>
+  now, use <em>Lock now</em> on the status page.</p>
+
+{{- /* The doubt this page exists to settle, said separately from the backend count: a
+       machine with three healthy backends and the child logged out still answers "nothing
+       would be locked today", and an operator who reads only the first banner would conclude
+       the opposite. */ -}}
+{{- if .SessionsFailed -}}
+<p class="flag" role="status">The session table could not be read, so this page cannot say
+  whether <strong>{{.Target}}</strong> holds a session a backend could lock. The backend
+  answers above were read independently and stand on their own.</p>
+{{- else if .NoSessions -}}
+<p class="flag" role="status"><strong>{{.Target}}</strong> has no session on this machine right
+  now, so a lock asked for at this moment would have nothing to lock. The backends above are
+  still the answer to whether a lock <em>could</em> be carried out.</p>
+{{- else if not .AnyLockable -}}
+<p class="flag" role="status">None of <strong>{{.Target}}</strong>'s sessions is a lockable
+  desktop session, so a lock asked for at this moment would be refused before any backend was
+  asked. Each row below says why.</p>
+{{- end -}}
+
+<table class="rows">
+  <caption>Every configured lock backend, and whether it could lock a screen right now.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Backend</th>
+      <th scope="col">Can lock</th>
+      <th scope="col">Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Statuses}}
+    <tr>
+      <th scope="row">{{.Name}}</th>
+      <td data-label="Can lock">
+        {{- if .Available -}}
+          <span class="state-held">yes</span>
+        {{- else -}}
+          <span class="state-gap">no</span>
+        {{- end -}}
+      </td>
+      <td data-label="Detail">
+        {{- if .Detail}}<span class="problem">{{.Detail}}</span>{{end -}}
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="3">The daemon reported no backends at all.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+
+{{- /* The account's own sessions, only when there is something to say about them. The
+       refusal reason is the lock loop's own sentence, reached through lockop, so the two
+       surfaces cannot explain the same refusal differently. */ -}}
+{{- if .Sessions -}}
+<table class="rows">
+  <caption>Sessions <strong>{{.Target}}</strong> holds, and whether a lock would be attempted
+    on each.</caption>
+  <thead>
+    <tr>
+      <th scope="col">Session</th>
+      <th scope="col">Where</th>
+      <th scope="col">Would lock</th>
+      <th scope="col">Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Sessions}}
+    <tr>
+      <th scope="row">{{.Session}}</th>
+      <td data-label="Where">
+        {{- if .Seat}}{{.Seat}}{{else}}<span class="muted">no seat</span>{{end -}}
+        {{- if .Type}} · {{.Type}}{{end -}}
+      </td>
+      <td data-label="Would lock">
+        {{- if .Lockable -}}
+          <span class="state-held">yes</span>
+        {{- else -}}
+          <span class="state-gap">no</span>
+        {{- end -}}
+      </td>
+      <td data-label="Detail">
+        {{- if .Detail}}<span class="problem">{{.Detail}}</span>{{end -}}
+        {{- /* The separator is in the text, not in CSS, for the reason lock.tmpl records:
+               both actions above trim their surrounding whitespace, so two spans with a
+               detail between them copy out as one word. */ -}}
+        {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="override">This is the session the daemon runs
+          inside. Its schedule never locks it, because the daemon cannot lock itself out of
+          enforcing.</span>{{end -}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{- end -}}
+
+<p><a href="/">Back to the status page</a></p>
+{{end}}

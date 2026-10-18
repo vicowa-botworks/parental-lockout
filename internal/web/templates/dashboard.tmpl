@@ -22,6 +22,7 @@
       <th scope="col">Override</th>
       <th scope="col">Sessions</th>
       <th scope="col">Now</th>
+      <th scope="col">Diagnose</th>
     </tr>
   </thead>
   <tbody>
@@ -123,9 +124,21 @@
           <button type="submit">Lock now</button>
         </form>
       </td>
+      {{- /* The probe, beside the action it explains. An operator who just read "locked out
+             now" and doubts it needs to ask the machine without leaving this page -- and the
+             asking must be safe to do while the child is using the screen, which is exactly
+             why this route locks nothing (see handleTestLock). Two buttons in one row is a
+             real risk, so they are in separate cells under different headings and the probe
+             is the one that says "Check" rather than "Lock" in its label. */ -}}
+      <td data-label="Diagnose">
+        <form method="post" action="/users/{{.Username}}/test-lock">
+          {{with $.CSRF}}<input type="hidden" name="csrf" value="{{.}}">{{end}}
+          <button type="submit">Check backends</button>
+        </form>
+      </td>
     </tr>
     {{else}}
-    <tr><td colspan="6">No accounts are managed yet.</td></tr>
+    <tr><td colspan="7">No accounts are managed yet.</td></tr>
     {{end}}
   </tbody>
 </table>
