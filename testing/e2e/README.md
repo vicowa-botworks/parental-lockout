@@ -33,6 +33,11 @@ Two things it will tell you honestly rather than gloss:
   timing flake — it is a forged hint, and it is the thing `forge-hint.sh` goes on to
   demonstrate on purpose.
 
+Of those two branches, the 2026-10-18 transcript exercised the human one: a person at the
+console unlocked, and the loop re-locked within the poll. The `INCONCLUSIVE` branch has
+not been run — it is the branch that *declines* to produce a verdict, so nothing was at
+stake in it and no transcript quotes it. Say so if you cite it.
+
 ## `forge-hint.sh`
 
 ```sh
@@ -67,6 +72,43 @@ both wrong on this project's target:
 
 `/proc/<pid>/exe` is the executable the kernel actually started. Nothing a user types
 makes it point at a locker that is not running.
+
+## What the harness accepts as a locker, and why it is not the daemon's answer
+
+`lib.sh:locker_pid` requires three things of a process before it counts, and they are
+`internal/platform/locker.go`'s three requirements, kept in the same order:
+
+1. **the process runs as the uid whose lock is being judged.** A harness that walks every
+   process on the box is satisfied by a *sibling account's* locker, and on the
+   two-account machine this tool exists for that attributes one child's lockout to
+   another.
+2. **the executable is the expected program, in a file and directory that uid cannot
+   write.** `argv[0]` is whatever the caller passed to `execve`, and `/proc/<pid>/exe`
+   only says which file is running — so without the ownership test an impostor needs a
+   binary merely *named* `kscreenlocker_greet`, which the session user can put anywhere
+   they own. A file they own, or one that is group- or world-writable, is a file they
+   chose the bytes of.
+3. **for the KDE locker, its parent is `ksmserver`, passing requirement 2 as well.** The
+   locker is a child of the process that owns `org.freedesktop.ScreenSaver` and answers
+   the `Lock` call, so this makes the check about a process tree rather than one name:
+   two `execve` calls as the session user produce a tree whose names are both lies. The
+   GNOME locker has no measured parent, so requirement 3 is not applied to it and the
+   transcript says so instead of implying the same strength.
+
+That is a copy of a Go function, and deliberately so. The obvious alternative is to ask
+the daemon, which already implements the rule — but then the harness's *independent*
+signal comes from the code under test, a buggy corroborator agrees with itself, and the
+transcript still says PASS. The harness is the reading a reviewer can check without
+trusting the thing it is reviewing. What must not drift is the rule, so it lives in one
+file with the Go function named as its source.
+
+The same reasoning picks the session. `loginctl list-sessions` prints a literal `-` where
+a session has no tty, so "has a tty" is two tests (`$7 != ""` **and** `$7 != "-"`), not
+one: measured on the review host, a filter that only excluded the empty string matched all
+four user sessions, none of which had a tty, three of which were remote `ssh` sessions.
+For the unprivileged forge that is not cosmetic — pick a remote session instead of the
+desktop one and the script forges a hint on a session that was never the subject, and the
+"no locker is running" it then reports is trivially true there.
 
 ## Output
 

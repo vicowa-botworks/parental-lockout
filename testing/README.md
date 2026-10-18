@@ -33,6 +33,7 @@ in CI has something to do with what happens here.
 |---|---|---|
 | `e2e/e2e.sh` | the full loop against the real session: configure, serve, watch it lock, unlock by hand, watch it re-lock, read the audit trail | root, a desktop session, your password |
 | `e2e/forge-hint.sh` | the #29 attack as a check: writes `LockedHint` with no privilege and insists enforcement does not believe it | nothing for the first half; root for the second |
+| `e2e/lib.sh` | the two questions both scripts ask about the machine — "is a locker running for this uid" and "which session is the desktop" — in one place | sourced, never run |
 
 Read `e2e/README.md` before running either. `e2e.sh` locks your screen on
 purpose, repeatedly, and there is no way to test that from a runner.
@@ -43,10 +44,16 @@ purpose, repeatedly, and there is no way to test that from a runner.
   in this folder is evidence only when its transcript is pasted into a PR.
 * **Both scripts are shellcheck-linted** by the `shellcheck` job, which names
   shipped scripts explicitly. Add new ones to that list; a script nobody lints
-  drifts.
+  drifts. `lib.sh` is on the list even though it is only ever sourced.
 * **Output goes under `e2e/runs/`**, which is ignored. Commit the transcript you
   are quoting into the PR, never into the tree — a transcript contains a
   username, a hostname and a session id.
-* **Restore what you changed.** Both scripts back up before they write and
-  restore on exit, including on Ctrl-C. If a script leaves `/etc/plock` behind
-  when there was none, that is a bug in the script.
+* **Restore what you changed, including on Ctrl-C.** Both scripts back up before
+  they write and install `EXIT` and `INT` handlers that put it back. Treat that as
+  behaviour to preserve, not a description of how careful the scripts are: `e2e.sh`
+  refuses to run at all if the backup of `/etc/plock` did not copy cleanly, because
+  its cleanup used to infer "there was no config here" from a missing backup and
+  delete a config it had failed to save. `forge-hint.sh` restores the hint from
+  both handlers, because the window between forging and restoring is 20 seconds
+  wide by default and an interrupt in it used to leave a session claiming it was
+  locked.
