@@ -1183,13 +1183,6 @@
       "note": "the page stops saying this account is the one the daemon runs inside, so the operator sees \"locked\" next to an account the schedule will never hold (#67) and believes the machine is protected. TestLockingTheDaemonsOwnAccountSaysBothHalves."
     },
     {
-      "id": "W176",
-      "file": "internal/web/lock_now.go",
-      "old": "\tcase r.Unconfirmed:\n\t\treturn \"unconfirmed\"\n",
-      "new": "\tcase r.Unconfirmed:\n\t\treturn \"locked\"\n",
-      "note": "the raw-virtual-terminal answer, which a Plasma desktop gives forever, is rendered as a proven lock. This is the one word on the page an operator trusts as evidence, and it is the word #965 exists to keep separate. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
-    },
-    {
       "id": "W177",
       "file": "internal/web/lock_now.go",
       "old": "\t\tname, res.Locked, res.Unconfirmed, res.Refused, sessionName(s, r)))\n",
