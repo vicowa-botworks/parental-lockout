@@ -331,6 +331,18 @@ type sessionLocker interface {
 	Lock(ctx context.Context, sess platform.Session) error
 }
 
+// backendProber is the third thing serve takes off the same object: the half that can say
+// whether a backend could do its job at all.
+//
+// Optional for exactly the reason sessionLocker is. What makes it worth a separate assertion
+// rather than a method on sessionLocker is what it answers: `Probe` reports capability, and
+// capability is the one thing an assertion may state here. Whether a lock actually took is
+// answered by calling into the object, never by asking it what it thinks (#1018), and this
+// interface is deliberately shaped so no caller can confuse the two.
+type backendProber interface {
+	Probe(ctx context.Context) []platform.BackendStatus
+}
+
 // serveEngine assembles the enforcement loop the way serveServer assembles the admin
 // server, and it exists for one line in the middle of it.
 //
@@ -465,6 +477,12 @@ func serveServer(cfg *config.Config, sessions sessionSource, src users.Source, s
 	// instead of reporting a lock it never asked for. See sessionLocker.
 	if lk, ok := sessions.(sessionLocker); ok {
 		opts.Lock = lk.Lock
+	}
+	// The probe, from the same object again. A second chain here would report on a set of
+	// backends that need not be the one the loop enforces with, and the page would then tell
+	// an operator that three backends answer on a machine whose real lock path is broken.
+	if pb, ok := sessions.(backendProber); ok {
+		opts.Probe = pb.Probe
 	}
 
 	srv, err := web.New(opts)

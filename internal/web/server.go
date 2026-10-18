@@ -133,7 +133,17 @@ type Server struct {
 	// A nil Lock is not a control that quietly does nothing: the route says this daemon
 	// has no lock path, because a button that reports a lock it never asked for is the
 	// failure this package keeps being asked to prevent.
-	Lock     func(ctx context.Context, sess platform.Session) error
+	Lock func(ctx context.Context, sess platform.Session) error
+	// Probe asks every configured backend whether it could do its job right now. It is
+	// the same object Lock and Lockables came from, for the same reason: a probe that
+	// built its own chain would be reporting on a different set of backends than the one
+	// the loop enforces with, and the operator would get a healthy table for a machine
+	// whose real lock path is broken.
+	//
+	// It reads nothing and changes nothing on the screen. That is what separates the
+	// probe route from the lock route, and what makes it safe to press while the child is
+	// working -- see handleTestLock.
+	Probe    func(ctx context.Context) []platform.BackendStatus
 	Accounts func() (*users.Listing, error)
 	Trail    Trail
 
@@ -243,7 +253,10 @@ type Options struct {
 	Lockables func() ([]platform.Session, error)
 	// Lock is Options.Lock, copied by New. See Options.Lock for why the lock path is a
 	// seam of its own rather than something reached through the read-only listing.
-	Lock     func(ctx context.Context, sess platform.Session) error
+	Lock func(ctx context.Context, sess platform.Session) error
+	// Probe is Options.Probe, copied by New. See Server.Probe for what it asks and for
+	// why it is the same object the lock path uses.
+	Probe    func(ctx context.Context) []platform.BackendStatus
 	Accounts func() (*users.Listing, error)
 	// Trail is the audit log, for GET /audit. Nil is not an empty trail: the page
 	// says no trail is wired, because an empty table is a claim that nothing happened
@@ -273,6 +286,7 @@ func New(opts Options) (*Server, error) {
 		Config:         opts.Config,
 		Lockables:      opts.Lockables,
 		Lock:           opts.Lock,
+		Probe:          opts.Probe,
 		Accounts:       opts.Accounts,
 		Mutate:         opts.Mutate,
 		Listen:         opts.Listen,
@@ -664,6 +678,13 @@ func (s *Server) router() *http.ServeMux {
 	// tick. The CSRF gate above covers it for the same reason it covers the overrides.
 	mux.Handle("POST /users/{name}/lock-now",
 		s.requireAuth(http.HandlerFunc(s.handleLockNow)))
+	// The backend probe, beside the route it explains. Also a POST, and for the stronger of
+	// the two reasons: it changes no screen, but it does reach into the host and write an
+	// audit line, so it is not something a link on a page may cause. Per-account for the
+	// same reason as lock-now -- the operator is asking about the row in front of them, and
+	// the answer includes whether that account holds a session anything could lock.
+	mux.Handle("POST /users/{name}/test-lock",
+		s.requireAuth(http.HandlerFunc(s.handleTestLock)))
 	mux.Handle("POST /profiles/{id}/rules",
 		s.requireAuth(http.HandlerFunc(s.handleAddRule)))
 	mux.Handle("POST /profiles/{id}/delete",
