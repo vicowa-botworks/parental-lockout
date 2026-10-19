@@ -105,10 +105,11 @@
         {{- end -}}
       </td>
       <td data-label="Detail">
-        {{- if .Detail}}<span class="problem">{{.Detail}}</span>{{end -}}
+        {{- if .Detail}}<span class="problem">{{.DetailText}}</span>{{end -}}
         {{- /* The separator is in the text, not in CSS, for the reason lock.tmpl records:
                both actions above trim their surrounding whitespace, so two spans with a
-               detail between them copy out as one word. */ -}}
+               detail between them copy out as one word. The detail comes from DetailText so
+               that word ends where the note begins (#108). */ -}}
         {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="override">This is the session the daemon runs
           inside. Its schedule never locks it, because the daemon cannot lock itself out of
           enforcing.</span>{{end -}}

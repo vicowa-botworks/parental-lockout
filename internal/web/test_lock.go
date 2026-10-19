@@ -137,6 +137,11 @@ type probeSession struct {
 	SelfSession bool
 }
 
+// DetailText is the Detail cell's text with a sentence terminator on the end, for the same
+// reason lockRow has one: this page copies the same cell, including the self-session note,
+// so it has the same seam (#108).
+func (s probeSession) DetailText() string { return sentenceTerminated(s.Detail) }
+
 // Total is the denominator the banner reads out. It is a method rather than a field so the
 // number on the page cannot disagree with the table under it.
 func (p probePage) Total() int { return len(p.Statuses) }
