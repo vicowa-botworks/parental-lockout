@@ -350,6 +350,13 @@ func TestAnUnconfirmedLockIsReportedAsUnconfirmed(t *testing.T) {
 	if !strings.Contains(body, "nothing could prove") {
 		t.Error("the page did not explain what unconfirmed means")
 	}
+	// And the word is only half of it. The cell's class carries the colour, which is what the
+	// eye reads before the sentence: --held is the colour that means "proved". A row wearing
+	// it while saying unconfirmed teaches the operator to trust the colour over the word, and
+	// a whole-body check on the word cannot see that happen (#107).
+	if strings.Contains(body, "state-held") {
+		t.Error("an unconfirmed lock was rendered with the locked styling")
+	}
 }
 
 // TestARefusedLockNamesTheSessionItCouldNotReach. A hard error is a different sentence from

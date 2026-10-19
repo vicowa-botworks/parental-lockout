@@ -1244,6 +1244,13 @@
       "old": "          <button type=\"submit\">Check backends</button>\n",
       "new": "",
       "note": "the dashboard keeps the row's explanation and drops the control, so the probe is a route nothing links to and no operator will ever press -- the #59 failure, where a feature shipped assembled and unreachable. Only the button goes, so the page still parses: the mutant is the missing control, not a broken template. TestTheDashboardOffersToCheckTheBackends."
+    },
+    {
+      "id": "W186",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"state-gap\">unconfirmed</span>",
+      "new": "<span class=\"state-held\">unconfirmed</span>",
+      "note": "the unconfirmed verdict wearing the locked colour. The word still says unconfirmed, so an assertion on the word passes while the cell is styled as a proved lock -- and the colour is what the eye reads before the sentence. The sibling page already guards its own version of this. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
     }
   ]
 }
