@@ -246,6 +246,7 @@ alone. **The lock state the daemon reads is a value the adversary can write.**
 | A zero exit status is not evidence the lock took | platform suite (`Confirmer`, `ErrUnconfirmed`) |
 | The lock budget bounds the whole operation, and its expiry is never reported as success | `TestChainLockBudgetOnlyTightensACallerDeadline`, `TestChainLockBudgetExpiryIsNeverReportedAsSuccess` |
 | A chain with no backends refuses loudly | `TestChainWithNoBackendsRefusesLoudly` |
+| The premise of this whole section — that `SetLockedHint` is authorized by uid alone — still holds on the target host | `testing/e2e/forge-hint.sh`, unprivileged mode: flips your own session's hint, reads it back, shows no locker running while it says "locked", restores it. Re-run from a clone, not from memory; the development host was measured 2026-10-18 (`no` → `yes` → restored, uid 1000, no polkit prompt). Its root mode checks the other half: that the loop keeps asserting while the hint lies. |
 | A cancelled context is a shutdown, not a lock outcome | enforce suite |
 
 ---
@@ -315,10 +316,15 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 
 ## 9. Residual risk, honestly ranked
 
-1. **The e2e step has never been run.** `docs/PLAN.md` §13 asks for a run against a real KDE session
-   with the transcript in the PR. Nothing in this document substitutes for it: every claim above is
-   a unit test, and unit tests here run against fixtures for the bus and `/proc`. The single most
-   valuable thing that could happen to this project is someone running it on the target desktop.
+1. **The e2e step has no transcript in a PR.** `docs/PLAN.md` §13 asks for a run against a real KDE
+   session with the transcript in the PR. One run happened, on the development host, on 2026-10-15:
+   the screen locked, was confirmed on both signals, re-locked 10 s after a manual unlock, and left
+   three audit lines behind. It counts for less than nothing here, because the harness that produced
+   it lived in a scratch directory outside the repository and its transcript was never attached to
+   anything — neither the run nor its evidence can be reproduced from a clone. The harness is now
+   `testing/e2e/e2e.sh` and the run has to be repeated from it, with the transcript pasted into a
+   PR, before this item comes off the list. Nothing in this document substitutes for that run: every
+   claim above is a unit test, and unit tests here run against fixtures for the bus and `/proc`.
 2. **The Plasma premise is unmeasured.** `docs/PLAN.md` §7 records that Plasma "historically"
    ignores logind's `Lock` signal. The chain's shape does not depend on which way that turns out,
    but the *operator experience* does: if Plasma honours it, the chain confirms on logind and the
