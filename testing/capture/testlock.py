@@ -108,13 +108,20 @@ def capture(name):
         # regression on the other one. The count matters for the same reason it does on lock.py:
         # whether a seam exists here depends on whether the account's sessions are lockable, and
         # a rule that found nothing to look at must not be quoted as a pass.
-        if cdp.require_detail_terminated(cdp.session_rows(s), "the probe result page") == 0:
+        seen, seams = cdp.require_detail_terminated(cdp.session_rows(s),
+                                                  "the probe result page")
+        if seen == 0:
             raise SystemExit("no Detail cell on the page holds the self-session note, so the "
                              "#108 seam rule examined nothing -- a rule that checked nothing is "
                              "not a reason to trust this capture")
 
         cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.probed", ALLOWED,
                           "the test-lock probe")
+
+        # Reported, never required: a lockable session's cell on this page is the note alone, so
+        # seams=0 is a correct page, not a passed check. The transcript has to say which it was.
+        print(f"  #108 seam: note in {seen} Detail cell(s), {seams} with a sentence in front "
+              "of it", flush=True)
 
         fits = g["scroll"] <= cdp.WIDTH
         if not fits:
@@ -134,11 +141,13 @@ def capture(name):
 
 
 def main():
-    name = op.join(cdp.out_dir("testlock"), "testlock.png")
+    name = op.join(cdp.capture_out("testlock"), "testlock.png")
     try:
         return capture(name)
     except SystemExit as exc:
         cdp.refused(name, exc)
+    except Exception as exc:  # a traceback is not an answer; a refusal is
+        cdp.refused(name, f"{type(exc).__name__}: {exc}")
 
 
 if __name__ == "__main__":

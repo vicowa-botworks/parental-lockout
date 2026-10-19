@@ -122,7 +122,8 @@ def capture(name):
                    for r in rows):
             raise SystemExit("no row carries the gated clause; the self-session note did not "
                              "render, so this capture proves nothing about it")
-        if cdp.require_detail_terminated(rows, "the lock result page") == 0:
+        seen, seams = cdp.require_detail_terminated(rows, "the lock result page")
+        if seen == 0:
             raise SystemExit("no Detail cell on the page holds the self-session note, so the "
                              "#108 seam rule examined nothing -- a rule that checked nothing is "
                              "not a reason to trust this capture")
@@ -132,6 +133,9 @@ def capture(name):
         # is caught here rather than photographed.
         cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.requested",
                           {"lock.requested"}, "the lock-now click")
+
+        print(f"  #108 seam: note in {seen} Detail cell(s), {seams} with a sentence in front "
+              "of it", flush=True)
 
         fits = g["scroll"] <= cdp.WIDTH
         if not fits:
@@ -152,11 +156,13 @@ def capture(name):
 
 
 def main():
-    name = op.join(cdp.out_dir("lock"), "lock.png")
+    name = op.join(cdp.capture_out("lock"), "lock.png")
     try:
         return capture(name)
     except SystemExit as exc:
         cdp.refused(name, exc)
+    except Exception as exc:  # a traceback is not an answer; a refusal is
+        cdp.refused(name, f"{type(exc).__name__}: {exc}")
 
 
 if __name__ == "__main__":

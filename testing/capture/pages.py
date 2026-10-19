@@ -37,7 +37,8 @@ PAGES = ["/", "/users", "/profiles", "/audit"]
 CHROME_FLAGS = ("--hide-scrollbars=false",)
 
 
-def shoot(session, base, page, name):
+def shoot(cap, page, name):
+    session, base = cap.session, cap.base
     session.goto(base + page)
     here = session.where()
     if here != page:
@@ -53,6 +54,7 @@ def shoot(session, base, page, name):
     if got["scroll"] > cdp.WIDTH:
         raise SystemExit(f"{page} is {got['scroll']} px wide at a {cdp.WIDTH} px viewport; the "
                          "criterion refuses this page, so its photograph is not taken")
+    cap.require_running()
     session.write_png(name)
     print(f"  {page:<10} scrollWidth={got['scroll']:>4} innerWidth={got['inner']:>4} "
           f"height={got['height']:>5} tables={got['tables']} cells={got['cells']} "
@@ -60,14 +62,16 @@ def shoot(session, base, page, name):
 
 
 def main():
-    out = cdp.out_dir("pages")
+    out = cdp.capture_out("pages")
     with cdp.Capture("pages", CHROME_FLAGS) as cap:
         for page in PAGES:
             name = op.join(out, (page.strip("/") or "dashboard") + ".png")
             try:
-                shoot(cap.session, cap.base, page, name)
+                shoot(cap, page, name)
             except SystemExit as exc:
                 cdp.refused(name, exc)
+            except Exception as exc:  # a traceback is not an answer; a refusal is
+                cdp.refused(name, f"{type(exc).__name__}: {exc}")
     print(f"\n{len(PAGES)}/{len(PAGES)} pages fit at {cdp.WIDTH} px", flush=True)
     return 0
 

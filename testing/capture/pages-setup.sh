@@ -18,12 +18,16 @@ set -euo pipefail
 
 capture_begin pages 8501 9333
 
-cat > "$CONFIG" <<'JSON'
+# The heredoc is unquoted for one line: the listen address has to carry $RUN_PORT, so the port
+# is named once, in capture_begin. A quoted heredoc here meant the port appeared twice, and
+# the obvious edit -- changing the capture_begin line -- left the daemon on the old port and
+# the driver probing the new one, which reads as "the daemon never answered".
+cat > "$CONFIG" <<JSON
 {
   "version": 1,
   "admin": {},
   "settings": {
-    "listen": "127.0.0.1:8501",
+    "listen": "127.0.0.1:$RUN_PORT",
     "tls": "off",
     "pollSeconds": 3600,
     "enforcement": true,
@@ -55,7 +59,10 @@ chmod 600 "$CONFIG"
 capture_admin
 
 # A trail long enough that the audit page renders its table rather than a sentence, with the
-# widest realistic value in every column. The timestamps are written relative to now, and signing
+# widest realistic value in every column. Every kind seeded here is one the daemon really
+# writes: the first version of this fixture seeded `auth.login`, which exists only in a Go test
+# fixture and is emitted by nothing, so the photographed table showed an event the application
+# cannot produce. The timestamps are written relative to now, and signing
 # in appends an auth.success row of its own, so audit.png is one of the two artifacts in
 # docs/screenshots/360/ that a second run cannot reproduce byte for byte — README.md names both
 # and says why.
@@ -69,7 +76,7 @@ rows = [
     ("lockout.entered", "casey", "r-allday", "All weekend, every hour", ""),
     ("override.granted", "alex", "", "", "30 minutes; reason: dentist appointment, travelling home afterwards"),
     ("config.changed", "", "", "", "profile school: rule Weeknight curfew including the weekend edited"),
-    ("auth.login", "parent", "", "", "from 127.0.0.1"),
+    ("auth.failure", "parent", "", "", "wrong password, from 127.0.0.1"),
 ]
 with open(sys.argv[1], "w") as f:
     for i, (kind, user, rid, rname, detail) in enumerate(rows):

@@ -50,7 +50,7 @@ one page needs live in `cdp.py`.
 | `pages.py` | a page answers a different URL than it was sent to; the page has no table or no cells (an empty fixture fits at any width); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page |
 | `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows |
 | `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows |
-| all three | the daemon the fixture started is not the process answering the port; `--out` resolves outside the repository; `--out` names a directory holding PNGs without `--overwrite` |
+| all three | the daemon the fixture started is not the process still serving its port; something already answers the DevTools endpoint before the browser is launched; `--out` resolves outside the repository, names a file, or names a directory holding PNGs without `--overwrite`; an unrecognised flag |
 
 Three of those deserve explaining, because each was a hole found by attacking this code rather
 than by writing it.
@@ -67,12 +67,18 @@ twice and a membership test against the whole file passes on the previous run's 
 artifact the criterion refuses; writing it and then exiting 1 leaves wrong evidence on disk under
 the right filename.
 
-**The daemon must be the one the fixture started.** A port answering is not evidence about who is
-answering it. With a second `plock serve` already holding the fixture's port, the fixture's own
-daemon dies on `bind: address already in use`, the stranger answers the readiness probe, and the
-capture signs in, clicks, measures and writes a PNG about a different config, a different audit
-trail and a different set of accounts. The exit code is the only thing that distinguishes the two
-cases, so the driver watches the process instead of asking the port twice.
+**The daemon and the browser must be the ones the fixture started.** A port answering is not
+evidence about who is answering it. With a second `plock serve` already holding the fixture's
+port, the fixture's own daemon dies on `bind: address already in use`, the stranger answers the
+readiness probe, and the capture signs in, clicks, measures and writes a PNG about a different
+config, a different audit trail and a different set of accounts. The exit code is the only thing
+that distinguishes the two cases, so `require_running` checks the process before the browser
+touches anything and again immediately before the PNG is written — and it checks Chrome too, for
+the same reason: with a stranger `--headless` browser holding the DevTools port, the driver's own
+`chrome.log` recorded `Address already in use` while the run went on to screenshot a tab in a
+browser it never started, in a profile it never made. Had that stranger been a headed browser, the
+capture would have hijacked a real window. So the DevTools endpoint is probed before the launch and
+refused if anything is already there.
 
 ## The negative control, and why a refusal nobody watched fire proves nothing
 
@@ -144,6 +150,13 @@ used to create `testing/capture/docs/screenshots/360/`, which the `runs/` ignore
 cover, so the operator believed they had re-taken the evidence, the committed files were
 untouched, and a later `git add -A` would have committed four PNGs nobody meant to make.
 
+Two more holes in the same guard, both found by attacking it and both now closed. The path was
+normalised rather than resolved, so a symlink under `runs/` walked out of the repository with the
+check silent — it is `realpath`ed on both sides now. And `argv` was read by hand, so
+`--out=docs/screenshots/360` and a mistyped `--outt` were both ignored and the driver exited 0
+having written to `runs/` — the same harm from the other direction. Arguments go through `argparse`
+now, so an unrecognised flag is an error.
+
 `--overwrite` is a second flag on purpose. Writing this README and then testing its own
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the
 flag is for. Replacing committed evidence should take two tokens, not a tab-completion.
@@ -158,9 +171,14 @@ flag is for. Replacing committed evidence should take two tokens, not a tab-comp
 * **`cdp.py` holds the shared refusals; a driver holds the checks about its own page.** The cell
   that #108 was about was copied between two pages, and a copied cell is a copied rule: the check
   that exists on one page is the check that misses the regression on the other.
-* **A rule that examined nothing must refuse.** Every branch of the #108 check can skip, so the
-  drivers require the note to have appeared somewhere. A guard that silently matched nothing
-  reports success for free, which is how coverage is lost without a test failing.
+* **A rule that examined nothing must not report success silently.** Every branch of the #108
+  check can skip, so the drivers require the self-session note to have appeared in at least one
+  Detail cell — a reword of that sentence in the templates turns a silent loss of coverage into a
+  refusal. What cannot be required is a *seam*: on the probe page a lockable session's cell is the
+  note alone, so demanding a second sentence would refuse correct code. The count is printed
+  instead — `#108 seam: note in 1 Detail cell(s), 0 with a sentence in front of it` — so the
+  transcript says whether the rule actually looked at something, rather than leaving a reader to
+  guess which kind of pass it was.
 * **`runs/` is ignored, and it is not safe.** It holds a config carrying an admin credential hash,
   `fixture.env` with the fixture's password **in cleartext**, an audit trail with usernames, and a
   Chrome profile. Commit the transcript you are quoting, never the run.

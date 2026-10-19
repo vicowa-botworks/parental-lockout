@@ -18,6 +18,7 @@ that proves its own refusals bite.
 Nothing in here asserts anything about a page. Page-specific checks belong in the driver that
 photographs that page, next to the sentence it is checking.
 """
+import argparse
 import base64
 import datetime
 import json
@@ -275,12 +276,17 @@ def require_detail_terminated(rows, what):
     copied cell is a copied rule: the check that only exists on one page is the check that fails
     to notice when the other one regresses.
 
-    The return value is not decoration. Every branch below can skip, and a rule that skips
-    everything still reports success -- so a driver has to require a count above zero, or it is
-    asserting nothing while appearing to assert #108. If the note's wording is ever changed in the
-    templates, this is the line that turns that from a silent loss of coverage into a refusal.
+    Two counts come back, and the difference between them is the honest statement of what was
+    covered: `seen` is how many cells held the note at all, `seams` how many of those had a second
+    sentence in front of it for the rule to check. Requiring `seen` above zero is what stops the
+    rule from reporting success on a page where the note never rendered -- if the templates ever
+    reword it, that is the line which turns a silent loss of coverage into a refusal. But `seams`
+    cannot be required: on the probe page a lockable session's cell is the note alone, so a
+    correct page can legitimately have no seam at all, and a driver that demanded one would refuse
+    correct code. It is printed instead, so the transcript says whether #108 was exercised.
     """
     seen = 0
+    seams = 0
     for r in rows:
         labels = [k.lower() for k in r["result"]]
         if "detail" not in labels:
@@ -290,6 +296,8 @@ def require_detail_terminated(rows, what):
             continue
         seen += 1
         before = cell.split(SELF_SESSION_NOTE)[0].rstrip()
+        if before:
+            seams += 1
         if not before:
             # The note is the whole cell. There is no second sentence here to run into, so there
             # is no seam to check -- and demanding a terminator anyway is a refusal that fires
@@ -304,7 +312,7 @@ def require_detail_terminated(rows, what):
                 f"{what}: the detail runs into the self-session note ({before[-32:]!r} then "
                 f"{SELF_SESSION_NOTE!r}); the page still renders a run-on, so this capture is "
                 "the pre-fix page")
-    return seen
+    return seen, seams
 
 
 class Capture:
@@ -318,6 +326,7 @@ class Capture:
     def __init__(self, fixture_name, extra_chrome_flags=()):
         self.dir, self.env = fixture(fixture_name)
         self.port = int(self.env["PLOCK_CAPTURE_PORT"])
+        self.cdp = int(self.env["PLOCK_CAPTURE_CDP"])
         self.base = f"http://127.0.0.1:{self.port}"
         self.bin = binary()
         self.server = None
@@ -375,6 +384,20 @@ class Capture:
             time.sleep(0.4)
             self.require_running()
 
+            # The DevTools endpoint is a shared address exactly like the daemon's port, and the
+            # same mistake applies to it: asking who is there, rather than insisting it is the one
+            # we started. Measured: with a stranger Chrome holding the fixture's CDP port, this
+            # driver's own chrome.log recorded `bind() failed: Address already in use`, and the run
+            # went on to sign in, measure and screenshot a tab in a browser it never started, in a
+            # profile it never made -- then left that stranger holding the port for the next run.
+            # If the stranger is a headed browser, the capture has hijacked a real window.
+            if _port_answers(f"http://127.0.0.1:{self.cdp}/json/version"):
+                raise SystemExit(
+                    f"something already answers the DevTools endpoint on 127.0.0.1:{self.cdp}, so "
+                    "this capture would drive a browser it did not start. Close whatever holds the "
+                    "port (a leftover chrome --headless, or a real Chrome started with "
+                    "--remote-debugging-port) or move CDP_PORT; the fixture's own chrome.log will "
+                    "say `Address already in use`.")
             self.chrome = subprocess.Popen(
                 ["google-chrome", "--headless=new",
                  f"--remote-debugging-port={self.env['PLOCK_CAPTURE_CDP']}",
@@ -424,21 +447,28 @@ class Capture:
             raise
 
     def require_running(self):
-        """The daemon this fixture started must still be the process serving the port.
+        """The daemon and the browser this fixture started must still be the ones in use.
 
         Called once before the browser touches anything and once immediately before the PNG is
-        written. If it died, whatever answered the requests in between was somebody else's daemon
-        -- a different config, a different audit trail, a different set of accounts -- and the
-        measurement would be about that machine while the transcript names this one.
+        written. If either died, whatever answered the requests in between was not started by this
+        harness -- a different config, a different audit trail, a different browser window -- and
+        the measurement would be about that machine while the transcript names this one. The
+        fixture's own logs are named because that is where `address already in use` is written;
+        the process exit code alone does not say who took the port.
         """
-        if self.server is not None and self.server.poll() is not None:
-            raise SystemExit(
-                f"the daemon this fixture started is no longer running (code "
-                f"{self.server.returncode}). Something else was answering 127.0.0.1:{self.port} "
-                "-- most likely another plock serve already holds the port, and the fixture's own "
-                "serve.log will say `bind: address already in use`. Free the port or move it in "
-                "the setup script; a capture of a stranger's daemon is not evidence about this "
-                "fixture.")
+        for who, proc, hint in (
+                ("daemon", self.server,
+                 "something else was answering the port, and serve.log will say "
+                 "`bind: address already in use`"),
+                ("browser", self.chrome,
+                 "something else was answering the DevTools endpoint, and chrome.log will say "
+                 "`Address already in use`")):
+            if proc is not None and proc.poll() is not None:
+                raise SystemExit(
+                    f"the {who} this fixture started is no longer running (code "
+                    f"{proc.returncode}) -- {hint}. Free the port or move it in the setup script; "
+                    "a capture of somebody else's daemon or browser window is not evidence about "
+                    "this fixture.")
 
     def close(self):
         for p in (self.chrome, self.server):
@@ -450,42 +480,62 @@ class Capture:
                 p.kill()
 
 
-def out_dir(default_name):
-    """Where the PNGs land: inside this repository, or nowhere.
+def capture_out(default_name):
+    """Where the PNGs land: inside this repository, and only under a flag you meant to type.
 
-    Never the repo's own docs/ tree unless it is asked for by name -- an overwrite is exactly
-    the state a stale screenshot can fake -- and never outside the repository either. A relative
-    `--out` is resolved against the repo root rather than the shell's directory, because the
-    obvious invocation is the one that goes wrong: `--out docs/screenshots/360` typed from
-    testing/capture otherwise creates testing/capture/docs/screenshots/360/, which the runs/
-    ignore rule does not cover, so the operator believes they re-took the evidence, the
-    committed files are untouched, and a later `git add -A` commits four PNGs nobody meant to
-    make. Measured, not theorised.
+    Never the repo's own docs/ tree unless it is asked for by name -- an overwrite is exactly the
+    state a stale screenshot can fake -- and never outside the repository either. Three separate
+    holes, all measured on this branch:
+
+    * A relative --out resolved against the shell's directory, so `--out docs/screenshots/360`
+      typed from testing/capture created testing/capture/docs/screenshots/360/, which the runs/
+      ignore rule does not cover: the operator believed they had re-taken the evidence, the
+      committed files were untouched, and a later `git add -A` would commit four PNGs nobody
+      meant to make. So a relative --out resolves against the repository root.
+    * The path was normalised, not resolved, so a symlink under runs/ walked straight out of the
+      repository with the guard silent. Hence realpath on both sides.
+    * argv was read by hand, so `--out=docs/screenshots/360` and a mistyped `--outt` were both
+      ignored and the driver exited 0 having written to runs/ -- the same harm, arriving from the
+      other direction. Hence argparse: an unrecognised flag is an error, not a no-op.
     """
-    if "--out" in sys.argv:
-        i = sys.argv.index("--out")
-        if i + 1 >= len(sys.argv) or sys.argv[i + 1].startswith("--"):
-            raise SystemExit("--out needs a directory")
-        raw = sys.argv[i + 1]
-        target = op.normpath(raw if op.isabs(raw) else op.join(REPO, raw))
-        if not (target + op.sep).startswith(REPO + op.sep):
-            raise SystemExit(f"--out {raw!r} resolves to {target}, outside the repository "
-                             f"({REPO}); a capture writes inside the repo or into its own "
-                             "ignored runs/ directory")
-        # Replacing a committed artifact is a different act from taking a picture, and it is the
-        # one that can quietly destroy evidence. Measured on this branch: the sentence in the
-        # README telling you to pass `--out docs/screenshots/360` was tested by passing exactly
-        # that, and two committed PNGs were gone before anything said a word -- no error, because
-        # that is what the flag is for. So the flag has to be doubled: --out says where, and
-        # --overwrite says the files already there are the ones you mean to replace.
-        existing = sorted(f for f in os.listdir(target) if f.endswith(".png")) if op.isdir(target) else []
-        if existing and "--overwrite" not in sys.argv:
-            raise SystemExit(f"{target} already holds {len(existing)} PNG(s) "
-                             f"({', '.join(existing)}). Pass --overwrite as well to replace "
-                             "them; a re-capture belongs in the same branch as the change that "
-                             "made the old one stale")
-        return target
-    return op.join(RUNS, default_name)
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--out", metavar="DIR",
+                    help="directory for the PNGs, inside the repository; default "
+                         "testing/capture/runs/" + default_name)
+    ap.add_argument("--overwrite", action="store_true",
+                    help="required to replace PNGs that already exist in --out")
+    a = ap.parse_args()
+    if not a.out:
+        return op.join(RUNS, default_name)
+    target = op.realpath(a.out if op.isabs(a.out) else op.join(REPO, a.out))
+    if not (target + op.sep).startswith(op.realpath(REPO) + op.sep):
+        raise SystemExit(f"--out {a.out!r} resolves to {target}, outside the repository "
+                         f"({op.realpath(REPO)}); a capture writes inside the repo or into its "
+                         "own ignored runs/ directory")
+    if op.exists(target) and not op.isdir(target):
+        raise SystemExit(f"--out {a.out!r} is a file, not a directory")
+    # Replacing a committed artifact is a different act from taking a picture, and it is the one
+    # that can quietly destroy evidence. Writing this folder's own README and then testing the
+    # invocation it names replaced two committed PNGs with no error and no warning -- overwriting
+    # is what the flag is for. So the flag is doubled: --out says where, --overwrite says the
+    # files already there are the ones you mean to replace.
+    existing = sorted(f for f in os.listdir(target) if f.endswith(".png")) if op.isdir(target) else []
+    if existing and not a.overwrite:
+        raise SystemExit(f"{target} already holds {len(existing)} PNG(s) ({', '.join(existing)}). "
+                         "Pass --overwrite as well to replace them; a re-capture belongs in the "
+                         "same branch as the change that made the old one stale")
+    return target
+
+
+def _port_answers(url):
+    """True if anything at all replies. A refused connection is the answer we want."""
+    try:
+        with urllib.request.urlopen(url, timeout=1):
+            return True
+    except urllib.error.HTTPError:
+        return True
+    except Exception:
+        return False
 
 
 def audit_lines(path):
