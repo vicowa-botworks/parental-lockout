@@ -606,7 +606,10 @@ func TestLockingTheDaemonsOwnAccountSaysBothHalves(t *testing.T) {
 // arrive as one word: "...not confirmedThis is the session...". flat() cannot see this,
 // because it collapses whitespace that is not there, and a browser collapses nothing; the
 // defect only showed up in a 360 px screenshot of a real unconfirmed lock. So this asserts on
-// the raw body, at the byte before the note begins.
+// the raw body, in two halves: something must sit between the detail's `</span>` and the note
+// at all (#103), and the detail's own text must end in a sentence terminator rather than a
+// space (#108). Both halves are in assertTheDetailCellEndsWhereTheNoteBegins, and each is
+// pinned by its own mutant -- W204 here, W205 on the probe page.
 func TestTheSelfSessionNoteDoesNotRunIntoTheDetail(t *testing.T) {
 	f := newLockFixture(t)
 	f.s.Self = platform.SelfLocation{InUserSlice: true, UID: 1000}
@@ -654,6 +657,19 @@ func assertTheDetailCellEndsWhereTheNoteBegins(t *testing.T, raw string) {
 		t.Fatalf("the row rendered no detail span before the note, so nothing was tested: %s", raw)
 	}
 	detail := raw[head+len(`class="problem">`) : end]
+	// The span found by searching backwards is only this cell's own if nothing else sits
+	// between them. A row with no detail renders the note alone -- a lockable self session on
+	// the probe page, which is the ordinary case on a real machine -- and then the nearest
+	// closed span belongs to another cell. Measured: with the fixture's session changed from
+	// `greeter` to `user`, the helper reached back to the "Would lock" cell and reported
+	// `separated by "</td>\n      <td data-label=\"Detail\">"` on a page with no seam at all.
+	// A failure that points at markup nowhere near the seam is worse than no assertion, so
+	// this says what is missing instead of measuring the wrong thing.
+	gap := raw[end+len(`</span>`) : i]
+	if strings.Contains(gap, "<") {
+		t.Fatalf("the nearest closed span before the self-session note is in another cell (%q between them): "+
+			"this row rendered no detail of its own, so there is no seam to test", gap)
+	}
 	// #103's contract, kept whole: something has to sit between the two spans at all. Go's
 	// `{{if}}`/`{{end}}` trim the whitespace around them, so if the separator action is
 	// dropped the spans land against each other and the cell renders
@@ -661,7 +677,6 @@ func assertTheDetailCellEndsWhereTheNoteBegins(t *testing.T, raw string) {
 	// one that a check on the detail's last character cannot see, because the detail is still
 	// correctly terminated. Measured: with the separator deleted from both templates, the
 	// terminator assertion alone passed the whole package.
-	gap := raw[end+len(`</span>`) : i]
 	if gap == "" || strings.TrimSpace(gap) != "" {
 		t.Errorf("the detail span and the self-session note are separated by %q, not by whitespace; "+
 			"the cell renders as one run-on word: %q", gap, around(raw, i, 60, 40))
