@@ -83,7 +83,12 @@ jobs:
             scripts/check-deps.sh \
             testing/e2e/e2e.sh \
             testing/e2e/forge-hint.sh \
-            testing/e2e/lib.sh
+            testing/e2e/lib.sh \
+            testing/capture/fixture.sh \
+            testing/capture/post-fixture.sh \
+            testing/capture/pages-setup.sh \
+            testing/capture/lock-setup.sh \
+            testing/capture/testlock-setup.sh
 
   # Every file under scripts/mutations/ is a list of claims of the form "this guard is
   # tested, and here is the exact source text that would break if it were removed". Two

@@ -45,3 +45,7 @@ testing/e2e/runs/
 # source on every run. It is generated, it changes with the Python version, and a bulk
 # `git add -A` in a moment of haste would commit it.
 __pycache__/
+
+# 360 px capture fixtures: throwaway config, state, audit trail, Chrome profile, PNGs.
+# The committed artifacts live in docs/screenshots/360/; these are the runs they came from.
+/testing/capture/runs/
