@@ -1442,25 +1442,46 @@
       "note": "stopping management of an account that was never managed answers 303, so the page says the change happened. A refusal that reports success is the shape every other write in this package refuses. TestStoppingManagementOfAnAccountThatWasNeverManagedSaysSo."
     },
     {
-    "id": "W201",
-    "file": "internal/web/celltext.go",
-    "old": "\treturn trimmed + \".\"\n",
-    "new": "\treturn trimmed\n",
-    "note": "the terminator is never added, so the Detail cell runs into the self-session note again -- #108's defect, arriving from the helper instead of from the template. Both pages render this cell and both guards fail: TestTheSelfSessionNoteDoesNotRunIntoTheDetail and TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail."
-  },
+      "id": "W201",
+      "file": "internal/web/celltext.go",
+      "old": "\treturn trimmed + \".\"\n",
+      "new": "\treturn trimmed\n",
+      "note": "the terminator is never added, so the Detail cell runs into the self-session note again -- #108's defect, arriving from the helper instead of from the template. Both pages render this cell and both guards fail: TestTheSelfSessionNoteDoesNotRunIntoTheDetail and TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail."
+    },
     {
-    "id": "W202",
-    "file": "internal/web/templates/lock.tmpl",
-    "old": "<span class=\"problem\">{{.DetailText}}</span>",
-    "new": "<span class=\"problem\">{{.Detail}}</span>",
-    "note": "the lock page renders the raw detail again while the helper is still there and still correct, so the fix is retired by one line of a merge conflict and every other caller keeps passing. TestTheSelfSessionNoteDoesNotRunIntoTheDetail."
-  },
+      "id": "W202",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"problem\">{{.DetailText}}</span>",
+      "new": "<span class=\"problem\">{{.Detail}}</span>",
+      "note": "the lock page renders the raw detail again while the helper is still there and still correct, so the fix is retired by one line of a merge conflict and every other caller keeps passing. TestTheSelfSessionNoteDoesNotRunIntoTheDetail."
+    },
     {
-    "id": "W203",
-    "file": "internal/web/templates/testlock.tmpl",
-    "old": "<span class=\"problem\">{{.DetailText}}</span>",
-    "new": "<span class=\"problem\">{{.Detail}}</span>",
-    "note": "the probe page -- the copy of this cell -- renders the raw detail again. Its own guard is the only thing that can see it, because the lock page is unchanged and stays green. TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail."
-  }
+      "id": "W203",
+      "file": "internal/web/templates/testlock.tmpl",
+      "old": "<span class=\"problem\">{{.DetailText}}</span>",
+      "new": "<span class=\"problem\">{{.Detail}}</span>",
+      "note": "the probe page -- the copy of this cell -- renders the raw detail again. Its own guard is the only thing that can see it, because the lock page is unchanged and stays green. TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail."
+    },
+    {
+      "id": "W204",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"override\">",
+      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"override\">",
+      "note": "#103's separator deleted, so the two spans land against each other and the cell renders '...confirmed.This is the session...'. The terminator is still correct, which is exactly why the terminator assertion alone cannot see it -- the killer is the separation half of assertTheDetailCellEndsWhereTheNoteBegins, restored after the first review round found this hole. TestTheSelfSessionNoteDoesNotRunIntoTheDetail."
+    },
+    {
+      "id": "W205",
+      "file": "internal/web/templates/testlock.tmpl",
+      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"override\">",
+      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"override\">",
+      "note": "the same separator deleted on the probe page, the copy of this cell. The lock page is untouched and stays green, so only this page's own guard can see it. TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail."
+    },
+    {
+      "id": "W206",
+      "file": "internal/web/celltext.go",
+      "old": "\tcase '.', '!', '?':\n\t\treturn text\n",
+      "new": "",
+      "note": "the terminator is added to everything, so a detail that already ended in one gains a second: 'cannot confirm it.. This is the session'. Both seam tests still pass, because they only ask whether the cell ends in a terminator -- the killer is the unit test that exists for this case. TestTheTerminatorIsAddedOnceAndOnlyWhenNeeded."
+    }
   ]
 }

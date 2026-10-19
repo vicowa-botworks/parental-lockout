@@ -615,7 +615,9 @@ func TestTheSelfSessionNoteDoesNotRunIntoTheDetail(t *testing.T) {
 	assertTheDetailCellEndsWhereTheNoteBegins(t, rec.Body.String())
 }
 
-// assertTheDetailCellEndsWhereTheNoteBegins is the #108 contract, on the raw rendered bytes.
+// assertTheDetailCellEndsWhereTheNoteBegins is the seam contract on the raw rendered bytes,
+// and it asserts both halves of it: that something separates the two spans (#103) and that
+// the separation is a sentence boundary rather than a space (#108).
 //
 // The seam has to be a sentence boundary, not merely a gap. #103 fixed a collision -- zero
 // characters between the two spans -- by putting a space between them, and a space is not a
@@ -652,6 +654,19 @@ func assertTheDetailCellEndsWhereTheNoteBegins(t *testing.T, raw string) {
 		t.Fatalf("the row rendered no detail span before the note, so nothing was tested: %s", raw)
 	}
 	detail := raw[head+len(`class="problem">`) : end]
+	// #103's contract, kept whole: something has to sit between the two spans at all. Go's
+	// `{{if}}`/`{{end}}` trim the whitespace around them, so if the separator action is
+	// dropped the spans land against each other and the cell renders
+	// "...confirmed.This is the session..." -- a worse run-on than the one #108 is about, and
+	// one that a check on the detail's last character cannot see, because the detail is still
+	// correctly terminated. Measured: with the separator deleted from both templates, the
+	// terminator assertion alone passed the whole package.
+	gap := raw[end+len(`</span>`) : i]
+	if gap == "" || strings.TrimSpace(gap) != "" {
+		t.Errorf("the detail span and the self-session note are separated by %q, not by whitespace; "+
+			"the cell renders as one run-on word: %q", gap, around(raw, i, 60, 40))
+	}
+	// #108's contract: the boundary has to be a sentence terminator, not merely a gap.
 	detail = strings.TrimRight(detail, " \t\r\n")
 	if detail == "" {
 		t.Fatalf("the detail span rendered no text, so nothing was tested: %s", raw)

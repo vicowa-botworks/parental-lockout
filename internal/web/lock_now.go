@@ -150,6 +150,11 @@ type lockRow struct {
 // DetailText is the Detail cell's text with a sentence terminator on the end. The cell puts
 // this next to the self-session note, and the note is a sentence the page wrote, so the
 // seam needs a boundary rather than a space (#108).
+//
+// The terminator belongs to the rendering only. The audit line and `plock lock` print the raw
+// Detail, deliberately: the trail is the machine-readable record, and a period added for a
+// paragraph would put it out of step with the page for anyone who copies a sentence off the
+// screen to go grep for it. Do not "fix" the audit side to match.
 func (r lockRow) DetailText() string { return sentenceTerminated(r.Detail) }
 
 // serverChain adapts the server's seams to lockop.Chain.
