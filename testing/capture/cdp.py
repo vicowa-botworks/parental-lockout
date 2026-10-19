@@ -24,6 +24,7 @@ import datetime
 import json
 import os
 import os.path as op
+import re
 import socket
 import struct
 import subprocess
@@ -43,6 +44,26 @@ WIDTH = 360
 # the default output location must never be the repo's own docs/ tree: a capture that silently
 # overwrites a committed artifact is worse than one that has to be asked for.
 RUNS = op.join(HERE, "runs")
+
+# Captures are staged here and copied to their target only after every page has passed. Per
+# process, so two drivers running at once cannot publish each other's frames.
+_PENDING = []
+_STAGE = None
+
+
+def _stage_dir():
+    global _STAGE
+    if _STAGE is None:
+        _STAGE = op.join(RUNS, f"_stage-{os.getpid()}")
+    return _STAGE
+
+
+def discard_stage():
+    """A refusal throws the staged bytes away; it never deletes what is already at the target."""
+    stage = _stage_dir()
+    for name in os.listdir(stage) if op.isdir(stage) else []:
+        os.remove(op.join(stage, name))
+    _PENDING.clear()
 
 
 def fixture(name):
@@ -204,9 +225,33 @@ class Session:
                                           captureBeyondViewport=True)["data"])
 
     def write_png(self, path):
-        os.makedirs(op.dirname(op.abspath(path)), exist_ok=True)
-        with open(path, "wb") as fh:
+        """Stage the bytes; `publish` is what puts them where they will be read.
+
+        A refusal has to leave the target exactly as it was, and the multi-page driver refuses
+        partway through: with four pages and a failure on the audit page, writing as you go leaves
+        three freshly captured PNGs and one stale one under committed filenames -- a half-replaced
+        evidence set, which is the state this folder's own house rule forbids, and `git status`
+        shows it as three ordinary modifications. So nothing reaches `--out` until every page has
+        passed.
+        """
+        dest = op.abspath(path)
+        stage = op.join(_stage_dir(), op.basename(dest))
+        os.makedirs(op.dirname(stage), exist_ok=True)
+        with open(stage, "wb") as fh:
             fh.write(self.screenshot())
+        _PENDING.append((stage, dest))
+
+    def publish(self):
+        """Copy every staged capture to its final path. Only ever called once the last check on
+        the last page has passed."""
+        for stage, dest in _PENDING:
+            os.makedirs(op.dirname(dest), exist_ok=True)
+            with open(stage, "rb") as src:
+                data = src.read()
+            with open(dest, "wb") as out:
+                out.write(data)
+            os.remove(stage)
+        _PENDING.clear()
 
 
 WIDTH_JS = ("JSON.stringify({scroll:document.documentElement.scrollWidth,"
@@ -417,6 +462,33 @@ class Capture:
                 raise SystemExit("chrome's devtools endpoint never came up; see chrome.log")
             target = next(t for t in targets if t.get("type") == "page")
 
+            # The endpoint answered, so a browser is there -- which is not the same as *our*
+            # browser being there. Chrome that loses the port does not exit: it falls back to ::1
+            # on the same port number and stays up, so require_running's pid check cannot see it
+            # and the pre-launch probe above is a race that a stranger arriving half a second late
+            # wins. Chrome's own first line, printed into this fixture's chrome.log, names the
+            # address it bound and the id of the browser behind it -- a file a stranger cannot have
+            # written. Compare both with what the endpoint advertises, and refuse unless they agree.
+            addr, self.browser_id = _logged_browser(op.join(self.dir, "chrome.log"))
+            if self.browser_id is None:
+                raise SystemExit(
+                    f"chrome never logged the DevTools endpoint it opened, so there is no way to "
+                    f"tell whether 127.0.0.1:{self.cdp} is the browser this fixture started; see "
+                    f"{self.dir}/chrome.log")
+            want_addr = f"127.0.0.1:{self.cdp}"
+            if addr != want_addr:
+                raise SystemExit(
+                    f"chrome opened its DevTools endpoint on {addr}, not {want_addr} -- it lost the "
+                    "port to something already there and fell back rather than exiting. The capture "
+                    "would drive that other browser. Close it (chrome.log says `Address already in "
+                    "use`) or move CDP_PORT.")
+            served = _browser_id(f"http://127.0.0.1:{self.cdp}/json/version")
+            if served != self.browser_id:
+                raise SystemExit(
+                    f"the DevTools endpoint on 127.0.0.1:{self.cdp} serves browser {served!r} while "
+                    f"this fixture's chrome.log recorded {self.browser_id!r}, so the capture would "
+                    "drive a browser it did not start.")
+
             # Sign in inside this browser, the way a person does. A cookie captured by a second
             # client would never reach Chrome, and an unauthenticated Chrome quietly photographs
             # the login page at every address while still reporting 360 px -- a green run that
@@ -469,6 +541,16 @@ class Capture:
                     f"{proc.returncode}) -- {hint}. Free the port or move it in the setup script; "
                     "a capture of somebody else's daemon or browser window is not evidence about "
                     "this fixture.")
+        # A live pid is not ownership -- the Chrome that lost the port is alive as well, on ::1.
+        # Ask the endpoint which browser it is and compare with what our own profile recorded.
+        expected = getattr(self, "browser_id", None)
+        if expected is not None:
+            served = _browser_id(f"http://127.0.0.1:{self.cdp}/json/version")
+            if served != expected:
+                raise SystemExit(
+                    f"the DevTools endpoint on 127.0.0.1:{self.cdp} now serves browser "
+                    f"{served!r}, not the {expected!r} this fixture started, so the measurement "
+                    "since the last check was taken in a browser this harness did not open.")
 
     def close(self):
         for p in (self.chrome, self.server):
@@ -519,12 +601,67 @@ def capture_out(default_name):
     # invocation it names replaced two committed PNGs with no error and no warning -- overwriting
     # is what the flag is for. So the flag is doubled: --out says where, --overwrite says the
     # files already there are the ones you mean to replace.
-    existing = sorted(f for f in os.listdir(target) if f.endswith(".png")) if op.isdir(target) else []
-    if existing and not a.overwrite:
-        raise SystemExit(f"{target} already holds {len(existing)} PNG(s) ({', '.join(existing)}). "
-                         "Pass --overwrite as well to replace them; a re-capture belongs in the "
-                         "same branch as the change that made the old one stale")
+    #
+    # The test is where the target IS, not whether it happens to hold PNGs yet. Keying on the
+    # contents let `--out docs/screenshots/360/..` and `--out .` through -- both resolve inside
+    # the repo, neither contains a *.png at the top -- and the run then wrote four new PNGs into
+    # tracked directories with no flag and no warning, which is the exact harm the flag exists to
+    # gate. Anything that is not this package's own ignored runs/ directory takes the flag.
+    stage_root = op.realpath(RUNS) + op.sep
+    if not (target + op.sep).startswith(stage_root) and not a.overwrite:
+        existing = sorted(f for f in os.listdir(target) if f.endswith(".png")) if op.isdir(target) else []
+        holds = f" already holds {len(existing)} PNG(s) ({', '.join(existing)})" if existing else ""
+        raise SystemExit(
+            f"{target}{holds} is not this package's scratch directory ({RUNS}), so writing there "
+            "means replacing evidence. Pass --overwrite as well to say you mean it; a re-capture "
+            "belongs in the same branch as the change that made the old one stale")
+    global _STAGE
+    _STAGE = op.join(RUNS, f"_stage-{os.getpid()}")
     return target
+
+
+def _browser_id(url):
+    """The id in the `webSocketDebuggerUrl` a DevTools endpoint advertises, or None.
+
+    This is the only thing that names *which* browser an endpoint belongs to. A second Chrome that
+    loses the port race does not exit: it logs `bind() failed: Address already in use`, falls back
+    to `::1` on the SAME port number, and stays alive -- so a live pid and an answering port are
+    both equally consistent with talking to a stranger.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            version = json.load(r)
+    except Exception:
+        return None
+    ws = version.get("webSocketDebuggerUrl") or ""
+    marker = "/devtools/browser/"
+    if marker not in ws:
+        return None
+    return ws.split(marker, 1)[1].strip("/")
+
+
+def _logged_browser(log_path):
+    """The address and browser id Chrome said it opened, read from the fixture's own log.
+
+    `--headless=new` does not write DevToolsActivePort into --user-data-dir (measured: a
+    successful run leaves no such file anywhere under the profile), but it prints the endpoint it
+    opened to stdout, and stdout is a file this fixture made -- which a stranger cannot have
+    written. The address matters as much as the id: a Chrome that lost the port logs
+    `bind() failed: Address already in use` and then `DevTools listening on ws://[::1]:9333/...`,
+    so it stays alive on the same port number at a different address and both the pid check and a
+    bare id comparison can still read it as ours.
+    """
+    for _ in range(20):
+        try:
+            with open(log_path, errors="replace") as f:
+                text = f.read()
+        except OSError:
+            text = ""
+        m = re.search(r"DevTools listening on ws://([^/]+)/devtools/browser/(\S+)", text)
+        if m:
+            return m.group(1), m.group(2).strip("/")
+        time.sleep(0.25)
+    return None, None
 
 
 def _port_answers(url):

@@ -63,6 +63,7 @@ def shoot(cap, page, name):
 
 def main():
     out = cdp.capture_out("pages")
+    refused_pages = []
     with cdp.Capture("pages", CHROME_FLAGS) as cap:
         for page in PAGES:
             name = op.join(out, (page.strip("/") or "dashboard") + ".png")
@@ -70,9 +71,23 @@ def main():
                 shoot(cap, page, name)
             except SystemExit as exc:
                 cdp.refused(name, exc)
+                refused_pages.append(page)
             except Exception as exc:  # a traceback is not an answer; a refusal is
                 cdp.refused(name, f"{type(exc).__name__}: {exc}")
-    print(f"\n{len(PAGES)}/{len(PAGES)} pages fit at {cdp.WIDTH} px", flush=True)
+                refused_pages.append(page)
+        if refused_pages:
+            # The count is the exit status, so it has to be the true one. This line used to print
+            # `4/4 pages fit` and return 0 whatever had happened, because a refusal was caught
+            # per page and the loop simply carried on -- a run that photographed three pages and
+            # refused the fourth reported complete success, which is the failure this whole
+            # package exists to make impossible.
+            cdp.discard_stage()
+            print(f"\n{len(PAGES) - len(refused_pages)}/{len(PAGES)} pages fit at "
+                  f"{cdp.WIDTH} px; refused: {', '.join(refused_pages)}. Nothing was written to "
+                  f"{out}.", file=sys.stderr, flush=True)
+            return 1
+        cap.session.publish()
+    print(f"\n{len(PAGES)}/{len(PAGES)} pages fit at {cdp.WIDTH} px -> {out}", flush=True)
     return 0
 
 

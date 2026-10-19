@@ -144,6 +144,9 @@ def capture(name):
 
         cap.require_running()
         s.write_png(name)
+        # Every check above has passed, and only now do the bytes land. A refusal anywhere earlier
+        # leaves the target exactly as it was, staged frames and all.
+        s.publish()
         print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
               flush=True)
@@ -161,8 +164,10 @@ def main():
         return capture(name)
     except SystemExit as exc:
         cdp.refused(name, exc)
+        cdp.discard_stage()
     except Exception as exc:  # a traceback is not an answer; a refusal is
         cdp.refused(name, f"{type(exc).__name__}: {exc}")
+        cdp.discard_stage()
 
 
 if __name__ == "__main__":
