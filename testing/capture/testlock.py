@@ -11,7 +11,20 @@ and had actually locked the operator's screen would otherwise be indistinguishab
 artifact, so the trail is checked before the PNG is written, not after: a refusal that fires
 after the file exists has already produced the thing it was meant to withhold.
 
-    ./testlock-setup.sh && ./testlock.py [--out DIR]
+Two things make that check mean something:
+
+* **An allowlist, not a denylist.** Refusing kinds that start with `lock.` misses the one that
+  matters most, because `lockout.entered` does not start with `lock.` -- it starts with `locko`.
+  So the rule is inverted: the only line this click may write is `lock.probed`, and anything
+  else stops the capture. A future benign line will therefore be refused until somebody decides
+  it is benign, which is the correct direction for a check whose subject is whether the screen
+  got locked.
+* **Only the lines this run added.** A fixture can be photographed twice, and a membership test
+  against the whole file passes on the previous run's `lock.probed` -- demonstrated, a second
+  run with no intervening setup reported two of them and passed. So the driver remembers where
+  the trail stood before the click and looks only after that mark.
+
+    ./testlock-setup.sh && ./testlock.py [--out DIR] [--overwrite]
 """
 import json
 import os.path as op
@@ -21,13 +34,17 @@ import time
 sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
 
+# The one event this click is allowed to write. Everything the login and the daemon's own
+# startup write lands before the mark, so it is not part of this set.
+ALLOWED = {"lock.probed"}
 
-def main():
-    out = cdp.out_dir("testlock")
-    name = op.join(out, "testlock.png")
+
+def capture(name):
     with cdp.Capture("testlock") as cap:
         s = cap.session
         target = cap.env["PLOCK_CAPTURE_TARGET"]
+        trail = op.join(cap.dir, "audit.jsonl")
+        first_new = len(cdp.audit_lines(trail))
 
         # The dashboard, and the button the operator actually has.
         s.goto(cap.base + "/")
@@ -88,19 +105,23 @@ def main():
         cdp.require_labelled_cells(g, "the result page")
         # The probe page copies the lock page's Detail cell, so it inherits the #108 rule. A
         # check that exists on one of two pages sharing a cell is the check that misses the
-        # regression on the other one.
-        cdp.require_detail_terminated(cdp.session_rows(s), "the probe result page")
+        # regression on the other one. The count matters for the same reason it does on lock.py:
+        # whether a seam exists here depends on whether the account's sessions are lockable, and
+        # a rule that found nothing to look at must not be quoted as a pass.
+        if cdp.require_detail_terminated(cdp.session_rows(s), "the probe result page") == 0:
+            raise SystemExit("no Detail cell on the page holds the self-session note, so the "
+                             "#108 seam rule examined nothing -- a rule that checked nothing is "
+                             "not a reason to trust this capture")
 
-        # The trail first, the file second: see the module docstring.
-        with open(op.join(cap.dir, "audit.jsonl")) as fh:
-            kinds = [json.loads(l).get("kind", "") for l in fh if l.strip()]
-        lockish = [k for k in kinds if k.startswith("lock.") and k != "lock.probed"]
-        print(f"audit trail: {len(kinds)} event(s): {sorted(set(kinds))}", flush=True)
-        if "lock.probed" not in kinds:
-            raise SystemExit("the probe wrote no lock.probed line")
-        if lockish:
-            raise SystemExit(f"the probe wrote lock lines {lockish}; it must never lock")
+        cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.probed", ALLOWED,
+                          "the test-lock probe")
 
+        fits = g["scroll"] <= cdp.WIDTH
+        if not fits:
+            raise SystemExit(f"the page is {g['scroll']} px wide at a {cdp.WIDTH} px viewport; "
+                             "the criterion refuses this page, so its photograph is not taken")
+
+        cap.require_running()
         s.write_png(name)
         print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
@@ -108,9 +129,16 @@ def main():
         print(f"  tables={g['tables']} backendRows={g['backendRows']} cells={g['cells']} "
               f"unlabelled={g['unlabelled']}", flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
-        fits = g["scroll"] <= cdp.WIDTH
-        print(f"  {'FITS' if fits else 'OVERFLOWS'} at {cdp.WIDTH} px  -> {name}", flush=True)
-        return 0 if fits else 1
+        print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
+        return 0
+
+
+def main():
+    name = op.join(cdp.out_dir("testlock"), "testlock.png")
+    try:
+        return capture(name)
+    except SystemExit as exc:
+        cdp.refused(name, exc)
 
 
 if __name__ == "__main__":

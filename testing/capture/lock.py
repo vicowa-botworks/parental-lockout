@@ -16,17 +16,25 @@ So the script refuses to fake any of that. It stops, without writing a file, whe
 * the result page renders no banner sentence, or no session rows (the empty case fits at any
   width and says nothing);
 * any cell lacks a `data-label`;
+* the self-session note does not appear in any Detail cell, because then the #108 rule below
+  would have had nothing to look at and a rule that examined nothing reports success for free;
 * a row claims the lock happened while its own Result cell says otherwise (#109);
 * the Detail cell's sentence runs into the self-session note (#108, in cdp.py, because the probe
-  page copies that cell and needs the same rule).
+  page copies that cell and needs the same rule);
+* the page overflows 360 px -- checked before the write, because a photograph of an overflowing
+  page is the artifact the criterion refuses, and writing it and then exiting 1 leaves the wrong
+  evidence on disk with a green-looking filename on it;
+* the click wrote no `lock.requested` line to the audit trail.
 
-    ./lock-setup.sh && ./lock.py [--out DIR]
+The trail check counts only the lines this run added. A fixture can be photographed twice, and a
+membership test against the whole file passes on the previous run's line -- which is exactly the
+case where this run's click did nothing.
 
-The negative control is in README.md: rebuild with the terminator clause removed and this script
-must refuse and leave the previous PNG untouched. A refusal nobody watched fire is as unproven
-as an assertion never run against the alternative wording.
+    ./lock-setup.sh && ./lock.py [--out DIR] [--overwrite]
+
+The negative control is in README.md: rebuild with the terminator removed and this script must
+refuse, and say what happened to the PNG that is still lying there from the last run.
 """
-import json
 import os.path as op
 import sys
 import time
@@ -35,12 +43,14 @@ sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
 
 
-def main():
-    out = cdp.out_dir("lock")
-    name = op.join(out, "lock.png")
+def capture(name):
     with cdp.Capture("lock") as cap:
         s = cap.session
         target = cap.env["PLOCK_CAPTURE_TARGET"]
+        trail = op.join(cap.dir, "audit.jsonl")
+        # Where this run starts in the trail. Everything before it belongs to whoever last
+        # photographed this fixture, and is not evidence about this click.
+        first_new = len(cdp.audit_lines(trail))
 
         # The dashboard, and the button the operator actually has.
         s.goto(cap.base + "/")
@@ -112,8 +122,23 @@ def main():
                    for r in rows):
             raise SystemExit("no row carries the gated clause; the self-session note did not "
                              "render, so this capture proves nothing about it")
-        cdp.require_detail_terminated(rows, "the lock result page")
+        if cdp.require_detail_terminated(rows, "the lock result page") == 0:
+            raise SystemExit("no Detail cell on the page holds the self-session note, so the "
+                             "#108 seam rule examined nothing -- a rule that checked nothing is "
+                             "not a reason to trust this capture")
 
+        # The trail is the other half of the claim, and it is read before the PNG is written: an
+        # accepted lock writes a line, so a page that looked right and had quietly done nothing
+        # is caught here rather than photographed.
+        cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.requested",
+                          {"lock.requested"}, "the lock-now click")
+
+        fits = g["scroll"] <= cdp.WIDTH
+        if not fits:
+            raise SystemExit(f"the page is {g['scroll']} px wide at a {cdp.WIDTH} px viewport; "
+                             "the criterion refuses this page, so its photograph is not taken")
+
+        cap.require_running()
         s.write_png(name)
         print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
@@ -122,19 +147,16 @@ def main():
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         if g["flag"]:
             print(f"  flag:   {g['flag'].strip()[:110]}...", flush=True)
-        fits = g["scroll"] <= cdp.WIDTH
-        print(f"  {'FITS' if fits else 'OVERFLOWS'} at {cdp.WIDTH} px  -> {name}", flush=True)
+        print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
+        return 0
 
-        # The audit trail is the other half of the claim: an accepted lock writes a line, so a
-        # page that looked right and had quietly done nothing is still caught.
-        with open(op.join(cap.dir, "audit.jsonl")) as fh:
-            lines = [l for l in fh if l.strip()]
-        print(f"audit trail: {len(lines)} event(s)", flush=True)
-        for l in lines[-3:]:
-            d = json.loads(l)
-            print(f"  {d.get('kind')} user={d.get('username')!r} "
-                  f"detail={str(d.get('detail'))[:80]!r}", flush=True)
-        return 0 if fits else 1
+
+def main():
+    name = op.join(cdp.out_dir("lock"), "lock.png")
+    try:
+        return capture(name)
+    except SystemExit as exc:
+        cdp.refused(name, exc)
 
 
 if __name__ == "__main__":

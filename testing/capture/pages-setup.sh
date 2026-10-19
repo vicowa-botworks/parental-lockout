@@ -55,9 +55,10 @@ chmod 600 "$CONFIG"
 capture_admin
 
 # A trail long enough that the audit page renders its table rather than a sentence, with the
-# widest realistic value in every column. The timestamps are written relative to now, which is
-# also why audit.png is the one artifact in docs/screenshots/360/ that a second run cannot
-# reproduce byte for byte — see README.md.
+# widest realistic value in every column. The timestamps are written relative to now, and signing
+# in appends an auth.success row of its own, so audit.png is one of the two artifacts in
+# docs/screenshots/360/ that a second run cannot reproduce byte for byte — README.md names both
+# and says why.
 : > "$AUDIT"
 python3 - "$AUDIT" <<'PY'
 import json, sys, datetime

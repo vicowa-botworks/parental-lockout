@@ -24,96 +24,148 @@ go build -o plock ./cmd/plock          # or point PLOCK_BIN at a binary you alre
 
 Each `*-setup.sh` builds a throwaway fixture — its own config, state directory and audit trail
 under `runs/`, on a port nothing else uses — and each driver starts the daemon on it, signs in
-through the login form in the browser, measures, and writes its PNG to `runs/<name>/`. Add
-`--out DIR` to write somewhere else; `--out ../../docs/screenshots/360` is how you re-capture the
-committed artifacts themselves, and it is deliberately something you have to type.
+through the login form in the browser, measures, and writes its PNG to `runs/<name>/`. Run them
+from any directory; every path is resolved from the script's own location.
 
-Needs `google-chrome` and a `plock` binary. Needs **no** root, **no** desktop session and **no**
-human: the fixture points the lock backend at the command backend with `/bin/true`, so a capture
-cannot lock the machine it runs on. That is the whole reason a screenshot can be taken by a script
-at all — the alternative is a test that locks the operator's screen.
+Needs `google-chrome` and a `plock` binary. Needs **no root and no human** — the fixture points
+the lock backend at the command backend with `/bin/true`, so a capture cannot lock the machine it
+runs on. That is the whole reason a screenshot can be taken by a script at all: the alternative is
+a test that locks the operator's screen.
 
-Run them as the desktop user, not through sudo. The two POST fixtures capture the result page for
-`$(id -un)`, because that page lists the sessions an account holds on this machine and a
-config-only name holds none; under sudo the target becomes `root`, which holds no session, and the
-driver's "no session rows" refusal fires. That refusal is the correct answer, not a bug to work
-around.
+**The two POST captures do need the account they capture to hold a real desktop session**, because
+that is what the result page lists. The fixture takes the target from `$(id -un)`, so run them as
+the desktop user; `PLOCK_CAPTURE_TARGET` overrides it for the case where you are logged in under
+one name and the session belongs to another. Overriding does not buy you a way to capture without
+a session — the driver refuses an account with no rows, and that refusal is correct, because the
+zero-session sentence fits at any width and would report 360 px while measuring nothing.
 
 ## What each driver refuses
 
 A screenshot is evidence only because the thing that took it refuses to take it in the wrong
-state. The refusals are the artifact's whole value, so they are listed here and they live in
-`cdp.py` where more than one page needs them.
+state. The refusals are the artifact's whole value, so they are listed here and the ones more than
+one page needs live in `cdp.py`.
 
 | driver | refuses when |
 |---|---|
-| `pages.py` | a page answers a different URL than the one it was sent to; the page has no table or no cells (an empty fixture fits at any width); any cell lacks `data-label`; and at the end, if any page overflows |
-| `lock.py` | the dashboard has no `lock-now` form, or no submit button, or no CSRF token with a value, or the form is not `method=post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; **a row claims the lock happened while its own Result cell says otherwise** (#109); **the Detail cell's sentence runs into the self-session note** (#108) |
-| `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule; and **the audit trail contains anything but `lock.probed`** — checked *before* the PNG is written, because a refusal that fires after the file exists has already produced the thing it was meant to withhold |
+| `pages.py` | a page answers a different URL than it was sent to; the page has no table or no cells (an empty fixture fits at any width); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page |
+| `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows |
+| `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows |
+| all three | the daemon the fixture started is not the process answering the port; `--out` resolves outside the repository; `--out` names a directory holding PNGs without `--overwrite` |
 
-The click is the point of the two POST drivers. `/users/<name>/lock-now` has no URL you may
-navigate to — it is the response to a POST — so the only honest capture signs in, finds the form
-the shipped template put on the dashboard, checks it carries a real CSRF field, and **clicks its
-real button**. A hand-built request body would prove nothing about what the template sends, and a
-capture of a CSRF refusal would photograph a refusal.
+Three of those deserve explaining, because each was a hole found by attacking this code rather
+than by writing it.
+
+**The trail is an allowlist, and it counts only this run's lines.** The probe page's second claim
+is that nothing which asserts a lock was written. Refusing kinds that start with `lock.` does not
+catch that, because `lockout.entered` starts with `locko` — the denylist missed the one kind whose
+name is the whole worry. So the rule is inverted: `lock.probed` is the only line the probe click
+may write, and any other line stops the capture until somebody admits it on purpose. And the check
+looks only at the lines added since the driver started, because a fixture can be photographed
+twice and a membership test against the whole file passes on the previous run's line.
+
+**The overflow verdict is computed before the write.** A photograph of an overflowing page is the
+artifact the criterion refuses; writing it and then exiting 1 leaves wrong evidence on disk under
+the right filename.
+
+**The daemon must be the one the fixture started.** A port answering is not evidence about who is
+answering it. With a second `plock serve` already holding the fixture's port, the fixture's own
+daemon dies on `bind: address already in use`, the stranger answers the readiness probe, and the
+capture signs in, clicks, measures and writes a PNG about a different config, a different audit
+trail and a different set of accounts. The exit code is the only thing that distinguishes the two
+cases, so the driver watches the process instead of asking the port twice.
 
 ## The negative control, and why a refusal nobody watched fire proves nothing
 
 An assertion never run against the alternative is unproven; a refusal never watched firing is the
-same failure wearing a different hat. So each rule above has been shown to fire:
+same failure wearing a different hat. The control is the same for every rule above: build a binary
+that removes the thing being pinned, point the capture at it, and require a refusal.
 
 ```sh
-# 1. Build a binary with the clause under test removed.
-#    internal/web/celltext.go:  return trimmed + "."   ->   return trimmed
-go build -o /tmp/plock-broken ./cmd/plock
-
-# 2. Point the capture at it. It must refuse, and it must not touch the previous PNG.
 PLOCK_BIN=/tmp/plock-broken ./lock-setup.sh && PLOCK_BIN=/tmp/plock-broken ./lock.py
-#   the lock result page: the detail runs into the self-session note
-#   ('he request but cannot confirm it' then 'This is the session the daemon runs');
-#   the page still renders a run-on, so this capture is the pre-fix page
-#   exit 1, and runs/lock/lock.png is not written
 ```
 
-That run is not hypothetical. It is what this branch does every time it is checked out on `main`,
-because `main` does not have the fix yet: the driver refuses and writes nothing. The same driver,
-pointed at a binary built from #113, reports `FITS at 360 px` and writes a PNG whose md5 is
-`473451a946ff66ef631de40245652ca0` — byte-identical to the `lock.png` #113 commits.
+What "removes the thing" means depends on which tree you are on, and the difference is the whole
+point of the exercise:
+
+* **On `main`, with no mutation at all**, `lock.py` refuses. The separator between the two
+  sentences is still the literal space in `internal/web/templates/lock.tmpl`
+  (`{{if .Detail}} {{end}}`), so the page renders the run-on and the capture will not photograph
+  it:
+
+  ```
+  REFUSED: the lock result page: the detail runs into the self-session note
+    ('he request but cannot confirm it' then 'This is the session the daemon runs');
+    the page still renders a run-on, so this capture is the pre-fix page
+    a previous lock.png is still at runs/lock/lock.png -- mtime 2026-10-19T15:39:18Z,
+    92189 bytes -- and it is NOT from this run. Do not quote it as current.
+  ```
+
+  That is the #108 defect, reproduced by a script, on the branch that only adds the script.
+* **On #113's branch**, the terminator lives in `internal/web/celltext.go`
+  (`sentenceTerminated`), and the control is `return trimmed + "."` → `return trimmed`. Rebuild
+  with that clause removed and the same driver refuses for the same reason.
+* **On either branch**, the #109 rule is controlled the same way: remove the gate on the
+  self-session clause and the driver reports `a 'unconfirmed' row still claims the lock happened`.
+
+Note the second half of that refusal message. "Exit 1, nothing written" is true and still
+misleading: a PNG from an earlier run is sitting right there, and whoever reaches for it next has
+no way to tell it predates the run that refused. Deleting it is not the answer either — with
+`--out` pointing at the docs tree, the file being deleted would be the committed evidence. So the
+refusal names the stale file and the mtime that says when it really came from.
 
 ## Which artifacts reproduce byte for byte, and which cannot
 
-Measured on this machine by running each driver and comparing md5 against the committed file:
+Measured by running each driver and comparing md5 against the committed file. The three
+reproducible ones were also confirmed stable across two consecutive runs of the same fixture.
 
-| artifact | in-repo driver reproduces it? | why |
+| artifact | does the in-repo driver reproduce the committed file? | why |
 |---|---|---|
-| `users.png` | **yes**, identical | |
-| `profiles.png` | **yes**, identical | |
-| `testlock.png` | **yes**, identical | the probe page's session rows carry no lock detail, so its Detail cell is the self-session note alone — there is no seam, and the #108 rule skips a cell with nothing before the note rather than refusing a page that is correct |
-| `lock.png` | **yes**, identical to the artifact #113 commits — and a **refusal**, not a different image, against a binary without the fix | the artifact and the fix ship together |
-| `dashboard.png` | no | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs a minute apart are identical; a run hours later is not |
-| `audit.png` | **no, by construction** | signing in appends an `auth.login` line to the very trail the page photographs, so every capture adds a row. Two runs against the *same* fixture differ |
+| `users.png` | **yes** — `003ee3f8…` | |
+| `profiles.png` | **yes** — `c31bdd55…` | |
+| `testlock.png` | **yes** — `7f63a7e0…` | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image |
+| `lock.png` | **no, on this branch** — the committed file is the pre-fix image and the driver refuses to produce it | #113 replaces it with `473451a9…`, which the same driver writes byte-for-byte; measured against #113's tree. Until that merges, the honest statement is that this branch cannot reproduce this artifact, and the refusal is the reason |
+| `dashboard.png` | **no** | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs minutes apart agree; a run hours later does not |
+| `audit.png` | **no, by construction** | signing in appends an `auth.success` row to the very trail the page photographs, so every capture adds a row and two runs of one fixture cannot agree |
 
-So `audit.png` and `dashboard.png` are one-shot photographs, and the honest claim about them is
-the driver's report — `scrollWidth`, `innerWidth`, the cell census, `FITS` — not the pixels. That
-is worth saying out loud, because a PR that links `audit.png` is linking an image nobody can
-regenerate, and the thing a reviewer can re-run is the script.
+So two of the six are one-shot photographs and a third is waiting on a branch. The honest claim
+about a one-shot artifact is the driver's report — `scrollWidth`, `innerWidth`, the cell census,
+`FITS` — not the pixels. That is worth saying out loud, because a PR that links `audit.png` is
+linking an image nobody can regenerate, and the thing a reviewer can re-run is the script.
+
+## Re-capturing the committed artifacts
+
+```sh
+./pages.py --out docs/screenshots/360 --overwrite
+```
+
+`--out` resolves against the **repository**, not your shell's directory, and refuses a target
+outside it. Both halves are measured: `--out docs/screenshots/360` typed from `testing/capture`
+used to create `testing/capture/docs/screenshots/360/`, which the `runs/` ignore rule does not
+cover, so the operator believed they had re-taken the evidence, the committed files were
+untouched, and a later `git add -A` would have committed four PNGs nobody meant to make.
+
+`--overwrite` is a second flag on purpose. Writing this README and then testing its own
+invocation replaced two committed artifacts with no error and no warning — overwriting is what the
+flag is for. Replacing committed evidence should take two tokens, not a tab-completion.
 
 ## House rules
 
 * **A capture is evidence when the driver's transcript is pasted into the PR, and the PNG is
   quoted beside it.** The transcript is the part that says what was refused.
-* **Never write into `docs/screenshots/360/` except with an explicit `--out`.** Overwriting a
-  committed artifact is exactly the state a stale screenshot can fake: the file is current, the
-  page it depicts is not.
 * **A changed page makes its committed artifact stale by construction.** If a PR changes what a
   captured page renders, that PR re-captures it in the same branch — #103 shipped a PNG depicting
   the defect #108 later found, and the repo's own acceptance evidence argued against the fix.
 * **`cdp.py` holds the shared refusals; a driver holds the checks about its own page.** The cell
   that #108 was about was copied between two pages, and a copied cell is a copied rule: the check
   that exists on one page is the check that misses the regression on the other.
-* **`runs/` is ignored.** It holds a config with an admin credential hash, an audit trail with
-  usernames, and a Chrome profile. Commit the transcript you are quoting, never the run.
-* **The shell half is shellcheck-linted by name** in the `shellcheck` job, like everything else
-  in `testing/`. The Python half has no lint gate, because this repo has no Python environment to
-  put one in — `scripts/check-deps.sh` keeps the Go side at zero dependencies and the Python side
-  is two tools and these drivers, run by whoever is holding the keyboard.
+* **A rule that examined nothing must refuse.** Every branch of the #108 check can skip, so the
+  drivers require the note to have appeared somewhere. A guard that silently matched nothing
+  reports success for free, which is how coverage is lost without a test failing.
+* **`runs/` is ignored, and it is not safe.** It holds a config carrying an admin credential hash,
+  `fixture.env` with the fixture's password **in cleartext**, an audit trail with usernames, and a
+  Chrome profile. Commit the transcript you are quoting, never the run.
+* **The shell half is shellcheck-linted by name** in the `shellcheck` job, like everything else in
+  `testing/`. The job runs from the repository root without `-x`, which is why the `source=`
+  directives above the `. fixture.sh` lines are written repo-root-relative — otherwise the job
+  fails on the directive instead of following it. The Python half has no lint gate, because this
+  repo has no Python environment to put one in.

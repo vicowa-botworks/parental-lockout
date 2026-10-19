@@ -31,7 +31,12 @@ PLOCK_BIN="${PLOCK_BIN:-$CAPTURE_REPO/plock}"
 # holds no desktop session, and the refusal is the correct answer.
 CAPTURE_ADMIN="${PLOCK_CAPTURE_ADMIN:-parent}"
 CAPTURE_PASS="${PLOCK_CAPTURE_PASS:-hunter2-hunter2}"
-CAPTURE_TARGET="$(id -un)"
+# Overridable for the one case where the account running the capture is not the account holding
+# the desktop session -- a headless box, or an operator logged in under a different name. It is
+# not a way to make the POST captures work without a session: the driver refuses an account with
+# no rows, and that refusal is the correct answer, because a capture of the zero-session sentence
+# would still report 360 px.
+CAPTURE_TARGET="${PLOCK_CAPTURE_TARGET:-$(id -un)}"
 
 # capture_begin <name> <port> <cdp-port>
 #

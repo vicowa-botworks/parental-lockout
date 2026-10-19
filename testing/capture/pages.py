@@ -11,11 +11,15 @@ These four are the easy pages: each has a URL, so a browser can be sent straight
 result pages cannot be reached this way and have their own drivers (lock.py, testlock.py), which
 is where the click-the-shipped-button refusals live.
 
-    ./pages-setup.sh && ./pages.py [--out DIR]
+Each page is refused on its own, before its own PNG is written, so a run that stops on the audit
+page leaves the three earlier pages freshly captured and says plainly which one it would not
+take.
+
+    ./pages-setup.sh && ./pages.py [--out DIR] [--overwrite]
 
 Run it from anywhere; every path is resolved from this file's location. Output goes to
-testing/capture/runs/pages/ unless --out names a directory, so re-capturing the committed
-artifacts is an explicit `--out docs/screenshots/360`.
+testing/capture/runs/pages/ unless --out names a directory inside the repository, so re-capturing
+the committed artifacts is an explicit `--out docs/screenshots/360`.
 """
 import os.path as op
 import sys
@@ -33,29 +37,39 @@ PAGES = ["/", "/users", "/profiles", "/audit"]
 CHROME_FLAGS = ("--hide-scrollbars=false",)
 
 
+def shoot(session, base, page, name):
+    session.goto(base + page)
+    here = session.where()
+    if here != page:
+        raise SystemExit(f"{page} answered {here} instead; nothing was measured")
+    session.settle()
+    got = cdp.measure(session)
+    cdp.require_records(got, page)
+    cdp.require_labelled_cells(got, page)
+    # Before the write, not after. A photograph of an overflowing page is the artifact the
+    # criterion refuses, and a driver that writes it and then exits 1 has left the wrong evidence
+    # on disk under the right filename -- with --out pointing at the docs tree it has overwritten
+    # the committed artifact and only an exit code says so.
+    if got["scroll"] > cdp.WIDTH:
+        raise SystemExit(f"{page} is {got['scroll']} px wide at a {cdp.WIDTH} px viewport; the "
+                         "criterion refuses this page, so its photograph is not taken")
+    session.write_png(name)
+    print(f"  {page:<10} scrollWidth={got['scroll']:>4} innerWidth={got['inner']:>4} "
+          f"height={got['height']:>5} tables={got['tables']} cells={got['cells']} "
+          f"FITS  {name}", flush=True)
+
+
 def main():
     out = cdp.out_dir("pages")
-    bad = 0
     with cdp.Capture("pages", CHROME_FLAGS) as cap:
-        s = cap.session
         for page in PAGES:
-            s.goto(cap.base + page)
-            here = s.where()
-            if here != page:
-                raise SystemExit(f"{page} answered {here} instead; nothing was measured")
-            s.settle()
-            got = cdp.measure(s)
-            cdp.require_records(got, page)
-            cdp.require_labelled_cells(got, page)
             name = op.join(out, (page.strip("/") or "dashboard") + ".png")
-            s.write_png(name)
-            fits = got["scroll"] <= cdp.WIDTH
-            bad += 0 if fits else 1
-            print(f"  {page:<10} scrollWidth={got['scroll']:>4} innerWidth={got['inner']:>4} "
-                  f"height={got['height']:>5} tables={got['tables']} cells={got['cells']} "
-                  f"{'FITS' if fits else 'OVERFLOWS'}  {name}", flush=True)
-        print(f"\n{len(PAGES) - bad}/{len(PAGES)} pages fit at {cdp.WIDTH} px", flush=True)
-    return 1 if bad else 0
+            try:
+                shoot(cap.session, cap.base, page, name)
+            except SystemExit as exc:
+                cdp.refused(name, exc)
+    print(f"\n{len(PAGES)}/{len(PAGES)} pages fit at {cdp.WIDTH} px", flush=True)
+    return 0
 
 
 if __name__ == "__main__":

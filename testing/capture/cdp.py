@@ -19,6 +19,7 @@ Nothing in here asserts anything about a page. Page-specific checks belong in th
 photographs that page, next to the sentence it is checking.
 """
 import base64
+import datetime
 import json
 import os
 import os.path as op
@@ -260,7 +261,7 @@ SELF_SESSION_NOTE = "This is the session the daemon runs"
 
 def require_detail_terminated(rows, what):
     """#108's rule, on the rendered page: the Detail cell's own sentence has to end before the
-    self-session note begins.
+    self-session note begins. Returns how many cells the note actually appeared in.
 
     The cell can hold two sentences at once -- what the lock produced, and the note -- and Go
     trims the whitespace around every template action, so the only thing between them is what the
@@ -273,7 +274,13 @@ def require_detail_terminated(rows, what):
     This lives here rather than in each driver because the cell was copied between pages, and a
     copied cell is a copied rule: the check that only exists on one page is the check that fails
     to notice when the other one regresses.
+
+    The return value is not decoration. Every branch below can skip, and a rule that skips
+    everything still reports success -- so a driver has to require a count above zero, or it is
+    asserting nothing while appearing to assert #108. If the note's wording is ever changed in the
+    templates, this is the line that turns that from a silent loss of coverage into a refusal.
     """
+    seen = 0
     for r in rows:
         labels = [k.lower() for k in r["result"]]
         if "detail" not in labels:
@@ -281,19 +288,23 @@ def require_detail_terminated(rows, what):
         cell = r["vals"][labels.index("detail")]
         if SELF_SESSION_NOTE not in cell:
             continue
+        seen += 1
         before = cell.split(SELF_SESSION_NOTE)[0].rstrip()
         if not before:
             # The note is the whole cell. There is no second sentence here to run into, so there
             # is no seam to check -- and demanding a terminator anyway is a refusal that fires
             # against a correct page. Measured, not theorised: the probe page's session rows carry
-            # no lock detail at all (a probe never locks), so its cell is note-only, and the first
-            # version of this check refused the probe capture on a tree where the page was right.
+            # no lock detail when the session is lockable (a probe never locks, and an unlockable
+            # session does get one, which is why the count above is what a driver asserts on), so
+            # its cell is note-only, and the first version of this check refused the probe capture
+            # on a tree where the page was right.
             continue
         if before[-1] not in ".!?":
             raise SystemExit(
                 f"{what}: the detail runs into the self-session note ({before[-32:]!r} then "
                 f"{SELF_SESSION_NOTE!r}); the page still renders a run-on, so this capture is "
                 "the pre-fix page")
+    return seen
 
 
 class Capture:
@@ -335,7 +346,20 @@ class Capture:
              "--audit-path", op.join(self.dir, "audit.jsonl")],
             stdout=open(op.join(self.dir, "serve.log"), "wb"), stderr=subprocess.STDOUT)
         try:
+            # The port answering is not evidence that *our* daemon is answering. Measured: with a
+            # second `plock serve` already holding the fixture's port, this fixture's daemon dies
+            # on `bind: address already in use`, the stranger answers the readiness probe, and the
+            # capture signs in, clicks, measures and writes a PNG -- about a different config, a
+            # different audit trail and a different set of accounts than the fixture just built.
+            # A daemon can only answer once it has bound, so watching the process here is enough.
             for _ in range(60):
+                if self.server.poll() is not None:
+                    raise SystemExit(
+                        f"the daemon this fixture started exited (code {self.server.returncode}) "
+                        f"before it answered anything: something else already holds "
+                        f"127.0.0.1:{self.port}, and a capture aimed at that process photographs a "
+                        "different daemon than the fixture built. See serve.log; free the port or "
+                        "move it in the setup script.")
                 try:
                     self.http("/login")
                     break
@@ -343,6 +367,13 @@ class Capture:
                     time.sleep(0.25)
             else:
                 raise SystemExit("the daemon never answered; see serve.log")
+            # A successful probe is not proof that our daemon answered it. A stranger on the port
+            # replies instantly, so the loop can break while our own process is still on its way to
+            # failing its bind -- which is how the first version of this check missed: the capture
+            # went on to sign in at the stranger's login form. Our daemon fails the bind inside the
+            # first ~100 ms of starting, so looking again shortly after the first answer sees it.
+            time.sleep(0.4)
+            self.require_running()
 
             self.chrome = subprocess.Popen(
                 ["google-chrome", "--headless=new",
@@ -392,6 +423,23 @@ class Capture:
             self.close()
             raise
 
+    def require_running(self):
+        """The daemon this fixture started must still be the process serving the port.
+
+        Called once before the browser touches anything and once immediately before the PNG is
+        written. If it died, whatever answered the requests in between was somebody else's daemon
+        -- a different config, a different audit trail, a different set of accounts -- and the
+        measurement would be about that machine while the transcript names this one.
+        """
+        if self.server is not None and self.server.poll() is not None:
+            raise SystemExit(
+                f"the daemon this fixture started is no longer running (code "
+                f"{self.server.returncode}). Something else was answering 127.0.0.1:{self.port} "
+                "-- most likely another plock serve already holds the port, and the fixture's own "
+                "serve.log will say `bind: address already in use`. Free the port or move it in "
+                "the setup script; a capture of a stranger's daemon is not evidence about this "
+                "fixture.")
+
     def close(self):
         for p in (self.chrome, self.server):
             if p and p.poll() is None:
@@ -403,15 +451,94 @@ class Capture:
 
 
 def out_dir(default_name):
-    """Where the PNGs land. Never the repo's own docs/ tree unless it is asked for by name:
-    a capture that silently overwrites a committed artifact is worse than one that has to be
-    requested, because an overwrite is exactly the state a stale screenshot can fake. Pass
-    `--out docs/screenshots/360` to re-capture the committed artifacts themselves; each driver
-    writes the file name the repo already uses for that page."""
+    """Where the PNGs land: inside this repository, or nowhere.
+
+    Never the repo's own docs/ tree unless it is asked for by name -- an overwrite is exactly
+    the state a stale screenshot can fake -- and never outside the repository either. A relative
+    `--out` is resolved against the repo root rather than the shell's directory, because the
+    obvious invocation is the one that goes wrong: `--out docs/screenshots/360` typed from
+    testing/capture otherwise creates testing/capture/docs/screenshots/360/, which the runs/
+    ignore rule does not cover, so the operator believes they re-took the evidence, the
+    committed files are untouched, and a later `git add -A` commits four PNGs nobody meant to
+    make. Measured, not theorised.
+    """
     if "--out" in sys.argv:
         i = sys.argv.index("--out")
         if i + 1 >= len(sys.argv) or sys.argv[i + 1].startswith("--"):
             raise SystemExit("--out needs a directory")
-        return sys.argv[i + 1]
+        raw = sys.argv[i + 1]
+        target = op.normpath(raw if op.isabs(raw) else op.join(REPO, raw))
+        if not (target + op.sep).startswith(REPO + op.sep):
+            raise SystemExit(f"--out {raw!r} resolves to {target}, outside the repository "
+                             f"({REPO}); a capture writes inside the repo or into its own "
+                             "ignored runs/ directory")
+        # Replacing a committed artifact is a different act from taking a picture, and it is the
+        # one that can quietly destroy evidence. Measured on this branch: the sentence in the
+        # README telling you to pass `--out docs/screenshots/360` was tested by passing exactly
+        # that, and two committed PNGs were gone before anything said a word -- no error, because
+        # that is what the flag is for. So the flag has to be doubled: --out says where, and
+        # --overwrite says the files already there are the ones you mean to replace.
+        existing = sorted(f for f in os.listdir(target) if f.endswith(".png")) if op.isdir(target) else []
+        if existing and "--overwrite" not in sys.argv:
+            raise SystemExit(f"{target} already holds {len(existing)} PNG(s) "
+                             f"({', '.join(existing)}). Pass --overwrite as well to replace "
+                             "them; a re-capture belongs in the same branch as the change that "
+                             "made the old one stale")
+        return target
     return op.join(RUNS, default_name)
+
+
+def audit_lines(path):
+    """The trail as it stands right now, so a driver can remember where this run starts."""
+    try:
+        with open(path) as fh:
+            return [l for l in fh if l.strip()]
+    except FileNotFoundError:
+        return []
+
+
+def require_trail(lines, must, allowed, what):
+    """The audit trail half of a capture's claim: this click wrote `must`, and nothing else.
+
+    An allowlist, not a denylist. Refusing kinds that start with `lock.` misses the one that
+    matters most, because `lockout.entered` starts with `locko` -- and on the probe page the whole
+    point is that nothing which claims a lock may appear. So the rule is inverted: anything the
+    driver was not told to expect stops the capture, and a future benign line has to be admitted
+    on purpose rather than slipping through a prefix.
+
+    `lines` is the part of the trail this run added, not the whole file: a fixture can be
+    photographed twice, and a membership test against the whole file passes on the previous run's
+    line.
+    """
+    kinds = [json.loads(l).get("kind", "") for l in lines]
+    print(f"audit trail from this click: {sorted(set(kinds)) or 'nothing'}", flush=True)
+    if must not in kinds:
+        raise SystemExit(f"{what} wrote no {must!r} line; the page shows a verdict this run did "
+                         "not ask for")
+    unexpected = sorted(set(kinds) - set(allowed))
+    if unexpected:
+        raise SystemExit(f"{what} wrote {unexpected}; the only line it may write is "
+                         f"{sorted(set(allowed))[0]!r} -- if a new line is expected now, widen "
+                         "the allowlist deliberately and say what it is")
+
+
+def refused(path, exc):
+    """Every refusal comes through here, and it says what happened to the file.
+
+    'exit 1, nothing written' is true and still misleading: a PNG from an earlier run is sitting
+    right there, and the next pair of hands to reach for it has no way to tell it predates the
+    run that refused. Deleting it is not the answer either -- with --out pointing at the docs
+    tree, the file it would delete is the committed evidence. So the refusal names the stale
+    file, with the mtime and size that say when it really came from.
+    """
+    print(f"REFUSED: {exc}", file=sys.stderr)
+    if path and op.exists(path):
+        st = os.stat(path)
+        when = datetime.datetime.fromtimestamp(st.st_mtime, datetime.timezone.utc)
+        print(f"  a previous {op.basename(path)} is still at {path} -- mtime "
+              f"{when.strftime('%Y-%m-%dT%H:%M:%SZ')}, {st.st_size} bytes -- and it is NOT from "
+              "this run. Do not quote it as current.", file=sys.stderr)
+    else:
+        print("  no file was written", file=sys.stderr)
+    raise SystemExit(1)
 

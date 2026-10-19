@@ -14,14 +14,18 @@ could run it from a clone**. A check that needs none of those belongs in
 `go test`, and a check that needs only a checkout belongs in `make verify`.
 
 There is a second category, and `capture/` is it: **reproducible from a clone,
-needs a browser, needs no session at all.** The 360 px acceptance photographs are
-the checks in that category. They are not manual — a script takes them — and they
-need neither a desktop session nor root, because their fixture points the lock
-backend at `/bin/true` so a capture cannot lock the machine it runs on. What they
-need is a browser, which a runner does not have, so they cannot be CI's job; and
-what they produce is the artifact an acceptance criterion is actually satisfied
-by, so they cannot live in a scratch directory either. `capture/README.md` says
-why the second category is admitted on the same terms as the first.
+needs a browser, needs no root and nobody standing there.** The 360 px acceptance
+photographs are the checks in that category. They are not manual — a script takes
+them — and they need no root and no unlocked screen, because their fixture points
+the lock backend at `/bin/true` so a capture cannot lock the machine it runs on.
+What they need is a browser, which a runner does not have, so they cannot be CI's
+job; and what they produce is the artifact an acceptance criterion is actually
+satisfied by, so they cannot live in a scratch directory either. The two POST
+captures additionally need the account they capture to hold a real desktop
+session, because that is what the page lists — which is a property of the page,
+not of the harness, and the driver refuses rather than photographing an empty
+table. `capture/README.md` says why the second category is admitted on the same
+terms as the first.
 
 ## Why this folder exists at all
 
@@ -44,9 +48,9 @@ in CI has something to do with what happens here.
 | `e2e/e2e.sh` | the full loop against the real session: configure, serve, watch it lock, unlock by hand, watch it re-lock, read the audit trail | root, a desktop session, your password |
 | `e2e/forge-hint.sh` | the #29 attack as a check: writes `LockedHint` with no privilege and insists enforcement does not believe it | nothing for the first half; root for the second |
 | `e2e/lib.sh` | the two questions both scripts ask about the machine — "is a locker running for this uid" and "which session is the desktop" — in one place | sourced, never run |
-| `capture/pages.py` + `pages-setup.sh` | measures the four GET-rendered admin pages at a 360 px viewport and photographs them | a browser, no session |
-| `capture/lock.py` + `lock-setup.sh` | clicks the dashboard's real `Lock now` button so the POST carries the real CSRF token, then photographs the result page — and refuses to, if the page is not the verdict page | a browser, no session |
-| `capture/testlock.py` + `testlock-setup.sh` | the same for `Check backends`, with the audit trail checked before the PNG is written | a browser, no session |
+| `capture/pages.py` + `pages-setup.sh` | measures the four GET-rendered admin pages at a 360 px viewport and photographs them | a browser, no root |
+| `capture/lock.py` + `lock-setup.sh` | clicks the dashboard's real `Lock now` button so the POST carries the real CSRF token, then photographs the result page — and refuses to, if the page is not the verdict page | a browser, no root; the account must hold a session |
+| `capture/testlock.py` + `testlock-setup.sh` | the same for `Check backends`, with the audit trail checked before the PNG is written | a browser, no root; the account must hold a session |
 | `capture/cdp.py` | the plumbing all three need, and the refusals more than one page shares, in one place | imported, never run |
 
 Read `e2e/README.md` before running either e2e script. `e2e.sh` locks your screen on
@@ -67,7 +71,8 @@ which is the difference between citing evidence and citing a picture.
 * **Output goes under `<folder>/runs/`**, which is ignored. Commit the transcript
   you are quoting into the PR, never into the tree — a transcript contains a
   username, a hostname and a session id, and `capture/runs/` additionally holds a
-  config carrying an admin credential hash.
+  config carrying an admin credential hash and a `fixture.env` holding the
+  fixture's password in cleartext.
 * **Restore what you changed, including on Ctrl-C.** Both scripts back up before
   they write and install `EXIT` and `INT` handlers that put it back. Treat that as
   behaviour to preserve, not a description of how careful the scripts are: `e2e.sh`
