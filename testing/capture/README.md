@@ -73,12 +73,27 @@ port, the fixture's own daemon dies on `bind: address already in use`, the stran
 readiness probe, and the capture signs in, clicks, measures and writes a PNG about a different
 config, a different audit trail and a different set of accounts. The exit code is the only thing
 that distinguishes the two cases, so `require_running` checks the process before the browser
-touches anything and again immediately before the PNG is written — and it checks Chrome too, for
-the same reason: with a stranger `--headless` browser holding the DevTools port, the driver's own
-`chrome.log` recorded `Address already in use` while the run went on to screenshot a tab in a
-browser it never started, in a profile it never made. Had that stranger been a headed browser, the
-capture would have hijacked a real window. So the DevTools endpoint is probed before the launch and
-refused if anything is already there.
+touches anything and again immediately before the PNG is written.
+
+The browser is harder, and probing the port before the launch was not enough. Chrome that loses
+the port does not exit: it logs `bind() failed: Address already in use`, falls back to `::1` on
+the *same port number*, and stays alive — so the pid check sees a healthy process and a pre-launch
+probe is a race that a stranger arriving half a second late wins. Measured that way: the fixture's
+own `chrome.log` recorded the failed bind, `require_running` returned normally, and the session
+attached to the stranger's browser (`/json/version` returned its id, not the fixture's).
+
+So the browser is *owned*, not probed. `--headless=new` does not write `DevToolsActivePort` into
+`--user-data-dir` — a successful run leaves no such file anywhere under the profile — but Chrome
+prints the endpoint it opened to stdout, and stdout is this fixture's `chrome.log`:
+
+```
+DevTools listening on ws://127.0.0.1:9333/devtools/browser/50f7bf28-…
+```
+
+That line names both the address Chrome bound and the id of the browser behind it, in a file a
+stranger cannot have written. The driver requires the address to be `127.0.0.1:<CDP_PORT>` (which
+is what catches the `::1` fallback), requires `/json/version` to advertise the same browser id,
+and asks the endpoint again before every write.
 
 ## The negative control, and why a refusal nobody watched fire proves nothing
 
@@ -93,31 +108,46 @@ PLOCK_BIN=/tmp/plock-broken ./lock-setup.sh && PLOCK_BIN=/tmp/plock-broken ./loc
 What "removes the thing" means depends on which tree you are on, and the difference is the whole
 point of the exercise:
 
-* **On `main`, with no mutation at all**, `lock.py` refuses. The separator between the two
-  sentences is still the literal space in `internal/web/templates/lock.tmpl`
-  (`{{if .Detail}} {{end}}`), so the page renders the run-on and the capture will not photograph
-  it:
+* **The #108 separator.** It used to be the literal space in `internal/web/templates/lock.tmpl`
+  (`{{if .Detail}} {{end}}`), which meant that on `main` — before #113 — the control was free:
+  build nothing, run `lock.py`, and it refused, because the page really did render the run-on.
+  That is no longer reachable from `main`, because #113 merged and the terminator now lives in
+  `internal/web/celltext.go` (`sentenceTerminated`). The control is therefore a mutation:
+  `return trimmed + "."` → `return trimmed`, which is `W201`. Measured on this branch against a
+  binary built with that clause removed:
 
   ```
   REFUSED: the lock result page: the detail runs into the self-session note
     ('he request but cannot confirm it' then 'This is the session the daemon runs');
     the page still renders a run-on, so this capture is the pre-fix page
-    a previous lock.png is still at runs/lock/lock.png -- mtime 2026-10-19T15:39:18Z,
-    92189 bytes -- and it is NOT from this run. Do not quote it as current.
+    no file was written
   ```
 
-  That is the #108 defect, reproduced by a script, on the branch that only adds the script.
-* **On #113's branch**, the terminator lives in `internal/web/celltext.go`
-  (`sentenceTerminated`), and the control is `return trimmed + "."` → `return trimmed`. Rebuild
-  with that clause removed and the same driver refuses for the same reason.
-* **On either branch**, the #109 rule is controlled the same way: remove the gate on the
-  self-session clause and the driver reports `a 'unconfirmed' row still claims the lock happened`.
+  Exit 1, and nothing at `--out` — not an empty directory's worth of partial frames either,
+  because captures are staged and only published once every page has passed.
+* **The #109 rule**, controlled the same way on any tree: remove the gate on the self-session
+  clause and the driver reports `a 'unconfirmed' row still claims the lock happened`.
 
 Note the second half of that refusal message. "Exit 1, nothing written" is true and still
 misleading: a PNG from an earlier run is sitting right there, and whoever reaches for it next has
 no way to tell it predates the run that refused. Deleting it is not the answer either — with
 `--out` pointing at the docs tree, the file being deleted would be the committed evidence. So the
 refusal names the stale file and the mtime that says when it really came from.
+
+Two more refusals exist because the first version of this package could destroy evidence while
+doing its job:
+
+* **Anything written outside `runs/` needs `--overwrite` as well as `--out`.** The guard used to
+  fire only when the target already held PNGs, so `--out docs/screenshots/360/..` and `--out .`
+  both passed it and the run wrote four new PNGs into tracked directories with no flag and no
+  warning. It keys on where the target *is* now: anywhere that is not this package's own ignored
+  `runs/` takes the flag.
+* **A half-finished run publishes nothing.** `pages.py` catches a refusal per page and carries on,
+  which used to mean it printed `4/4 pages fit at 360 px` and exited 0 after refusing one of them
+  — and with `--out` on the docs tree it left three freshly captured pages beside one stale one,
+  under committed filenames, which is the half-replaced evidence set this folder's own house rule
+  forbids. Frames are staged and copied at the end, and the count printed is the count that
+  happened.
 
 ## Which artifacts reproduce byte for byte, and which cannot
 
@@ -129,14 +159,47 @@ reproducible ones were also confirmed stable across two consecutive runs of the 
 | `users.png` | **yes** — `003ee3f8…` | |
 | `profiles.png` | **yes** — `c31bdd55…` | |
 | `testlock.png` | **yes** — `7f63a7e0…` | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image |
-| `lock.png` | **no, on this branch** — the committed file is the pre-fix image and the driver refuses to produce it | #113 replaces it with `473451a9…`, which the same driver writes byte-for-byte; measured against #113's tree. Until that merges, the honest statement is that this branch cannot reproduce this artifact, and the refusal is the reason |
+| `lock.png` | **yes** — `473451a9…` | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no" |
 | `dashboard.png` | **no** | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs minutes apart agree; a run hours later does not |
 | `audit.png` | **no, by construction** | signing in appends an `auth.success` row to the very trail the page photographs, so every capture adds a row and two runs of one fixture cannot agree |
 
-So two of the six are one-shot photographs and a third is waiting on a branch. The honest claim
-about a one-shot artifact is the driver's report — `scrollWidth`, `innerWidth`, the cell census,
-`FITS` — not the pixels. That is worth saying out loud, because a PR that links `audit.png` is
-linking an image nobody can regenerate, and the thing a reviewer can re-run is the script.
+So four of the six can be regenerated and two cannot. The honest claim about a one-shot artifact is
+the driver's report — `scrollWidth`, `innerWidth`, the cell census, `FITS` — not the pixels. That
+is worth saying out loud, because a PR that links `audit.png` is linking an image nobody can
+regenerate, and the thing a reviewer can re-run is the script.
+
+## What the audit fixture is not allowed to contain
+
+`audit.png` is the one artifact here that a run cannot reproduce, so it is also the one where a
+fabricated row would survive review: nobody can regenerate it and compare. It has therefore been
+wrong twice, both times in the same way — a kind the fixture author assumed the product emits.
+`auth.login` was caught in review; `config.changed` was caught later, and by then the picture had
+already been committed.
+
+Three rules keep the trail honest, all of them in `pages-setup.sh`:
+
+* **Every kind is checked against the binary.** Go keeps a string constant in the executable
+  verbatim, so a kind absent from `$PLOCK_BIN` is a kind nothing in the product writes. The
+  fixture refuses if any seeded kind is missing. This is a floor, not a proof — it says the word
+  exists, not that an emitter reaches it — and it catches exactly the two mistakes made so far:
+  `lock.asserted`, `lock.unconfirmed`, `lockout.entered`, `override.granted`, `auth.failure` and
+  `auth.success` are all present in `plock`; `auth.login` and `config.changed` are both absent.
+* **Detail text is copied from the emitter, not paraphrased** — `assertedDetail` and
+  `unconfirmedDetail` in `internal/enforce/enforce.go`, the `"%s until %s by %s: %s"` format in
+  `internal/web/override.go`, the throttle key in `internal/web/handlers.go`. Two shapes fall out
+  of reading those and neither is guessable: `srv.Audit` sets `Actor` and `Detail` and never
+  `Username`, so a row the web layer wrote renders `nobody` in the Account column; and only an
+  *enabled* user has engine rows, so a lockout line for a disabled account is a state the engine
+  never reaches.
+* **Rows go into the file oldest-first.** `audit.Reader.Tail` does not sort — it reads the tail and
+  returns it reversed, on the assumption that a writer only ever appends. A fixture that seeds
+  newest-first therefore renders oldest-first, and the page labelled "newest first" shows the
+  login at the top followed by rows climbing. That one was found by looking at the capture, not by
+  reading the fixture.
+
+The timestamps carry the machine's own UTC offset for the same reason the daemon's do: the page
+prints each row's zone, so a trail stamped `Z` renders `15:48:17 UTC` beside `11:52:18 EDT` in one
+column.
 
 ## Re-capturing the committed artifacts
 

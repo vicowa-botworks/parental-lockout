@@ -64,6 +64,8 @@ def discard_stage():
     for name in os.listdir(stage) if op.isdir(stage) else []:
         os.remove(op.join(stage, name))
     _PENDING.clear()
+    if op.isdir(stage):
+        os.rmdir(stage)
 
 
 def fixture(name):
@@ -252,6 +254,8 @@ class Session:
                 out.write(data)
             os.remove(stage)
         _PENDING.clear()
+        if op.isdir(_stage_dir()):
+            os.rmdir(_stage_dir())
 
 
 WIDTH_JS = ("JSON.stringify({scroll:document.documentElement.scrollWidth,"
