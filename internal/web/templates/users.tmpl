@@ -35,10 +35,11 @@
       <th scope="col">Managed</th>
       <th scope="col">Profile</th>
       <th scope="col">Why not</th>
+      <th scope="col">Assign</th>
     </tr>
   </thead>
   <tbody>
-    {{range .Rows}}
+    {{range $row := .Rows}}
     <tr class="{{if .Stale}}stale{{end}}{{if not .Configured}}unmanaged{{end}}">
       <th scope="row">{{.Username}}</th>
       <td data-label="Managed">
@@ -66,9 +67,38 @@
         {{- else -}}&mdash;{{end -}}
         {{range .Problems}}<span class="problem">{{.}}</span>{{end}}
       </td>
+      <td data-label="Assign">
+        {{- if .Stale}}
+          {{- /* The account is gone but the entry is not, and this is the only surface that
+                 can clean it up. Offering the dropdown here would invite assigning a profile
+                 to a uid that no longer exists. */ -}}
+          <form method="post" action="/users/{{.Username}}/profile" class="edit-form">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <input type="hidden" name="profile" value="">
+            <button type="submit">Stop managing</button>
+            <span class="muted">the entry is all that is left of this account</span>
+          </form>
+        {{- else}}
+          <form method="post" action="/users/{{$row.Username}}/profile" class="edit-form">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <label class="opt" for="profile-{{$row.Username}}">Profile</label>
+            <select id="profile-{{$row.Username}}" name="profile">
+              <option value="">not managed</option>
+              {{- range $.Profiles}}
+              <option value="{{.ID}}"{{if and $row.Configured (eq $row.Configured.ProfileID .ID)}} selected{{end}}>{{.Name}}</option>
+              {{- end}}
+            </select>
+            <label class="opt" for="enabled-{{$row.Username}}">
+              <input id="enabled-{{$row.Username}}" type="checkbox" name="enabled" value="on"{{if and $row.Configured $row.Configured.Enabled}} checked{{end}}>
+              enabled
+            </label>
+            <button type="submit">Save</button>
+          </form>
+        {{- end}}
+      </td>
     </tr>
     {{else}}
-    <tr><td colspan="4">Nothing was found to list.</td></tr>
+    <tr><td colspan="5">Nothing was found to list.</td></tr>
     {{end}}
   </tbody>
 </table>
