@@ -1251,6 +1251,20 @@
       "old": "<span class=\"state-gap\">unconfirmed</span>",
       "new": "<span class=\"state-held\">unconfirmed</span>",
       "note": "the unconfirmed verdict wearing the locked colour. The word still says unconfirmed, so an assertion on the word passes while the cell is styled as a proved lock -- and the colour is what the eye reads before the sentence. The sibling page already guards its own version of this. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
+    },
+    {
+      "id": "W187",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"state-unknown\">not locked</span>",
+      "new": "<span class=\"state-held\">not locked</span>",
+      "note": "a refused session wearing the locked colour. This is the row that means the child is still at their screen, and --held is the class the page reserves for a proved lock; the word in the cell still says not locked, so an assertion on the word passes. TestARefusedLockNamesTheSessionItCouldNotReach."
+    },
+    {
+      "id": "W188",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if and (gt .Result.Locked 0) (eq .Result.Locked $n) -}}",
+      "new": "{{- if gt .Result.Locked 0 -}}",
+      "note": "the banner drops the \"and that is every session\" half of its condition, so proving one of two sessions prints \"casey is locked\" over a page whose second row says the backend refused. The sentence an operator quotes to a child. TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked."
     }
   ]
 }

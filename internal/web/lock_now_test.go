@@ -37,6 +37,7 @@ type lockFixture struct {
 	mu          sync.Mutex
 	asked       []string // session IDs handed to the seam, in order
 	lockErr     error
+	lockErrFor  map[string]error // per-session override, keyed by session ID
 	sessions    []platform.Session
 	sessionsErr error
 }
@@ -75,7 +76,24 @@ func (f *lockFixture) lock(_ context.Context, sess platform.Session) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, sess.ID)
+	if err, ok := f.lockErrFor[sess.ID]; ok {
+		return err
+	}
 	return f.lockErr
+}
+
+// setLockErrFor answers one session differently from the rest. It exists for the page's
+// partial verdict -- one row proved, one row not -- which is the only state where the
+// banner has to do arithmetic instead of printing a word. A fixture where every session
+// takes the same branch can never render "1 of 2", so the guard that stops a partial proof
+// being printed as "casey is locked" would never be exercised by anything.
+func (f *lockFixture) setLockErrFor(sessionID string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.lockErrFor == nil {
+		f.lockErrFor = map[string]error{}
+	}
+	f.lockErrFor[sessionID] = err
 }
 
 func (f *lockFixture) askedFor() []string {
@@ -327,6 +345,39 @@ func TestAProvedLockIsReportedAsLocked(t *testing.T) {
 	}
 }
 
+// TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked is the banner's arithmetic. An
+// account can hold a greeter row and a desktop row, and proving one of them did not prove
+// the account: the banner has to count. Dropping the "and that is all of them" half of the
+// condition prints "casey is locked" over a page whose second row says the backend refused,
+// which is the one sentence on this page the operator quotes to a child.
+func TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked(t *testing.T) {
+	f := newLockFixture(t)
+	f.setSessions([]platform.Session{
+		{ID: "2", Username: "casey", UID: 1000, Class: "user", Seat: "seat0", Type: "x11", State: "active"},
+		{ID: "3", Username: "casey", UID: 1000, Class: "user", Seat: "tty3", Type: "tty"},
+	})
+	f.setLockErrFor("3", errors.New("session 3 is gone"))
+	rec := authPost(t, f.s, "/users/casey/lock-now", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a partial lock answered %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if got := f.askedFor(); len(got) != 2 {
+		t.Fatalf("the seam was asked for sessions %v, want both rows", got)
+	}
+	if !strings.Contains(body, "1 of 2") {
+		t.Errorf("a lock proved on one of two sessions was not counted: %s", body)
+	}
+	// The whole-account sentence, not merely the word: "are locked" is the partial banner's
+	// own phrasing, so a check on "locked" alone would pass on the correct page too.
+	if strings.Contains(body, "is locked") {
+		t.Error("a proof covering one of two sessions was printed as the account being locked")
+	}
+	if !strings.Contains(body, "session 3 is gone") {
+		t.Errorf("the refused row did not carry the backend's own reason: %s", body)
+	}
+}
+
 // TestAnUnconfirmedLockIsReportedAsUnconfirmed is the sentence this feature exists to make
 // possible. A raw virtual terminal answers this way forever, and a page that rounded it to
 // either success or failure would teach the operator to distrust the only signal the machine
@@ -377,6 +428,14 @@ func TestARefusedLockNamesTheSessionItCouldNotReach(t *testing.T) {
 	}
 	if strings.Contains(body, "nothing could prove") {
 		t.Error("a refusal was rendered with the unconfirmed sentence")
+	}
+	// The same colour rule as the unconfirmed row, and this is the sharper of the two: a
+	// refused session is the row that means "the child is still sitting at their screen",
+	// and --held is the class this page reserves for a lock a backend proved. The word can
+	// say "not locked" in the same cell while the colour says otherwise, and an assertion on
+	// the word cannot see it (#107).
+	if strings.Contains(body, "state-held") {
+		t.Error("a session that was not locked was rendered with the locked styling")
 	}
 }
 
