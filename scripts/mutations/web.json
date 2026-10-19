@@ -1183,13 +1183,6 @@
       "note": "the page stops saying this account is the one the daemon runs inside, so the operator sees \"locked\" next to an account the schedule will never hold (#67) and believes the machine is protected. TestLockingTheDaemonsOwnAccountSaysBothHalves."
     },
     {
-      "id": "W176",
-      "file": "internal/web/lock_now.go",
-      "old": "\tcase r.Unconfirmed:\n\t\treturn \"unconfirmed\"\n",
-      "new": "\tcase r.Unconfirmed:\n\t\treturn \"locked\"\n",
-      "note": "the raw-virtual-terminal answer, which a Plasma desktop gives forever, is rendered as a proven lock. This is the one word on the page an operator trusts as evidence, and it is the word #965 exists to keep separate. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
-    },
-    {
       "id": "W177",
       "file": "internal/web/lock_now.go",
       "old": "\t\tname, res.Locked, res.Unconfirmed, res.Refused, sessionName(s, r)))\n",
@@ -1251,6 +1244,111 @@
       "old": "          <button type=\"submit\">Check backends</button>\n",
       "new": "",
       "note": "the dashboard keeps the row's explanation and drops the control, so the probe is a route nothing links to and no operator will ever press -- the #59 failure, where a feature shipped assembled and unreachable. Only the button goes, so the page still parses: the mutant is the missing control, not a broken template. TestTheDashboardOffersToCheckTheBackends."
+    },
+    {
+      "id": "W186",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"state-gap\">unconfirmed</span>",
+      "new": "<span class=\"state-held\">unconfirmed</span>",
+      "note": "the unconfirmed verdict wearing the locked colour. The word still says unconfirmed, so an assertion on the word passes while the cell is styled as a proved lock -- and the colour is what the eye reads before the sentence. The sibling page already guards its own version of this. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
+    },
+    {
+      "id": "W187",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"state-unknown\">not locked</span>",
+      "new": "<span class=\"state-held\">not locked</span>",
+      "note": "a refused session wearing the locked colour. This is the row that means the child is still at their screen, and --held is the class the page reserves for a proved lock; the word in the cell still says not locked, so an assertion on the word passes. TestARefusedLockNamesTheSessionItCouldNotReach."
+    },
+    {
+      "id": "W188",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if and (gt .Result.Locked 0) (eq .Result.Locked $n) -}}",
+      "new": "{{- if gt .Result.Locked 0 -}}",
+      "note": "the banner drops the \"and that is every session\" half of its condition, so proving one of two sessions prints \"casey is locked\" over a page whose second row says the backend refused. The sentence an operator quotes to a child. TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked."
+    },
+    {
+      "id": "W189",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"state-unknown\">not locked</span>",
+      "new": "<span class=\"state-unknown\">locked</span>",
+      "note": "the refused cell saying locked next to the backend's own refusal. W187 pinned this cell's class and left its word free. The word and the class are now read off the element, because no grep on the page can tell that cell from the banner's sentence. TestARefusedLockNamesTheSessionItCouldNotReach."
+    },
+    {
+      "id": "W190",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if gt .Result.Locked 0}} The sessions above",
+      "new": "{{- if true}} The sessions above",
+      "note": "the flag paragraph claiming 'those were proved' on a page where nothing was proved. One comparison holds the sentence back, so deleting the condition makes the page assert proved locks that do not exist. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
+    },
+    {
+      "id": "W191",
+      "file": "internal/web/lock_now.go",
+      "old": "name, res.Locked, res.Unconfirmed, res.Refused, sessionName(s, r))",
+      "new": "name, res.Locked+res.Refused, res.Unconfirmed, 0, sessionName(s, r))",
+      "note": "the audit trail folding refused sessions into the locked count. A greeter row is refused before any backend is asked, so the trail records a lock no backend ever saw -- on the surface an operator reads afterwards as evidence. TestALockRequestIsAuditedWithCountsNotAVerdict."
+    },
+    {
+      "id": "W192",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if .SelfSession}}",
+      "new": "{{- if true}}",
+      "note": "the self-session note printed on every row. Its last clause is 'you asked for this one, so it happened', so on a refused row the page claims a lock happened. TestLockingTheDaemonsOwnAccountSaysBothHalves."
+    },
+    {
+      "id": "W193",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{if .Locked}}you asked for this one, so it happened.{{else}}",
+      "new": "you asked for this one, so it happened.{{if false}}",
+      "note": "the self-session note's last clause ungated from the row's verdict, so a refused self row still says the lock happened. TestTheSelfSessionNoteDoesNotClaimALockThatWasRefused."
+    },
+    {
+      "id": "W194",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "the rest are below.",
+      "new": "the rest are locked as well.",
+      "note": "the partial banner claiming every session is locked, in a clause a phrase grep on '1 of 2' cannot see. TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked."
+    },
+    {
+      "id": "W195",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<strong>{{.Target}}</strong> was not locked.",
+      "new": "<strong>{{.Target}}</strong> was not locked, but the screen is down.",
+      "note": "a clause appended to the negative banner asserting the screen went down when nothing proved it. TestARefusedLockNamesTheSessionItCouldNotReach."
+    },
+    {
+      "id": "W196",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "asked to lock and nothing could prove the screen went down.",
+      "new": "asked to lock and the rest are locked.",
+      "note": "the flag paragraph claiming locks inside the paragraph whose job is to deny them. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
+    },
+    {
+      "id": "W197",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if gt .Result.Unconfirmed 0 -}}",
+      "new": "{{- if or (gt .Result.Unconfirmed 0) (gt .Result.Refused 0) -}}",
+      "note": "the unconfirmed flag widened to refused sessions, so a row refused before the seam was asked is described as asked-and-unproven. TestANotLockableSessionIsNotDescribedAsAnUnconfirmedLock."
+    },
+    {
+      "id": "W198",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"muted\">no seat</span>",
+      "new": "<span class=\"state-held\">no seat</span>",
+      "note": "the seat marker wearing the proved-lock colour. It is not a verdict cell, so every cell-level colour rule is blind to it. TestANotLockableSessionIsNotDescribedAsAnUnconfirmedLock."
+    },
+    {
+      "id": "W199",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"override\">This is the session the daemon runs",
+      "new": "<span class=\"state-held\">This is the session the daemon runs",
+      "note": "the self-session note wearing the proved-lock colour: prose about the schedule reads as a proved lock. TestLockingTheDaemonsOwnAccountSaysBothHalves."
+    },
+    {
+      "id": "W200",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "asking it to lock produced.</caption>",
+      "new": "the locks that were proved.</caption>",
+      "note": "the caption claiming proved locks on a page where the backend refused -- the third sentence on the page and the one no assertion read. TestARefusedLockNamesTheSessionItCouldNotReach."
     }
   ]
 }

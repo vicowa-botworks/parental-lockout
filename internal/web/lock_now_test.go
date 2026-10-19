@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -37,6 +38,7 @@ type lockFixture struct {
 	mu          sync.Mutex
 	asked       []string // session IDs handed to the seam, in order
 	lockErr     error
+	lockErrFor  map[string]error // per-session override, keyed by session ID
 	sessions    []platform.Session
 	sessionsErr error
 }
@@ -75,7 +77,24 @@ func (f *lockFixture) lock(_ context.Context, sess platform.Session) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, sess.ID)
+	if err, ok := f.lockErrFor[sess.ID]; ok {
+		return err
+	}
 	return f.lockErr
+}
+
+// setLockErrFor answers one session differently from the rest. It exists for the page's
+// partial verdict -- one row proved, one row not -- which is the only state where the
+// banner has to do arithmetic instead of printing a word. A fixture where every session
+// takes the same branch can never render "1 of 2", so the guard that stops a partial proof
+// being printed as "casey is locked" would never be exercised by anything.
+func (f *lockFixture) setLockErrFor(sessionID string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.lockErrFor == nil {
+		f.lockErrFor = map[string]error{}
+	}
+	f.lockErrFor[sessionID] = err
 }
 
 func (f *lockFixture) askedFor() []string {
@@ -94,6 +113,60 @@ func (f *lockFixture) setLockErr(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lockErr = err
+}
+
+// The banner and the flag are the two sentences an operator quotes to someone else, so the
+// verdict tests read them whole rather than grepping a phrase out of them. A grep on
+// "is locked" cannot see a clause appended after it, and an appended clause is exactly how
+// this page would start claiming a lock it did not prove: "1 of 2 of casey's sessions are
+// locked; the rest are locked as well." passes every phrase-level check on the page. Pinning
+// the sentence means rewording it is a deliberate edit -- which is the point, because the
+// sentence is the product.
+var (
+	bannerRe = regexp.MustCompile(`(?s)<p class="banner">(.*?)</p>`)
+	flagRe   = regexp.MustCompile(`(?s)<p class="flag"[^>]*>(.*?)</p>`)
+	// The Result column's verdict spans, class and text together: the only way to say "this
+	// element must not claim a lock" without pinning the sentence it happens to use. The
+	// package's existing tagRe strips the markup.
+	cellRe = regexp.MustCompile(`<span class="(state-[a-z]+)">([^<]*)</span>`)
+	// The proved-lock colour, wherever it is worn. See heldIsOnlyEverALockedVerdict.
+	heldRe    = regexp.MustCompile(`(?s)<span class="state-held">(.*?)</span>`)
+	captionRe = regexp.MustCompile(`(?s)<caption>(.*?)</caption>`)
+)
+
+// heldIsOnlyEverALockedVerdict is the page-wide form of the colour rule. The cell-level checks
+// cover the Result column, but any element on the page can borrow --held: the muted seat marker
+// could, and so could the self-session note, and neither is a verdict cell that a cell-level
+// rule ever looks at. The colour is what the eye reads before the words, so the rule is stated
+// once for the whole document -- whatever wears the proved-lock colour has to be a cell saying
+// "locked".
+func heldIsOnlyEverALockedVerdict(t *testing.T, raw string) {
+	t.Helper()
+	for _, m := range heldRe.FindAllStringSubmatch(raw, -1) {
+		if got := flat(m[1]); got != "locked" {
+			t.Errorf("something the page does not prove wears the locked colour: %q", got)
+		}
+	}
+}
+
+// prose returns one of the page's prose elements with its markup gone and its whitespace
+// collapsed, so a test compares what a reader sees rather than what the template wraps.
+func prose(re *regexp.Regexp, t *testing.T, body, what string) string {
+	t.Helper()
+	m := re.FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("the lock page rendered no %s paragraph", what)
+	}
+	return strings.TrimSpace(tagRe.ReplaceAllString(flat(m[1]), ""))
+}
+
+// verdictCells lists the Result column's cells in row order as class-and-text pairs.
+func verdictCells(body string) [][2]string {
+	var out [][2]string
+	for _, m := range cellRe.FindAllStringSubmatch(body, -1) {
+		out = append(out, [2]string{m[1], flat(m[2])})
+	}
+	return out
 }
 
 // TestTheDashboardOffersToLockAManagedAccount is the control for the whole feature. A handler
@@ -263,6 +336,11 @@ func TestARefusedLockWritesNoAuditLine(t *testing.T) {
 			f.sessionsErr = errors.New("loginctl: signal: killed")
 			f.mu.Unlock()
 		}},
+		// The two refusals that happen before the sessions are even looked at. A handler with
+		// one logging point below them passes a test that only walks the session-shaped
+		// refusals, and the trail then records a lock request the daemon never made.
+		{"a server with no lock path", "/users/casey/lock-now",
+			func(f *lockFixture) { f.s.Lock = nil }},
 	}
 	for _, tc := range cases {
 		f := newLockFixture(t)
@@ -273,6 +351,19 @@ func TestARefusedLockWritesNoAuditLine(t *testing.T) {
 		if lines := lockLines(f); len(lines) != 0 {
 			t.Errorf("%s wrote an audit line: %v", tc.name, lines)
 		}
+	}
+
+	// The config refusal is walked after sign-in rather than before it. The admin credential is
+	// read through this same seam, so breaking it first fails the login and the case proves
+	// nothing about the lock.
+	f3 := newLockFixture(t)
+	authPostAfterBreaking(t, f3.s, func(s *Server) {
+		s.Config = func() (*config.Config, error) {
+			return nil, errors.New("config: read /etc/plock/config.json")
+		}
+	}, "/users/casey/lock-now")
+	if lines := lockLines(f3); len(lines) != 0 {
+		t.Errorf("a config that would not read wrote an audit line: %v", lines)
 	}
 
 	// The anonymous and forged cases go through the middleware rather than the handler, so
@@ -316,14 +407,49 @@ func TestAProvedLockIsReportedAsLocked(t *testing.T) {
 		t.Fatalf("a proved lock answered %d, want %d", rec.Code, http.StatusOK)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "<strong>casey</strong> is locked") {
-		t.Errorf("a proved lock did not say so: %s", body)
+	if got := prose(bannerRe, t, body, "banner"); got != "casey is locked." {
+		t.Errorf("a proved lock's banner reads %q, want exactly %q", got, "casey is locked.")
 	}
 	if strings.Contains(body, "unconfirmed") {
 		t.Error("a proved lock mentioned being unconfirmed")
 	}
 	if got := f.askedFor(); len(got) != 1 || got[0] != "2" {
 		t.Errorf("the seam was asked for sessions %v, want exactly [2]", got)
+	}
+}
+
+// TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked is the banner's arithmetic. An
+// account can hold a desktop row and a raw virtual terminal, and the backend can prove one
+// and refuse the other: the banner has to count. Dropping the "and that is all of them" half
+// of the condition prints "casey is locked" over a page whose second row says the backend
+// refused -- the one sentence on this page the operator quotes to a child. (A greeter row
+// cannot stand in for the refused one: platform refuses it before the seam is ever asked.)
+func TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked(t *testing.T) {
+	f := newLockFixture(t)
+	f.setSessions([]platform.Session{
+		{ID: "2", Username: "casey", UID: 1000, Class: "user", Seat: "seat0", Type: "x11", State: "active"},
+		{ID: "3", Username: "casey", UID: 1000, Class: "user", Seat: "tty3", Type: "tty"},
+	})
+	f.setLockErrFor("3", errors.New("session 3 is gone"))
+	rec := authPost(t, f.s, "/users/casey/lock-now", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a partial lock answered %d, want %d", rec.Code, http.StatusOK)
+	}
+	body := rec.Body.String()
+	if got := f.askedFor(); len(got) != 2 {
+		t.Fatalf("the seam was asked for sessions %v, want both rows", got)
+	}
+	if got, want := prose(bannerRe, t, body, "banner"),
+		"1 of 2 of casey's sessions are locked; the rest are below."; got != want {
+		t.Errorf("a lock proved on one of two sessions reads %q, want exactly %q", got, want)
+	}
+	// The whole-account sentence, not merely the word: "are locked" is the partial banner's
+	// own phrasing, so a check on "locked" alone would pass on the correct page too.
+	if strings.Contains(body, "is locked") {
+		t.Error("a proof covering one of two sessions was printed as the account being locked")
+	}
+	if !strings.Contains(body, "session 3 is gone") {
+		t.Errorf("the refused row did not carry the backend's own reason: %s", body)
 	}
 }
 
@@ -346,9 +472,27 @@ func TestAnUnconfirmedLockIsReportedAsUnconfirmed(t *testing.T) {
 		t.Error("an unconfirmed lock was reported as locked")
 	}
 	// Not merely a different word: the page has to say what the operator should do, because
-	// "unconfirmed" alone is a word, not an instruction.
-	if !strings.Contains(body, "nothing could prove") {
-		t.Error("the page did not explain what unconfirmed means")
+	// "unconfirmed" alone is a word, not an instruction. Both sentences whole -- the flag is
+	// the paragraph that exists precisely to stop the page implying a lock, and a grep on
+	// "nothing could prove" survives "…and the rest are locked." appended to it.
+	if got, want := prose(bannerRe, t, body, "banner"), "casey was not locked."; got != want {
+		t.Errorf("an unconfirmed lock's banner reads %q, want exactly %q", got, want)
+	}
+	const wantFlag = "1 of 1 session was asked to lock and nothing could prove the screen went down."
+	if got := prose(flagRe, t, body, "flag"); !strings.HasPrefix(got, wantFlag) {
+		t.Errorf("the unconfirmed flag opens with %q, want %q", got, wantFlag)
+	}
+	// And the word is only half of it. The cell's class carries the colour, which is what the
+	// eye reads before the sentence: --held is the colour that means "proved". A row wearing
+	// it while saying unconfirmed teaches the operator to trust the colour over the word, and
+	// a whole-body check on the word cannot see that happen (#107).
+	heldIsOnlyEverALockedVerdict(t, body)
+	// The flag paragraph carries one conditional sentence for the mixed case -- the sessions
+	// that say locked are a different case, those were proved -- and on a page where nothing
+	// was proved that is a claim about locks that do not exist. It is held back by a single
+	// comparison, so the sentence is one deleted condition away from printing always.
+	if strings.Contains(body, "those were proved") {
+		t.Error("the page claimed a proved lock on a page where nothing was proved")
 	}
 }
 
@@ -362,14 +506,41 @@ func TestARefusedLockNamesTheSessionItCouldNotReach(t *testing.T) {
 		t.Fatalf("a refused lock answered %d, want %d", rec.Code, http.StatusOK)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "was not locked") {
-		t.Errorf("a refused lock was not reported as a refusal: %s", body)
+	if got, want := prose(bannerRe, t, body, "banner"), "casey was not locked."; got != want {
+		t.Errorf("a refused lock's banner reads %q, want exactly %q", got, want)
 	}
 	if !strings.Contains(body, "session 2 is gone") {
 		t.Errorf("the page did not carry the backend's own reason: %s", body)
 	}
 	if strings.Contains(body, "nothing could prove") {
 		t.Error("a refusal was rendered with the unconfirmed sentence")
+	}
+	// The same colour rule as the unconfirmed row, and this is the sharper of the two: a
+	// refused session is the row that means "the child is still sitting at their screen",
+	// and --held is the class this page reserves for a lock a backend proved. The word can
+	// say "not locked" in the same cell while the colour says otherwise, and an assertion on
+	// the word cannot see it (#107).
+	heldIsOnlyEverALockedVerdict(t, body)
+	// Word and class, read off the element rather than grepped out of the page. Pinning the
+	// whole markup string instead would fail a better sentence -- "not locked (the backend
+	// refused)" is the same verdict in more words -- while a grep on the word alone cannot see
+	// the cell reading "locked" in the not-locked colour. Both are checked here, on the cell.
+	cells := verdictCells(body)
+	if len(cells) != 1 {
+		t.Fatalf("the page rendered %d verdict cells, want the one refused session", len(cells))
+	}
+	if cells[0][0] == "state-held" {
+		t.Error("a session that was not locked was rendered with the locked styling")
+	}
+	if w := strings.ToLower(cells[0][1]); w == "locked" || strings.HasPrefix(w, "locked ") {
+		t.Errorf("the refused row's Result cell claims a lock: %q", cells[0][1])
+	}
+	// The caption is the third sentence an operator reads on this page and the one no
+	// assertion looked at: reworded from "and what asking it to lock produced" to "and the
+	// locks that were proved", it claims locks on a page where the backend refused.
+	if got, want := prose(captionRe, t, body, "caption"),
+		"Every session casey holds on this machine, and what asking it to lock produced."; got != want {
+		t.Errorf("the caption reads %q, want exactly %q", got, want)
 	}
 }
 
@@ -403,7 +574,8 @@ func TestLockingTheDaemonsOwnAccountSaysBothHalves(t *testing.T) {
 	// flat, not the raw body: the template wraps this prose to keep the source readable, and
 	// a browser collapses the newline the same way it collapses any other space. Matching the
 	// raw bytes would pin the template's line length, which is not a behaviour.
-	body := flat(rec.Body.String())
+	raw := rec.Body.String()
+	body := flat(raw)
 	if !strings.Contains(body, "the daemon runs inside") {
 		t.Errorf("the self-session note is missing: %s", body)
 	}
@@ -412,6 +584,19 @@ func TestLockingTheDaemonsOwnAccountSaysBothHalves(t *testing.T) {
 	// why this account is never held by its schedule.
 	if !strings.Contains(body, "Its schedule never locks it") {
 		t.Error("the note does not explain the schedule half")
+	}
+	// This is the one page in the file where the locked colour is legitimate, so it is also
+	// the only place the rule can be checked against the note: the note is prose, and prose
+	// that borrows --held reads as a proved lock no matter what it says.
+	heldIsOnlyEverALockedVerdict(t, raw)
+	// The control: with the seam unwired the note is absent. Without this the two assertions
+	// above only prove the page prints the paragraph, not that it prints it on the daemon's
+	// own row -- and on any other row its last clause, "you asked for this one, so it
+	// happened", is a claim that a lock happened.
+	f2 := newLockFixture(t)
+	control := flat(authPost(t, f2.s, "/users/casey/lock-now", "").Body.String())
+	if strings.Contains(control, "the daemon runs inside") {
+		t.Error("the self-session note printed on a row that is not the daemon's own session")
 	}
 }
 
@@ -445,6 +630,68 @@ func TestTheSelfSessionNoteDoesNotRunIntoTheDetail(t *testing.T) {
 	}
 }
 
+// TestTheSelfSessionNoteDoesNotClaimALockThatWasRefused is the other half of that note. Its
+// last clause used to read "you asked for this one, so it happened" wherever the note printed,
+// and the note prints on the daemon's own row whether or not that row was lockable: a session
+// with no session type is refused before the seam is asked, so the page put "not locked" in one
+// column and "it happened" in the next. The clause is now gated on the row's verdict, which is
+// the same rule every other sentence on this page follows.
+func TestTheSelfSessionNoteDoesNotClaimALockThatWasRefused(t *testing.T) {
+	f := newLockFixture(t)
+	f.s.Self = platform.SelfLocation{InUserSlice: true, UID: 1000}
+	// The daemon's own session, with no session type: platform refuses it before the seam is
+	// asked, which is the state the note used to describe as a lock.
+	f.setSessions([]platform.Session{
+		{ID: "2", Username: "casey", UID: 1000, Class: "user", Seat: "seat0"},
+	})
+	body := flat(authPost(t, f.s, "/users/casey/lock-now", "").Body.String())
+	if !strings.Contains(body, "the daemon runs inside") {
+		t.Fatalf("the row rendered no self-session note, so nothing was tested: %s", body)
+	}
+	if strings.Contains(body, "so it happened") {
+		t.Error("the note claims a lock happened on a session the daemon never asked to lock")
+	}
+	if !strings.Contains(body, "says what came of it") {
+		t.Error("the refused self row does not send the reader to the verdict column")
+	}
+	if got := f.askedFor(); len(got) != 0 {
+		t.Errorf("the seam was asked for sessions %v on a row that is not lockable", got)
+	}
+}
+
+// TestANotLockableSessionIsNotDescribedAsAnUnconfirmedLock renders the page a greeter row
+// produces -- refused before the seam was asked, so nothing is locked and nothing is
+// unconfirmed -- and holds it to the rule the rest of the page follows. Nothing else in this
+// file looks at that page's body: the audit test uses a greeter row and reads only the trail,
+// so every conditional in the template keyed on Refused was unobserved, and widening the flag
+// paragraph's condition to include refused sessions survived the whole suite. The flag speaks
+// of sessions "asked to lock", and a refused session was never asked.
+func TestANotLockableSessionIsNotDescribedAsAnUnconfirmedLock(t *testing.T) {
+	f := newLockFixture(t)
+	// A greeter row with no seat, so this is also the only page in the file that renders the
+	// muted "no seat" span rather than a verdict the colour rules already cover.
+	f.setSessions([]platform.Session{
+		{ID: "9", Username: "casey", UID: 1000, Class: "greeter", Type: "x11"},
+	})
+	body := authPost(t, f.s, "/users/casey/lock-now", "").Body.String()
+	if got := f.askedFor(); len(got) != 0 {
+		t.Errorf("the seam was asked for sessions %v on a row that is not lockable", got)
+	}
+	if strings.Contains(body, `class="flag"`) {
+		t.Error("the page showed the unconfirmed flag for a session that was never asked")
+	}
+	// Nothing here was proved, so no element on the page may wear the proved-lock colour --
+	// including the seat marker, which is not a verdict cell at all and so is invisible to
+	// every cell-level rule.
+	if !strings.Contains(body, "no seat") {
+		t.Fatal("the row rendered no seat marker, so the colour check below was vacuous")
+	}
+	heldIsOnlyEverALockedVerdict(t, body)
+	if got, want := prose(bannerRe, t, body, "banner"), "casey was not locked."; got != want {
+		t.Errorf("a refused lock's banner reads %q, want exactly %q", got, want)
+	}
+}
+
 // around quotes the bytes either side of a match, clamped to the body, so a failure names the
 // seam it is complaining about rather than dumping the whole page.
 func around(s string, i, before, after int) string {
@@ -474,6 +721,21 @@ func TestALockRequestIsAuditedWithCountsNotAVerdict(t *testing.T) {
 	}
 	if strings.Contains(lines, "casey locked") {
 		t.Errorf("the audit line claims a lock that was never confirmed: %s", lines)
+	}
+
+	// The refused bucket, on its own terms. The fixture above has nothing in it -- every
+	// session is lockable and unconfirmed -- so folding refused into locked passes it
+	// untouched. A greeter row is refused before any backend is asked, and a trail that
+	// records it as a lock is the audit log asserting something no backend ever saw.
+	f2 := newLockFixture(t)
+	f2.setSessions([]platform.Session{
+		{ID: "2", Username: "casey", UID: 1000, Class: "user", Seat: "seat0", Type: "x11", State: "active"},
+		{ID: "9", Username: "casey", UID: 1000, Class: "greeter", Seat: "seat0", Type: "x11"},
+	})
+	authPost(t, f2.s, "/users/casey/lock-now", "")
+	trail := strings.Join(f2.audited.Lines(), "\n")
+	if !strings.Contains(trail, "locked 1") || !strings.Contains(trail, "refused 1") {
+		t.Errorf("the audit line does not keep a refused session out of the locked count: %s", trail)
 	}
 }
 

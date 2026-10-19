@@ -127,6 +127,12 @@ type lockPage struct {
 // lockRow is one session's line, carrying the two facts the page adds over lockop's
 // Outcome: which console the session is on, and whether this is the session the daemon
 // itself sits in.
+//
+// The verdict reaches the page through the embedded Outcome's booleans, which lock.tmpl
+// branches on to pick the span and its class. There is deliberately no string-returning
+// State() beside these fields: the template never asked for one, so it would be a method
+// nothing reads -- and a mutation pattern pointed at it survives every battery forever,
+// because no test can observe a call that does not happen (#107).
 type lockRow struct {
 	lockop.Outcome
 	// Seat and Type come from the listing, not from the lock. They are on the page because
@@ -139,22 +145,6 @@ type lockRow struct {
 	// screen and this is about the schedule: the loop will never hold this account, and
 	// the operator just locked it.
 	SelfSession bool
-}
-
-// State names the verdict in the page's words.
-//
-// Three strings, not a boolean: "unconfirmed" is the answer a raw virtual terminal gives
-// forever, and a page that rendered it as either success or failure would teach the
-// operator to distrust the only signal the machine has.
-func (r lockRow) State() string {
-	switch {
-	case r.Locked:
-		return "locked"
-	case r.Unconfirmed:
-		return "unconfirmed"
-	default:
-		return "not locked"
-	}
 }
 
 // serverChain adapts the server's seams to lockop.Chain.
