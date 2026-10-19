@@ -346,10 +346,11 @@ func TestAProvedLockIsReportedAsLocked(t *testing.T) {
 }
 
 // TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked is the banner's arithmetic. An
-// account can hold a greeter row and a desktop row, and proving one of them did not prove
-// the account: the banner has to count. Dropping the "and that is all of them" half of the
-// condition prints "casey is locked" over a page whose second row says the backend refused,
-// which is the one sentence on this page the operator quotes to a child.
+// account can hold a desktop row and a raw virtual terminal, and the backend can prove one
+// and refuse the other: the banner has to count. Dropping the "and that is all of them" half
+// of the condition prints "casey is locked" over a page whose second row says the backend
+// refused -- the one sentence on this page the operator quotes to a child. (A greeter row
+// cannot stand in for the refused one: platform refuses it before the seam is ever asked.)
 func TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked(t *testing.T) {
 	f := newLockFixture(t)
 	f.setSessions([]platform.Session{
@@ -408,6 +409,13 @@ func TestAnUnconfirmedLockIsReportedAsUnconfirmed(t *testing.T) {
 	if strings.Contains(body, "state-held") {
 		t.Error("an unconfirmed lock was rendered with the locked styling")
 	}
+	// The flag paragraph carries one conditional sentence for the mixed case -- the sessions
+	// that say locked are a different case, those were proved -- and on a page where nothing
+	// was proved that is a claim about locks that do not exist. It is held back by a single
+	// comparison, so the sentence is one deleted condition away from printing always.
+	if strings.Contains(body, "those were proved") {
+		t.Error("the page claimed a proved lock on a page where nothing was proved")
+	}
 }
 
 // TestARefusedLockNamesTheSessionItCouldNotReach. A hard error is a different sentence from
@@ -436,6 +444,12 @@ func TestARefusedLockNamesTheSessionItCouldNotReach(t *testing.T) {
 	// the word cannot see it (#107).
 	if strings.Contains(body, "state-held") {
 		t.Error("a session that was not locked was rendered with the locked styling")
+	}
+	// Word and class together, as one string. Pinning the class alone still leaves the cell
+	// free to read `<span class="state-unknown">locked</span>` beside "session 2 is gone",
+	// and the only other grep near this row matches the banner's sentence, not the cell.
+	if !strings.Contains(body, `<span class="state-unknown">not locked</span>`) {
+		t.Error("the refused row's Result cell is not the not-locked cell")
 	}
 }
 
@@ -478,6 +492,15 @@ func TestLockingTheDaemonsOwnAccountSaysBothHalves(t *testing.T) {
 	// why this account is never held by its schedule.
 	if !strings.Contains(body, "Its schedule never locks it") {
 		t.Error("the note does not explain the schedule half")
+	}
+	// The control: with the seam unwired the note is absent. Without this the two assertions
+	// above only prove the page prints the paragraph, not that it prints it on the daemon's
+	// own row -- and on any other row its last clause, "you asked for this one, so it
+	// happened", is a claim that a lock happened.
+	f2 := newLockFixture(t)
+	control := flat(authPost(t, f2.s, "/users/casey/lock-now", "").Body.String())
+	if strings.Contains(control, "the daemon runs inside") {
+		t.Error("the self-session note printed on a row that is not the daemon's own session")
 	}
 }
 
@@ -540,6 +563,21 @@ func TestALockRequestIsAuditedWithCountsNotAVerdict(t *testing.T) {
 	}
 	if strings.Contains(lines, "casey locked") {
 		t.Errorf("the audit line claims a lock that was never confirmed: %s", lines)
+	}
+
+	// The refused bucket, on its own terms. The fixture above has nothing in it -- every
+	// session is lockable and unconfirmed -- so folding refused into locked passes it
+	// untouched. A greeter row is refused before any backend is asked, and a trail that
+	// records it as a lock is the audit log asserting something no backend ever saw.
+	f2 := newLockFixture(t)
+	f2.setSessions([]platform.Session{
+		{ID: "2", Username: "casey", UID: 1000, Class: "user", Seat: "seat0", Type: "x11", State: "active"},
+		{ID: "9", Username: "casey", UID: 1000, Class: "greeter", Seat: "seat0", Type: "x11"},
+	})
+	authPost(t, f2.s, "/users/casey/lock-now", "")
+	trail := strings.Join(f2.audited.Lines(), "\n")
+	if !strings.Contains(trail, "locked 1") || !strings.Contains(trail, "refused 1") {
+		t.Errorf("the audit line does not keep a refused session out of the locked count: %s", trail)
 	}
 }
 

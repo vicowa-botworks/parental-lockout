@@ -1265,6 +1265,34 @@
       "old": "{{- if and (gt .Result.Locked 0) (eq .Result.Locked $n) -}}",
       "new": "{{- if gt .Result.Locked 0 -}}",
       "note": "the banner drops the \"and that is every session\" half of its condition, so proving one of two sessions prints \"casey is locked\" over a page whose second row says the backend refused. The sentence an operator quotes to a child. TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked."
+    },
+    {
+      "id": "W189",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"state-unknown\">not locked</span>",
+      "new": "<span class=\"state-unknown\">locked</span>",
+      "note": "the refused cell saying locked next to the backend's own refusal. W187 pinned this cell's class and left its word free, and the only other grep near the row matches the banner's sentence, not the cell. TestARefusedLockNamesTheSessionItCouldNotReach."
+    },
+    {
+      "id": "W190",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if gt .Result.Locked 0}} The sessions above",
+      "new": "{{- if true}} The sessions above",
+      "note": "the flag paragraph claiming 'those were proved' on a page where nothing was proved. One comparison holds the sentence back, so deleting the condition makes the page assert proved locks that do not exist. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
+    },
+    {
+      "id": "W191",
+      "file": "internal/web/lock_now.go",
+      "old": "name, res.Locked, res.Unconfirmed, res.Refused, sessionName(s, r))",
+      "new": "name, res.Locked+res.Refused, res.Unconfirmed, 0, sessionName(s, r))",
+      "note": "the audit trail folding refused sessions into the locked count. A greeter row is refused before any backend is asked, so the trail records a lock no backend ever saw -- on the surface an operator reads afterwards as evidence. TestALockRequestIsAuditedWithCountsNotAVerdict."
+    },
+    {
+      "id": "W192",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if .SelfSession}}",
+      "new": "{{- if true}}",
+      "note": "the self-session note printed on every row. Its last clause is 'you asked for this one, so it happened', so on a refused row the page claims a lock happened. TestLockingTheDaemonsOwnAccountSaysBothHalves."
     }
   ]
 }
