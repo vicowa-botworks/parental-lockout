@@ -165,12 +165,66 @@ func TestThePageHasNoInlineScriptOrStyleToBeBlockedByTheCSP(t *testing.T) {
 	// cspComplaints on the body it obtained by posting -- which internal/web/lock_now_test.go
 	// does for the lock result page. Adding a POST-only page without that sibling call is
 	// how this guard goes blind while staying green.
-	for _, path := range []string{"/", "/users", "/profiles", "/login"} {
+	for _, path := range []string{"/", "/users", "/profiles", "/settings", "/login"} {
 		rec := authGet(t, s, path)
 		for _, complaint := range cspComplaints(rec.Header().Get("Content-Security-Policy"), rec.Body.String()) {
 			t.Errorf("%s: %s", path, complaint)
 		}
 	}
+}
+
+// The masthead's links have to be separated in the rendered bytes, not just in the template.
+//
+// This is #108's failure arriving through the navigation instead of a table cell: a Go template
+// action trims the whitespace on the side its dashes point at, so a comment written between two
+// inline elements deletes the space that separated them. The template still reads fine and the
+// page still passes the CSP guard, the route guard and every width test that looks at overflow
+// rather than at word boundaries -- the only thing that showed it was the 360 px photograph,
+// where the nav rendered "ProfilesSettings". An assertion on the bytes is what keeps the next
+// comment inserted between two links from doing it again.
+func TestTheMastheadLinksAreSeparatedInTheRenderedBytes(t *testing.T) {
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+
+	for _, path := range []string{"/", "/users", "/profiles", "/settings"} {
+		body := authGet(t, s, path).Body.String()
+		nav, ok := between(body, "<nav>", "</nav>")
+		if !ok {
+			t.Errorf("%s renders no <nav> block, so this guard is checking nothing", path)
+			continue
+		}
+		// /login is deliberately not in this list: it is the pre-auth page and has no masthead by
+		// design, so asking it for one would only teach the next reader that the guard is wrong
+		// about the login page. The four above are every page the shell renders.
+		//
+		// The list is what stops an empty nav passing: a page whose links all vanished would
+		// certainly contain no glued pair.
+		for _, label := range []string{"Status", "Accounts", "Audit", "Profiles", "Settings"} {
+			if !strings.Contains(nav, ">"+label+"</a>") {
+				t.Errorf("%s: the masthead never links to %s", path, label)
+			}
+		}
+		for _, glued := range []string{"</a><a", "</a><button"} {
+			if i := strings.Index(nav, glued); i >= 0 {
+				lo := max(0, i-40)
+				t.Errorf("%s: the masthead emits %q with nothing between the two elements, so they "+
+					"render as one word: ...%s...", path, glued, nav[lo:min(len(nav), i+60)])
+			}
+		}
+	}
+}
+
+// between returns the text between the first occurrence of open and the next close.
+func between(body, open, close string) (string, bool) {
+	i := strings.Index(body, open)
+	if i < 0 {
+		return "", false
+	}
+	rest := body[i+len(open):]
+	j := strings.Index(rest, close)
+	if j < 0 {
+		return "", false
+	}
+	return rest[:j], true
 }
 
 // cspComplaints checks one rendered page against the CSP contract, from both halves.

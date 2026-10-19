@@ -1482,6 +1482,69 @@
       "old": "\tcase '.', '!', '?':\n\t\treturn text\n",
       "new": "",
       "note": "the terminator is added to everything, so a detail that already ended in one gains a second: 'cannot confirm it.. This is the session'. Both seam tests still pass, because they only ask whether the cell ends in a terminator -- the killer is the unit test that exists for this case. TestTheTerminatorIsAddedOnceAndOnlyWhenNeeded."
+    },
+    {
+      "id": "W207",
+      "file": "internal/web/settings.go",
+      "old": "\tcase \"\":\n\t\treturn false, \"settings.enforcement was not submitted, so the daemon cannot tell whether \" +\n\t\t\t\"you meant to switch enforcement off. Pick a position explicitly; nothing was changed.\"",
+      "new": "\tcase \"\":\n\t\treturn false, \"\"",
+      "note": "an absent enforcement field silently means off. This is the fail-open reading and the one control in this UI where absence cannot be a value: every other checkbox is written so absence is safe. TestAMissingEnforcementFieldIsRefusedRatherThanReadAsOff."
+    },
+    {
+      "id": "W208",
+      "file": "internal/web/settings.go",
+      "old": "\tif wantPoll < config.MinPollSeconds || wantPoll > config.MaxPollSeconds {",
+      "new": "\tif false {",
+      "note": "the range check is gone, so pollSeconds=0 is accepted by the handler and the daemon ticks on a zero interval. Validate still refuses it inside mutateConfig, which is the point: the operator then gets a generic 500-shaped refusal instead of the sentence naming the field and its bounds. TestAnOutOfRangeIntervalIsRefusedRatherThanCorrected."
+    },
+    {
+      "id": "W209",
+      "file": "internal/web/settings.go",
+      "old": "\tpage := settingsView(cfg)\n\tpage.PollField = typedPoll\n\tpage.Problem = problem",
+      "new": "\tpage := settingsView(cfg)\n\tpage.Problem = problem",
+      "note": "the refused page reverts the interval box to the stored number, so an operator who typed 2s is told the number is wrong about a value that is no longer on the screen. TestAnInvalidIntervalIsRefusedAndTheFormComesBackWithWhatWasTyped."
+    },
+    {
+      "id": "W210",
+      "file": "internal/web/settings.go",
+      "old": "\ts.audit(\"settings.changed\", fmt.Sprintf(\"%s by %s\", strings.Join(changes, \"; \"),\n\t\tsessionName(s, r)))",
+      "new": "\t_ = sessionName(s, r)",
+      "note": "an accepted settings write leaves no trail line, so 'who turned enforcement off at 2am' has no answer. TestAnAcceptedSubmitWritesBothFieldsAndAuditsThem."
+    },
+    {
+      "id": "W211",
+      "file": "internal/web/settings.go",
+      "old": "\t\tif len(changes) == 0 {\n\t\t\treturn errNothingChanged\n\t\t}",
+      "new": "\t\tif false {\n\t\t\treturn errNothingChanged\n\t\t}",
+      "note": "a submit that changed nothing still renames the config file and writes a trail line claiming a change that did not happen. TestASubmitThatChangesNothingWritesNothing."
+    },
+    {
+      "id": "W212",
+      "file": "internal/web/settings.go",
+      "old": "\tb.WriteString(\" Enforcement is switched off, so nothing is being locked out and nothing will \" +\n\t\t\"be, whatever the schedule says, until it is switched back on. The status page says so too, \" +\n\t\t\"and the daemon stops re-asserting locks from its next tick.\")",
+      "new": "\tb.WriteString(\" Settings saved.\")",
+      "note": "the confirmation for the fail-open control becomes generic, which is the wording that lets a parent read 'saved' and believe the daemon is still locking. Scoped to the status paragraph by the killer, because the page's own banner says the off-state sentence whether or not the submit was accepted. TestTheConfirmationNamesWhatStopsHappening."
+    },
+    {
+      "id": "W213",
+      "file": "internal/web/templates/settings.tmpl",
+      "old": "  <input type=\"hidden\" name=\"csrf\" value=\"{{.CSRF}}\">",
+      "new": "",
+      "note": "the settings form loses its token. The shared shell still carries one for the sign-out form, so 'the body contains this session's token' stays true of every page in the app -- which is why the killer extracts the form that posts to /settings rather than searching the body. TestTheSettingsFormCarriesTheSessionToken."
+    },
+    {
+      "id": "W214",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "    <a href=\"/settings\">Settings</a>",
+      "new": "",
+      "note": "the shell stops linking to the page, so the route exists and is reachable only by typing a URL -- the control a parent is told about in the banner has no way to be reached from the sentence that mentions it. TestTheSettingsPageIsReachableFromTheNavigation."
+    },
+    {
+      "id": "W215",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "    {{/* Settings is a link, not a form, even though the page it opens ends in a write: the\n        navigation itself changes nothing, and a GET that mutates is the thing this repo's\n        POST-only rule exists to stop.\n\n        No dashes on this action, on either side, and that is not a style choice. A trimming\n        action deletes the whitespace it points at, so a comment written between two inline\n        elements with {{- -}} removes the space that separated them: this line shipped as\n        \"ProfilesSettings\" in the masthead and the 360 px photograph is what showed it.\n        TestTheMastheadLinksAreSeparatedInTheRenderedBytes is the guard. */}}",
+      "new": "    {{- /* Settings is a link, not a form, even though the page it opens ends in a write: the\n        navigation itself changes nothing, and a GET that mutates is the thing this repo's\n        POST-only rule exists to stop.\n\n        No dashes on this action, on either side, and that is not a style choice. A trimming\n        action deletes the whitespace it points at, so a comment written between two inline\n        elements with {{- -}} removes the space that separated them: this line shipped as\n        \"ProfilesSettings\" in the masthead and the 360 px photograph is what showed it.\n        TestTheMastheadLinksAreSeparatedInTheRenderedBytes is the guard. */ -}}",
+      "note": "the trimming form of the comment action on both sides -- the exact shape this branch shipped with, caught only by the 360 px photograph. A template action deletes the whitespace its dashes point at, so a comment written between two inline elements removes the space between them and the masthead renders 'ProfilesSettings'. Either dash alone is harmless, which is why the mutant restores both: the CSP guard, the route guard and the overflow check all stay green on the glued page. TestTheMastheadLinksAreSeparatedInTheRenderedBytes."
     }
   ]
 }

@@ -1,0 +1,88 @@
+{{define "pagename"}}settings{{end}}
+{{define "title"}}Settings{{end}}
+{{define "body"}}
+{{- /* The two sentences at the top are mutually exclusive by construction: Problem is set only on
+       a refused submit and Message only after one was accepted. They are rendered in the same slot
+       so the operator reads the answer where they acted, and a page that showed both would be
+       refusing and accepting the same submit. */ -}}
+{{- if .Problem}}
+<p class="problem" role="alert">{{.Problem}}</p>
+{{- end}}
+{{- if .Message}}
+<p class="flag" role="status">{{.Message}}</p>
+{{- end}}
+
+{{- /* The banner states the machine's position, not this form's. It is the same sentence the
+       status page prints for the same state, and it has to stay in agreement with it: an operator
+       who switched the control and then reads a different word on the other page cannot tell which
+       page is lying. */ -}}
+<p class="banner">
+  {{- if .Enforcement}}
+    Enforcement is <strong>on</strong>: an account inside a lockout window is locked out, and the
+    daemon asks again on every tick until the window closes.
+  {{- else}}
+    <span class="problem">Enforcement is switched off, so nothing is being locked out and nothing
+    will be, whatever the schedule says.</span> Profiles, rules and assignments are all still saved
+    here; they simply lock nobody until enforcement is switched back on.
+  {{- end}}
+</p>
+
+<form method="post" action="/settings" class="edit-form">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+
+  <fieldset>
+    <legend>Enforcement</legend>
+    {{- /* A radio pair rather than a checkbox, and the reason is which way a missing field reads.
+           Every other checkbox in this UI is written so that absence is the safe direction -- a
+           rule form that lost its allDay box enforces a timed window instead of an all-day one, and
+           an assignment row that lost its box stops managing an account rather than starting to.
+           This control is the reverse: a checkbox that sends nothing when clear would mean "stop
+           locking children out" the moment a body was truncated or a control dropped, which is the
+           one reading this project refuses to make silently (#873). Two named positions, and a
+           request carrying neither is refused. */ -}}
+    <p>
+      <label><input type="radio" name="enforcement" value="on" required
+                    {{if .Enforcement}}checked{{end}}>
+        On &mdash; enforce the schedule</label>
+      <label><input type="radio" name="enforcement" value="off" required
+                    {{if not .Enforcement}}checked{{end}}>
+        Off &mdash; stop locking everyone out</label>
+    </p>
+    <p class="muted">
+      Switching it off does not delete any profile, rule or assignment, and it does not release a
+      screen that is already locked &mdash; the daemon stops asking, and whatever the desktop locked
+      stays locked until it is unlocked at the machine. Turning it back on takes effect on the next
+      tick without restarting the daemon.
+    </p>
+  </fieldset>
+
+  <fieldset>
+    <legend>How often the daemon checks</legend>
+    <p>
+      <label for="poll-seconds">Seconds between checks</label>
+      <input id="poll-seconds" type="number" name="pollSeconds"
+             value="{{.PollField}}" min="{{.MinPoll}}" max="{{.MaxPoll}}" step="1" required>
+    </p>
+    <p class="muted">
+      Between {{.MinPoll}} and {{.MaxPoll}} seconds. A shorter interval locks a screen out sooner
+      after a window opens and wakes the machine more often; a longer one is quieter and delays both
+      the lock and the release by up to that much. A value outside the range is refused here rather
+      than corrected &mdash; in particular, zero is not quietly turned into the default of its own
+      accord, because a control that silently rewrites what you typed is a control you cannot trust
+      to have done anything at all.
+    </p>
+  </fieldset>
+
+  <p>
+    <button type="submit">Save settings</button>
+  </p>
+</form>
+
+<p class="muted">
+  The listening address, the TLS mode and the lock backends are not on this page. They change how
+  the daemon is reached and what it asks the desktop to do, so each needs its own way of saying
+  "you have just cut yourself off" before it is safe to offer as a form.
+</p>
+
+<p><a href="/">Back to the status page</a></p>
+{{end}}
