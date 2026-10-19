@@ -1271,7 +1271,7 @@
       "file": "internal/web/templates/lock.tmpl",
       "old": "<span class=\"state-unknown\">not locked</span>",
       "new": "<span class=\"state-unknown\">locked</span>",
-      "note": "the refused cell saying locked next to the backend's own refusal. W187 pinned this cell's class and left its word free, and the only other grep near the row matches the banner's sentence, not the cell. TestARefusedLockNamesTheSessionItCouldNotReach."
+      "note": "the refused cell saying locked next to the backend's own refusal. W187 pinned this cell's class and left its word free. The word and the class are now read off the element, because no grep on the page can tell that cell from the banner's sentence. TestARefusedLockNamesTheSessionItCouldNotReach."
     },
     {
       "id": "W190",
@@ -1293,6 +1293,62 @@
       "old": "{{- if .SelfSession}}",
       "new": "{{- if true}}",
       "note": "the self-session note printed on every row. Its last clause is 'you asked for this one, so it happened', so on a refused row the page claims a lock happened. TestLockingTheDaemonsOwnAccountSaysBothHalves."
+    },
+    {
+      "id": "W193",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{if .Locked}}you asked for this one, so it happened.{{else}}",
+      "new": "you asked for this one, so it happened.{{if false}}",
+      "note": "the self-session note's last clause ungated from the row's verdict, so a refused self row still says the lock happened. TestTheSelfSessionNoteDoesNotClaimALockThatWasRefused."
+    },
+    {
+      "id": "W194",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "the rest are below.",
+      "new": "the rest are locked as well.",
+      "note": "the partial banner claiming every session is locked, in a clause a phrase grep on '1 of 2' cannot see. TestAPartialProofIsNotPrintedAsTheWholeAccountIsLocked."
+    },
+    {
+      "id": "W195",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<strong>{{.Target}}</strong> was not locked.",
+      "new": "<strong>{{.Target}}</strong> was not locked, but the screen is down.",
+      "note": "a clause appended to the negative banner asserting the screen went down when nothing proved it. TestARefusedLockNamesTheSessionItCouldNotReach."
+    },
+    {
+      "id": "W196",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "asked to lock and nothing could prove the screen went down.",
+      "new": "asked to lock and the rest are locked.",
+      "note": "the flag paragraph claiming locks inside the paragraph whose job is to deny them. TestAnUnconfirmedLockIsReportedAsUnconfirmed."
+    },
+    {
+      "id": "W197",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "{{- if gt .Result.Unconfirmed 0 -}}",
+      "new": "{{- if or (gt .Result.Unconfirmed 0) (gt .Result.Refused 0) -}}",
+      "note": "the unconfirmed flag widened to refused sessions, so a row refused before the seam was asked is described as asked-and-unproven. TestANotLockableSessionIsNotDescribedAsAnUnconfirmedLock."
+    },
+    {
+      "id": "W198",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"muted\">no seat</span>",
+      "new": "<span class=\"state-held\">no seat</span>",
+      "note": "the seat marker wearing the proved-lock colour. It is not a verdict cell, so every cell-level colour rule is blind to it. TestANotLockableSessionIsNotDescribedAsAnUnconfirmedLock."
+    },
+    {
+      "id": "W199",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "<span class=\"override\">This is the session the daemon runs",
+      "new": "<span class=\"state-held\">This is the session the daemon runs",
+      "note": "the self-session note wearing the proved-lock colour: prose about the schedule reads as a proved lock. TestLockingTheDaemonsOwnAccountSaysBothHalves."
+    },
+    {
+      "id": "W200",
+      "file": "internal/web/templates/lock.tmpl",
+      "old": "asking it to lock produced.</caption>",
+      "new": "the locks that were proved.</caption>",
+      "note": "the caption claiming proved locks on a page where the backend refused -- the third sentence on the page and the one no assertion read. TestARefusedLockNamesTheSessionItCouldNotReach."
     }
   ]
 }

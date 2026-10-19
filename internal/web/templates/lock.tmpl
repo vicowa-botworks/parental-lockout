@@ -81,7 +81,8 @@
                margin would separate them visually and still copy out as one word. */ -}}
         {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="override">This is the session the daemon runs
           inside. Its schedule never locks it, because the daemon cannot lock itself out of
-          enforcing; you asked for this one, so it happened.</span>{{end -}}
+          enforcing; {{if .Locked}}you asked for this one, so it happened.{{else}}you asked for
+          this one, and the column beside it says what came of it.{{end}}</span>{{end -}}
       </td>
     </tr>
     {{end}}
