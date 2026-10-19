@@ -5,9 +5,10 @@ import "testing"
 // TestTheTerminatorIsAddedOnceAndOnlyWhenNeeded pins the half of sentenceTerminated's
 // promise that neither page test can see.
 //
-// Both seam tests ask one question only: does the Detail cell end in a terminator? A helper
-// that appends one unconditionally answers yes on every input, including the details that
-// already ended in one, and the page then reads "cannot confirm it.. This is the session".
+// Neither seam test can see a doubled period: both ask only whether the cell ends in *a*
+// terminator. A helper that appends one unconditionally answers yes on every input, including
+// the details that already ended in one, and the page then reads "cannot confirm it.. This is
+// the session".
 // Measured: replacing the switch with an unconditional `return trimmed + "."` left the whole
 // internal/web suite green, so the promise in the helper's own comment -- that a backend
 // which later ends a sentence with a period must not gain a second one -- was pinned by

@@ -609,7 +609,8 @@ func TestLockingTheDaemonsOwnAccountSaysBothHalves(t *testing.T) {
 // the raw body, in two halves: something must sit between the detail's `</span>` and the note
 // at all (#103), and the detail's own text must end in a sentence terminator rather than a
 // space (#108). Both halves are in assertTheDetailCellEndsWhereTheNoteBegins, and each is
-// pinned by its own mutant -- W204 here, W205 on the probe page.
+// pinned on each page: the separation half by W204 here and W205 on the probe page, the
+// terminator half by W202 here and W203 there, with W201 taking it out of the helper itself.
 func TestTheSelfSessionNoteDoesNotRunIntoTheDetail(t *testing.T) {
 	f := newLockFixture(t)
 	f.s.Self = platform.SelfLocation{InUserSlice: true, UID: 1000}
@@ -666,7 +667,13 @@ func assertTheDetailCellEndsWhereTheNoteBegins(t *testing.T, raw string) {
 	// A failure that points at markup nowhere near the seam is worse than no assertion, so
 	// this says what is missing instead of measuring the wrong thing.
 	gap := raw[end+len(`</span>`) : i]
-	if strings.Contains(gap, "<") {
+	// "Another cell" is decided by cell boundaries, not by any markup. `<wbr>` and `<!--x-->`
+	// both render nothing, so a separator made of either IS the #103 run-on and belongs to the
+	// check below. Measured with `<` as the test: both produced "this row rendered no detail of
+	// its own" about a row that had one, sending the reader to the fixture instead of the
+	// template line.
+	if strings.Contains(gap, "</td") || strings.Contains(gap, "<td") ||
+		strings.Contains(gap, "</tr") || strings.Contains(gap, "<tr") {
 		t.Fatalf("the nearest closed span before the self-session note is in another cell (%q between them): "+
 			"this row rendered no detail of its own, so there is no seam to test", gap)
 	}
@@ -677,7 +684,11 @@ func assertTheDetailCellEndsWhereTheNoteBegins(t *testing.T, raw string) {
 	// one that a check on the detail's last character cannot see, because the detail is still
 	// correctly terminated. Measured: with the separator deleted from both templates, the
 	// terminator assertion alone passed the whole package.
-	if gap == "" || strings.TrimSpace(gap) != "" {
+	// An entity that renders a space is a space. This page's whole constraint is 360 px, so
+	// `&nbsp;` is a plausible way to write the separator, and calling it a run-on would assert
+	// the opposite of what the browser shows.
+	rendered := strings.NewReplacer("&nbsp;", " ", "&#160;", " ", "&#xA0;", " ", "&#xa0;", " ").Replace(gap)
+	if rendered == "" || strings.TrimSpace(rendered) != "" {
 		t.Errorf("the detail span and the self-session note are separated by %q, not by whitespace; "+
 			"the cell renders as one run-on word: %q", gap, around(raw, i, 60, 40))
 	}
