@@ -360,6 +360,25 @@ func TestANonLockableSessionIsRefusedInTheLoopsOwnWords(t *testing.T) {
 	}
 }
 
+// TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail is #108's contract on the page
+// that copied the Detail cell.
+//
+// #106 lifted the cell out of lock.tmpl wholesale -- the note, the separator and the
+// comment explaining why the separator has to be in the text. The copy inherited the defect
+// along with the layout, and nothing here noticed, because no test in this file ever set
+// the self location, so the note never rendered and the seam was never on screen. A cell
+// that has been copied is a cell that has to be checked on both pages.
+func TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail(t *testing.T) {
+	f := newProbeFixture(t)
+	f.s.Self = platform.SelfLocation{InUserSlice: true, UID: 1000}
+	// A greeter session, so the row carries a refusal: the seam only exists where a detail
+	// and the note are both present.
+	f.setSessions([]platform.Session{{ID: "3", Username: "casey", UID: 1000,
+		Class: "greeter", Seat: "seat0", Type: "x11"}})
+	rec := authPost(t, f.s, "/users/casey/test-lock", "")
+	assertTheDetailCellEndsWhereTheNoteBegins(t, rec.Body.String())
+}
+
 // probeAuditLines is this action's slice of the trail. The sink also carries the sign-in that
 // authPost performs, so the assertion is about lock.* lines rather than about emptiness.
 func probeAuditLines(f *probeFixture) []string {

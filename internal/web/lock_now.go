@@ -147,6 +147,11 @@ type lockRow struct {
 	SelfSession bool
 }
 
+// DetailText is the Detail cell's text with a sentence terminator on the end. The cell puts
+// this next to the self-session note, and the note is a sentence the page wrote, so the
+// seam needs a boundary rather than a space (#108).
+func (r lockRow) DetailText() string { return sentenceTerminated(r.Detail) }
+
 // serverChain adapts the server's seams to lockop.Chain.
 //
 // It exists so the lock path reads sessions through readSessions the way every other page

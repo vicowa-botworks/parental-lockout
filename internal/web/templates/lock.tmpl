@@ -69,7 +69,7 @@
         {{- end -}}
       </td>
       <td data-label="Detail">
-        {{- if .Detail}}<span class="problem">{{.Detail}}</span>{{end -}}
+        {{- if .Detail}}<span class="problem">{{.DetailText}}</span>{{end -}}
         {{- /* The one account where the two ways this daemon locks a screen genuinely
                point in opposite directions: the schedule will never hold it, and the
                operator just did. Both halves have to be on screen together, or the
@@ -78,7 +78,10 @@
                their surrounding whitespace, so with a detail present the two spans land
                against each other and the browser renders "...cannot confirm itThis is the
                session..." — a run-on in the one cell an operator quotes as evidence. A
-               margin would separate them visually and still copy out as one word. */ -}}
+               margin would separate them visually and still copy out as one word. The
+               separator alone was still not enough: a space is not a sentence boundary, so
+               the detail now arrives from DetailText already terminated, and this stays a
+               space rather than becoming one (#108). */ -}}
         {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="override">This is the session the daemon runs
           inside. Its schedule never locks it, because the daemon cannot lock itself out of
           enforcing; {{if .Locked}}you asked for this one, so it happened.{{else}}you asked for
