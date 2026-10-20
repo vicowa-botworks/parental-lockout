@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure and photograph the four GET-rendered admin pages at 360 px.
+"""Measure and photograph the five GET-rendered admin pages at 360 px.
 
 The 360 px acceptance criterion is a measurement, not a reading of the stylesheet, so this
 drives a real browser: it starts the daemon on a throwaway fixture, signs in, then asks Chrome
@@ -7,7 +7,7 @@ at a 360 px viewport for documentElement.scrollWidth and a screenshot of each pa
 fits reports scrollWidth == 360; anything larger is horizontal overflow, which is what the
 criterion refuses.
 
-These four are the easy pages: each has a URL, so a browser can be sent straight to it. The two
+These five are the easy pages: each has a URL, so a browser can be sent straight to it. The two
 result pages cannot be reached this way and have their own drivers (lock.py, testlock.py), which
 is where the click-the-shipped-button refusals live.
 
@@ -27,7 +27,20 @@ import sys
 sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
 
-PAGES = ["/", "/users", "/profiles", "/audit"]
+# Each entry is (URL, committed artifact name, whether the fixture puts a table on the page).
+#
+# The last field decides which refusal proves the page was really rendered, and it exists because
+# the settings page has no table. Dropping require_records for it would have been the lazy edit,
+# and it is the wrong one: a /settings that rendered nothing but its navigation also fits at
+# 360 px, and that is exactly the photograph nobody would notice is not evidence. A table page is
+# refused for having no rows; a form page is refused for having nothing to submit.
+PAGES = [
+    ("/", "dashboard", True),
+    ("/users", "users", True),
+    ("/profiles", "profiles", True),
+    ("/audit", "audit", True),
+    ("/settings", "settings", False),
+]
 
 # The one flag the GET pages need and the result pages do not: these four are the pages whose
 # whole problem is a table wider than the viewport, and a scrollbar that is hidden changes what
@@ -37,16 +50,20 @@ PAGES = ["/", "/users", "/profiles", "/audit"]
 CHROME_FLAGS = ("--hide-scrollbars=false",)
 
 
-def shoot(cap, page, name):
+def shoot(cap, page, name, has_rows):
     session, base = cap.session, cap.base
     session.goto(base + page)
     here = session.where()
     if here != page:
         raise SystemExit(f"{page} answered {here} instead; nothing was measured")
     session.settle()
-    got = cdp.measure(session)
-    cdp.require_records(got, page)
-    cdp.require_labelled_cells(got, page)
+    got = cdp.measure(session, cdp.FORMS_JS)
+    if has_rows:
+        cdp.require_records(got, page)
+        cdp.require_labelled_cells(got, page)
+    else:
+        cdp.require_form(got, page)
+        cdp.require_labelled_cells(got, page)
     # Before the write, not after. A photograph of an overflowing page is the artifact the
     # criterion refuses, and a driver that writes it and then exits 1 has left the wrong evidence
     # on disk under the right filename -- with --out pointing at the docs tree it has overwritten
@@ -56,8 +73,10 @@ def shoot(cap, page, name):
                          "criterion refuses this page, so its photograph is not taken")
     cap.require_running()
     session.write_png(name)
+    proof = f"tables={got['tables']} cells={got['cells']}" if has_rows else \
+        f"forms={got['forms']} fields={got['fields']}"
     print(f"  {page:<10} scrollWidth={got['scroll']:>4} innerWidth={got['inner']:>4} "
-          f"height={got['height']:>5} tables={got['tables']} cells={got['cells']} "
+          f"height={got['height']:>5} {proof} "
           f"FITS  {name}", flush=True)
 
 
@@ -65,10 +84,10 @@ def main():
     out = cdp.capture_out("pages")
     refused_pages = []
     with cdp.Capture("pages", CHROME_FLAGS) as cap:
-        for page in PAGES:
-            name = op.join(out, (page.strip("/") or "dashboard") + ".png")
+        for page, artifact, has_rows in PAGES:
+            name = op.join(out, artifact + ".png")
             try:
-                shoot(cap, page, name)
+                shoot(cap, page, name, has_rows)
             except SystemExit as exc:
                 cdp.refused(name, exc)
                 refused_pages.append(page)

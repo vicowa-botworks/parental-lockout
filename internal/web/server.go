@@ -663,6 +663,11 @@ func (s *Server) router() *http.ServeMux {
 	mux.Handle("GET /users", s.requireAuth(http.HandlerFunc(s.handleUsers)))
 	mux.Handle("GET /audit", s.requireAuth(http.HandlerFunc(s.handleAudit)))
 	mux.Handle("GET /profiles", s.requireAuth(http.HandlerFunc(s.handleProfiles)))
+	// The settings page: the enforcement master switch and the tick interval. It is registered
+	// here because it is the only way to move either value from a browser, and the dashboard has
+	// been reporting the switch's position since #22 with nothing on this side of the screen to
+	// change it.
+	mux.Handle("GET /settings", s.requireAuth(http.HandlerFunc(s.handleSettings)))
 	// Every write route below sits behind the same two gates and needs no wiring of its
 	// own for either: requireAuth is applied per route because the public pair is a
 	// deliberate exception, and csrfMiddleware gates every non-public non-GET already --
@@ -695,6 +700,10 @@ func (s *Server) router() *http.ServeMux {
 		s.requireAuth(http.HandlerFunc(s.handleAddRule)))
 	mux.Handle("POST /profiles/{id}/delete",
 		s.requireAuth(http.HandlerFunc(s.handleDeleteProfile)))
+	// Saving the settings is a config write, so it goes through the same mutateConfig seam as
+	// the profile and assignment writes -- which is the only reason the enforcement loop notices
+	// the switch within a tick instead of at the next restart.
+	mux.Handle("POST /settings", s.requireAuth(http.HandlerFunc(s.handleSettingsSave)))
 	mux.HandleFunc("GET /static/{file}", s.handleStatic)
 
 	return mux

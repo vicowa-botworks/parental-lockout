@@ -39,6 +39,16 @@ cached as immutable for a year.
     <a href="/users">Accounts</a>
     <a href="/audit">Audit</a>
     <a href="/profiles">Profiles</a>
+    {{/* Settings is a link, not a form, even though the page it opens ends in a write: the
+        navigation itself changes nothing, and a GET that mutates is the thing this repo's
+        POST-only rule exists to stop.
+
+        No dashes on this action, on either side, and that is not a style choice. A trimming
+        action deletes the whitespace it points at, so a comment written between two inline
+        elements with {{- -}} removes the space that separated them: this line shipped as
+        "ProfilesSettings" in the masthead and the 360 px photograph is what showed it.
+        TestTheMastheadLinksAreSeparatedInTheRenderedBytes is the guard. */}}
+    <a href="/settings">Settings</a>
     {{- /* A plain POST form, so the token has to travel in the body: csrfMiddleware
          reads the `csrf` field (or the header, which a form cannot set). */ -}}
     <form method="post" action="/logout" class="inline-form">

@@ -290,6 +290,31 @@ def require_records(got, what):
                          "the fixture is empty, so a fit here would prove nothing")
 
 
+# The form census, spliced into the same measurement as the cell census so a page is read once
+# and the two readings cannot come from different renders.
+FORMS_JS = (
+    "forms:document.querySelectorAll(\"form[method=post]\").length,"
+    "fields:document.querySelectorAll(\"form[method=post] input[name], "
+    "form[method=post] select[name], form[method=post] textarea[name]\").length"
+)
+
+
+def require_form(got, what):
+    """A form page with nothing to submit was not measured.
+
+    This is the sibling of require_records, not a relaxation of it. A page like /settings has no
+    `table.rows` at all, so require_records would refuse it as an empty fixture -- and the wrong
+    repair is to drop the check, because a /settings that rendered only its navigation and no
+    form also fits at 360 px and would be committed as evidence that the page fits. What makes a
+    form page's fit mean something is that there is a form on it, with fields, posting somewhere.
+    A signed-out run lands on /login, which does have a form -- the caller's own URL check is what
+    stops that page being photographed as /settings.
+    """
+    if got["forms"] == 0 or got["fields"] == 0:
+        raise SystemExit(f"{what} rendered {got['forms']} POST forms and {got['fields']} fields; "
+                         "there is nothing to submit here, so a fit would prove nothing")
+
+
 def session_rows(session):
     """Every row of every `table.rows` table, as (data-label, text) pairs.
 
