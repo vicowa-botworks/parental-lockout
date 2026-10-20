@@ -239,6 +239,19 @@ def verdict(out, rc, note=None):
     return "caught", f" by {', '.join(names[:2]) or 'a test'}"
 
 
+def set_label(path):
+    """How one set is named in the report.
+
+    Repo-relative where the path is inside the repo. `basename` was the first version, and
+    two sets sharing a basename -- `scripts/mutations/alpha.json` and a second
+    `alpha.json` elsewhere -- then printed two identical lines for two different sets,
+    which is the ambiguity the label exists to remove. A path outside the repo keeps its
+    basename, so the self-test's fixtures stay readable.
+    """
+    rel = os.path.relpath(path, SRC)
+    return os.path.basename(path) if rel.startswith("..") else rel
+
+
 def select_sets(paths, wanted, work):
     """Trim every set holding a wanted id down to those ids, one trimmed file per set.
 
@@ -265,7 +278,7 @@ def select_sets(paths, wanted, work):
         tmp = os.path.join(work, f"subset-{n}.json")
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(doc, fh, indent=1)
-        selected.append((tmp, f"{os.path.basename(path)} "
+        selected.append((tmp, f"{set_label(path)} "
                               f"[{','.join(m['id'] for m in keep)}]"))
     return selected, sorted(missing)
 
@@ -278,11 +291,15 @@ def rule(rules, bad, name, problems):
     the tally counted calls, not assertions, which is the hole attack118.py measured. With
     the increment in here, the mechanical gut drops the count and the pinned number shouts.
 
-    What the count still cannot see is a call whose arguments were replaced by ``True``:
-    that is a deliberate edit, and only running the attack suite catches it. The count is a
-    deletion tripwire, not a coverage claim.
+    A rule is recorded as the pair (name, how many problems it saw) and the reach check
+    refuses a list whose entries are not pairs, because a bare ``rules.append(name)`` used to
+    keep the pinned number exactly where it was while deleting the assertion: the count only
+    ever measured the length of the list. Hand-forging the pair is still possible, and so is
+    replacing a call's arguments with a constant -- both are deliberate edits of the guard,
+    which is a different threat from drift. The count is a deletion tripwire, not a coverage
+    claim, and only running the attack suite catches the deliberate kind.
     """
-    rules.append(name)
+    rules.append((name, len(problems)))
     for problem in problems:
         bad.append(f"{name}: {problem}")
 
@@ -370,10 +387,44 @@ WANT_AB = [("alpha.json", ["A1"]), ("beta.json", ["B1"])]
 # cheapest way to make a pin vacuous -- drops the rule count along with the coverage.
 CHECKER_CONTROLS = (
     ("if got_labels != want_labels:",
-     lambda real: ([(real[0][0], "alpha.json [A1,B1]"), real[1]], [], WANT_AB, [])),
+     lambda real, work: ([(real[0][0], "alpha.json [A1,B1]"), real[1]], [], WANT_AB, [])),
     ("if miss != want_missing:",
-     lambda real: (real, [], WANT_AB, ["Z9"])),
+     lambda real, work: (real, [], WANT_AB, ["Z9"])),
+    ("if got != ids:",
+     lambda real, work: (_wide_selection(work), [], [("wide.json", ["A1"])], [])),
+    ("if len(set(files)) != len(files) or not all(os.path.isfile(p) for p in files):",
+     lambda real, work: (_same_file_twice(real), [],
+                         [("alpha.json", ["A1"]), ("alpha.json", ["A1"])], [])),
 )
+
+
+def _wide_selection(work):
+    """One set whose trimmed file holds an id nobody asked for, labelled honestly.
+
+    Isolated on purpose: the label matches what the caller says the set will run, the ids
+    reported missing are the ones the caller expects, and there is one distinct file, so
+    only the file-content comparison can object. This is the comparison that keeps
+    ``select_sets`` from writing the untrimmed document -- and with it gone the runner runs
+    mutants nobody requested behind a label naming one of them, which is #118's symptom
+    turned around.
+    """
+    path = os.path.join(work, "wide.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"package": "./internal/x/",
+                   "mutants": [{"id": i, "file": "x.go", "old": "a", "new": "b"}
+                               for i in ("A1", "A2")]}, fh)
+    return [(path, "wide.json [A1]")]
+
+
+def _same_file_twice(real):
+    """Two sets handed the same trimmed file, each labelled honestly.
+
+    Nothing else in the checker notices: the labels match, the contents match what each set
+    is said to run, and no id is missing. Only the one-distinct-file-per-set rule can say
+    that one file is standing in for two runs.
+    """
+    path, label = real[0]
+    return [(path, label), (path, label)]
 
 # What main's --only block has to say to be honest. The self-test runs no battery, so the
 # flag's shape is audited as text -- the way check-mutations.py pins its own summary line,
@@ -389,6 +440,19 @@ ONLY_BLOCK_LINES = (
     # Nothing matched: refuse. Without this the run prints `TOTAL 0 caught, 0 survived`.
     "if not sets:",
 )
+# Every line the --only block is allowed to contain that touches the selection. Deny by
+# default, because matching assignment syntax only catches a rebinding that LOOKS like one:
+# round 3 restored the ticket's exact symptom with `del sets[1:]` and the guard stayed
+# green, and `sets.pop()`, `sets[:] = sets[:1]`, `sets, missing = sets[:1], missing` and
+# `missing.clear()` all throw the selection away without matching `^(sets|missing) = `.
+# Anything in the block that names `sets` or `missing` and is not listed here is a problem,
+# including shapes nobody has invented yet.
+ONLY_BLOCK_HONEST = (
+    ONLY_CALL,
+    "if not sets:",
+    'sys.exit(f"none of {sorted(wanted)} is in {scope(args.sets)}")',
+)
+
 # Each control hands the auditor a main with that one break in it, and has to be caught.
 ONLY_BLOCK_CONTROLS = (
     ("throws the selection away one line after the pinned call, which is #118 itself",
@@ -401,6 +465,17 @@ ONLY_BLOCK_CONTROLS = (
      lambda s: s.replace("            if not sets:", "            if False:", 1)),
     ("exits 0 on a request it could only partly answer",
      lambda s: s.replace("        return 1\n", "        return 0\n", 1)),
+    # The four shapes round 3 actually used to get past an auditor that matched assignment
+    # syntax. Each is the ticket's symptom, and each is here so it stays the ticket's
+    # symptom rather than a hypothetical.
+    ("throws sets away with `del`, which is not an assignment",
+     lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            del sets[1:]", 1)),
+    ("rebinds both results as a tuple, leaving the pinned call's text intact",
+     lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            sets, missing = sets[:1], missing", 1)),
+    ("empties the missing list in place",
+     lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            missing.clear()", 1)),
+    ("truncates the selection by slice assignment",
+     lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            sets[:] = sets[:1]", 1)),
 )
 
 
@@ -420,11 +495,17 @@ def only_block_problems(src):
     block = "if args.only" + rest.split("\n        else:")[0]
     problems = [f"the --only block no longer contains {line!r}"
                 for line in ONLY_BLOCK_LINES if line not in block]
-    # The pinned call is worth nothing if a later line re-assigns what it returned. This is
-    # the shape a substring pin cannot see, and it is the shape of the original bug.
-    for stmt in re.findall(r"^[ \t]*(?:sets|missing)[ \t]*=[^=].*$", block, re.M):
-        problems.append(f"the --only block reassigns outside the pinned call: "
-                        f"{stmt.strip()!r} -- a dropped set or a swallowed id hides there")
+    # Deny by default. The pinned call is worth nothing if a later line throws what it
+    # returned away, and that line does not have to look like an assignment to do it.
+    for raw in block.splitlines():
+        code = raw.split("#")[0].strip()
+        if not code or not re.search(r"\b(?:sets|missing)\b", code):
+            continue
+        if code not in ONLY_BLOCK_HONEST:
+            problems.append(f"the --only block does something unrecognised with the "
+                            f"selection: {code!r} -- only the lines in ONLY_BLOCK_HONEST "
+                            f"may touch it, so a dropped set or a swallowed id cannot hide "
+                            f"in a shape this auditor has not seen before")
     if "if missing:" not in src:
         problems.append("main no longer reports a --only request it could only partly "
                         "answer")
@@ -434,18 +515,98 @@ def only_block_problems(src):
     return problems
 
 
-# How many verdict rules the self-test is expected to run, pinned for the same reason the
-# selection count is. Counted off the run rather than guessed: the number is a claim about
-# how much was tested.
-EXPECTED_VERDICT_RULES = 22
+def case_problems(kind, detail, want, needle, absent):
+    """What one captured ``go test`` case got wrong, as sentences. Empty means it agrees.
+
+    A pure function of the verdict and what the case expected, so the self-test's loop body
+    is a single ``rule()`` call and the count leaves the same place as the assertion.
+    Asserting in the loop instead meant ``if kind != want:`` -> ``if False:`` kept the
+    pinned number exactly where it was while emptying every case: the tally counted
+    iterations, not assertions. With the comparison in here, hollowing it makes the control
+    below report that the checker said nothing.
+    """
+    if kind != want:
+        return [f"got {kind!r}, want {want!r}"]
+    if needle and needle not in detail:
+        return [f"detail {detail!r} does not mention {needle!r}"]
+    if absent and absent in detail:
+        return [f"detail {detail!r} says {absent!r}, which this case exists to rule out"]
+    if kind not in VERDICT_TAG:
+        return [f"kind {kind!r} has no report label"]
+    return []
+
+
+def note_problems(got, want):
+    """What one ``equivalence_note`` answer got wrong. Which value counts as "marked" is
+    the rule a typo in a set hits, so each spelling is named rather than averaged."""
+    return [] if got == want else [f"returned {got!r}, want {want!r}"]
+
+
+def tag_problems(kind, tag):
+    """Whether one report label still fits the report's column.
+
+    The tally is read back out of the report, which is what lets this change claim the
+    output is unchanged. Narrowing a label to "CAUGHT" keeps every verdict assertion green
+    and moves every line in the report, so the width is pinned rather than trusted.
+    """
+    return [] if len(tag) == 11 else [f"VERDICT_TAG[{kind!r}] = {tag!r} is {len(tag)} "
+                                      f"wide, want 11 (the report's column)"]
+
+
+def label_problems(kind):
+    """Whether a verdict kind has a label to print, or would print `None` mid-line."""
+    return [] if kind in VERDICT_TAG else [f"verdict kind {kind!r} has no report label"]
+
+
+# Every comparison above, with an answer it has to reject. A control is what tells a deleted
+# comparison from one that merely had nothing to say, and it is why the verdict half needs
+# no source pins: `control()` reports "it said nothing" the moment a comparison stops
+# firing, which is the same fact a substring pin gives and one the pin cannot give wrongly.
+CASE_CONTROLS = (
+    ("a case whose verdict disagrees with it",
+     lambda: case_problems("caught", "by a test", "survived", "", None)),
+    ("a case naming a test its detail does not mention",
+     lambda: case_problems("caught", "by a test", "caught", "TestAbsent", None)),
+    ("a case whose detail says the very thing it rules out",
+     lambda: case_problems("caught", "by a test", "caught", "", "a test")),
+    ("a verdict with no report label",
+     lambda: case_problems("nonsense", "", "nonsense", "", None)),
+)
+
+
+class Problems(list):
+    """A problem list that remembers how many problems it was handed.
+
+    The self-test returns its problems, so the list was the only record that anything was
+    wrong -- and `bad.clear()` on the way out therefore turned the whole run green with
+    every failure discarded, while the pinned rule count stayed exactly where it was. The
+    tally travels back as its own value now, and `self_test_verdict` compares the two: a
+    list that has been emptied cannot lower the number it was handed.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.raised = 0
+
+    def append(self, item):
+        list.append(self, item)
+        self.raised += 1
+
+
+# How many verdict rules the self-test is expected to run: one per captured case, one per
+# `equivalence_note` spelling, one per report label (width and existence), and one control
+# per comparison in CASE_CONTROLS plus the three single-comparison controls. Pinned for the
+# same reason the selection count is -- a deleted rule is invisible to the rules that
+# survive -- and counted off the run rather than guessed.
+EXPECTED_VERDICT_RULES = 35
 
 # How many selection rules the self-test is expected to run, counted off the list the pin
 # prints rather than off arithmetic: five --only cases and one "does this case assert
 # anything" per case, the fixture's own shape, two controls at the selection level, a pin
-# and a control per comparison in CHECKER_CONTROLS, the audit of main's --only block, and
+# a pin and a control per comparison in CHECKER_CONTROLS, the audit of main's --only block,
 # one control per entry in ONLY_BLOCK_CONTROLS. Pinned for the same reason the verdict count
 # is -- a deleted rule is invisible to the rules that survive.
-EXPECTED_SELECT_RULES = 23
+EXPECTED_SELECT_RULES = 31
 
 
 def self_test():
@@ -531,22 +692,14 @@ def self_test():
          equivalence_note({"equivalent": True, "note": None}), "equivalent", "no note"),
     ]
 
-    bad = []
-    checked = 0
+    bad = Problems()
+    vrules = []
     rules = []
     for name, out, rc, note, want, needle, *rest in cases:
-        checked += 1
         absent = rest[0] if rest else None
         kind, detail = verdict(out, rc, note)
-        if kind != want:
-            bad.append(f"{name}: got {kind!r}, want {want!r}")
-        elif needle and needle not in detail:
-            bad.append(f"{name}: detail {detail!r} does not mention {needle!r}")
-        elif absent and absent in detail:
-            bad.append(f"{name}: detail {detail!r} says {absent!r}, which this case "
-                       f"exists to rule out")
-        if kind not in VERDICT_TAG:
-            bad.append(f"{name}: kind {kind!r} has no report label")
+        rule(vrules, bad, f"verdict {name}",
+             case_problems(kind, detail, want, needle, absent))
 
     # Which value counts as "marked" is a rule of its own, and it is the one a typo in a
     # set hits. Checked here rather than left to the case above, so each spelling is named.
@@ -561,26 +714,32 @@ def self_test():
                                      "note": None}, ""),
         ("explicitly not marked", {"equivalent": False, "note": "stale"}, None),
     ]:
-        checked += 1
-        got = equivalence_note(entry)
-        if got != want:
-            bad.append(f"equivalence_note {name}: got {got!r}, want {want!r}")
+        rule(vrules, bad, f"equivalence_note {name}",
+             note_problems(equivalence_note(entry), want))
 
     # The report is a fixed column, and "the tally is read from it" is the reason this
     # change claims the output is unchanged. Narrowing a label to "CAUGHT" keeps every
     # verdict assertion green and moves every line in the report, so the width is pinned
     # rather than trusted to the strings being left alone.
-    checked += 1
     for kind, tag in sorted(VERDICT_TAG.items()):
-        if len(tag) != 11:
-            bad.append(f"VERDICT_TAG[{kind!r}] = {tag!r} is {len(tag)} wide, want 11 "
-                       f"(the report's column)")
+        rule(vrules, bad, f"report column width for {kind}", tag_problems(kind, tag))
 
     # Every label must be reachable, or a verdict could print `None` mid-line.
-    checked += 1
     for kind in ("caught", "survived", "invalid", "equivalent"):
-        if kind not in VERDICT_TAG:
-            bad.append(f"verdict kind {kind!r} has no report label")
+        rule(vrules, bad, f"report label exists for {kind}", label_problems(kind))
+
+    # The controls. Each one hands a checker an answer it must refuse; a checker that says
+    # nothing about it is reported, which is the only way to tell a deleted comparison from
+    # a clean run.
+    for name, wrong in CASE_CONTROLS:
+        control(vrules, bad, f"control: {name}", wrong(),
+                "so a verdict case can be wrong and stay silent about it")
+    control(vrules, bad, "control: a note answer that disagrees",
+            note_problems("a note", None), "so a marked entry can return anything")
+    control(vrules, bad, "control: a label too wide for the column",
+            tag_problems("caught", "CAUGHT"), "so the report's column is not pinned")
+    control(vrules, bad, "control: a verdict kind with no label",
+            label_problems("nonsense"), "so a verdict could print None mid-line")
 
     # Which mutants a partial run agrees to run. These are checked against real set files
     # written to a temp dir rather than a mock, because the bug (#118) was in which FILES
@@ -652,7 +811,7 @@ def self_test():
                  [f"selection_problems no longer contains {line!r}, so a --only run can "
                   f"overstate it in silence"])
             control(rules, bad, f"control: {line}",
-                    selection_problems(*wrong(real)) if len(real) == 2 else None,
+                    selection_problems(*wrong(real, work)) if len(real) == 2 else None,
                     f"so {line!r} is present and doing nothing")
 
         # main's --only block, audited as text: the bug was in main throwing away all but
@@ -690,7 +849,7 @@ def self_test():
     # Reported, not adjudicated: the reach check used to live here, and a bare `return`
     # inserted anywhere above it skipped every rule and still exited 0. What decides
     # pass or fail is self_test_verdict(), outside the code whose reach it measures.
-    return checked, rules, bad
+    return vrules, rules, bad, bad.raised
 
 
 def self_test_verdict(report):
@@ -706,19 +865,34 @@ def self_test_verdict(report):
     The two counts are named apart in the summary because "N rules hold" said about two
     different mechanisms is how a summary starts meaning less than the reader assumes.
     """
-    if not isinstance(report, tuple) or len(report) != 3:
+    if not isinstance(report, tuple) or len(report) != 4:
         print("self-test FAILED:")
         print(f"  - it returned {report!r} instead of a verdict, so nothing was checked "
               f"(a `return` inside self_test skips every rule below it)")
         return 1
-    checked, rules, bad = report
+    vrules, rules, bad, raised = report
+    # The problems and the count of problems arrive separately on purpose: the list is the
+    # thing a `clear()` on the way out can empty, and the number is not.
+    if len(bad) != raised:
+        print("self-test FAILED:")
+        print(f"  - it raised {raised} problems and returned {len(bad)}: the problem list "
+              f"was emptied on the way out, so every failure it held was discarded")
+        return 1
     # Each count is compared against a number that has to be edited on purpose: every rule
     # can pass perfectly while one of them is missing from the file. Neither pin is one of
     # the counted rules -- a pin that counts itself moves the number it exists to hold.
-    if checked != EXPECTED_VERDICT_RULES:
-        bad = list(bad) + [f"the self-test ran {checked} verdict rules, expected "
+    # Every entry has to have come through `rule()`. A count is only a claim about
+    # assertions if the assertions went through the thing that counts them.
+    forged = [r for r in list(vrules) + list(rules)
+              if not (isinstance(r, tuple) and len(r) == 2 and isinstance(r[1], int))]
+    if forged:
+        bad.append(f"{len(forged)} rule(s) were recorded without going through rule(): "
+                   f"{forged[:3]} -- a rule appended by hand counts itself and asserts "
+                   f"nothing")
+    if len(vrules) != EXPECTED_VERDICT_RULES:
+        bad = list(bad) + [f"the self-test ran {len(vrules)} verdict rules, expected "
                            f"{EXPECTED_VERDICT_RULES}: a rule was deleted, or stopped "
-                           f"counting"]
+                           f"counting. Ran: {vrules}"]
     if len(rules) != EXPECTED_SELECT_RULES:
         bad = list(bad) + [f"the self-test ran {len(rules)} selection rules, expected "
                            f"{EXPECTED_SELECT_RULES}: a rule was deleted, or stopped "
@@ -728,7 +902,7 @@ def self_test_verdict(report):
         for b in bad:
             print(f"  - {b}")
         return 1
-    print(f"self-test: {checked} verdict rules and {len(rules)} selection rules hold")
+    print(f"self-test: {len(vrules)} verdict rules and {len(rules)} selection rules hold")
     return 0
 
 
@@ -810,7 +984,7 @@ def main():
         # not exit 0 for a scripted `mutate.py --only ... && ...` to mistake for the check
         # having happened (#118).
         print(f"INCOMPLETE  {', '.join(missing)} "
-              f"{'is' if len(missing) == 1 else 'are'} in {scope(args.sets)}, so "
+              f"{'is' if len(missing) == 1 else 'are'} not in {scope(args.sets)}, so "
               f"{'it was' if len(missing) == 1 else 'they were'} never run")
         return 1
     return 0 if totals["survived"] == 0 and totals["invalid"] == 0 else 1
