@@ -56,8 +56,10 @@ Exit status is 0 only when nothing survived and nothing failed to apply.
 """
 
 import argparse
+import contextlib
 import glob
 import inspect
+import io
 import json
 import os
 import re
@@ -239,7 +241,7 @@ def verdict(out, rc, note=None):
     return "caught", f" by {', '.join(names[:2]) or 'a test'}"
 
 
-def set_label(path):
+def set_label(path, root=SRC):
     """How one set is named in the report.
 
     Repo-relative where the path is inside the repo. `basename` was the first version, and
@@ -247,8 +249,15 @@ def set_label(path):
     `alpha.json` elsewhere -- then printed two identical lines for two different sets,
     which is the ambiguity the label exists to remove. A path outside the repo keeps its
     basename, so the self-test's fixtures stay readable.
+
+    `root` is a parameter for that last sentence's own reason: the fixtures live under a
+    TemporaryDirectory, which is outside SRC, so every self-test case took the basename arm
+    and the relative half of this function was executed by nothing. A revert to
+    `return os.path.basename(path)` -- undoing the fix above -- left the self-test green.
+    Passing the fixture's own root lets a rule drive the relative half without writing
+    inside the repo, which this file's own docstring forbids.
     """
-    rel = os.path.relpath(path, SRC)
+    rel = os.path.relpath(path, root)
     return os.path.basename(path) if rel.startswith("..") else rel
 
 
@@ -344,6 +353,37 @@ def scope(paths):
     if not paths:
         return "any set under scripts/mutations/"
     return "the sets this run read (" + ", ".join(os.path.basename(p) for p in paths) + ")"
+
+
+def set_label_problems(pairs, want):
+    """What a set's report labels got wrong, as sentences. Empty means they are honest.
+
+    Two independent claims, so a control can only trip for the one it is about:
+
+    - every label distinct. Two sets printing one identical line is the ambiguity the label
+      exists to remove, and it is what `basename` produced for `alpha/s.json` and
+      `beta/s.json`;
+    - where `want` is given, each ``(path, expected)`` in it is what that path was labelled.
+      This is the half that pins the repo-relative answer, which no fixture path reaches on
+      its own because the fixtures are outside the repo.
+
+    A pure function of what it is handed, for the reason every other checker here is one: the
+    self-test can then feed it a collapse and watch it refuse, instead of counting that a
+    comparison was reached.
+    """
+    problems = []
+    seen = {}
+    for path, label in pairs:
+        if label in seen:
+            problems.append(f"{path!r} and {seen[label]!r} both report as {label!r}, so the "
+                            f"run says which sets ran without saying which is which")
+        else:
+            seen[label] = path
+    for path, expected in (want or []):
+        got = dict(pairs).get(path)
+        if got != expected:
+            problems.append(f"{path!r} is labelled {got!r}, want the repo-relative {expected!r}")
+    return problems
 
 
 def selection_problems(sel, miss, want, want_missing):
@@ -451,6 +491,11 @@ ONLY_BLOCK_HONEST = (
     ONLY_CALL,
     "if not sets:",
     'sys.exit(f"none of {sorted(wanted)} is in {scope(args.sets)}")',
+    # The `else` arm of the --only branch. It names `sets`, so widening the audited region to
+    # the loop that consumes the selection newly brings it inside -- it is the no-flag path
+    # relabelling the full set list, not a mutation of a selection. Listed rather than
+    # exempted by region, so a truncation hiding on the same line still trips the deny list.
+    "sets = [(p, os.path.relpath(p, SRC)) for p in sets]",
 )
 
 # Each control hands the auditor a main with that one break in it, and has to be caught.
@@ -476,6 +521,20 @@ ONLY_BLOCK_CONTROLS = (
      lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            missing.clear()", 1)),
     ("truncates the selection by slice assignment",
      lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            sets[:] = sets[:1]", 1)),
+    # Round 4's blocker: the audited region used to stop at the `else:`, so anything placed
+    # between the branch and the loop that consumes the selection was outside the audit
+    # entirely. These three land in that gap and are only caught because the region now runs
+    # to `for path, label in sets:` -- they are the region's own regression test, so narrowing
+    # it again fails here instead of quietly restoring #118.
+    ("throws the selection away one line above the loop that consumes it",
+     lambda s: s.replace('        totals = {"caught": 0',
+                         '        sets = sets[:1]\n        totals = {"caught": 0', 1)),
+    ("swallows the unmatched ids one line above the loop that consumes it",
+     lambda s: s.replace('        totals = {"caught": 0',
+                         '        missing = []\n        totals = {"caught": 0', 1)),
+    ("drops the last set one line above the loop that consumes it",
+     lambda s: s.replace('        totals = {"caught": 0',
+                         '        del sets[1:]\n        totals = {"caught": 0', 1)),
 )
 
 
@@ -490,9 +549,14 @@ def only_block_problems(src):
     if not found:
         return ["main has no `if args.only` block, so the flag's whole shape is gone and "
                 "nothing below applies"]
-    # partition, not split: the marker has to stay in the block, because the block is then
-    # checked for the very lines that open it.
-    block = "if args.only" + rest.split("\n        else:")[0]
+    # The region ends where the selection is CONSUMED, not where the `if/else` ends. It used
+    # to stop at `\n        else:`, which left every line between the branch and
+    # `for path, label in sets:` outside the audit -- and one inserted line there,
+    # `sets = sets[:1]`, reproduced the ticket's symptom at a green self-test (measured:
+    # `--only W1` ran 1 of 3 sets and printed a complete-looking TOTAL). The shape of the
+    # mutation was never the miss; the region was. Round 4's finding, and the fourth round of
+    # the same class.
+    block = "if args.only" + rest.split("        for path, label in sets:")[0]
     problems = [f"the --only block no longer contains {line!r}"
                 for line in ONLY_BLOCK_LINES if line not in block]
     # Deny by default. The pinned call is worth nothing if a later line throws what it
@@ -606,7 +670,7 @@ EXPECTED_VERDICT_RULES = 35
 # a pin and a control per comparison in CHECKER_CONTROLS, the audit of main's --only block,
 # one control per entry in ONLY_BLOCK_CONTROLS. Pinned for the same reason the verdict count
 # is -- a deleted rule is invisible to the rules that survive.
-EXPECTED_SELECT_RULES = 31
+EXPECTED_SELECT_RULES = 37
 
 
 def self_test():
@@ -786,6 +850,27 @@ def self_test():
         control(rules, bad, "control: a dropped set",
                 selection_problems(real[:1], [], WANT_AB, []) if len(real) == 2 else None,
                 "so which sets ran is not being checked")
+        # set_label's relative half. Every fixture lives under a TemporaryDirectory, which is
+        # outside SRC, so before `root` was a parameter each case took the basename arm and
+        # the relative half of the function was run by nothing -- `return os.path.basename(path)`
+        # kept the self-test green at 35/31. These two drive it through the real function with
+        # a root the fixtures are inside, and the control feeds the checker the collapse the
+        # fix removed.
+        inside = os.path.join(SRC, "scripts", "mutations", "x.json")
+        rule(rules, bad, "a set inside the repo is labelled repo-relative",
+             set_label_problems([(inside, set_label(inside, SRC)),
+                             (alpha, set_label(alpha, os.path.dirname(alpha)))],
+                            [(inside, os.path.join("scripts", "mutations", "x.json"))]))
+        rule(rules, bad, "two sets sharing a basename get distinct labels",
+             set_label_problems([(os.path.join(work, "alpha", "s.json"),
+                              set_label(os.path.join(work, "alpha", "s.json"), work)),
+                             (os.path.join(work, "beta", "s.json"),
+                              set_label(os.path.join(work, "beta", "s.json"), work))],
+                            None))
+        control(rules, bad, "control: labels collapse to the basename",
+                set_label_problems([(os.path.join(work, "alpha", "s.json"), "s.json"),
+                                (os.path.join(work, "beta", "s.json"), "s.json")], None),
+                "so two sets print one identical line again")
         # And one at the select_sets level. Everything above asserts on what select_sets
         # returned, so a loop that computed it and threw the answer away would keep every
         # rule green; this one feeds the checker select_sets' OWN short answer.
@@ -852,7 +937,110 @@ def self_test():
     return vrules, rules, bad, bad.raised
 
 
-def self_test_verdict(report):
+def guard(ran, bad_out, why, got, want):
+    """Record one verdict guard: the count and the assertion are the same call.
+
+    Split out for the reason `rule()` and `control()` are: a loop that appends the name by
+    hand, or whose comparison was turned into `if False:`, has to be unable to produce a
+    healthy count. Here the recorded value is derived from the comparison, so a guard that
+    stopped noticing is a guard that stopped being able to say it ran.
+    """
+    ran.append((why, 0 if got == want else 1))
+    if got != want:
+        bad_out.append(f"{why}: self_test_verdict returned {got}, want {want}")
+
+
+def verdict_guard_problems():
+    """The controls on self_test_verdict itself, computed OUTSIDE the code they police.
+
+    These began at the tail of self_test(), and that was wrong: an early
+    ``return vrules, rules, bad, bad.raised`` placed just above them left the self-test
+    green at 35/37, because both counted lists are already complete by then and the reach
+    check cannot see a block that was skipped. Measured, not argued. It is the same reason
+    the reach check lives in the caller: a check cannot police the code allowed to skip it.
+
+    Not counted as rules -- they hold the numbers the pins hold, and a check that counts
+    itself moves the number it exists to hold. They are counted SEPARATELY, and the caller
+    pins that number: an early `return` here, or the loop deleted, is a check that stopped
+    existing rather than a check that found nothing, and only a reach pin tells those apart.
+    Returns ``(ran, problems)``.
+    """
+    ran, bad_out = [], []
+    # The three comparisons in self_test_verdict that no rule above can reach, because they
+    # judge the verdict rather than a case. Each was reversible to `if False:` with the
+    # self-test green at 35/31 -- including the one that decides the exit code. They cannot be
+    # `rule()`s: a rule counts itself, and these exist to hold the numbers the pins hold. So
+    # they append to `bad` directly (which bumps `raised` with it, since the verdict compares
+    # the two) and they are deliberately absent from both counted lists.
+    #
+    # self_test_verdict prints, so each call is muted -- a control that leaked its own
+    # "self-test FAILED:" into an otherwise green run would be read as the failure it is
+    # asserting about.
+    with contextlib.redirect_stdout(io.StringIO()):
+        for why, probe, want in (
+                # An absent verdict is the whole self-test silently not running, so this is
+                # the comparison with the most cost in it. Each entry is a thunk and the call
+                # is made inside a try below: with the guard hollowed, self_test_verdict(None)
+                # does not return 0, it dies unpacking None. A crash is loud, but "the guard
+                # was deleted" is the sentence worth printing.
+                ("an absent verdict is refused", lambda: self_test_verdict(None), 1),
+                ("a non-tuple verdict is refused",
+                 lambda: self_test_verdict(("a", "b")), 1),
+                # The list emptied on the way out: the count says failures happened, the list
+                # says none did. Without this the `clear()` revert prints a green summary.
+                ("an emptied problem list is refused",
+                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    Problems(), 2)), 1),
+                # A pair appended by hand counts itself and asserts nothing.
+                ("a hand-forged rule is refused",
+                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES - 1)]
+                                    + [("forged",)],
+                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    Problems(), 0)), 1),
+                # And the honest report still has to pass, or the three above pass by always
+                # saying no.
+                ("a complete verdict still passes",
+                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    Problems(), 0)), 0),
+        ):
+            try:
+                got = probe()
+            except Exception as exc:
+                got = f"raised {type(exc).__name__}: {exc}"
+            guard(ran, bad_out, why, got, want)
+    return ran, bad_out
+
+
+EXPECTED_VERDICT_GUARDS = 5
+
+
+def verdict_guard_reach_problems(ran, problems):
+    """Whether the verdict guards ran, and whether the helper that records them still works.
+
+    Computed in the caller for the same reason the guards are: a check inside the code it
+    polices can be skipped by a `return` placed above it.
+    """
+    out = list(problems)
+    probe_ran, probe_bad = [], []
+    guard(probe_ran, probe_bad, "canary", 1, 1)
+    guard(probe_ran, probe_bad, "canary", 0, 1)
+    if len(probe_ran) != 2 or len(probe_bad) != 1:
+        out.append(f"the guard helper is hollow: it counted {len(probe_ran)} and reported "
+                   f"{len(probe_bad)}, want 2 and 1 -- a guard that cannot fail is not made "
+                   f"honest by being listed")
+    if len(ran) != EXPECTED_VERDICT_GUARDS:
+        out.append(f"the verdict guards ran {len(ran)} checks, expected "
+                   f"{EXPECTED_VERDICT_GUARDS}: one was deleted, or the loop stopped "
+                   f"reaching it. Ran: {ran}")
+    elif any(flag for _, flag in ran):
+        out.append(f"a verdict guard recorded a failure that never reached the problem "
+                   f"list: {[n for n, f in ran if f]}")
+    return out
+
+
+def self_test_verdict(report, extra=()):
     """Turn what self_test() returned into an exit code.
 
     The reach check lives here rather than inside self_test() because a check cannot police
@@ -897,6 +1085,7 @@ def self_test_verdict(report):
         bad = list(bad) + [f"the self-test ran {len(rules)} selection rules, expected "
                            f"{EXPECTED_SELECT_RULES}: a rule was deleted, or stopped "
                            f"counting. Ran: {rules}"]
+    bad = list(bad) + [q for q in extra if q not in bad]
     if bad:
         print("self-test FAILED:")
         for b in bad:
@@ -920,7 +1109,8 @@ def main():
     # about interpreting output, so the check must run on a box with no toolchain
     # and must never be able to mutate anything.
     if args.self_test:
-        return self_test_verdict(self_test())
+        ran, guard_problems = verdict_guard_problems()
+        return self_test_verdict(self_test(), verdict_guard_reach_problems(ran, guard_problems))
 
     try:
         probe = subprocess.run([GO, "version"], capture_output=True)
