@@ -14,7 +14,7 @@ Usage:
     scripts/mutate.py --only S1,W3         # a subset, for working on one finding
     scripts/mutate.py --self-test           # the verdict rules only: no Go, no battery
 
-Five ways a battery like this can report success while testing nothing, all five
+Six ways a battery like this can report success while testing nothing, all six
 handled here:
 
   - a mutation whose pattern is not in the file tests nothing and looks like a pass,
@@ -31,7 +31,14 @@ handled here:
   - a package that STOPS RUNNING on the test timeout exits non-zero like any caught
     mutant, so it reads as a guard holding when nothing asserted anything -- a stall
     with no failing test is therefore INVALID too, and a stall after real failures
-    says so on its line (see verdict).
+    says so on its line (see verdict);
+  - the snapshot can leave source OUT of the copy it runs against, and a battery on a
+    tree that is missing files still reports every mutant caught -- so what the copy
+    omits is the repository's own ignore rules plus four fixed names, decided by
+    equality on the path being walked and never by a prefix match, because a directory
+    that merely CONTAINS an ignored one still holds source (see snapshot_ignore). The
+    same rules are what stop the copy dying outright: an ignored Chrome profile holds a
+    socket, and copytree raises on it before one mutant runs.
 
 The source is restored between every mutant, from the copy taken at startup. That is
 not tidiness: restoring only the file just mutated lets mutant N run on top of
@@ -60,6 +67,7 @@ import glob
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import sys
@@ -237,13 +245,284 @@ def verdict(out, rc, note=None):
     return "caught", f" by {', '.join(names[:2]) or 'a test'}"
 
 
-def self_test():
-    """Check the verdict rules against captured `go test` output.
+# The snapshot's ignore rules, kept here with the other rules rather than next to the
+# copytree call that uses them, for the reason the comment above the verdict rules gives:
+# a rule that is only exercised by a full battery is a rule nobody sees fail. These two
+# are pure, so the self-test below can feed them a tree instead of waiting an hour for
+# one.
 
-    The cases are excerpts of real runs (main plus W25/W23 in internal/web, and a
+# Names that are never source. `bin` is go's build output, `.cortexkit` is tool state, and
+# `__pycache__` is python's; the first three are directories at the root of this repository
+# and nothing else, so they are matched at the root and nowhere else.
+#
+# They used to be matched by basename at any depth, and that is a fail-open with a body:
+# a tracked `internal/platform/bin/runner.go` is source, the name says nothing about it, and
+# the copy would drop it in silence -- no error, nothing in `skipped`, and a battery that
+# reports every mutant caught against a tree missing a package. `.cortexkit/.gitignore` is
+# tracked here today and was already going missing. `__pycache__` is the one name that
+# legitimately appears at every depth.
+NEVER_COPIED_ROOT = (".git", "bin", ".cortexkit")
+NEVER_COPIED_ANYWHERE = ("__pycache__",)
+NEVER_COPIED = NEVER_COPIED_ROOT + NEVER_COPIED_ANYWHERE
+
+
+# The one git call the snapshot makes, spelled out here so the self-test can point it at
+# something that is not git and check what happens when git cannot answer. The `-z` is not
+# cosmetic: git C-quotes any path holding a byte above 0x7f, a double quote, or a control
+# character, and a quoted `"testing/capture/runs-caf\303\251/"` matches nothing on disk --
+# so the crash this whole function exists to prevent comes back for a directory with an
+# accented letter in its name. NUL-separated output is never quoted.
+LS_IGNORED = ("ls-files", "--others", "--ignored", "--exclude-standard", "--directory",
+              "-z")
+
+# What the answer must not depend on. `GIT_DIR` and friends are exported by hooks and by
+# wrapper scripts that call `make verify`, and a machine-wide `core.excludesFile` is not
+# part of this repository. Either one silently changes what a battery copies; the second
+# one also makes the self-test's "this directory is NOT ignored" assertion depend on
+# someone's dotfiles.
+GIT_ISOLATED = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CEILING_DIRECTORIES",
+                "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_COUNT",
+                "GIT_CONFIG_PARAMETERS")
+
+
+def git_env():
+    """The environment for the snapshot's git call: the ambient one, minus everything that
+    could make the answer a function of the machine rather than of the tree."""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ISOLATED}
+    # Both config files pointed at the void. The repository's own .gitignore files are read
+    # from disk whatever the environment says, and those are the only rules the snapshot
+    # wants to honour.
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
+    return env
+
+
+def ignored_paths(src, git="git"):
+    """The paths `src` declares ignored, spelled as git spells them.
+
+    Directories come back with a trailing slash and collapsed to the whole directory when
+    everything under it is ignored (`testing/capture/runs/`); single files come back bare
+    (`plock`). Empty means "nothing beyond NEVER_COPIED", which is also the answer when git
+    cannot be asked: a tree with no git in it is then snapshotted exactly as it was before
+    this function existed, because not being able to ask is no reason to refuse a run.
+    What makes that survivable rather than fatal is the error sorting in `snapshot`, not luck.
+
+    `git` is a command, and a list is a command too: the self-test has to hand this a stub
+    that both writes an answer and refuses, which is the only way to pin the branch that
+    throws an answer away.
+
+    The output is decoded as the filesystem spells it, not as text: a path is bytes, and
+    `text=True` would raise on a name the locale cannot decode, which is the same failure
+    `-z` exists to avoid.
+    """
+    cmd = [git] if isinstance(git, str) else list(git)
+    try:
+        done = subprocess.run([*cmd, *LS_IGNORED], cwd=src, env=git_env(), timeout=60,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        # No git, or a git that would not answer in time: a hung git (a locked index, a
+        # credential helper waiting on a prompt) must not hang the battery before it
+        # prints anything either.
+        return []
+    if done.returncode != 0:
+        return []
+    return [os.fsdecode(p) for p in done.stdout.split(b"\0") if p]
+
+
+def tracked_paths(src, git="git"):
+    """Every path the repository tracks, or None when git cannot be asked.
+
+    None rather than an empty list, because "nothing is tracked" and "I could not tell you"
+    are different answers and only one of them is a reason to stop a run.
+    """
+    cmd = [git] if isinstance(git, str) else list(git)
+    try:
+        done = subprocess.run([*cmd, "ls-files", "-z"], cwd=src, env=git_env(),
+                              timeout=60, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    return [os.fsdecode(p) for p in done.stdout.split(b"\0") if p]
+
+
+def snapshot_ignore(src, root=NEVER_COPIED_ROOT, anywhere=NEVER_COPIED_ANYWHERE,
+                    ignored=()):
+    """The `ignore` callback for one snapshot of `src`.
+
+    Three things are left out of the copy: the names in `root`, but only at the root; the
+    names in `anywhere`, at any depth; and any path the repository itself ignores.
+
+    The second half is the bug this function exists for. `testing/capture/runs/` holds a
+    Chrome profile, and a profile contains a socket -- `SingletonSocket`, which cannot be
+    read, `ENXIO` -- and symlinks whose targets are gone by the time the copy runs --
+    `SingletonCookie`, `SingletonLock`, `ENOENT`. `copytree` does not skip those: it
+    collects the errors and raises once the walk is done, so a battery died in two seconds
+    on a tree whose only crime was containing a photograph, before a single mutant ran.
+    The directory is gitignored, so nothing in `git status`, in the pre-flight checker, or
+    in CI showed the thing that did it.
+
+    The predicate is equality on the path being walked, never a prefix match.
+    `testing/capture` CONTAINS an ignored directory and must still be copied: dropping it
+    would take source out of the snapshot, and the run would then report every mutant
+    caught against a tree that is missing files. Nor may a name merely starting with an
+    ignored path go with it -- `plock2` sits beside an ignored `plock` and is source.
+    """
+    base = shutil.ignore_patterns(*anywhere)
+    paths = {p.rstrip("/") for p in ignored}
+
+    def ignore(directory, names):
+        gone = set(base(directory, names))
+        rel = os.path.relpath(directory, src)
+        at_root = rel == os.curdir
+        for name in names:
+            if name in gone:
+                continue
+            if at_root and name in root:
+                gone.add(name)
+                continue
+            path = os.path.normpath(os.path.join(rel, name)).replace(os.sep, "/")
+            if path in paths:
+                gone.add(name)
+        return gone
+
+    return ignore
+
+
+def missing_source(src, dst, tracked):
+    """Tracked paths that were meant to arrive in `dst` and did not.
+
+    The copy is the run's whole world, so "did the source get there" is the one question
+    that must not be answered by hoping. Every name git tracks belongs in the copy unless
+    the snapshot deliberately excludes it -- a root-level never-copied name, or a path under
+    one -- and everything else that goes missing is the same failure: a battery reporting
+    mutants caught against a tree that is not the repository. How it went missing (a
+    predicate bug, a file that vanished mid-copy, a symlink whose target could not be read)
+    is not worth distinguishing, because none of the three is survivable.
+    """
+    gone = []
+    for path in tracked:
+        parts = path.split("/")
+        if parts[0] in NEVER_COPIED_ROOT or any(p in NEVER_COPIED_ANYWHERE
+                                                for p in parts):
+            continue
+        if not os.path.lexists(os.path.join(dst, *parts)):
+            gone.append(path)
+    return gone
+
+
+class SnapshotError(Exception):
+    """Source that could not be copied. Fatal, where an uncopyable socket is not."""
+
+
+def uncopyable_is_source(path):
+    """Whether a path `copytree` could not copy could have been source.
+
+    A socket, a FIFO and a device node are never source, and neither is a symlink whose
+    target is gone -- those four are exactly what a Chrome profile leaves behind. A symlink
+    whose target EXISTS is the opposite case: `copytree` follows it and copies the target, so
+    a copy failure on one has taken a real file out of the run, and every symlink git can
+    track is source. A regular file and a directory both might be source, and a battery that
+    quietly copied a tree missing one would report every mutant caught over files that were
+    not there.
+
+    A function rather than a clause inside the error loop so the self-test can hand it real
+    things and watch which way each sorts, including as root, where no file is unreadable
+    and a permission-based fixture would check nothing at all.
+    """
+    if os.path.islink(path):
+        return os.path.exists(path)
+    return os.path.isdir(path) or os.path.isfile(path)
+
+
+def note_uncopyable(path, err, skipped, fatal):
+    """Sort one copytree failure into "skip it" or "stop the run".
+
+    The lists come in from the caller so the self-test can pass two empty ones and see the
+    sorting happen; a rule that could only observe a finished copy could not tell a skipped
+    socket from a dropped source file.
+    """
+    if uncopyable_is_source(path):
+        fatal.append(f"{path}: {err}")
+    else:
+        skipped.append(path)
+
+
+def _copy_tree(src, dst, ignore):
+    """The one copytree call, named so the self-test can hand `snapshot` a failure."""
+    shutil.copytree(src, dst, ignore=ignore)
+
+
+def snapshot(src, dst, copy=_copy_tree):
+    """Copy `src` to `dst` as a battery needs it: the source, and nothing else.
+
+    Both `main` and the self-test call this, and that is the point of it existing. The
+    composition -- which ignore callback, over which ignore list -- IS the fix, and a
+    self-test that exercised only the two pure functions stayed green with this call
+    reverted to the four hardcoded names: the ticket's crash, at full green.
+
+    The error sorting is what closes the class rather than one instance of it. A path that
+    cannot be copied is skipped when it could not have been source anyway -- a socket, a
+    FIFO, a device node, a symlink whose target is gone -- and refused when it might have
+    been source, because a battery that quietly covers less than it claims is worse than one
+    that crashes. `copytree` no longer takes an `onerror` (3.14 removed it), so the failures
+    it collects are sorted afterwards, out of the (src, dst, why) triples it puts in
+    `shutil.Error` -- the same list the ticket's traceback printed.
+
+    Then the copy is asked whether it holds the repository. `copytree` can come back without
+    an error and without a file: a path that vanished between the walk and the copy is not a
+    file by the time the sorting re-stats it, and a predicate bug drops one in silence. The
+    tracked set is the only answer that does not depend on how the loss happened.
+
+    `copy` exists for the same reason the pure functions do. The fail-closed half is
+    otherwise reachable only by making a file unreadable, which as root is not a thing that
+    happens -- and with the refusal deleted, the self-test printed "14 snapshot rules hold".
+
+    Returns the paths it skipped, so a caller can say so out loud.
+    """
+    skipped, fatal = [], []
+    try:
+        copy(src, dst, snapshot_ignore(src, ignored=ignored_paths(src)))
+    except shutil.Error as err:
+        for path, _dst, why in err.args[0]:
+            note_uncopyable(path, why, skipped, fatal)
+    if fatal:
+        raise SnapshotError("the snapshot could not copy source:\n  "
+                            + "\n  ".join(fatal))
+    tracked = tracked_paths(src)
+    if tracked is None:
+        print("snapshot: git could not list the tracked files, so nothing checked that "
+              "the copy holds the source")
+    else:
+        absent = missing_source(src, dst, tracked)
+        if absent:
+            shown = "\n  ".join(absent[:20])
+            more = "" if len(absent) <= 20 else f"\n  ... and {len(absent) - 20} more"
+            raise SnapshotError(f"the snapshot is missing {len(absent)} tracked files it "
+                                f"should hold:\n  {shown}{more}")
+    return skipped
+
+
+# The self-test's own reach, pinned. A deleted rule is invisible to the rules that survive
+# it, and the number the self-test prints is all a reader has to go on -- which is the
+# failure scripts/check-mutations.py pins for itself, so this file pins it the same way.
+# Both numbers go up when a rule is added, and that is the point of them.
+EXPECTED_VERDICT_RULES = 22
+EXPECTED_SNAPSHOT_RULES = 19
+
+
+def self_test():
+    """Check the rules a battery gets wrong without ever running one: the verdicts, and
+    the snapshot it copies the tree into.
+
+    The verdict cases are excerpts of real runs (main plus W25/W23 in internal/web, and a
     deliberate compile error), trimmed to the lines a verdict is decided from, so a
-    rule cannot be written against an output shape go does not produce. There is no
-    Go here on purpose: this must run in CI where a battery would cost an hour.
+    rule cannot be written against an output shape go does not produce. The snapshot cases
+    are a tree laid out like the repository and, at the end, a real copytree over a socket
+    and a dead symlink -- the two things in a Chrome profile that made a battery die before
+    it applied a mutant. There is no Go here on purpose: this must run in CI where a
+    battery would cost an hour.
     """
     green = "ok  \tgithub.com/vicowa-botworks/parental-lockout/internal/web\t13.202s\n"
     caught = ("--- FAIL: TestAMachineWithNoCredentialSaysThatRatherThanWrongPassword (0.00s)\n"
@@ -322,6 +601,7 @@ def self_test():
 
     bad = []
     checked = 0
+    snap_checked = 0
     for name, out, rc, note, want, needle, *rest in cases:
         checked += 1
         absent = rest[0] if rest else None
@@ -369,6 +649,414 @@ def self_test():
     for kind in ("caught", "survived", "invalid", "equivalent"):
         if kind not in VERDICT_TAG:
             bad.append(f"verdict kind {kind!r} has no report label")
+
+    # ---- the snapshot --------------------------------------------------------------
+    # What a battery costs is why these are here: the run that found #117 died in copytree
+    # before it had applied one mutant, and every check that runs earlier -- the checker,
+    # `make verify`, CI's `mutation sets` job -- copies nothing at all, so each of them said
+    # the tree was fine.
+    #
+    # Everything below needs git, because the fixtures are repositories: what gets skipped IS
+    # the repository's answer. A missing git fails rather than skips -- a guard that stepped
+    # around a missing binary reported "11 snapshot rules hold" while the one rule that
+    # proves the fix never ran.
+    snap_checked += 1
+    if not shutil.which("git"):
+        bad.append("git is not on PATH, so the snapshot rules have no repository to check "
+                   "against and the fix this file exists for would go untested")
+
+    def git_run(args, cwd):
+        """A fixture's git call: isolated the way the real one is, and loud when it fails.
+
+        Isolation matters here as much as it does in `ignored_paths` -- a wrapper or a hook
+        that exports GIT_DIR makes `git init` fail somewhere else, and that turns a healthy
+        tree into a red self-test with a message about the wrong thing.
+        """
+        try:
+            done = subprocess.run(["git", *args], cwd=cwd, env=git_env(),
+                                  stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL)
+        except OSError as err:
+            # No git at all. A traceback here is the same "looks like a Python bug" the
+            # ticket complains about, and it buries the sentence above it.
+            bad.append(f"git {' '.join(args)} could not run in {cwd} ({err}), so the "
+                       "fixture below is not a repository and whatever it appears to check "
+                       "is not what the snapshot does")
+            return None
+        if done.returncode != 0:
+            bad.append(f"git {' '.join(args)} failed in {cwd} (exit {done.returncode}), so "
+                       "the fixture below is not a repository and whatever it appears to "
+                       "check is not what the snapshot does")
+        return done.returncode
+
+    def chrome_profile(where, name):
+        """A directory holding the two things of a Chrome profile that copytree cannot copy:
+        a socket, and a symlink whose target is gone.
+
+        Nothing here is swallowed. A profile that failed to materialise turns a copy rule
+        into a copy of an ordinary directory, which passes whatever the code does -- the
+        silent-pass shape, arriving through a platform instead of through a bug.
+        """
+        slot = os.path.join(where, name)
+        os.makedirs(slot, exist_ok=True)
+        with open(os.path.join(slot, "note.txt"), "w") as fh:
+            fh.write("chrome wrote this\n")
+        try:
+            os.symlink("/no/such/target/anywhere", os.path.join(slot, "SingletonCookie"))
+            listener = socket.socket(socket.AF_UNIX)
+            listener.bind(os.path.join(slot, "SingletonSocket"))
+            listener.close()
+        except OSError as err:
+            bad.append(f"this platform will not build the profile in {name}/ ({err}), so "
+                       "the copy rules below would be copying an ordinary directory")
+        if not (os.path.islink(os.path.join(slot, "SingletonCookie"))
+                and os.path.lexists(os.path.join(slot, "SingletonSocket"))):
+            bad.append(f"the profile in {name}/ has no dead symlink and no socket, so the "
+                       "copy below proves nothing about a Chrome profile")
+        return slot
+
+    # The ignore callback, behind a spy. The table pins what it answers; the spy pins that
+    # the table still asks it. Replacing the loop's call with the row's own expectation kept
+    # the count and the run green, because nothing else was consulting the callback.
+    real_cb = snapshot_ignore("/repo", ignored=("testing/capture/runs/", "plock"))
+    seen = []
+
+    def ignore_cb(directory, names):
+        seen.append(directory)
+        return real_cb(directory, names)
+
+    def row(name, gone, want):
+        """One table row's verdict, in a function so the canary under it can hand it an
+        answer it has to refuse. The count below pins that a row ran; it cannot pin that this
+        comparison still compares, and replacing the `if` with `pass` used to leave every row
+        counting happily."""
+        if gone != want:
+            bad.append(f"snapshot {name}: skips {sorted(gone)}, want {sorted(want)}")
+
+    rows = [
+        ("the never-copied names go at the root", "/repo",
+         [".git", "bin", ".cortexkit", "__pycache__", "go.mod"],
+         {".git", "bin", ".cortexkit", "__pycache__"}),
+        # `bin` at depth is a package like any other. Matching the root names by basename
+        # anywhere is how a tracked internal/platform/bin/ left a battery's copy with nothing
+        # raised and nothing printed, and this row is what keeps that fail-open shut.
+        ("only __pycache__ is matched at any depth", "/repo/internal/web",
+         ["__pycache__", "bin", "server.go"], {"__pycache__"}),
+        ("an ignored directory goes", "/repo/testing/capture",
+         ["cdp.py", "runs"], {"runs"}),
+        ("the directory CONTAINING an ignored one does not", "/repo/testing",
+         ["capture", "README.md"], set()),
+        ("and neither does the root", "/repo",
+         ["internal", "testing", "scripts"], set()),
+        ("an ignored file goes", "/repo", ["plock", "go.mod"], {"plock"}),
+        # Equality, never a prefix: `plock2` and `plock.go` are source sitting beside an
+        # ignored `plock`, and a startswith() drops them just as quietly as the basename rule.
+        ("a name merely STARTING with an ignored one stays", "/repo",
+         ["plock", "plock2", "plock.go", "go.mod"], {"plock"}),
+        ("a same-named file somewhere else stays", "/repo/internal/web",
+         ["plock", "server.go"], set()),
+    ]
+    for name, directory, names, want in rows:
+        snap_checked += 1
+        row(name, set(ignore_cb(directory, list(names))), want)
+
+    snap_checked += 1
+    if len(seen) != len(rows):
+        bad.append(f"the snapshot table consulted the ignore callback {len(seen)} times for "
+                   f"{len(rows)} rows: a row that answers from its own expectation is not a "
+                   "rule about the callback")
+
+    # The canary, and it is the row above that needs it rather than this line. Every row is
+    # run again against an answer it must refuse; a comparison hollowed out to `pass` refuses
+    # nothing and the count above, which counts rows rather than verdicts, never notices.
+    # This is the mechanism scripts/check-mutations.py pins itself with.
+    snap_checked += 1
+    refused = 0
+    for name, _directory, _names, want in rows:
+        mark = len(bad)
+        row(name, set(want) ^ {"__not_a_real_file_name__"}, want)
+        if len(bad) > mark:
+            refused += 1
+        del bad[mark:]  # the canary's own complaint is not a finding about the tree
+    if refused != len(rows):
+        bad.append(f"the snapshot table refused {refused} wrong answers out of {len(rows)}: "
+                   "a row that cannot fail is not a rule, and the count above cannot tell "
+                   "one from a row that passed")
+
+    # Which uncopyable path is fatal, over five real ones. Decided by kind rather than by
+    # trying to read, because as root nothing is unreadable and a permission-based fixture
+    # would be a rule that cannot fail.
+    snap_checked += 1
+    with tempfile.TemporaryDirectory() as work:
+        regular = os.path.join(work, "server.go")
+        with open(regular, "w") as fh:
+            fh.write("package web\n")
+        listener = socket.socket(socket.AF_UNIX)
+        listener.bind(os.path.join(work, "SingletonSocket"))
+        listener.close()
+        os.symlink("/no/such/target/anywhere", os.path.join(work, "SingletonCookie"))
+        # A link whose target exists is a tracked symlink: copytree follows it, so a copy
+        # failure on one has taken a real file out of the run. The first version of this
+        # sorting skipped every symlink, which made the whole branch fail open.
+        os.symlink(regular, os.path.join(work, "policy.txt"))
+        skipped, fatal = [], []
+        note_uncopyable(regular, "EACCES", skipped, fatal)
+        note_uncopyable(os.path.join(work, "SingletonSocket"), "ENXIO", skipped, fatal)
+        note_uncopyable(os.path.join(work, "SingletonCookie"), "ENOENT", skipped, fatal)
+        note_uncopyable(os.path.join(work, "policy.txt"), "EACCES", skipped, fatal)
+        note_uncopyable(work, "EACCES", skipped, fatal)
+        if len(fatal) != 3 or len(skipped) != 2:
+            bad.append(f"an uncopyable path sorted into fatal={fatal} skipped={skipped}, "
+                       "want the regular file, the live symlink and the directory fatal, "
+                       "the socket and the dead symlink skipped")
+
+    # The acting half. The rule above proves the sorting; nothing proved that a fatal sort
+    # actually stops a run, because reaching it needs an unreadable file and nothing is
+    # unreadable as root -- with the refusal deleted, the self-test printed "14 snapshot
+    # rules hold". So `snapshot` takes its copy as an argument and the self-test hands it one
+    # that fails on a named file. The fixture is an empty repository so the tracked check
+    # below cannot be what raises: the reason for the refusal is asserted, not assumed.
+    snap_checked += 1
+    with tempfile.TemporaryDirectory() as work:
+        src = os.path.join(work, "src")
+        os.makedirs(os.path.join(src, "internal"))
+        with open(os.path.join(src, "internal", "locked.go"), "w") as fh:
+            fh.write("package web\n")
+        git_run(["init", "-q"], src)
+
+        def refusing_copy(s, d, ignore):
+            raise shutil.Error([(os.path.join(s, "internal", "locked.go"),
+                                 os.path.join(d, "locked.go"),
+                                 "[Errno 13] Permission denied")])
+
+        try:
+            snapshot(src, os.path.join(work, "dst"), copy=refusing_copy)
+            bad.append("a source file that could not be copied did not stop the snapshot: "
+                       "the run would have gone on over a tree missing that file, and "
+                       "reported every mutant caught against it")
+        except SnapshotError as err:
+            if "could not copy source" not in str(err):
+                bad.append(f"the snapshot refused for the wrong reason: {err}")
+
+        def socket_copy(s, d, ignore):
+            raise shutil.Error([(os.path.join(s, "SingletonSocket"),
+                                 os.path.join(d, "SingletonSocket"),
+                                 "[Errno 6] No such device or address")])
+
+        try:
+            left = snapshot(src, os.path.join(work, "dst2"), copy=socket_copy)
+        except SnapshotError as err:
+            bad.append(f"a socket stopped the snapshot: {err}")
+            left = []
+        if not any("SingletonSocket" in p for p in left):
+            bad.append("the socket was neither copied nor reported, so nobody is told the "
+                       f"tree being tested is smaller than the one on disk (got {left})")
+
+    # And the check that the copy HOLDS the repository -- acting, not sorting. A copy that
+    # comes back without an error and without a tracked file is what a predicate bug, a file
+    # that vanished mid-copy, and an unreadable symlink all look like from the outside, and
+    # the sorting above cannot see any of them because nothing failed.
+    snap_checked += 1
+    with tempfile.TemporaryDirectory() as work:
+        src = os.path.join(work, "src")
+        os.makedirs(os.path.join(src, "internal"))
+        for name in ("server.go", "keep.go"):
+            with open(os.path.join(src, "internal", name), "w") as fh:
+                fh.write("package web\n")
+        git_run(["init", "-q"], src)
+        git_run(["add", "internal/server.go", "internal/keep.go"], src)
+        # Tracked AND deliberately not copied: `.cortexkit/.gitignore` is exactly this shape
+        # in this repository, and it is the case that made the exemption necessary. Without
+        # an assertion both ways the exemption is unpinned -- too wide silently drops source,
+        # too narrow refuses a run that should have gone ahead.
+        os.makedirs(os.path.join(src, ".cortexkit"), exist_ok=True)
+        with open(os.path.join(src, ".cortexkit", ".gitignore"), "w") as fh:
+            fh.write("state\n")
+        git_run(["add", ".cortexkit/.gitignore"], src)
+
+        def dropping_copy(s, d, ignore):
+            shutil.copytree(s, d, ignore=ignore)
+            os.remove(os.path.join(d, "internal", "keep.go"))
+
+        try:
+            snapshot(src, os.path.join(work, "dst"), copy=dropping_copy)
+            bad.append("a snapshot missing a tracked file was accepted: the battery would "
+                       "have run over a tree with that file gone and reported its mutants "
+                       "caught against nothing")
+        except SnapshotError as err:
+            if "missing" not in str(err):
+                bad.append(f"the snapshot refused for the wrong reason: {err}")
+            if ".cortexkit" in str(err):
+                bad.append("the snapshot refused over a file under a never-copied root name,"
+                           f" which is excluded on purpose: {err}")
+
+    # The end-to-end half, through `snapshot` rather than a hand-built callback: the
+    # composition is the fix, and a rule that rebuilt the callback for itself stayed green
+    # with `main` reverted to the four hardcoded names.
+    #
+    # `runs` is what the repository ignores and `other` is not. The first is the bug that
+    # happened; the second is the guard the ticket asked for in as many words -- "a tree
+    # containing an UNIGNORED directory with a socket in it" -- and it is the class rather
+    # than the instance, because the next one will not be named runs/.
+    snap_checked += 1
+    with tempfile.TemporaryDirectory() as work:
+        src = os.path.join(work, "src")
+        os.makedirs(os.path.join(src, "internal", "web"))
+        with open(os.path.join(src, "internal", "web", "server.go"), "w") as fh:
+            fh.write("package web\n")
+        for name in ("runs", "other"):
+            chrome_profile(src, name)
+        with open(os.path.join(src, ".gitignore"), "w") as fh:
+            fh.write("runs/\n")
+        git_run(["init", "-q"], src)
+        # Tracked, so that the copy is checked against the repository rather than against
+        # nothing: an empty tracked set makes `missing_source` pass for free. Only these two
+        # are staged -- `git add -A` refuses to look at a socket, and the socket is the point.
+        git_run(["add", "internal/web/server.go", "other/note.txt"], src)
+        tracked = tracked_paths(src)
+        if not tracked:
+            bad.append("the fixture has no tracked files, so nothing checked that the copy "
+                       "holds the source")
+        dst = os.path.join(work, "dst")
+        try:
+            skipped = snapshot(src, dst)
+        except (shutil.Error, SnapshotError) as err:
+            skipped = []
+            bad.append(f"a tree with sockets in it did not snapshot: {err}")
+        if os.path.exists(os.path.join(dst, "runs")):
+            bad.append("the ignored directory was copied anyway")
+        for rel in ("internal/web/server.go", "other/note.txt"):
+            if not os.path.isfile(os.path.join(dst, rel)):
+                bad.append(f"{rel} did not reach the snapshot, so the copy is not the tree")
+        for junk in ("SingletonCookie", "SingletonSocket"):
+            if os.path.lexists(os.path.join(dst, "other", junk)):
+                bad.append(f"the uncopyable {junk} was copied anyway")
+            if not any(junk in p for p in skipped):
+                bad.append(f"the uncopyable {junk} was neither copied nor reported, so "
+                           "nobody is told the tree being tested is smaller than the one on "
+                           f"disk (reported: {skipped})")
+
+    def git_tree(where, ignore=("runs/",)):
+        """A repository, not just a directory: git answers for tracked state, and an EMPTY
+        ignored directory is not reported at all, because git has no notion of an empty
+        directory. Both halves belong in the fixture or the rule passes for the wrong reason.
+        `keep/` is never ignored and is what each rule says no about.
+        """
+        os.makedirs(where, exist_ok=True)
+        with open(os.path.join(where, ".gitignore"), "w") as fh:
+            fh.write("".join(f"{p}\n" for p in ignore))
+        for name in ("keep",) + tuple(ignore):
+            slot = os.path.join(where, name.rstrip("/"))
+            os.makedirs(slot, exist_ok=True)
+            with open(os.path.join(slot, "capture.png"), "w") as fh:
+                fh.write("\n")
+        git_run(["init", "-q"], where)
+        return where
+
+    # What git is asked for must be what gets skipped. The rule above gets its ignored paths
+    # from `snapshot`, which asks git, so nothing so far would notice `ignored_paths` being
+    # gutted into returning nothing -- and that is the other half of this bug, the half a
+    # .gitignore that does not say `runs/` would hit.
+    snap_checked += 1
+    if shutil.which("git"):
+        with tempfile.TemporaryDirectory() as work:
+            got = ignored_paths(git_tree(work))
+            if "runs/" not in got:
+                bad.append("ignored_paths did not report the directory the repository "
+                           f"ignores: {got}")
+            if "keep/" in got or "keep/capture.png" in got:
+                bad.append("ignored_paths reported a directory the repository does not "
+                           f"ignore: {got}")
+            # The `-z` in LS_IGNORED, and it is not cosmetic. Without it git answers
+            # `"run\"s/"` for a directory holding a quote, that answer matches nothing on
+            # disk, and the crash this function exists to prevent comes back. A name with an
+            # accent tests the same quoting but compares differently on a volume that
+            # normalises unicode, so the fixture uses the quote itself.
+            quoted = ignored_paths(git_tree(work, ignore=("runs/", 'run"s/')))
+            if 'run"s/' not in quoted or any(p.startswith('"') for p in quoted):
+                bad.append("git's answer came back C-quoted, so an ignored path holding a "
+                           f"quote matches nothing on disk: {quoted}")
+            # And a name the locale cannot decode at all, which is the same failure arriving
+            # from the other direction: `os.fsdecode` is what keeps it a round trip instead
+            # of a UnicodeDecodeError before a single mutant runs.
+            raw = os.path.join(work, "raw")
+            weird = os.fsdecode(b"prof\xedle")
+            os.makedirs(os.path.join(raw, weird), exist_ok=True)
+            with open(os.path.join(raw, ".gitignore"), "wb") as fh:
+                fh.write(b"prof\xedle/\n")
+            git_run(["init", "-q"], raw)
+            if weird + "/" not in ignored_paths(raw):
+                bad.append("an ignored path the locale cannot decode did not survive the "
+                           f"round trip: {ignored_paths(raw)!r}")
+
+    # The answer must be a function of the repository and of nothing else. `GIT_DIR` is
+    # exported by hooks and by wrapper scripts that call `make verify`, `GIT_CONFIG_PARAMETERS`
+    # is how `git -c k=v` reaches a child, and a machine-wide core.excludesFile is not part of
+    # this tree. Any one of them can make a battery copy the wrong tree; the last can also
+    # make the assertion above pass or fail on someone's dotfiles, and an assertion about what
+    # is NOT ignored is the one that has to be able to say no.
+    snap_checked += 1
+    if shutil.which("git"):
+        with tempfile.TemporaryDirectory() as work:
+            # A real config file pointing at a real excludes list, because that is the
+            # machine-wide setting this has to be immune to; the list and the config cannot be
+            # the same file, since one is git config and the other is a pattern list.
+            patterns = os.path.join(work, "excludes")
+            with open(patterns, "w") as fh:
+                fh.write("keep/\n")
+            cfg = os.path.join(work, "config")
+            with open(cfg, "w") as fh:
+                fh.write(f"[core]\n\texcludesFile = {patterns}\n")
+            repo = git_tree(os.path.join(work, "repo"))
+            saved = dict(os.environ)
+            try:
+                os.environ["GIT_DIR"] = os.path.join(work, "not-a-repo")
+                os.environ["GIT_WORK_TREE"] = work
+                os.environ["GIT_CONFIG_GLOBAL"] = cfg
+                os.environ["GIT_CONFIG_SYSTEM"] = cfg
+                os.environ["GIT_CONFIG_PARAMETERS"] = (
+                    f"'core.excludesFile'='{patterns}'")
+                got = ignored_paths(repo)
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+            if "runs/" not in got:
+                bad.append(f"an ambient GIT_DIR changed what the snapshot skips: {got}")
+            if "keep/" in got:
+                bad.append(f"a machine-wide excludes setting changed what the snapshot "
+                           f"skips: {got}")
+
+    # A tree git cannot answer for is snapshotted exactly as it always was. There are two
+    # ways not to answer and the function has a branch for each: nothing to run, and
+    # something that runs and says no. Both have to fall back rather than refuse, because a
+    # missing git is no reason a battery cannot run -- which is survivable now because of the
+    # error sorting above, not in spite of it.
+    snap_checked += 1
+    if ignored_paths(os.path.join(tempfile.gettempdir(), "no-such-tree-at-all")):
+        bad.append("ignored_paths invented entries for a path that does not exist")
+
+    snap_checked += 1
+    with tempfile.TemporaryDirectory() as work:
+        # A git that answers AND refuses. The first version of this rule handed over
+        # `sys.executable`, whose stdout is empty, so the rule passed with the refusal branch
+        # deleted: an answer worth refusing is the only way to pin the branch that throws one
+        # away, and a source name is the answer that must not be believed.
+        stub = os.path.join(work, "stub.py")
+        with open(stub, "w") as fh:
+            fh.write("import sys\n"
+                     "sys.stdout.buffer.write(b'server.go\\0')\n"
+                     "sys.exit(3)\n")
+        if ignored_paths(work, git=[sys.executable, stub]):
+            bad.append("ignored_paths trusted an answer from a command that exited non-zero")
+    # And the reach itself. Every rule above can pass perfectly while one of them is
+    # missing from the file, so the count is compared against a number that has to be
+    # edited on purpose. This check is deliberately NOT one of the counted rules: a pin
+    # that counts itself moves the number it exists to hold still.
+    if (checked, snap_checked) != (EXPECTED_VERDICT_RULES, EXPECTED_SNAPSHOT_RULES):
+        bad.append(f"the self-test ran {checked} verdict rules and {snap_checked} snapshot "
+                   f"rules, expected {EXPECTED_VERDICT_RULES} and "
+                   f"{EXPECTED_SNAPSHOT_RULES}: a rule was deleted, or stopped counting")
+
     if bad:
         print("self-test FAILED:")
         for b in bad:
@@ -376,8 +1064,10 @@ def self_test():
         return 1
     # Counted, not derived from len(cases): the number is a claim about how much was
     # tested, and a count that silently under-reports the rules below it is the same
-    # species of error the rules themselves are here to prevent.
-    print(f"self-test: {checked} verdict rules hold")
+    # species of error the rules themselves are here to prevent. The two kinds are counted
+    # apart and named apart, because "N rules hold" said about two different mechanisms is
+    # how a summary starts meaning less than the reader assumes.
+    print(f"self-test: {checked} verdict rules and {snap_checked} snapshot rules hold")
     return 0
 
 
@@ -414,13 +1104,24 @@ def main():
 
     # Everything below runs against this copy. The working tree is never written to,
     # so an interrupted run cannot leave a mutant behind and a concurrent edit cannot
-    # turn a real result into a compile failure.
+    # turn a real result into a compile failure. What arrives is what the repository
+    # tracks plus anything untracked that it does not ignore, less the four names in
+    # NEVER_COPIED wherever they appear -- see snapshot_ignore, and snapshot for what
+    # happens to a path that cannot be copied at all.
     work = tempfile.mkdtemp(prefix="plock-mutate-")
     global ROOT
     ROOT = os.path.join(work, "repo")
-    shutil.copytree(SRC, ROOT, ignore=shutil.ignore_patterns(
-        ".git", "bin", ".cortexkit", "__pycache__"))
+    try:
+        skipped = snapshot(SRC, ROOT)
+    except SnapshotError as err:
+        # The refusal is the last word this run gets, so it has to take the copy with it:
+        # every retry on a tree with an unreadable file would otherwise leave another full
+        # copy of the repository behind in TMPDIR.
+        shutil.rmtree(work, ignore_errors=True)
+        sys.exit(str(err))
     print(f"running against a copy of the tree in {ROOT}")
+    for path in skipped:
+        print(f"snapshot left out an uncopyable path that is not source: {path}")
 
     # --only writes a trimmed copy of the set rather than filtering inside run_set,
     # so what the run reports is exactly what the file on disk said.
