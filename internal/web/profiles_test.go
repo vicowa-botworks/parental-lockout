@@ -19,8 +19,10 @@ import (
 //    an assertion, not a screenshot."
 //   "Deleting a profile in use is refused with a message naming the blocking users."
 
-// postForm posts a form body as a signed-in parent, without the helper appending the token.
-// The rendered-form test needs to submit exactly what the page emitted, token included.
+// postForm posts a form body anonymously, without the helper appending a token -- the shape a
+// caller that never signed in produces. It does not establish a session, and a 303 from it is
+// the redirect to /login rather than a saved write; check the Location.
+// (submitAsSession in profiles_edit_test.go is the signed-in variant.)
 func postForm(t *testing.T, s *Server, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -435,6 +437,8 @@ func TestEveryRouteRefusesAnUnauthenticatedRequest(t *testing.T) {
 	posts := []string{
 		"/profiles/school/rules",
 		"/profiles/school/delete",
+		"/profiles/school/timezone",
+		"/profiles/school/rename",
 		"/users/casey/override",
 		"/users/casey/override/clear",
 	}
