@@ -47,7 +47,7 @@ one page needs live in `cdp.py`.
 
 | driver | refuses when |
 |---|---|
-| `pages.py` | a page answers a different URL than it was sent to; the page has no table or no cells (an empty fixture fits at any width); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page |
+| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page |
 | `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows |
 | `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows |
 | all three | the daemon the fixture started is not the process still serving its port; something already answers the DevTools endpoint before the browser is launched; `--out` resolves outside the repository, names a file, or names a directory holding PNGs without `--overwrite`; an unrecognised flag |
@@ -151,19 +151,28 @@ doing its job:
 
 ## Which artifacts reproduce byte for byte, and which cannot
 
-Measured by running each driver and comparing md5 against the committed file. The three
-reproducible ones were also confirmed stable across two consecutive runs of the same fixture.
+Measured by running each driver and comparing md5 against the committed file. The reproducible
+ones were confirmed stable across two consecutive runs of the same fixture.
+
+Every hash in this table moved when the settings page added a link to the masthead, and that is
+worth stating rather than slipping past: the shell is one template, so a change to the navigation
+changes the pixels of *every* page, including the four this branch does not otherwise touch. The
+committed photographs therefore had to be re-taken as a set. What proves the re-take is faithful
+and not merely new is the control run: with the nav link removed again, `users.png` and
+`profiles.png` came back byte-identical to the previous committed files (`003ee3f8…` and
+`c31bdd55…`), so the only thing that moved them was the link.
 
 | artifact | does the in-repo driver reproduce the committed file? | why |
 |---|---|---|
-| `users.png` | **yes** — `003ee3f8…` | |
-| `profiles.png` | **yes** — `c31bdd55…` | |
-| `testlock.png` | **yes** — `7f63a7e0…` | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image |
-| `lock.png` | **yes** — `473451a9…` | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no" |
+| `users.png` | **yes** — `b69eb0d1…` | |
+| `profiles.png` | **yes** — `740200cc…` | |
+| `settings.png` | **yes** — `728461cb…` | new with the settings page. It is the only page in the set refused on a *form* rather than on rows (`cdp.require_form`), because a page with no table would otherwise have been refused as an empty fixture -- and the lazy repair, dropping the check, would have let a /settings that rendered nothing but its navigation be committed as evidence that it fits |
+| `testlock.png` | **yes** — `7672219a…` | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image |
+| `lock.png` | **yes** — `910e403d…` | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no" |
 | `dashboard.png` | **no** | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs minutes apart agree; a run hours later does not |
 | `audit.png` | **no, by construction** | signing in appends an `auth.success` row to the very trail the page photographs, so every capture adds a row and two runs of one fixture cannot agree |
 
-So four of the six can be regenerated and two cannot. The honest claim about a one-shot artifact is
+So five of the seven can be regenerated and two cannot. The honest claim about a one-shot artifact is
 the driver's report — `scrollWidth`, `innerWidth`, the cell census, `FITS` — not the pixels. That
 is worth saying out loud, because a PR that links `audit.png` is linking an image nobody can
 regenerate, and the thing a reviewer can re-run is the script.
