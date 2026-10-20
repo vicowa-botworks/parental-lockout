@@ -460,3 +460,68 @@ func TestDoctorReportsAWriteFailure(t *testing.T) {
 		t.Errorf("exit %d, want %d when help cannot be written", code, exitFailure)
 	}
 }
+
+// firstFailWriter refuses its first Write and accepts every one afterwards.
+//
+// It exists because failWriter cannot separate two different failures. The doctor writes the
+// backend table and then, only if that succeeded, the check lines through finishDoctor -- two
+// writes of two different blocks. A writer that always fails answers identically whichever of
+// them died, so an assertion built on it cannot tell "the report was truncated" from "the
+// report was never started and the command went on to report success". Failing exactly once
+// can: the second write only happens if the first one's error was thrown away.
+type firstFailWriter struct {
+	writes int
+	buf    strings.Builder
+}
+
+func (w *firstFailWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == 1 {
+		return 0, errors.New("device full")
+	}
+	return w.buf.Write(p)
+}
+
+// TestDoctorAbandonsTheReportWhenTheTableCannotBeWritten pins the half of the write contract
+// that TestDoctorReportsAWriteFailure cannot reach.
+//
+// That test passes failWriter as both streams and asserts the exit code, and both sides of
+// ignoring the table write answer exitFailure with the same stderr bytes: the correct code
+// returns early, and the mutant lets finishDoctor write the check lines to the same always
+// failing stream, which fails too. So the check that a refused report stops the command --
+// rather than falling through to a verdict computed from a report nobody received -- was
+// covered by nothing, and a mutant that deletes it (err != nil && false, platform.json's D9)
+// survived the whole suite.
+//
+// The direction is the one this repo refuses to trade: with the check gone, a healthy-looking
+// machine whose report could not be written exits 0 after printing nothing, and `plock doctor`
+// is the command an operator runs precisely because a lockout did not happen.
+func TestDoctorAbandonsTheReportWhenTheTableCannotBeWritten(t *testing.T) {
+	withChain(t, &fakeChain{
+		names:    []string{"logind"},
+		statuses: []platform.BackendStatus{{Name: "logind", Available: true, Detail: "ok"}},
+	}, nil)
+	withDaemon(t, "active", true, nil)
+
+	var out firstFailWriter
+	var errOut strings.Builder
+	code := runDoctor(&out, &errOut, []string{"--config", writeConfig(t)})
+
+	if code != exitFailure {
+		t.Errorf("exit %d, want %d when the backend table could not be written", code, exitFailure)
+	}
+	// The whole point: nothing reaches the stream after the refusal. Reaching it means the
+	// command kept going and turned a report nobody received into a verdict.
+	if out.buf.Len() != 0 {
+		t.Errorf("the doctor wrote %d bytes after the report write was refused; it must stop:\n%s",
+			out.buf.Len(), out.buf.String())
+	}
+	if out.writes != 1 {
+		t.Errorf("the doctor wrote to stdout %d times, want 1: a second write means the "+
+			"refused table was ignored and the check lines were attempted anyway", out.writes)
+	}
+	// And it has to fail for the reason under test, not by accident.
+	if msg := errOut.String(); !strings.Contains(msg, "device full") {
+		t.Errorf("stderr %q, want it to name the write error", msg)
+	}
+}
