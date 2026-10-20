@@ -1551,7 +1551,7 @@
       "file": "internal/web/profiles.go",
       "old": "\tif zone == \"\" {",
       "new": "\tif zone == \"\" && false {",
-      "note": "a blank timezone field is accepted. Blank is not unset here: time.LoadLocation(\"\") answers UTC, so clearing the field moves every window in the profile to UTC while the page still looks like a form that was simply not filled in. TestABlankTimezoneIsRefusedRatherThanSavedAsUTC."
+      "note": "the form-level blank check is gone. config.Validate still refuses an empty zone inside mutateConfig, so the status and the saved document are unchanged -- what changes is the sentence, from the field's own explanation to Validate's config-path text. That makes this mutant production-equivalent in behaviour, and it is killed only because the test asserts which refusal came back. A fixture that applied fn in place (as this one did) made it look like the blank reached the document, which is a state production cannot produce. TestABlankTimezoneIsRefusedWithTheSentenceThatExplainsIt."
     },
 {
       "id": "W217",
@@ -1570,15 +1570,15 @@
 {
       "id": "W219",
       "file": "internal/web/profiles.go",
-      "old": "\t\t\tif other.ID != p.ID && strings.TrimSpace(other.Name) == name {",
-      "new": "\t\t\tif other.ID != p.ID && false && strings.TrimSpace(other.Name) == name {",
+      "old": "\t\t\tif strings.TrimSpace(other.Name) == name || other.ID == name {",
+      "new": "\t\t\tif other.ID == name {",
       "note": "two profiles can be given the same name. config.Validate checks ids, never names, and the page heads each profile with its name and falls back to the id only when the name is empty, so two alike render two identical headings, two identical table captions and two identical delete confirmations for different documents. TestARenameOntoAnotherProfilesNameIsRefused."
     },
 {
       "id": "W220",
       "file": "internal/web/profiles.go",
-      "old": "\t\t\tif other.ID != p.ID && strings.TrimSpace(other.Name) == name {",
-      "new": "\t\t\tif strings.TrimSpace(other.Name) == name {",
+      "old": "\t\t\tif other.ID == p.ID {\n\t\t\t\tcontinue\n\t\t\t}",
+      "new": "\t\t\tif other.ID == p.ID && false {\n\t\t\t\tcontinue\n\t\t\t}",
       "note": "the collision check compares the name against every profile including the subject, so submitting the form without changing the field is refused as a collision with itself -- the parent cannot save anything else on the profile without retyping its name first. TestSavingAProfileItsOwnNameIsNotACollision."
     },
 {
@@ -1601,6 +1601,20 @@
       "old": "\t\tif !ok {\n\t\t\treturn errUnknownProfile\n\t\t}\n\t\tfor _, other := range c.Profiles {",
       "new": "\t\tif !ok {\n\t\t\treturn nil\n\t\t}\n\t\tfor _, other := range c.Profiles {",
       "note": "the same failure on the rename write: an unknown profile id is answered 303 with a newly invented empty-id profile carrying the typed name, instead of 404. TestAWriteToAnUnknownProfileIsANotFoundThatChangedNothing."
+    },
+{
+      "id": "W224",
+      "file": "internal/web/profiles.go",
+      "old": "\tif zone == \"Local\" {",
+      "new": "\tif zone == \"LocalX\" {",
+      "note": "the Local refusal is unreachable. time.LoadLocation(\"Local\") succeeds and config.Validate agrees the field holds a zone, so nothing downstream ever complains while every window in the profile silently follows the host's clock -- the one value whose meaning is \"whatever this machine says\" in a field that promises the household's zone. TestLocalIsRefusedBecauseItFollowsTheMachineRatherThanTheHousehold."
+    },
+{
+      "id": "W225",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\tif strings.TrimSpace(other.Name) == name || other.ID == name {",
+      "new": "\t\t\tif strings.TrimSpace(other.Name) == name {",
+      "note": "ids stop counting as labels. The page heads a profile with its name and falls back to the id when the name is empty, and Validate requires an id but never a name, so renaming onto another profile's id recreates the two identical headings, captions and delete confirmations the check exists to prevent -- arriving through the fallback rather than the field. TestARenameOntoAnotherProfilesIDIsRefusedToo."
     }
   ]
 }

@@ -22,7 +22,7 @@ import (
 // postForm posts a form body anonymously, without the helper appending a token -- the shape a
 // caller that never signed in produces. It does not establish a session, and a 303 from it is
 // the redirect to /login rather than a saved write; check the Location.
-// (submitAsSession in profiles_edit_test.go is the signed-in variant.)
+// (submitWithSession in profiles_edit_test.go is the signed-in variant.)
 func postForm(t *testing.T, s *Server, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()

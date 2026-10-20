@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -35,22 +36,55 @@ type overrideFixture struct {
 	failOn error
 }
 
+// load hands out a document the way config.Load does: a document of your own, with no slice
+// shared with the stored one. A shallow copy shares every slice header, so a handler writing
+// through an element of a slice it just loaded would still reach into the stored document and
+// the fixture would report a write that production's copy-on-write helpers make impossible.
 func (f *overrideFixture) load() (*config.Config, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := *f.doc
-	return &out, nil
+	raw, err := json.Marshal(f.doc)
+	if err != nil {
+		return nil, err
+	}
+	out := &config.Config{}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
+// mutate stands in for the production seam, and the two halves of that seam's contract both
+// matter here. Production re-reads a fresh document, applies fn, and saves only when fn answers
+// nil -- and fn is mutateConfig's wrapper, which runs config.Validate on the same document
+// before it returns. So a handler that mutates first and gets refused by Validate afterwards
+// loses the edit entirely on disk.
+//
+// Applying fn straight to f.doc cannot show that: the document keeps the mutation the refusal
+// was supposed to discard, and every "stores nothing" assertion in this package then measures a
+// fixture production does not have. One mutant was killed by exactly that difference -- it
+// removed a form-level check that config.Validate already backs, so production answered the same
+// 422 and saved the same nothing, and only the in-place fixture made the write look like it
+// landed. Hence the round-trip: fn gets its own document, and this fixture installs it only when
+// fn -- Validate included -- accepts it.
 func (f *overrideFixture) mutate(fn func(*config.Config) error) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failOn != nil {
 		return f.failOn
 	}
-	if err := fn(f.doc); err != nil {
+	raw, err := json.Marshal(f.doc)
+	if err != nil {
 		return err
 	}
+	probe := &config.Config{}
+	if err := json.Unmarshal(raw, probe); err != nil {
+		return err
+	}
+	if err := fn(probe); err != nil {
+		return err
+	}
+	f.doc = probe
 	f.saves++
 	return nil
 }

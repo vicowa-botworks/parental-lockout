@@ -199,10 +199,22 @@ func TestTheTimezoneRefusalDoesNotEchoWhatWasTyped(t *testing.T) {
 	}
 }
 
-// A blank field is not "leave it alone" and not "no zone": time.LoadLocation("") answers UTC.
-// Saving the blank would move every window in the profile to UTC while the page still looked
+// A blank field is not "leave it alone" and not "no zone": `time.LoadLocation("")` answers UTC,
+// so a blank that reached disk would move every window in the profile while the page still looked
 // like a profile that had simply not been filled in.
-func TestABlankTimezoneIsRefusedRatherThanSavedAsUTC(t *testing.T) {
+//
+// config.Validate already refuses an empty timezone, and mutateConfig runs Validate on the same
+// document inside the lock before anything is saved -- so the write is refused either way, and
+// this check is not what keeps the document clean. What it buys is the sentence. Without it the
+// operator reads "refusing to save: configuration is not valid: 1 problem(s): profiles[0]
+// (school).timezone: must not be empty", which is a report about a config file, not an answer to
+// the field they left blank, and which does not say that the hours they set are now enforced in
+// London. That is the same reason the handler explains an unparseable zone instead of letting
+// Validate's path-indexed text stand.
+//
+// The assertion is therefore about which refusal came back. Asserting only "422 and nothing
+// stored" would pass with the check deleted, because Validate answers the same two things.
+func TestABlankTimezoneIsRefusedWithTheSentenceThatExplainsIt(t *testing.T) {
 	f := newOverrideFixture(t)
 	before := f.savesCount()
 
@@ -210,8 +222,67 @@ func TestABlankTimezoneIsRefusedRatherThanSavedAsUTC(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422; body %q", rec.Code, rec.Body.String())
 	}
-	if p, _ := profileFrom(t, f, "school"); p.Timezone != "UTC" {
-		t.Errorf("the blank field was stored, and the profile now reads %q", p.Timezone)
+	body := rec.Body.String()
+	if !strings.Contains(body, "move every window") {
+		t.Errorf("the blank refusal does not say what a blank zone does;\nthe page says:\n%s", body)
+	}
+	if strings.Contains(body, "configuration is not valid") {
+		t.Errorf("the blank refusal is Validate's generic text rather than the field's own;\n"+
+			"the page says:\n%s", body)
+	}
+	if n := f.savesCount() - before; n != 0 {
+		t.Errorf("the refusal saved %d documents, want none", n)
+	}
+}
+
+// `Local` loads. time.LoadLocation("Local") answers a real *Location and config.Validate agrees
+// the field holds a zone, so nothing downstream ever complains -- which is the problem. Local is
+// the one name whose meaning is "whatever this machine's clock is set to", so every window in the
+// profile moves whenever the host's zone moves, and the host's zone is chosen by the distro
+// installer rather than by the parent reading a field that promises "every window below is read
+// in this zone". The evaluator's own comment calls this the failure it warns about: a Berlin
+// family on a UTC-hosted machine loses the first hours of every overnight rule.
+func TestLocalIsRefusedBecauseItFollowsTheMachineRatherThanTheHousehold(t *testing.T) {
+	f := newOverrideFixture(t)
+	before := f.savesCount()
+
+	rec := authPost(t, f.s, "/profiles/school/timezone", "timezone=Local")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body %q -- Local loads, so nothing else refuses it",
+			rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "machine's clock") {
+		t.Errorf("the refusal does not say why Local is not a household zone;\nthe page says:\n%s",
+			body)
+	}
+	if p, _ := profileFrom(t, f, "school"); p.Timezone == "Local" {
+		t.Error("Local was stored anyway; the profile now follows the host's zone")
+	}
+	if n := f.savesCount() - before; n != 0 {
+		t.Errorf("the refusal saved %d documents, want none", n)
+	}
+}
+
+// The collision check has to count ids as well as names, because the page prints an id as a
+// label whenever a name is empty -- and Validate requires an id but never a name. Renaming a
+// profile to another profile's id therefore recreates the identical-heading, identical-caption,
+// identical-delete-confirmation pair that the refusal exists to prevent, arriving through the
+// fallback rather than through the field.
+func TestARenameOntoAnotherProfilesIDIsRefusedToo(t *testing.T) {
+	f := newOverrideFixture(t)
+	f.doc.Profiles = append(f.doc.Profiles, config.Profile{
+		ID: "curfew", Name: "", Timezone: "UTC",
+		Rules: []config.Rule{{ID: "r9", Days: []string{"sat"},
+			Start: "20:00", End: "06:00", Enabled: true}},
+	})
+	before := f.savesCount()
+
+	rec := authPost(t, f.s, "/profiles/school/rename", "name=curfew")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 404/422; body %q", rec.Code, rec.Body.String())
+	}
+	if p, _ := profileFrom(t, f, "school"); p.Name == "curfew" {
+		t.Error("the rename landed, and the page now heads two profiles with the same word")
 	}
 	if n := f.savesCount() - before; n != 0 {
 		t.Errorf("the refusal saved %d documents, want none", n)
@@ -249,6 +320,22 @@ func TestAWriteToAnUnknownProfileIsANotFoundThatChangedNothing(t *testing.T) {
 func TestARenameRelabelsTheProfileWithoutTouchingAnythingElse(t *testing.T) {
 	f := newOverrideFixture(t)
 	before := f.savesCount()
+
+	// The ticket's criterion is "a profile in use can be renamed", so the fixture has to be in
+	// use, and the test has to say so. The assignment happens to be there today -- it is what
+	// makes the dashboard test work -- but a fixture that quietly stopped assigning casey
+	// would leave every rename assertion below green while the criterion went untested. A
+	// precondition stated is a precondition that fails when it stops holding.
+	inUse := false
+	for _, u := range f.doc.Users {
+		if u.ProfileID == "school" {
+			inUse = true
+		}
+	}
+	if !inUse {
+		t.Fatal("no account is assigned to the profile being renamed, so this test is not " +
+			"renaming a profile in use and proves nothing about that case")
+	}
 
 	rec := authPost(t, f.s, "/profiles/school/rename", "name=+Weeknight+curfew")
 	if rec.Code != http.StatusSeeOther {

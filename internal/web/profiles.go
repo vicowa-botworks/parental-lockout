@@ -300,6 +300,20 @@ func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
 				"Europe/Paris, from the IANA zone list")
 		return
 	}
+	if zone == "Local" {
+		// `Local` loads, so the check above lets it through and Validate agrees it is a zone.
+		// It is the one name whose meaning is "whatever this machine says right now": every
+		// window in the profile would move whenever the host's zone moved, and the evaluator's
+		// degraded-report path stays silent because the name resolves. A field that promises
+		// "every window below is read in this zone" cannot hold the one value that answers to
+		// no zone at all -- and the machine's own zone is set by the distro installer, not by
+		// the parent reading this page.
+		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+			"Local is not a timezone for a profile; it follows whatever the machine's clock is "+
+				"set to, so the hours would move on their own. Pick the zone the household "+
+				"lives in, such as Europe/Paris.")
+		return
+	}
 
 	previous := ""
 	if err := s.mutateConfig(func(c *config.Config) error {
@@ -337,10 +351,16 @@ func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
 // TestARenameLeavesTheRuleIDsAndOrderAlone is the invariant, and it is why this handler sets
 // one field on the copy rather than rebuilding the profile.
 //
-// A duplicate name is refused. config.Validate does not check names, only ids, and nothing
-// else will: the page heads each profile with its name and falls back to the id only when the
-// name is empty, so two profiles called "Kids" render two identical headings, two identical
-// table captions, and two identical delete confirmations for different documents.
+// A duplicate name is refused. config.Validate does not check names, only ids, and the page is
+// what makes a duplicate cost something: it heads each profile with its name and falls back to
+// the id only when the name is empty, so two profiles called "Kids" render two identical
+// headings, two identical table captions, and two identical delete confirmations for different
+// documents.
+//
+// This is the web path's guarantee, and its ceiling is worth stating: `plock profile add
+// --copy-from` carries the source's name onto the new profile and `plock profile edit --name`
+// sets one with no collision check, so the CLI can still create the pair. Filed rather than
+// fixed here -- the right home for the rule is wherever both paths can be made to share it.
 func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -367,7 +387,15 @@ func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 			return errUnknownProfile
 		}
 		for _, other := range c.Profiles {
-			if other.ID != p.ID && strings.TrimSpace(other.Name) == name {
+			if other.ID == p.ID {
+				continue
+			}
+			// The id counts as a label too, because the page prints it as one: the heading is
+			// "name, or the id when the name is empty", and Validate requires an id but never a
+			// name. So a profile listed under its id is ambiguous with a new profile named after
+			// that id in exactly the way two identical names are, and checking names alone let
+			// the collision back in through the fallback that exists to cover a missing name.
+			if strings.TrimSpace(other.Name) == name || other.ID == name {
 				return errProfileNameTaken
 			}
 		}
