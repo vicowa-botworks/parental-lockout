@@ -39,6 +39,31 @@ func profile(tzname string, rules ...config.Rule) *config.Profile {
 
 var allDays = config.DayNames
 
+// An unresolvable zone is reported because it silently changes what every rule means. `Local`
+// does the same thing while resolving cleanly, so the branch above it in ProfileErrors stays
+// silent: Validate agrees the field holds a zone, the evaluator loads it, and the hours move
+// whenever the host's zone moves -- the Berlin family on a UTC-hosted machine, with nothing on
+// screen. It is reported here because that is the only place the state becomes visible, and it
+// is reported rather than refused at load because a machine already holding it must keep
+// enforcing while it says so.
+func TestProfileErrorsReportsLocalAsTheMachinesZone(t *testing.T) {
+	r := allDayRule("allday", allDays, "", "")
+
+	errs := ProfileErrors(profile("Local", r))
+	if len(errs) != 1 {
+		t.Fatalf("ProfileErrors = %v, want Local reported as the machine's own zone", errs)
+	}
+	if !strings.Contains(errs[0].Error(), "machine's clock") {
+		t.Errorf("the report does not say what Local does:\n%v", errs[0])
+	}
+
+	// The control: a named zone is not a problem, or this check would be a way to make every
+	// profile look broken.
+	if errs := ProfileErrors(profile("Europe/Berlin", r)); errs != nil {
+		t.Errorf("ProfileErrors = %v for a real zone, want nil", errs)
+	}
+}
+
 func TestEvaluateSameDayWindow(t *testing.T) {
 	loc := utc(t)
 	// Saturday 2026-10-10, 20:00-21:00, no wrap.

@@ -270,11 +270,20 @@ func TestLocalIsRefusedBecauseItFollowsTheMachineRatherThanTheHousehold(t *testi
 // fallback rather than through the field.
 func TestARenameOntoAnotherProfilesIDIsRefusedToo(t *testing.T) {
 	f := newOverrideFixture(t)
-	f.doc.Profiles = append(f.doc.Profiles, config.Profile{
-		ID: "curfew", Name: "", Timezone: "UTC",
-		Rules: []config.Rule{{ID: "r9", Days: []string{"sat"},
-			Start: "20:00", End: "06:00", Enabled: true}},
-	})
+	f.doc.Profiles = append(f.doc.Profiles,
+		// Listed by its id, because its name is empty -- so "curfew" is a heading on the page.
+		config.Profile{
+			ID: "curfew", Name: "", Timezone: "UTC",
+			Rules: []config.Rule{{ID: "r9", Days: []string{"sat"},
+				Start: "20:00", End: "06:00", Enabled: true}},
+		},
+		// Listed by its name. Its id never appears as a heading, so taking it as a name
+		// collides with nothing the operator can see.
+		config.Profile{
+			ID: "trips", Name: "Holiday rules", Timezone: "UTC",
+			Rules: []config.Rule{{ID: "r10", Days: []string{"sat", "sun"},
+				Start: "09:00", End: "19:00", Enabled: true}},
+		})
 	before := f.savesCount()
 
 	rec := authPost(t, f.s, "/profiles/school/rename", "name=curfew")
@@ -286,6 +295,20 @@ func TestARenameOntoAnotherProfilesIDIsRefusedToo(t *testing.T) {
 	}
 	if n := f.savesCount() - before; n != 0 {
 		t.Errorf("the refusal saved %d documents, want none", n)
+	}
+
+	// The other half, which is what keeps the rule the size of its reason. `trips` has a name,
+	// so its id is never printed as a label and nothing about the page is ambiguous after this
+	// rename. A check that refused every id would be refusing a legitimate edit -- and a
+	// profile called after another's id is exactly how an operator labels a set they think of
+	// by its config name.
+	rec = authPost(t, f.s, "/profiles/school/rename", "name=trips")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("renaming onto the id of a profile that has a name answered %d, want 303; "+
+			"body %q", rec.Code, rec.Body.String())
+	}
+	if p, _ := profileFrom(t, f, "school"); p.Name != "trips" {
+		t.Errorf("name = %q, want trips", p.Name)
 	}
 }
 
@@ -491,14 +514,20 @@ func TestTheProfilePageCarriesAWorkingFormForBothWrites(t *testing.T) {
 		}
 	}
 
-	// Submit exactly what the page emitted, token included, rather than a body the test
-	// assembled: this is the only assertion that the rendered form and the handler agree.
+	// Submit the controls the page actually emitted, not a body the test assembled. The names
+	// come off the rendered form; only the value being typed and the session's token are
+	// supplied. That distinction is the whole point: a test that writes `name="name"` into its
+	// own body is asserting that a string it typed matches a handler, which is true whether or
+	// not the template emits that field at all. Rename the input in the template and the page
+	// posts a field the handler never reads -- every real press of the button answers 422 --
+	// while an assembled body keeps passing.
 	token := csrfTokenIn(body)
 	if token == "" {
 		t.Fatal("the rendered page carries no CSRF token to submit")
 	}
 	rec := submitWithSession(t, f.s, c, "/profiles/school/timezone",
-		"timezone=Europe%2FBerlin&csrf="+url.QueryEscape(token))
+		encodeRenderedForm(renderedFormFields(t, body, "/profiles/school/timezone"),
+			map[string]string{"timezone": "Europe/Berlin"}, token))
 	// The Location is the assertion, not a detail: a refusal to authenticate and a saved
 	// write are both 303, and only where it points tells them apart.
 	if loc := rec.Header().Get("Location"); rec.Code != http.StatusSeeOther || loc != "/profiles" {
@@ -514,8 +543,10 @@ func TestTheProfilePageCarriesAWorkingFormForBothWrites(t *testing.T) {
 	// already proves a token is present on every rendered form; what nothing else proves is
 	// that this form round-trips -- that the field the template emits is the field the handler
 	// reads, and that the answer is a saved write rather than a refusal wearing the same 303.
+	body2 := getWithSession(t, f.s, "/profiles", c)
 	rec = submitWithSession(t, f.s, c, "/profiles/school/rename",
-		"name=Weeknight+curfew&csrf="+url.QueryEscape(token))
+		encodeRenderedForm(renderedFormFields(t, body2, "/profiles/school/rename"),
+			map[string]string{"name": "Weeknight curfew"}, token))
 	if loc := rec.Header().Get("Location"); rec.Code != http.StatusSeeOther || loc != "/profiles" {
 		t.Fatalf("submitting the rendered rename form answered %d Location=%q, want 303 to "+
 			"/profiles; body %q", rec.Code, loc, rec.Body.String())
@@ -523,6 +554,59 @@ func TestTheProfilePageCarriesAWorkingFormForBothWrites(t *testing.T) {
 	if p, _ := profileFrom(t, f, "school"); p.Name != "Weeknight curfew" {
 		t.Errorf("the rendered rename form wrote %q, want Weeknight curfew", p.Name)
 	}
+}
+
+// renderedFormFields reads the named controls a browser would submit from the <form> on the
+// page whose action is action, in document order. It reuses the same regexes the route-coverage
+// guard reads forms with, so the two cannot disagree about what a form contains.
+//
+// It refuses a <select> rather than skipping it. A helper that silently drops a control type
+// would hand back a short list and the submission would fail for a reason that has nothing to
+// do with the field the test is trying to pin.
+func renderedFormFields(t *testing.T, body, action string) []string {
+	t.Helper()
+	for _, blk := range formBlockRe.FindAllStringSubmatch(body, -1) {
+		tag := formTagRe.FindString(blk[0])
+		a := actionAttr.FindStringSubmatch(tag)
+		if a == nil || a[1] != action {
+			continue
+		}
+		var names []string
+		for _, c := range controlRe.FindAllStringSubmatch(blk[1], -1) {
+			if strings.EqualFold(c[1], "select") {
+				t.Fatalf("the form posting to %s carries a <select>, which this helper refuses "+
+					"to read rather than drop", action)
+			}
+			n := nameAttr.FindStringSubmatch(c[2])
+			if n == nil {
+				continue // a control with no name posts nothing, so it identifies nothing
+			}
+			names = append(names, n[1])
+		}
+		if len(names) == 0 {
+			t.Fatalf("the form posting to %s emits no named control at all", action)
+		}
+		return names
+	}
+	t.Fatalf("the page carries no form posting to %s", action)
+	return nil
+}
+
+// encodeRenderedForm turns those names into the body the browser would send: every emitted
+// field is posted, the token the page carries goes in the csrf field, and the typed values
+// replace the prefilled ones. A field the template stopped emitting is absent from the body
+// because it is absent from the page -- which is exactly the failure this round-trip exists to
+// catch, so it is not filled in here.
+func encodeRenderedForm(names []string, typed map[string]string, token string) string {
+	form := url.Values{}
+	for _, n := range names {
+		if n == csrfField {
+			form.Set(n, token)
+			continue
+		}
+		form.Set(n, typed[n])
+	}
+	return form.Encode()
 }
 
 // getWithSession fetches a page under a session the caller already holds, so the token read

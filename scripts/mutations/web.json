@@ -910,7 +910,8 @@
       "file": "internal/web/profiles.go",
       "old": "\t\tp.Rules = append(append([]config.Rule(nil), p.Rules...), rule)",
       "new": "\t\tp.Rules = append(p.Rules, rule)",
-      "note": "the rule-add path appends into the array it copied the header from, so a reader holding a snapshot of the same profile writes its own rule into the slot the handler just saved. TestAddingARuleDoesNotWriteIntoAnArrayAnotherSnapshotHolds gives the slice spare capacity first -- without room the mutation is unobservable, which is why config's own version of this test fails loudly on len==cap Renumbered from W110: #74's serve.go mutant already holds that id on another open branch, and ids are one namespace across concurrently open PRs."
+      "equivalent": true,
+      "note": "the rule-add path appends into the array it copied the header from, instead of copying the elements first. On main this was caught, and the catch was the fixture lying. Production's write seam is `Load -> fn -> Save` (cmd/plock/serve.go), and config.Load clips the spare capacity out of every decoded slice (clipAll), so inside fn every slice has len == cap: `append(p.Rules, rule)` cannot write into a slot another holder can see, because there is no spare slot and no other holder -- fn's document is a fresh decode nobody else has a pointer to. The property is real and it is still pinned where the hazard is: scripts/mutations/config.json's UpsertProfile mutant (write straight through the caller's array) fails internal/config's edit_test.go:383. It stopped being observable through the web seam the moment overrideFixture stopped applying fn to the stored document. Check the claim by deleting this marker and re-running the web set: it survives, and the surviving difference is unobservable in a built binary."
     },
     {
       "id": "W125",
@@ -1570,8 +1571,8 @@
 {
       "id": "W219",
       "file": "internal/web/profiles.go",
-      "old": "\t\t\tif strings.TrimSpace(other.Name) == name || other.ID == name {",
-      "new": "\t\t\tif other.ID == name {",
+      "old": "\t\t\tif strings.TrimSpace(other.Name) == name ||\n\t\t\t\t(strings.TrimSpace(other.Name) == \"\" && other.ID == name) {",
+      "new": "\t\t\tif false ||\n\t\t\t\t(strings.TrimSpace(other.Name) == \"\" && other.ID == name) {",
       "note": "two profiles can be given the same name. config.Validate checks ids, never names, and the page heads each profile with its name and falls back to the id only when the name is empty, so two alike render two identical headings, two identical table captions and two identical delete confirmations for different documents. TestARenameOntoAnotherProfilesNameIsRefused."
     },
 {
@@ -1612,9 +1613,33 @@
 {
       "id": "W225",
       "file": "internal/web/profiles.go",
-      "old": "\t\t\tif strings.TrimSpace(other.Name) == name || other.ID == name {",
-      "new": "\t\t\tif strings.TrimSpace(other.Name) == name {",
+      "old": "\t\t\tif strings.TrimSpace(other.Name) == name ||\n\t\t\t\t(strings.TrimSpace(other.Name) == \"\" && other.ID == name) {",
+      "new": "\t\t\tif strings.TrimSpace(other.Name) == name ||\n\t\t\t\t(false) {",
       "note": "ids stop counting as labels. The page heads a profile with its name and falls back to the id when the name is empty, and Validate requires an id but never a name, so renaming onto another profile's id recreates the two identical headings, captions and delete confirmations the check exists to prevent -- arriving through the fallback rather than the field. TestARenameOntoAnotherProfilesIDIsRefusedToo."
+    },
+{
+      "id": "W226",
+      "package": "./internal/schedule/",
+      "file": "internal/schedule/schedule.go",
+      "old": "\t\t} else if p.Timezone == \"Local\" {",
+      "new": "\t\t} else if false {",
+      "note": "a profile holding Local stops being reported. Local resolves, so the unresolvable-name branch above it stays silent, Validate accepts it, and every window in the profile is read in the machine's own zone -- the failure this function's own comment warns about, arriving through a name that loads instead of one that fails. TestProfileErrorsReportsLocalAsTheMachinesZone."
+    },
+{
+      "id": "W227",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/manage.go",
+      "old": "\tif name == \"Local\" {\n\t\t// The web form refuses this",
+      "new": "\tif false {\n\t\t// The web form refuses this",
+      "note": "the CLI accepts Local. The refusal then belongs to the screen rather than to the config: `plock profile edit --timezone Local` exits 0 and writes it (measured), while the web form calls the same value unusable. TestProfileEditRefusesLocalBecauseItFollowsTheMachine."
+    },
+{
+      "id": "W228",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/profiles.tmpl",
+      "old": "      <input id=\"rename-{{.ID}}\" type=\"text\" name=\"name\" value=\"{{.Name}}\" required>",
+      "new": "      <input id=\"rename-{{.ID}}\" type=\"text\" name=\"profileName\" value=\"{{.Name}}\" required>",
+      "note": "the rename form posts a field the handler never reads. The page still renders, the button still looks the same, and every real press answers 422 \"a profile needs a name\". Nothing that assembles its own post body can see this, and the substring check on name=\"name\" passes anyway because the add-rule form on the same page emits that name too -- which is why the round-trip reads the emitted control names off the form block instead of typing them. TestTheProfilePageCarriesAWorkingFormForBothWrites."
     }
   ]
 }

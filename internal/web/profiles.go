@@ -390,12 +390,14 @@ func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 			if other.ID == p.ID {
 				continue
 			}
-			// The id counts as a label too, because the page prints it as one: the heading is
-			// "name, or the id when the name is empty", and Validate requires an id but never a
-			// name. So a profile listed under its id is ambiguous with a new profile named after
-			// that id in exactly the way two identical names are, and checking names alone let
-			// the collision back in through the fallback that exists to cover a missing name.
-			if strings.TrimSpace(other.Name) == name || other.ID == name {
+			// The id counts as a label, but only when the page is actually printing it as one:
+			// the heading is "name, or the id when the name is empty", and Validate requires an
+			// id but never a name. So a profile listed under its id is ambiguous with a new
+			// profile named after that id. Refusing the id unconditionally would be a rule
+			// bigger than its reason -- a profile whose name is set never shows its id as a
+			// heading, so renaming onto that id disambiguates nothing and must stay allowed.
+			if strings.TrimSpace(other.Name) == name ||
+				(strings.TrimSpace(other.Name) == "" && other.ID == name) {
 				return errProfileNameTaken
 			}
 		}
