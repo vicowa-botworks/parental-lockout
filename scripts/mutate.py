@@ -60,6 +60,7 @@ import glob
 import inspect
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -269,6 +270,65 @@ def select_sets(paths, wanted, work):
     return selected, sorted(missing)
 
 
+def rule(rules, bad, name, problems):
+    """Count one self-test rule, and report whatever it found.
+
+    The tally and the verdict leave the same call on purpose. Counting at the call site
+    meant ``if False:`` in front of a check kept the pinned number exactly where it was --
+    the tally counted calls, not assertions, which is the hole attack118.py measured. With
+    the increment in here, the mechanical gut drops the count and the pinned number shouts.
+
+    What the count still cannot see is a call whose arguments were replaced by ``True``:
+    that is a deliberate edit, and only running the attack suite catches it. The count is a
+    deletion tripwire, not a coverage claim.
+    """
+    rules.append(name)
+    for problem in problems:
+        bad.append(f"{name}: {problem}")
+
+
+def control(rules, bad, name, problems, why):
+    """Count one control: a checker that has to refuse something on purpose.
+
+    ``problems`` is what the checker had to say about a deliberately wrong answer. Empty
+    means it did not notice, which is the failure -- a control nobody can turn off is a
+    control that proves nothing about the thing it claims to test.
+    """
+    rule(rules, bad, name, [] if problems else [f"it said nothing, {why}"])
+
+
+# The --only cases, as data: what was asked for, which fixture pair to ask it of, what a
+# correct answer selects, and what it reports missing. The rules are generated from this
+# tuple, so dropping a case drops the rule count with it.
+SELECT_CASES = (
+    ("A1,B1 across two sets", "ab", {"A1", "B1"},
+     [("alpha.json", ["A1"]), ("beta.json", ["B1"])], [],
+     "the ticket: a request spanning two sets has to run both"),
+    ("B1 in one set", "ab", {"B1"}, [("beta.json", ["B1"])], [],
+     "the other half of the fix: not running every set regardless, since a --only as slow "
+     "as a full battery stops being used"),
+    ("A1,Z9 with one unknown id", "ab", {"A1", "Z9"}, [("alpha.json", ["A1"])], ["Z9"],
+     "an id in no set has to be named, not left out of a run that looks like it complied"),
+    ("DUP held by two sets", "dup", {"DUP"},
+     [("dupa.json", ["DUP"]), ("dupb.json", ["DUP"])], [],
+     "an id two sets both hold runs in both, and neither set claims the other's"),
+    ("Z9 in no set", "ab", {"Z9"}, [], ["Z9"],
+     "the refusal: an empty selection is what makes main's branch reachable"),
+)
+
+
+def scope(paths):
+    """Where an id was looked for, in words a reader can act on.
+
+    Naming the whole directory is wrong whenever positional set arguments narrow the run:
+    the id may well live in a file this run was never pointed at, and "not in any set" is
+    the sentence that makes someone delete a working request.
+    """
+    if not paths:
+        return "any set under scripts/mutations/"
+    return "the sets this run read (" + ", ".join(os.path.basename(p) for p in paths) + ")"
+
+
 def selection_problems(sel, miss, want, want_missing):
     """What one ``--only`` selection got wrong, as sentences. Empty means it did what was asked.
 
@@ -278,16 +338,14 @@ def selection_problems(sel, miss, want, want_missing):
 
     It is a pure check on its arguments rather than a call into ``select_sets``, so the
     self-test can hand it a selection that is wrong on purpose -- a checker nobody can
-    falsify is a checker that can be hollowed. Two comparisons, deliberately separate:
-    which SETS ran, and what each was LABELLED with. The ticket's symptom line was a label
-    naming every requested id while the set ran one of them, so "the right sets" is only
-    half of what a reader reads -- and one comparison covering both could be deleted once.
+    falsify is a checker that can be hollowed. The label is checked whole, not just its
+    filename: the ticket's symptom line was a label naming every requested id while the set
+    ran one of them, so "the right sets" is only half of what a reader reads. Checking the
+    label covers which sets ran as well, which is why there is no separate filename
+    comparison -- a second one would be redundant, and a redundant comparison is a control
+    that proves nothing about the comparison it claims to test.
     """
     problems = []
-    got_names = [lab.split(" [")[0] for lab in (l for _, l in sel)]
-    want_names = [name for name, _ in want]
-    if got_names != want_names:
-        problems.append(f"ran {got_names}, want {want_names}")
     got_labels = [lab for _, lab in sel]
     want_labels = [f"{name} [{','.join(ids)}]" for name, ids in want]
     if got_labels != want_labels:
@@ -304,15 +362,90 @@ def selection_problems(sel, miss, want, want_missing):
     return problems
 
 
-# The two comparisons a --only run is decided by, pinned verbatim in selection_problems.
-CHECKER_COMPARISONS = ("if got_names != want_names:",
-                       "if got_labels != want_labels:")
+# What the two-set fixture in the self-test owes: one mutant from each set, in order.
+WANT_AB = [("alpha.json", ["A1"]), ("beta.json", ["B1"])]
 
-# How many selection rules the self-test is expected to run: five selections, two controls
-# (one per comparison in selection_problems), the pin on those comparisons, and the pin on
-# main's call site. Pinned for the same reason the verdict count is -- a deleted rule is
-# invisible to the rules that survive.
-EXPECTED_SELECT_RULES = 9
+# The comparisons a --only selection is decided by, each paired with a selection that is
+# wrong about exactly that thing. Both halves come from this tuple, so emptying it -- the
+# cheapest way to make a pin vacuous -- drops the rule count along with the coverage.
+CHECKER_CONTROLS = (
+    ("if got_labels != want_labels:",
+     lambda real: ([(real[0][0], "alpha.json [A1,B1]"), real[1]], [], WANT_AB, [])),
+    ("if miss != want_missing:",
+     lambda real: (real, [], WANT_AB, ["Z9"])),
+)
+
+# What main's --only block has to say to be honest. The self-test runs no battery, so the
+# flag's shape is audited as text -- the way check-mutations.py pins its own summary line,
+# for the same reason: a pinned call buys nothing if the next line throws its result away,
+# and throwing the result away is exactly where #118 lived.
+ONLY_CALL = "sets, missing = select_sets(sets, wanted, work)"
+ONLY_BLOCK_LINES = (
+    # `if args.only:` is falsy for --only "", which then falls through to the else and runs
+    # the ENTIRE battery behind a flag that asked for nothing.
+    "if args.only is not None:",
+    "if not wanted:",
+    ONLY_CALL,
+    # Nothing matched: refuse. Without this the run prints `TOTAL 0 caught, 0 survived`.
+    "if not sets:",
+)
+# Each control hands the auditor a main with that one break in it, and has to be caught.
+ONLY_BLOCK_CONTROLS = (
+    ("throws the selection away one line after the pinned call, which is #118 itself",
+     lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            sets = sets[:1]", 1)),
+    ("swallows the ids that matched nothing",
+     lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            missing = []", 1)),
+    ("runs the whole battery when --only names no ids",
+     lambda s: s.replace("if args.only is not None:", "if args.only:", 1)),
+    ("reports an empty success when nothing matched",
+     lambda s: s.replace("            if not sets:", "            if False:", 1)),
+    ("exits 0 on a request it could only partly answer",
+     lambda s: s.replace("        return 1\n", "        return 0\n", 1)),
+)
+
+
+def only_block_problems(src):
+    """What ``main``'s ``--only`` handling gets wrong, as sentences. Empty means it is honest.
+
+    Takes the source as an argument rather than reading it, so the self-test can hand it a
+    ``main`` with each break in it on purpose. A checker nobody can falsify is a checker
+    that can be hollowed.
+    """
+    _before, found, rest = src.partition("if args.only")
+    if not found:
+        return ["main has no `if args.only` block, so the flag's whole shape is gone and "
+                "nothing below applies"]
+    # partition, not split: the marker has to stay in the block, because the block is then
+    # checked for the very lines that open it.
+    block = "if args.only" + rest.split("\n        else:")[0]
+    problems = [f"the --only block no longer contains {line!r}"
+                for line in ONLY_BLOCK_LINES if line not in block]
+    # The pinned call is worth nothing if a later line re-assigns what it returned. This is
+    # the shape a substring pin cannot see, and it is the shape of the original bug.
+    for stmt in re.findall(r"^[ \t]*(?:sets|missing)[ \t]*=[^=].*$", block, re.M):
+        problems.append(f"the --only block reassigns outside the pinned call: "
+                        f"{stmt.strip()!r} -- a dropped set or a swallowed id hides there")
+    if "if missing:" not in src:
+        problems.append("main no longer reports a --only request it could only partly "
+                        "answer")
+    elif "return 1" not in src.split("if missing:")[-1]:
+        problems.append("main's `if missing:` branch no longer exits non-zero, so a "
+                        "scripted `mutate.py --only ... && ...` still proceeds")
+    return problems
+
+
+# How many verdict rules the self-test is expected to run, pinned for the same reason the
+# selection count is. Counted off the run rather than guessed: the number is a claim about
+# how much was tested.
+EXPECTED_VERDICT_RULES = 22
+
+# How many selection rules the self-test is expected to run, counted off the list the pin
+# prints rather than off arithmetic: five --only cases and one "does this case assert
+# anything" per case, the fixture's own shape, two controls at the selection level, a pin
+# and a control per comparison in CHECKER_CONTROLS, the audit of main's --only block, and
+# one control per entry in ONLY_BLOCK_CONTROLS. Pinned for the same reason the verdict count
+# is -- a deleted rule is invisible to the rules that survive.
+EXPECTED_SELECT_RULES = 23
 
 
 def self_test():
@@ -400,7 +533,7 @@ def self_test():
 
     bad = []
     checked = 0
-    sel_checked = 0
+    rules = []
     for name, out, rc, note, want, needle, *rest in cases:
         checked += 1
         absent = rest[0] if rest else None
@@ -472,105 +605,130 @@ def self_test():
         dup_b = write_set("dupb.json", ["DUP", "OTHER"])
         work = os.path.join(td, "work")
         os.mkdir(work)
-        want_ab = [("alpha.json", ["A1"]), ("beta.json", ["B1"])]
 
-        def expect(name, paths, wanted, want, want_missing):
-            # The increment sits here, beside the assertions it counts, so deleting a rule's
-            # check deletes its contribution to the pinned number too.
-            nonlocal sel_checked
-            sel_checked += 1
-            got, miss = select_sets(paths, wanted, work)
-            for problem in selection_problems(got, miss, want, want_missing):
-                bad.append(f"--only {name}: {problem}")
+        fixtures = {"ab": [alpha, beta], "dup": [dup_a, dup_b]}
+        for name, pair, wanted, want, want_missing, why in SELECT_CASES:
+            got, miss = select_sets(fixtures[pair], wanted, work)
+            rule(rules, bad, f"--only {name}",
+                 selection_problems(got, miss, want, want_missing))
+            # A case that expects no sets AND no missing ids can never fail, so it is not a
+            # rule -- it is a counter that keeps the pinned number honest about nothing.
+            rule(rules, bad, f"--only {name} asserts something",
+                 [] if (want or want_missing)
+                 else [f"expects nothing in either direction, so {why} is untested"])
 
-        expect("A1,B1 across two sets", [alpha, beta], {"A1", "B1"},
-               [("alpha.json", ["A1"]), ("beta.json", ["B1"])], [])
-        # The other half of the fix: not running every set regardless. A --only as slow as
-        # a full battery stops being used, and the flag is how one suspicious mutant gets
-        # checked after a battery goes red.
-        expect("B1 in one set", [alpha, beta], {"B1"}, [("beta.json", ["B1"])], [])
-        # An id in no set at all must be named, not silently left out of a run that
-        # otherwise looks like it did what was asked.
-        expect("A1,Z9 with one unknown id", [alpha, beta], {"A1", "Z9"},
-               [("alpha.json", ["A1"])], ["Z9"])
-        expect("DUP held by two sets", [dup_a, dup_b], {"DUP"},
-               [("dupa.json", ["DUP"]), ("dupb.json", ["DUP"])], [])
-        # And the refusal: nothing matched, so main must exit rather than report an empty
-        # success. An empty selection is what makes that branch reachable.
-        expect("Z9 in no set", [alpha, beta], {"Z9"}, [], ["Z9"])
-
-        # The controls. Each comparison in selection_problems can be turned into
-        # `if False:` and the count would not move, so each gets a selection that is wrong
-        # about exactly that thing -- and each guards the shape it depends on, so a broken
-        # selection reports rather than raising. A dropped set, with an honest label:
-        sel_checked += 1
+        # The controls: a working checker has to refuse each of these. Both are generated
+        # from what they check, so a checker that stops noticing is reported rather than
+        # merely counted.
         real, _ = select_sets([alpha, beta], {"A1", "B1"}, work)
-        if len(real) != 2 or not selection_problems(real[:1], [], want_ab, []):
-            bad.append("selection_problems accepted a selection that dropped beta.json, "
-                       "so which sets ran is not being checked")
-        # The right sets with the wrong label -- the pre-fix text, where every set claimed
-        # the whole request:
-        sel_checked += 1
-        relabelled = [(p, lab.replace(" [A1]", " [A1,B1]")) for p, lab in real]
-        if len(relabelled) != 2 or not selection_problems(relabelled, [], want_ab, []):
-            bad.append("selection_problems accepted a correct pair of sets where one was "
-                       "labelled with an id it does not run, so the label is not checked")
+        rule(rules, bad, "the two-set fixture holds two sets",
+             [] if len(real) == 2 else
+             [f"select_sets answered {real} for a request spanning two sets"])
+        control(rules, bad, "control: a dropped set",
+                selection_problems(real[:1], [], WANT_AB, []) if len(real) == 2 else None,
+                "so which sets ran is not being checked")
+        # And one at the select_sets level. Everything above asserts on what select_sets
+        # returned, so a loop that computed it and threw the answer away would keep every
+        # rule green; this one feeds the checker select_sets' OWN short answer.
+        one, one_miss = select_sets([alpha, beta], {"A1"}, work)
+        control(rules, bad, "control: select_sets' own one-set answer",
+                selection_problems(one, one_miss, WANT_AB, []),
+                "so the rules above assert nothing about what select_sets returns")
 
-    # The two comparisons themselves, pinned in the source. The label check covers which
-    # sets ran as well as what each was called, so deleting the FIRST comparison would
-    # leave both controls green -- the pin is what makes either deletion loud rather than
-    # merely redundant. Same idiom as the call-site pin below, and the same reason
-    # check-mutations.py pins its summary line by equality.
-    sel_checked += 1
-    try:
-        checker = inspect.getsource(selection_problems)
-    except OSError:
-        checker = ""
-        bad.append("could not read selection_problems' source, so neither comparison in "
-                   "it is checked")
-    for line in CHECKER_COMPARISONS:
-        if line not in checker:
-            bad.append(f"selection_problems no longer contains {line!r}: one of the two "
-                       f"comparisons that decide a --only run has been deleted")
+        # The comparisons, pinned in the source and then fed the selection only they
+        # reject. The pin alone is a substring test; the control alone cannot tell a
+        # deleted comparison from one that never had anything to say. Both rules come from
+        # the same tuple, so emptying it drops the count instead of quietly emptying the
+        # coverage.
+        try:
+            checker = inspect.getsource(selection_problems)
+        except OSError:
+            checker = ""
+            bad.append("could not read selection_problems' source, so neither comparison "
+                       "in it is checked")
+        for line, wrong in CHECKER_CONTROLS:
+            rule(rules, bad, f"pin: {line}",
+                 [] if line in checker else
+                 [f"selection_problems no longer contains {line!r}, so a --only run can "
+                  f"overstate it in silence"])
+            control(rules, bad, f"control: {line}",
+                    selection_problems(*wrong(real)) if len(real) == 2 else None,
+                    f"so {line!r} is present and doing nothing")
 
-    # The call site. Everything above checks select_sets on its own, and the bug was in
-    # main throwing away all but the first set -- so a revert at the call site has to be
-    # as loud as a revert in the function. Pinned by equality against the call, the way
-    # check-mutations.py pins its own summary line for the same reason.
-    sel_checked += 1
-    try:
-        src = inspect.getsource(main)
-    except OSError:
-        src = ""
-        bad.append("could not read main's source, so the --only call site is unchecked")
-    if src:
-        if "sets, missing = select_sets(sets, wanted, work)" not in src:
-            bad.append("main no longer assigns the whole selection from select_sets, so "
-                       "the sets it drops are invisible to every rule above")
-        block = src.split("if args.only")[1].split("\n    else:")[0]
-        if "break" in block:
-            bad.append("main's --only block breaks out of the set loop again, which is "
-                       "the #118 bug returning")
+        # main's --only block, audited as text: the bug was in main throwing away all but
+        # the first set, and the self-test runs no battery, so the flag's shape is the only
+        # thing CI can look at. Audited through a function that TAKES the source, so each
+        # break below can be handed to it on purpose -- a pin that cannot be falsified is a
+        # pin that one inserted line defeats, which is how round 1's call-site pin failed.
+        try:
+            src = inspect.getsource(main)
+        except OSError:
+            src = ""
+            bad.append("could not read main's source, so the --only flag's shape is "
+                       "unchecked")
+        rule(rules, bad, "main's --only handling",
+             only_block_problems(src) if src else ["main's source could not be read"])
+        for name, patch in ONLY_BLOCK_CONTROLS:
+            control(rules, bad, f"control: a main that {name}",
+                    only_block_problems(patch(src)) if src else None,
+                    "so nothing stops it")
 
-    # The reach itself: every rule above can pass perfectly while one of them is missing
-    # from the file, so the count is compared against a number that has to be edited on
-    # purpose. This check is deliberately NOT one of the counted rules -- a pin that
-    # counts itself moves the number it exists to hold still.
-    if sel_checked != EXPECTED_SELECT_RULES:
-        bad.append(f"the self-test ran {sel_checked} selection rules, expected "
-                   f"{EXPECTED_SELECT_RULES}: a rule was deleted, or stopped counting")
+    # The two helpers every rule above is counted through are themselves attack surface: a
+    # `pass` where `rules.append(name)` is, or an `if False:` inside control(), keeps every
+    # number intact while emptying the checks. So both are canaried through a throwaway
+    # list. Deliberately NOT one of the counted rules, for the reason the count pin is not
+    # either: a check that counts itself moves the number it exists to hold still.
+    probe_rules, probe_bad = [], []
+    rule(probe_rules, probe_bad, "canary", ["a problem"])
+    control(probe_rules, probe_bad, "canary", [], "it said nothing")
+    control(probe_rules, probe_bad, "canary", ["a problem"], "it said nothing")
+    if len(probe_rules) != 3 or len(probe_bad) != 2:
+        bad.append(f"the rule/control helpers are hollow: they counted {len(probe_rules)} "
+                   f"and reported {len(probe_bad)}, want 3 and 2 -- a rule that cannot fail "
+                   f"is not made honest by counting it")
 
+    # Reported, not adjudicated: the reach check used to live here, and a bare `return`
+    # inserted anywhere above it skipped every rule and still exited 0. What decides
+    # pass or fail is self_test_verdict(), outside the code whose reach it measures.
+    return checked, rules, bad
+
+
+def self_test_verdict(report):
+    """Turn what self_test() returned into an exit code.
+
+    The reach check lives here rather than inside self_test() because a check cannot police
+    the code that is allowed to skip it: a bare ``return`` in the middle of the self-test
+    used to leave every rule unchecked and the process exiting 0, since the only thing that
+    could notice the missing verdict was the line that never ran. An absent verdict is now
+    its own failure, which is the only way to tell "nothing was checked" from "all of it
+    held".
+
+    The two counts are named apart in the summary because "N rules hold" said about two
+    different mechanisms is how a summary starts meaning less than the reader assumes.
+    """
+    if not isinstance(report, tuple) or len(report) != 3:
+        print("self-test FAILED:")
+        print(f"  - it returned {report!r} instead of a verdict, so nothing was checked "
+              f"(a `return` inside self_test skips every rule below it)")
+        return 1
+    checked, rules, bad = report
+    # Each count is compared against a number that has to be edited on purpose: every rule
+    # can pass perfectly while one of them is missing from the file. Neither pin is one of
+    # the counted rules -- a pin that counts itself moves the number it exists to hold.
+    if checked != EXPECTED_VERDICT_RULES:
+        bad = list(bad) + [f"the self-test ran {checked} verdict rules, expected "
+                           f"{EXPECTED_VERDICT_RULES}: a rule was deleted, or stopped "
+                           f"counting"]
+    if len(rules) != EXPECTED_SELECT_RULES:
+        bad = list(bad) + [f"the self-test ran {len(rules)} selection rules, expected "
+                           f"{EXPECTED_SELECT_RULES}: a rule was deleted, or stopped "
+                           f"counting. Ran: {rules}"]
     if bad:
         print("self-test FAILED:")
         for b in bad:
             print(f"  - {b}")
         return 1
-    # Counted, not derived from len(cases): the number is a claim about how much was
-    # tested, and a count that silently under-reports the rules below it is the same
-    # species of error the rules themselves are here to prevent. The two kinds are named
-    # apart, because "N rules hold" said about two different mechanisms is how a summary
-    # starts meaning less than the reader assumes.
-    print(f"self-test: {checked} verdict rules and {sel_checked} selection rules hold")
+    print(f"self-test: {checked} verdict rules and {len(rules)} selection rules hold")
     return 0
 
 
@@ -588,7 +746,7 @@ def main():
     # about interpreting output, so the check must run on a box with no toolchain
     # and must never be able to mutate anything.
     if args.self_test:
-        return self_test()
+        return self_test_verdict(self_test())
 
     try:
         probe = subprocess.run([GO, "version"], capture_output=True)
@@ -630,8 +788,7 @@ def main():
                 sys.exit(f"--only {args.only!r} names no mutant ids")
             sets, missing = select_sets(sets, wanted, work)
             if not sets:
-                sys.exit(f"none of {sorted(wanted)} is in any set "
-                         f"under scripts/mutations/")
+                sys.exit(f"none of {sorted(wanted)} is in {scope(args.sets)}")
         else:
             sets = [(p, os.path.relpath(p, SRC)) for p in sets]
 
@@ -653,7 +810,7 @@ def main():
         # not exit 0 for a scripted `mutate.py --only ... && ...` to mistake for the check
         # having happened (#118).
         print(f"INCOMPLETE  {', '.join(missing)} "
-              f"{'is' if len(missing) == 1 else 'are'} in no set, so "
+              f"{'is' if len(missing) == 1 else 'are'} in {scope(args.sets)}, so "
               f"{'it was' if len(missing) == 1 else 'they were'} never run")
         return 1
     return 0 if totals["survived"] == 0 and totals["invalid"] == 0 else 1
