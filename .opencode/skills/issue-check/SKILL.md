@@ -86,6 +86,12 @@ the diff and fix what it finds before opening the PR.
 - Immediately run the **review-loop** skill on the new PR (CI → team review → merge). It handles CI
   fixes, conflict resolution (merge `origin/main` into the branch, never rebase), reviewer feedback
   (verify every claim against the source before changing code), and the merge gate.
+  - `review-loop` is a **global** skill, versioned in `vicowa-botworks/opencode-skills`. Install it
+    by cloning that repo **as** `~/.config/opencode/skills` — the whole directory, never just
+    `SKILL.md`: the skill runs `watch-pr.sh` from beside it, so a partial install leaves the loop
+    half-working with no error. If `opencode debug skill` does not list it on this host, that
+    install is missing. Do **not** vendor a copy under `.opencode/skills/`, which silently shadows
+    the shared one and goes stale.
 
 ### 1.5 Post-merge cleanup
 
