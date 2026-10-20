@@ -57,6 +57,7 @@ Exit status is 0 only when nothing survived and nothing failed to apply.
 
 import argparse
 import glob
+import inspect
 import json
 import os
 import shutil
@@ -237,6 +238,83 @@ def verdict(out, rc, note=None):
     return "caught", f" by {', '.join(names[:2]) or 'a test'}"
 
 
+def select_sets(paths, wanted, work):
+    """Trim every set holding a wanted id down to those ids, one trimmed file per set.
+
+    Returns ``(selected, missing)``: ``selected`` is ``[(path, label)]`` in the order the
+    sets were given, ``missing`` the requested ids no set holds.
+
+    One file per matching set, and no early ``break``. The first version wrote a single
+    ``subset.json`` and stopped at the first set that matched, so ``--only W1,W48`` across
+    platform.json and web.json ran one mutant, printed ``TOTAL  1 caught, 0 survived``,
+    and exited 0: a partial run reporting the whole answer, which is the one error this
+    runner exists not to make (#118). The label carries only the ids that set contributes,
+    so two sets never both claim the full request.
+    """
+    selected, missing, n = [], set(wanted), 0
+    for path in paths:
+        doc = load(path)
+        keep = [m for m in doc["mutants"] if m["id"] in wanted]
+        if not keep:
+            continue
+        for m in keep:
+            missing.discard(m["id"])
+        doc["mutants"] = keep
+        n += 1
+        tmp = os.path.join(work, f"subset-{n}.json")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=1)
+        selected.append((tmp, f"{os.path.basename(path)} "
+                              f"[{','.join(m['id'] for m in keep)}]"))
+    return selected, sorted(missing)
+
+
+def selection_problems(sel, miss, want, want_missing):
+    """What one ``--only`` selection got wrong, as sentences. Empty means it did what was asked.
+
+    ``sel`` is what the selection agreed to run (``[(path, label)]``) and ``miss`` the ids
+    no set holds; ``want`` is ``[(set basename, [ids that set must run]), ...]`` in the
+    order the sets were given, and ``want_missing`` the ids that should be reported.
+
+    It is a pure check on its arguments rather than a call into ``select_sets``, so the
+    self-test can hand it a selection that is wrong on purpose -- a checker nobody can
+    falsify is a checker that can be hollowed. Two comparisons, deliberately separate:
+    which SETS ran, and what each was LABELLED with. The ticket's symptom line was a label
+    naming every requested id while the set ran one of them, so "the right sets" is only
+    half of what a reader reads -- and one comparison covering both could be deleted once.
+    """
+    problems = []
+    got_names = [lab.split(" [")[0] for lab in (l for _, l in sel)]
+    want_names = [name for name, _ in want]
+    if got_names != want_names:
+        problems.append(f"ran {got_names}, want {want_names}")
+    got_labels = [lab for _, lab in sel]
+    want_labels = [f"{name} [{','.join(ids)}]" for name, ids in want]
+    if got_labels != want_labels:
+        problems.append(f"selected {got_labels}, want {want_labels}")
+    if miss != want_missing:
+        problems.append(f"reported {miss} as unmatched, want {want_missing}")
+    for (path, lab), (_, ids) in zip(sel, want):
+        got = [m["id"] for m in load(path)["mutants"]]
+        if got != ids:
+            problems.append(f"{lab} holds {got}, want only {ids}")
+    files = [p for p, _ in sel]
+    if len(set(files)) != len(files) or not all(os.path.isfile(p) for p in files):
+        problems.append(f"the trimmed files are not one distinct file per set: {files}")
+    return problems
+
+
+# The two comparisons a --only run is decided by, pinned verbatim in selection_problems.
+CHECKER_COMPARISONS = ("if got_names != want_names:",
+                       "if got_labels != want_labels:")
+
+# How many selection rules the self-test is expected to run: five selections, two controls
+# (one per comparison in selection_problems), the pin on those comparisons, and the pin on
+# main's call site. Pinned for the same reason the verdict count is -- a deleted rule is
+# invisible to the rules that survive.
+EXPECTED_SELECT_RULES = 9
+
+
 def self_test():
     """Check the verdict rules against captured `go test` output.
 
@@ -322,6 +400,7 @@ def self_test():
 
     bad = []
     checked = 0
+    sel_checked = 0
     for name, out, rc, note, want, needle, *rest in cases:
         checked += 1
         absent = rest[0] if rest else None
@@ -369,6 +448,118 @@ def self_test():
     for kind in ("caught", "survived", "invalid", "equivalent"):
         if kind not in VERDICT_TAG:
             bad.append(f"verdict kind {kind!r} has no report label")
+
+    # Which mutants a partial run agrees to run. These are checked against real set files
+    # written to a temp dir rather than a mock, because the bug (#118) was in which FILES
+    # got written: one `subset.json` and a `break` meant a request spanning two sets ran
+    # the first one and printed a TOTAL that read like the whole answer.
+    with tempfile.TemporaryDirectory() as td:
+        def write_set(name, ids):
+            p = os.path.join(td, name)
+            with open(p, "w", encoding="utf-8") as fh:
+                json.dump({"package": "./internal/x/",
+                           "mutants": [{"id": i, "file": "x.go", "old": "a", "new": "b"}
+                                       for i in ids]}, fh)
+            return p
+
+        alpha = write_set("alpha.json", ["A1", "A2"])
+        beta = write_set("beta.json", ["B1"])
+        # An id is unique per SET file, not globally -- `W1` is three different mutants in
+        # platform.json, schedule.json and web.json -- so one requested id can be owed by
+        # several sets, and a "fix" that deduped by id would run one of three and call it
+        # complete.
+        dup_a = write_set("dupa.json", ["DUP"])
+        dup_b = write_set("dupb.json", ["DUP", "OTHER"])
+        work = os.path.join(td, "work")
+        os.mkdir(work)
+        want_ab = [("alpha.json", ["A1"]), ("beta.json", ["B1"])]
+
+        def expect(name, paths, wanted, want, want_missing):
+            # The increment sits here, beside the assertions it counts, so deleting a rule's
+            # check deletes its contribution to the pinned number too.
+            nonlocal sel_checked
+            sel_checked += 1
+            got, miss = select_sets(paths, wanted, work)
+            for problem in selection_problems(got, miss, want, want_missing):
+                bad.append(f"--only {name}: {problem}")
+
+        expect("A1,B1 across two sets", [alpha, beta], {"A1", "B1"},
+               [("alpha.json", ["A1"]), ("beta.json", ["B1"])], [])
+        # The other half of the fix: not running every set regardless. A --only as slow as
+        # a full battery stops being used, and the flag is how one suspicious mutant gets
+        # checked after a battery goes red.
+        expect("B1 in one set", [alpha, beta], {"B1"}, [("beta.json", ["B1"])], [])
+        # An id in no set at all must be named, not silently left out of a run that
+        # otherwise looks like it did what was asked.
+        expect("A1,Z9 with one unknown id", [alpha, beta], {"A1", "Z9"},
+               [("alpha.json", ["A1"])], ["Z9"])
+        expect("DUP held by two sets", [dup_a, dup_b], {"DUP"},
+               [("dupa.json", ["DUP"]), ("dupb.json", ["DUP"])], [])
+        # And the refusal: nothing matched, so main must exit rather than report an empty
+        # success. An empty selection is what makes that branch reachable.
+        expect("Z9 in no set", [alpha, beta], {"Z9"}, [], ["Z9"])
+
+        # The controls. Each comparison in selection_problems can be turned into
+        # `if False:` and the count would not move, so each gets a selection that is wrong
+        # about exactly that thing -- and each guards the shape it depends on, so a broken
+        # selection reports rather than raising. A dropped set, with an honest label:
+        sel_checked += 1
+        real, _ = select_sets([alpha, beta], {"A1", "B1"}, work)
+        if len(real) != 2 or not selection_problems(real[:1], [], want_ab, []):
+            bad.append("selection_problems accepted a selection that dropped beta.json, "
+                       "so which sets ran is not being checked")
+        # The right sets with the wrong label -- the pre-fix text, where every set claimed
+        # the whole request:
+        sel_checked += 1
+        relabelled = [(p, lab.replace(" [A1]", " [A1,B1]")) for p, lab in real]
+        if len(relabelled) != 2 or not selection_problems(relabelled, [], want_ab, []):
+            bad.append("selection_problems accepted a correct pair of sets where one was "
+                       "labelled with an id it does not run, so the label is not checked")
+
+    # The two comparisons themselves, pinned in the source. The label check covers which
+    # sets ran as well as what each was called, so deleting the FIRST comparison would
+    # leave both controls green -- the pin is what makes either deletion loud rather than
+    # merely redundant. Same idiom as the call-site pin below, and the same reason
+    # check-mutations.py pins its summary line by equality.
+    sel_checked += 1
+    try:
+        checker = inspect.getsource(selection_problems)
+    except OSError:
+        checker = ""
+        bad.append("could not read selection_problems' source, so neither comparison in "
+                   "it is checked")
+    for line in CHECKER_COMPARISONS:
+        if line not in checker:
+            bad.append(f"selection_problems no longer contains {line!r}: one of the two "
+                       f"comparisons that decide a --only run has been deleted")
+
+    # The call site. Everything above checks select_sets on its own, and the bug was in
+    # main throwing away all but the first set -- so a revert at the call site has to be
+    # as loud as a revert in the function. Pinned by equality against the call, the way
+    # check-mutations.py pins its own summary line for the same reason.
+    sel_checked += 1
+    try:
+        src = inspect.getsource(main)
+    except OSError:
+        src = ""
+        bad.append("could not read main's source, so the --only call site is unchecked")
+    if src:
+        if "sets, missing = select_sets(sets, wanted, work)" not in src:
+            bad.append("main no longer assigns the whole selection from select_sets, so "
+                       "the sets it drops are invisible to every rule above")
+        block = src.split("if args.only")[1].split("\n    else:")[0]
+        if "break" in block:
+            bad.append("main's --only block breaks out of the set loop again, which is "
+                       "the #118 bug returning")
+
+    # The reach itself: every rule above can pass perfectly while one of them is missing
+    # from the file, so the count is compared against a number that has to be edited on
+    # purpose. This check is deliberately NOT one of the counted rules -- a pin that
+    # counts itself moves the number it exists to hold still.
+    if sel_checked != EXPECTED_SELECT_RULES:
+        bad.append(f"the self-test ran {sel_checked} selection rules, expected "
+                   f"{EXPECTED_SELECT_RULES}: a rule was deleted, or stopped counting")
+
     if bad:
         print("self-test FAILED:")
         for b in bad:
@@ -376,8 +567,10 @@ def self_test():
         return 1
     # Counted, not derived from len(cases): the number is a claim about how much was
     # tested, and a count that silently under-reports the rules below it is the same
-    # species of error the rules themselves are here to prevent.
-    print(f"self-test: {checked} verdict rules hold")
+    # species of error the rules themselves are here to prevent. The two kinds are named
+    # apart, because "N rules hold" said about two different mechanisms is how a summary
+    # starts meaning less than the reader assumes.
+    print(f"self-test: {checked} verdict rules and {sel_checked} selection rules hold")
     return 0
 
 
@@ -418,33 +611,30 @@ def main():
     work = tempfile.mkdtemp(prefix="plock-mutate-")
     global ROOT
     ROOT = os.path.join(work, "repo")
-    shutil.copytree(SRC, ROOT, ignore=shutil.ignore_patterns(
-        ".git", "bin", ".cortexkit", "__pycache__"))
-    print(f"running against a copy of the tree in {ROOT}")
-
-    # --only writes a trimmed copy of the set rather than filtering inside run_set,
-    # so what the run reports is exactly what the file on disk said.
-    tmp = None
-    if args.only:
-        wanted = {s.strip() for s in args.only.split(",") if s.strip()}
-        for path in sets:
-            doc = load(path)
-            keep = [m for m in doc["mutants"] if m["id"] in wanted]
-            if not keep:
-                continue
-            doc["mutants"] = keep
-            tmp = os.path.join(work, "subset.json")
-            with open(tmp, "w") as fh:
-                json.dump(doc, fh, indent=1)
-            sets = [(tmp, f"{os.path.basename(path)} [{args.only}]")]
-            break
-        else:
-            shutil.rmtree(work, ignore_errors=True)
-            sys.exit(f"none of {sorted(wanted)} is in any set under scripts/mutations/")
-    else:
-        sets = [(p, os.path.relpath(p, SRC)) for p in sets]
-
+    # The try opens here rather than at the loop. A set file that fails validation makes
+    # mutset.load call sys.exit, and an exit between the copy and the loop used to leave a
+    # whole copy of the tree behind in /tmp.
     try:
+        shutil.copytree(SRC, ROOT, ignore=shutil.ignore_patterns(
+            ".git", "bin", ".cortexkit", "__pycache__"))
+        print(f"running against a copy of the tree in {ROOT}")
+
+        # --only writes a trimmed copy of the set rather than filtering inside run_set,
+        # so what the run reports is exactly what the file on disk said -- one trimmed
+        # file per set that matches, because a run that answered part of the request must
+        # not print a TOTAL for the whole of it (#118).
+        missing = []
+        if args.only is not None:
+            wanted = {s.strip() for s in args.only.split(",") if s.strip()}
+            if not wanted:
+                sys.exit(f"--only {args.only!r} names no mutant ids")
+            sets, missing = select_sets(sets, wanted, work)
+            if not sets:
+                sys.exit(f"none of {sorted(wanted)} is in any set "
+                         f"under scripts/mutations/")
+        else:
+            sets = [(p, os.path.relpath(p, SRC)) for p in sets]
+
         totals = {"caught": 0, "survived": 0, "invalid": 0, "equivalent": 0}
         for path, label in sets:
             tally = run_set(path, label)
@@ -457,6 +647,15 @@ def main():
 
     print(f"\nTOTAL  {totals['caught']} caught, {totals['survived']} survived, "
           f"{totals['equivalent']} equivalent, {totals['invalid']} invalid")
+    if missing:
+        # On stdout, under the TOTAL, because the report is what a reader trusts: a run
+        # that answered part of the request has to say so where the answer is, and it must
+        # not exit 0 for a scripted `mutate.py --only ... && ...` to mistake for the check
+        # having happened (#118).
+        print(f"INCOMPLETE  {', '.join(missing)} "
+              f"{'is' if len(missing) == 1 else 'are'} in no set, so "
+              f"{'it was' if len(missing) == 1 else 'they were'} never run")
+        return 1
     return 0 if totals["survived"] == 0 and totals["invalid"] == 0 else 1
 
 
