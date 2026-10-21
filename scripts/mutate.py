@@ -14,7 +14,7 @@ Usage:
     scripts/mutate.py --only S1,W3         # a subset, for working on one finding
     scripts/mutate.py --self-test           # the verdict rules only: no Go, no battery
 
-Five ways a battery like this can report success while testing nothing, all five
+Six ways a battery like this can report success while testing nothing, all six
 handled here:
 
   - a mutation whose pattern is not in the file tests nothing and looks like a pass,
@@ -64,6 +64,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import tempfile
 import sys
@@ -241,6 +242,268 @@ def verdict(out, rc, note=None):
     return "caught", f" by {', '.join(names[:2]) or 'a test'}"
 
 
+# The snapshot's ignore rules, kept here with the other rules rather than next to the
+# copytree call that uses them, for the reason the comment above the verdict rules gives:
+# a rule that is only exercised by a full battery is a rule nobody sees fail. These two
+# are pure, so the self-test below can feed them a tree instead of waiting an hour for
+# one.
+
+# Names that are never source. `bin` is go's build output, `.cortexkit` is tool state, and
+# `__pycache__` is python's; the first three are directories at the root of this repository
+# and nothing else, so they are matched at the root and nowhere else.
+#
+# They used to be matched by basename at any depth, and that is a fail-open with a body:
+# a tracked `internal/platform/bin/runner.go` is source, the name says nothing about it, and
+# the copy would drop it in silence -- no error, nothing in `skipped`, and a battery that
+# reports every mutant caught against a tree missing a package. `.cortexkit/.gitignore` is
+# tracked here today and was already going missing. `__pycache__` is the one name that
+# legitimately appears at every depth.
+NEVER_COPIED_ROOT = (".git", "bin", ".cortexkit")
+NEVER_COPIED_ANYWHERE = ("__pycache__",)
+NEVER_COPIED = NEVER_COPIED_ROOT + NEVER_COPIED_ANYWHERE
+
+
+# The one git call the snapshot makes, spelled out here so the self-test can point it at
+# something that is not git and check what happens when git cannot answer. The `-z` is not
+# cosmetic: git C-quotes any path holding a byte above 0x7f, a double quote, or a control
+# character, and a quoted `"testing/capture/runs-caf\303\251/"` matches nothing on disk --
+# so the crash this whole function exists to prevent comes back for a directory with an
+# accented letter in its name. NUL-separated output is never quoted.
+LS_IGNORED = ("ls-files", "--others", "--ignored", "--exclude-standard", "--directory",
+              "-z")
+
+# What the answer must not depend on. `GIT_DIR` and friends are exported by hooks and by
+# wrapper scripts that call `make verify`, and a machine-wide `core.excludesFile` is not
+# part of this repository. Either one silently changes what a battery copies; the second
+# one also makes the self-test's "this directory is NOT ignored" assertion depend on
+# someone's dotfiles.
+GIT_ISOLATED = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CEILING_DIRECTORIES",
+                "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_COUNT",
+                "GIT_CONFIG_PARAMETERS")
+
+
+def git_env():
+    """The environment for the snapshot's git call: the ambient one, minus everything that
+    could make the answer a function of the machine rather than of the tree."""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_ISOLATED}
+    # Both config files pointed at the void. The repository's own .gitignore files are read
+    # from disk whatever the environment says, and those are the only rules the snapshot
+    # wants to honour.
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
+    return env
+
+
+def ignored_paths(src, git="git"):
+    """The paths `src` declares ignored, spelled as git spells them.
+
+    Directories come back with a trailing slash and collapsed to the whole directory when
+    everything under it is ignored (`testing/capture/runs/`); single files come back bare
+    (`plock`). Empty means "nothing beyond NEVER_COPIED", which is also the answer when git
+    cannot be asked: a tree with no git in it is then snapshotted exactly as it was before
+    this function existed, because not being able to ask is no reason to refuse a run.
+    What makes that survivable rather than fatal is the error sorting in `snapshot`, not luck.
+
+    `git` is a command, and a list is a command too: the self-test has to hand this a stub
+    that both writes an answer and refuses, which is the only way to pin the branch that
+    throws an answer away.
+
+    The output is decoded as the filesystem spells it, not as text: a path is bytes, and
+    `text=True` would raise on a name the locale cannot decode, which is the same failure
+    `-z` exists to avoid.
+    """
+    cmd = [git] if isinstance(git, str) else list(git)
+    try:
+        done = subprocess.run([*cmd, *LS_IGNORED], cwd=src, env=git_env(), timeout=60,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        # No git, or a git that would not answer in time: a hung git (a locked index, a
+        # credential helper waiting on a prompt) must not hang the battery before it
+        # prints anything either.
+        return []
+    if done.returncode != 0:
+        return []
+    return [os.fsdecode(p) for p in done.stdout.split(b"\0") if p]
+
+
+def tracked_paths(src, git="git"):
+    """Every path the repository tracks, or None when git cannot be asked.
+
+    None rather than an empty list, because "nothing is tracked" and "I could not tell you"
+    are different answers and only one of them is a reason to stop a run.
+    """
+    cmd = [git] if isinstance(git, str) else list(git)
+    try:
+        done = subprocess.run([*cmd, "ls-files", "-z"], cwd=src, env=git_env(),
+                              timeout=60, stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    return [os.fsdecode(p) for p in done.stdout.split(b"\0") if p]
+
+
+def snapshot_ignore(src, root=NEVER_COPIED_ROOT, anywhere=NEVER_COPIED_ANYWHERE,
+                    ignored=()):
+    """The `ignore` callback for one snapshot of `src`.
+
+    Three things are left out of the copy: the names in `root`, but only at the root; the
+    names in `anywhere`, at any depth; and any path the repository itself ignores.
+
+    The second half is the bug this function exists for. `testing/capture/runs/` holds a
+    Chrome profile, and a profile contains a socket -- `SingletonSocket`, which cannot be
+    read, `ENXIO` -- and symlinks whose targets are gone by the time the copy runs --
+    `SingletonCookie`, `SingletonLock`, `ENOENT`. `copytree` does not skip those: it
+    collects the errors and raises once the walk is done, so a battery died in two seconds
+    on a tree whose only crime was containing a photograph, before a single mutant ran.
+    The directory is gitignored, so nothing in `git status`, in the pre-flight checker, or
+    in CI showed the thing that did it.
+
+    The predicate is equality on the path being walked, never a prefix match, at both places
+    equality appears. `testing/capture` CONTAINS an ignored directory and must still be
+    copied: dropping it would take source out of the snapshot, and the run would then report
+    every mutant caught against a tree that is missing files. Nor may a name merely starting
+    with an ignored path go with it -- `plock2` sits beside an ignored `plock` and is source.
+    The other half is the short-circuit that skips a name already dropped: a prefix there
+    keeps a name OUT of `gone`, so `.venv-old`, itself in `.gitignore` beside `.venv`, comes
+    back into the copy. One direction loses source, the other brings a socket back.
+    """
+    base = shutil.ignore_patterns(*anywhere)
+    paths = {p.rstrip("/") for p in ignored}
+
+    def ignore(directory, names):
+        gone = set(base(directory, names))
+        rel = os.path.relpath(directory, src)
+        at_root = rel == os.curdir
+        for name in names:
+            if name in gone:
+                continue
+            if at_root and name in root:
+                gone.add(name)
+                continue
+            path = os.path.normpath(os.path.join(rel, name)).replace(os.sep, "/")
+            if path in paths:
+                gone.add(name)
+        return gone
+
+    return ignore
+
+
+def missing_source(src, dst, tracked):
+    """Tracked paths that were meant to arrive in `dst` and did not.
+
+    The copy is the run's whole world, so "did the source get there" is the one question
+    that must not be answered by hoping. Every name git tracks belongs in the copy unless
+    the snapshot deliberately excludes it -- a root-level never-copied name, or a path under
+    one -- and everything else that goes missing is the same failure: a battery reporting
+    mutants caught against a tree that is not the repository. How it went missing (a
+    predicate bug, a file that vanished mid-copy, a symlink whose target could not be read)
+    is not worth distinguishing, because none of the three is survivable.
+    """
+    gone = []
+    for path in tracked:
+        parts = path.split("/")
+        if parts[0] in NEVER_COPIED_ROOT or any(p in NEVER_COPIED_ANYWHERE
+                                                for p in parts):
+            continue
+        if not os.path.lexists(os.path.join(dst, *parts)):
+            gone.append(path)
+    return gone
+
+
+class SnapshotError(Exception):
+    """Source that could not be copied. Fatal, where an uncopyable socket is not."""
+
+
+def uncopyable_is_source(path):
+    """Whether a path `copytree` could not copy could have been source.
+
+    A socket, a FIFO and a device node are never source, and neither is a symlink whose
+    target is gone -- those four are exactly what a Chrome profile leaves behind. A symlink
+    whose target EXISTS is the opposite case: `copytree` follows it and copies the target, so
+    a copy failure on one has taken a real file out of the run, and every symlink git can
+    track is source. A regular file and a directory both might be source, and a battery that
+    quietly copied a tree missing one would report every mutant caught over files that were
+    not there.
+
+    A function rather than a clause inside the error loop so the self-test can hand it real
+    things and watch which way each sorts, including as root, where no file is unreadable
+    and a permission-based fixture would check nothing at all.
+    """
+    if os.path.islink(path):
+        return os.path.exists(path)
+    return os.path.isdir(path) or os.path.isfile(path)
+
+
+def note_uncopyable(path, err, skipped, fatal):
+    """Sort one copytree failure into "skip it" or "stop the run".
+
+    The lists come in from the caller so the self-test can pass two empty ones and see the
+    sorting happen; a rule that could only observe a finished copy could not tell a skipped
+    socket from a dropped source file.
+    """
+    if uncopyable_is_source(path):
+        fatal.append(f"{path}: {err}")
+    else:
+        skipped.append(path)
+
+
+def _copy_tree(src, dst, ignore):
+    """The one copytree call, named so the self-test can hand `snapshot` a failure."""
+    shutil.copytree(src, dst, ignore=ignore)
+
+
+def snapshot(src, dst, copy=_copy_tree):
+    """Copy `src` to `dst` as a battery needs it: the source, and nothing else.
+
+    Both `main` and the self-test call this, and that is the point of it existing. The
+    composition -- which ignore callback, over which ignore list -- IS the fix, and a
+    self-test that exercised only the two pure functions stayed green with this call
+    reverted to the four hardcoded names: the ticket's crash, at full green.
+
+    The error sorting is what closes the class rather than one instance of it. A path that
+    cannot be copied is skipped when it could not have been source anyway -- a socket, a
+    FIFO, a device node, a symlink whose target is gone -- and refused when it might have
+    been source, because a battery that quietly covers less than it claims is worse than one
+    that crashes. `copytree` no longer takes an `onerror` (3.14 removed it), so the failures
+    it collects are sorted afterwards, out of the (src, dst, why) triples it puts in
+    `shutil.Error` -- the same list the ticket's traceback printed.
+
+    Then the copy is asked whether it holds the repository. `copytree` can come back without
+    an error and without a file: a path that vanished between the walk and the copy is not a
+    file by the time the sorting re-stats it, and a predicate bug drops one in silence. The
+    tracked set is the only answer that does not depend on how the loss happened.
+
+    `copy` exists for the same reason the pure functions do. The fail-closed half is
+    otherwise reachable only by making a file unreadable, which as root is not a thing that
+    happens -- and with the refusal deleted, the self-test printed "14 snapshot rules hold".
+
+    Returns the paths it skipped, so a caller can say so out loud.
+    """
+    skipped, fatal = [], []
+    try:
+        copy(src, dst, snapshot_ignore(src, ignored=ignored_paths(src)))
+    except shutil.Error as err:
+        for path, _dst, why in err.args[0]:
+            note_uncopyable(path, why, skipped, fatal)
+    if fatal:
+        raise SnapshotError("the snapshot could not copy source:\n  "
+                            + "\n  ".join(fatal))
+    tracked = tracked_paths(src)
+    if tracked is None:
+        print("snapshot: git could not list the tracked files, so nothing checked that "
+              "the copy holds the source")
+    else:
+        absent = missing_source(src, dst, tracked)
+        if absent:
+            shown = "\n  ".join(absent[:20])
+            more = "" if len(absent) <= 20 else f"\n  ... and {len(absent) - 20} more"
+            raise SnapshotError(f"the snapshot is missing {len(absent)} tracked files it "
+                                f"should hold:\n  {shown}{more}")
+    return skipped
+
+
 def set_label(path, root=SRC):
     """How one set is named in the report.
 
@@ -292,6 +555,42 @@ def select_sets(paths, wanted, work):
     return selected, sorted(missing)
 
 
+# The report's four columns. One definition because the TOTAL line, the exit code and the
+# self-test's fixtures all have to agree on what a tally holds; a fifth column added to the
+# print and not to this tuple is a column that silently never accumulates.
+TOTAL_KEYS = ("caught", "survived", "invalid", "equivalent")
+
+
+def run_selection(sets, run):
+    """Run every set in ``sets``, returning ``(totals, ran_everything)``.
+
+    ``run(path, label)`` is one set's battery: it answers with that set's tally dict, or with
+    ``None`` for "this set could not be run at all". ``None`` stops the run rather than being
+    summed past, because a battery that skipped a set has no honest ``TOTAL`` left to print;
+    ``ran_everything`` is how ``main`` knows to exit 2 and say nothing.
+
+    A function rather than a loop in ``main``, for the reason every other piece of this file
+    is one. The loop is where the selection is CONSUMED, so it is where #118's symptom lives
+    -- one set run, a complete-looking ``TOTAL``, exit 0 -- and auditing it as source text
+    took four rounds and never closed: a call-site pin (round 1, defeated one line below),
+    an assignment-shaped deny list (round 3, defeated by ``del sets[1:]``), and a region that
+    ended at the loop header (round 4, defeated by a ``break`` in the body). A text audit can
+    only deny the shapes someone thought to name, and the loop body is where the shapes that
+    were not thought of go to hide. Run instead, against a fake runner, the same five edits
+    are three failing assertions: a ``break`` or a ``continue`` leaves a set unrun, a ``pass``
+    where the sum happens leaves the totals at zero, and a success returned where the stop
+    signal belongs turns "nothing ran" into exit 0.
+    """
+    totals = {k: 0 for k in TOTAL_KEYS}
+    for path, label in sets:
+        tally = run(path, label)
+        if tally is None:
+            return totals, False
+        for k in totals:
+            totals[k] += tally[k]
+    return totals, True
+
+
 def rule(rules, bad, name, problems):
     """Count one self-test rule, and report whatever it found.
 
@@ -321,6 +620,56 @@ def control(rules, bad, name, problems, why):
     control that proves nothing about the thing it claims to test.
     """
     rule(rules, bad, name, [] if problems else [f"it said nothing, {why}"])
+
+
+def run_rule(rules, bad, name, body):
+    """Count one self-test rule that is a block of code rather than a pure checker.
+
+    ``body(problems)`` builds whatever its fixture needs -- a repository, a socket, a dead
+    symlink -- and appends to the list it is handed. The count and the problems leave the
+    same call for the reason `rule()` exists: a body deleted from the file drops the pinned
+    number, and a body that is still called has still run its comparisons.
+
+    This is the shape for the snapshot rules because they are fixtures rather than
+    assertions: each assembles a tree that cannot be copied and asks what ``snapshot`` did
+    with it. The standard this file holds everywhere else is that a comparison nobody can
+    falsify is a comparison that can be hollowed, so where a snapshot rule's comparison CAN
+    be handed a wrong answer -- the ignore table, and the spy over it -- it is a pure checker
+    with a control instead, and what is left here is the acting kind: a body that hands
+    ``snapshot`` a copy which fails on a named file, and requires the refusal. Like `rule()`'s
+    own count, this is a deletion tripwire, not a coverage claim.
+    """
+    problems = []
+    body(problems)
+    rule(rules, bad, name, problems)
+
+
+def ignore_row_problems(gone, want):
+    """What one row of the ignore table got wrong, as sentences. Empty means it skipped
+    exactly what the table says that directory skips.
+
+    A function rather than a comparison inside the loop for the reason every other checker
+    here is one: the canary under the table has to be able to hand it an answer to refuse.
+    #119 compared in the loop body and counted rows, so a row hollowed to ``pass`` refused
+    nothing while the count stayed put -- its own canary worked around that by counting
+    refusals, which is this checker's job done by hand.
+    """
+    if gone != want:
+        return [f"skips {sorted(gone)}, want {sorted(want)}"]
+    return []
+
+
+def spy_problems(seen, rows):
+    """Whether the ignore callback was still consulted, once per row. Empty means it was.
+
+    The table pins what the callback answers; this pins that the table still asks it.
+    Replacing the loop's call with the row's own expectation kept every row green, because
+    nothing else was consulting the callback.
+    """
+    if len(seen) != len(rows):
+        return [f"the callback was consulted {len(seen)} times for {len(rows)} rows: a row "
+                f"that answers from its own expectation is not a rule about the callback"]
+    return []
 
 
 # The --only cases, as data: what was asked for, which fixture pair to ask it of, what a
@@ -466,11 +815,90 @@ def _same_file_twice(real):
     path, label = real[0]
     return [(path, label), (path, label)]
 
+
+def _tally(caught=0, survived=0, invalid=0, equivalent=0):
+    """One set's report, with every column present.
+
+    A tally missing a column is a KeyError inside the sum, so a fixture that cannot raise is
+    not describing what a real set returns.
+    """
+    return {"caught": caught, "survived": survived, "invalid": invalid,
+            "equivalent": equivalent}
+
+
+def _fake_sets(n):
+    """n sets to hand a runner, with no files behind them.
+
+    run_selection never opens a path -- it hands each pair to the runner and adds up what
+    comes back -- so the fixture is pairs of strings and the rule is about the loop and
+    nothing else.
+    """
+    return [(f"/fixture/set{i}.json", f"set{i}.json [M{i}]") for i in range(n)]
+
+
+def _drive(sets, tallies):
+    """``run_selection`` over ``sets``, with a runner that answers ``tallies`` in order.
+
+    Returns ``(totals, ran_everything, calls)``. The runner records what it was handed, so
+    "the loop ran and threw the answer away" and "the loop skipped a set" are both visible
+    from outside the function -- nothing here reads its internals, which is the point of
+    extracting it: the same five edits that took four rounds of text audit to name are now
+    ordinary failing observations.
+    """
+    calls = []
+    answers = iter(tallies)
+
+    def run(path, label):
+        calls.append((path, label))
+        return next(answers)
+
+    totals, ran_all = run_selection(sets, run)
+    return totals, ran_all, calls
+
+
+def selection_run_problems(totals, ran_all, calls, want_totals, want_calls, want_ran):
+    """What one ``run_selection`` drive got wrong, as sentences. Empty means it ran honestly.
+
+    Three independent claims, so a control can only trip for the one it is about:
+
+    - ``ran_all`` is what was asked. This is the stop signal: a set that could not be run at
+      all has to reach ``main`` as "no honest TOTAL exists", and a run that reported success
+      where the stop belongs is the reviewer's `return 0` -- nothing ran, nothing printed,
+      exit 0.
+    - every set was handed to the runner, in order. A ``break`` or a ``continue`` in the loop
+      is #118 arriving one layer down, and the totals alone cannot show it: a tally that was
+      never asked for is indistinguishable from one that was skipped unless the calls are
+      compared.
+    - the totals are the sum of every set's tally. A ``pass`` where the addition happens
+      leaves the calls exactly right and every column at zero, which is a report that reads
+      as a clean battery.
+
+    A pure function of what the drive observed, for the reason every other checker here is
+    one: the self-test can hand it a skipped set and watch it refuse, instead of counting
+    that a comparison was reached.
+    """
+    problems = []
+    if ran_all != want_ran:
+        problems.append(f"the run reported ran_everything={ran_all} and the fixture asked "
+                        f"for {want_ran}, so whether a set was skipped is not being told to "
+                        f"the caller")
+    if calls != want_calls:
+        problems.append(f"the runner was handed {calls} for a selection of {want_calls}, so "
+                        f"a set was skipped, repeated, or run out of order")
+    if totals != want_totals:
+        problems.append(f"the totals came out {totals}, want {want_totals} -- the sum of "
+                        f"every set's tally, so a set ran and its answer was thrown away")
+    return problems
+
 # What main's --only block has to say to be honest. The self-test runs no battery, so the
 # flag's shape is audited as text -- the way check-mutations.py pins its own summary line,
 # for the same reason: a pinned call buys nothing if the next line throws its result away,
 # and throwing the result away is exactly where #118 lived.
 ONLY_CALL = "sets, missing = select_sets(sets, wanted, work)"
+# The hand-off: the selection leaves main here and the running happens in run_selection.
+# Pinned as a line because everything after it is glue, and everything before it is the
+# selection itself -- which is what the deny list below protects.
+ONLY_RUN = "totals, ran_all = run_selection(sets, run_set)"
 ONLY_BLOCK_LINES = (
     # `if args.only:` is falsy for --only "", which then falls through to the else and runs
     # the ENTIRE battery behind a flag that asked for nothing.
@@ -479,6 +907,9 @@ ONLY_BLOCK_LINES = (
     ONLY_CALL,
     # Nothing matched: refuse. Without this the run prints `TOTAL 0 caught, 0 survived`.
     "if not sets:",
+    # The selection has to reach the runner exactly as the parser produced it. Without the
+    # hand-off pinned, the block can compute a correct selection and drop it on the floor.
+    ONLY_RUN,
 )
 # Every line the --only block is allowed to contain that touches the selection. Deny by
 # default, because matching assignment syntax only catches a rebinding that LOOKS like one:
@@ -489,13 +920,21 @@ ONLY_BLOCK_LINES = (
 # including shapes nobody has invented yet.
 ONLY_BLOCK_HONEST = (
     ONLY_CALL,
+    ONLY_RUN,
     "if not sets:",
     'sys.exit(f"none of {sorted(wanted)} is in {scope(args.sets)}")',
-    # The `else` arm of the --only branch. It names `sets`, so widening the audited region to
-    # the loop that consumes the selection newly brings it inside -- it is the no-flag path
-    # relabelling the full set list, not a mutation of a selection. Listed rather than
-    # exempted by region, so a truncation hiding on the same line still trips the deny list.
-    "sets = [(p, os.path.relpath(p, SRC)) for p in sets]",
+    'sys.exit(f"--only {args.only!r} names no mutant ids")',
+    # The `else` arm of the --only branch. It names `sets`, so the audited region brings it
+    # inside -- it is the no-flag path relabelling the full set list, not a mutation of a
+    # selection. Listed rather than exempted by region, so a truncation hiding on the same
+    # line (`sets[:1]` inside the comprehension) still trips the deny list.
+    "sets = [(p, set_label(p)) for p in sets]",
+    # Control flow the block is allowed to contain, listed rather than exempted. A `return 0`
+    # one line above the hand-off prints no TOTAL and exits 0 on a run that never started --
+    # strictly worse than #118 -- and it names neither `sets` nor `missing`, so the only way
+    # to hold it is to treat an unlisted effect as a problem.
+    "return 2",
+    'sys.exit(str(err))',
 )
 
 # Each control hands the auditor a main with that one break in it, and has to be caught.
@@ -521,20 +960,40 @@ ONLY_BLOCK_CONTROLS = (
      lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            missing.clear()", 1)),
     ("truncates the selection by slice assignment",
      lambda s: s.replace(ONLY_CALL, ONLY_CALL + "\n            sets[:] = sets[:1]", 1)),
-    # Round 4's blocker: the audited region used to stop at the `else:`, so anything placed
-    # between the branch and the loop that consumes the selection was outside the audit
-    # entirely. These three land in that gap and are only caught because the region now runs
-    # to `for path, label in sets:` -- they are the region's own regression test, so narrowing
-    # it again fails here instead of quietly restoring #118.
-    ("throws the selection away one line above the loop that consumes it",
-     lambda s: s.replace('        totals = {"caught": 0',
-                         '        sets = sets[:1]\n        totals = {"caught": 0', 1)),
-    ("swallows the unmatched ids one line above the loop that consumes it",
-     lambda s: s.replace('        totals = {"caught": 0',
-                         '        missing = []\n        totals = {"caught": 0', 1)),
-    ("drops the last set one line above the loop that consumes it",
-     lambda s: s.replace('        totals = {"caught": 0',
-                         '        del sets[1:]\n        totals = {"caught": 0', 1)),
+    # Round 4's blocker: the audited region used to stop above the code that consumes the
+    # selection, so anything placed in that gap was outside the audit entirely. These three
+    # land in the gap that remains -- one line above the hand-off -- and are caught only
+    # because the region runs to the end of the block. They are the region's own regression
+    # test: narrowing it again fails here instead of quietly restoring #118.
+    ("throws the selection away one line above the hand-off to the runner",
+     lambda s: s.replace("        " + ONLY_RUN,
+                         "        sets = sets[:1]\n        " + ONLY_RUN, 1)),
+    ("swallows the unmatched ids one line above the hand-off to the runner",
+     lambda s: s.replace("        " + ONLY_RUN,
+                         "        missing = []\n        " + ONLY_RUN, 1)),
+    ("drops the last set one line above the hand-off to the runner",
+     lambda s: s.replace("        " + ONLY_RUN,
+                         "        del sets[1:]\n        " + ONLY_RUN, 1)),
+    # Control flow, which names neither `sets` nor `missing` and so was invisible to a deny
+    # list keyed on those two words. Each of these is valid Python at this head and each was
+    # measured to leave the self-test green before the predicate was widened: `return 0`
+    # above the hand-off runs nothing, prints no TOTAL and exits 0, so a scripted
+    # `mutate.py --only ... && ...` proceeds on a run that never started.
+    ("exits 0 one line above the hand-off, so nothing runs and the shell sees success",
+     lambda s: s.replace("        " + ONLY_RUN,
+                         "        return 0\n        " + ONLY_RUN, 1)),
+    ("exits the process 0 at the hand-off, reporting a complete run that never happened",
+     lambda s: s.replace("        " + ONLY_RUN,
+                         "        sys.exit(0)\n        " + ONLY_RUN, 1)),
+    ("replaces the hand-off's effect with `pass`",
+     lambda s: s.replace("        " + ONLY_RUN,
+                         "        pass\n        " + ONLY_RUN, 1)),
+    # What is deliberately NOT a control here: `break`, `continue`, and a `pass` standing in
+    # for the sum. Those were the loop body's shapes, and the loop body no longer lives in
+    # main -- it is run_selection, which the self-test executes against a fake runner, so
+    # each of them fails an assertion in SELECTION_RUN_CONTROLS instead of a line this
+    # auditor has to think to deny. A text control for a shape that cannot be written in
+    # valid Python at this position would only inflate the count.
 )
 
 
@@ -549,21 +1008,37 @@ def only_block_problems(src):
     if not found:
         return ["main has no `if args.only` block, so the flag's whole shape is gone and "
                 "nothing below applies"]
-    # The region ends where the selection is CONSUMED, not where the `if/else` ends. It used
-    # to stop at `\n        else:`, which left every line between the branch and
-    # `for path, label in sets:` outside the audit -- and one inserted line there,
-    # `sets = sets[:1]`, reproduced the ticket's symptom at a green self-test (measured:
-    # `--only W1` ran 1 of 3 sets and printed a complete-looking TOTAL). The shape of the
-    # mutation was never the miss; the region was. Round 4's finding, and the fourth round of
-    # the same class.
-    block = "if args.only" + rest.split("        for path, label in sets:")[0]
+    # The region ends where the `try` does -- `    finally:` -- not at the branch and not at
+    # the loop header. Round 4 ended it at `for path, label in sets:`, which left the loop
+    # BODY outside the audit, and a `break` as the loop's last statement is #118 verbatim at
+    # a green self-test. The loop has since moved into `run_selection`, which the self-test
+    # RUNS against a fake runner rather than reads, so the text audit is back to what a text
+    # audit is good at: the argument parsing and the glue that hands the selection over. It
+    # still runs to the end of the block, because the lines after the hand-off are where a
+    # `return 0` can land on a run that never started.
+    #
+    # The guard on the anchor is load-bearing: without it, editing the boundary itself widens
+    # the region silently to the end of `main` and the report then complains about lines
+    # nobody broke -- which sends the next reader hunting in the wrong place.
+    end = "    finally:"
+    if end not in rest:
+        return ["the --only block no longer ends where the selection is handed to the "
+                "runner, so the audited region cannot be located. Restore the boundary "
+                "rather than trusting whatever this auditor then finds"]
+    block = "if args.only" + rest.split(end)[0]
     problems = [f"the --only block no longer contains {line!r}"
                 for line in ONLY_BLOCK_LINES if line not in block]
     # Deny by default. The pinned call is worth nothing if a later line throws what it
-    # returned away, and that line does not have to look like an assignment to do it.
+    # returned away, and that line does not have to look like an assignment to do it -- nor
+    # does it have to name the selection at all. Control flow is the second way to throw a
+    # selection away: `break` ends the run, `return 0` ends it quietly, `pass` deletes a sum,
+    # and none of the three contains the word `sets`. So the unit being denied is a line's
+    # EFFECT, and every admitted effect is in ONLY_BLOCK_HONEST by name.
     for raw in block.splitlines():
         code = raw.split("#")[0].strip()
-        if not code or not re.search(r"\b(?:sets|missing)\b", code):
+        if not code or not (re.search(r"\b(?:sets|missing)\b", code)
+                            or re.match(r"^(?:break|continue|return\b|raise\b|sys\.exit\("
+                                        r"|pass\b|del\b)", code)):
             continue
         if code not in ONLY_BLOCK_HONEST:
             problems.append(f"the --only block does something unrecognised with the "
@@ -666,11 +1141,26 @@ EXPECTED_VERDICT_RULES = 35
 
 # How many selection rules the self-test is expected to run, counted off the list the pin
 # prints rather than off arithmetic: five --only cases and one "does this case assert
-# anything" per case, the fixture's own shape, two controls at the selection level, a pin
+# anything" per case, the fixture's own shape, two controls at the selection level,
 # a pin and a control per comparison in CHECKER_CONTROLS, the audit of main's --only block,
 # one control per entry in ONLY_BLOCK_CONTROLS. Pinned for the same reason the verdict count
 # is -- a deleted rule is invisible to the rules that survive.
-EXPECTED_SELECT_RULES = 37
+EXPECTED_SELECT_RULES = 47
+
+# How many snapshot rules the self-test is expected to run: #119's nineteen, counted the same
+# way (one per table row, one per fixture that builds a tree and asks what the snapshot did
+# with it, one control per comparison that can be handed a wrong answer). Re-derived from the
+# run at this head, not carried over from either side of the merge: main printed
+# `EXPECTED_SNAPSHOT_RULES = 19` beside a verdict count of 22, and this branch had already
+# moved the verdict half to 35, so a number taken from either file would be a count that
+# quietly means something else -- the defect #118 was opened about.
+#
+# The twentieth is the git-on-PATH precondition, which #119 counted. The twenty-first is one
+# this branch's own attack battery bought: broadening the ignore loop's short-circuit to
+# `startswith` answered all eight table rows exactly as honest code does, so the ported half
+# reported nineteen rules holding while unable to see the mutation -- and on a tree with both
+# `.venv` and `.venv-old` in .gitignore it copies the second one back.
+EXPECTED_SNAPSHOT_RULES = 21
 
 
 def self_test():
@@ -759,6 +1249,7 @@ def self_test():
     bad = Problems()
     vrules = []
     rules = []
+    srules = []
     for name, out, rc, note, want, needle, *rest in cases:
         absent = rest[0] if rest else None
         kind, detail = verdict(out, rc, note)
@@ -917,6 +1408,475 @@ def self_test():
                     only_block_problems(patch(src)) if src else None,
                     "so nothing stops it")
 
+    # The selection, consumed. Everything above decides WHICH sets a run agreed to run; this
+    # decides whether it then ran them, which is where #118 actually lived. Driven rather
+    # than read, because four rounds of auditing that loop as text never closed it -- each
+    # round the guard was green with the symptom live, since a deny list can only refuse the
+    # shapes someone thought to write down. Run against a fake runner, the shapes become
+    # observations: a set nobody was handed, a tally nobody added, a stop nobody reported.
+    three = _fake_sets(3)
+    parts = [_tally(caught=1), _tally(survived=2), _tally(caught=3, invalid=1)]
+    summed = _tally(caught=4, survived=2, invalid=1)
+    got, ran_all, calls = _drive(three, parts)
+    rule(rules, bad, "run_selection runs every set it is handed and sums every tally",
+         selection_run_problems(got, ran_all, calls, summed, three, True))
+
+    # A set that could not be run at all stops the run, and the caller is told. Without the
+    # second half the battery prints a TOTAL over the sets that did run, which is the same
+    # lie in a different font.
+    got2, ran2, calls2 = _drive(three, [_tally(caught=1), None, _tally(caught=9)])
+    rule(rules, bad, "run_selection stops when a set cannot be run, and says so",
+         selection_run_problems(got2, ran2, calls2, _tally(caught=1), three[:2], False))
+
+    # The degenerate selection. Nothing to run is not a failed run, and the totals have to be
+    # the four zeros the report prints rather than whatever an uninitialised dict holds.
+    got3, ran3, calls3 = _drive([], [])
+    rule(rules, bad, "an empty selection runs nothing and is not a stopped run",
+         selection_run_problems(got3, ran3, calls3, _tally(), [], True))
+
+    # The controls: one broken claim each, the other two left honest on the same input, so a
+    # control going green means that comparison is gone rather than that a neighbour is
+    # covering for it. These are the reviewer's five measured edits, minus the two that can
+    # no longer be written in main's block at all.
+    control(rules, bad, "control: a set the loop never handed to the runner",
+            selection_run_problems(summed, True, calls[:2], summed, three, True),
+            "so a break or a continue in the loop is invisible again")
+    control(rules, bad, "control: a tally that was never summed",
+            selection_run_problems(_tally(), True, three, summed, three, True),
+            "so a battery of zeroes reads as a clean run")
+    control(rules, bad, "control: a stopped run reported as complete",
+            selection_run_problems(got2, True, calls2, _tally(caught=1), three[:2], False),
+            "so a run that could not start exits 0 and prints nothing")
+    control(rules, bad, "control: a complete run reported as stopped",
+            selection_run_problems(got, False, calls, summed, three, True),
+            "so the stop signal is only compared in one direction")
+
+    # ---- the snapshot --------------------------------------------------------------
+    # What a battery costs is why these are here: the run that found #117 died in copytree
+    # before it had applied one mutant, and every check that runs earlier -- the checker,
+    # `make verify`, CI's `mutation sets` job -- copies nothing at all, so each of them said
+    # the tree was fine.
+    #
+    # These are #119's rules, ported rather than re-derived: the bodies are its text, changed
+    # only to take the problem list of the rule that runs them. A port that rewrote an
+    # assertion would have to be re-reviewed line by line, and what this PR claims about them
+    # is that they still COUNT -- that deleting one moves the pinned number, which is what
+    # run_rule buys and what the two counts in the summary line now say apart.
+    #
+    # Everything below needs git, because the fixtures are repositories: what gets skipped IS
+    # the repository's answer. A missing git fails rather than skips -- a guard that stepped
+    # around a missing binary reported "11 snapshot rules hold" while the one rule that
+    # proves the fix never ran.
+
+    def git_run(args, cwd, problems):
+        """A fixture's git call: isolated the way the real one is, and loud when it fails.
+
+        Isolation matters here as much as it does in `ignored_paths` -- a wrapper or a hook
+        that exports GIT_DIR makes `git init` fail somewhere else, and that turns a healthy
+        tree into a red self-test with a message about the wrong thing.
+        """
+        try:
+            done = subprocess.run(["git", *args], cwd=cwd, env=git_env(),
+                                  stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL)
+        except OSError as err:
+            # No git at all. A traceback here is the same "looks like a Python bug" the
+            # ticket complains about, and it buries the sentence above it.
+            problems.append(f"git {' '.join(args)} could not run in {cwd} ({err}), so the "
+                           "fixture below is not a repository and whatever it appears to check "
+                       "is not what the snapshot does")
+            return None
+        if done.returncode != 0:
+            problems.append(f"git {' '.join(args)} failed in {cwd} (exit {done.returncode}), so "
+                           "the fixture below is not a repository and whatever it appears to "
+                       "check is not what the snapshot does")
+        return done.returncode
+
+    def chrome_profile(where, name, problems):
+        """A directory holding the two things of a Chrome profile that copytree cannot copy:
+        a socket, and a symlink whose target is gone.
+
+        Nothing here is swallowed. A profile that failed to materialise turns a copy rule
+        into a copy of an ordinary directory, which passes whatever the code does -- the
+        silent-pass shape, arriving through a platform instead of through a bug.
+        """
+        slot = os.path.join(where, name)
+        os.makedirs(slot, exist_ok=True)
+        with open(os.path.join(slot, "note.txt"), "w") as fh:
+            fh.write("chrome wrote this\n")
+        try:
+            os.symlink("/no/such/target/anywhere", os.path.join(slot, "SingletonCookie"))
+            listener = socket.socket(socket.AF_UNIX)
+            listener.bind(os.path.join(slot, "SingletonSocket"))
+            listener.close()
+        except OSError as err:
+            problems.append(f"this platform will not build the profile in {name}/ ({err}), so "
+                           "the copy rules below would be copying an ordinary directory")
+        if not (os.path.islink(os.path.join(slot, "SingletonCookie"))
+                and os.path.lexists(os.path.join(slot, "SingletonSocket"))):
+            problems.append(f"the profile in {name}/ has no dead symlink and no socket, so the "
+                           "copy below proves nothing about a Chrome profile")
+        return slot
+
+    # The ignore callback, behind a spy. The table pins what it answers; the spy pins that
+    # the table still asks it. Replacing the loop's call with the row's own expectation kept
+    # the count and the run green, because nothing else was consulting the callback.
+    real_cb = snapshot_ignore("/repo", ignored=("testing/capture/runs/", "plock"))
+    seen = []
+
+    def ignore_cb(directory, names):
+        seen.append(directory)
+        return real_cb(directory, names)
+
+    rows = [
+        ("the never-copied names go at the root", "/repo",
+         [".git", "bin", ".cortexkit", "__pycache__", "go.mod"],
+         {".git", "bin", ".cortexkit", "__pycache__"}),
+        # `bin` at depth is a package like any other. Matching the root names by basename
+        # anywhere is how a tracked internal/platform/bin/ left a battery's copy with nothing
+        # raised and nothing printed, and this row is what keeps that fail-open shut.
+        ("only __pycache__ is matched at any depth", "/repo/internal/web",
+         ["__pycache__", "bin", "server.go"], {"__pycache__"}),
+        ("an ignored directory goes", "/repo/testing/capture",
+         ["cdp.py", "runs"], {"runs"}),
+        ("the directory CONTAINING an ignored one does not", "/repo/testing",
+         ["capture", "README.md"], set()),
+        ("and neither does the root", "/repo",
+         ["internal", "testing", "scripts"], set()),
+        ("an ignored file goes", "/repo", ["plock", "go.mod"], {"plock"}),
+        # Equality, never a prefix: `plock2` and `plock.go` are source sitting beside an
+        # ignored `plock`, and a startswith() drops them just as quietly as the basename rule.
+        ("a name merely STARTING with an ignored one stays", "/repo",
+         ["plock", "plock2", "plock.go", "go.mod"], {"plock"}),
+        ("a same-named file somewhere else stays", "/repo/internal/web",
+         ["plock", "server.go"], set()),
+    ]
+
+    def git_tree(where, problems, ignore=("runs/",)):
+        """A repository, not just a directory: git answers for tracked state, and an EMPTY
+        ignored directory is not reported at all, because git has no notion of an empty
+        directory. Both halves belong in the fixture or the rule passes for the wrong reason.
+        `keep/` is never ignored and is what each rule says no about.
+        """
+        os.makedirs(where, exist_ok=True)
+        with open(os.path.join(where, ".gitignore"), "w") as fh:
+            fh.write("".join(f"{p}\n" for p in ignore))
+        for name in ("keep",) + tuple(ignore):
+            slot = os.path.join(where, name.rstrip("/"))
+            os.makedirs(slot, exist_ok=True)
+            with open(os.path.join(slot, "capture.png"), "w") as fh:
+                fh.write("\n")
+        git_run(["init", "-q"], where, problems)
+        return where
+
+    # The table, run through the callback rather than answered from its own expectation, and
+    # the spy that pins the table still asks it. #119 compared inside the loop and counted
+    # rows; the comparison is a checker now so the control under it can hand it an answer to
+    # refuse, which is the only way to tell eight rows that passed from eight rows that
+    # cannot fail.
+    for name, directory, names, want in rows:
+        rule(srules, bad, f"snapshot ignores {name}",
+             ignore_row_problems(set(ignore_cb(directory, list(names))), want))
+    rule(srules, bad, "the table consulted the ignore callback once per row",
+         spy_problems(seen, rows))
+    control(srules, bad, "control: a row that answers from its own expectation",
+            spy_problems([], rows),
+            "so the table is not being answered by the callback at all")
+    control(srules, bad, "control: a snapshot row that cannot refuse a wrong answer",
+            [p for _n, _d, _nm, want in rows
+             for p in ignore_row_problems(set(want) ^ {"__not_a_real_file_name__"}, want)],
+            "so eight rows counting happily is not eight rules")
+
+    # The short-circuit that skips an already-dropped name is equality too, and the table
+    # above cannot see it: broadening it to `startswith` answers all eight rows identically
+    # (measured), because none of them walks two ignored names where one is a prefix of the
+    # other. The product does have such pairs -- `.venv` and `.venv-old`, `plock` and a
+    # `plock2` someone added to .gitignore -- and there the broadened test keeps the longer
+    # name OUT of `gone`, so it is copied. That is #117 arriving again, a profile back in the
+    # tree and a socket in the profile, from the branch of the loop nobody was aiming at.
+    pair_cb = snapshot_ignore("/repo", ignored=("plock", "plock2"))
+    rule(srules, bad, "snapshot ignores both of two ignored names where one starts with the other",
+         ignore_row_problems(set(pair_cb("/repo", ["plock", "plock2", "go.mod"])),
+                             {"plock", "plock2"}))
+
+    def _snap01(bad):
+        if not shutil.which("git"):
+            bad.append("git is not on PATH, so the snapshot rules have no repository to check "
+                       "against and the fix this file exists for would go untested")
+    run_rule(srules, bad,
+               "snapshot: git is on PATH, so the snapshot rules have a repository to answer from", _snap01)
+
+    # Which uncopyable path is fatal, over five real ones. Decided by kind rather than by
+    # trying to read, because as root nothing is unreadable and a permission-based fixture
+    # would be a rule that cannot fail.
+
+    def _snap02(bad):
+        with tempfile.TemporaryDirectory() as work:
+            regular = os.path.join(work, "server.go")
+            with open(regular, "w") as fh:
+                fh.write("package web\n")
+            listener = socket.socket(socket.AF_UNIX)
+            listener.bind(os.path.join(work, "SingletonSocket"))
+            listener.close()
+            os.symlink("/no/such/target/anywhere", os.path.join(work, "SingletonCookie"))
+            # A link whose target exists is a tracked symlink: copytree follows it, so a copy
+            # failure on one has taken a real file out of the run. The first version of this
+            # sorting skipped every symlink, which made the whole branch fail open.
+            os.symlink(regular, os.path.join(work, "policy.txt"))
+            skipped, fatal = [], []
+            note_uncopyable(regular, "EACCES", skipped, fatal)
+            note_uncopyable(os.path.join(work, "SingletonSocket"), "ENXIO", skipped, fatal)
+            note_uncopyable(os.path.join(work, "SingletonCookie"), "ENOENT", skipped, fatal)
+            note_uncopyable(os.path.join(work, "policy.txt"), "EACCES", skipped, fatal)
+            note_uncopyable(work, "EACCES", skipped, fatal)
+            if len(fatal) != 3 or len(skipped) != 2:
+                bad.append(f"an uncopyable path sorted into fatal={fatal} skipped={skipped}, "
+                           "want the regular file, the live symlink and the directory fatal, "
+                           "the socket and the dead symlink skipped")
+    run_rule(srules, bad,
+               "snapshot: an uncopyable path is sorted into fatal and skipped by what it is", _snap02)
+
+    # The acting half. The rule above proves the sorting; nothing proved that a fatal sort
+    # actually stops a run, because reaching it needs an unreadable file and nothing is
+    # unreadable as root -- with the refusal deleted, the self-test printed "14 snapshot
+    # rules hold". So `snapshot` takes its copy as an argument and the self-test hands it one
+    # that fails on a named file. The fixture is an empty repository so the tracked check
+    # below cannot be what raises: the reason for the refusal is asserted, not assumed.
+
+    def _snap03(bad):
+        with tempfile.TemporaryDirectory() as work:
+            src = os.path.join(work, "src")
+            os.makedirs(os.path.join(src, "internal"))
+            with open(os.path.join(src, "internal", "locked.go"), "w") as fh:
+                fh.write("package web\n")
+            git_run(["init", "-q"], src, bad)
+
+            def refusing_copy(s, d, ignore):
+                raise shutil.Error([(os.path.join(s, "internal", "locked.go"),
+                                     os.path.join(d, "locked.go"),
+                                     "[Errno 13] Permission denied")])
+
+            try:
+                snapshot(src, os.path.join(work, "dst"), copy=refusing_copy)
+                bad.append("a source file that could not be copied did not stop the snapshot: "
+                           "the run would have gone on over a tree missing that file, and "
+                           "reported every mutant caught against it")
+            except SnapshotError as err:
+                if "could not copy source" not in str(err):
+                    bad.append(f"the snapshot refused for the wrong reason: {err}")
+
+            def socket_copy(s, d, ignore):
+                raise shutil.Error([(os.path.join(s, "SingletonSocket"),
+                                     os.path.join(d, "SingletonSocket"),
+                                     "[Errno 6] No such device or address")])
+
+            try:
+                left = snapshot(src, os.path.join(work, "dst2"), copy=socket_copy)
+            except SnapshotError as err:
+                bad.append(f"a socket stopped the snapshot: {err}")
+                left = []
+            if not any("SingletonSocket" in p for p in left):
+                bad.append("the socket was neither copied nor reported, so nobody is told the "
+                           f"tree being tested is smaller than the one on disk (got {left})")
+    run_rule(srules, bad,
+               "snapshot: a source file that could not be copied stops the snapshot, and a socket does not", _snap03)
+
+    # And the check that the copy HOLDS the repository -- acting, not sorting. A copy that
+    # comes back without an error and without a tracked file is what a predicate bug, a file
+    # that vanished mid-copy, and an unreadable symlink all look like from the outside, and
+    # the sorting above cannot see any of them because nothing failed.
+
+    def _snap04(bad):
+        with tempfile.TemporaryDirectory() as work:
+            src = os.path.join(work, "src")
+            os.makedirs(os.path.join(src, "internal"))
+            for name in ("server.go", "keep.go"):
+                with open(os.path.join(src, "internal", name), "w") as fh:
+                    fh.write("package web\n")
+            git_run(["init", "-q"], src, bad)
+            git_run(["add", "internal/server.go", "internal/keep.go"], src, bad)
+            # Tracked AND deliberately not copied: `.cortexkit/.gitignore` is exactly this shape
+            # in this repository, and it is the case that made the exemption necessary. Without
+            # an assertion both ways the exemption is unpinned -- too wide silently drops source,
+            # too narrow refuses a run that should have gone ahead.
+            os.makedirs(os.path.join(src, ".cortexkit"), exist_ok=True)
+            with open(os.path.join(src, ".cortexkit", ".gitignore"), "w") as fh:
+                fh.write("state\n")
+            git_run(["add", ".cortexkit/.gitignore"], src, bad)
+
+            def dropping_copy(s, d, ignore):
+                shutil.copytree(s, d, ignore=ignore)
+                os.remove(os.path.join(d, "internal", "keep.go"))
+
+            try:
+                snapshot(src, os.path.join(work, "dst"), copy=dropping_copy)
+                bad.append("a snapshot missing a tracked file was accepted: the battery would "
+                           "have run over a tree with that file gone and reported its mutants "
+                           "caught against nothing")
+            except SnapshotError as err:
+                if "missing" not in str(err):
+                    bad.append(f"the snapshot refused for the wrong reason: {err}")
+                if ".cortexkit" in str(err):
+                    bad.append("the snapshot refused over a file under a never-copied root name,"
+                               f" which is excluded on purpose: {err}")
+    run_rule(srules, bad,
+               "snapshot: a copy that came back without a tracked file is refused", _snap04)
+
+    # The end-to-end half, through `snapshot` rather than a hand-built callback: the
+    # composition is the fix, and a rule that rebuilt the callback for itself stayed green
+    # with `main` reverted to the four hardcoded names.
+    #
+    # `runs` is what the repository ignores and `other` is not. The first is the bug that
+    # happened; the second is the guard the ticket asked for in as many words -- "a tree
+    # containing an UNIGNORED directory with a socket in it" -- and it is the class rather
+    # than the instance, because the next one will not be named runs/.
+
+    def _snap05(bad):
+        with tempfile.TemporaryDirectory() as work:
+            src = os.path.join(work, "src")
+            os.makedirs(os.path.join(src, "internal", "web"))
+            with open(os.path.join(src, "internal", "web", "server.go"), "w") as fh:
+                fh.write("package web\n")
+            for name in ("runs", "other"):
+                chrome_profile(src, name, bad)
+            with open(os.path.join(src, ".gitignore"), "w") as fh:
+                fh.write("runs/\n")
+            git_run(["init", "-q"], src, bad)
+            # Tracked, so that the copy is checked against the repository rather than against
+            # nothing: an empty tracked set makes `missing_source` pass for free. Only these two
+            # are staged -- `git add -A` refuses to look at a socket, and the socket is the point.
+            git_run(["add", "internal/web/server.go", "other/note.txt"], src, bad)
+            tracked = tracked_paths(src)
+            if not tracked:
+                bad.append("the fixture has no tracked files, so nothing checked that the copy "
+                           "holds the source")
+            dst = os.path.join(work, "dst")
+            try:
+                skipped = snapshot(src, dst)
+            except (shutil.Error, SnapshotError) as err:
+                skipped = []
+                bad.append(f"a tree with sockets in it did not snapshot: {err}")
+            if os.path.exists(os.path.join(dst, "runs")):
+                bad.append("the ignored directory was copied anyway")
+            for rel in ("internal/web/server.go", "other/note.txt"):
+                if not os.path.isfile(os.path.join(dst, rel)):
+                    bad.append(f"{rel} did not reach the snapshot, so the copy is not the tree")
+            for junk in ("SingletonCookie", "SingletonSocket"):
+                if os.path.lexists(os.path.join(dst, "other", junk)):
+                    bad.append(f"the uncopyable {junk} was copied anyway")
+                if not any(junk in p for p in skipped):
+                    bad.append(f"the uncopyable {junk} was neither copied nor reported, so "
+                               "nobody is told the tree being tested is smaller than the one on "
+                               f"disk (reported: {skipped})")
+    run_rule(srules, bad,
+               "snapshot: a tree with sockets in it snapshots, keeps the source, and reports what it left out", _snap05)
+
+    # What git is asked for must be what gets skipped. The rule above gets its ignored paths
+    # from `snapshot`, which asks git, so nothing so far would notice `ignored_paths` being
+    # gutted into returning nothing -- and that is the other half of this bug, the half a
+    # .gitignore that does not say `runs/` would hit.
+
+    def _snap06(bad):
+        if shutil.which("git"):
+            with tempfile.TemporaryDirectory() as work:
+                got = ignored_paths(git_tree(work, bad))
+                if "runs/" not in got:
+                    bad.append("ignored_paths did not report the directory the repository "
+                               f"ignores: {got}")
+                if "keep/" in got or "keep/capture.png" in got:
+                    bad.append("ignored_paths reported a directory the repository does not "
+                               f"ignore: {got}")
+                # The `-z` in LS_IGNORED, and it is not cosmetic. Without it git answers
+                # `"run\"s/"` for a directory holding a quote, that answer matches nothing on
+                # disk, and the crash this function exists to prevent comes back. A name with an
+                # accent tests the same quoting but compares differently on a volume that
+                # normalises unicode, so the fixture uses the quote itself.
+                quoted = ignored_paths(git_tree(work, bad, ignore=("runs/", 'run"s/')))
+                if 'run"s/' not in quoted or any(p.startswith('"') for p in quoted):
+                    bad.append("git's answer came back C-quoted, so an ignored path holding a "
+                               f"quote matches nothing on disk: {quoted}")
+                # And a name the locale cannot decode at all, which is the same failure arriving
+                # from the other direction: `os.fsdecode` is what keeps it a round trip instead
+                # of a UnicodeDecodeError before a single mutant runs.
+                raw = os.path.join(work, "raw")
+                weird = os.fsdecode(b"prof\xedle")
+                os.makedirs(os.path.join(raw, weird), exist_ok=True)
+                with open(os.path.join(raw, ".gitignore"), "wb") as fh:
+                    fh.write(b"prof\xedle/\n")
+                git_run(["init", "-q"], raw, bad)
+                if weird + "/" not in ignored_paths(raw):
+                    bad.append("an ignored path the locale cannot decode did not survive the "
+                               f"round trip: {ignored_paths(raw)!r}")
+    run_rule(srules, bad,
+               "snapshot: git's ignored answer is what gets skipped, quoting and locale included", _snap06)
+
+    # The answer must be a function of the repository and of nothing else. `GIT_DIR` is
+    # exported by hooks and by wrapper scripts that call `make verify`, `GIT_CONFIG_PARAMETERS`
+    # is how `git -c k=v` reaches a child, and a machine-wide core.excludesFile is not part of
+    # this tree. Any one of them can make a battery copy the wrong tree; the last can also
+    # make the assertion above pass or fail on someone's dotfiles, and an assertion about what
+    # is NOT ignored is the one that has to be able to say no.
+
+    def _snap07(bad):
+        if shutil.which("git"):
+            with tempfile.TemporaryDirectory() as work:
+                # A real config file pointing at a real excludes list, because that is the
+                # machine-wide setting this has to be immune to; the list and the config cannot be
+                # the same file, since one is git config and the other is a pattern list.
+                patterns = os.path.join(work, "excludes")
+                with open(patterns, "w") as fh:
+                    fh.write("keep/\n")
+                cfg = os.path.join(work, "config")
+                with open(cfg, "w") as fh:
+                    fh.write(f"[core]\n\texcludesFile = {patterns}\n")
+                repo = git_tree(os.path.join(work, "repo"), bad)
+                saved = dict(os.environ)
+                try:
+                    os.environ["GIT_DIR"] = os.path.join(work, "not-a-repo")
+                    os.environ["GIT_WORK_TREE"] = work
+                    os.environ["GIT_CONFIG_GLOBAL"] = cfg
+                    os.environ["GIT_CONFIG_SYSTEM"] = cfg
+                    os.environ["GIT_CONFIG_PARAMETERS"] = (
+                        f"'core.excludesFile'='{patterns}'")
+                    got = ignored_paths(repo)
+                finally:
+                    os.environ.clear()
+                    os.environ.update(saved)
+                if "runs/" not in got:
+                    bad.append(f"an ambient GIT_DIR changed what the snapshot skips: {got}")
+                if "keep/" in got:
+                    bad.append(f"a machine-wide excludes setting changed what the snapshot "
+                               f"skips: {got}")
+    run_rule(srules, bad,
+               "snapshot: an ambient GIT_DIR or a machine-wide excludes file does not change what is skipped", _snap07)
+
+    # A tree git cannot answer for is snapshotted exactly as it always was. There are two
+    # ways not to answer and the function has a branch for each: nothing to run, and
+    # something that runs and says no. Both have to fall back rather than refuse, because a
+    # missing git is no reason a battery cannot run -- which is survivable now because of the
+    # error sorting above, not in spite of it.
+
+    def _snap08(bad):
+        if ignored_paths(os.path.join(tempfile.gettempdir(), "no-such-tree-at-all")):
+            bad.append("ignored_paths invented entries for a path that does not exist")
+    run_rule(srules, bad,
+               "snapshot: a tree git cannot answer for is snapshotted the way it always was", _snap08)
+
+    def _snap09(bad):
+        with tempfile.TemporaryDirectory() as work:
+            # A git that answers AND refuses. The first version of this rule handed over
+            # `sys.executable`, whose stdout is empty, so the rule passed with the refusal branch
+            # deleted: an answer worth refusing is the only way to pin the branch that throws one
+            # away, and a source name is the answer that must not be believed.
+            stub = os.path.join(work, "stub.py")
+            with open(stub, "w") as fh:
+                fh.write("import sys\n"
+                         "sys.stdout.buffer.write(b'server.go\\0')\n"
+                         "sys.exit(3)\n")
+            if ignored_paths(work, git=[sys.executable, stub]):
+                bad.append("ignored_paths trusted an answer from a command that exited non-zero")
+    run_rule(srules, bad,
+               "snapshot: an answer from a git that exited non-zero is not believed", _snap09)
     # The two helpers every rule above is counted through are themselves attack surface: a
     # `pass` where `rules.append(name)` is, or an `if False:` inside control(), keeps every
     # number intact while emptying the checks. So both are canaried through a throwaway
@@ -926,15 +1886,21 @@ def self_test():
     rule(probe_rules, probe_bad, "canary", ["a problem"])
     control(probe_rules, probe_bad, "canary", [], "it said nothing")
     control(probe_rules, probe_bad, "canary", ["a problem"], "it said nothing")
-    if len(probe_rules) != 3 or len(probe_bad) != 2:
-        bad.append(f"the rule/control helpers are hollow: they counted {len(probe_rules)} "
-                   f"and reported {len(probe_bad)}, want 3 and 2 -- a rule that cannot fail "
-                   f"is not made honest by counting it")
+    # run_rule is the same attack surface with one more step: a body that reports a problem
+    # has to have it reported, and a body that reports none has to add nothing. Without the
+    # second arm, `run_rule = lambda rules, bad, name, body: rules.append((name, 0))` counts
+    # every snapshot rule as passing while calling none of them.
+    run_rule(probe_rules, probe_bad, "canary", lambda problems: problems.append("a problem"))
+    run_rule(probe_rules, probe_bad, "canary", lambda problems: None)
+    if len(probe_rules) != 5 or len(probe_bad) != 3:
+        bad.append(f"the rule/control/run_rule helpers are hollow: they counted "
+                   f"{len(probe_rules)} and reported {len(probe_bad)}, want 5 and 3 -- a rule "
+                   f"that cannot fail is not made honest by counting it")
 
     # Reported, not adjudicated: the reach check used to live here, and a bare `return`
     # inserted anywhere above it skipped every rule and still exited 0. What decides
     # pass or fail is self_test_verdict(), outside the code whose reach it measures.
-    return vrules, rules, bad, bad.raised
+    return vrules, rules, srules, bad, bad.raised
 
 
 def guard(ran, bad_out, why, got, want):
@@ -991,18 +1957,30 @@ def verdict_guard_problems():
                 ("an emptied problem list is refused",
                  lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
                                     [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
                                     Problems(), 2)), 1),
                 # A pair appended by hand counts itself and asserts nothing.
                 ("a hand-forged rule is refused",
                  lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES - 1)]
                                     + [("forged",)],
                                     [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
                                     Problems(), 0)), 1),
-                # And the honest report still has to pass, or the three above pass by always
+                # The shape this merge was exposed to: a report still carrying two counts
+                # where three are asked for. #119's snapshot rules lived in the function this
+                # PR restructured, so a resolution that dropped them would have printed a
+                # confident pair over a fix nothing checks. This is that report, and it has to
+                # be refused rather than read as an older, smaller, valid verdict.
+                ("a verdict with two counts instead of three is refused",
+                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    Problems(), 0)), 1),
+                # And the honest report still has to pass, or the four above pass by always
                 # saying no.
                 ("a complete verdict still passes",
                  lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
                                     [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
                                     Problems(), 0)), 0),
         ):
             try:
@@ -1013,7 +1991,7 @@ def verdict_guard_problems():
     return ran, bad_out
 
 
-EXPECTED_VERDICT_GUARDS = 5
+EXPECTED_VERDICT_GUARDS = 6
 
 
 def verdict_guard_reach_problems(ran, problems):
@@ -1050,15 +2028,20 @@ def self_test_verdict(report, extra=()):
     its own failure, which is the only way to tell "nothing was checked" from "all of it
     held".
 
-    The two counts are named apart in the summary because "N rules hold" said about two
-    different mechanisms is how a summary starts meaning less than the reader assumes.
+    The three counts are named apart in the summary because "N rules hold" said about three
+    different mechanisms is how a summary starts meaning less than the reader assumes: the
+    verdict rules read captured output, the selection rules run a pure function, and the
+    snapshot rules build repositories on disk. A merge that carried one family's count and
+    silently dropped another's -- which is what #119's snapshot rules would have done here,
+    since this PR restructured the function they lived in -- would still have printed a
+    confident pair.
     """
-    if not isinstance(report, tuple) or len(report) != 4:
+    if not isinstance(report, tuple) or len(report) != 5:
         print("self-test FAILED:")
         print(f"  - it returned {report!r} instead of a verdict, so nothing was checked "
               f"(a `return` inside self_test skips every rule below it)")
         return 1
-    vrules, rules, bad, raised = report
+    vrules, rules, srules, bad, raised = report
     # The problems and the count of problems arrive separately on purpose: the list is the
     # thing a `clear()` on the way out can empty, and the number is not.
     if len(bad) != raised:
@@ -1071,7 +2054,7 @@ def self_test_verdict(report, extra=()):
     # the counted rules -- a pin that counts itself moves the number it exists to hold.
     # Every entry has to have come through `rule()`. A count is only a claim about
     # assertions if the assertions went through the thing that counts them.
-    forged = [r for r in list(vrules) + list(rules)
+    forged = [r for r in list(vrules) + list(rules) + list(srules)
               if not (isinstance(r, tuple) and len(r) == 2 and isinstance(r[1], int))]
     if forged:
         bad.append(f"{len(forged)} rule(s) were recorded without going through rule(): "
@@ -1085,13 +2068,22 @@ def self_test_verdict(report, extra=()):
         bad = list(bad) + [f"the self-test ran {len(rules)} selection rules, expected "
                            f"{EXPECTED_SELECT_RULES}: a rule was deleted, or stopped "
                            f"counting. Ran: {rules}"]
+    # The third count is the one this merge owed. #119 landed its snapshot rules inside the
+    # function this PR restructured, so resolving the overlap toward this PR's shape without
+    # carrying them would have left the fix present, the summary confident, and nothing
+    # checking it -- which is the defect #118 was opened about, arriving through a merge.
+    if len(srules) != EXPECTED_SNAPSHOT_RULES:
+        bad = list(bad) + [f"the self-test ran {len(srules)} snapshot rules, expected "
+                           f"{EXPECTED_SNAPSHOT_RULES}: a rule was deleted, or stopped "
+                           f"counting. Ran: {srules}"]
     bad = list(bad) + [q for q in extra if q not in bad]
     if bad:
         print("self-test FAILED:")
         for b in bad:
             print(f"  - {b}")
         return 1
-    print(f"self-test: {len(vrules)} verdict rules and {len(rules)} selection rules hold")
+    print(f"self-test: {len(vrules)} verdict rules, {len(rules)} selection rules and "
+          f"{len(srules)} snapshot rules hold")
     return 0
 
 
@@ -1129,17 +2121,23 @@ def main():
 
     # Everything below runs against this copy. The working tree is never written to,
     # so an interrupted run cannot leave a mutant behind and a concurrent edit cannot
-    # turn a real result into a compile failure.
+    # turn a real result into a compile failure. What arrives is what the repository
+    # tracks plus anything untracked that it does not ignore, less the names in
+    # NEVER_COPIED -- see snapshot_ignore, and snapshot for what happens to a path that
+    # cannot be copied at all.
     work = tempfile.mkdtemp(prefix="plock-mutate-")
     global ROOT
     ROOT = os.path.join(work, "repo")
     # The try opens here rather than at the loop. A set file that fails validation makes
     # mutset.load call sys.exit, and an exit between the copy and the loop used to leave a
-    # whole copy of the tree behind in /tmp.
+    # whole copy of the tree behind in /tmp. The snapshot's own refusal rides the same
+    # finally: sys.exit inside the handler still runs it, so a retry on a tree with an
+    # unreadable file cannot pile another full copy into TMPDIR.
     try:
-        shutil.copytree(SRC, ROOT, ignore=shutil.ignore_patterns(
-            ".git", "bin", ".cortexkit", "__pycache__"))
+        skipped = snapshot(SRC, ROOT)
         print(f"running against a copy of the tree in {ROOT}")
+        for path in skipped:
+            print(f"snapshot left out an uncopyable path that is not source: {path}")
 
         # --only writes a trimmed copy of the set rather than filtering inside run_set,
         # so what the run reports is exactly what the file on disk said -- one trimmed
@@ -1154,15 +2152,25 @@ def main():
             if not sets:
                 sys.exit(f"none of {sorted(wanted)} is in {scope(args.sets)}")
         else:
-            sets = [(p, os.path.relpath(p, SRC)) for p in sets]
+            # set_label, not an inline relpath: the two arms of this branch label the same
+            # file, and the inline copy printed `../../outside/platform.json` where the
+            # --only arm printed `platform.json` for one set outside the repo.
+            sets = [(p, set_label(p)) for p in sets]
 
-        totals = {"caught": 0, "survived": 0, "invalid": 0, "equivalent": 0}
-        for path, label in sets:
-            tally = run_set(path, label)
-            if tally is None:
-                return 2
-            for k in totals:
-                totals[k] += tally[k]
+        # Consumed by a function rather than a loop here, so the self-test can run this loop
+        # against a fake runner and assert every set ran and every tally was summed -- see
+        # run_selection's docstring for why that is the close and a text audit is not.
+        totals, ran_all = run_selection(sets, run_set)
+        if not ran_all:
+            # A set could not be run at all, so there is no honest TOTAL to print: the
+            # numbers would describe a run that did not happen.
+            return 2
+    except SnapshotError as err:
+        # Source that could not be copied, or a copy found to be missing tracked files.
+        # Both mean the run would report mutants caught against a tree that is not the
+        # repository, so the refusal is the last word -- and it is fatal, where an
+        # uncopyable socket is merely skipped.
+        sys.exit(str(err))
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

@@ -19,6 +19,32 @@
     id <code>{{.ID}}</code> &middot; timezone <code>{{.Timezone}}</code>
   </p>
 
+  {{- /* The two labels on the profile, each beside the line that shows it. The timezone is
+         not cosmetic: every window below is read in it, so a wrong zone enforces the right
+         clock at the wrong hours. */ -}}
+  <form method="post" action="/profiles/{{.ID}}/rename" class="edit-form">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <p>
+      <label for="rename-{{.ID}}">Rename this profile</label>
+      <input id="rename-{{.ID}}" type="text" name="name" value="{{.Name}}" required>
+      <button type="submit">Save name</button>
+    </p>
+  </form>
+
+  <form method="post" action="/profiles/{{.ID}}/timezone" class="edit-form">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <p>
+      <label for="tz-{{.ID}}">Timezone</label>
+      <input id="tz-{{.ID}}" type="text" name="timezone" value="{{.Timezone}}" required
+             placeholder="Europe/Paris">
+      <button type="submit">Save timezone</button>
+    </p>
+    <p class="muted">
+      Every window below is read in this zone, so changing it moves when the account is
+      actually locked.
+    </p>
+  </form>
+
   {{- /* The evaluator's own degraded report. A profile whose rule can never fire, or whose
          timezone fell back to a default, would otherwise look exactly like one that works. */ -}}
   {{if .Complaint}}

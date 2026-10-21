@@ -107,6 +107,25 @@ func TestProfileEditRefusesAZoneTheSystemCannotResolve(t *testing.T) {
 	}
 }
 
+// `Local` is the one value time.LoadLocation resolves that has no meaning of its own: it means
+// "whatever this machine's clock is set to". The web form refuses it, and a rule that lives only
+// in the form is a rule about a screen rather than about the config -- `plock profile edit
+// --timezone Local` would land it anyway, and nothing would ever say so.
+func TestProfileEditRefusesLocalBecauseItFollowsTheMachine(t *testing.T) {
+	path := seed(t)
+	code, _, errOut := runCmd(t, "profile", "edit", "school", "--timezone", "Local", "--config", path)
+	if code != exitUsage {
+		t.Errorf("exit %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(errOut, "machine's clock") {
+		t.Errorf("stderr = %q, want it to say Local follows the machine rather than the household",
+			errOut)
+	}
+	if p := profileByID(t, path, "school"); p.Timezone != "Europe/London" {
+		t.Errorf("Local was written: %q", p.Timezone)
+	}
+}
+
 func TestProfileEditOnAnUnknownProfileIsAFailureNotAUsageError(t *testing.T) {
 	path := seed(t)
 	code, _, errOut := runCmd(t, "profile", "edit", "nobody", "--name", "x", "--config", path)

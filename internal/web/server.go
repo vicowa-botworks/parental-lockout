@@ -700,6 +700,13 @@ func (s *Server) router() *http.ServeMux {
 		s.requireAuth(http.HandlerFunc(s.handleAddRule)))
 	mux.Handle("POST /profiles/{id}/delete",
 		s.requireAuth(http.HandlerFunc(s.handleDeleteProfile)))
+	// The two labels on a profile. The timezone is the one that changes behaviour: every
+	// window in the profile is resolved in it, so a wrong zone enforces the right clock at
+	// the wrong hours while the dashboard reports the result as the hours that were set.
+	mux.Handle("POST /profiles/{id}/timezone",
+		s.requireAuth(http.HandlerFunc(s.handleProfileTimezone)))
+	mux.Handle("POST /profiles/{id}/rename",
+		s.requireAuth(http.HandlerFunc(s.handleProfileRename)))
 	// Saving the settings is a config write, so it goes through the same mutateConfig seam as
 	// the profile and assignment writes -- which is the only reason the enforcement loop notices
 	// the switch within a tick instead of at the next restart.

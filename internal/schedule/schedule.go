@@ -224,6 +224,16 @@ func ProfileErrors(p *config.Profile) []error {
 			errs = append(errs, fmt.Errorf(
 				"schedule: timezone %q is not a known zone (%v); every rule in this profile is being read in the machine's own zone instead",
 				p.Timezone, err))
+		} else if p.Timezone == "Local" {
+			// `Local` resolves, so the branch above stays silent -- and the result is the same
+			// state the comment above this function warns about: every rule read in the
+			// machine's own zone. It is worse than an unresolvable name, because nothing
+			// anywhere reports it: Validate accepts it, the evaluator loads it, and the hours
+			// move whenever the host's zone moves. Reporting it is the only thing that puts the
+			// family in the sentence on screen.
+			errs = append(errs, fmt.Errorf(
+				"schedule: timezone %q is not a zone; it follows whatever the machine's clock is set to, so every rule in this profile moves with the host",
+				p.Timezone))
 		}
 	}
 	return errs
