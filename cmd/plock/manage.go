@@ -842,6 +842,15 @@ func checkTimezone(name string) error {
 	if _, err := time.LoadLocation(name); err != nil {
 		return fmt.Errorf("timezone %q is not one this system knows: %v", name, err)
 	}
+	if name == "Local" {
+		// The web form refuses this and the refusal has to be here too, or the rule is a
+		// property of the screen rather than of the config: `plock profile edit --timezone
+		// Local` would land the one value whose meaning is "whatever this machine says" in the
+		// field that promises the household's zone, and only the page would object.
+		// schedule.ProfileErrors now reports a profile already holding it, so an existing
+		// config keeps enforcing while saying what it is doing.
+		return errors.New("timezone \"Local\" follows the machine's clock rather than the household's; name the zone the family lives in")
+	}
 	return nil
 }
 
