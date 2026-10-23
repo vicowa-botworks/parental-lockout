@@ -402,6 +402,11 @@ LONGEST_TOKEN_JS = ("JSON.stringify(Math.max(0, ...[...document.querySelectorAll
                     ".map(s => s.length)))")
 
 
+def longest_token(session):
+    """The longest run without a space anywhere in a `table.rows` cell, as the browser sees it."""
+    return session.json(LONGEST_TOKEN_JS)
+
+
 def require_unbreakable_detail(session, what):
     """#140's rule: the audit page is only evidence about width if it was handed something that
     cannot be wrapped.
@@ -423,7 +428,7 @@ def require_unbreakable_detail(session, what):
 
     Returns the length it saw, so the transcript records how much pressure the photograph carries.
     """
-    longest = session.json(LONGEST_TOKEN_JS)
+    longest = longest_token(session)
     if longest < UNBREAKABLE_MIN:
         raise SystemExit(
             f"{what}: the hardest token anywhere in the table is {longest} characters, under the "

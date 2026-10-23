@@ -68,17 +68,24 @@ def shoot(cap, page, name, has_rows):
     # criterion refuses, and a driver that writes it and then exits 1 has left the wrong evidence
     # on disk under the right filename -- with --out pointing at the docs tree it has overwritten
     # the committed artifact and only an exit code says so.
+    # Measured BEFORE the width refusal so the refusal can name it. The 893 px refusal that opened
+    # #140 said only how wide the page was, and by the time anyone read it the row that may have
+    # caused it was gone -- the number that would have answered is one CDP call away at the moment of
+    # refusal and unrecoverable after it.
+    longest = cdp.longest_token(session) if has_rows else None
+    hard = "" if longest is None else f" hardest={longest}ch"
     if got["scroll"] > cdp.WIDTH:
-        raise SystemExit(f"{page} is {got['scroll']} px wide at a {cdp.WIDTH} px viewport; the "
-                         "criterion refuses this page, so its photograph is not taken")
+        cause = ("" if longest is None else
+                 f", and its hardest unbreakable token is {longest} characters")
+        raise SystemExit(f"{page} is {got['scroll']} px wide at a {cdp.WIDTH} px viewport{cause}; "
+                         "the criterion refuses this page, so its photograph is not taken")
     # After the width refusal, before the write. A page that overflows should report the overflow,
     # which is the alarming fact; a page that fits is then asked whether fitting meant anything.
     # #140's whole lesson is that the audit page can fit at 360 px having been asked for nothing,
     # because the row that broke it came from the daemon failing on this machine rather than from
     # the fixture.
-    hard = ""
     if page == "/audit":
-        hard = f" hardest={cdp.require_unbreakable_detail(session, 'the audit page')}ch"
+        cdp.require_unbreakable_detail(session, "the audit page")
     cap.require_running()
     session.write_png(name)
     proof = f"tables={got['tables']} cells={got['cells']}" if has_rows else \
