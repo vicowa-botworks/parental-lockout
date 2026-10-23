@@ -56,6 +56,11 @@ verify:
 	if [ -n "$$dirty" ]; then echo "not gofmt-clean:"; echo "$$dirty"; exit 1; fi; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
+	echo "==> empty selection refuses"; \
+	if python3 scripts/attack-self-test.py zzzznomatch >/dev/null 2>&1; then \
+		echo "a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \
+		exit 1; \
+	fi; \
 	echo "==> go vet"; $(GO) vet ./...; \
 	echo "==> go build"; $(GO) build ./...; \
 	echo "==> go test -race"; $(GO) test -race ./...; \
