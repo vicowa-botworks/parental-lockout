@@ -83,6 +83,7 @@ func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 func (s *Server) profilesView(cfg *config.Config) profilesPage {
 	page := profilesPage{Days: config.DayNames, Manage: cfg.Settings.Enforcement}
 
+	ambiguous := config.AmbiguousProfileNames(cfg.Profiles)
 	for _, p := range cfg.Profiles {
 		row := profileRow{
 			ID: p.ID, Name: p.Name, Timezone: p.Timezone,
@@ -112,6 +113,17 @@ func (s *Server) profilesView(cfg *config.Config) profilesPage {
 				msgs[i] = e.Error()
 			}
 			row.Complaint = strings.Join(msgs, "; ")
+		}
+		// A pair the page cannot tell apart is said here rather than refused at load, because
+		// the config still enforces and the operator's way out of it is a write. Refusing to
+		// load, or refusing every write, would turn a labelling problem into a lockout nobody
+		// can lift. The write paths refuse to create the pair; this says one is already here.
+		if ambiguous[p.ID] {
+			if row.Complaint != "" {
+				row.Complaint += "; "
+			}
+			row.Complaint += "another profile is listed under this name too, so these two " +
+				"cannot be told apart on this page"
 		}
 		page.Profiles = append(page.Profiles, row)
 	}
@@ -250,10 +262,12 @@ func (s *Server) handleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 var errUnknownProfile = errors.New("no such profile")
 
 // errProfileNameTaken marks a rename refused because a different profile already answers to
-// that name. It is a sentinel rather than a fmt.Errorf so the handler can answer 422 with its
-// own sentence instead of paraphrasing one built from the colliding name -- see the comment on
-// handleProfileRename.
-var errProfileNameTaken = errors.New("that profile name is already taken")
+// that name. It is the config package's error rather than a web-local one: `plock profile add`
+// and `plock profile edit --name` refuse the same thing, and two sentences for one refusal is
+// how an operator concludes that only one of the paths is real. It stays a sentinel rather than
+// a fmt.Errorf so the handler answers 422 with this sentence instead of one built from the
+// colliding name -- see the comment on handleProfileRename.
+var errProfileNameTaken = config.ErrProfileNameTaken
 
 // handleProfileTimezone changes the zone a profile's windows are read in.
 //
@@ -386,20 +400,11 @@ func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return errUnknownProfile
 		}
-		for _, other := range c.Profiles {
-			if other.ID == p.ID {
-				continue
-			}
-			// The id counts as a label, but only when the page is actually printing it as one:
-			// the heading is "name, or the id when the name is empty", and Validate requires an
-			// id but never a name. So a profile listed under its id is ambiguous with a new
-			// profile named after that id. Refusing the id unconditionally would be a rule
-			// bigger than its reason -- a profile whose name is set never shows its id as a
-			// heading, so renaming onto that id disambiguates nothing and must stay allowed.
-			if strings.TrimSpace(other.Name) == name ||
-				(strings.TrimSpace(other.Name) == "" && other.ID == name) {
-				return errProfileNameTaken
-			}
+		// The rule is config.ProfileNameTaken, shared with `plock profile add` and
+		// `plock profile edit --name`: the config is writable from all three, and a check that
+		// only the form makes is a check the CLI can walk past with one command.
+		if config.ProfileNameTaken(c.Profiles, name, p.ID) {
+			return errProfileNameTaken
 		}
 		previous = p.Name
 		p.Name = name
@@ -412,9 +417,7 @@ func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, errProfileNameTaken):
 			// Its own sentence rather than err.Error(), which carries no name to leak and
 			// would read as a system fault rather than a collision the operator can fix.
-			s.pageRefuse(w, r, http.StatusUnprocessableEntity,
-				"another profile on this machine already has that name, and this page lists "+
-					"profiles by name -- two alike could not be told apart")
+			s.pageRefuse(w, r, http.StatusUnprocessableEntity, errProfileNameTaken.Error())
 		default:
 			s.mutateRefused(w, r, "the profile could not be renamed", err)
 		}

@@ -309,6 +309,15 @@ func profileAdd(stdout, stderr io.Writer, args []string) int {
 		fmt.Fprintf(stderr, "plock profile add: %v\n", err)
 		return cli.Usage
 	}
+	if config.ProfileNameTaken(cfg.Profiles, strings.TrimSpace(p.Name), "") {
+		// `--copy-from` carries the source's name onto the copy whenever --name is not given,
+		// which is the one way to build from a shell the pair the web form refuses. The answer
+		// is not a generated suffix: a name nobody typed is a name nobody recognises when the
+		// page lists it, and the whole point of the name is that it is what the page lists.
+		fmt.Fprintf(stderr, "plock profile add: %v (--name gives the copy its own)\n",
+			config.ErrProfileNameTaken)
+		return cli.Failure
+	}
 
 	cfg.UpsertProfile(p)
 	return saveEdited(cfg, *c.path, stdout, stderr, "profile add", func(r *cli.Report) {
@@ -356,6 +365,12 @@ func profileEdit(stdout, stderr io.Writer, args []string) int {
 		p.Timezone = *tz
 	}
 	if *name != "" {
+		// The same predicate the rename form uses. `p.ID` is excluded so that re-stating a
+		// profile's existing name is not refused as a collision with itself.
+		if config.ProfileNameTaken(cfg.Profiles, strings.TrimSpace(*name), p.ID) {
+			fmt.Fprintf(stderr, "plock profile edit: %v\n", config.ErrProfileNameTaken)
+			return cli.Failure
+		}
 		p.Name = *name
 	}
 	cfg.UpsertProfile(p)

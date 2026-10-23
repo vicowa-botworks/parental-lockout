@@ -1571,16 +1571,17 @@
 {
       "id": "W219",
       "file": "internal/web/profiles.go",
-      "old": "\t\t\tif strings.TrimSpace(other.Name) == name ||\n\t\t\t\t(strings.TrimSpace(other.Name) == \"\" && other.ID == name) {",
-      "new": "\t\t\tif false ||\n\t\t\t\t(strings.TrimSpace(other.Name) == \"\" && other.ID == name) {",
-      "note": "two profiles can be given the same name. config.Validate checks ids, never names, and the page heads each profile with its name and falls back to the id only when the name is empty, so two alike render two identical headings, two identical table captions and two identical delete confirmations for different documents. TestARenameOntoAnotherProfilesNameIsRefused."
+      "old": "\t\tif config.ProfileNameTaken(c.Profiles, name, p.ID) {",
+      "new": "\t\tif false && config.ProfileNameTaken(c.Profiles, name, p.ID) {",
+      "note": "the rename stops consulting the collision rule at all. config.Validate checks ids, never names, and the page heads each profile with its name and falls back to the id only when the name is empty, so two alike render two identical headings, two identical table captions and two identical delete confirmations for different documents. The rule itself moved to config.ProfileNameTaken so the CLI shares it; this is the web path's decision to use it. TestARenameOntoAnotherProfilesNameIsRefused."
     },
 {
       "id": "W220",
-      "file": "internal/web/profiles.go",
-      "old": "\t\t\tif other.ID == p.ID {\n\t\t\t\tcontinue\n\t\t\t}",
-      "new": "\t\t\tif other.ID == p.ID && false {\n\t\t\t\tcontinue\n\t\t\t}",
-      "note": "the collision check compares the name against every profile including the subject, so submitting the form without changing the field is refused as a collision with itself -- the parent cannot save anything else on the profile without retyping its name first. TestSavingAProfileItsOwnNameIsNotACollision."
+      "package": "./internal/config/",
+      "file": "internal/config/validate.go",
+      "old": "\t\tif p.ID == exceptID {\n\t\t\tcontinue\n\t\t}",
+      "new": "\t\tif p.ID == exceptID && false {\n\t\t\tcontinue\n\t\t}",
+      "note": "the collision check compares the name against every profile including the subject, so submitting the form without changing the field is refused as a collision with itself -- the parent cannot save anything else on the profile without retyping its name first. The rule now lives in config.ProfileNameTaken, which every write path calls, so this also breaks `plock profile edit --name` on a profile's own name. TestSavingAProfileItsOwnNameIsNotACollision, and the own-name row of TestProfileNameTakenIsTheLabelsRule."
     },
 {
       "id": "W221",
@@ -1599,8 +1600,8 @@
 {
       "id": "W223",
       "file": "internal/web/profiles.go",
-      "old": "\t\tif !ok {\n\t\t\treturn errUnknownProfile\n\t\t}\n\t\tfor _, other := range c.Profiles {",
-      "new": "\t\tif !ok {\n\t\t\treturn nil\n\t\t}\n\t\tfor _, other := range c.Profiles {",
+      "old": "\t\tif !ok {\n\t\t\treturn errUnknownProfile\n\t\t}\n\t\t// The rule is config.ProfileNameTaken, shared with `plock profile add` and",
+      "new": "\t\tif !ok {\n\t\t\treturn nil\n\t\t}\n\t\t// The rule is config.ProfileNameTaken, shared with `plock profile add` and",
       "note": "the same failure on the rename write: an unknown profile id is answered 303 with a newly invented empty-id profile carrying the typed name, instead of 404. TestAWriteToAnUnknownProfileIsANotFoundThatChangedNothing."
     },
 {
@@ -1612,10 +1613,11 @@
     },
 {
       "id": "W225",
-      "file": "internal/web/profiles.go",
-      "old": "\t\t\tif strings.TrimSpace(other.Name) == name ||\n\t\t\t\t(strings.TrimSpace(other.Name) == \"\" && other.ID == name) {",
-      "new": "\t\t\tif strings.TrimSpace(other.Name) == name ||\n\t\t\t\t(false) {",
-      "note": "ids stop counting as labels. The page heads a profile with its name and falls back to the id when the name is empty, and Validate requires an id but never a name, so renaming onto another profile's id recreates the two identical headings, captions and delete confirmations the check exists to prevent -- arriving through the fallback rather than the field. TestARenameOntoAnotherProfilesIDIsRefusedToo."
+      "package": "./internal/config/",
+      "file": "internal/config/validate.go",
+      "old": "\t\tif label == candidate || (label == \"\" && p.ID == candidate) {",
+      "new": "\t\tif label == candidate || (false) {",
+      "note": "ids stop counting as labels. The page heads a profile with its name and falls back to the id when the name is empty, and Validate requires an id but never a name, so renaming onto another profile's id recreates the two identical headings, captions and delete confirmations the check exists to prevent -- arriving through the fallback rather than the field. The arm moved into config.ProfileNameTaken, so the CLI paths lose it too. TestARenameOntoAnotherProfilesIDIsRefusedToo, and the id rows of TestProfileNameTakenIsTheLabelsRule."
     },
 {
       "id": "W226",
@@ -1640,6 +1642,22 @@
       "old": "      <input id=\"rename-{{.ID}}\" type=\"text\" name=\"name\" value=\"{{.Name}}\" required>",
       "new": "      <input id=\"rename-{{.ID}}\" type=\"text\" name=\"profileName\" value=\"{{.Name}}\" required>",
       "note": "the rename form posts a field the handler never reads. The page still renders, the button still looks the same, and every real press answers 422 \"a profile needs a name\". Nothing that assembles its own post body can see this, and the substring check on name=\"name\" passes anyway because the add-rule form on the same page emits that name too -- which is why the round-trip reads the emitted control names off the form block instead of typing them. TestTheProfilePageCarriesAWorkingFormForBothWrites."
+    },
+    {
+      "id": "W231",
+      "package": "./internal/config/",
+      "file": "internal/config/validate.go",
+      "old": "\t\tif len(ids) < 2 {",
+      "new": "\t\tif len(ids) < 3 {",
+      "note": "a pair stops being reported. A config can already hold two profiles with one name -- `plock profile add --copy-from` made them until #122, and a hand-edited file always could -- and the page is where the operator finds out. Requiring three means a real pair is silent while the page still renders both rows under one heading. TestAmbiguousProfileNamesMarksBothOfAPair."
+    },
+    {
+      "id": "W232",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tif ambiguous[p.ID] {",
+      "new": "\t\tif false && ambiguous[p.ID] {",
+      "note": "the profiles page stops saying that two rows are the same label. Nothing else can: the config still loads and still enforces, because refusing it would trade a labelling problem for a lockout nobody can lift, so the complaint is the only signal that the two delete confirmations name different documents. TestTheProfilesPageSaysWhenTwoProfilesShareAName."
     }
   ]
 }

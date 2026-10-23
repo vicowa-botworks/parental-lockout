@@ -267,3 +267,79 @@ func (c *Config) validate(skipAdmin bool) error {
 	}
 	return nil
 }
+
+// ErrProfileNameTaken is the refusal every write path gives when a profile would end up
+// labelled the way another one already is.
+//
+// One sentence rather than three, because the web form and `plock profile edit --name` refusing
+// the same thing in different words is how an operator learns that only one of the two paths is
+// real. It deliberately does not say "this page": the CLI refuses it too.
+var ErrProfileNameTaken = errors.New("another profile on this machine already has that name, " +
+	"and profiles are listed by name -- two alike could not be told apart")
+
+// ProfileNameTaken reports whether name is already the label that a profile other than
+// exceptID answers to.
+//
+// It lives next to Validate and is deliberately not inside it. Validate runs on every write,
+// so refusing a duplicate there would make a machine that already holds two same-named
+// profiles -- possible today through `plock profile add --copy-from`, and possible on any
+// config written before any check existed -- fail every subsequent write, including ones that
+// have nothing to do with names. That is the wrong shape for a labelling rule: it would stop
+// enforcement-adjacent edits over a cosmetic collision, and a config that cannot be written is
+// a config whose lockout cannot be lifted. The write paths that can create the pair refuse with
+// this predicate, and the profiles page reports a pair that already exists instead.
+//
+// name is compared as it is printed, so trimmed -- on both sides, and inside this function
+// rather than at the call sites. A rule whose callers have to remember to trim is a rule that
+// quietly differs by caller, which is the drift the predicate exists to remove. A profile whose name is empty is headed with
+// its id, which is the only case in which an id counts as a taken label: refusing an id
+// unconditionally would be a rule bigger than its reason, because a profile that does have a
+// name never shows its id as a heading, so renaming onto that id disambiguates something.
+//
+// exceptID is the profile being renamed, so that submitting a form without changing the field
+// is not refused as a collision with itself. The create paths pass "".
+func ProfileNameTaken(profiles []Profile, name, exceptID string) bool {
+	candidate := strings.TrimSpace(name)
+	for _, p := range profiles {
+		if p.ID == exceptID {
+			continue
+		}
+		label := strings.TrimSpace(p.Name)
+		if label == candidate || (label == "" && p.ID == candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+// AmbiguousProfileNames reports which profiles the profiles page cannot tell apart, keyed by
+// profile id.
+//
+// It answers a state this repo can already be in rather than one it can now reach: a config
+// written before the write paths checked, or one edited by hand, can hold two profiles with one
+// name. Such a config still loads and still enforces -- refusing it would trade a labelling
+// problem for a lockout nobody can lift -- so the pair has to be visible where it hurts, which
+// is the page that heads both of them with the same words and offers two delete confirmations
+// that name the same thing.
+//
+// The label is the one the page prints: the trimmed name, or the id when the name is empty.
+func AmbiguousProfileNames(profiles []Profile) map[string]bool {
+	byLabel := make(map[string][]string, len(profiles))
+	for _, p := range profiles {
+		label := strings.TrimSpace(p.Name)
+		if label == "" {
+			label = p.ID
+		}
+		byLabel[label] = append(byLabel[label], p.ID)
+	}
+	ambiguous := map[string]bool{}
+	for _, ids := range byLabel {
+		if len(ids) < 2 {
+			continue
+		}
+		for _, id := range ids {
+			ambiguous[id] = true
+		}
+	}
+	return ambiguous
+}
