@@ -416,8 +416,14 @@ def main():
             state, out, err = run(box)
             if state == "invalid":
                 counts["invalid"] += 1
-                problems.append(f"the patched module does not run, so the row proves nothing: "
-                                f"{what} -- {(err or out).strip()[:200]}")
+                # "does not run" asserted something this branch does not know. It fires on a
+                # traceback, on an unexpected exit code, and on a timeout -- and on a timeout the
+                # module ran perfectly well and simply never stopped, which is the exact
+                # conflation the message inside run() exists to keep apart. "did not answer
+                # usefully" claims only what is true for all three; the text after the dash is
+                # what names which one it was.
+                problems.append(f"the patched module did not answer usefully, so the row proves "
+                                f"nothing: {what} -- {(err or out).strip()[:200]}")
                 print(f"INVALID  {what}")
                 continue
             # `state` is what the patched self-test did; `expect` is what this row claims the
