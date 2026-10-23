@@ -535,3 +535,56 @@ func TestAHostileProfileIDCannotEscapeAFormAction(t *testing.T) {
 		t.Error("the profile is not on the page, so the escape test proves nothing")
 	}
 }
+
+// TestTheProfilesPageSaysWhenTwoProfilesShareAName covers the state the write paths refuse to
+// create but a machine can already be in: a config written before the check existed, or edited by
+// hand, holding two profiles with one name.
+//
+// It is reported rather than refused at load because the config still enforces and the way out is
+// a write. A config that would not load, or that refused every write, would turn a labelling
+// problem into a lockout nobody can lift -- so the page says what is wrong with it instead, on
+// the rows that are actually ambiguous and not on the others.
+func TestTheProfilesPageSaysWhenTwoProfilesShareAName(t *testing.T) {
+	f := newOverrideFixture(t)
+
+	f.mu.Lock()
+	f.doc.UpsertProfile(config.Profile{ID: "twin-a", Name: "Identical", Timezone: "UTC"})
+	f.doc.UpsertProfile(config.Profile{ID: "twin-b", Name: "Identical", Timezone: "UTC"})
+	f.doc.UpsertProfile(config.Profile{ID: "solo", Name: "Distinct", Timezone: "UTC"})
+	f.mu.Unlock()
+
+	rec := authGet(t, f.s, "/profiles")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Identical") {
+		t.Fatalf("neither profile reached the page at all:\n%s", body)
+	}
+	if n := strings.Count(body, "cannot be told apart"); n != 2 {
+		t.Errorf("the page names the ambiguity %d times, want once per profile in the pair;\n%s",
+			n, body)
+	}
+	// The third profile is not part of the pair, and a complaint printed on every row is a
+	// complaint that teaches the operator nothing about which two to fix. The count above is
+	// what proves it: a third complaint would make it three.
+	if !strings.Contains(body, "Distinct") {
+		t.Errorf("the unrelated profile disappeared from the page;\n%s", body)
+	}
+}
+
+// TestTheProfilesPageStaysQuietAboutDistinctNames is the negative half: the complaint must be
+// conditional on there being a pair, not printed because the code path exists.
+func TestTheProfilesPageStaysQuietAboutDistinctNames(t *testing.T) {
+	f := newOverrideFixture(t)
+
+	f.mu.Lock()
+	f.doc.UpsertProfile(config.Profile{ID: "quiet-a", Name: "Alpha pair", Timezone: "UTC"})
+	f.doc.UpsertProfile(config.Profile{ID: "quiet-b", Name: "Beta pair", Timezone: "UTC"})
+	f.mu.Unlock()
+
+	body := authGet(t, f.s, "/profiles").Body.String()
+	if strings.Contains(body, "cannot be told apart") {
+		t.Errorf("the page reports an ambiguity that is not there;\n%s", body)
+	}
+}

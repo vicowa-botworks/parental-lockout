@@ -538,6 +538,22 @@
       "old": "\t\topts.Probe = pb.Probe\n",
       "new": "\t\t_ = pb\n",
       "note": "the session source can report on its backends and the served server is never told, so /users/{name}/test-lock answers that this daemon has no probe path on a machine where everything works. Per-package tests cannot see this: only the assembled server has the seam. TestTheServedProbeAsksTheObjectThatListedSessions."
+    },
+    {
+      "id": "W229",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/manage.go",
+      "old": "\tif config.ProfileNameTaken(cfg.Profiles, strings.TrimSpace(p.Name), \"\") {",
+      "new": "\tif false && config.ProfileNameTaken(cfg.Profiles, strings.TrimSpace(p.Name), \"\") {",
+      "note": "`plock profile add --copy-from X` carries X's display name onto the copy and exits 0, which is the one way to build from a shell the exact pair the web rename form refuses. The refusal was only ever on the form and the config is writable from three places. TestProfileAddRefusesToCopyANameThatIsAlreadyUsed."
+    },
+    {
+      "id": "W230",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/manage.go",
+      "old": "\t\tif config.ProfileNameTaken(cfg.Profiles, strings.TrimSpace(*name), p.ID) {",
+      "new": "\t\tif false && config.ProfileNameTaken(cfg.Profiles, strings.TrimSpace(*name), p.ID) {",
+      "note": "`plock profile edit --name` sets a name with no collision check, so renaming an existing profile onto a name another profile already answers to succeeds from the CLI while the same rename is a 422 on the page. TestProfileEditRefusesANameAnotherProfileHas."
     }
   ]
 }

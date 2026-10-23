@@ -118,21 +118,38 @@ func TestProfileAddRefusesToOverwrite(t *testing.T) {
 	}
 }
 
+// TestProfileAddCopiesRulesAndTheirTimezoneTogether pins what travels from a copied profile and
+// what does not.
+//
+// It used to run without --name, which is the behaviour #122 removed: --copy-from carried the
+// source's display name onto the copy, so the command produced exactly the pair the web rename
+// form refuses -- two profiles with one name, which the profiles page cannot tell apart. The
+// copy now has to be named, so the test names it, and the assertion that the name is the one
+// supplied is the half that keeps the two properties from being confused: the rules and the zone
+// come across because a rule is a wall-clock time, and the name does not come across because a
+// name is how the operator finds the profile afterwards.
 func TestProfileAddCopiesRulesAndTheirTimezoneTogether(t *testing.T) {
 	path := seed(t)
-	code, out, errOut := runCmd(t, "profile", "add", "weekend", "--copy-from", "school", "--config", path)
+	code, out, errOut := runCmd(t, "profile", "add", "weekend", "--copy-from", "school",
+		"--name", "Weekend rules", "--config", path)
 	if code != exitOK {
 		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
 	}
 	cfg := readCfg(t, path)
-	var p *config.Profile
+	var p, src *config.Profile
 	for i := range cfg.Profiles {
-		if cfg.Profiles[i].ID == "weekend" {
+		switch cfg.Profiles[i].ID {
+		case "weekend":
 			p = &cfg.Profiles[i]
+		case "school":
+			src = &cfg.Profiles[i]
 		}
 	}
 	if p == nil {
 		t.Fatal("no weekend profile was written")
+	}
+	if src == nil {
+		t.Fatal("the source profile disappeared")
 	}
 	if len(p.Rules) != 1 {
 		t.Fatalf("copied %d rules, want 1", len(p.Rules))
@@ -143,8 +160,130 @@ func TestProfileAddCopiesRulesAndTheirTimezoneTogether(t *testing.T) {
 	if p.Timezone != "Europe/London" {
 		t.Errorf("timezone = %q, want the source's Europe/London", p.Timezone)
 	}
-	if p.Name == "weekend" && p.Rules[0].ID != "week" {
-		t.Error("rules did not come across")
+	if p.Rules[0].ID != "week" {
+		t.Errorf("copied rule ids = %q, want the source's", p.Rules[0].ID)
+	}
+	if p.Name != "Weekend rules" {
+		t.Errorf("name = %q, want the one --name supplied", p.Name)
+	}
+	if p.Name == src.Name {
+		t.Errorf("the copy shares the source's name %q, which is the pair this command must not make",
+			src.Name)
+	}
+}
+
+// TestProfileAddRefusesToCopyANameThatIsAlreadyUsed is the symptom in #122, in one command.
+//
+// `--copy-from` with no `--name` used to carry the source's display name onto the copy and exit
+// 0. The result is two profiles the profiles page renders with one heading, one table caption
+// and two delete confirmations naming the same thing -- the exact state POST /profiles/{id}/rename
+// was written to refuse. The refusal was only ever on the form, and the config is writable from
+// three places.
+func TestProfileAddRefusesToCopyANameThatIsAlreadyUsed(t *testing.T) {
+	path := seed(t)
+	before := readCfg(t, path)
+
+	code, _, errOut := runCmd(t, "profile", "add", "weekend", "--copy-from", "school", "--config", path)
+	if code != exitFailure {
+		t.Fatalf("exit %d, want %d: copying a name that is in use must not succeed\n%s",
+			code, exitFailure, errOut)
+	}
+	if !strings.Contains(errOut, "already has that name") {
+		t.Errorf("stderr = %q, want it to name the collision", errOut)
+	}
+	// Refused means nothing written, not "written and complained about".
+	if got := readCfg(t, path); len(got.Profiles) != len(before.Profiles) {
+		t.Errorf("the config gained a profile anyway: %d, want %d",
+			len(got.Profiles), len(before.Profiles))
+	}
+}
+
+// TestProfileAddAcceptsACopyGivenItsOwnName is the other half of the refusal: the command is
+// not being made unusable, only made to ask. --name is the answer the error message gives, so
+// the message has to be able to work.
+func TestProfileAddAcceptsACopyGivenItsOwnName(t *testing.T) {
+	path := seed(t)
+	code, out, errOut := runCmd(t, "profile", "add", "weekend", "--copy-from", "school",
+		"--name", "Weekends", "--config", path)
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	cfg := readCfg(t, path)
+	for _, p := range cfg.Profiles {
+		if p.ID == "weekend" && p.Name != "Weekends" {
+			t.Errorf("name = %q, want the one --name supplied", p.Name)
+		}
+	}
+}
+
+// TestProfileAddRefusesAnExplicitNameThatIsAlreadyUsed covers the path where the operator types
+// the colliding name themselves. The rule is about the resulting config, not about which flag
+// the value came from, so --name is refused exactly as --copy-from is.
+func TestProfileAddRefusesAnExplicitNameThatIsAlreadyUsed(t *testing.T) {
+	path := seed(t)
+	code, _, errOut := runCmd(t, "profile", "add", "weekend", "--name", "School nights",
+		"--config", path)
+	if code != exitFailure {
+		t.Fatalf("exit %d, want %d\n%s", code, exitFailure, errOut)
+	}
+	if !strings.Contains(errOut, "already has that name") {
+		t.Errorf("stderr = %q, want it to name the collision", errOut)
+	}
+}
+
+// TestProfileEditRefusesANameAnotherProfileHas is the second CLI write path. Before this it
+// checked nothing, so `plock profile edit school --name "Kids"` on a machine with a profile
+// called Kids renamed straight into the ambiguous pair.
+func TestProfileEditRefusesANameAnotherProfileHas(t *testing.T) {
+	path := writeCfg(t, `{
+  "version": 1,
+  "settings": {"enforcement": true, "pollSeconds": 30, "lockBackends": ["logind"]},
+  "profiles": [
+    {"id": "school", "name": "School nights", "timezone": "Europe/London"},
+    {"id": "weekend", "name": "Weekends", "timezone": "UTC"}
+  ],
+  "users": [{"username": "casey", "profileID": "school", "enabled": true}]
+}`)
+	before := readCfg(t, path)
+
+	code, _, errOut := runCmd(t, "profile", "edit", "school", "--name", "Weekends", "--config", path)
+	if code != exitFailure {
+		t.Fatalf("exit %d, want %d\n%s", code, exitFailure, errOut)
+	}
+	// The same sentence the web form answers 422 with, not a CLI paraphrase of it: two
+	// wordings for one refusal is how an operator decides only one path is real.
+	if !strings.Contains(errOut, "already has that name") {
+		t.Errorf("stderr = %q, want the shared refusal sentence", errOut)
+	}
+	if got := readCfg(t, path); got.Profiles[0].Name != before.Profiles[0].Name {
+		t.Errorf("the name was changed anyway, to %q", got.Profiles[0].Name)
+	}
+}
+
+// TestProfileEditAllowsRepeatingTheProfilesOwnName keeps the rule the size of its reason. The
+// refusal is about two profiles sharing a label, so re-stating a profile's own name -- which is
+// what a form does when only the other field was edited -- has to stay allowed.
+func TestProfileEditAllowsRepeatingTheProfilesOwnName(t *testing.T) {
+	path := writeCfg(t, `{
+  "version": 1,
+  "settings": {"enforcement": true, "pollSeconds": 30, "lockBackends": ["logind"]},
+  "profiles": [
+    {"id": "school", "name": "School nights", "timezone": "Europe/London"},
+    {"id": "weekend", "name": "Weekends", "timezone": "UTC"}
+  ],
+  "users": [{"username": "casey", "profileID": "school", "enabled": true}]
+}`)
+	code, out, errOut := runCmd(t, "profile", "edit", "school", "--name", "School nights",
+		"--timezone", "Europe/Paris", "--config", path)
+	if code != exitOK {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errOut)
+	}
+	cfg := readCfg(t, path)
+	if cfg.Profiles[0].Name != "School nights" {
+		t.Errorf("name = %q, want it unchanged", cfg.Profiles[0].Name)
+	}
+	if cfg.Profiles[0].Timezone != "Europe/Paris" {
+		t.Errorf("timezone = %q, want the change to have gone through", cfg.Profiles[0].Timezone)
 	}
 }
 

@@ -42,12 +42,20 @@ fmt:
 # The single gate. CI, the review loop and the local adversarial reviewer all
 # call this and nothing else, so "passes locally" and "passes in CI" cannot
 # drift apart.
+#
+# The attack suite is in here rather than in a job of its own, and the reason is the cost:
+# 2.5 seconds measured, against 0.06 s for the self-test it attacks and 3m9s for this target
+# overall. `check-mutations` is kept OUT of verify for the opposite reason -- it compiles the
+# tree once per mutant and pays minutes, and a gate that slow gets skipped. A suite that runs no
+# compiler and no battery has no such excuse, and #124's whole point is that a guard which only
+# runs when somebody remembers it is a guard whose evidence nobody can reproduce.
 verify:
 	@set -e; \
 	echo "==> gofmt"; \
 	dirty=$$($(GOFMT) -l .); \
 	if [ -n "$$dirty" ]; then echo "not gofmt-clean:"; echo "$$dirty"; exit 1; fi; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
+	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> go vet"; $(GO) vet ./...; \
 	echo "==> go build"; $(GO) build ./...; \
 	echo "==> go test -race"; $(GO) test -race ./...; \

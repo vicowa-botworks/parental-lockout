@@ -465,3 +465,94 @@ func strHas(hay []string, needle string) bool {
 	}
 	return false
 }
+
+func TestProfileNameTakenIsTheLabelsRule(t *testing.T) {
+	profiles := []Profile{
+		{ID: "school", Name: "School nights"},
+		{ID: "weekend", Name: "Weekends"},
+		{ID: "blank"}, // no name: the page heads this one with its id
+	}
+	cases := []struct {
+		what     string
+		name     string
+		exceptID string
+		want     bool
+	}{
+		{"another profile's name", "Weekends", "", true},
+		{"the profile's own name", "School nights", "school", false},
+		{"a name nobody has", "Saturday", "", false},
+		{"surrounding space is not part of the label", "  Weekends  ", "", true},
+		// An id is a label only when the page is printing it as one, which is when the name is
+		// empty. Refusing ids always would be a rule bigger than its reason.
+		{"the id of a profile shown under its id", "blank", "", true},
+		{"the id of a profile shown under its name", "school", "", false},
+		{"the id of a profile with no name, renaming another profile", "blank", "weekend", true},
+	}
+	for _, c := range cases {
+		if got := ProfileNameTaken(profiles, c.name, c.exceptID); got != c.want {
+			t.Errorf("%s: ProfileNameTaken(%q, except %q) = %v, want %v",
+				c.what, c.name, c.exceptID, got, c.want)
+		}
+	}
+}
+
+func TestAmbiguousProfileNamesMarksBothOfAPair(t *testing.T) {
+	cases := []struct {
+		what  string
+		give  []Profile
+		want  []string
+		clean bool
+	}{
+		{what: "distinct names", give: []Profile{{ID: "a", Name: "One"}, {ID: "b", Name: "Two"}}},
+		{what: "one profile", give: []Profile{{ID: "a", Name: "One"}}},
+		{what: "no profiles", give: nil},
+		{
+			what: "two profiles one name",
+			give: []Profile{{ID: "a", Name: "Kids"}, {ID: "b", Name: "Kids"}},
+			want: []string{"a", "b"},
+		},
+		{
+			what: "a named profile and one headed by the same id",
+			give: []Profile{{ID: "Kids"}, {ID: "b", Name: "Kids"}},
+			want: []string{"Kids", "b"},
+		},
+		{
+			what: "a name that matches another profile's id, which is not printed",
+			give: []Profile{{ID: "a", Name: "b"}, {ID: "b", Name: "Bee"}},
+		},
+	}
+	for _, c := range cases {
+		got := AmbiguousProfileNames(c.give)
+		for _, id := range c.want {
+			if !got[id] {
+				t.Errorf("%s: profile %q should be reported ambiguous", c.what, id)
+			}
+		}
+		if len(got) != len(c.want) {
+			t.Errorf("%s: %d profiles reported ambiguous, want %d", c.what, len(got), len(c.want))
+		}
+	}
+}
+
+// TestADuplicateNameDoesNotMakeTheConfigUnwritable is why the rule is not in Validate.
+//
+// A machine can already hold the pair -- `plock profile add --copy-from` made it until this
+// check existed, and a hand-edited file always could. Refusing it in Validate would fail every
+// later write on that machine, including the write that lifts the lockout, so a labelling
+// problem would be cured by stopping enforcement.
+func TestADuplicateNameDoesNotMakeTheConfigUnwritable(t *testing.T) {
+	c := valid()
+	c.Profiles[0].Name = "Kids"
+	// A second profile, not a replacement: the accounts in valid() point at the first profile
+	// by id, and this test is about a config that is otherwise fine.
+	c.Profiles = append(c.Profiles, Profile{ID: "weekend", Name: "Kids", Timezone: "UTC"})
+	if err := c.Validate(); err != nil {
+		t.Errorf("a config holding a duplicate pair must still validate, got %v", err)
+	}
+	if !ProfileNameTaken(c.Profiles, "Kids", "") {
+		t.Error("the pair is not visible to the predicate that refuses new ones")
+	}
+	if got := AmbiguousProfileNames(c.Profiles); !got[c.Profiles[0].ID] || !got["weekend"] {
+		t.Errorf("AmbiguousProfileNames = %v, want both profiles reported", got)
+	}
+}
