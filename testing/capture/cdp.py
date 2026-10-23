@@ -389,6 +389,50 @@ def require_detail_terminated(rows, what):
     return seen, seams
 
 
+# How hard the Detail column has to be pushed before the width measurement means anything.
+# 60 sits far below the seeded row (192 characters) and far above any sentence a person writes, so
+# a fixture reworded back into prose trips this rather than quietly stopping the check.
+UNBREAKABLE_MIN = 60
+
+# textContent, not innerText: innerText is the RENDERED text, and a cell that wraps correctly is
+# exactly the thing that could hand back a token broken at the wrap point. The refusal would then
+# fire against the fix.
+LONGEST_TOKEN_JS = ("JSON.stringify(Math.max(0, ...[...document.querySelectorAll('table.rows "
+                    "tbody td')].flatMap(td => (td.textContent.match(/\\S+/g) || []))"
+                    ".map(s => s.length)))")
+
+
+def require_unbreakable_detail(session, what):
+    """#140's rule: the audit page is only evidence about width if it was handed something that
+    cannot be wrapped.
+
+    The refusal that opened the issue was real -- `893 px wide at a 360 px viewport`, printed twice,
+    on two trees -- and it came from a row nobody authored. The daemon had failed to enumerate this
+    machine's sessions and had written the loginctl JSON it could not parse straight into the Detail
+    column. That is why the check exists: the stress was emergent, so it left without any edit. On
+    today's machine the same fixture, unmodified, produces a 123-character token, the page fits, and
+    the driver reports `5/5 pages fit at 360 px` having asked for nothing.
+
+    What the check is NOT, because I measured the opposite of what I assumed: a long token is not by
+    itself an overflow at this width. 320 characters of unbreakable hex -- no space, no hyphen, no
+    slash, nothing for a line break to sit on -- fit at 360 px with no wrap rule anywhere in app.css,
+    because below 40rem a row stops being a table and each cell gets the page's width. So this is a
+    floor on the fixture's realism and not a proof about overflow: it refuses a fixture that has
+    quietly become prose, which is the failure I can actually prevent. The 893 px cause is still
+    unidentified, and #140 says so rather than letting a plausible story stand in for one.
+
+    Returns the length it saw, so the transcript records how much pressure the photograph carries.
+    """
+    longest = session.json(LONGEST_TOKEN_JS)
+    if longest < UNBREAKABLE_MIN:
+        raise SystemExit(
+            f"{what}: the hardest token anywhere in the table is {longest} characters, under the "
+            f"{UNBREAKABLE_MIN} this check needs to call a width measurement evidence. Nothing on "
+            "the page can overflow, so 360 px here proves nothing about a detail that quotes a "
+            "path or a JSON blob (#140).")
+    return longest
+
+
 class Capture:
     """The daemon, the browser and the signed-in session, with one teardown path.
 

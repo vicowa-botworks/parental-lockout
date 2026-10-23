@@ -71,12 +71,20 @@ def shoot(cap, page, name, has_rows):
     if got["scroll"] > cdp.WIDTH:
         raise SystemExit(f"{page} is {got['scroll']} px wide at a {cdp.WIDTH} px viewport; the "
                          "criterion refuses this page, so its photograph is not taken")
+    # After the width refusal, before the write. A page that overflows should report the overflow,
+    # which is the alarming fact; a page that fits is then asked whether fitting meant anything.
+    # #140's whole lesson is that the audit page can fit at 360 px having been asked for nothing,
+    # because the row that broke it came from the daemon failing on this machine rather than from
+    # the fixture.
+    hard = ""
+    if page == "/audit":
+        hard = f" hardest={cdp.require_unbreakable_detail(session, 'the audit page')}ch"
     cap.require_running()
     session.write_png(name)
     proof = f"tables={got['tables']} cells={got['cells']}" if has_rows else \
         f"forms={got['forms']} fields={got['fields']}"
     print(f"  {page:<10} scrollWidth={got['scroll']:>4} innerWidth={got['inner']:>4} "
-          f"height={got['height']:>5} {proof} "
+          f"height={got['height']:>5} {proof}{hard} "
           f"FITS  {name}", flush=True)
 
 
