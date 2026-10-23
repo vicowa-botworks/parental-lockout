@@ -344,9 +344,13 @@ def run(box):
                               capture_output=True, text=True, cwd=box, timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
         # Its own state of the message, because "did not run" and "did not stop" are different
-        # diagnoses and the row's patch is the suspect in both. The caller prints the row name.
-        return "invalid", "", (f"the patched self-test did not finish in {TIMEOUT}s, so its patch "
-                               f"probably made it loop -- a hang is not a broken patch")
+        # diagnoses. It names no patch on purpose: this branch is also reached by the baseline
+        # pre-flight, which runs the unpatched copy, and there a hang means mutate.py loops on its
+        # own -- so "the patched self-test ... its patch" printed a suspect that does not exist,
+        # directly under "HARNESS: the unpatched copy does not pass its own self-test". The caller
+        # prints the row name, so this stays a claim about what happened, not about who caused it.
+        return "invalid", "", (f"the self-test did not finish in {TIMEOUT}s -- a hang, not a "
+                               f"broken patch")
     except (OSError, subprocess.SubprocessError) as exc:
         return "invalid", "", f"the sandboxed self-test could not be run: {exc}"
     out, err = proc.stdout.strip(), proc.stderr
@@ -474,6 +478,16 @@ def main():
             print(f"\nSELECTED RUN -- rows matching {only!r}, not a gate. The suite-wide pins "
                   f"(row count, hole coverage) are skipped because they describe the whole suite; "
                   f"run with no argument for the verdict CI applies.")
+            # Scoping the pins out is what makes this clause necessary. With nothing suite-wide
+            # left to run, a filter that matches nothing -- the commonest way to attempt no rows,
+            # because it is a typo -- reports "0 problem(s)" next to exit 0, and the banner's
+            # disclaimer is not what a reader scans. `ran == 0` is a claim about the selection, so
+            # it belongs here and not beside the pins. Note the direction of travel: before the
+            # pins were scoped, a typo'd filter failed loudly for the wrong reason; now it could
+            # pass for no reason at all, which is the worse of the two.
+            if not ran:
+                problems.append(f"no row matched {only!r}: a run that attempts nothing proves "
+                                f"nothing")
         if not only and len(ATTACKS) != EXPECTED_ROWS:
             problems.append(f"the suite ran {len(ATTACKS)} attacks, expected {EXPECTED_ROWS}: a "
                             f"row was deleted, or stopped being attempted. A smaller tally is "
