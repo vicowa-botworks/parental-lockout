@@ -324,6 +324,14 @@ def sandbox():
     return box
 
 
+# Per-attack ceiling. The average is 0.15 s, so 60 s is ~400x the work a row actually does, and
+# the number that matters is the product: a patched runner that hangs is reachable -- several rows
+# edit loop control -- and the ceiling multiplied by the row count is the longest `make verify` can
+# ever take on this file. At 300 s that product was 40 x 300 s, about two hours, on the gate whose
+# entire argument for existing is that it costs seconds.
+TIMEOUT = 60
+
+
 def run(box):
     """Run the self-test in `box` and classify what came back. Never raises.
 
@@ -333,7 +341,12 @@ def run(box):
     """
     try:
         proc = subprocess.run([PYTHON, os.path.join(box, "scripts", "mutate.py"), "--self-test"],
-                              capture_output=True, text=True, cwd=box, timeout=300)
+                              capture_output=True, text=True, cwd=box, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        # Its own state of the message, because "did not run" and "did not stop" are different
+        # diagnoses and the row's patch is the suspect in both. The caller prints the row name.
+        return "invalid", "", (f"the patched self-test did not finish in {TIMEOUT}s, so its patch "
+                               f"probably made it loop -- a hang is not a broken patch")
     except (OSError, subprocess.SubprocessError) as exc:
         return "invalid", "", f"the sandboxed self-test could not be run: {exc}"
     out, err = proc.stdout.strip(), proc.stderr
@@ -353,6 +366,12 @@ def run(box):
 
 def main():
     only = sys.argv[1] if len(sys.argv) > 1 else ""
+    # The suite-wide pins describe the whole suite, so they cannot be asserted over a subset: a
+    # filtered run would fire `ran != len(ATTACKS)` and every class whose rows were filtered out,
+    # which measured on this tree turned `attack-self-test.py canary` -- two rows, both answering
+    # correctly -- into exit 1 with seven problems naming classes nobody touched. A contributor
+    # following a red CI run to this file would conclude the guard had regressed. So a selected run
+    # says what it is, and asserts only what it can see.
     with open(os.path.join(HERE, "mutate.py"), encoding="utf-8") as fh:
         original = fh.read()
     before = {name: hashlib.sha256(open(os.path.join(HERE, name), "rb").read()).hexdigest()
@@ -439,7 +458,7 @@ def main():
                 print(f"UNEXPECTED {what} (expected {expect}, got {state})")
 
         seen_classes = {HOLE_CLASS.get(w, w) for w in seen_holes}
-        for name in DOCUMENTED_HOLES:
+        for name in DOCUMENTED_HOLES if not only else ():
             if name not in seen_classes:
                 problems.append(f"DOCUMENTED HOLE NO LONGER SEEN {name!r} -- either the guard got "
                                 f"better, in which case remove the class and its rows, or the "
@@ -451,14 +470,18 @@ def main():
             problems.append("this suite modified the tree it was checking")
 
         ran = sum(counts.values())
-        if len(ATTACKS) != EXPECTED_ROWS:
+        if only:
+            print(f"\nSELECTED RUN -- rows matching {only!r}, not a gate. The suite-wide pins "
+                  f"(row count, hole coverage) are skipped because they describe the whole suite; "
+                  f"run with no argument for the verdict CI applies.")
+        if not only and len(ATTACKS) != EXPECTED_ROWS:
             problems.append(f"the suite ran {len(ATTACKS)} attacks, expected {EXPECTED_ROWS}: a "
                             f"row was deleted, or stopped being attempted. A smaller tally is "
                             f"not a smaller claim")
-        if ran != len(ATTACKS):
+        if not only and ran != len(ATTACKS):
             problems.append(f"{ran} rows were classified and {len(ATTACKS)} were attempted: a row "
                             f"was skipped, and a skipped row is a row that reports nothing")
-        if not counts["hole"]:
+        if not only and not counts["hole"]:
             problems.append("no row came back unseen. Every expectation in this suite is either "
                             "'the guard refuses' or 'the guard does not see it', so a classifier "
                             "stuck on either answer satisfies one half by breaking the other -- a "
