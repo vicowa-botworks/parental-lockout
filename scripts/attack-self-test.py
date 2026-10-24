@@ -369,7 +369,23 @@ def run(box):
 
 
 def main():
-    only = sys.argv[1] if len(sys.argv) > 1 else ""
+    # `None` means no argument was given; `""` means an argument was given and it is empty. The
+    # distinction is the whole point and the first version of this line collapsed it to `""`,
+    # which made the falsy form mean "no filter" -- so `attack-self-test.py ""` ran the entire
+    # gate. That is honest output for the wrong claim: the Makefile step that invokes this with
+    # an argument is named `empty selection refuses`, and a run of all 40 rows reports green
+    # while proving something else entirely. The obvious future edit -- passing "$${FILTER}" with
+    # FILTER unset -- lands there by accident.
+    #
+    # So an empty filter matches NOTHING (see the loop below), which is what a filter that empty
+    # means: nothing was asked for, nothing ran, the run refuses. `mutate.py` answers the same
+    # question with `args.only is not None` for the same reason; this is the third copy of that
+    # rule, and it is now named in all three places rather than implied.
+    only = sys.argv[1] if len(sys.argv) > 1 else None
+    # One name for the rule, so the fifth copy of it cannot be written as `if not only` and
+    # silently mean something else. Every suite-wide claim below is gated on this, and the
+    # gate is what makes a selected run assert only what it can see.
+    selected = only is not None
     # The suite-wide pins describe the whole suite, so they cannot be asserted over a subset: a
     # filtered run would fire `ran != len(ATTACKS)` and every class whose rows were filtered out,
     # which measured on this tree turned `attack-self-test.py canary` -- two rows, both answering
@@ -395,7 +411,11 @@ def main():
         counts = {"caught": 0, "green": 0, "hole": 0, "invalid": 0, "wrong": 0}
         problems, seen_holes = [], []
         for expect, what, anchor, replacement in ATTACKS:
-            if only and only.lower() not in what.lower():
+            # `not only` here is deliberate and is the other half of the fix: an empty filter
+            # must not match every row the way `"" in anything` does. With only=None the filter
+            # is off and every row runs; with only="" no row is selected and the `if not ran`
+            # guard below refuses the run.
+            if selected and (not only or only.lower() not in what.lower()):
                 continue
             hits = original.count(anchor)
             if hits != 1:
@@ -468,7 +488,11 @@ def main():
                 print(f"UNEXPECTED {what} (expected {expect}, got {state})")
 
         seen_classes = {HOLE_CLASS.get(w, w) for w in seen_holes}
-        for name in DOCUMENTED_HOLES if not only else ():
+        # Gated like the four pins below it. This one hides in a `for` header, which is how a
+        # sweep for `if not only` misses it -- and an ungated copy is not a silent miss: a
+        # selected run reports one phantom problem per class its filter left out, measured at
+        # 7 for the empty filter on this tree.
+        for name in DOCUMENTED_HOLES if not selected else ():
             if name not in seen_classes:
                 problems.append(f"DOCUMENTED HOLE NO LONGER SEEN {name!r} -- either the guard got "
                                 f"better, in which case remove the class and its rows, or the "
@@ -480,7 +504,7 @@ def main():
             problems.append("this suite modified the tree it was checking")
 
         ran = sum(counts.values())
-        if only:
+        if selected:
             print(f"\nSELECTED RUN -- rows matching {only!r}, not a gate. The suite-wide pins "
                   f"(row count, hole coverage) are skipped because they describe the whole suite; "
                   f"run with no argument for the verdict CI applies.")
@@ -494,14 +518,14 @@ def main():
             if not ran:
                 problems.append(f"no row matched {only!r}: a run that attempts nothing proves "
                                 f"nothing")
-        if not only and len(ATTACKS) != EXPECTED_ROWS:
+        if not selected and len(ATTACKS) != EXPECTED_ROWS:
             problems.append(f"the suite ran {len(ATTACKS)} attacks, expected {EXPECTED_ROWS}: a "
                             f"row was deleted, or stopped being attempted. A smaller tally is "
                             f"not a smaller claim")
-        if not only and ran != len(ATTACKS):
+        if not selected and ran != len(ATTACKS):
             problems.append(f"{ran} rows were classified and {len(ATTACKS)} were attempted: a row "
                             f"was skipped, and a skipped row is a row that reports nothing")
-        if not only and not counts["hole"]:
+        if not selected and not counts["hole"]:
             problems.append("no row came back unseen. Every expectation in this suite is either "
                             "'the guard refuses' or 'the guard does not see it', so a classifier "
                             "stuck on either answer satisfies one half by breaking the other -- a "
