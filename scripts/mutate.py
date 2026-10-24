@@ -58,6 +58,7 @@ Exit status is 0 only when nothing survived and nothing failed to apply.
 import argparse
 import contextlib
 import glob
+import hashlib
 import inspect
 import io
 import json
@@ -106,7 +107,7 @@ def failing_tests(out):
 
 
 def run_set(path, label):
-    doc = load(path)
+    doc = load(staged(path))
     pkg, mutants = doc.get("package"), doc["mutants"]
     # A mutant's tests live wherever its behaviour is observable, which is not always
     # the set's default package: a cmd/plock mutant is invisible to the platform suite.
@@ -524,6 +525,157 @@ def set_label(path, root=SRC):
     return os.path.basename(path) if rel.startswith("..") else rel
 
 
+# Where a set that lives outside the repository is put inside the snapshot. Dot-prefixed and
+# deliberately not under `scripts/mutations/`: that glob is how sets are DISCOVERED, so a
+# staged copy parked there would be run twice -- once as the file the operator named and once
+# as a set nobody asked for.
+STAGED_DIR = ".plock-sets"
+
+
+def staged_name(path):
+    """The name an outside-the-repo set is carried into the snapshot under.
+
+    Derived from the absolute path rather than from a counter, because `staged` below is
+    called from inside `run_set` with nothing but the path it was handed. A counter would
+    make a set's staged name depend on the order two functions happen to walk the list, and a
+    set whose name depends on which set came first is a set that reads somebody else's file.
+    The digest is of the path, not the contents: two different files with the same contents
+    are still two different claims about the tree, and they must not collide.
+    """
+    digest = hashlib.sha256(os.path.abspath(path).encode("utf-8")).hexdigest()[:12]
+    return f"{digest}-{os.path.basename(path)}"
+
+
+def staged_dir(work):
+    """Where this run's derived set documents go: inside the snapshot, when there is one.
+
+    The `--only` path trims each set to the ids it was asked for and writes the result. Those
+    documents are read back by `run_set` through `staged`, so writing them beside the copy --
+    in the scratch directory that also holds it -- would make them look exactly like a live set
+    file that happens to be nearby, which is the thing `staged` refuses to read. With no
+    snapshot in effect (the self-test's fixtures) there is nowhere better to put them, and
+    `work` is where they have always gone.
+    """
+    return work if os.path.abspath(ROOT) == os.path.abspath(SRC) else os.path.join(ROOT, STAGED_DIR)
+
+
+def staged(path, src=SRC, root=None):
+    """The copy of set `path` that this run's snapshot holds, refusing if it holds none.
+
+    The battery mutates the snapshot, but the set files arrive as paths in the live tree and
+    used to be opened there, lazily, one per set as the run reached it. The tree was hermetic
+    and the inputs were not. Switching branches mid-battery made the second half of a run
+    read the other branch's sets against the first branch's source and abort with "the set is
+    stale" after the first half had burned the whole budget (#128, measured); a live edit that
+    keeps every named file present is worse, because it prints a `TOTAL` that reads as one
+    checkout while measuring two.
+
+    A set inside the repository needs no copy -- the snapshot already holds it at the same
+    relative path -- so for those this is a lookup. A set outside it was carried in by
+    `stage_sets`, which is the only reason this can be a pure function of the path.
+
+    The refusal is why this returns a path rather than bytes. A set the copy does not hold
+    means the run is no longer pointed at one tree state, and quietly opening the live file
+    at that moment is precisely the behaviour this function replaces.
+
+    `root` defaults to the module's `ROOT` **at call time**, read inside the body rather than
+    in the signature: `root=ROOT` would freeze the value the global had when this file was
+    imported, which is `SRC`, and every call from `main` would then take the no-snapshot arm
+    below and hand back the live path. That is this function's whole defect restored by a
+    default argument, and it was measured -- the repro ran green against a fix that did
+    nothing. `_snap13` is the rule that keeps it fixed.
+
+    With no snapshot in effect (`root is src`, which is how the self-test and any future
+    caller that has not copied a tree arrive) there is nothing to resolve against, so the
+    path is its own answer.
+    """
+    if root is None:
+        root = ROOT
+    if os.path.abspath(root) == os.path.abspath(src):
+        return path
+    # Anything inside the snapshot was put there by this run, so it is already hermetic and
+    # resolving it would only lose the path. That is the `--only` path's trimmed documents:
+    # `select_sets` writes them into the snapshot's own staging directory, derived from a set
+    # this function already staged. Testing containment in `root` rather than in the scratch
+    # directory around it is what keeps this from swallowing a live set that happens to sit in
+    # the same temporary directory as its copy -- measured, and it restored the defect.
+    if not os.path.relpath(path, root).startswith(".."):
+        return path
+    rel = os.path.relpath(path, src)
+    copy = (os.path.join(root, rel) if not rel.startswith("..")
+            else os.path.join(root, STAGED_DIR, staged_name(path)))
+    if not os.path.isfile(copy):
+        sys.exit(f"{path}: the snapshot at {root} holds no copy of this set, so reading it "
+                 f"would mean going back to the live tree mid-run. stage_sets brings every "
+                 f"set in before the first mutant runs; one reaching the runner unstaged "
+                 f"means this run is no longer hermetic to a single tree state")
+    return copy
+
+
+def stage_sets(paths, src, root):
+    """Bring every set file into the snapshot, and refuse the run over one that cannot come.
+
+    Called once, before the first mutant runs, for two reasons.
+
+    The first is the defect `staged` describes: after this returns, nothing in the run reads
+    a set from outside the copy. Truncating the call is not a way to skip a set either --
+    `paths` is the caller's list and this function returns nothing, so the run still walks
+    every set, and the one that was never staged is refused by name rather than run against
+    a file nobody staged.
+
+    The second is *when* a bad set is found. `mutset.load` is the same validator the runner
+    uses, so a set with a duplicate id or a missing `package` used to be refused forty minutes
+    into a battery that had already run every earlier set. Here it is refused in the first
+    second, before any compute is spent.
+
+    An in-repo set is checked, not copied: `snapshot` already put it here, and a copy that is
+    missing means the snapshot and the live tree disagree about a file the run was handed --
+    which is a refusal, not something to paper over by copying it in late.
+    """
+    # Made whether or not a set has to be carried in: `staged_dir` sends the `--only` path's
+    # trimmed documents here too, and a run that trims a set must not fail over a directory
+    # this function was supposed to have created.
+    os.makedirs(os.path.join(root, STAGED_DIR), exist_ok=True)
+    for path in paths:
+        rel = os.path.relpath(path, src)
+        if not rel.startswith(".."):
+            if not os.path.isfile(os.path.join(root, rel)):
+                sys.exit(f"{path}: inside the repository but not in the snapshot, so the copy "
+                         f"is not the tree this run was asked to measure")
+            continue
+        dest = os.path.join(root, STAGED_DIR, staged_name(path))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        try:
+            shutil.copyfile(path, dest)
+        except OSError as exc:
+            sys.exit(f"{path}: could not be carried into the snapshot: {exc}")
+    for path in paths:
+        load(staged(path, src, root))
+
+
+def staging_problems(got, want, where):
+    """What one staging observation got wrong, as a sentence. Empty means it matched.
+
+    A named checker rather than a comparison inside the fixture for the reason every other
+    comparison in this file is one: a control has to be able to hand it an answer to refuse,
+    and an inline `!=` can only be shown failing by editing the fixture that holds it.
+    """
+    return [] if got == want else [f"{where}: read {got!r}, want {want!r}"]
+
+
+def refusal_problems(text, needs, where):
+    """Whether a refusal says something an operator can act on. Empty means it does.
+
+    A refusal that names nothing is a problem in its own right here: the whole reason
+    `staged` refuses instead of falling back to the live path is that the operator can then
+    tell a broken run from a slow one, and a sentence like "no such file" tells them to
+    re-run the battery rather than to look at the runner.
+    """
+    absent = [name for name in needs if name not in text]
+    return ([f"{where}: it says {text!r} and never names {absent}, so whoever reads it has "
+             "nothing to act on"] if absent else [])
+
+
 def select_sets(paths, wanted, work):
     """Trim every set holding a wanted id down to those ids, one trimmed file per set.
 
@@ -536,10 +688,19 @@ def select_sets(paths, wanted, work):
     and exited 0: a partial run reporting the whole answer, which is the one error this
     runner exists not to make (#118). The label carries only the ids that set contributes,
     so two sets never both claim the full request.
+
+    Each set is read through ``staged``, so the document trimmed here is the one the snapshot
+    holds rather than whatever the live path says when this loop reaches it. The label still
+    comes from ``path``, the name the operator typed: a report that named the scratch copy
+    would be a report nobody could match back to the file they asked for.
+
+    The trimmed documents go where ``staged_dir`` puts them -- inside the snapshot once there
+    is one -- so that reading them back is a read of the copy like every other set read in the
+    run, and not something the pass-through in ``staged`` has to make an exception for.
     """
     selected, missing, n = [], set(wanted), 0
     for path in paths:
-        doc = load(path)
+        doc = load(staged(path))
         keep = [m for m in doc["mutants"] if m["id"] in wanted]
         if not keep:
             continue
@@ -547,7 +708,8 @@ def select_sets(paths, wanted, work):
             missing.discard(m["id"])
         doc["mutants"] = keep
         n += 1
-        tmp = os.path.join(work, f"subset-{n}.json")
+        tmp = os.path.join(staged_dir(work), f"subset-{n}.json")
+        os.makedirs(os.path.dirname(tmp), exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(doc, fh, indent=1)
         selected.append((tmp, f"{set_label(path)} "
@@ -1160,7 +1322,55 @@ EXPECTED_SELECT_RULES = 47
 # `startswith` answered all eight table rows exactly as honest code does, so the ported half
 # reported nineteen rules holding while unable to see the mutation -- and on a tree with both
 # `.venv` and `.venv-old` in .gitignore it copies the second one back.
-EXPECTED_SNAPSHOT_RULES = 21
+#
+# Twenty-second through twenty-sixth are #128's: the set files are part of the tree state a run
+# measures, and five rules cover where a set is read from, what happens when the copy holds no
+# copy, which ROOT the resolver follows, and when a bad document is refused. The twenty-seventh
+# audits the one read the battery itself performs, which the others cannot execute, and the
+# twenty-eighth that main actually stages before running. The last four are controls over the
+# four checkers those rules compare through, because a fixture that asserts inline cannot be
+# shown failing.
+EXPECTED_SNAPSHOT_RULES = 32
+
+
+def set_reads_problems(body, name):
+    """Whether one function opens its set documents from the snapshot. Empty means it does.
+
+    `run_set` and `select_sets` are the two places a set is opened during a run, and neither is
+    something the rules above can execute: the first shells out to `go test`, and the second is
+    only reached with `--only`, which the self-test drives through a fixture rather than through
+    `main`. So both are audited as text, the same instrument `only_block_problems` is -- the
+    alternative is a fix that reads correctly until someone edits one call, after which the whole
+    battery is back to reading live paths and every rule above still passes.
+
+    Takes the text rather than reading it, so the control can hand it a body that opens the live
+    path and watch it refuse. Both functions spell the honest call the same way, which is why
+    one checker covers both.
+    """
+    problems = []
+    if "load(staged(path))" not in body:
+        problems.append(f"{name} no longer opens the set through `staged`, so the battery reads "
+                        "the live path again: the tree is a snapshot and the inputs are not, "
+                        "which is #128")
+    if re.search(r"\bload\(path\)", body):
+        problems.append(f"{name} opens `path` directly somewhere in its body, which is the live "
+                        "tree however many other reads go through `staged`")
+    return problems
+
+
+def staging_call_problems(src):
+    """Whether main brings the sets into the snapshot before running anything. Empty means it does.
+
+    The presence pin the rest of this family deliberately is not: without the call, an
+    outside-the-repository set is refused loudly by `staged` rather than run against a live
+    path, so the failure is a stopped run rather than a wrong tally. It is still worth holding,
+    because the other half of what the call buys -- refusing a bad document in the first second
+    instead of forty minutes in -- disappears silently, and a battery that costs the whole
+    budget before saying no is the thing operators actually feel.
+    """
+    return [] if "stage_sets(sets, SRC, ROOT)" in src else [
+        "main never stages the sets, so nothing is carried into the snapshot and no set is "
+        "validated before the run starts"]
 
 
 def self_test():
@@ -1877,6 +2087,183 @@ def self_test():
                 bad.append("ignored_paths trusted an answer from a command that exited non-zero")
     run_rule(srules, bad,
                "snapshot: an answer from a git that exited non-zero is not believed", _snap09)
+
+    # ---- the sets themselves, which are part of the tree state a run measures (#128) ----
+    #
+    # The copy is the tree; the set files arrive as live paths and used to be opened there,
+    # lazily, one per set as the run reached it. Measured on `main`: a two-set run whose second
+    # set file is replaced in the live tree 0.04 s after the runner prints that its snapshot
+    # exists still read the replacement, and aborted with "the set is stale" after the first
+    # half had spent the whole battery. These rules are the difference between that fix and a
+    # comment claiming it -- #119 arrived with zero rules for its own fix and the next branch
+    # would have reverted it green.
+
+    def write_a_set(where, ids):
+        """One valid set whose mutants are named by `ids`, so the ids are the observation."""
+        os.makedirs(os.path.dirname(where) or ".", exist_ok=True)
+        with open(where, "w", encoding="utf-8") as fh:
+            json.dump({"package": "./internal/web/",
+                       "mutants": [{"id": mid, "file": "internal/web/server.go",
+                                    "old": "x", "new": "y"} for mid in ids]}, fh)
+
+    def ids_at(path):
+        """The ids in the document at `path`, read exactly the way the runner reads a set."""
+        return [m["id"] for m in load(path)["mutants"]]
+
+    def one_set_repo(work, problems, name="a.json"):
+        """A fixture repository holding one set, plus the snapshot of it. Returns (src, copy, live)."""
+        src = os.path.join(work, "src")
+        live = os.path.join(src, "scripts", "mutations", name)
+        write_a_set(live, ["A1"])
+        git_run(["init", "-q"], src, problems)
+        git_run(["add", "scripts/mutations/" + name], src, problems)
+        copy = os.path.join(work, "copy")
+        snapshot(src, copy)
+        return src, copy, live
+
+    def _snap10(bad):
+        with tempfile.TemporaryDirectory() as work:
+            src, copy, live = one_set_repo(work, bad)
+            # The live file moves after the copy: the branch switch, the editor saving, the
+            # `git checkout` two directories away. The run must not notice, because the copy is
+            # what it is measuring.
+            write_a_set(live, ["A2"])
+            bad += staging_problems(ids_at(staged(live, src, copy)), ["A1"],
+                                    "a set inside the repo, after the live file moved")
+
+    def _snap11(bad):
+        with tempfile.TemporaryDirectory() as work:
+            src, copy, _live = one_set_repo(work, bad, name="tracked.json")
+            outside = os.path.join(work, "outside.json")
+            write_a_set(outside, ["O1"])
+            stage_sets([outside], src, copy)
+            write_a_set(outside, ["O2"])
+            got = staged(outside, src, copy)
+            bad += staging_problems(ids_at(got), ["O1"],
+                                    "a set outside the repo, after the live file moved")
+            # Parked where the discovery glob would find it, a staged copy becomes a set nobody
+            # asked for: `scripts/mutations/*.json` is how a run with no arguments finds its
+            # sets, so a copy written there is run twice and counted twice. Asserted against
+            # the glob rather than against `STAGED_DIR`, because a rule that compares the
+            # location to the constant that decides it cannot see the constant changed --
+            # measured, and it survived.
+            found = sorted(os.path.basename(p) for p in
+                           glob.glob(os.path.join(copy, "scripts", "mutations", "*.json")))
+            bad += staging_problems(found, ["tracked.json"],
+                                    "the sets the discovery glob finds in the copy, after one "
+                                    "was staged into it")
+
+    def _snap12(bad):
+        with tempfile.TemporaryDirectory() as work:
+            live = os.path.join(work, "gone.json")
+            write_a_set(live, ["G1"])
+            try:
+                staged(live, os.path.join(work, "src"), os.path.join(work, "copy"))
+                bad.append("a set the snapshot does not hold was accepted: the run would have "
+                           "read it from the live tree, which is the defect #128 is about")
+            except SystemExit as exc:
+                bad += refusal_problems(str(exc), ["stage_sets", "snapshot"],
+                                        "the refusal for an unstaged set")
+
+    def _snap13(bad):
+        # The resolver's `root` defaults to the module's ROOT. Written as `root=ROOT` that is
+        # the value the global had at import -- SRC -- so every call from main takes the
+        # no-snapshot arm and hands back the live path: the defect restored by a default
+        # argument. Measured: the repro ran green against a fix that did nothing.
+        global ROOT
+        previous = ROOT
+        try:
+            with tempfile.TemporaryDirectory() as src_home:
+                with tempfile.TemporaryDirectory() as copy_home:
+                    src = os.path.join(src_home, "src")
+                    live = os.path.join(src, "s.json")
+                    write_a_set(live, ["M1"])
+                    git_run(["init", "-q"], src, bad)
+                    git_run(["add", "s.json"], src, bad)
+                    copy = os.path.join(copy_home, "repo")
+                    snapshot(src, copy)
+                    ROOT = copy  # what main does before any set is read
+                    write_a_set(live, ["M2"])
+                    try:
+                        got = ids_at(staged(live, src))
+                    except SystemExit as exc:
+                        # Reported, not propagated: a resolver that resolves against the wrong
+                        # root refuses rather than crashing, and the rule still has to say which
+                        # one it resolved against.
+                        bad.append(f"the resolver refused instead of following ROOT at call "
+                                   f"time: {exc}")
+                    else:
+                        bad += staging_problems(got, ["M1"],
+                                                "the resolver follows ROOT at call time, not at def time")
+        finally:
+            ROOT = previous
+
+    def _snap14(bad):
+        with tempfile.TemporaryDirectory() as work:
+            src, copy, _live = one_set_repo(work, bad, name="tracked.json")
+            dupe = os.path.join(work, "dupe.json")
+            write_a_set(dupe, ["D1", "D1"])  # one id twice: mutset refuses this shape
+            try:
+                stage_sets([dupe], src, copy)
+                bad.append("a set with one id used twice was staged without complaint: the run "
+                           "would have spent its battery on the earlier sets before the "
+                           "validator refused it")
+            except SystemExit as exc:
+                bad += refusal_problems(str(exc), ["twice"],
+                                        "the refusal for a set staged from a bad document")
+
+    def _snap15(bad):
+        # The two set reads the battery itself performs, and the two the rules above cannot
+        # execute: `run_set` shells out to `go test`, and `select_sets` is only reached once
+        # `--only` is parsed. Audited as text for the reason main's --only block is -- see
+        # set_reads_problems.
+        for fn in (run_set, select_sets):
+            try:
+                body = inspect.getsource(fn)
+            except OSError:
+                bad.append(f"{fn.__name__}'s source could not be read, so nothing checks where "
+                           "it opens its sets from")
+                continue
+            bad += set_reads_problems(body, fn.__name__)
+
+    def _snap16(bad):
+        try:
+            body = inspect.getsource(main)
+        except OSError:
+            bad.append("main's source could not be read, so nothing checks that the sets are "
+                       "staged before the first mutant runs")
+            return
+        bad += staging_call_problems(body)
+
+    run_rule(srules, bad,
+               "snapshot: a set inside the repo is read from the copy, not the live tree", _snap10)
+    run_rule(srules, bad,
+               "snapshot: a set outside the repo is carried into the copy and stays there", _snap11)
+    run_rule(srules, bad,
+               "snapshot: a set the copy does not hold is refused, not read from the live tree", _snap12)
+    run_rule(srules, bad,
+               "snapshot: the resolver follows the module's ROOT at call time", _snap13)
+    run_rule(srules, bad,
+               "snapshot: every set is validated when it is staged, not when its turn comes", _snap14)
+    run_rule(srules, bad,
+               "snapshot: the battery itself opens its sets from the copy, not the live path", _snap15)
+    run_rule(srules, bad,
+               "snapshot: main stages every set before the first mutant runs", _snap16)
+
+    control(srules, bad, "control: a staging comparison that cannot tell two documents apart",
+            staging_problems(["A2"], ["A1"], "the live file"),
+            "so a rule that reads the copy is not simply reading whatever it was handed")
+    control(srules, bad, "control: a refusal that names nothing the operator can act on",
+            refusal_problems("no such file or directory", ["stage_sets", "snapshot"],
+                             "the refusal for an unstaged set"),
+            "so a passing refusal rule is one that could have said nothing useful")
+    control(srules, bad, "control: a battery that opens the live path instead of the copy",
+            set_reads_problems("def run_set(path, label):\n    doc = load(path)\n", "run_set"),
+            "so the rule is not satisfied by whatever text happens to be in the file")
+    control(srules, bad, "control: a main that never stages the sets it was handed",
+            staging_call_problems("def main():\n    totals, ran_all = run_selection(sets, run_set)\n"),
+            "so the staging rule is not satisfied by a main that does not call it")
+
     # The two helpers every rule above is counted through are themselves attack surface: a
     # `pass` where `rules.append(name)` is, or an `if False:` inside control(), keeps every
     # number intact while emptying the checks. So both are canaried through a throwaway
@@ -2138,6 +2525,13 @@ def main():
         print(f"running against a copy of the tree in {ROOT}")
         for path in skipped:
             print(f"snapshot left out an uncopyable path that is not source: {path}")
+
+        # The sets are part of the tree state this run measures, and they arrived as paths in
+        # the live tree. Brought in here, once, before anything runs: after this line no read
+        # of a set goes outside the copy, and a set that cannot be validated is refused before
+        # a single mutant is compiled. See stage_sets for why this is not a lookup and why the
+        # refusal, not a fallback to the live path, is the only honest answer.
+        stage_sets(sets, SRC, ROOT)
 
         # --only writes a trimmed copy of the set rather than filtering inside run_set,
         # so what the run reports is exactly what the file on disk said -- one trimmed
