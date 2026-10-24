@@ -97,21 +97,6 @@ DOCUMENTED_HOLES = {
         "that never reports unmatched ids -- have no control that feeds the auditor a main "
         "matching them, so each branch is uncovered and can be deleted with nothing noticing. "
         "Closes by adding those three mains to ONLY_BLOCK_CONTROLS.",
-    "a count pin can be switched off":
-        "a pin is invisible until a rule goes missing, and verdict_guard_problems probes five "
-        "shapes of verdict -- absent, non-tuple, emptied, forged, two-counts -- and not the "
-        "count-mismatch shape the pins exist for. Closes by one more probe that hands "
-        "self_test_verdict a report one rule short of its pin.",
-    "the canary comparison can be switched off":
-        "the same shape as the pins one level down: probe_rules and probe_bad keep being filled "
-        "and the comparison that reads them can be switched off with nothing noticing. Closes by "
-        "a probe over the canary itself, which is the reach argument applied to the reach check.",
-    "the emptied-list guard cannot see the clear it names":
-        "`len(bad) != raised` is documented as catching the list being emptied on the way out, "
-        "and Problems.clear() zeroes the counter in the same breath, so the two move together and "
-        "the comparison holds. It catches a list emptied WITHOUT its count, which is a different "
-        "bug nobody writes. Closes by capturing the count before the rules run and comparing the "
-        "list against that, rather than against a field the same clear() resets.",
     "the verdict's final decision is unguarded":
         "`if bad:` is where every problem becomes an exit code, `bad.raised` is the number the "
         "emptied-list guard compares, and main's call of self_test_verdict is the last link. Each "
@@ -147,19 +132,19 @@ ATTACKS = [
      '    rule(rules, bad, name, problems or ["nothing at all"])'),
     (CAUGHT, "run_rule() never calls the body it is given",
      "    body(problems)", "    pass"),
-    (HOLE, "the canary comparison is switched off",
+    (CAUGHT, "the canary comparison is switched off",
      "    if len(probe_rules) != 5 or len(probe_bad) != 3:", "    if False:"),
     (CAUGHT, "the canary keeps its count and loses its assertions",
-     '    rule(probe_rules, probe_bad, "canary", ["a problem"])',
-     '    rule(probe_rules, probe_bad, "canary", [])'),
+     '    rule_fn(probe_rules, probe_bad, "canary", ["a problem"])',
+     '    rule_fn(probe_rules, probe_bad, "canary", [])'),
 
     # ---- the verdict gate ----
-    (HOLE, "the list and its counter cleared together are not noticed",
+    (CAUGHT, "the list and its counter cleared together are not noticed",
      "    return vrules, rules, srules, bad, bad.raised",
      "    bad.clear()\n    return vrules, rules, srules, bad, bad.raised"),
     (CAUGHT, "a hand-forged rule pair is no longer refused",
      "    if forged:", "    if False:"),
-    (HOLE, "the verdict count pin is switched off",
+    (CAUGHT, "the verdict count pin is switched off",
      "    if len(vrules) != EXPECTED_VERDICT_RULES:", "    if False:"),
     (HOLE, "the auditor's 'no block at all' guard is switched off",
      "    if not found:", "    if False:"),
@@ -270,8 +255,6 @@ HOLE_CLASS = {
         "an auditor's own guards are uncovered",
     "the auditor's 'never reports unmatched ids' guard is switched off":
         "an auditor's own guards are uncovered",
-    "the verdict count pin is switched off": "a count pin can be switched off",
-    "the canary comparison is switched off": "the canary comparison can be switched off",
     "the verdict prints green whatever the list holds": "the verdict's final decision is unguarded",
     "the problem count is reported as the length of the list":
         "the verdict's final decision is unguarded",
@@ -279,8 +262,6 @@ HOLE_CLASS = {
         "the verdict's final decision is unguarded",
     "a git that exited non-zero is believed by tracked_paths":
         "a git that exited non-zero is believed by tracked_paths",
-    "the list and its counter cleared together are not noticed":
-        "the emptied-list guard cannot see the clear it names",
 }
 
 

@@ -1276,22 +1276,39 @@ CASE_CONTROLS = (
 
 
 class Problems(list):
-    """A problem list that remembers how many problems it was handed.
+    """A problem list that remembers how many problems it was handed, and whether it was cleared.
 
     The self-test returns its problems, so the list was the only record that anything was
     wrong -- and `bad.clear()` on the way out therefore turned the whole run green with
-    every failure discarded, while the pinned rule count stayed exactly where it was. The
-    tally travels back as its own value now, and `self_test_verdict` compares the two: a
-    list that has been emptied cannot lower the number it was handed.
+    every failure discarded, while the pinned rule count stayed exactly where it was.
+
+    The tally travels back as its own value and `self_test_verdict` compares the two, but that
+    comparison alone does NOT catch the clear it was written for, and the class used to claim
+    that it did. In a clean run nothing was ever appended, so the list is already empty and
+    `clear()` is a no-op: `len(bad)` and `raised` are both zero and the comparison holds. The
+    guard therefore distinguishes "the list was emptied after something was raised" from
+    "nothing was raised" only in the case where somebody already noticed the first one. What it
+    cannot do is notice that the suppression is in the file at all.
+
+    So `clear()` is counted here instead. Clearing is never legitimate -- there is no path in
+    this file that wants to throw the findings away -- which makes "was clear() ever called"
+    answerable in a green run, where the count comparison is structurally blind. It is counted
+    rather than forbidden by raising so the verdict can name it in the same voice as every other
+    problem instead of dying with a traceback one line above its own diagnosis.
     """
 
     def __init__(self):
         super().__init__()
         self.raised = 0
+        self.cleared = 0
 
     def append(self, item):
         list.append(self, item)
         self.raised += 1
+
+    def clear(self):
+        self.cleared += 1
+        list.clear(self)
 
 
 # How many verdict rules the self-test is expected to run: one per captured case, one per
@@ -2264,30 +2281,84 @@ def self_test():
             staging_call_problems("def main():\n    totals, ran_all = run_selection(sets, run_set)\n"),
             "so the staging rule is not satisfied by a main that does not call it")
 
-    # The two helpers every rule above is counted through are themselves attack surface: a
-    # `pass` where `rules.append(name)` is, or an `if False:` inside control(), keeps every
-    # number intact while emptying the checks. So both are canaried through a throwaway
-    # list. Deliberately NOT one of the counted rules, for the reason the count pin is not
-    # either: a check that counts itself moves the number it exists to hold still.
-    probe_rules, probe_bad = [], []
-    rule(probe_rules, probe_bad, "canary", ["a problem"])
-    control(probe_rules, probe_bad, "canary", [], "it said nothing")
-    control(probe_rules, probe_bad, "canary", ["a problem"], "it said nothing")
-    # run_rule is the same attack surface with one more step: a body that reports a problem
-    # has to have it reported, and a body that reports none has to add nothing. Without the
-    # second arm, `run_rule = lambda rules, bad, name, body: rules.append((name, 0))` counts
-    # every snapshot rule as passing while calling none of them.
-    run_rule(probe_rules, probe_bad, "canary", lambda problems: problems.append("a problem"))
-    run_rule(probe_rules, probe_bad, "canary", lambda problems: None)
-    if len(probe_rules) != 5 or len(probe_bad) != 3:
-        bad.append(f"the rule/control/run_rule helpers are hollow: they counted "
-                   f"{len(probe_rules)} and reported {len(probe_bad)}, want 5 and 3 -- a rule "
-                   f"that cannot fail is not made honest by counting it")
-
+    # The two helpers every rule above is counted through are themselves attack surface, and
+    # the canary that watches them now lives OUTSIDE this function -- see
+    # helper_canary_problems. It used to be inline here, comparing two local counts, and the
+    # comparison itself was the hole: `if False:` left every number intact and the canary
+    # became a pair of list appends nothing read. A canary cannot police its own comparison,
+    # which is the same argument that moved the reach check into the caller.
+    #
     # Reported, not adjudicated: the reach check used to live here, and a bare `return`
     # inserted anywhere above it skipped every rule and still exited 0. What decides
     # pass or fail is self_test_verdict(), outside the code whose reach it measures.
     return vrules, rules, srules, bad, bad.raised
+
+
+def helper_canary_problems(rule_fn=None, control_fn=None, run_rule_fn=None):
+    """Runs the three counting helpers through a throwaway list and reports what came back.
+
+    `rule()`, `control()` and `run_rule()` are the only way anything gets counted, so a `pass`
+    where `rules.append(name)` is keeps every pinned number intact while emptying every check
+    that produced it. The canary is what makes that visible, and it is deliberately not one of
+    the counted rules -- a check that counts itself moves the number it exists to hold.
+
+    The helpers are arguments rather than globals for one reason: canary_probe_problems has to
+    hand this a demonstrably hollow `rule()` and check that the canary notices. They default to
+    None and are resolved here rather than in the signature, because a default argument is
+    evaluated once at import -- #129 learned that the hard way with `root=ROOT` -- and a frozen
+    default would keep testing the import-time binding after anything rebound the name.
+
+    Returns a list of problems, empty when the helpers are honest.
+    """
+    rule_fn = rule if rule_fn is None else rule_fn
+    control_fn = control if control_fn is None else control_fn
+    run_rule_fn = run_rule if run_rule_fn is None else run_rule_fn
+
+    probe_rules, probe_bad = [], []
+    rule_fn(probe_rules, probe_bad, "canary", ["a problem"])
+    control_fn(probe_rules, probe_bad, "canary", [], "it said nothing")
+    control_fn(probe_rules, probe_bad, "canary", ["a problem"], "it said nothing")
+    # run_rule is the same attack surface with one more step: a body that reports a problem
+    # has to have it reported, and a body that reports none has to add nothing. Without the
+    # second arm, `run_rule = lambda rules, bad, name, body: rules.append((name, 0))` counts
+    # every snapshot rule as passing while calling none of them.
+    run_rule_fn(probe_rules, probe_bad, "canary", lambda problems: problems.append("a problem"))
+    run_rule_fn(probe_rules, probe_bad, "canary", lambda problems: None)
+    if len(probe_rules) != 5 or len(probe_bad) != 3:
+        return [f"the rule/control/run_rule helpers are hollow: they counted "
+                f"{len(probe_rules)} and reported {len(probe_bad)}, want 5 and 3 -- a rule "
+                f"that cannot fail is not made honest by counting it"]
+    return []
+
+
+def canary_probe_problems():
+    """Whether the helper canary still bites -- the reach argument applied to the reach check.
+
+    The canary existed; its comparison did not. `if len(probe_rules) != 5 or len(probe_bad) != 3:`
+    could become `if False:` with the self-test green, because nothing read the canary's answer
+    except the line that was deleted. Asking "is the canary right?" cannot answer that; asking
+    "does the canary notice a helper that is provably hollow?" can, because a canary whose
+    comparison has been hollowed says nothing about a helper that genuinely should be reported.
+
+    Both arms, for the reason every other control in this file has both: a canary that always
+    answers "fine" and one that always answers "hollow" both pass a one-armed probe.
+    """
+    out = []
+
+    def hollow(rules, bad, name, problems):
+        # Counts the rule as passing and asserts nothing -- the exact mutation the canary
+        # exists to catch, supplied rather than argued.
+        rules.append((name, 0))
+
+    if not helper_canary_problems(rule_fn=hollow):
+        out.append("the helper canary did not notice a rule() that counts every rule as "
+                   "passing while asserting nothing, so the canary is the thing that is hollow "
+                   "and every count in this file is a claim about checks that did not run")
+    if helper_canary_problems():
+        out.append("the helper canary reports a problem against the real helpers: "
+                   f"{helper_canary_problems()} -- a canary that always refuses makes the "
+                   "probe above pass for the wrong reason")
+    return out
 
 
 def guard(ran, bad_out, why, got, want):
@@ -2362,6 +2433,33 @@ def verdict_guard_problems():
                  lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
                                     [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
                                     Problems(), 0)), 1),
+                # The shape the three count pins exist for, and the one none of them was
+                # probed against. Each pin can become `if False:` with the self-test green,
+                # because every probe above either hands it the exact pinned length or hands it
+                # a report refused for a different reason first. A deleted rule is invisible to
+                # the rules that survive, and a pin that is itself unpinned is the same failure
+                # one level up -- which is the argument the whole file is built on, arriving at
+                # the pins. One probe per pin, because they are three separate comparisons and
+                # any one of them can be hollowed while the other two keep passing.
+                ("a verdict one rule short of its pin is refused",
+                 lambda: self_test_verdict(([(f"r{i}", 0)
+                                    for i in range(EXPECTED_VERDICT_RULES - 1)],
+                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
+                                    Problems(), 0)), 1),
+                ("a selection one rule short of its pin is refused",
+                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0)
+                                     for i in range(EXPECTED_SELECT_RULES - 1)],
+                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
+                                    Problems(), 0)), 1),
+                ("a snapshot one rule short of its pin is refused",
+                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0)
+                                     for i in range(EXPECTED_SNAPSHOT_RULES - 1)],
+                                    Problems(), 0)), 1),
+                ("the helper canary still bites", canary_probe_problems, []),
                 # And the honest report still has to pass, or the four above pass by always
                 # saying no.
                 ("a complete verdict still passes",
@@ -2378,7 +2476,7 @@ def verdict_guard_problems():
     return ran, bad_out
 
 
-EXPECTED_VERDICT_GUARDS = 6
+EXPECTED_VERDICT_GUARDS = 10
 
 
 def verdict_guard_reach_problems(ran, problems):
@@ -2435,6 +2533,16 @@ def self_test_verdict(report, extra=()):
         print("self-test FAILED:")
         print(f"  - it raised {raised} problems and returned {len(bad)}: the problem list "
               f"was emptied on the way out, so every failure it held was discarded")
+        return 1
+    # ...but that comparison cannot see the clear in a clean run, because both sides are zero
+    # when nothing was ever raised. This is the half that answers "is the suppression in the
+    # file", and it is answered by the list itself rather than by arithmetic over its length.
+    if getattr(bad, "cleared", 0):
+        print("self-test FAILED:")
+        print(f"  - it cleared the problem list {bad.cleared} time(s). The list is the only "
+              f"record that anything went wrong, so clearing it is the run throwing away its "
+              f"own findings -- and in a clean run the count comparison above cannot notice, "
+              f"because zero problems and zero cleared problems are the same number")
         return 1
     # Each count is compared against a number that has to be edited on purpose: every rule
     # can pass perfectly while one of them is missing from the file. Neither pin is one of
