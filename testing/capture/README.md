@@ -20,6 +20,7 @@ go build -o plock ./cmd/plock          # or point PLOCK_BIN at a binary you alre
 ./pages-setup.sh    && ./pages.py
 ./lock-setup.sh     && ./lock.py
 ./testlock-setup.sh && ./testlock.py
+./pages.py --self-test   # the refusal contract only: no browser, no fixture, nothing written
 ```
 
 Each `*-setup.sh` builds a throwaway fixture — its own config, state directory and audit trail
@@ -47,7 +48,7 @@ one page needs live in `cdp.py`.
 
 | driver | refuses when |
 |---|---|
-| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page |
+| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page; **the audit page** carries no seeded `platform.error` row, or its hardest unbreakable token is under 60 characters (#140: a page that could not have overflowed is not width evidence, and a page whose pressure came from the machine rather than the fixture is not evidence about the stylesheet) |
 | `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows |
 | `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows |
 | all three | the daemon the fixture started is not the process still serving its port; something already answers the DevTools endpoint before the browser is launched; `--out` resolves outside the repository, names a file, or names a directory holding PNGs without `--overwrite`; an unrecognised flag |
@@ -199,7 +200,13 @@ Three rules keep the trail honest, all of them in `pages-setup.sh`:
   of reading those and neither is guessable: `srv.Audit` sets `Actor` and `Detail` and never
   `Username`, so a row the web layer wrote renders `nobody` in the Account column; and only an
   *enabled* user has engine rows, so a lockout line for a disabled account is a state the engine
-  never reaches.
+  never reaches. The `platform.error` row goes one step further and reads its payload from
+  `internal/platform/testdata/list-sessions.json` rather than typing one: that file is what
+  `logind_test.go:86` names as a live systemd's output, and its field set is exactly what
+  `logind.go`'s `listEntry` decodes. The hand-written JSON this replaced carried `idleHint`,
+  `remoteHost`, `service`, `type` and `state`, none of which `loginctl list-sessions` prints — so
+  the rule was false on the one row whose text decides the page's width, and the real listing is
+  also 251 unbreakable characters where the invented one was 192.
 * **Rows go into the file oldest-first.** `audit.Reader.Tail` does not sort — it reads the tail and
   returns it reversed, on the assumption that a writer only ever appends. A fixture that seeds
   newest-first therefore renders oldest-first, and the page labelled "newest first" shows the
@@ -233,6 +240,52 @@ now, so an unrecognised flag is an error.
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the
 flag is for. Replacing committed evidence should take two tokens, not a tab-completion.
 
+## The self-test, because nothing else in this repository can read these files
+
+`./pages.py --self-test` runs 11 rules about what a refusal does. It starts no browser, spawns no
+daemon, writes no file, and costs **0.028 s**, so `make verify` runs it beside the two mutation
+self-tests.
+
+It exists because this package is invisible to every other gate: the mutants target `.go` and
+`.tmpl` only, nothing imports `pages.py`, and shellcheck does not read Python. That is how the
+following shipped past `make verify`, `shellcheck` and a 751-mutant battery at once:
+
+`cdp.refused()` ended in `raise SystemExit(1)`. Every call to it was the first line of a caller's
+own `except` handler, so **every statement after every call to it in the package was dead code**.
+Measured with a stubbed `shoot()` that raises this branch's own width refusal:
+
+| | expected | measured on that head |
+|---|---|---|
+| pages measured | 5 | **1** — the loop died in page 1's handler |
+| `discard_stage()` | 1 call | **0** |
+| the `N/5 pages fit … refused: …` sentence | printed | **never** |
+| exit code | 1 | 1 — an uncaught exception is also exit 1 |
+
+The exit code is what hid it: a refusal is supposed to exit 1, so nothing looked wrong. The same
+line was dead in `lock.py` and `testlock.py`, each of which called `discard_stage()` immediately
+after — so a refused capture also left its staged bytes behind. The repair splits the reporter
+(`cdp.report_refusal`, which reports and returns) from the decision, which stays with the caller
+because only the caller knows whether one more page can still be measured. There is deliberately
+no raising variant left beside it.
+
+The reviewer's suggested one-word fix (`refused_pages.append(spec.url)`) was tried and measured
+before this was written: **it changes nothing**, because the raise happens on the line above. It is
+recorded here rather than quietly dropped.
+
+Three of the 13 probes written against the new self-test initially **survived**, and each was a
+hole in the pin rather than in the fix:
+
+* the rule fed `{"longest": None}` — a key that is *present* — so it tested the wrong branch. The
+  real case is the key being **absent**, because the token census is spliced on `has_rows`.
+* two declaration rules were satisfied by `capture_out` refusing the `--self-test` flag through
+  argparse, i.e. they passed on an unrelated refusal. `capture_out` is now stubbed for every rule
+  that reaches `main()`, so the only refusal a rule can see is the one it is about.
+* the canary pair only checked the problem list, so hollowing `ran.append((why, len(problems)))`
+  down to `(why, 0)` still looked satisfied. It now requires both lists to agree: `[1, 0]` and 1.
+
+After those repairs: **13 probes, 13 caught, 0 survived**, and `make verify` fails at
+`==> capture refusal contract` (exit 2) when the root cause is re-introduced.
+
 ## House rules
 
 * **A capture is evidence when the driver's transcript is pasted into the PR, and the PNG is
@@ -257,5 +310,6 @@ flag is for. Replacing committed evidence should take two tokens, not a tab-comp
 * **The shell half is shellcheck-linted by name** in the `shellcheck` job, like everything else in
   `testing/`. The job runs from the repository root without `-x`, which is why the `source=`
   directives above the `. fixture.sh` lines are written repo-root-relative — otherwise the job
-  fails on the directive instead of following it. The Python half has no lint gate, because this
-  repo has no Python environment to put one in.
+  fails on the directive instead of following it. The Python half has no *lint* gate, because this
+  repo has no Python environment to put one in — but it does have a behavioural one, and the
+  section above is why `pages.py --self-test` sits in `make verify` rather than in a README.
