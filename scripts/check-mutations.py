@@ -59,7 +59,7 @@ SUMMARY_CALL = 'print(f"\\n{summary_line(total)}")'
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 34
+EXPECTED_RULES = 38
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -143,10 +143,15 @@ def encoding_problems(label, path):
         # `gen-cli-mutations.py` emits 20 mutants and the committed set holds 21, because CI21 was
         # appended by hand. Advice that fixes an encoding hunk by silently dropping a mutant is
         # the worse trade, and the gate cannot see the mutant go.
+        #
+        # The sentence names #150 because it is a claim about today's counts, and nothing pins
+        # it: when #150 lands and the generator owns the whole file, this becomes a confidently
+        # wrong instruction. The number is the thing to re-check there, so the number is where
+        # the ticket is.
         out.append(f"{label}:{line}: {esc} is a JSON escape for a character the file could hold "
                    f"literally -- edit it to the character itself. Do not re-run "
                    f"gen-cli-mutations.py to fix this: it writes fewer mutants than the committed "
-                   f"file holds.")
+                   f"file holds (see #150).")
     return out
 
 
@@ -476,9 +481,13 @@ def self_test():
         # `rule_fires` takes the complaint the guarded check produced and fails when that is
         # empty, so the escape case hands it `got` directly. A first pass inverted this and the
         # self-test reported "the check it guards cannot fail" about a check that had just
-        # refused correctly -- which is at least the right direction to fail in.
-        rule_fires("a JSON-escaped em dash in a set file is refused",
-                   "; ".join(got) or "reported nothing on \\u2014")
+        # refused correctly -- which is at least the right direction to fail in. A second pass
+        # wrapped it as `"; ".join(got) or "reported nothing"` to make the message read better,
+        # which made the rule unable to fail: the fallback supplies the complaint the check
+        # failed to produce, so the empty branch was unreachable and gutting the scanner left
+        # the tally at full strength. Measured: `if False and nxt == "u"` printed
+        # `34 rules hold`. A complaint the check did not make is not evidence the check made one.
+        rule_fires("a JSON-escaped em dash in a set file is refused", "; ".join(got))
 
         got = encoding_case('{"description": "x",\n'
                             '  "note": "held — until the clock jumps",\n}\n')
@@ -491,6 +500,20 @@ def self_test():
         got = encoding_case('{"description": "x",\n  "old": "\\\\u00e9",\n}\n')
         rule("a Go string escape in a pattern is not read as a JSON escape",
              "" if not got else f"refused a backslash followed by u: {got}")
+
+    # What a detected problem is worth at the end of the run. These four are the difference
+    # between "the checks noticed" and "the run failed", and until now only the second one was
+    # ever claimed by a sentence in main. Each half is its own rule because each arrives through
+    # its own list; collapsing `or` to one operand is the gutting that used to survive.
+    def status_report(got, want):
+        return None if got == want else f"exit {got}, want {want}"
+
+    rule("a clean pass exits 0", status_report(exit_status(0, []), 0))
+    rule("a mutant that does not apply exits 1", status_report(exit_status(3, []), 1))
+    rule("a set-file encoding problem alone exits 1",
+         status_report(exit_status(0, ["cli.json: JSON escape"]), 1))
+    rule_fires("control: the exit-status check reports a wrong code",
+               status_report(exit_status(0, ["cli.json: JSON escape"]), 0))
 
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a
@@ -511,6 +534,22 @@ def self_test():
     return 0
 
 
+def exit_status(bad, file_problems):
+    """The exit code a finished pass deserves, as a number rather than as a branch in main.
+
+    `if bad or file_problems:` is where a detected problem becomes a failing run, and it was the
+    last link in a chain pinned end to end everywhere except there. Nine rules prove the checks
+    notice something; nothing proved that noticing is what makes the run fail, so dropping
+    `or file_problems` left every rule holding and printed the summary line over an escaped set
+    file. Pulled out because a branch in main cannot be handed a case and a function can.
+
+    Both halves are separate on purpose. A mutant that does not apply and a file that was
+    generated instead of declared arrive through different lists and are reported by different
+    sentences, and either one alone has to be enough to fail the run.
+    """
+    return 1 if (bad or file_problems) else 0
+
+
 def main(argv):
     if argv[1:] == ["--self-test"]:
         return self_test()
@@ -524,13 +563,23 @@ def main(argv):
     file_problems = []
     for path in paths:
         label = os.path.relpath(path, ROOT)
-        doc = load(path)
-        named.append((label, doc))
+        # Before `load`, not after it. `mutset.load` opens with encoding="utf-8" and catches
+        # ValueError -- which UnicodeDecodeError subclasses -- and then calls sys.exit, so a file
+        # whose bytes were not UTF-8 died there printing `not valid JSON: 'utf-8' codec can't
+        # decode byte 0xff` and the sentence written for exactly that case never printed. It also
+        # took the other twelve sets down with it: there is nothing to check in a file that cannot
+        # be read, but there is plenty to check in the files after it.
+        found = encoding_problems(label, path)
         # Deliberately not added to `bad`. A mutant that does not apply and a file that was
         # written by a tool instead of declared are different failures: the closing line counts
         # "N of M mutants would run without testing anything", and folding an encoding defect
         # into that number would attribute a file-level problem to mutants that are fine.
-        file_problems.extend(encoding_problems(label, path))
+        file_problems.extend(found)
+        if any(" is not valid UTF-8 " in w for w in found):
+            print(f"{label}: skipped -- its bytes are not UTF-8, so there is nothing to check")
+            continue
+        doc = load(path)
+        named.append((label, doc))
         problems = check(doc)
         total += len(doc["mutants"])
         bad += len(problems)
@@ -557,13 +606,14 @@ def main(argv):
         for why in file_problems:
             print(f"  {why}")
 
-    if bad or file_problems:
+    status = exit_status(bad, file_problems)
+    if status:
         if bad:
             print(f"\n{bad} of {total} mutants would run without testing anything.")
             print("Re-point them onto the code that replaced theirs -- updating `old` but not")
             print("`new` is how a mutant ends up failing to compile, which the battery prints as")
             print("a line and checks nothing.")
-        return 1
+        return status
     print(f"\n{summary_line(total)}")
     return 0
 
