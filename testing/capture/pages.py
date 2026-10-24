@@ -27,19 +27,110 @@ import sys
 sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
 
-# Each entry is (URL, committed artifact name, whether the fixture puts a table on the page).
+# How hard the Detail column has to be pushed before a width measurement means anything. 60 sits
+# far below the seeded row (251 characters: the captured loginctl listing, named below) and far
+# above any sentence a person writes, so a fixture reworded back into prose trips this rather than
+# quietly stopping the check.
+UNBREAKABLE_MIN = 60
+
+# The seeded row's Event kind, exactly as pages-setup.sh writes it.
+STRESS_KIND = "platform.error"
+
+# The longest run without a space anywhere in a `table.rows` cell, as the browser sees it.
+# textContent, not innerText: innerText is the RENDERED text, and a cell that wraps correctly is
+# exactly the thing that could hand back a token broken at the wrap point -- the refusal would then
+# fire against the fix.
 #
-# The last field decides which refusal proves the page was really rendered, and it exists because
-# the settings page has no table. Dropping require_records for it would have been the lazy edit,
-# and it is the wrong one: a /settings that rendered nothing but its navigation also fits at
-# 360 px, and that is exactly the photograph nobody would notice is not evidence. A table page is
-# refused for having no rows; a form page is refused for having nothing to submit.
+# Spliced into the same measure() call as the cell and form census, which is what that key exists
+# for. It used to be its own CDP round-trip, and the consequence was small but real: the
+# transcript's `hardest=` came from one read while the guard compared another, so the number the
+# transcript certifies was not the number the check used.
+LONGEST_JS = ("longest:Math.max(0, ...[...document.querySelectorAll('table.rows tbody td')]"
+              ".flatMap(td => (td.textContent.match(/\\S+/g) || [])).map(s => s.length))")
+
+# Is the row this fixture seeded actually on the page? The floor below is a page-wide realism
+# floor, and the two are not the same claim: on the machine #140 came from, the daemon's own failure
+# row supplied 123 characters and cleared 60 by itself, so no floor can attribute the pressure to
+# the row the authored. This one can, and it refuses when that row is not among the rendered cells.
+STRESS_JS = ("stress:[...document.querySelectorAll('table.rows tbody td')"
+             f"].some(td => td.textContent.trim() === {STRESS_KIND!r})")
+
+
+def require_stress_row(got, what):
+    """The #140 row has to be on the page, not merely possible.
+
+    `require_unbreakable` asks how hard the page was pushed; this asks who pushed it. Without it
+    the fixture can lose its stress row -- a reworded setup script, a kind renamed in one place, a
+    page that stops rendering the Event column -- and the width check keeps reporting a comfortable
+    number, because some other row happens to be long today. That is the same failure #140 opened
+    with, arriving from the opposite direction: the measurement stayed green while the thing it was
+    measuring left the building.
+    """
+    if not got["stress"]:
+        raise SystemExit(
+            f"{what}: no rendered cell is the seeded {STRESS_KIND!r} row, so whatever width "
+            "pressure this page has came from the machine and not from the fixture. The audit "
+            "capture would be evidence about this box, not about the stylesheet (#140).")
+
+
+def require_unbreakable(got, what):
+    """#140's rule: the audit page is only evidence about width if it was handed something that
+    cannot be wrapped.
+
+    The refusal that opened the issue was real -- `893 px wide at a 360 px viewport`, printed twice,
+    on two trees -- and it came from a row nobody authored. The daemon had failed to enumerate this
+    machine's sessions and had written the loginctl JSON it could not parse straight into the Detail
+    column. That is why the check exists: the stress was emergent, so it left without any edit. On
+    today's machine the same fixture, unmodified, produces a 123-character token, the page fits,
+    and the driver reports `5/5 pages fit at 360 px` having asked for nothing.
+
+    What this is NOT, because the opposite was measured rather than assumed: a long token is not by
+    itself an overflow at this width. 320 characters of unbreakable hex -- no space, no hyphen, no
+    slash, nothing for a line break to sit on -- fit at 360 px with no wrap rule anywhere in
+    app.css, because below 40rem a row stops being a table and each cell gets the page's width. So
+    this is a floor on the fixture's realism and not a proof about overflow: it refuses a fixture
+    that has quietly become prose, which is the failure that can actually be prevented. The 893 px
+    cause is still unidentified, and #140 says so rather than letting a plausible story stand in
+    for one.
+
+    It takes the measured object rather than the session, and lives here rather than in cdp.py, for
+    the same reason its sibling checks do: it has one caller, it names the audit page, and the
+    shared file's contract is that it holds no page-specific assertions.
+    """
+    longest = got["longest"]
+    if longest < UNBREAKABLE_MIN:
+        raise SystemExit(
+            f"{what}: the hardest token anywhere in the table is {longest} characters, under the "
+            f"{UNBREAKABLE_MIN} this check needs to call a width measurement evidence. Nothing on "
+            "the page can overflow, so 360 px here proves nothing about a detail that quotes a "
+            "path or a JSON blob (#140).")
+
+
+# Each entry is a URL, the committed artifact it becomes, whether the fixture puts a table on the
+# page, and whether it carries the #140 stress row.
+#
+# `has_rows` decides which refusal proves the page was really rendered, and it exists because the
+# settings page has no table. Dropping require_records for it would have been the lazy edit, and it
+# is the wrong one: a /settings that rendered nothing but its navigation also fits at 360 px, and
+# that is exactly the photograph nobody would notice is not evidence. A table page is refused for
+# having no rows; a form page is refused for having nothing to submit.
+#
+# `stress` is a trait on the row rather than an `if page == "/audit"` inside shoot(), because a rule
+# that hangs off a URL string stops running the day somebody edits the string -- and stops running
+# quietly, which is the exact failure #140 is about. Here the rule and the page that carries it are
+# one line of this table, and main() refuses to run at all if no line carries it.
+class Page:
+    def __init__(self, url, artifact, has_rows, stress=False):
+        self.url, self.artifact = url, artifact
+        self.has_rows, self.stress = has_rows, stress
+
+
 PAGES = [
-    ("/", "dashboard", True),
-    ("/users", "users", True),
-    ("/profiles", "profiles", True),
-    ("/audit", "audit", True),
-    ("/settings", "settings", False),
+    Page("/", "dashboard", True),
+    Page("/users", "users", True),
+    Page("/profiles", "profiles", True),
+    Page("/audit", "audit", True, stress=True),
+    Page("/settings", "settings", False),
 ]
 
 # The one flag the GET pages need and the result pages do not: these four are the pages whose
@@ -50,15 +141,23 @@ PAGES = [
 CHROME_FLAGS = ("--hide-scrollbars=false",)
 
 
-def shoot(cap, page, name, has_rows):
-    session, base = cap.session, cap.base
+def shoot(cap, spec, name):
+    page, session, base = spec.url, cap.session, cap.base
     session.goto(base + page)
     here = session.where()
     if here != page:
         raise SystemExit(f"{page} answered {here} instead; nothing was measured")
     session.settle()
-    got = cdp.measure(session, cdp.FORMS_JS)
-    if has_rows:
+    # One read per page. `extra` is what measure() takes for exactly this: the census keys a page
+    # needs are spliced into the same object, so the number printed in the transcript, the number
+    # the width refusal quotes and the number the stress guards compare are all from one render.
+    extra = cdp.FORMS_JS
+    if spec.has_rows:
+        extra += "," + LONGEST_JS
+    if spec.stress:
+        extra += "," + STRESS_JS
+    got = cdp.measure(session, extra)
+    if spec.has_rows:
         cdp.require_records(got, page)
         cdp.require_labelled_cells(got, page)
     else:
@@ -72,7 +171,7 @@ def shoot(cap, page, name, has_rows):
     # #140 said only how wide the page was, and by the time anyone read it the row that may have
     # caused it was gone -- the number that would have answered is one CDP call away at the moment of
     # refusal and unrecoverable after it.
-    longest = cdp.longest_token(session) if has_rows else None
+    longest = got.get("longest")
     hard = "" if longest is None else f" hardest={longest}ch"
     if got["scroll"] > cdp.WIDTH:
         cause = ("" if longest is None else
@@ -84,11 +183,12 @@ def shoot(cap, page, name, has_rows):
     # #140's whole lesson is that the audit page can fit at 360 px having been asked for nothing,
     # because the row that broke it came from the daemon failing on this machine rather than from
     # the fixture.
-    if page == "/audit":
-        cdp.require_unbreakable_detail(session, "the audit page")
+    if spec.stress:
+        require_stress_row(got, page)
+        require_unbreakable(got, page)
     cap.require_running()
     session.write_png(name)
-    proof = f"tables={got['tables']} cells={got['cells']}" if has_rows else \
+    proof = f"tables={got['tables']} cells={got['cells']}" if spec.has_rows else \
         f"forms={got['forms']} fields={got['fields']}"
     print(f"  {page:<10} scrollWidth={got['scroll']:>4} innerWidth={got['inner']:>4} "
           f"height={got['height']:>5} {proof}{hard} "
@@ -96,13 +196,21 @@ def shoot(cap, page, name, has_rows):
 
 
 def main():
+    # The trait has to be carried by somebody. A table where every `stress` flag has been dropped
+    # measures five pages that could not have overflowed and reports them as fitting, which is the
+    # silence #140 was filed for; refusing here means the omission is a refusal rather than a
+    # transcript.
+    if not any(p.stress for p in PAGES):
+        raise SystemExit(
+            "no page in PAGES carries the #140 stress row, so no width measurement this driver "
+            "makes can be evidence about overflow")
     out = cdp.capture_out("pages")
     refused_pages = []
     with cdp.Capture("pages", CHROME_FLAGS) as cap:
-        for page, artifact, has_rows in PAGES:
-            name = op.join(out, artifact + ".png")
+        for spec in PAGES:
+            name = op.join(out, spec.artifact + ".png")
             try:
-                shoot(cap, page, name, has_rows)
+                shoot(cap, spec, name)
             except SystemExit as exc:
                 cdp.refused(name, exc)
                 refused_pages.append(page)

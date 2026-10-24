@@ -47,7 +47,7 @@ one page needs live in `cdp.py`.
 
 | driver | refuses when |
 |---|---|
-| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page |
+| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page; **the audit page** carries no seeded `platform.error` row, or its hardest unbreakable token is under 60 characters (#140: a page that could not have overflowed is not width evidence, and a page whose pressure came from the machine rather than the fixture is not evidence about the stylesheet) |
 | `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows |
 | `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows |
 | all three | the daemon the fixture started is not the process still serving its port; something already answers the DevTools endpoint before the browser is launched; `--out` resolves outside the repository, names a file, or names a directory holding PNGs without `--overwrite`; an unrecognised flag |
@@ -199,7 +199,13 @@ Three rules keep the trail honest, all of them in `pages-setup.sh`:
   of reading those and neither is guessable: `srv.Audit` sets `Actor` and `Detail` and never
   `Username`, so a row the web layer wrote renders `nobody` in the Account column; and only an
   *enabled* user has engine rows, so a lockout line for a disabled account is a state the engine
-  never reaches.
+  never reaches. The `platform.error` row goes one step further and reads its payload from
+  `internal/platform/testdata/list-sessions.json` rather than typing one: that file is what
+  `logind_test.go:86` names as a live systemd's output, and its field set is exactly what
+  `logind.go`'s `listEntry` decodes. The hand-written JSON this replaced carried `idleHint`,
+  `remoteHost`, `service`, `type` and `state`, none of which `loginctl list-sessions` prints — so
+  the rule was false on the one row whose text decides the page's width, and the real listing is
+  also 251 unbreakable characters where the invented one was 192.
 * **Rows go into the file oldest-first.** `audit.Reader.Tail` does not sort — it reads the tail and
   returns it reversed, on the assumption that a writer only ever appends. A fixture that seeds
   newest-first therefore renders oldest-first, and the page labelled "newest first" shows the
