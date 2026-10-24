@@ -56,6 +56,8 @@ Exit status is 0 only when nothing survived and nothing failed to apply.
 """
 
 import argparse
+import builtins
+import ast
 import contextlib
 import glob
 import hashlib
@@ -69,6 +71,7 @@ import socket
 import subprocess
 import tempfile
 import sys
+import textwrap
 
 # The set format is validated in one place, shared with the pre-flight, so a set the
 # gate accepts can never be a set the battery refuses to load.
@@ -1159,6 +1162,223 @@ ONLY_BLOCK_CONTROLS = (
 )
 
 
+MAIN_REBIND_HONEST = (
+    # The one global main is ALLOWED to point somewhere else, and the only reason the audit
+    # needs an allow-list at all. `ROOT = SRC` at the top of this file is the working tree;
+    # main repoints it at the throwaway copy before any set is read, and that rebind IS the
+    # snapshot mechanism -- every helper that resolves a path reads ROOT at call time, which is
+    # the property #129's `root=ROOT` default-argument bug destroyed (a default freezes the
+    # value at import, so the rebind never reached it). Refusing this line would refuse the fix,
+    # so it is listed rather than exempted, and the line above it (`global ROOT`) is what makes
+    # the intent visible in a diff.
+    'ROOT = os.path.join(work, "repo")',
+)
+
+# Each control rebinds one of the names the pinned lines CALL, placed exactly where the reviewer
+# placed it: one line above a line the audit pins, so every pinned line still matches character
+# for character and every name-based deny list stays green. These are #125's three edits, and
+# the third is the one that makes the difference between this audit and a longer list -- the
+# issue records that adding `select_sets|run_set` to the predicate left rebinding `print` green,
+# because no line-list reaches a name that was never on it.
+REBIND_CONTROLS = (
+    ("select_sets is replaced one line above the pinned call, so the label names one id and "
+     "the runner is handed the whole set -- #118, restored",
+     lambda s: s.replace("            " + ONLY_CALL,
+                         "            select_sets = lambda ss, w, k: (ss, [])\n"
+                         "            " + ONLY_CALL, 1)),
+    ("run_set is replaced one line above the pinned hand-off, so every tally the TOTAL line "
+     "prints is a constant",
+     lambda s: s.replace("        " + ONLY_RUN,
+                         "        run_set = lambda path, label: dict(caught=0, survived=0, "
+                         "equivalent=0, invalid=0)\n        " + ONLY_RUN, 1)),
+    ("print is replaced, which no list of selection names can reach",
+     lambda s: s.replace("            " + ONLY_CALL,
+                         "            print = lambda *a, **k: None\n"
+                         "            " + ONLY_CALL, 1)),
+    # The two spellings that put no Name node in the source at all. Both are what someone who
+    # has read the auditor reaches for, which is why they are controls and not a listed floor:
+    # what remains unreachable is a COMPUTED name (`k = 'select' + '_sets'`), and no read of a
+    # source file resolves that.
+    ("select_sets is replaced through globals(), so no Name node is assigned",
+     lambda s: s.replace("            " + ONLY_CALL,
+                         "            globals()['select_sets'] = lambda ss, w, k: (ss, [])\n"
+                         "            " + ONLY_CALL, 1)),
+    ("select_sets is replaced through setattr on the module",
+     lambda s: s.replace("            " + ONLY_CALL,
+                         "            setattr(sys.modules[__name__], 'select_sets', "
+                         "lambda ss, w, k: (ss, []))\n"
+                         "            " + ONLY_CALL, 1)),
+)
+
+
+def dependency_rebinding_problems(store_src, scope_src, where, allowed_lines=()):
+    """Every line in `store_src` that rebinds a name `scope_src` reads but never introduces.
+
+    A presence-pin says "the body still contains `load(staged(path))`", and that sentence is
+    true while the line above it reads `staged = lambda p: p`. The pin names a CALL; the edit
+    changes what the NAME means. #125 measured this on main's --only block: rebinding
+    `select_sets` one line above the pinned call restores #118 -- the label names one id while
+    the run is handed the whole set, and `missing` is empty by construction -- with the
+    self-test green at 35/47/32, because no line the auditor matches has stopped matching.
+
+    Only DEPENDENCIES are denied: names the code reads that the module itself provides. That
+    is the difference between a dependency and a local, and it is the whole reason this is not
+    a wall of noise -- ordinary code assigns to names it reads constantly (`tally = {...}` then
+    `tally[kind] += 1`), and a rule that called that a rebinding reported 28 problems on
+    `run_set` before it was narrowed. A local going by a different value is the program
+    working. A global going by a different *function* is the audit defeated.
+
+    Membership is asked of the live namespace, not of the text, and that is load-bearing. The
+    first version decided "is this name bound in the scope?" from the source it was auditing --
+    and the attack IS an assignment to that name, so `select_sets = lambda ...` made
+    `select_sets` look locally bound and every attack came back missed. Editing a source file
+    cannot add a name to `globals()`. Reading the namespace is the one test the attack cannot
+    talk its way out of.
+
+    The two auditors therefore divide the work rather than overlap: `only_block_problems` keeps
+    denying any line that touches the selection's own locals (`sets`, `missing`) or changes
+    control flow, because those are bound in main and this function deliberately ignores them;
+    this one denies rebinding `select_sets`, `run_set`, `staged`, `print`, `sys` and the next
+    helper nobody has thought of, which is the property a hand-written two-name list
+    (`sets|missing`) structurally cannot have -- the reviewer's third edit, rebinding `print`,
+    stayed green even with that widening in place, because `print` was not on the list.
+
+    A rebinding placed outside both the policed region and the scope -- above `def main`, or at
+    import -- is out of reach, and no text audit reaches it. That is the floor the attack suite
+    lists, not this.
+
+    Refuses rather than passing quietly when either snippet will not parse: an auditor that
+    returns [] because it could not read the code is the same false green as a hollowed rule,
+    and it is the failure #129's boundary guard was written for.
+    """
+    try:
+        store_tree = ast.parse(store_src)
+        scope_tree = ast.parse(scope_src)
+    except SyntaxError as exc:
+        return [f"{where} could not be parsed ({exc}), so nothing is known about what it "
+                f"rebinds -- fix the region rather than trusting an empty answer"]
+
+    def base_name(node):
+        """The name a store, mutation or attribute lands on, unwrapping subscripts and attrs."""
+        while isinstance(node, (ast.Subscript, ast.Attribute)):
+            node = node.value
+        return node.id if isinstance(node, ast.Name) else None
+
+    read = set()
+    for node in ast.walk(scope_tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+            read.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            head = base_name(node)
+            if head:
+                read.add(head)
+
+    # The namespace decides, at call time, so a name defined further down this file still
+    # counts. `dir(builtins)` is what catches `print = lambda *a: None`, which is the edit the
+    # reviewer said no line-list could reach and which stayed green even with the two-name
+    # widening in place -- `print` was simply not on the list.
+    provided = set(globals()) | {n for n in dir(builtins) if not n.startswith("_")}
+    free = read & provided
+    if not free:
+        return [f"{where} reads no name this module provides, which cannot be right -- an "
+                f"auditor with nothing to protect is an auditor that always passes"]
+
+    # Methods that change an object in place are a store wearing a load, and `del` puts its
+    # name in a Del context. Round 3 of #120 restored the ticket's symptom with `del sets[1:]`
+    # against a guard that matched only assignment syntax, which is why all three shapes are
+    # here rather than just Assign.
+    mutators = {"append", "extend", "insert", "remove", "pop", "clear", "update", "setdefault",
+                "discard", "add", "sort", "reverse", "popitem", "__setitem__", "__delitem__",
+                "__iadd__", "__ior__"}
+
+    lines = store_src.splitlines()
+    problems = []
+    seen = set()
+
+    def flag(node, name):
+        if name is None or name not in free or id(node) in seen:
+            return
+        seen.add(id(node))
+        index = getattr(node, "lineno", 0) - 1
+        if not 0 <= index < len(lines):
+            return
+        code = lines[index].split("#")[0].strip()
+        if not code or code in allowed_lines:
+            return
+        problems.append(f"{where} rebinds {name!r}, which the code reads without introducing: "
+                        f"{code!r} -- a line that changes what a name means defeats every pin "
+                        f"that looks for a call by that name, so the only honest fix is to "
+                        f"change the call, not the name")
+
+    for node in ast.walk(store_tree):
+        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, (ast.Tuple, ast.List)):
+                    for element in target.elts:
+                        flag(element, base_name(element))
+                else:
+                    flag(target, base_name(target))
+                # `globals()['select_sets'] = ...` puts no Name node anywhere, so nothing above
+                # can see it -- and it is the first thing someone who has read this auditor
+                # writes. The key has to be a literal string to be resolvable; a computed key is
+                # the floor, and is listed as one.
+                if (isinstance(target, ast.Subscript)
+                        and isinstance(target.value, ast.Call)
+                        and isinstance(target.value.func, ast.Name)
+                        and target.value.func.id == "globals"
+                        and isinstance(target.slice, ast.Constant)
+                        and isinstance(target.slice.value, str)):
+                    flag(node, target.slice.value)
+        elif isinstance(node, ast.NamedExpr):
+            flag(node.target, base_name(node.target))
+        elif isinstance(node, ast.Delete):
+            for target in node.targets:
+                flag(target, base_name(target))
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            flag(node, node.name)
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            flag(node.target, base_name(node.target))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    flag(item.optional_vars, base_name(item.optional_vars))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            flag(node, node.name)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id in ("setattr", "delattr") and len(node.args) >= 2:
+            # Same evasion by another route. `delattr` is here because removing a dependency
+            # defeats a pin exactly as replacing it does -- the call simply fails instead of
+            # calling something else.
+            name_arg = node.args[1]
+            if isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str):
+                flag(node, name_arg.value)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr in mutators:
+                head = base_name(node.func)
+                if head:
+                    flag(node, head)
+    return problems
+
+
+def auditable_block(src):
+    """main's ``--only`` region, wrapped so `ast` can read it. None when it cannot be located.
+
+    The region is cut the same way `only_block_problems` cuts it, and for the same reason the
+    text auditor has to cut it: it is a fragment, not a function. `partition` strips the first
+    line's indentation, so the first line is re-indented to the block's real depth and the rest
+    is left alone -- its `else:` arm, the hand-off and the `except` all keep the columns they
+    have in main, which is what lets the fragment sit inside a `try:` and parse. Re-indenting
+    the whole thing with `textwrap.dedent` instead puts the `except` at column 0 and the parse
+    fails, which is the difference between an auditor that refuses and one that says nothing.
+    """
+    _before, found, rest = src.partition("if args.only")
+    if not found or "    finally:" not in rest:
+        return None
+    block = "        if args.only" + rest.split("    finally:")[0]
+    return "def _audited():\n    try:\n" + block + "\n    finally:\n        pass\n"
+
+
 def only_block_problems(src):
     """What ``main``'s ``--only`` handling gets wrong, as sentences. Empty means it is honest.
 
@@ -1213,6 +1433,15 @@ def only_block_problems(src):
     elif "return 1" not in src.split("if missing:")[-1]:
         problems.append("main's `if missing:` branch no longer exits non-zero, so a "
                         "scripted `mutate.py --only ... && ...` still proceeds")
+    # The deny list above is over the selection's own locals. This is the other half, and the
+    # half #125 was filed for: a line that leaves every pinned line intact and changes what one
+    # of the names they call means. `select_sets = lambda ss, w, k: (ss, [])` one line above
+    # ONLY_CALL keeps ONLY_CALL matching character for character, hands the runner the whole
+    # battery behind a label naming one id, and makes `missing` empty by construction -- #118,
+    # restored, at a green self-test.
+    region = auditable_block(src)
+    if region is not None:  # None means the boundary guard above already refused
+        problems.extend(dependency_rebinding_problems(region, src, "the --only block"))
     return problems
 
 
@@ -1307,7 +1536,7 @@ EXPECTED_VERDICT_RULES = 35
 # a pin and a control per comparison in CHECKER_CONTROLS, the audit of main's --only block,
 # one control per entry in ONLY_BLOCK_CONTROLS. Pinned for the same reason the verdict count
 # is -- a deleted rule is invisible to the rules that survive.
-EXPECTED_SELECT_RULES = 47
+EXPECTED_SELECT_RULES = 52
 
 # How many snapshot rules the self-test is expected to run: #119's nineteen, counted the same
 # way (one per table row, one per fixture that builds a tree and asks what the snapshot did
@@ -1330,7 +1559,7 @@ EXPECTED_SELECT_RULES = 47
 # twenty-eighth that main actually stages before running. The last four are controls over the
 # four checkers those rules compare through, because a fixture that asserts inline cannot be
 # shown failing.
-EXPECTED_SNAPSHOT_RULES = 32
+EXPECTED_SNAPSHOT_RULES = 36
 
 
 def set_reads_problems(body, name):
@@ -1355,6 +1584,11 @@ def set_reads_problems(body, name):
     if re.search(r"\bload\(path\)", body):
         problems.append(f"{name} opens `path` directly somewhere in its body, which is the live "
                         "tree however many other reads go through `staged`")
+    # Both checks above look for a CALL, and a call survives its own name being replaced. This
+    # is the same hole #125 measured on the --only block, one file-region over: `staged =
+    # lambda p: p` as the first line of run_set leaves `load(staged(path))` present and
+    # matching, sends the battery back to the live tree, and both checks above stay silent.
+    problems.extend(dependency_rebinding_problems(body, body, name))
     return problems
 
 
@@ -1368,9 +1602,15 @@ def staging_call_problems(src):
     instead of forty minutes in -- disappears silently, and a battery that costs the whole
     budget before saying no is the thing operators actually feel.
     """
-    return [] if "stage_sets(sets, SRC, ROOT)" in src else [
+    problems = [] if "stage_sets(sets, SRC, ROOT)" in src else [
         "main never stages the sets, so nothing is carried into the snapshot and no set is "
         "validated before the run starts"]
+    # Audited over all of main rather than the --only region, because the call is not inside
+    # that region. `stage_sets = lambda *a: None` anywhere above the call keeps the pinned line
+    # matching and takes the whole of what staging buys away -- including the early refusal of a
+    # malformed set, which is the half that saves an operator forty minutes of battery.
+    problems.extend(dependency_rebinding_problems(src, src, "main", MAIN_REBIND_HONEST))
+    return problems
 
 
 def self_test():
@@ -1617,6 +1857,18 @@ def self_test():
             control(rules, bad, f"control: a main that {name}",
                     only_block_problems(patch(src)) if src else None,
                     "so nothing stops it")
+        # And the same for the names the pinned lines call rather than the values they assign.
+        # Each of these three was measured green on main before the audit was widened, which is
+        # what makes them controls for a different property than the list above: nothing in
+        # ONLY_BLOCK_HONEST changes, and no line stops matching.
+        for name, patch in REBIND_CONTROLS:
+            # `broken` rather than the inline `patch(src)`: the attack suite anchors on the
+            # inline form to gut that call site, and writing it twice would make the anchor
+            # ambiguous -- and an anchor that matches two places is refused, not guessed.
+            broken = patch(src) if src else None
+            control(rules, bad, f"control: a main where {name}",
+                    only_block_problems(broken) if broken is not None else None,
+                    "so a pinned call still passes with the name it calls replaced")
 
     # The selection, consumed. Everything above decides WHICH sets a run agreed to run; this
     # decides whether it then ran them, which is where #118 actually lived. Driven rather
@@ -2263,6 +2515,43 @@ def self_test():
     control(srules, bad, "control: a main that never stages the sets it was handed",
             staging_call_problems("def main():\n    totals, ran_all = run_selection(sets, run_set)\n"),
             "so the staging rule is not satisfied by a main that does not call it")
+    # The two rules above are presence pins, and a presence pin survives its own name being
+    # replaced. Each control below keeps the pinned text matching exactly and changes what the
+    # name means one line above it -- the edit #125 measured, applied to the auditors #129
+    # added, which inherited the weakness verbatim.
+    control(srules, bad,
+            "control: a run_set that keeps `load(staged(path))` and replaces `staged`",
+            set_reads_problems("def run_set(path, label):\n"
+                               "    staged = lambda p: p\n"
+                               "    doc = load(staged(path))\n", "run_set"),
+            "so the rule is not satisfied by a body that reads the live tree through a name "
+            "the pin cannot see")
+    control(srules, bad,
+            "control: a main that calls `stage_sets(sets, SRC, ROOT)` after replacing it",
+            staging_call_problems("def main():\n"
+                                  "    stage_sets = lambda *a: None\n"
+                                  "    stage_sets(sets, SRC, ROOT)\n"),
+            "so the staging rule is not satisfied by a call whose name means something else")
+    control(srules, bad, "control: the one rebind main is allowed, unlisted",
+            dependency_rebinding_problems(
+                'def main():\n    global ROOT\n    ROOT = os.path.join(work, "repo")\n'
+                '    return ROOT\n',
+                'def main():\n    global ROOT\n    ROOT = os.path.join(work, "repo")\n'
+                '    return ROOT\n', "main"),
+            "so MAIN_REBIND_HONEST is not exempting a line the auditor would have allowed "
+            "anyway -- an allow-list nobody can prove is load-bearing is an allow-list that "
+            "grows")
+    # The refusal an unreadable region produces, asserted by its sentence rather than by
+    # "did it say anything". A control would have passed here for the wrong reason: hand
+    # `set_reads_problems` a body that will not parse and the missing-`staged` check fires
+    # first, so the rule would hold with the SyntaxError branch deleted. Asking for the words
+    # "could not be parsed" is what makes this the parse guard's own pin.
+    unreadable = dependency_rebinding_problems("def broken(:\n    pass\n",
+                                               "def broken(:\n    pass\n", "the region")
+    rule(srules, bad, "snapshot: a region that will not parse is refused, not passed as clean",
+         [] if any("could not be parsed" in p for p in unreadable)
+         else [f"it said {unreadable or 'nothing'}, so an auditor that could not read the code "
+               f"reports the code as clean -- which is the same false green as a hollowed rule"])
 
     # The two helpers every rule above is counted through are themselves attack surface: a
     # `pass` where `rules.append(name)` is, or an `if False:` inside control(), keeps every
