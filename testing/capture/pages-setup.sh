@@ -94,6 +94,25 @@ rows = [
     ("override.granted", "", "", "", "",
      "casey until 2026-10-20T02:00:00Z by parent: dentist appointment, travelling home afterwards", "admin"),
     ("auth.failure", "", "", "", "", "127.0.0.1", "admin"),
+    # Oldest row (the writer reverses this list). #140: a backend's error text quotes things, and
+    # what it quotes has no spaces in it. This is the shape the daemon writes when session
+    # enumeration comes back in a format it cannot read -- modelled on `enumerate sessions: %v`
+    # around a real loginctl JSON array, with the session fields a live one carried.
+    #
+    # It is seeded rather than emergent on purpose. The row that took this page to 893 px came
+    # from the running daemon failing to enumerate THIS machine's sessions; on a box where that
+    # enumeration succeeds, or fails with a shorter sentence, the audit page fits at 360 px having
+    # been asked for nothing, and the capture reports 360 px while proving nothing. The fixture is
+    # now the thing that decides how hard the page is pushed, and cdp.require_unbreakable_detail
+    # refuses when this row stops doing that. Note what this row is NOT: a long token is not by
+    # itself an overflow at 360 px -- measured, 320 characters of unbreakable hex fit with no wrap
+    # rule anywhere in app.css, because below 40rem every cell gets the page's width. It is here so
+    # the width check is never run against a page that could not have overflowed.
+    ("platform.error", "", "", "", "",
+     'enumerate sessions: command: loginctl list-sessions: unrecognised output: '
+     '[{"session":"2","uid":1000,"user":"casey","seat":"seat0","leader":4181,"class":"user",'
+     '"tty":"tty2","idleHint":"true","remoteHost":"","service":"gdm-session",'
+     '"type":"wayland","state":"active"}]', ""),
 ]
 
 # astimezone() with no argument is the machine's local zone, which is what the daemon's own
