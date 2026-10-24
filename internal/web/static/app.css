@@ -53,6 +53,23 @@ td {
 	border-bottom: 1px solid var(--line);
 }
 
+/* A cell's content has to be breakable, or the widest thing the daemon ever wrote decides how
+   wide the page is. Measured on the audit page with a real `loginctl list-sessions --json=short`
+   payload in the Detail column: the cell is 312 px and its content is 869 px at a 360 px
+   viewport, which makes the document 914 px; at 1024 px the same page is a 1471 px document,
+   because a table column cannot shrink below its content's min-content width.
+
+   The two values are not interchangeable and both are here on purpose. `break-word` fixes the
+   narrow case (document 360 px) and NOT the wide one (still 1471 px), because it never feeds the
+   intrinsic min-content width; `anywhere` fixes both (360 px and 1024 px). A browser that has
+   never heard of `anywhere` keeps the `break-word` declaration, which is the half the 360 px
+   criterion tests. Nothing about normal prose changes: both values break only as a last resort,
+   when a run does not fit the box it was given. */
+table.rows td {
+	overflow-wrap: break-word;
+	overflow-wrap: anywhere;
+}
+
 .state-held {
 	color: var(--held);
 	font-weight: 600;

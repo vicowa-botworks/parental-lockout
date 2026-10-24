@@ -334,6 +334,10 @@ func TestTheProfilesPageOffersAWayToCreateTheFirstOne(t *testing.T) {
 // copy. The number and the zone come from the row, so the sentence cannot drift from the profile
 // it is describing -- a fixed string would still render "the same windows" beside a profile that
 // has none.
+//
+// It reads the count at one, at several and at none because the version this replaced rendered
+// "the same 1 windows", and a test asserted that string -- which is how a wrong sentence becomes
+// a requirement. The count is the fixture's, not the sentence's.
 func TestTheCopyFormSaysWhatTheCopyStartsWith(t *testing.T) {
 	f := newOverrideFixture(t)
 
@@ -341,11 +345,35 @@ func TestTheCopyFormSaysWhatTheCopyStartsWith(t *testing.T) {
 	if !strings.Contains(body, `action="/profiles/school/copy"`) {
 		t.Fatalf("no copy form on the profile's own section:\n%s", body)
 	}
-	if !strings.Contains(body, "same 1 windows") {
+	if !strings.Contains(body, "the same 1 window,") {
 		t.Errorf("the copy form does not say how many windows come across:\n%s", body)
+	}
+	if strings.Contains(body, "1 windows") {
+		t.Errorf("the copy form pluralises one:\n%s", body)
 	}
 	if !strings.Contains(body, "no account assigned") {
 		t.Errorf("the copy form implies the child is covered, when a copy starts with nobody")
+	}
+
+	if rec := authPost(t, f.s, "/profiles/school/rules",
+		"name=Second&days=sat&start=09:00&end=18:00"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("adding the second window failed: %d %q", rec.Code, rec.Body.String())
+	}
+	if body = authGet(t, f.s, "/profiles").Body.String(); !strings.Contains(body, "the same 2 windows,") {
+		t.Errorf("the copy form did not count the second window:\n%s", body)
+	}
+
+	// An empty profile is the case a bare count cannot say anything about: "the same 0 windows"
+	// reads as done, and the table above it already spells the same state as a sentence.
+	if rec := authPost(t, f.s, "/profiles", "name=Brand+new&timezone=UTC"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("the create failed: %d %q", rec.Code, rec.Body.String())
+	}
+	body = authGet(t, f.s, "/profiles").Body.String()
+	if !strings.Contains(body, "starts with no windows,") {
+		t.Errorf("the empty profile's copy sentence counts zero instead of saying none:\n%s", body)
+	}
+	if strings.Contains(body, "0 windows") {
+		t.Errorf("a bare zero is rendered somewhere on the page:\n%s", body)
 	}
 }
 

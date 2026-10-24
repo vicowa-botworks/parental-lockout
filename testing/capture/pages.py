@@ -81,17 +81,25 @@ def require_unbreakable(got, what):
     on two trees -- and it came from a row nobody authored. The daemon had failed to enumerate this
     machine's sessions and had written the loginctl JSON it could not parse straight into the Detail
     column. That is why the check exists: the stress was emergent, so it left without any edit. On
-    today's machine the same fixture, unmodified, produces a 123-character token, the page fits,
-    and the driver reports `5/5 pages fit at 360 px` having asked for nothing.
+    today's machine the same fixture, unmodified, produced a 123-character token, the page fitted,
+    and the driver reported `5/5 pages fit at 360 px` having asked for nothing. #146 replaced the
+    invented payload with the captured listing and the page stopped fitting: 914 px.
 
-    What this is NOT, because the opposite was measured rather than assumed: a long token is not by
-    itself an overflow at this width. 320 characters of unbreakable hex -- no space, no hyphen, no
-    slash, nothing for a line break to sit on -- fit at 360 px with no wrap rule anywhere in
-    app.css, because below 40rem a row stops being a table and each cell gets the page's width. So
-    this is a floor on the fixture's realism and not a proof about overflow: it refuses a fixture
-    that has quietly become prose, which is the failure that can actually be prevented. The 893 px
-    cause is still unidentified, and #140 says so rather than letting a plausible story stand in
-    for one.
+    What this check is: a floor on the fixture's realism. It refuses a fixture that has quietly
+    become prose, which is the failure it can actually prevent.
+
+    What it is not: a statement about overflow. The sentence that used to sit here said a long token
+    is not by itself an overflow at this width, on the strength of 320 characters of unbreakable hex
+    supposedly fitting at 360 px. That measurement does not reproduce. In the audit Detail cell at a
+    360 px viewport, 320 characters of hex are 2848 px of content in a 312 px box. Giving a cell the
+    page's width sizes the box; it says nothing about the text inside it.
+
+    What sets the width is the longest run between the browser's break opportunities, and those are
+    not only spaces: a `[{…},{…}]` blob breaks between objects, a single object does not break at all
+    (measured: 117 characters, 808 px). The rule that fixes it is `overflow-wrap` on `table.rows td`
+    in `app.css` -- `anywhere`, with `break-word` under it, because `break-word` fixes the narrow
+    layout and not the wide one. And the pin on that rule is the width refusal above, not a grep:
+    delete the rule and this page overflows, so its photograph is not taken.
 
     It takes the measured object rather than the session, and lives here rather than in cdp.py, for
     the same reason its sibling checks do: it has one caller, it names the audit page, and the
