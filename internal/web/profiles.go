@@ -282,17 +282,18 @@ var errProfileNameTaken = config.ErrProfileNameTaken
 // Validate's is a document-level "profiles[0] (school).timezone: ... is not a usable
 // timezone", which is the right thing for a hand-edited file and the wrong thing to answer a
 // form field with.
-func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		s.pageRefuse(w, r, http.StatusBadRequest, "no profile was named")
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		s.pageRefuse(w, r, http.StatusBadRequest, "the form could not be read")
-		return
-	}
-
+// formTimezone reads and judges the timezone field, refusing the request itself when the
+// value will not do.
+//
+// It is a function rather than three inline checks because two handlers now take a timezone
+// on the way in -- the rename page's zone field and the create form -- and the three refusals
+// below are the whole of what this machine accepts. A second copy of that list, one per
+// handler, is a list that drifts a field at a time, which is the failure the file's own header
+// calls out about Validate.
+//
+// It writes the refusal rather than returning a sentence so that a caller cannot forget to:
+// the only thing a caller can do with a false is return.
+func (s *Server) formTimezone(w http.ResponseWriter, r *http.Request) (string, bool) {
 	zone := strings.TrimSpace(r.FormValue("timezone"))
 	if zone == "" {
 		// Refused rather than saved as blank, because blank is not "unset" here:
@@ -303,7 +304,7 @@ func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
 		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
 			"a profile needs a timezone; a blank one is read as UTC, which would move every "+
 				"window in it without anyone choosing that")
-		return
+		return "", false
 	}
 	if _, err := time.LoadLocation(zone); err != nil {
 		// The typed value is deliberately not echoed back. It came from the request, and
@@ -312,7 +313,7 @@ func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
 		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
 			"that is not a timezone this machine can load; use a zone name such as "+
 				"Europe/Paris, from the IANA zone list")
-		return
+		return "", false
 	}
 	if zone == "Local" {
 		// `Local` loads, so the check above lets it through and Validate agrees it is a zone.
@@ -326,6 +327,24 @@ func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
 			"Local is not a timezone for a profile; it follows whatever the machine's clock is "+
 				"set to, so the hours would move on their own. Pick the zone the household "+
 				"lives in, such as Europe/Paris.")
+		return "", false
+	}
+	return zone, true
+}
+
+func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		s.pageRefuse(w, r, http.StatusBadRequest, "no profile was named")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.pageRefuse(w, r, http.StatusBadRequest, "the form could not be read")
+		return
+	}
+
+	zone, ok := s.formTimezone(w, r)
+	if !ok {
 		return
 	}
 
@@ -371,10 +390,11 @@ func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
 // headings, two identical table captions, and two identical delete confirmations for different
 // documents.
 //
-// This is the web path's guarantee, and its ceiling is worth stating: `plock profile add
-// --copy-from` carries the source's name onto the new profile and `plock profile edit --name`
-// sets one with no collision check, so the CLI can still create the pair. Filed rather than
-// fixed here -- the right home for the rule is wherever both paths can be made to share it.
+// This is not a web-only guarantee, and it used to be wrong to say it was. `plock profile add
+// --copy-from` does carry the source's name onto the copy whenever --name is omitted, which is
+// the one way to build the pair from a shell -- but that path now calls the same predicate
+// (cmd/plock/manage.go, in profileAdd and in profile edit --name), so the CLI refuses it too.
+// The sentence here used to claim the opposite and file the hole as open; #127 closed it.
 func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -427,6 +447,162 @@ func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 	s.audit("profile.renamed", fmt.Sprintf("profile %s %q -> %q by %s",
 		id, previous, name, sessionName(s, r)))
 	http.Redirect(w, r, "/profiles", http.StatusSeeOther)
+}
+
+// handleCreateProfile adds a profile with no windows in it.
+//
+// The id is derived, never typed. config.UpsertProfile replaces whatever already carries the id
+// it is handed, and it is the seam every profile write on this page goes through, so a create
+// form that took an id from the operator would be an overwrite path: typing an id already in use
+// would replace that profile's windows and silently re-decide every account pointing at it,
+// while the response looked like a successful create. freshProfileID makes that unreachable by
+// typing, exactly as freshRuleID makes a duplicate rule id unreachable on the form above.
+//
+// The name is still refused when it is taken. Validate checks ids and not names, and it is the
+// page that makes a duplicate cost something: two profiles under one name render two identical
+// headings, two identical table captions and two identical delete confirmations for two
+// different documents. The predicate is config.ProfileNameTaken, the same one `plock profile
+// add` and `plock profile edit --name` call, because a rule only the form enforces is a rule the
+// CLI walks past with one command.
+func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.pageRefuse(w, r, http.StatusBadRequest, "the form could not be read")
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+			"a new profile needs a name; it is what this page, the accounts page and the audit "+
+				"trail all point at")
+		return
+	}
+	zone, ok := s.formTimezone(w, r)
+	if !ok {
+		return
+	}
+
+	created := ""
+	if err := s.mutateConfig(func(c *config.Config) error {
+		if config.ProfileNameTaken(c.Profiles, name, "") {
+			return errProfileNameTaken
+		}
+		created = freshProfileID(c.Profiles, name)
+		// No rules. A profile with none is a document Validate accepts and the page says out
+		// loud locks nobody out, so an empty create is an honest starting state rather than a
+		// half-finished write -- and it is the state a parent in a hurry actually wants, so
+		// that the windows can be added beside the row instead of being typed into a form
+		// that also has to guess the timezone.
+		c.UpsertProfile(config.Profile{ID: created, Name: name, Timezone: zone})
+		return nil
+	}); err != nil {
+		if errors.Is(err, errProfileNameTaken) {
+			s.pageRefuse(w, r, http.StatusUnprocessableEntity, errProfileNameTaken.Error())
+			return
+		}
+		s.mutateRefused(w, r, "the profile could not be created", err)
+		return
+	}
+
+	s.audit("profile.created", fmt.Sprintf("profile %s (%s) in %s by %s",
+		created, name, zone, sessionName(s, r)))
+	http.Redirect(w, r, "/profiles", http.StatusSeeOther)
+}
+
+// handleCopyProfile adds a profile that starts out as another profile's windows.
+//
+// Only the copy's name is asked for. The timezone deliberately does not come from the form: a
+// rule is a wall-clock time whose meaning depends on the zone it is read in, so a copy that took
+// a fresh zone from a field while carrying the source's rule text would move every window by the
+// offset between the two zones and still look identical to the profile it came from. Inheriting
+// the source's zone is the one choice that cannot be wrong, and moving it afterwards is what the
+// timezone form on the new row is for -- a form that already says what moving it does.
+//
+// The rules cross as a fresh slice. They are the source's own element contents, and appending
+// into that backing array later -- which is what handleAddRule would do if handed the source's
+// slice -- would write through a profile somebody else may still be holding. See findProfile.
+func (s *Server) handleCopyProfile(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		s.pageRefuse(w, r, http.StatusBadRequest, "no profile was named")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.pageRefuse(w, r, http.StatusBadRequest, "the form could not be read")
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		// The copy cannot keep the source's name: that is the duplicate the rename path
+		// refuses, and `plock profile add --copy-from` refuses too. Asking is cheaper than
+		// inventing a suffix nobody recognises when the page lists it.
+		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+			"the copy needs its own name; two profiles under one name cannot be told apart on "+
+				"this page")
+		return
+	}
+
+	created, windows := "", 0
+	if err := s.mutateConfig(func(c *config.Config) error {
+		src, ok := findProfile(c, id)
+		if !ok {
+			return errUnknownProfile
+		}
+		if config.ProfileNameTaken(c.Profiles, name, "") {
+			return errProfileNameTaken
+		}
+		created = freshProfileID(c.Profiles, name)
+		windows = len(src.Rules)
+		c.UpsertProfile(config.Profile{
+			ID:       created,
+			Name:     name,
+			Timezone: src.Timezone,
+			Rules:    append([]config.Rule(nil), src.Rules...),
+		})
+		return nil
+	}); err != nil {
+		switch {
+		case errors.Is(err, errUnknownProfile):
+			s.pageRefuse(w, r, http.StatusNotFound, "no profile on this machine has that id")
+		case errors.Is(err, errProfileNameTaken):
+			s.pageRefuse(w, r, http.StatusUnprocessableEntity, errProfileNameTaken.Error())
+		default:
+			s.mutateRefused(w, r, "the profile could not be copied", err)
+		}
+		return
+	}
+
+	s.audit("profile.copied", fmt.Sprintf("profile %s (%s) copied from %s, %d windows, by %s",
+		created, name, id, windows, sessionName(s, r)))
+	http.Redirect(w, r, "/profiles", http.StatusSeeOther)
+}
+
+// freshProfileID turns a name into an id that no profile on this machine uses.
+//
+// The same shape as freshRuleID, for the same reason and one more: a duplicate id is a document
+// Validate refuses, and here a duplicate would also be an overwrite, because the write that
+// stores the new profile is UpsertProfile. So the slug is a starting point rather than a promise
+// -- two profiles called "Kids" end up as kids and kids-2.
+func freshProfileID(profiles []config.Profile, name string) string {
+	base := slug(name)
+	if base == "" {
+		base = "profile"
+	}
+	candidate := base
+	for n := 2; ; n++ {
+		taken := false
+		for _, p := range profiles {
+			if p.ID == candidate {
+				taken = true
+				break
+			}
+		}
+		if !taken {
+			return candidate
+		}
+		candidate = base + "-" + strconv.Itoa(n)
+	}
 }
 
 // findProfile returns a copy of the profile, not a pointer into the document.

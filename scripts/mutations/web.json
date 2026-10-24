@@ -1658,6 +1658,72 @@
       "old": "\t\tif ambiguous[p.ID] {",
       "new": "\t\tif false && ambiguous[p.ID] {",
       "note": "the profiles page stops saying that two rows are the same label. Nothing else can: the config still loads and still enforces, because refusing it would trade a labelling problem for a lockout nobody can lift, so the complaint is the only signal that the two delete confirmations name different documents. TestTheProfilesPageSaysWhenTwoProfilesShareAName."
+    },
+    {
+      "id": "W233",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tif config.ProfileNameTaken(c.Profiles, name, \"\") {",
+      "new": "\t\tif false && config.ProfileNameTaken(c.Profiles, name, \"\") {",
+      "count": 2,
+      "note": "both create paths stop refusing a name another profile already wears, so the page renders two profiles under one heading, with one table caption and two delete confirmations that look identical and destroy different documents. The rename path keeps its check, which is exactly why this mutant matters: the rule is only real if every write that can make a profile calls config.ProfileNameTaken, and #127's point was that a check one path makes is a check the other walks past. TestACreateRefusesANameAnotherProfileAlreadyWears, TestACopyRefusesANameThatIsTakenOrBlank."
+    },
+    {
+      "id": "W234",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tcreated = freshProfileID(c.Profiles, name)",
+      "new": "\t\tcreated = slug(name)",
+      "count": 2,
+      "note": "the id comes from the typed name instead of a free one. config.UpsertProfile replaces whatever already carries the id it is handed, so this is not cosmetic: posting the id of an existing profile as the new profile's name replaces that profile, empties its windows, and silently re-decides every account pointing at it -- while the response is a 303 that looks like a successful create. Measured against this tree: the fixture's School nights profile and its weeknight window are gone afterwards and casey is left assigned to an empty profile. TestACreateNeverReplacesTheProfileThatAlreadyHasTheID."
+    },
+    {
+      "id": "W235",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tbase = \"profile\"",
+      "new": "\t\tbase = \"\"",
+      "note": "the slug fallback is removed, so a name of nothing but punctuation slugs to the empty string and the profile is stored with an empty id. config.Validate refuses that at document level, so the operator reads \"profiles[1].id: must not be empty\" for a name they typed and cannot connect to an id -- the one refusal on this page naming a field the form never asked for. TestTheDerivedIDFallsBackWhenTheSlugIsAllPunctuation."
+    },
+    {
+      "id": "W236",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\tTimezone: src.Timezone,",
+      "new": "\t\t\tTimezone: \"UTC\",",
+      "note": "the copy keeps the windows and drops the zone they are written in. Every window is a wall-clock time resolved in the profile's zone, so the copy enforces the same text at the offset between the two zones -- 21:00 in UTC is 23:00 in Europe/Paris -- and the row looks identical to the profile it came from. The test re-zones the source first, because a fixture already at UTC cannot tell a carried zone from a hardcoded one. TestACopyCarriesTheWindowsAndTheZoneAndNoAccounts."
+    },
+    {
+      "id": "W237",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tsrc, ok := findProfile(c, id)\n\t\tif !ok {\n\t\t\treturn errUnknownProfile\n\t\t}",
+      "new": "\t\tsrc, ok := findProfile(c, id)\n\t\tif false && !ok {\n\t\t\treturn errUnknownProfile\n\t\t}",
+      "note": "a copy of a profile that does not exist stops being a 404. The zero Profile findProfile returns on a miss is then copied, so the request either invents a profile with no windows and no zone or dies in Validate naming a timezone nobody typed -- and a stale bookmark, or a row deleted in another tab, gets a fault message instead of \"no profile on this machine has that id\". TestACopyRefusesAProfileThatDoesNotExist."
+    },
+    {
+      "id": "W238",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a new profile needs a name; it is what this page, the accounts page and the audit \"+\n\t\t\t\t\"trail all point at\")\n\t\treturn\n\t}\n",
+      "new": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" && false {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a new profile needs a name; it is what this page, the accounts page and the audit \"+\n\t\t\t\t\"trail all point at\")\n\t\treturn\n\t}\n",
+      "note": "the create form stops refusing a blank name. An unnamed profile is a document Validate accepts -- the page falls back to the id for its heading -- so this saves cleanly and the operator gets a profile headed by a slug they never chose, beside the one they meant to make. The refusal is the only place that says the field was not optional. TestACreateRefusesAnEmptyName."
+    },
+    {
+      "id": "W239",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" {\n\t\t// The copy cannot keep the source's name: that is the duplicate the rename path\n\t\t// refuses, and `plock profile add --copy-from` refuses too. Asking is cheaper than\n\t\t// inventing a suffix nobody recognises when the page lists it.\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"the copy needs its own name; two profiles under one name cannot be told apart on \"+\n\t\t\t\t\"this page\")\n\t\treturn\n\t}\n",
+      "new": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" && false {\n\t\t// The copy cannot keep the source's name: that is the duplicate the rename path\n\t\t// refuses, and `plock profile add --copy-from` refuses too. Asking is cheaper than\n\t\t// inventing a suffix nobody recognises when the page lists it.\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"the copy needs its own name; two profiles under one name cannot be told apart on \"+\n\t\t\t\t\"this page\")\n\t\treturn\n\t}\n",
+      "note": "the copy form stops refusing a blank name, which is worse here than on the create: the copy's name is the ONLY thing asked for, because keeping the source's name is the duplicate the same handler refuses. So an empty field would be answered by a refusal that names nothing the operator can change. TestACopyRefusesANameThatIsTakenOrBlank."
+    },
+    {
+      "id": "W240",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\ts.audit(\"profile.created\", fmt.Sprintf(\"profile %s (%s) in %s by %s\",",
+      "new": "\ts.audit(\"profile.updated\", fmt.Sprintf(\"profile %s (%s) in %s by %s\",",
+      "note": "the create is audited under another profile write's kind. The detail still names the id, the name and the zone, so one line read on its own looks fine; what breaks is the trail as a query -- \"what did this account make\" and \"when did profiles appear\" both miss it, and profile.updated is a kind nothing else writes, so the line lands under a heading that means nothing. TestACreatedProfileIsInTheDocumentAndAudited."
     }
   ]
 }
