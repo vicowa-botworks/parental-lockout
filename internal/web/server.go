@@ -698,6 +698,14 @@ func (s *Server) router() *http.ServeMux {
 		s.requireAuth(http.HandlerFunc(s.handleAssignProfile)))
 	mux.Handle("POST /profiles/{id}/rules",
 		s.requireAuth(http.HandlerFunc(s.handleAddRule)))
+	// Creating a profile is the write every other profile route presumes. Until it existed the
+	// page could describe, re-time and delete a profile but could not make one, so a fresh
+	// machine showed "There are no profiles yet" with nothing to click -- and the only way to
+	// reach a second child's schedule was a root shell and `plock profile add`.
+	mux.Handle("POST /profiles",
+		s.requireAuth(http.HandlerFunc(s.handleCreateProfile)))
+	mux.Handle("POST /profiles/{id}/copy",
+		s.requireAuth(http.HandlerFunc(s.handleCopyProfile)))
 	mux.Handle("POST /profiles/{id}/delete",
 		s.requireAuth(http.HandlerFunc(s.handleDeleteProfile)))
 	// The two labels on a profile. The timezone is the one that changes behaviour: every

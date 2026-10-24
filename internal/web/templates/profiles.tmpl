@@ -12,6 +12,31 @@
   {{end}}
 </p>
 
+{{- /* Creating a profile sits above the list rather than inside it, because the list is empty
+       on a machine that has never had one -- and an empty list with no way out is the whole
+       reason this form exists. It is outside the range for the same reason: {{.}} here is the
+       page, so the field ids cannot collide with a profile's. */ -}}
+<section class="profile create-profile">
+  <h2>Add a profile</h2>
+  <form method="post" action="/profiles" class="edit-form">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <p>
+      <label for="new-profile-name">Name</label>
+      <input id="new-profile-name" type="text" name="name" required placeholder="Weekend rules">
+    </p>
+    <p>
+      <label for="new-profile-tz">Timezone</label>
+      <input id="new-profile-tz" type="text" name="timezone" required placeholder="Europe/Paris">
+    </p>
+    <button type="submit">Create profile</button>
+    <p class="muted">
+      Every window added to it is read in this zone, so pick the zone the household lives in.
+      The profile starts with no windows and no accounts, which locks nobody out until you add
+      both. Its id is made from the name.
+    </p>
+  </form>
+</section>
+
 {{range .Profiles}}
 <section class="profile">
   <h2>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</h2>
@@ -119,6 +144,26 @@
     </p>
 
     <button type="submit">Add window</button>
+  </form>
+
+  {{- /* The copy carries the source's timezone and does not offer one. A rule is a wall-clock
+         time, so taking a different zone while carrying the same rule text would move every
+         window by the offset between the zones and still look identical to the profile it came
+         from. The zone is changed afterwards, on the copy's own row, beside the sentence that
+         says what moving it does. */ -}}
+  <form method="post" action="/profiles/{{.ID}}/copy" class="edit-form">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <p>
+      <label for="copy-{{.ID}}">Copy this profile</label>
+      <input id="copy-{{.ID}}" type="text" name="name" required
+             placeholder="Same windows, other child">
+      <button type="submit">Create copy</button>
+    </p>
+    <p class="muted">
+      The copy starts with the same {{len .Rules}} windows, read in <code>{{.Timezone}}</code>,
+      and no account assigned to it. Change the zone on the copy's own row if the other child
+      lives by different hours.
+    </p>
   </form>
 
   <form method="post" action="/profiles/{{.ID}}/delete" class="edit-form">

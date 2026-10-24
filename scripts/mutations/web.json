@@ -549,29 +549,6 @@
       "note": "the listing is handed a fresh background context instead of the serve context, so a shutdown has no way to cancel a session query that is already in flight and the drain waits on work it cannot interrupt."
     },
     {
-      "id": "W100",
-      "file": "cmd/plock/serve.go",
-      "package": "./cmd/plock/",
-      "old": "\tif self.InUserSlice {",
-      "new": "\tif false && self.InUserSlice {",
-      "note": "serve resolving the location and never saying so: the operator's only startup signal that an account is going unenforced is gone, and the audit line is one line in a file nobody tails. TestServeSaysWhenItWillNotLockItsOwnSession."
-    },
-    {
-      "id": "W98",
-      "package": "./cmd/plock/",
-      "file": "cmd/plock/serve.go",
-      "old": "\topts.Self = self\n",
-      "new": "",
-      "note": "serve telling the enforcement loop it is inside a login session and telling the dashboard nothing. The page then reports that account as locked out while the engine declines to lock it -- the fail-open reading of a row, on the one surface the parent actually reads. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
-    },
-    {
-      "id": "W99",
-      "file": "internal/web/server.go",
-      "old": "\ts.Self = opts.Self\n",
-      "new": "",
-      "note": "the constructor dropping the location, so every assembled Server behaves as a system unit regardless of what its caller knows. A fixture that sets Server.Self by hand stays green while the documented constructor cannot deliver it. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
-    },
-    {
       "id": "W78",
       "file": "internal/web/write.go",
       "old": "\tif s.Mutate == nil {\n\t\treturn errors.New(\"no configuration write path is wired\")\n",
@@ -713,6 +690,29 @@
       "note": "an all-day rule renders its ignored clock pair, so a parent reads a minute-short window as the rule they meant"
     },
     {
+      "id": "W98",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\topts.Self = self\n",
+      "new": "",
+      "note": "serve telling the enforcement loop it is inside a login session and telling the dashboard nothing. The page then reports that account as locked out while the engine declines to lock it -- the fail-open reading of a row, on the one surface the parent actually reads. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
+    },
+    {
+      "id": "W99",
+      "file": "internal/web/server.go",
+      "old": "\ts.Self = opts.Self\n",
+      "new": "",
+      "note": "the constructor dropping the location, so every assembled Server behaves as a system unit regardless of what its caller knows. A fixture that sets Server.Self by hand stays green while the documented constructor cannot deliver it. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
+    },
+    {
+      "id": "W100",
+      "file": "cmd/plock/serve.go",
+      "package": "./cmd/plock/",
+      "old": "\tif self.InUserSlice {",
+      "new": "\tif false && self.InUserSlice {",
+      "note": "serve resolving the location and never saying so: the operator's only startup signal that an account is going unenforced is gone, and the audit line is one line in a file nobody tails. TestServeSaysWhenItWillNotLockItsOwnSession."
+    },
+    {
       "id": "W101",
       "package": "./internal/web/",
       "file": "internal/web/override.go",
@@ -743,6 +743,59 @@
       "old": "\ts.render(w, r, \"dashboard\", &dashboardPage{View: view})\n",
       "new": "\ts.render(w, r, \"dashboard\", dashboardPage{View: view})\n",
       "note": "the value instead of the pointer: setCSRF has a pointer receiver, so a value does not satisfy csrfCarrier and the dashboard renders its forms with no token while every other page still works. This is the trap the comment above the call warns about, pinned so it cannot come back quietly."
+    },
+    {
+      "id": "W105",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tcase errors.Is(err, config.ErrNoSuchProfile):",
+      "new": "\t\tcase false && errors.Is(err, config.ErrNoSuchProfile):",
+      "note": "an absent profile stops being recognised, so it lands in the default branch and answers 503 'the profile could not be deleted' -- retryable-looking, when retrying can never help. TestDeletingAProfileThatDoesNotExistIsNotFound."
+    },
+    {
+      "id": "W106",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, \"there is no profile with that id\")",
+      "new": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, err.Error())",
+      "note": "the 404 goes back to echoing the error, which puts request-supplied text (the profile id comes from the URL) into the response body. This is the shape that let a hostile id state a falsehood about enforcement. TestAHostileProfileIDCannotChooseWhichRefusalFires."
+    },
+    {
+      "id": "W107",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\ts.mutateRefused(w, r, \"the profile could not be deleted\", err)",
+      "new": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, err.Error())",
+      "note": "the finding the reviewer measured: a seam failure (read-only mount, full disk, corrupt config) reported as 'no such profile' with the raw error echoed. TestASeamFailureIsNotReportedAsAMissingProfile."
+    },
+    {
+      "id": "W108",
+      "package": "./internal/config/",
+      "file": "internal/config/edit.go",
+      "old": "\t\treturn fmt.Errorf(\"config: %w to %s; %s\", ErrProfileInUse, quotedList(blocked), verb)",
+      "new": "\t\treturn fmt.Errorf(\"config: profile is still assigned to %s; %s\", quotedList(blocked), verb)",
+      "note": "the in-use refusal stops carrying its sentinel. The wording is unchanged, so nothing fails until a caller tries to tell this refusal from a disk failure: the web layer's errors.Is misses and a correct refusal is answered 503. Caught at the layer that owns the contract by TestTheTwoDeletionRefusalsCarryTheirSentinels; the web-side consequence is pinned by W105 and W107, which mutate the branches themselves."
+    },
+    {
+      "id": "W109",
+      "package": "./internal/config/",
+      "file": "internal/config/edit.go",
+      "old": "\t\treturn fmt.Errorf(\"config: %w %q\", ErrNoSuchProfile, id)",
+      "new": "\t\treturn fmt.Errorf(\"config: no profile %q\", id)",
+      "note": "same shape on the other refusal: the wording is unchanged, the identity is gone. TestTheTwoDeletionRefusalsCarryTheirSentinels, plus TestAMissingProfileNamesTheIDItCouldNotFind for the id the CLI prints."
+    },
+    {
+      "id": "W110",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\tengine.Self = self\n",
+      "new": "",
+      "note": "serve assembles the enforcement loop and never hands it the login session it is running inside. The loop then runs at the zero value, the self-session rule never fires, and the daemon locks the screen it is running behind -- so it can no longer be stopped -- while the dashboard still reports that account as declined. Issue #72: this line had no test and no mutant, and deleting it left the whole suite green, because the loop's own tests set the field by hand. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
+    },
+    {
+      "id": "W111",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/serve.go",
+      "old": "\tengine.Logf = log\n",
+      "new": "",
+      "note": "the engine keeps enforce.New's default logger instead of the sink serve was given. Nothing breaks loudly: the daemon runs, and the two lines an operator needs when enforcement quietly stopped -- a tick that fell behind, a config that would not reload -- go to the process's stderr instead of the configured sink, so a redirect misses them. TestServeHandsTheEngineItsLogSink."
     },
     {
       "id": "W112",
@@ -825,6 +878,14 @@
       "note": "serve assembling the page's seam out of a reader that is not there, so GET /audit answers 503 on the real daemon while every page test stays green because each one wires its own seam by hand. This is the failure the whole serve_seams_test.go file exists for. TestServeWiresEverySeamThePagesRead"
     },
     {
+      "id": "W122",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tp.Rules = append(append([]config.Rule(nil), p.Rules...), rule)",
+      "new": "\t\tp.Rules = append(p.Rules, rule)",
+      "equivalent": true,
+      "note": "the rule-add path appends into the array it copied the header from, instead of copying the elements first. On main this was caught, and the catch was the fixture lying. Production's write seam is `Load -> fn -> Save` (cmd/plock/serve.go), and config.Load clips the spare capacity out of every decoded slice (clipAll), so inside fn every slice has len == cap: `append(p.Rules, rule)` cannot write into a slot another holder can see, because there is no spare slot and no other holder -- fn's document is a fresh decode nobody else has a pointer to. The property is real and it is still pinned where the hazard is: scripts/mutations/config.json's UpsertProfile mutant (write straight through the caller's array) fails internal/config's edit_test.go:383. It stopped being observable through the web seam the moment overrideFixture stopped applying fn to the stored document. Check the claim by deleting this marker and re-running the web set: it survives, and the surviving difference is unobservable in a built binary."
+    },
+    {
       "id": "W123",
       "file": "internal/web/audit.go",
       "old": "\ttruncated := len(rows) > auditWindow",
@@ -837,81 +898,6 @@
       "old": "\ttruncated := len(rows) > auditWindow",
       "new": "\ttruncated := false",
       "note": "Never claim the read stopped early. With a record genuinely behind the window the page says the trail holds nothing older, and an operator concludes an account was never held when the older events are one record away. Killed by TestARecordBehindTheWindowSaysTheReadStoppedEarly."
-    },
-    {
-      "id": "W132",
-      "file": "internal/web/audit.go",
-      "old": "tail, err := s.readTrail(auditWindow + 1)",
-      "new": "tail, err := s.readTrail(auditWindow)",
-      "note": "Drop the probe: ask the reader for exactly the window. Tail returns min(n, total) with a nil error, so a trail of exactly 200 and a trail of 500 become the same result again and the page is back to guessing at the boundary. Killed by the request assertion in TestTheAuditPageListsEventsNewestFirst, which pins 201 as a literal so it cannot drift with the constant."
-    },
-    {
-      "id": "W133",
-      "file": "internal/web/audit.go",
-      "old": "\t\trows = rows[:auditWindow]",
-      "new": "\t\trows = rows[1:]",
-      "note": "Cut the probe off the wrong end: drop the newest event and keep the record that only exists as evidence. The page still shows 200 rows and still says 200 of 200, so nothing about the shape changes except that the first row an operator reads is gone. Killed by the newest-record assertion in TestARecordBehindTheWindowSaysTheReadStoppedEarly."
-    },
-    {
-      "id": "W110",
-      "package": "./cmd/plock/",
-      "file": "cmd/plock/serve.go",
-      "old": "\tengine.Self = self\n",
-      "new": "",
-      "note": "serve assembles the enforcement loop and never hands it the login session it is running inside. The loop then runs at the zero value, the self-session rule never fires, and the daemon locks the screen it is running behind -- so it can no longer be stopped -- while the dashboard still reports that account as declined. Issue #72: this line had no test and no mutant, and deleting it left the whole suite green, because the loop's own tests set the field by hand. TestServeHandsTheDashboardTheSameLocationItHandsTheEngine."
-    },
-    {
-      "id": "W111",
-      "package": "./cmd/plock/",
-      "file": "cmd/plock/serve.go",
-      "old": "\tengine.Logf = log\n",
-      "new": "",
-      "note": "the engine keeps enforce.New's default logger instead of the sink serve was given. Nothing breaks loudly: the daemon runs, and the two lines an operator needs when enforcement quietly stopped -- a tick that fell behind, a config that would not reload -- go to the process's stderr instead of the configured sink, so a redirect misses them. TestServeHandsTheEngineItsLogSink."
-    },
-    {
-      "id": "W105",
-      "file": "internal/web/profiles.go",
-      "old": "\t\tcase errors.Is(err, config.ErrNoSuchProfile):",
-      "new": "\t\tcase false && errors.Is(err, config.ErrNoSuchProfile):",
-      "note": "an absent profile stops being recognised, so it lands in the default branch and answers 503 'the profile could not be deleted' -- retryable-looking, when retrying can never help. TestDeletingAProfileThatDoesNotExistIsNotFound."
-    },
-    {
-      "id": "W106",
-      "file": "internal/web/profiles.go",
-      "old": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, \"there is no profile with that id\")",
-      "new": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, err.Error())",
-      "note": "the 404 goes back to echoing the error, which puts request-supplied text (the profile id comes from the URL) into the response body. This is the shape that let a hostile id state a falsehood about enforcement. TestAHostileProfileIDCannotChooseWhichRefusalFires."
-    },
-    {
-      "id": "W107",
-      "file": "internal/web/profiles.go",
-      "old": "\t\t\ts.mutateRefused(w, r, \"the profile could not be deleted\", err)",
-      "new": "\t\t\ts.pageRefuse(w, r, http.StatusNotFound, err.Error())",
-      "note": "the finding the reviewer measured: a seam failure (read-only mount, full disk, corrupt config) reported as 'no such profile' with the raw error echoed. TestASeamFailureIsNotReportedAsAMissingProfile."
-    },
-    {
-      "id": "W108",
-      "package": "./internal/config/",
-      "file": "internal/config/edit.go",
-      "old": "\t\treturn fmt.Errorf(\"config: %w to %s; %s\", ErrProfileInUse, quotedList(blocked), verb)",
-      "new": "\t\treturn fmt.Errorf(\"config: profile is still assigned to %s; %s\", quotedList(blocked), verb)",
-      "note": "the in-use refusal stops carrying its sentinel. The wording is unchanged, so nothing fails until a caller tries to tell this refusal from a disk failure: the web layer's errors.Is misses and a correct refusal is answered 503. Caught at the layer that owns the contract by TestTheTwoDeletionRefusalsCarryTheirSentinels; the web-side consequence is pinned by W105 and W107, which mutate the branches themselves."
-    },
-    {
-      "id": "W109",
-      "package": "./internal/config/",
-      "file": "internal/config/edit.go",
-      "old": "\t\treturn fmt.Errorf(\"config: %w %q\", ErrNoSuchProfile, id)",
-      "new": "\t\treturn fmt.Errorf(\"config: no profile %q\", id)",
-      "note": "same shape on the other refusal: the wording is unchanged, the identity is gone. TestTheTwoDeletionRefusalsCarryTheirSentinels, plus TestAMissingProfileNamesTheIDItCouldNotFind for the id the CLI prints."
-    },
-    {
-      "id": "W122",
-      "file": "internal/web/profiles.go",
-      "old": "\t\tp.Rules = append(append([]config.Rule(nil), p.Rules...), rule)",
-      "new": "\t\tp.Rules = append(p.Rules, rule)",
-      "equivalent": true,
-      "note": "the rule-add path appends into the array it copied the header from, instead of copying the elements first. On main this was caught, and the catch was the fixture lying. Production's write seam is `Load -> fn -> Save` (cmd/plock/serve.go), and config.Load clips the spare capacity out of every decoded slice (clipAll), so inside fn every slice has len == cap: `append(p.Rules, rule)` cannot write into a slot another holder can see, because there is no spare slot and no other holder -- fn's document is a fresh decode nobody else has a pointer to. The property is real and it is still pinned where the hazard is: scripts/mutations/config.json's UpsertProfile mutant (write straight through the caller's array) fails internal/config's edit_test.go:383. It stopped being observable through the web seam the moment overrideFixture stopped applying fn to the stored document. Check the claim by deleting this marker and re-running the web set: it survives, and the surviving difference is unobservable in a built binary."
     },
     {
       "id": "W125",
@@ -970,6 +956,20 @@
       "note": "the premise of a source-based route guard inverted. extraRoutes is a real second way onto the router and it is written, by either spelling, only in tests today, which is the only reason reading the source is enough; the moment a production caller sets it, this guard is coverage theatre and needs a different mechanism. Inverted, it reports that fact on the current tree and stays silent on the tree where it matters."
     },
     {
+      "id": "W132",
+      "file": "internal/web/audit.go",
+      "old": "tail, err := s.readTrail(auditWindow + 1)",
+      "new": "tail, err := s.readTrail(auditWindow)",
+      "note": "Drop the probe: ask the reader for exactly the window. Tail returns min(n, total) with a nil error, so a trail of exactly 200 and a trail of 500 become the same result again and the page is back to guessing at the boundary. Killed by the request assertion in TestTheAuditPageListsEventsNewestFirst, which pins 201 as a literal so it cannot drift with the constant."
+    },
+    {
+      "id": "W133",
+      "file": "internal/web/audit.go",
+      "old": "\t\trows = rows[:auditWindow]",
+      "new": "\t\trows = rows[1:]",
+      "note": "Cut the probe off the wrong end: drop the newest event and keep the record that only exists as evidence. The page still shows 200 rows and still says 200 of 200, so nothing about the shape changes except that the first row an operator reads is gone. Killed by the newest-record assertion in TestARecordBehindTheWindowSaysTheReadStoppedEarly."
+    },
+    {
       "id": "W134",
       "package": "./internal/web/",
       "file": "internal/web/route_coverage_test.go",
@@ -1000,46 +1000,6 @@
       "old": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif ok && sel.Sel.Name == field {\n",
       "new": "\t\t\t\t\tsel, ok := lhs.(*ast.SelectorExpr)\n\t\t\t\t\tif false && ok && sel.Sel.Name == field {\n",
       "note": "the assignment half stops collecting, which is the half that worked before this change and the half the original guard was written against. Kept as the pair to W134: the claim is that BOTH spellings are collected, and a claim about two things needs one mutant per thing."
-    },
-    {
-      "id": "W163",
-      "package": "./internal/web/",
-      "file": "internal/web/templates/dashboard.tmpl",
-      "old": "          {{/* `datetime` is the machine-readable instant for the browser; `data-unix`\n               is the hook static/app.js counts down from. Both are needed -- the\n               script's selector is time[data-unix], and emitting only the standard\n               attribute ships a countdown that never runs.\n\n               No trim markers here, deliberately: this comment sits between the state\n               and its deadline, and trimming both sides deletes the only space between\n               them, so the cell renders \"locked outuntil 06:30\". */}}\n",
-      "new": "          {{- /* `datetime` is the machine-readable instant for the browser; `data-unix`\n               is the hook static/app.js counts down from. Both are needed -- the\n               script's selector is time[data-unix], and emitting only the standard\n               attribute ships a countdown that never runs.\n\n               No trim markers here, deliberately: this comment sits between the state\n               and its deadline, and trimming both sides deletes the only space between\n               them, so the cell renders \"locked outuntil 06:30\". */ -}}\n",
-      "note": "trim markers on both sides of the comment between the state and its deadline, which is the shape that shipped: both trims together delete the only whitespace between them and the cell renders \"locked outuntil 06:30\". Both sides are needed -- trimming one leaves the other newline and the mutant is equivalent, which is what the first version of this pattern was. Caught by the real dashboard rendering and by the hand-built joined cell in TestTheLockoutCheckRejectsAJoinedCell."
-    },
-    {
-      "id": "W164",
-      "package": "./internal/web/",
-      "file": "internal/web/narrow_width_test.go",
-      "old": "\t\t\tif label[1] != want {",
-      "new": "\t\t\tif label[1] == \"\" {",
-      "note": "the positional comparison stops comparing: every non-empty label is accepted, so a cell labelled with a neighbouring column's name passes again. The rule was membership before and that is what let the copied label through, which is why the hand-built bad table in TestTheLabelCheckRejectsAHandBuiltTable is what catches this -- no real page in the suite contains a wrong label, so no page test can."
-    },
-    {
-      "id": "W165",
-      "package": "./internal/web/",
-      "file": "internal/web/narrow_width_test.go",
-      "old": "\tpages := narrowPages(t)",
-      "new": "\tpages := []string{\"/\", \"/users\", \"/profiles\"}",
-      "note": "the page list is hand-written again, which is the state that let the audit page ship unvisited while the guard claimed to cover the admin. Caught by the count, not by any per-page assertion: three pages pass every check, and only \"four pages had a cell checked\" notices the fourth is gone."
-    },
-    {
-      "id": "W166",
-      "package": "./internal/web/",
-      "file": "internal/web/narrow_width_test.go",
-      "old": "\t\tcomplaints = append(complaints,\n\t\t\tpath+\" renders a rows table with no ordinary cells, so nothing was checked\")\n",
-      "new": "",
-      "note": "a table that prints its headers and no rows stops being reported. This is the vacuity half of the guard: without it an empty fixture reads as a clean page, and the same deletion applied to a page test would silently drop that page from coverage. Caught by the empty-table case in TestTheLabelCheckRejectsAHandBuiltTable."
-    },
-    {
-      "id": "W167",
-      "package": "./internal/web/",
-      "file": "internal/web/dashboard_lockout_cell_test.go",
-      "old": "joinedWordRe = regexp.MustCompile(`locked out[^\\s]`)",
-      "new": "joinedWordRe = regexp.MustCompile(`locked outuntil`)",
-      "note": "the rule is narrowed to the one string the old template happened to produce, so it stops being a rule about joins and becomes a match against a fossil: any other word glued to the state (\"locked outnow\", a future countdown) passes. Caught by the hand-built joined cell, which is written as markup rather than as that string."
     },
     {
       "id": "W138",
@@ -1084,6 +1044,97 @@
       "note": "the failure direction inverted: a listing that answered is logged as though it failed and a listing that failed falls through to the branch that answers from it. TestATypoedAccountIsNamedAsATypo loses the sentence and TestAFailedAccountListingIsLoggedWhenTheNoteIsWithheld loses both halves at once. Re-pointed in #94's review round -- the handler used to read `if listing, lerr := s.readAccounts(); lerr == nil {`, and the reason line the reviewer asked for moved the error out of the condition."
     },
     {
+      "id": "W144",
+      "file": "internal/web/users_write.go",
+      "old": "\tif !known {",
+      "new": "\tif !known && false {",
+      "note": "the assignment route takes the account name out of the URL, so without this check a post for a name that is neither a local account nor already managed writes a document entry for nobody. config.Validate cannot catch it -- 'username is non-empty and unique' is true of every string -- so this line is the only thing that knows whether anybody by that name exists. TestAssigningAnAccountNobodyHasIsRefused."
+    },
+    {
+      "id": "W145",
+      "file": "internal/web/users_write.go",
+      "old": "enabled := r.FormValue(\"enabled\") != \"\"",
+      "new": "enabled := true",
+      "note": "a browser sends nothing for a clear checkbox, so reading absence as enabled switches an account back on every time the operator saves any other field on its row -- the row would look unchanged and the audit would say enabled. TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff."
+    },
+    {
+      "id": "W146",
+      "file": "internal/web/users_write.go",
+      "old": "\t\ts.pageError(w, r, \"the account list could not be read\", err)",
+      "new": "\t\ts.pageRefuse(w, r, http.StatusNotFound, \"no account on this machine is called \"+name)",
+      "note": "a listing that could not be read answered as a statement about the name the operator typed. The account may exist and be perfectly assignable; the refusal also tells them to go create it. Same rule the audit page holds: a failed read never answers 'no such account'. TestAFailedAccountListingIsNotAnsweredAsNoSuchAccount."
+    },
+    {
+      "id": "W147",
+      "file": "internal/web/users_write.go",
+      "old": "\t\t\tif err := c.RemoveUser(name); err != nil {\n\t\t\t\treturn fmt.Errorf(\"%w: %s\", errUnknownAccount, err)\n\t\t\t}",
+      "new": "\t\t\tc.UpsertUser(config.User{Username: name, ProfileID: \"\", Enabled: false})\n\t\t\t_ = errUnknownAccount",
+      "note": "unassigning by writing an empty profile instead of removing the entry. Two bugs in one: Validate refuses an unknown profileID so the save fails after the operator was told the account was unmanaged, and even if it were accepted the account's override would outlive it -- the inheritance RemoveUser exists to prevent. TestStoppingManagementTakesTheOverrideWithTheAssignment."
+    },
+    {
+      "id": "W148",
+      "file": "internal/web/server.go",
+      "old": "\tmux.Handle(\"POST /users/{name}/profile\",\n\t\ts.requireAuth(http.HandlerFunc(s.handleAssignProfile)))",
+      "new": "\t// route not registered",
+      "note": "the handler exists, is tested by hand-built requests, and is reachable from no route -- every unit test stays green because none of them goes through the mux. This is the wiring gap this repo has now been bitten by repeatedly: a seam nothing assembles ships dead. TestAssigningAProfileStoresTheAssignmentAndAuditsIt."
+    },
+    {
+      "id": "W149",
+      "file": "internal/web/pages.go",
+      "old": "s.render(w, r, \"users\", &page)",
+      "new": "s.render(w, r, \"users\", page)",
+      "note": "render fills the CSRF token through setCSRF, which is implemented on *usersPage; handing over a copy fills a temporary the template never sees, so every row on the page renders an empty token and every save is refused with 403. TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts."
+    },
+    {
+      "id": "W150",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <label class=\"opt\" for=\"profile-{{$row.Username}}\">Profile</label>",
+      "new": "            <label class=\"opt\" for=\"profile-{{$row.Username}}\">Profile</label>",
+      "note": "the shipped form loses its token field. A hand-built request still passes, which is exactly why the test posts the rendered markup: this is the defect that let the logout form post a token-less request unnoticed. TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts."
+    },
+    {
+      "id": "W151",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "{{if and $row.Configured (eq $row.Configured.ProfileID .ID)}} selected{{end}}",
+      "new": "",
+      "note": "the dropdown no longer marks the row's current profile, so saving any other field on the row moves the child to whichever option the browser shows first -- a silent reassignment dressed up as a save. TestTheAssignmentFormOffersEveryProfile."
+    },
+    {
+      "id": "W152",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "<td data-label=\"Assign\">",
+      "new": "<td data-label=\"Assignment\">",
+      "note": "the new column's narrow-width label disagrees with its own header. At phone width the cell is labelled with a word that appears nowhere on the page, and the desktop and phone readings of the same value differ. TestEveryCellInARowsTableCarriesItsNarrowLabel."
+    },
+    {
+      "id": "W153",
+      "file": "internal/web/users_write.go",
+      "old": "s.audit(\"user.assigned\", ",
+      "new": "s.audit(\"user.changed\", ",
+      "note": "the audit kind is renamed. The trail is what a parent reads the morning after, and a kind nobody greps for is a mutation that did not happen; the same word also has to match what docs/cli.md tells an operator to look for. TestAssigningAProfileStoresTheAssignmentAndAuditsIt."
+    },
+    {
+      "id": "W154",
+      "file": "internal/web/users_write.go",
+      "old": "return \" switched off\"",
+      "new": "return \" enabled\"",
+      "note": "the audit line claims the assignment is enabled when the checkbox was clear, so the trail records a lockout that will never fire. TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff."
+    },
+    {
+      "id": "W155",
+      "file": "internal/web/pages.go",
+      "old": "return out[i].Name < out[j].Name",
+      "new": "return out[i].Name > out[j].Name",
+      "note": "the dropdown follows document order instead of name order. Two profiles can share a name, and then the only thing distinguishing them is position -- which changes whenever an unrelated profile is created or deleted. TestTheAssignmentDropdownIsInNameOrderNotDocumentOrder."
+    },
+    {
+      "id": "W156",
+      "file": "internal/web/users_write.go",
+      "old": "\t\t\t\treturn fmt.Errorf(\"%w: %s\", errUnknownAccount, err)",
+      "new": "\t\t\t\treturn nil",
+      "note": "stopping management of an account that was never managed answers 303, so the page says the change happened. A refusal that reports success is the shape every other write in this package refuses. TestStoppingManagementOfAnAccountThatWasNeverManagedSaysSo."
+    },
+    {
       "id": "W157",
       "file": "internal/web/templates/audit.tmpl",
       "old": "There is no account named <strong>{{.User}}</strong> among the\naccounts plock can manage on this machine right now",
@@ -1124,6 +1175,46 @@
       "old": "\t\tif lerr != nil {",
       "new": "\t\tif true {",
       "note": "every filtered-empty request is logged as a refused listing, including the ones that answered. The control half of W161: without it a handler that logs unconditionally passes the log assertion. It also stops computing the note at all, so the typo test fails with it. TestAFailedAccountListingIsLoggedWhenTheNoteIsWithheld's control."
+    },
+    {
+      "id": "W163",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/dashboard.tmpl",
+      "old": "          {{/* `datetime` is the machine-readable instant for the browser; `data-unix`\n               is the hook static/app.js counts down from. Both are needed -- the\n               script's selector is time[data-unix], and emitting only the standard\n               attribute ships a countdown that never runs.\n\n               No trim markers here, deliberately: this comment sits between the state\n               and its deadline, and trimming both sides deletes the only space between\n               them, so the cell renders \"locked outuntil 06:30\". */}}\n",
+      "new": "          {{- /* `datetime` is the machine-readable instant for the browser; `data-unix`\n               is the hook static/app.js counts down from. Both are needed -- the\n               script's selector is time[data-unix], and emitting only the standard\n               attribute ships a countdown that never runs.\n\n               No trim markers here, deliberately: this comment sits between the state\n               and its deadline, and trimming both sides deletes the only space between\n               them, so the cell renders \"locked outuntil 06:30\". */ -}}\n",
+      "note": "trim markers on both sides of the comment between the state and its deadline, which is the shape that shipped: both trims together delete the only whitespace between them and the cell renders \"locked outuntil 06:30\". Both sides are needed -- trimming one leaves the other newline and the mutant is equivalent, which is what the first version of this pattern was. Caught by the real dashboard rendering and by the hand-built joined cell in TestTheLockoutCheckRejectsAJoinedCell."
+    },
+    {
+      "id": "W164",
+      "package": "./internal/web/",
+      "file": "internal/web/narrow_width_test.go",
+      "old": "\t\t\tif label[1] != want {",
+      "new": "\t\t\tif label[1] == \"\" {",
+      "note": "the positional comparison stops comparing: every non-empty label is accepted, so a cell labelled with a neighbouring column's name passes again. The rule was membership before and that is what let the copied label through, which is why the hand-built bad table in TestTheLabelCheckRejectsAHandBuiltTable is what catches this -- no real page in the suite contains a wrong label, so no page test can."
+    },
+    {
+      "id": "W165",
+      "package": "./internal/web/",
+      "file": "internal/web/narrow_width_test.go",
+      "old": "\tpages := narrowPages(t)",
+      "new": "\tpages := []string{\"/\", \"/users\", \"/profiles\"}",
+      "note": "the page list is hand-written again, which is the state that let the audit page ship unvisited while the guard claimed to cover the admin. Caught by the count, not by any per-page assertion: three pages pass every check, and only \"four pages had a cell checked\" notices the fourth is gone."
+    },
+    {
+      "id": "W166",
+      "package": "./internal/web/",
+      "file": "internal/web/narrow_width_test.go",
+      "old": "\t\tcomplaints = append(complaints,\n\t\t\tpath+\" renders a rows table with no ordinary cells, so nothing was checked\")\n",
+      "new": "",
+      "note": "a table that prints its headers and no rows stops being reported. This is the vacuity half of the guard: without it an empty fixture reads as a clean page, and the same deletion applied to a page test would silently drop that page from coverage. Caught by the empty-table case in TestTheLabelCheckRejectsAHandBuiltTable."
+    },
+    {
+      "id": "W167",
+      "package": "./internal/web/",
+      "file": "internal/web/dashboard_lockout_cell_test.go",
+      "old": "joinedWordRe = regexp.MustCompile(`locked out[^\\s]`)",
+      "new": "joinedWordRe = regexp.MustCompile(`locked outuntil`)",
+      "note": "the rule is narrowed to the one string the old template happened to produce, so it stops being a rule about joins and becomes a match against a fossil: any other word glued to the state (\"locked outnow\", a future countdown) passes. Caught by the hand-built joined cell, which is written as markup rather than as that string."
     },
     {
       "id": "W168",
@@ -1350,97 +1441,6 @@
       "note": "the caption claiming proved locks on a page where the backend refused -- the third sentence on the page and the one no assertion read. TestARefusedLockNamesTheSessionItCouldNotReach."
     },
     {
-      "id": "W144",
-      "file": "internal/web/users_write.go",
-      "old": "\tif !known {",
-      "new": "\tif !known && false {",
-      "note": "the assignment route takes the account name out of the URL, so without this check a post for a name that is neither a local account nor already managed writes a document entry for nobody. config.Validate cannot catch it -- 'username is non-empty and unique' is true of every string -- so this line is the only thing that knows whether anybody by that name exists. TestAssigningAnAccountNobodyHasIsRefused."
-    },
-    {
-      "id": "W145",
-      "file": "internal/web/users_write.go",
-      "old": "enabled := r.FormValue(\"enabled\") != \"\"",
-      "new": "enabled := true",
-      "note": "a browser sends nothing for a clear checkbox, so reading absence as enabled switches an account back on every time the operator saves any other field on its row -- the row would look unchanged and the audit would say enabled. TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff."
-    },
-    {
-      "id": "W146",
-      "file": "internal/web/users_write.go",
-      "old": "\t\ts.pageError(w, r, \"the account list could not be read\", err)",
-      "new": "\t\ts.pageRefuse(w, r, http.StatusNotFound, \"no account on this machine is called \"+name)",
-      "note": "a listing that could not be read answered as a statement about the name the operator typed. The account may exist and be perfectly assignable; the refusal also tells them to go create it. Same rule the audit page holds: a failed read never answers 'no such account'. TestAFailedAccountListingIsNotAnsweredAsNoSuchAccount."
-    },
-    {
-      "id": "W147",
-      "file": "internal/web/users_write.go",
-      "old": "\t\t\tif err := c.RemoveUser(name); err != nil {\n\t\t\t\treturn fmt.Errorf(\"%w: %s\", errUnknownAccount, err)\n\t\t\t}",
-      "new": "\t\t\tc.UpsertUser(config.User{Username: name, ProfileID: \"\", Enabled: false})\n\t\t\t_ = errUnknownAccount",
-      "note": "unassigning by writing an empty profile instead of removing the entry. Two bugs in one: Validate refuses an unknown profileID so the save fails after the operator was told the account was unmanaged, and even if it were accepted the account's override would outlive it -- the inheritance RemoveUser exists to prevent. TestStoppingManagementTakesTheOverrideWithTheAssignment."
-    },
-    {
-      "id": "W148",
-      "file": "internal/web/server.go",
-      "old": "\tmux.Handle(\"POST /users/{name}/profile\",\n\t\ts.requireAuth(http.HandlerFunc(s.handleAssignProfile)))",
-      "new": "\t// route not registered",
-      "note": "the handler exists, is tested by hand-built requests, and is reachable from no route -- every unit test stays green because none of them goes through the mux. This is the wiring gap this repo has now been bitten by repeatedly: a seam nothing assembles ships dead. TestAssigningAProfileStoresTheAssignmentAndAuditsIt."
-    },
-    {
-      "id": "W149",
-      "file": "internal/web/pages.go",
-      "old": "s.render(w, r, \"users\", &page)",
-      "new": "s.render(w, r, \"users\", page)",
-      "note": "render fills the CSRF token through setCSRF, which is implemented on *usersPage; handing over a copy fills a temporary the template never sees, so every row on the page renders an empty token and every save is refused with 403. TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts."
-    },
-    {
-      "id": "W150",
-      "file": "internal/web/templates/users.tmpl",
-      "old": "            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <label class=\"opt\" for=\"profile-{{$row.Username}}\">Profile</label>",
-      "new": "            <label class=\"opt\" for=\"profile-{{$row.Username}}\">Profile</label>",
-      "note": "the shipped form loses its token field. A hand-built request still passes, which is exactly why the test posts the rendered markup: this is the defect that let the logout form post a token-less request unnoticed. TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts."
-    },
-    {
-      "id": "W151",
-      "file": "internal/web/templates/users.tmpl",
-      "old": "{{if and $row.Configured (eq $row.Configured.ProfileID .ID)}} selected{{end}}",
-      "new": "",
-      "note": "the dropdown no longer marks the row's current profile, so saving any other field on the row moves the child to whichever option the browser shows first -- a silent reassignment dressed up as a save. TestTheAssignmentFormOffersEveryProfile."
-    },
-    {
-      "id": "W152",
-      "file": "internal/web/templates/users.tmpl",
-      "old": "<td data-label=\"Assign\">",
-      "new": "<td data-label=\"Assignment\">",
-      "note": "the new column's narrow-width label disagrees with its own header. At phone width the cell is labelled with a word that appears nowhere on the page, and the desktop and phone readings of the same value differ. TestEveryCellInARowsTableCarriesItsNarrowLabel."
-    },
-    {
-      "id": "W153",
-      "file": "internal/web/users_write.go",
-      "old": "s.audit(\"user.assigned\", ",
-      "new": "s.audit(\"user.changed\", ",
-      "note": "the audit kind is renamed. The trail is what a parent reads the morning after, and a kind nobody greps for is a mutation that did not happen; the same word also has to match what docs/cli.md tells an operator to look for. TestAssigningAProfileStoresTheAssignmentAndAuditsIt."
-    },
-    {
-      "id": "W154",
-      "file": "internal/web/users_write.go",
-      "old": "return \" switched off\"",
-      "new": "return \" enabled\"",
-      "note": "the audit line claims the assignment is enabled when the checkbox was clear, so the trail records a lockout that will never fire. TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff."
-    },
-    {
-      "id": "W155",
-      "file": "internal/web/pages.go",
-      "old": "return out[i].Name < out[j].Name",
-      "new": "return out[i].Name > out[j].Name",
-      "note": "the dropdown follows document order instead of name order. Two profiles can share a name, and then the only thing distinguishing them is position -- which changes whenever an unrelated profile is created or deleted. TestTheAssignmentDropdownIsInNameOrderNotDocumentOrder."
-    },
-    {
-      "id": "W156",
-      "file": "internal/web/users_write.go",
-      "old": "\t\t\t\treturn fmt.Errorf(\"%w: %s\", errUnknownAccount, err)",
-      "new": "\t\t\t\treturn nil",
-      "note": "stopping management of an account that was never managed answers 303, so the page says the change happened. A refusal that reports success is the shape every other write in this package refuses. TestStoppingManagementOfAnAccountThatWasNeverManagedSaysSo."
-    },
-    {
       "id": "W201",
       "file": "internal/web/celltext.go",
       "old": "\treturn trimmed + \".\"\n",
@@ -1656,6 +1656,72 @@
       "old": "\t\tif ambiguous[p.ID] {",
       "new": "\t\tif false && ambiguous[p.ID] {",
       "note": "the profiles page stops saying that two rows are the same label. Nothing else can: the config still loads and still enforces, because refusing it would trade a labelling problem for a lockout nobody can lift, so the complaint is the only signal that the two delete confirmations name different documents. TestTheProfilesPageSaysWhenTwoProfilesShareAName."
+    },
+    {
+      "id": "W233",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tif config.ProfileNameTaken(c.Profiles, name, \"\") {",
+      "new": "\t\tif false && config.ProfileNameTaken(c.Profiles, name, \"\") {",
+      "count": 2,
+      "note": "both create paths stop refusing a name another profile already wears, so the page renders two profiles under one heading, with one table caption and two delete confirmations that look identical and destroy different documents. The rename path keeps its check, which is exactly why this mutant matters: the rule is only real if every write that can make a profile calls config.ProfileNameTaken, and #127's point was that a check one path makes is a check the other walks past. TestACreateRefusesANameAnotherProfileAlreadyWears, TestACopyRefusesANameThatIsTakenOrBlank."
+    },
+    {
+      "id": "W234",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tcreated = freshProfileID(c.Profiles, name)",
+      "new": "\t\tcreated = slug(name)",
+      "count": 2,
+      "note": "the id comes from the typed name instead of a free one. config.UpsertProfile replaces whatever already carries the id it is handed, so this is not cosmetic: posting the id of an existing profile as the new profile's name replaces that profile, empties its windows, and silently re-decides every account pointing at it -- while the response is a 303 that looks like a successful create. Measured against this tree: the fixture's School nights profile and its weeknight window are gone afterwards and casey is left assigned to an empty profile. TestACreateNeverReplacesTheProfileThatAlreadyHasTheID."
+    },
+    {
+      "id": "W235",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tbase = \"profile\"",
+      "new": "\t\tbase = \"\"",
+      "note": "the slug fallback is removed, so a name of nothing but punctuation slugs to the empty string and the profile is stored with an empty id. config.Validate refuses that at document level, so the operator reads \"profiles[1].id: must not be empty\" for a name they typed and cannot connect to an id -- the one refusal on this page naming a field the form never asked for. TestTheDerivedIDFallsBackWhenTheSlugIsAllPunctuation."
+    },
+    {
+      "id": "W236",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\tTimezone: src.Timezone,",
+      "new": "\t\t\tTimezone: \"UTC\",",
+      "note": "the copy keeps the windows and drops the zone they are written in. Every window is a wall-clock time resolved in the profile's zone, so the copy enforces the same text at the offset between the two zones -- 21:00 in UTC is 23:00 in Europe/Paris -- and the row looks identical to the profile it came from. The test re-zones the source first, because a fixture already at UTC cannot tell a carried zone from a hardcoded one. TestACopyCarriesTheWindowsAndTheZoneAndNoAccounts."
+    },
+    {
+      "id": "W237",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tsrc, ok := findProfile(c, id)\n\t\tif !ok {\n\t\t\treturn errUnknownProfile\n\t\t}",
+      "new": "\t\tsrc, ok := findProfile(c, id)\n\t\tif false && !ok {\n\t\t\treturn errUnknownProfile\n\t\t}",
+      "note": "a copy of a profile that does not exist stops being a 404. The zero Profile findProfile returns on a miss is then copied, so the request either invents a profile with no windows and no zone or dies in Validate naming a timezone nobody typed -- and a stale bookmark, or a row deleted in another tab, gets a fault message instead of \"no profile on this machine has that id\". TestACopyRefusesAProfileThatDoesNotExist."
+    },
+    {
+      "id": "W238",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a new profile needs a name; it is what this page, the accounts page and the audit \"+\n\t\t\t\t\"trail all point at\")\n\t\treturn\n\t}\n",
+      "new": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" && false {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a new profile needs a name; it is what this page, the accounts page and the audit \"+\n\t\t\t\t\"trail all point at\")\n\t\treturn\n\t}\n",
+      "note": "the create form stops refusing a blank name. An unnamed profile is a document Validate accepts -- the page falls back to the id for its heading -- so this saves cleanly and the operator gets a profile headed by a slug they never chose, beside the one they meant to make. The refusal is the only place that says the field was not optional. TestACreateRefusesAnEmptyName."
+    },
+    {
+      "id": "W239",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" {\n\t\t// The copy cannot keep the source's name: that is the duplicate the rename path\n\t\t// refuses, and `plock profile add --copy-from` refuses too. Asking is cheaper than\n\t\t// inventing a suffix nobody recognises when the page lists it.\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"the copy needs its own name; two profiles under one name cannot be told apart on \"+\n\t\t\t\t\"this page\")\n\t\treturn\n\t}\n",
+      "new": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" && false {\n\t\t// The copy cannot keep the source's name: that is the duplicate the rename path\n\t\t// refuses, and `plock profile add --copy-from` refuses too. Asking is cheaper than\n\t\t// inventing a suffix nobody recognises when the page lists it.\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"the copy needs its own name; two profiles under one name cannot be told apart on \"+\n\t\t\t\t\"this page\")\n\t\treturn\n\t}\n",
+      "note": "the copy form stops refusing a blank name, which is worse here than on the create: the copy's name is the ONLY thing asked for, because keeping the source's name is the duplicate the same handler refuses. So an empty field would be answered by a refusal that names nothing the operator can change. TestACopyRefusesANameThatIsTakenOrBlank."
+    },
+    {
+      "id": "W240",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\ts.audit(\"profile.created\", fmt.Sprintf(\"profile %s (%s) in %s by %s\",",
+      "new": "\ts.audit(\"profile.updated\", fmt.Sprintf(\"profile %s (%s) in %s by %s\",",
+      "note": "the create is audited under another profile write's kind. The detail still names the id, the name and the zone, so one line read on its own looks fine; what breaks is the trail as a query -- \"what did this account make\" and \"when did profiles appear\" both miss it, and profile.updated is a kind nothing else writes, so the line lands under a heading that means nothing. TestACreatedProfileIsInTheDocumentAndAudited."
     },
     {
       "id": "W241",
