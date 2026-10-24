@@ -389,55 +389,6 @@ def require_detail_terminated(rows, what):
     return seen, seams
 
 
-# How hard the Detail column has to be pushed before the width measurement means anything.
-# 60 sits far below the seeded row (192 characters) and far above any sentence a person writes, so
-# a fixture reworded back into prose trips this rather than quietly stopping the check.
-UNBREAKABLE_MIN = 60
-
-# textContent, not innerText: innerText is the RENDERED text, and a cell that wraps correctly is
-# exactly the thing that could hand back a token broken at the wrap point. The refusal would then
-# fire against the fix.
-LONGEST_TOKEN_JS = ("JSON.stringify(Math.max(0, ...[...document.querySelectorAll('table.rows "
-                    "tbody td')].flatMap(td => (td.textContent.match(/\\S+/g) || []))"
-                    ".map(s => s.length)))")
-
-
-def longest_token(session):
-    """The longest run without a space anywhere in a `table.rows` cell, as the browser sees it."""
-    return session.json(LONGEST_TOKEN_JS)
-
-
-def require_unbreakable_detail(session, what):
-    """#140's rule: the audit page is only evidence about width if it was handed something that
-    cannot be wrapped.
-
-    The refusal that opened the issue was real -- `893 px wide at a 360 px viewport`, printed twice,
-    on two trees -- and it came from a row nobody authored. The daemon had failed to enumerate this
-    machine's sessions and had written the loginctl JSON it could not parse straight into the Detail
-    column. That is why the check exists: the stress was emergent, so it left without any edit. On
-    today's machine the same fixture, unmodified, produces a 123-character token, the page fits, and
-    the driver reports `5/5 pages fit at 360 px` having asked for nothing.
-
-    What the check is NOT, because I measured the opposite of what I assumed: a long token is not by
-    itself an overflow at this width. 320 characters of unbreakable hex -- no space, no hyphen, no
-    slash, nothing for a line break to sit on -- fit at 360 px with no wrap rule anywhere in app.css,
-    because below 40rem a row stops being a table and each cell gets the page's width. So this is a
-    floor on the fixture's realism and not a proof about overflow: it refuses a fixture that has
-    quietly become prose, which is the failure I can actually prevent. The 893 px cause is still
-    unidentified, and #140 says so rather than letting a plausible story stand in for one.
-
-    Returns the length it saw, so the transcript records how much pressure the photograph carries.
-    """
-    longest = longest_token(session)
-    if longest < UNBREAKABLE_MIN:
-        raise SystemExit(
-            f"{what}: the hardest token anywhere in the table is {longest} characters, under the "
-            f"{UNBREAKABLE_MIN} this check needs to call a width measurement evidence. Nothing on "
-            "the page can overflow, so 360 px here proves nothing about a detail that quotes a "
-            "path or a JSON blob (#140).")
-    return longest
-
-
 class Capture:
     """The daemon, the browser and the signed-in session, with one teardown path.
 
@@ -787,7 +738,7 @@ def require_trail(lines, must, allowed, what):
                          "the allowlist deliberately and say what it is")
 
 
-def refused(path, exc):
+def report_refusal(path, exc):
     """Every refusal comes through here, and it says what happened to the file.
 
     'exit 1, nothing written' is true and still misleading: a PNG from an earlier run is sitting
@@ -795,6 +746,21 @@ def refused(path, exc):
     run that refused. Deleting it is not the answer either -- with --out pointing at the docs
     tree, the file it would delete is the committed evidence. So the refusal names the stale
     file, with the mtime and size that say when it really came from.
+
+    It reports and does NOT exit, and that is the whole point of this function's shape. It used
+    to end in `raise SystemExit(1)`, which made every statement after every call to it in the
+    package dead code, because the raise happened inside the caller's own `except` handler:
+
+      * `pages.py` collected refused URLs to print one honest `N/5 pages fit ... refused: ...`
+        sentence. Measured with a stubbed `shoot()` that refuses: the loop stopped after page 1
+        of 5, `discard_stage()` ran 0 times, and the sentence never printed.
+      * `lock.py` and `testlock.py` each called `discard_stage()` on the next line. Dead.
+
+    The exit code laundered all of it, because an uncaught exception is also exit 1 -- the code
+    a refusal is supposed to produce. So the reporting stays here and the decision stays with
+    the caller, which is the only place that knows whether one more page can be measured. There
+    is deliberately no raising variant sitting next to it: one verb, so the next statement after
+    a refusal cannot be a silent casualty.
     """
     print(f"REFUSED: {exc}", file=sys.stderr)
     if path and op.exists(path):
@@ -805,5 +771,4 @@ def refused(path, exc):
               "this run. Do not quote it as current.", file=sys.stderr)
     else:
         print("  no file was written", file=sys.stderr)
-    raise SystemExit(1)
 
