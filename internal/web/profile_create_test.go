@@ -338,6 +338,34 @@ func TestTheProfilesPageOffersAWayToCreateTheFirstOne(t *testing.T) {
 // It reads the count at one, at several and at none because the version this replaced rendered
 // "the same 1 windows", and a test asserted that string -- which is how a wrong sentence becomes
 // a requirement. The count is the fixture's, not the sentence's.
+// copySentence returns the one sentence under test, not the page it sits on.
+//
+// The assertions this replaces searched the whole body, and a count is a substring of other
+// counts: "0 windows" is the tail of "10 windows" and "1 windows" the tail of "11 windows". A
+// fixture with ten windows on `school` therefore made the zero case fail on correct output -- the
+// page legitimately said "the same 10 windows" and the test read that as a bare zero. A negative
+// assertion over a page is a claim about every number on it, which is not what any of these rules
+// are about. Anchoring on the leading space would have worked while the count always follows
+// "the same ", and would have broken the first time the sentence moved.
+func copySentence(t *testing.T, body, id string) string {
+	t.Helper()
+	form := `action="/profiles/` + id + `/copy"`
+	at := strings.Index(body, form)
+	if at < 0 {
+		t.Fatalf("no copy form for %q, so there is no sentence to read:\n%s", id, body)
+	}
+	start := strings.Index(body[at:], `<p class="muted">`)
+	if start < 0 {
+		t.Fatalf("the copy form for %q has no description paragraph", id)
+	}
+	start += at
+	end := strings.Index(body[start:], `</p>`)
+	if end < 0 {
+		t.Fatalf("the copy description for %q is never closed", id)
+	}
+	return strings.Join(strings.Fields(body[start:start+end]), " ")
+}
+
 func TestTheCopyFormSaysWhatTheCopyStartsWith(t *testing.T) {
 	f := newOverrideFixture(t)
 
@@ -345,22 +373,25 @@ func TestTheCopyFormSaysWhatTheCopyStartsWith(t *testing.T) {
 	if !strings.Contains(body, `action="/profiles/school/copy"`) {
 		t.Fatalf("no copy form on the profile's own section:\n%s", body)
 	}
-	if !strings.Contains(body, "the same 1 window,") {
-		t.Errorf("the copy form does not say how many windows come across:\n%s", body)
+	sent := copySentence(t, body, "school")
+	if !strings.Contains(sent, "the same 1 window,") {
+		t.Errorf("the copy form does not say how many windows come across: %q", sent)
 	}
-	if strings.Contains(body, "1 windows") {
-		t.Errorf("the copy form pluralises one:\n%s", body)
+	if strings.Contains(sent, "1 windows") {
+		t.Errorf("the copy form pluralises one: %q", sent)
 	}
-	if !strings.Contains(body, "no account assigned") {
-		t.Errorf("the copy form implies the child is covered, when a copy starts with nobody")
+	if !strings.Contains(sent, "no account assigned") {
+		t.Errorf("the copy form implies the child is covered, when a copy starts with nobody: %q",
+			sent)
 	}
 
 	if rec := authPost(t, f.s, "/profiles/school/rules",
 		"name=Second&days=sat&start=09:00&end=18:00"); rec.Code != http.StatusSeeOther {
 		t.Fatalf("adding the second window failed: %d %q", rec.Code, rec.Body.String())
 	}
-	if body = authGet(t, f.s, "/profiles").Body.String(); !strings.Contains(body, "the same 2 windows,") {
-		t.Errorf("the copy form did not count the second window:\n%s", body)
+	body = authGet(t, f.s, "/profiles").Body.String()
+	if sent = copySentence(t, body, "school"); !strings.Contains(sent, "the same 2 windows,") {
+		t.Errorf("the copy form did not count the second window: %q", sent)
 	}
 
 	// An empty profile is the case a bare count cannot say anything about: "the same 0 windows"
@@ -369,11 +400,19 @@ func TestTheCopyFormSaysWhatTheCopyStartsWith(t *testing.T) {
 		t.Fatalf("the create failed: %d %q", rec.Code, rec.Body.String())
 	}
 	body = authGet(t, f.s, "/profiles").Body.String()
-	if !strings.Contains(body, "starts with no windows,") {
-		t.Errorf("the empty profile's copy sentence counts zero instead of saying none:\n%s", body)
+	sent = copySentence(t, body, "brand-new")
+	if !strings.Contains(sent, "starts with no windows,") {
+		t.Errorf("the empty profile's copy sentence counts zero instead of saying none: %q", sent)
 	}
-	if strings.Contains(body, "0 windows") {
-		t.Errorf("a bare zero is rendered somewhere on the page:\n%s", body)
+	if strings.Contains(sent, "0 windows") {
+		t.Errorf("a bare zero is rendered in the empty profile's sentence: %q", sent)
+	}
+	// The two sentences are read separately on purpose, and this is the assertion that says why:
+	// a profile holding a count whose tail is a digit the other profile must not print has to be
+	// able to sit on the same page without implicating it.
+	if school := copySentence(t, body, "school"); !strings.Contains(school, "the same 2 windows,") {
+		t.Errorf("the populated profile's sentence changed while the empty one was being read: %q",
+			school)
 	}
 }
 
