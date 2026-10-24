@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/auth"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 )
 
@@ -61,6 +62,14 @@ type settingsPage struct {
 	MinPoll int
 	MaxPoll int
 
+	// MinPasswordLen and CredentialPollText belong to the rotation form and are filled from the
+	// code that enforces them: auth.MinPasswordLen, and the server's own poll interval formatted by
+	// time.Duration so the sentence is grammatical at 5s, 1s and 1m0s alike. A `min=` attribute the
+	// server does not check is a rule the browser can step over, and a confirmation that names a
+	// poll the daemon is not running is a lie about when the old password stops working.
+	MinPasswordLen     int
+	CredentialPollText string
+
 	// Problem names what the operator has to fix; Message names what just happened. They are
 	// mutually exclusive on every path that sets one, and a page rendering both would be
 	// refusing and accepting the same submit.
@@ -84,6 +93,9 @@ func settingsView(cfg *config.Config) settingsPage {
 		PollField:   strconv.Itoa(cfg.Settings.PollSeconds),
 		MinPoll:     config.MinPollSeconds,
 		MaxPoll:     config.MaxPollSeconds,
+		// The length floor is a package constant, so it belongs in the pure view: a test that
+		// asserts on what the page claims must see the number the server enforces, not zero.
+		MinPasswordLen: auth.MinPasswordLen,
 	}
 }
 
@@ -94,7 +106,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		s.pageError(w, r, "the configuration could not be read", err)
 		return
 	}
-	page := settingsView(cfg)
+	page := s.settingsPageFor(cfg)
 	// The pointer, not the value: render fills the token through setCSRF, and a copy would fill a
 	// temporary the template never sees -- every submit would then be refused as a CSRF failure,
 	// which is #59's defect arriving through a new page.
@@ -196,7 +208,7 @@ func (s *Server) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 			// Not a refusal and not a save. "Nothing changed" is the honest answer and it is a
 			// useful one: an operator who pressed Save and reads this knows the daemon is already
 			// in the state they wanted, which is the thing they were checking.
-			page := settingsView(cfg)
+			page := s.settingsPageFor(cfg)
 			page.PollField = rawPoll
 			page.Message = "Nothing changed, so nothing was written."
 			s.render(w, r, "settings", &page)
@@ -251,7 +263,7 @@ func (s *Server) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 // showing what the machine is actually running, or a refusal page would describe a state that does
 // not exist.
 func (s *Server) renderSettingsRefusal(w http.ResponseWriter, r *http.Request, cfg *config.Config, problem, typedPoll string) {
-	page := settingsView(cfg)
+	page := s.settingsPageFor(cfg)
 	page.PollField = typedPoll
 	page.Problem = problem
 	// 422 through a wrapper, because render always lands on 200 and a refusal that arrived

@@ -241,6 +241,53 @@ func TestAConfigEditMidWindowIsObeyedOnTheNextTick(t *testing.T) {
 	mustCount(t, sink, KindLockoutEntered, 1)
 }
 
+// The account's own switch is the reversible way to stop enforcing on one child, and reversible is
+// the whole claim: deleting the entry loses the profile link and the history, so the switch is the
+// control a parent is pointed at. Only half of that promise has ever been asserted here -- that a
+// switched-off account is left alone -- and the half that makes it a switch rather than a deletion
+// is the other direction. It is asserted against the engine rather than against the saved document
+// because the document being right is not what the operator is buying: /users writes the flag
+// through the same copy-on-write helpers this loop reads, and a tick that kept honouring an older
+// decode would leave the screen reading "managed" over an account that never locks again.
+//
+// The first tick asserts two things, because the switch is checked twice on the way down and the
+// two checks fail differently. config.ProfileFor refuses a disabled account, and that is what
+// actually keeps the screen unlocked; the !u.Enabled clause in enforce.go only decides which
+// release reason the session gets. Drop the second one and the child stays unlocked -- so "locked 0
+// times" passes for the wrong reason -- but the release is filed as "no profile" and the tick emits
+// "user is enabled but has no profile" every thirty seconds: the one account the parent switched off
+// deliberately is reported as a broken document. Errors is therefore asserted here and not only in
+// the existing left-alone test, and CG14 in scripts/mutations/config.json is the mutant for the
+// first clause, which no set covered at all.
+func TestReEnablingAnAccountIsObeyedOnTheNextTick(t *testing.T) {
+	doc := kidDoc()
+	// Off before the engine ever sees it, so the first tick is the "off" half: the window is open
+	// at refInside and the session is lockable, and neither is enforced.
+	doc.Users[0].Enabled = false
+	e, p, sink, _, path := newEngine(t, doc, refInside)
+
+	rep := tick(e)
+	if got := p.totalLocks(); got != 0 {
+		t.Fatalf("locked %d times for a switched-off account, want 0", got)
+	}
+	mustCount(t, sink, KindLockoutEntered, 0)
+	if len(rep.Errors) != 0 {
+		t.Errorf("tick reported %v, want a switched-off account to be a quiet release and not a "+
+			"config error: the account is off because the operator said so", rep.Errors)
+	}
+
+	// The operator ticks the box on /users. Same file, same engine, no restart.
+	doc.Users[0].Enabled = true
+	writeDoc(t, path, doc)
+	tick(e)
+
+	if got := p.lockCount("2"); got != 1 {
+		t.Errorf("locked %d times after the account was switched back on, want 1: a saved switch "+
+			"must not wait for a restart", got)
+	}
+	mustCount(t, sink, KindLockoutEntered, 1)
+}
+
 func TestAPlatformErrorKeepsTheLockoutAndIsRetried(t *testing.T) {
 	e, p, sink, _, _ := newEngine(t, kidDoc(), refInside)
 	tick(e)

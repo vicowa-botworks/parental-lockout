@@ -141,6 +141,14 @@
       "old": "\tsort.Strings(out)",
       "new": "\tsort.Strings(nil)",
       "note": "Keys stops sorting, and because Go randomises map iteration a machine-readable field built from a map changes between two runs of the same command on the same file"
+    },
+    {
+      "id": "CI21",
+      "file": "cmd/plock/init.go",
+      "package": "./cmd/plock/",
+      "old": "const minPasswordLen = auth.MinPasswordLen",
+      "new": "const minPasswordLen = 1",
+      "note": "`plock init` stops refusing a weak admin password while the web page still refuses it, which is the drift the alias exists to prevent -- one rule, two surfaces, and the operator's answer depending on which surface they reached for. The constant is aliased rather than copied, so this mutant and I14 attack the same policy from the two ends of that alias. TestInitRefusesAWeakPassword."
     }
   ]
 }

@@ -43,11 +43,16 @@ password out from under the parent who set it.
 
 // minPasswordLen is the floor the CLI enforces.
 //
-// The KDF cost is what makes an offline crack expensive; length is what makes the
-// password not the first thing a guesser tries. Sixty thousand iterations cannot
-// save "password123456", and this account is the master switch for every child on
+// It is an alias, not a definition. There are now two ways to set the admin credential -- this
+// command and POST /settings/password -- and a floor that lives on one of them is a floor the
+// other walks past, which is the drift #127 was filed for. The rule is stated once, in the package
+// that owns what a password is worth.
+//
+// The alias rather than a rewrite at each use: the KDF cost is what makes an offline crack
+// expensive; length is what makes the password not the first thing a guesser tries. Sixty thousand
+// iterations cannot save "password123456", and this account is the master switch for every child on
 // the LAN.
-const minPasswordLen = 12
+const minPasswordLen = auth.MinPasswordLen
 
 // defaultStateDir is where the daemon keeps state that is not configuration: the
 // TLS material #9 bootstraps, and anything later that is generated rather than
