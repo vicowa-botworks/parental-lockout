@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // valid is the configuration every rejection test starts from and breaks in one
@@ -114,6 +115,18 @@ func TestValidateRejectsEachMalformedField(t *testing.T) {
 				c.Profiles = append(c.Profiles, Profile{ID: "schoolnight", Timezone: "UTC"})
 			},
 			want: `id "schoolnight" is used more than once`,
+		},
+		{
+			name:   "profile name over the ceiling",
+			mangle: func(c *Config) { c.Profiles[0].Name = strings.Repeat("n", MaxNameLen+1) },
+			want:   "profiles[0].name",
+		},
+		{
+			name: "rule name over the ceiling",
+			mangle: func(c *Config) {
+				c.Profiles[0].Rules[0].Name = strings.Repeat("n", MaxNameLen+1)
+			},
+			want: "rules[0].name",
 		},
 		{
 			name:   "bad timezone",
@@ -236,6 +249,88 @@ func TestValidateRejectsEachMalformedField(t *testing.T) {
 				t.Errorf("error = %v, want it to name %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestTheNameCeilingIsCharactersNotBytes pins the unit, because the two units disagree in the
+// direction that matters.
+//
+// Counting bytes would refuse a household that writes its names with accents -- "Établissement
+// secondaire — rentrée des classes" is 37 characters and 45 bytes -- while accepting 200
+// repetitions of `n`, which is the thing the ceiling exists to stop. Counting runes gets both
+// answers right, and the only way to tell the two implementations apart is to hand it a name where
+// the two counts differ.
+//
+// It also pins that the refusal does not quote the name. Every other message for a profile embeds
+// the name through `label`, so a check about a name being too long would, by following the local
+// habit, produce a refusal whose own text is the oversized string -- and reflect request text into
+// a response body, which internal/web refuses to do on purpose.
+func TestTheNameCeilingIsCharactersNotBytes(t *testing.T) {
+	// 200 copies of a two-byte character: over the ceiling in bytes, exactly at it in runes.
+	accented := strings.Repeat("é", MaxNameLen)
+	if utf8.RuneCountInString(accented) != MaxNameLen {
+		t.Fatalf("fixture is wrong: %d runes, want %d", utf8.RuneCountInString(accented), MaxNameLen)
+	}
+	if len(accented) <= MaxNameLen {
+		t.Fatalf("fixture is wrong: %d bytes is not over the ceiling, so this proves nothing",
+			len(accented))
+	}
+
+	c := valid()
+	c.Profiles[0].Name = accented
+	c.Profiles[0].Rules[0].Name = accented
+	if err := c.Validate(); err != nil {
+		t.Errorf("a name of exactly %d characters was refused (%v); the ceiling is counting bytes, "+
+			"which would refuse every accented name a household actually writes", MaxNameLen, err)
+	}
+
+	// One character more, and both halves refuse.
+	c.Profiles[0].Name += "x"
+	c.Profiles[0].Rules[0].Name += "x"
+	err := c.Validate()
+	if err == nil {
+		t.Fatalf("Validate accepted a name of %d characters", MaxNameLen+1)
+	}
+	msg := err.Error()
+	for _, want := range []string{"profiles[0].name", "rules[0].name"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("refusal does not name %s: %v", want, err)
+		}
+	}
+	if strings.Contains(msg, "ééé") {
+		t.Errorf("the refusal quotes the oversized name, so the refusal is itself the problem it "+
+			"reports and the typed value is reflected into the response: %v", err)
+	}
+}
+
+// TestTheNameCeilingIsEnforcedOnTheEditPathToo is the reason the ceiling lives in config rather
+// than in the form.
+//
+// The web writes go through Validate; `plock profile add` and `plock profile edit` go through
+// ValidateForEdit, which skips only the administrator credential. A ceiling placed in the shared
+// validate() body is therefore the one place that answers both, and #127 is what that is worth:
+// the name-collision rule was enforced by the web form and walked past by the CLI until
+// config.ProfileNameTaken existed. This asserts the CLI-facing half explicitly, because a rule
+// that only the page enforces reads as coverage while `plock profile add` writes the value happily.
+func TestTheNameCeilingIsEnforcedOnTheEditPathToo(t *testing.T) {
+	c := valid()
+	c.Profiles[0].Name = strings.Repeat("n", MaxNameLen+1)
+	if err := c.ValidateForEdit(); err == nil {
+		t.Error("ValidateForEdit accepted an over-long profile name, so `plock profile edit` " +
+			"writes what the web page refuses")
+	}
+
+	c = valid()
+	c.Profiles[0].Rules[0].Name = strings.Repeat("n", MaxNameLen+1)
+	if err := c.ValidateForEdit(); err == nil {
+		t.Error("ValidateForEdit accepted an over-long rule name, so `plock rule add` writes " +
+			"what the rule form refuses")
+	}
+
+	// And the ceiling is not so low that the fixture document the whole suite is built on stops
+	// being valid -- a cap that refused ordinary names would be reported as a broken machine.
+	if err := valid().ValidateForEdit(); err != nil {
+		t.Errorf("the suite's own valid() document no longer validates: %v", err)
 	}
 }
 

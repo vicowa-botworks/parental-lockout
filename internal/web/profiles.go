@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/schedule"
@@ -169,6 +170,9 @@ func (s *Server) handleAddRule(w http.ResponseWriter, r *http.Request) {
 			"a rule needs a name; it is what the audit trail and this page both point at")
 		return
 	}
+	if !s.formNameFits(w, r, name) {
+		return
+	}
 
 	allDay := r.FormValue("allDay") != ""
 	days := r.Form["days"]
@@ -282,6 +286,35 @@ var errProfileNameTaken = config.ErrProfileNameTaken
 // Validate's is a document-level "profiles[0] (school).timezone: ... is not a usable
 // timezone", which is the right thing for a hand-edited file and the wrong thing to answer a
 // form field with.
+// formNameFits refuses a name the document ceiling will not hold, and reports the refusal itself.
+//
+// It is separate from formTimezone rather than a fifth check inside it because the name field has
+// no shared reader: four handlers each carry their own blank-name sentence, and each of those
+// sentences is specific to its form ("two profiles under one name cannot be told apart on this
+// page" is true of the copy form and meaningless in the rule form). What is shared is the ceiling,
+// so that is the one thing factored out.
+//
+// It writes the refusal rather than returning a sentence so a caller cannot forget to, for the
+// reason formTimezone gives: the only thing a caller can do with a false is return.
+//
+// The refusal is here as well as in config.Validate on purpose. Validate's sentence is about a
+// document ("profiles[0].name: must be at most 200 characters"), which is the right thing to show
+// someone who hand-edited a file and the wrong thing to show someone who just typed into a box on
+// this page. The two say the same rule in the two voices that fit, and neither is the gate: the
+// ceiling is Validate's, so a path that skips this check is still refused before anything is
+// written.
+func (s *Server) formNameFits(w http.ResponseWriter, r *http.Request, name string) bool {
+	if utf8.RuneCountInString(name) <= config.MaxNameLen {
+		return true
+	}
+	// The name is not echoed. It came from the request, and it is by definition too long to
+	// put in a response about being too long (see formTimezone on the same point).
+	s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		fmt.Sprintf("that name is too long; it can be at most %d characters, so it fits the "+
+			"page that has to show it and the audit trail that has to quote it", config.MaxNameLen))
+	return false
+}
+
 // formTimezone reads and judges the timezone field, refusing the request itself when the
 // value will not do.
 //
@@ -413,6 +446,9 @@ func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 				"just make the page fall back to the id")
 		return
 	}
+	if !s.formNameFits(w, r, name) {
+		return
+	}
 
 	previous := ""
 	if err := s.mutateConfig(func(c *config.Config) error {
@@ -475,6 +511,9 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
 			"a new profile needs a name; it is what this page, the accounts page and the audit "+
 				"trail all point at")
+		return
+	}
+	if !s.formNameFits(w, r, name) {
 		return
 	}
 	zone, ok := s.formTimezone(w, r)
@@ -540,6 +579,9 @@ func (s *Server) handleCopyProfile(w http.ResponseWriter, r *http.Request) {
 		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
 			"the copy needs its own name; two profiles under one name cannot be told apart on "+
 				"this page")
+		return
+	}
+	if !s.formNameFits(w, r, name) {
 		return
 	}
 
