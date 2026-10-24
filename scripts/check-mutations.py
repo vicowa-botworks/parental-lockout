@@ -124,10 +124,13 @@ def encoding_problems(label, path):
     `enforce.json` its own PR did not touch -- and the second means two machines write different
     bytes from the same generator, which fails silently in the opposite direction.
 
-    The generator is fixed, so why keep the gate: the hunk in #133 came from neither writer. It
-    came from an ad-hoc `python3 -c` append, which is what the obvious one-liner does by default
-    when a mutant is being added at the end of a long session. A convention cannot stop that; a
-    refusal can.
+    The generator that carried those defaults is gone -- #150 deleted it, because running it
+    silently dropped the hand-added CI21 -- so why keep the gate: the hunk in #133 came from
+    neither writer anyway. It came from an ad-hoc `python3 -c` append, which is what the obvious
+    one-liner does by default when a mutant is being added at the end of a long session. A
+    convention cannot stop that; a refusal can. Deleting the tool removes one way to write a bad
+    set file and leaves every other way exactly as open, which is the whole argument for the
+    refusal living in the gate rather than in the writer.
     """
     try:
         with open(path, encoding="utf-8") as fh:
@@ -139,19 +142,15 @@ def encoding_problems(label, path):
     for offset, esc in json_escapes(text):
         line = text.count("\n", 0, offset) + 1
         # The remedy says "edit this file", not "regenerate it". A first version told the reader
-        # to re-run the generator with ensure_ascii=False, and on this tree that deletes CI21 --
-        # `gen-cli-mutations.py` emits 20 mutants and the committed set holds 21, because CI21 was
-        # appended by hand. Advice that fixes an encoding hunk by silently dropping a mutant is
-        # the worse trade, and the gate cannot see the mutant go.
-        #
-        # The sentence names #150 because it is a claim about today's counts, and nothing pins
-        # it: when #150 lands and the generator owns the whole file, this becomes a confidently
-        # wrong instruction. The number is the thing to re-check there, so the number is where
-        # the ticket is.
+        # to re-run the generator with ensure_ascii=False, and on this tree that deleted CI21 --
+        # `gen-cli-mutations.py` emitted 20 mutants while the committed set held 21, because CI21
+        # was appended by hand. Advice that fixes an encoding hunk by silently dropping a mutant
+        # is the worse trade, and the gate cannot see the mutant go. #150 settled it by deleting
+        # the generator, so the sentence below no longer has to warn against a specific tool:
+        # there is no writer to re-run, and the sets are hand-maintained by declaration.
         out.append(f"{label}:{line}: {esc} is a JSON escape for a character the file could hold "
-                   f"literally -- edit it to the character itself. Do not re-run "
-                   f"gen-cli-mutations.py to fix this: it writes fewer mutants than the committed "
-                   f"file holds (see #150).")
+                   f"literally -- edit it to the character itself. There is no generator to "
+                   f"re-run: set files are maintained by hand (#150).")
     return out
 
 
