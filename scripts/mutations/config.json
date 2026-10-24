@@ -111,6 +111,14 @@
       "old": "so the window is empty and enforces nothing; for a rule with no minute free set allDay instead",
       "new": "so the window is empty and enforces nothing; write 00:00 to 23:59 for an all-day rule",
       "note": "the message recommends the 1439-minute window again, which is the advice this issue exists to retire"
+    },
+    {
+      "id": "CG14",
+      "package": "./internal/config/",
+      "file": "internal/config/edit.go",
+      "old": "\tu, ok := c.UserFor(username)\n\tif !ok || !u.Enabled {\n\t\treturn Profile{}, false\n\t}",
+      "new": "\tu, ok := c.UserFor(username)\n\tif !ok {\n\t\treturn Profile{}, false\n\t}",
+      "note": "ProfileFor hands a switched-off account its profile back. The daemon still does not lock that account, because enforce.go tests the switch before it ever asks for a profile -- the two checks are redundant on purpose and each alone holds the line, which is why no single mutant here is a live fail-open. What this pins is the helper's contract, the one the web layer and the dashboard also call: no set in the repo had a mutant touching Enabled anywhere. TestUserForAndProfileFor."
     }
   ]
 }

@@ -48,7 +48,7 @@
       "file": "internal/enforce/enforce.go",
       "old": "\t\tst.unenforceableReported = false\n\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
       "new": "\t\tif !st.overrideActive {\n\t\t\tdelete(e.state, s.ID)",
-      "note": "EQUIVALENT, and here is the proof: for the flag to be set, a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false — so the very next statement deletes the state entry and the next lockout starts from a fresh one. No input reaches the release with flag set and the entry kept. The line stays as insurance against a future change to that delete condition; TestASecondLockoutReEscalates pins the behaviour it protects, via the delete.  release() stops clearing unenforceableReported. Proven equivalent, and kept as insurance: for the flag to be set a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false -- so the very next statement deletes the entry and the next lockout starts fresh. No input reaches the release with the flag set and the entry kept. Anchored on code only, because a pattern spanning a comment breaks whenever the prose is improved.",
+      "note": "EQUIVALENT, and here is the proof: for the flag to be set, a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false \u2014 so the very next statement deletes the state entry and the next lockout starts from a fresh one. No input reaches the release with flag set and the entry kept. The line stays as insurance against a future change to that delete condition; TestASecondLockoutReEscalates pins the behaviour it protects, via the delete.  release() stops clearing unenforceableReported. Proven equivalent, and kept as insurance: for the flag to be set a lock must have been attempted and failed, which requires the override branch not to have run, which leaves overrideActive false -- so the very next statement deletes the entry and the next lockout starts fresh. No input reaches the release with the flag set and the entry kept. Anchored on code only, because a pattern spanning a comment breaks whenever the prose is improved.",
       "equivalent": true
     },
     {
@@ -279,6 +279,14 @@
       "old": "\"service (deploy/plock.service) to enforce this account\", e.Self.UID)})\n\t\t}\n\t\treturn\n\t}",
       "new": "\"service (deploy/plock.service) to enforce this account\", e.Self.UID)})\n\t\t}\n\t}",
       "note": "saying it will not lock and then locking anyway: the return dropped, so the tick falls through to the lock. TestTheDaemonsOwnSessionIsNotLocked."
+    },
+    {
+      "id": "F38",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif !ok || !u.Enabled {",
+      "new": "\tif !ok {",
+      "note": "the diagnostic half of the account switch. Deleting it does NOT free the child -- config.ProfileFor refuses a disabled account too (CG14 is the mutant for that) -- but the release is filed as \"no profile\" and the tick emits \"user is enabled but has no profile\" every thirty seconds, so the one account the parent switched off on purpose is reported as a broken document. TestReEnablingAnAccountIsObeyedOnTheNextTick, TestSessionsThatMustNeverBeLockedAreLeftAlone."
     }
   ]
 }
