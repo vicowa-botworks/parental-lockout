@@ -753,6 +753,17 @@ def run_selection(sets, run):
     return totals, True
 
 
+RULE_TOKEN = object()
+# Minted once, at import, and required as the third element of every recorded rule. A pair
+# appended by hand -- `rules.append(("main's --only handling", 0))` -- is well-formed by shape
+# and was therefore invisible to the check that exists to catch exactly that: it asked for a
+# 2-tuple with an int, and a forgery is a 2-tuple with an int. Now a hand-written pair has to
+# also name this object, which is a deliberate act visible in the diff rather than a shape
+# anyone can accidentally match. It does not stop someone who reads this comment and forges the
+# token; nothing does, and that is hole 7, the floor. What it removes is the incidental forgery
+# and the one-line attack that wrote it.
+
+
 def rule(rules, bad, name, problems):
     """Count one self-test rule, and report whatever it found.
 
@@ -761,27 +772,48 @@ def rule(rules, bad, name, problems):
     the tally counted calls, not assertions, which is the hole attack118.py measured. With
     the increment in here, the mechanical gut drops the count and the pinned number shouts.
 
-    A rule is recorded as the pair (name, how many problems it saw) and the reach check
-    refuses a list whose entries are not pairs, because a bare ``rules.append(name)`` used to
-    keep the pinned number exactly where it was while deleting the assertion: the count only
-    ever measured the length of the list. Hand-forging the pair is still possible, and so is
-    replacing a call's arguments with a constant -- both are deliberate edits of the guard,
-    which is a different threat from drift. The count is a deletion tripwire, not a coverage
-    claim, and only running the attack suite catches the deliberate kind.
+    A rule is recorded as the triple (name, how many problems it saw, RULE_TOKEN) and the reach
+    check refuses a list whose entries are not that triple, because a bare ``rules.append(name)``
+    used to keep the pinned number exactly where it was while deleting the assertion: the count
+    only ever measured the length of the list. The token is why the check can now see a
+    hand-written pair at all -- shape alone could not, since the forgery and the real thing were
+    both a 2-tuple with an int. Forging the token as well is still possible and nothing prevents
+    it; that is the floor the attack suite lists as its seventh hole. What is gone is the
+    forgery that matched by accident and the one-line attack that wrote it.
     """
-    rules.append((name, len(problems)))
+    rules.append((name, len(problems), RULE_TOKEN))
     for problem in problems:
         bad.append(f"{name}: {problem}")
 
 
-def control(rules, bad, name, problems, why):
+def control(rules, bad, name, checker, args, why):
     """Count one control: a checker that has to refuse something on purpose.
 
-    ``problems`` is what the checker had to say about a deliberately wrong answer. Empty
-    means it did not notice, which is the failure -- a control nobody can turn off is a
-    control that proves nothing about the thing it claims to test.
+    The checker and its arguments are handed over and called HERE. The older shape took
+    ``problems`` -- whatever the call site had already computed -- and that made a control a
+    claim about a value rather than about a checker: replacing the call with a literal at the
+    call site kept the control green while it tested nothing, which is what #131's sixth hole
+    measured. Inputs may still be built at the call site; the answer may not.
+
+    A lambda is refused, because ``(lambda _s: ["a problem"])`` is the same forgery wearing the
+    new shape and "the checker is a named function in this file" is a property that can actually
+    be tested. Substituting a different *named* checker is rebinding a name -- #125's tracked
+    weakness, and the same floor as the attack suite's seventh hole.
+
+    ``args`` is None when the fixture could not be built. That is a failure, not a pass: a
+    checker never handed anything cannot have refused anything, and the previous call sites
+    expressed it by handing over ``None``, which this function already read as silence.
     """
-    rule(rules, bad, name, [] if problems else [f"it said nothing, {why}"])
+    if getattr(checker, "__name__", "") == "<lambda>":
+        rule(rules, bad, name, [f"the control handed an inline lambda as its checker, so the "
+                                f"answer is whatever the call site wrote rather than whatever a "
+                                f"checker computed -- {why}"])
+        return
+    if args is None:
+        rule(rules, bad, name, [f"its fixture was never built, so the checker was never handed "
+                                f"anything to refuse -- {why}"])
+        return
+    rule(rules, bad, name, [] if checker(*args) else [f"it said nothing, {why}"])
 
 
 def run_rule(rules, bad, name, body):
@@ -819,6 +851,18 @@ def ignore_row_problems(gone, want):
     if gone != want:
         return [f"skips {sorted(gone)}, want {sorted(want)}"]
     return []
+
+
+def ignore_row_forgery_problems(rows):
+    """Every ignore row, handed a set that is not the one it expects.
+
+    A named function rather than the comprehension the call site used to carry, because
+    `control()` now calls the checker itself and a comprehension written at the call site is
+    the answer-then-hand-it-over shape #131's sixth hole is about. The eight rows can all be
+    counting happily while none of them can refuse; this is the one call that proves they can.
+    """
+    return [p for _n, _d, _nm, want in rows
+            for p in ignore_row_problems(set(want) ^ {"__not_a_real_file_name__"}, want)]
 
 
 def spy_problems(seen, rows):
@@ -1216,6 +1260,44 @@ def only_block_problems(src):
     return problems
 
 
+ONLY_BLOCK_GUARD_CONTROLS = (
+    # One entry per guard in only_block_problems that no control reached. Each carries the words
+    # that must appear in the refusal, because the guards overlap: hand the auditor a main with
+    # no `if args.only` at all and it also has no `    finally:` in what follows, so with the
+    # first guard deleted the second one answers and the control cannot tell the difference.
+    ("there is no `if args.only` block at all",
+     lambda s: s.replace("if args.only", "if args.zzz"),
+     "no `if args.only` block"),
+    # The boundary moving is not hypothetical: the region has been re-anchored twice, and a
+    # re-indent of the `try` retires the marker without touching a line anyone meant to audit.
+    # Without this guard the region silently widens to the end of main and the report then
+    # complains about lines nobody broke.
+    ("the audited region no longer ends where it is anchored",
+     lambda s: s.replace("    finally:", "    except BaseException:", 1),
+     "the audited region cannot be located"),
+    # The guard #118 was opened about: a main that stops reporting the ids it could not match.
+    ("main never reports the ids it could not match",
+     lambda s: s.replace("if missing:", "if False:"),
+     "could only partly answer"),
+)
+
+
+def only_block_guard_problems(src, needle):
+    """Refuses a patched main only if the auditor named the guard this control is about.
+
+    `control()` asks whether the checker said anything. For the auditor's own guards that is the
+    wrong question, because the guards sit in a chain and a later one answers for a deleted
+    earlier one -- so the attack `if not found:` -> `if False:` leaves the run green with a
+    refusal on screen that has nothing to do with the block going missing.
+    """
+    got = only_block_problems(src)
+    if not any(needle in p for p in got):
+        return [f"the auditor did not refuse this main with {needle!r}; it said "
+                f"{got or 'nothing at all'} -- the guard that produces that sentence is the "
+                f"thing under test, and a different refusal is not the same refusal"]
+    return []
+
+
 def case_problems(kind, detail, want, needle, absent):
     """What one captured ``go test`` case got wrong, as sentences. Empty means it agrees.
 
@@ -1263,15 +1345,19 @@ def label_problems(kind):
 # comparison from one that merely had nothing to say, and it is why the verdict half needs
 # no source pins: `control()` reports "it said nothing" the moment a comparison stops
 # firing, which is the same fact a substring pin gives and one the pin cannot give wrongly.
+# Checker and arguments, never a thunk that returns the answer. These used to be
+# `lambda: case_problems(...)`, which is the shape #131's sixth hole is about: control() was
+# handed whatever the call site had computed, so the call site could compute a constant. A
+# named checker plus its arguments means the refusal has to come from case_problems.
 CASE_CONTROLS = (
     ("a case whose verdict disagrees with it",
-     lambda: case_problems("caught", "by a test", "survived", "", None)),
+     case_problems, ("caught", "by a test", "survived", "", None)),
     ("a case naming a test its detail does not mention",
-     lambda: case_problems("caught", "by a test", "caught", "TestAbsent", None)),
+     case_problems, ("caught", "by a test", "caught", "TestAbsent", None)),
     ("a case whose detail says the very thing it rules out",
-     lambda: case_problems("caught", "by a test", "caught", "", "a test")),
+     case_problems, ("caught", "by a test", "caught", "", "a test")),
     ("a verdict with no report label",
-     lambda: case_problems("nonsense", "", "nonsense", "", None)),
+     case_problems, ("nonsense", "", "nonsense", "", None)),
 )
 
 
@@ -1324,7 +1410,7 @@ EXPECTED_VERDICT_RULES = 35
 # a pin and a control per comparison in CHECKER_CONTROLS, the audit of main's --only block,
 # one control per entry in ONLY_BLOCK_CONTROLS. Pinned for the same reason the verdict count
 # is -- a deleted rule is invisible to the rules that survive.
-EXPECTED_SELECT_RULES = 47
+EXPECTED_SELECT_RULES = 50
 
 # How many snapshot rules the self-test is expected to run: #119's nineteen, counted the same
 # way (one per table row, one per fixture that builds a tree and asks what the snapshot did
@@ -1347,7 +1433,7 @@ EXPECTED_SELECT_RULES = 47
 # twenty-eighth that main actually stages before running. The last four are controls over the
 # four checkers those rules compare through, because a fixture that asserts inline cannot be
 # shown failing.
-EXPECTED_SNAPSHOT_RULES = 32
+EXPECTED_SNAPSHOT_RULES = 33
 
 
 def set_reads_problems(body, name):
@@ -1513,15 +1599,15 @@ def self_test():
     # The controls. Each one hands a checker an answer it must refuse; a checker that says
     # nothing about it is reported, which is the only way to tell a deleted comparison from
     # a clean run.
-    for name, wrong in CASE_CONTROLS:
-        control(vrules, bad, f"control: {name}", wrong(),
+    for name, checker, args in CASE_CONTROLS:
+        control(vrules, bad, f"control: {name}", checker, args,
                 "so a verdict case can be wrong and stay silent about it")
     control(vrules, bad, "control: a note answer that disagrees",
-            note_problems("a note", None), "so a marked entry can return anything")
+            note_problems, ("a note", None), "so a marked entry can return anything")
     control(vrules, bad, "control: a label too wide for the column",
-            tag_problems("caught", "CAUGHT"), "so the report's column is not pinned")
+            tag_problems, ("caught", "CAUGHT"), "so the report's column is not pinned")
     control(vrules, bad, "control: a verdict kind with no label",
-            label_problems("nonsense"), "so a verdict could print None mid-line")
+            label_problems, ("nonsense",), "so a verdict could print None mid-line")
 
     # Which mutants a partial run agrees to run. These are checked against real set files
     # written to a temp dir rather than a mock, because the bug (#118) was in which FILES
@@ -1566,7 +1652,7 @@ def self_test():
              [] if len(real) == 2 else
              [f"select_sets answered {real} for a request spanning two sets"])
         control(rules, bad, "control: a dropped set",
-                selection_problems(real[:1], [], WANT_AB, []) if len(real) == 2 else None,
+                selection_problems, (real[:1], [], WANT_AB, []) if len(real) == 2 else None,
                 "so which sets ran is not being checked")
         # set_label's relative half. Every fixture lives under a TemporaryDirectory, which is
         # outside SRC, so before `root` was a parameter each case took the basename arm and
@@ -1586,15 +1672,15 @@ def self_test():
                               set_label(os.path.join(work, "beta", "s.json"), work))],
                             None))
         control(rules, bad, "control: labels collapse to the basename",
-                set_label_problems([(os.path.join(work, "alpha", "s.json"), "s.json"),
-                                (os.path.join(work, "beta", "s.json"), "s.json")], None),
+                set_label_problems, ([(os.path.join(work, "alpha", "s.json"), "s.json"),
+                                 (os.path.join(work, "beta", "s.json"), "s.json")], None),
                 "so two sets print one identical line again")
         # And one at the select_sets level. Everything above asserts on what select_sets
         # returned, so a loop that computed it and threw the answer away would keep every
         # rule green; this one feeds the checker select_sets' OWN short answer.
         one, one_miss = select_sets([alpha, beta], {"A1"}, work)
         control(rules, bad, "control: select_sets' own one-set answer",
-                selection_problems(one, one_miss, WANT_AB, []),
+                selection_problems, (one, one_miss, WANT_AB, []),
                 "so the rules above assert nothing about what select_sets returns")
 
         # The comparisons, pinned in the source and then fed the selection only they
@@ -1614,7 +1700,7 @@ def self_test():
                  [f"selection_problems no longer contains {line!r}, so a --only run can "
                   f"overstate it in silence"])
             control(rules, bad, f"control: {line}",
-                    selection_problems(*wrong(real, work)) if len(real) == 2 else None,
+                    selection_problems, wrong(real, work) if len(real) == 2 else None,
                     f"so {line!r} is present and doing nothing")
 
         # main's --only block, audited as text: the bug was in main throwing away all but
@@ -1632,8 +1718,23 @@ def self_test():
              only_block_problems(src) if src else ["main's source could not be read"])
         for name, patch in ONLY_BLOCK_CONTROLS:
             control(rules, bad, f"control: a main that {name}",
-                    only_block_problems(patch(src)) if src else None,
+                    only_block_problems, (patch(src),) if src else None,
                     "so nothing stops it")
+        # Three mains that each exercise one of the auditor's OWN guards, and a helper that
+        # insists on the sentence rather than on a refusal. The distinction is the whole point:
+        # `if not found:` can become `if False:` and the auditor still refuses that main, because
+        # the next guard fires on the same input and reports a different reason. A control that
+        # only asks "did it say anything" therefore passes with the guard deleted, which is how
+        # all three of these stayed uncovered while every other shape in this list was pinned.
+        #
+        # `rule()` rather than `control()`, and not by accident: control() asserts the checker
+        # refused, and "it refused, for the wrong reason" is exactly the failure being hunted
+        # here. The helper answers a different question -- did the auditor name the guard under
+        # test -- and reports a problem when it did not.
+        for name, patch, needle in ONLY_BLOCK_GUARD_CONTROLS:
+            rule(rules, bad, f"the auditor names the right guard for a main where {name}",
+                 only_block_guard_problems(patch(src), needle) if src
+                 else ["main's source could not be read"])
 
     # The selection, consumed. Everything above decides WHICH sets a run agreed to run; this
     # decides whether it then ran them, which is where #118 actually lived. Driven rather
@@ -1666,16 +1767,16 @@ def self_test():
     # covering for it. These are the reviewer's five measured edits, minus the two that can
     # no longer be written in main's block at all.
     control(rules, bad, "control: a set the loop never handed to the runner",
-            selection_run_problems(summed, True, calls[:2], summed, three, True),
+            selection_run_problems, (summed, True, calls[:2], summed, three, True),
             "so a break or a continue in the loop is invisible again")
     control(rules, bad, "control: a tally that was never summed",
-            selection_run_problems(_tally(), True, three, summed, three, True),
+            selection_run_problems, (_tally(), True, three, summed, three, True),
             "so a battery of zeroes reads as a clean run")
     control(rules, bad, "control: a stopped run reported as complete",
-            selection_run_problems(got2, True, calls2, _tally(caught=1), three[:2], False),
+            selection_run_problems, (got2, True, calls2, _tally(caught=1), three[:2], False),
             "so a run that could not start exits 0 and prints nothing")
     control(rules, bad, "control: a complete run reported as stopped",
-            selection_run_problems(got, False, calls, summed, three, True),
+            selection_run_problems, (got, False, calls, summed, three, True),
             "so the stop signal is only compared in one direction")
 
     # ---- the snapshot --------------------------------------------------------------
@@ -1807,11 +1908,10 @@ def self_test():
     rule(srules, bad, "the table consulted the ignore callback once per row",
          spy_problems(seen, rows))
     control(srules, bad, "control: a row that answers from its own expectation",
-            spy_problems([], rows),
+            spy_problems, ([], rows),
             "so the table is not being answered by the callback at all")
     control(srules, bad, "control: a snapshot row that cannot refuse a wrong answer",
-            [p for _n, _d, _nm, want in rows
-             for p in ignore_row_problems(set(want) ^ {"__not_a_real_file_name__"}, want)],
+            ignore_row_forgery_problems, (rows,),
             "so eight rows counting happily is not eight rules")
 
     # The short-circuit that skips an already-dropped name is equality too, and the table
@@ -2105,6 +2205,28 @@ def self_test():
     run_rule(srules, bad,
                "snapshot: an answer from a git that exited non-zero is not believed", _snap09)
 
+    def _snap17(bad):
+        with tempfile.TemporaryDirectory() as work:
+            # The same fixture as _snap09, one function over. `ignored_paths` answers `[]` when
+            # git refuses and `tracked_paths` answers None, and that difference is the whole
+            # design: "nothing is tracked" and "I could not tell you" are different answers, and
+            # only one of them stops a run. _snap09 pins the first refusal and nothing pinned the
+            # second, so `return None` in tracked_paths could be deleted and the run would go on
+            # treating a failed `git ls-files` as an empty repository -- a snapshot that silently
+            # omits the source, which is the one question this function's docstring says must not
+            # be answered by hoping. The stub answers AND refuses, for the reason _snap09 gives:
+            # an empty stdout let the first version of that rule pass with the branch deleted.
+            stub = os.path.join(work, "stub.py")
+            with open(stub, "w") as fh:
+                fh.write("import sys\n"
+                         "sys.stdout.buffer.write(b'internal/web/server.go\\0')\n"
+                         "sys.exit(3)\n")
+            if tracked_paths(work, git=[sys.executable, stub]) is not None:
+                bad.append("tracked_paths believed a source list from a command that exited "
+                           "non-zero, so a git that could not answer became 'nothing is tracked'")
+    run_rule(srules, bad,
+               "snapshot: a git that exited non-zero is not believed by tracked_paths", _snap17)
+
     # ---- the sets themselves, which are part of the tree state a run measures (#128) ----
     #
     # The copy is the tree; the set files arrive as live paths and used to be opened there,
@@ -2268,17 +2390,19 @@ def self_test():
                "snapshot: main stages every set before the first mutant runs", _snap16)
 
     control(srules, bad, "control: a staging comparison that cannot tell two documents apart",
-            staging_problems(["A2"], ["A1"], "the live file"),
+            staging_problems, (["A2"], ["A1"], "the live file"),
             "so a rule that reads the copy is not simply reading whatever it was handed")
     control(srules, bad, "control: a refusal that names nothing the operator can act on",
-            refusal_problems("no such file or directory", ["stage_sets", "snapshot"],
-                             "the refusal for an unstaged set"),
+            refusal_problems, ("no such file or directory", ["stage_sets", "snapshot"],
+                              "the refusal for an unstaged set"),
             "so a passing refusal rule is one that could have said nothing useful")
     control(srules, bad, "control: a battery that opens the live path instead of the copy",
-            set_reads_problems("def run_set(path, label):\n    doc = load(path)\n", "run_set"),
+            set_reads_problems, ("def run_set(path, label):\n    doc = load(path)\n",
+                                "run_set"),
             "so the rule is not satisfied by whatever text happens to be in the file")
     control(srules, bad, "control: a main that never stages the sets it was handed",
-            staging_call_problems("def main():\n    totals, ran_all = run_selection(sets, run_set)\n"),
+            staging_call_problems,
+            ("def main():\n    totals, ran_all = run_selection(sets, run_set)\n",),
             "so the staging rule is not satisfied by a main that does not call it")
 
     # The two helpers every rule above is counted through are themselves attack surface, and
@@ -2292,6 +2416,16 @@ def self_test():
     # inserted anywhere above it skipped every rule and still exited 0. What decides
     # pass or fail is self_test_verdict(), outside the code whose reach it measures.
     return vrules, rules, srules, bad, bad.raised
+
+
+def _nothing_refused():
+    """A checker that found nothing wrong, named so the canary can hand it to control()."""
+    return []
+
+
+def _something_refused():
+    """A checker that refused, named for the same reason."""
+    return ["a problem"]
 
 
 def helper_canary_problems(rule_fn=None, control_fn=None, run_rule_fn=None):
@@ -2316,8 +2450,8 @@ def helper_canary_problems(rule_fn=None, control_fn=None, run_rule_fn=None):
 
     probe_rules, probe_bad = [], []
     rule_fn(probe_rules, probe_bad, "canary", ["a problem"])
-    control_fn(probe_rules, probe_bad, "canary", [], "it said nothing")
-    control_fn(probe_rules, probe_bad, "canary", ["a problem"], "it said nothing")
+    control_fn(probe_rules, probe_bad, "canary", _nothing_refused, (), "it said nothing")
+    control_fn(probe_rules, probe_bad, "canary", _something_refused, (), "it said nothing")
     # run_rule is the same attack surface with one more step: a body that reports a problem
     # has to have it reported, and a body that reports none has to add nothing. Without the
     # second arm, `run_rule = lambda rules, bad, name, body: rules.append((name, 0))` counts
@@ -2413,16 +2547,16 @@ def verdict_guard_problems():
                 # The list emptied on the way out: the count says failures happened, the list
                 # says none did. Without this the `clear()` revert prints a green summary.
                 ("an emptied problem list is refused",
-                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
-                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
-                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
+                 lambda: self_test_verdict(([(f"r{i}", 0, RULE_TOKEN) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SNAPSHOT_RULES)],
                                     Problems(), 2)), 1),
                 # A pair appended by hand counts itself and asserts nothing.
                 ("a hand-forged rule is refused",
-                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES - 1)]
-                                    + [("forged",)],
-                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
-                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
+                 lambda: self_test_verdict(([(f"r{i}", 0, RULE_TOKEN) for i in range(EXPECTED_VERDICT_RULES - 1)]
+                                    + [("forged", 0)],
+                                    [(f"s{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SNAPSHOT_RULES)],
                                     Problems(), 0)), 1),
                 # The shape this merge was exposed to: a report still carrying two counts
                 # where three are asked for. #119's snapshot rules lived in the function this
@@ -2430,8 +2564,8 @@ def verdict_guard_problems():
                 # confident pair over a fix nothing checks. This is that report, and it has to
                 # be refused rather than read as an older, smaller, valid verdict.
                 ("a verdict with two counts instead of three is refused",
-                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
-                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
+                 lambda: self_test_verdict(([(f"r{i}", 0, RULE_TOKEN) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SELECT_RULES)],
                                     Problems(), 0)), 1),
                 # The shape the three count pins exist for, and the one none of them was
                 # probed against. Each pin can become `if False:` with the self-test green,
@@ -2442,30 +2576,30 @@ def verdict_guard_problems():
                 # the pins. One probe per pin, because they are three separate comparisons and
                 # any one of them can be hollowed while the other two keep passing.
                 ("a verdict one rule short of its pin is refused",
-                 lambda: self_test_verdict(([(f"r{i}", 0)
+                 lambda: self_test_verdict(([(f"r{i}", 0, RULE_TOKEN)
                                     for i in range(EXPECTED_VERDICT_RULES - 1)],
-                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
-                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
+                                    [(f"s{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SNAPSHOT_RULES)],
                                     Problems(), 0)), 1),
                 ("a selection one rule short of its pin is refused",
-                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
-                                    [(f"s{i}", 0)
+                 lambda: self_test_verdict(([(f"r{i}", 0, RULE_TOKEN) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0, RULE_TOKEN)
                                      for i in range(EXPECTED_SELECT_RULES - 1)],
-                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
+                                    [(f"n{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SNAPSHOT_RULES)],
                                     Problems(), 0)), 1),
                 ("a snapshot one rule short of its pin is refused",
-                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
-                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
-                                    [(f"n{i}", 0)
+                 lambda: self_test_verdict(([(f"r{i}", 0, RULE_TOKEN) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0, RULE_TOKEN)
                                      for i in range(EXPECTED_SNAPSHOT_RULES - 1)],
                                     Problems(), 0)), 1),
                 ("the helper canary still bites", canary_probe_problems, []),
                 # And the honest report still has to pass, or the four above pass by always
                 # saying no.
                 ("a complete verdict still passes",
-                 lambda: self_test_verdict(([(f"r{i}", 0) for i in range(EXPECTED_VERDICT_RULES)],
-                                    [(f"s{i}", 0) for i in range(EXPECTED_SELECT_RULES)],
-                                    [(f"n{i}", 0) for i in range(EXPECTED_SNAPSHOT_RULES)],
+                 lambda: self_test_verdict(([(f"r{i}", 0, RULE_TOKEN) for i in range(EXPECTED_VERDICT_RULES)],
+                                    [(f"s{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SELECT_RULES)],
+                                    [(f"n{i}", 0, RULE_TOKEN) for i in range(EXPECTED_SNAPSHOT_RULES)],
                                     Problems(), 0)), 0),
         ):
             try:
@@ -2548,9 +2682,12 @@ def self_test_verdict(report, extra=()):
     # can pass perfectly while one of them is missing from the file. Neither pin is one of
     # the counted rules -- a pin that counts itself moves the number it exists to hold.
     # Every entry has to have come through `rule()`. A count is only a claim about
-    # assertions if the assertions went through the thing that counts them.
+    # assertions if the assertions went through the thing that counts them. The token is what
+    # makes this check able to see a hand-written pair at all: shape alone could not, because
+    # the forgery is a 2-tuple with an int and so is the real thing.
     forged = [r for r in list(vrules) + list(rules) + list(srules)
-              if not (isinstance(r, tuple) and len(r) == 2 and isinstance(r[1], int))]
+              if not (isinstance(r, tuple) and len(r) == 3 and isinstance(r[1], int)
+                      and r[2] is RULE_TOKEN)]
     if forged:
         bad.append(f"{len(forged)} rule(s) were recorded without going through rule(): "
                    f"{forged[:3]} -- a rule appended by hand counts itself and asserts "

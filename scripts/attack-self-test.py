@@ -86,27 +86,11 @@ CAUGHT, HOLE, GREEN = "caught", "hole", "green"
 # irreducible part of the design. A row names the class it belongs to, because several attacks
 # reach the same class from different lines and the class is what gets closed.
 DOCUMENTED_HOLES = {
-    "a control is handed an answer it never computed":
-        "control() takes its answer as an argument, so a call site can hand it a constant and it "
-        "will report a refusal it never computed; the same call site can append the pair by hand "
-        "and skip the checker entirely. Closes by having control() call the checker itself rather "
-        "than receive its result -- which is what #119's controls already do, so what is left are "
-        "the older call sites.",
-    "an auditor's own guards are uncovered":
-        "three of only_block_problems' guards -- no block at all, an unlocatable region, a main "
-        "that never reports unmatched ids -- have no control that feeds the auditor a main "
-        "matching them, so each branch is uncovered and can be deleted with nothing noticing. "
-        "Closes by adding those three mains to ONLY_BLOCK_CONTROLS.",
     "the verdict's final decision is unguarded":
         "`if bad:` is where every problem becomes an exit code, `bad.raised` is the number the "
         "emptied-list guard compares, and main's call of self_test_verdict is the last link. Each "
         "can be replaced by a constant one level above anything a rule compares. This is the "
         "floor: a check cannot police its own deletion, so it is listed rather than fixed.",
-    "a git that exited non-zero is believed by tracked_paths":
-        "the snapshot rules probe the non-zero-exit refusal for ignored_paths and not for "
-        "tracked_paths, so `return None` there can be deleted and the run goes on treating a "
-        "failed `git ls-files` as 'nothing is tracked' -- which is a snapshot that silently omits "
-        "the source. Closes by one more fixture, on the pattern of the ignored_paths one.",
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -123,13 +107,17 @@ ATTACKS = [
     (CAUGHT, "rule() stops reporting the problems it was handed",
      "    for problem in problems:", "    for problem in []:"),
     (CAUGHT, "rule() stops counting, so a deleted rule is not a smaller number",
-     "    rules.append((name, len(problems)))", "    pass"),
+     "    rules.append((name, len(problems), RULE_TOKEN))", "    pass"),
+    # Two directions, because a control that always passes and a control that always refuses
+    # both look like a working guard until you ask which one it is. The canary in
+    # helper_canary_problems is what makes each of these visible: it hands control() a checker
+    # that refused and a checker that did not, and expects the two answers to differ.
     (CAUGHT, "control() is satisfied by a checker that said nothing",
-     '    rule(rules, bad, name, [] if problems else [f"it said nothing, {why}"])',
+     '    rule(rules, bad, name, [] if checker(*args) else [f"it said nothing, {why}"])',
      "    rule(rules, bad, name, [])"),
-    (CAUGHT, "control() passes whatever it is handed, including silence",
-     '    rule(rules, bad, name, [] if problems else [f"it said nothing, {why}"])',
-     '    rule(rules, bad, name, problems or ["nothing at all"])'),
+    (CAUGHT, "control() refuses whatever its checker says",
+     '    rule(rules, bad, name, [] if checker(*args) else [f"it said nothing, {why}"])',
+     '    rule(rules, bad, name, ["it refused, whatever happened"])'),
     (CAUGHT, "run_rule() never calls the body it is given",
      "    body(problems)", "    pass"),
     (CAUGHT, "the canary comparison is switched off",
@@ -146,7 +134,7 @@ ATTACKS = [
      "    if forged:", "    if False:"),
     (CAUGHT, "the verdict count pin is switched off",
      "    if len(vrules) != EXPECTED_VERDICT_RULES:", "    if False:"),
-    (HOLE, "the auditor's 'no block at all' guard is switched off",
+    (CAUGHT, "the auditor's 'no block at all' guard is switched off",
      "    if not found:", "    if False:"),
     (HOLE, "the verdict prints green whatever the list holds",
      "    if bad:", "    if False:"),
@@ -160,7 +148,7 @@ ATTACKS = [
     # exactly what the old suite's row 39 did, and it was scored as a catch.
     (CAUGHT, "one verdict rule is deleted",
      '    ("a case whose verdict disagrees with it",\n'
-     '     lambda: case_problems("caught", "by a test", "survived", "", None)),', ""),
+     '     case_problems, ("caught", "by a test", "survived", "", None)),', ""),
     (CAUGHT, "one selection rule is deleted",
      '        rule(rules, bad, "main\'s --only handling",\n'
      '             only_block_problems(src) if src else ["main\'s source could not be read"])',
@@ -178,9 +166,9 @@ ATTACKS = [
      '    elif "return 1" not in src.split("if missing:")[-1]:', "    elif False:"),
     (CAUGHT, "an auditor replaced by a constant is caught by its own controls",
      "def only_block_problems(src):", "def only_block_problems(src):\n    return []"),
-    (HOLE, "the auditor's 'region cannot be located' guard is switched off",
+    (CAUGHT, "the auditor's 'region cannot be located' guard is switched off",
      "    if end not in rest:", "    if False:"),
-    (HOLE, "the auditor's 'never reports unmatched ids' guard is switched off",
+    (CAUGHT, "the auditor's 'never reports unmatched ids' guard is switched off",
      '    if "if missing:" not in src:', "    if False:"),
 
     # ---- the selection, consumed ----
@@ -206,7 +194,7 @@ ATTACKS = [
      "            if name in gone:", "            if any(name.startswith(g) for g in gone):"),
     (CAUGHT, "a copy that came back without a tracked file is accepted",
      "    gone = []\n    for path in tracked:", "    return []\n    for path in tracked:"),
-    (HOLE, "a git that exited non-zero is believed by tracked_paths",
+    (CAUGHT, "a git that exited non-zero is believed by tracked_paths",
      "    if done.returncode != 0:\n        return None", "    if False:\n        return None"),
 
     # ---- honest edits: these must stay green, or the guard is matching text it should ignore ----
@@ -226,16 +214,16 @@ ATTACKS = [
      "    if EXPECTED_VERDICT_RULES != len(vrules):"),
 
     # ---- the floor: call-site guts, listed in DOCUMENTED_HOLES with what would close each ----
-    (HOLE, "a control is handed a problem it never found",
-     "                    only_block_problems(patch(src)) if src else None,",
-     '                    ["a problem"] if src else None,'),
+    (CAUGHT, "a control is handed a problem it never found",
+     "                    only_block_problems, (patch(src),) if src else None,",
+     '                    (lambda _s: ["a problem"]), (patch(src),) if src else None,'),
     (HOLE, "the problem count is reported as the length of the list",
      "    return vrules, rules, srules, bad, bad.raised",
      "    return vrules, rules, srules, bad, len(bad)"),
     (HOLE, "everything below the unpacking is skipped, quietly",
      "    vrules, rules, srules, bad, raised = report",
      "    vrules, rules, srules, bad, raised = report\n    return 0"),
-    (HOLE, "a rule pair is forged by hand instead of going through rule()",
+    (CAUGHT, "a rule pair is forged by hand instead of going through rule()",
      '        rule(rules, bad, "main\'s --only handling",\n'
      '             only_block_problems(src) if src else ["main\'s source could not be read"])',
      '        rules.append(("main\'s --only handling", 0))'),
@@ -245,23 +233,11 @@ ATTACKS = [
 # Which class each hole row belongs to. Several rows reach one class from different lines, and the
 # class -- not the row -- is the thing a fix closes, so what is owed is keyed by class.
 HOLE_CLASS = {
-    "a control is handed a problem it never found":
-        "a control is handed an answer it never computed",
-    "a rule pair is forged by hand instead of going through rule()":
-        "a control is handed an answer it never computed",
-    "the auditor's 'no block at all' guard is switched off":
-        "an auditor's own guards are uncovered",
-    "the auditor's 'region cannot be located' guard is switched off":
-        "an auditor's own guards are uncovered",
-    "the auditor's 'never reports unmatched ids' guard is switched off":
-        "an auditor's own guards are uncovered",
     "the verdict prints green whatever the list holds": "the verdict's final decision is unguarded",
     "the problem count is reported as the length of the list":
         "the verdict's final decision is unguarded",
     "everything below the unpacking is skipped, quietly":
         "the verdict's final decision is unguarded",
-    "a git that exited non-zero is believed by tracked_paths":
-        "a git that exited non-zero is believed by tracked_paths",
 }
 
 
