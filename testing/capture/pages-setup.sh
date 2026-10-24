@@ -117,10 +117,22 @@ rows = [
     # enumeration succeeds, or fails with a shorter sentence, the audit page fits at 360 px having
     # been asked for nothing, and the capture reports 360 px while proving nothing. The fixture is
     # now the thing that decides how hard the page is pushed, and require_stress_row in pages.py
-    # refuses when this row stops being on the page. Note what this row is NOT: a long token is not
-    # by itself an overflow at 360 px -- measured, 320 characters of unbreakable hex fit with no
-    # wrap rule anywhere in app.css, because below 40rem every cell gets the page's width. It is
-    # here so the width check is never run against a page that could not have overflowed.
+    # refuses when this row stops being on the page.
+    #
+    # What this row is NOT is worth saying, because the wrong version of it sat here and argued
+    # that the CSS rule was unnecessary. It used to claim a long token is not by itself an
+    # overflow at 360 px, "measured, 320 characters of unbreakable hex fit with no wrap rule
+    # anywhere in app.css". That measurement does not reproduce: in the audit Detail cell at a
+    # 360 px viewport, 320 characters of hex are 2848 px of content in a 312 px box. And "no wrap
+    # rule anywhere in app.css" is now false on its face -- app.css carries two of them.
+    #
+    # What decides the width is the longest run between the browser's break opportunities, and
+    # those are not only spaces: a `[{…},{…}]` blob breaks between objects at `},`, which is why
+    # the 893 px figure looked emergent -- it was whatever the daemon happened to quote. A single
+    # JSON object does not break at all: 117 characters, 808 px. require_stress_row pins the
+    # rule; require_unbreakable in pages.py is the floor on this row's realism and carries the
+    # same correction. It is here so the width check is never run against a page that could not
+    # have overflowed.
     ("platform.error", "", "", "", "", LOGINCTL, ""),
 ]
 
