@@ -163,11 +163,15 @@ def main():
     try:
         return capture(name)
     except SystemExit as exc:
-        cdp.refused(name, exc)
-        cdp.discard_stage()
+        cdp.report_refusal(name, exc)
     except Exception as exc:  # a traceback is not an answer; a refusal is
-        cdp.refused(name, f"{type(exc).__name__}: {exc}")
-        cdp.discard_stage()
+        cdp.report_refusal(name, f"{type(exc).__name__}: {exc}")
+    # Both refusals land here, and the exit code is decided once, on the outside. It used to come
+    # from the refusal helper raising -- which also made the discard on the next line dead code, so
+    # a refused run left its staged bytes sitting in the way of the next one. Discarding and
+    # returning 1 from the same place is the only shape where a refusal cannot turn into a pass.
+    cdp.discard_stage()
+    return 1
 
 
 if __name__ == "__main__":

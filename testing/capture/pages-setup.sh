@@ -77,8 +77,21 @@ capture_admin
 # audit.png is one of the artifacts in docs/screenshots/360/ that a second run cannot reproduce
 # byte for byte -- README.md names each and says why.
 : > "$AUDIT"
-kinds=$(python3 - "$AUDIT" <<'PY'
+kinds=$(python3 - "$AUDIT" "$CAPTURE_REPO/internal/platform/testdata/list-sessions.json" <<'PY'
 import json, sys, datetime
+
+# The payload the platform backend quotes when session enumeration comes back in a shape it cannot
+# read, read from internal/platform/testdata/list-sessions.json rather than retyped here. That file
+# is named at internal/platform/logind_test.go:86 as "what a live systemd 259 printed", and its
+# field set is exactly what logind.go's listEntry decodes: class, idle, leader, seat, session,
+# since, tty, uid, user. The hand-written blob this replaces kept idleHint, remoteHost, service,
+# type and state, none of which `loginctl list-sessions` prints, so the note below -- "detail copied
+# from the emitter", written after two rows got photographed that the product could not produce --
+# was false on the one row whose text matters most. Naming the file is also the only version of
+# this that stays true when systemd changes.
+with open(sys.argv[2]) as fh:
+    LOGINCTL = ("enumerate sessions: command: loginctl list-sessions: unrecognised output: "
+                + fh.read().strip())
 
 # (kind, username, sessionId, ruleId, ruleName, detail, actor) -- detail copied from the emitter
 # that writes it: assertedDetail / unconfirmedDetail in internal/enforce/enforce.go, the
@@ -96,23 +109,19 @@ rows = [
     ("auth.failure", "", "", "", "", "127.0.0.1", "admin"),
     # Oldest row (the writer reverses this list). #140: a backend's error text quotes things, and
     # what it quotes has no spaces in it. This is the shape the daemon writes when session
-    # enumeration comes back in a format it cannot read -- modelled on `enumerate sessions: %v`
-    # around a real loginctl JSON array, with the session fields a live one carried.
+    # enumeration comes back in a format it cannot read -- `enumerate sessions: %v` around the
+    # captured loginctl listing, which is argv[2] and is read below rather than retyped here.
     #
     # It is seeded rather than emergent on purpose. The row that took this page to 893 px came
     # from the running daemon failing to enumerate THIS machine's sessions; on a box where that
     # enumeration succeeds, or fails with a shorter sentence, the audit page fits at 360 px having
     # been asked for nothing, and the capture reports 360 px while proving nothing. The fixture is
-    # now the thing that decides how hard the page is pushed, and cdp.require_unbreakable_detail
-    # refuses when this row stops doing that. Note what this row is NOT: a long token is not by
-    # itself an overflow at 360 px -- measured, 320 characters of unbreakable hex fit with no wrap
-    # rule anywhere in app.css, because below 40rem every cell gets the page's width. It is here so
-    # the width check is never run against a page that could not have overflowed.
-    ("platform.error", "", "", "", "",
-     'enumerate sessions: command: loginctl list-sessions: unrecognised output: '
-     '[{"session":"2","uid":1000,"user":"casey","seat":"seat0","leader":4181,"class":"user",'
-     '"tty":"tty2","idleHint":"true","remoteHost":"","service":"gdm-session",'
-     '"type":"wayland","state":"active"}]', ""),
+    # now the thing that decides how hard the page is pushed, and require_stress_row in pages.py
+    # refuses when this row stops being on the page. Note what this row is NOT: a long token is not
+    # by itself an overflow at 360 px -- measured, 320 characters of unbreakable hex fit with no
+    # wrap rule anywhere in app.css, because below 40rem every cell gets the page's width. It is
+    # here so the width check is never run against a page that could not have overflowed.
+    ("platform.error", "", "", "", "", LOGINCTL, ""),
 ]
 
 # astimezone() with no argument is the machine's local zone, which is what the daemon's own
