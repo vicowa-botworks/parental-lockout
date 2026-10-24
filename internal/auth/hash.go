@@ -30,6 +30,19 @@ import (
 // raised without invalidating a credential somebody set months ago.
 const scheme = "pbkdf2-sha256"
 
+// MinPasswordLen is the floor every path that sets the admin credential enforces.
+//
+// It lives here, in the package that decides what a credential is worth, rather than in the CLI
+// that used to own it. There are now two ways to set the password -- `plock init` and
+// POST /settings/password -- and a floor defined on one of them is a floor the other walks past:
+// the page would accept what the command refuses, or the reverse, and the operator finds out by
+// which surface they happened to be standing at. That drift is what #127 was filed for.
+//
+// The KDF cost below is what makes an offline crack expensive. Length is what makes the password
+// not the first thing a guesser tries, and 600 000 iterations cannot save "password123456" on an
+// account that unlocks every child on the LAN.
+const MinPasswordLen = 12
+
 const (
 	// DefaultIterations is the production cost. 600 000 is OWASP's current
 	// recommendation for PBKDF2-HMAC-SHA256: about 250 ms on one core of a

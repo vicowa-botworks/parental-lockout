@@ -265,7 +265,10 @@ the code existed; each one now names a test that runs.
 | The throttle is per key and safe under concurrency | `TestThrottleIsConcurrencySafe` |
 | Revoking all sessions catches one started just before the revoke | `TestRevokeAllCatchesASessionStartedJustBeforeIt` |
 | Expired sessions are swept without being looked up | `TestExpiredSessionsAreSweptWithoutBeingLookedUp` |
-| A weak admin password is refused at creation | `TestInitRefusesAWeakPassword` |
+| A weak admin password is refused, on both surfaces that can set one, against one shared floor | `TestInitRefusesAWeakPassword`, `TestAShortNewPasswordIsRefusedByTheSameFloorAsTheCLI` |
+| The password form never puts either password on the page, in the audit trail, or in the log &mdash; on the paths that succeed included | `TestARefusalNeverCarriesEitherPassword` |
+| A wrong current credential on the rotation form is refused as a failed login, not as a failed rotation | `TestAWrongCurrentPasswordIsRefusedWithTheLoginSentence` |
+| Rotating to the password you just proved you know is refused, so a no-op cannot end every session | `TestRotatingToTheSamePasswordIsRefused` |
 | The listener binds where it says it binds, verified on the wire | `internal/web` transport test |
 | Rotating the admin credential ends the sessions minted under it, and the new password works without a restart | `TestARotatedCredentialEndsSessionsMintedUnderTheOldOne`, `TestTheRotatedPasswordWorksAndTheOldOneStopsWorking` |
 | The credential is read from the config, so a value handed to the server cannot outrank the file | `TestAHandedAuthenticatorDoesNotOutrankTheConfiguration` |

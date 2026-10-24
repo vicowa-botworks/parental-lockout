@@ -719,6 +719,12 @@ func (s *Server) router() *http.ServeMux {
 	// the profile and assignment writes -- which is the only reason the enforcement loop notices
 	// the switch within a tick instead of at the next restart.
 	mux.Handle("POST /settings", s.requireAuth(http.HandlerFunc(s.handleSettingsSave)))
+	// The admin credential gets its own route rather than a field on the submit above. A secret
+	// riding along with two non-secret fields turns every future bug in that handler -- a logged
+	// form, a proxy echoing a query string, an error page that dumps what was parsed -- into a
+	// credential leak, and the audit line for a rotation must not be able to read like an interval
+	// change. #132.
+	mux.Handle("POST /settings/password", s.requireAuth(http.HandlerFunc(s.handlePasswordRotate)))
 	mux.HandleFunc("GET /static/{file}", s.handleStatic)
 
 	return mux

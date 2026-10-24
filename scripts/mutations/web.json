@@ -1040,8 +1040,7 @@
       "old": "joinedWordRe = regexp.MustCompile(`locked out[^\\s]`)",
       "new": "joinedWordRe = regexp.MustCompile(`locked outuntil`)",
       "note": "the rule is narrowed to the one string the old template happened to produce, so it stops being a rule about joins and becomes a match against a fossil: any other word glued to the state (\"locked outnow\", a future countdown) passes. Caught by the hand-built joined cell, which is written as markup rather than as that string."
-    }
-,
+    },
     {
       "id": "W138",
       "file": "internal/web/audit.go",
@@ -1146,8 +1145,7 @@
       "old": "\t\t\t\tserved[f.shape] = servedWhere{action: f.action, where: \"state \" + state.name + \" on \" + p}",
       "new": "\t\t\t\tserved[f.action] = servedWhere{action: f.action, where: \"state \" + state.name + \" on \" + p}",
       "note": "Reach keyed back on the action instead of the form's shape: the exact pre-fix behaviour, where a cell posting both arms of one conditional to one URL lets the rendered arm satisfy the reach check for the arm no fixture ever renders. TestEveryFormOnEveryPageCarriesTheToken fails because no defined form's shape is ever found among the served keys."
-    }
-,
+    },
     {
       "id": "W171",
       "file": "internal/web/lock_now.go",
@@ -1196,7 +1194,7 @@
       "old": "          <button type=\"submit\">Lock now</button>\n",
       "new": "",
       "note": "the dashboard keeps saying a schedule will never hold the account and stops offering the one action that locks it now -- the half of the sentence that was the complaint. Only the button goes, so the page still parses: the mutant is the missing control, not a broken template. TestTheDashboardOffersToLockAManagedAccount."
-    }    ,
+    },
     {
       "id": "W179",
       "file": "internal/web/test_lock.go",
@@ -1501,9 +1499,9 @@
     {
       "id": "W209",
       "file": "internal/web/settings.go",
-      "old": "\tpage := settingsView(cfg)\n\tpage.PollField = typedPoll\n\tpage.Problem = problem",
-      "new": "\tpage := settingsView(cfg)\n\tpage.Problem = problem",
-      "note": "the refused page reverts the interval box to the stored number, so an operator who typed 2s is told the number is wrong about a value that is no longer on the screen. TestAnInvalidIntervalIsRefusedAndTheFormComesBackWithWhatWasTyped."
+      "old": "\tpage := s.settingsPageFor(cfg)\n\tpage.PollField = typedPoll\n\tpage.Problem = problem",
+      "new": "\tpage := s.settingsPageFor(cfg)\n\tpage.Problem = problem",
+      "note": "the refused page reverts the interval box to the stored number, so an operator who typed 2s is told the number is wrong about a value that is no longer on the screen. TestAnInvalidIntervalIsRefusedAndTheFormComesBackWithWhatWasTyped. Re-pointed when #132 routed every settings render through s.settingsPageFor: the old text stopped existing and check-mutations reported W209 testing nothing. The behaviour under test -- the refused page keeping the typed interval -- is unchanged."
     },
     {
       "id": "W210",
@@ -1529,9 +1527,9 @@
     {
       "id": "W213",
       "file": "internal/web/templates/settings.tmpl",
-      "old": "  <input type=\"hidden\" name=\"csrf\" value=\"{{.CSRF}}\">",
-      "new": "",
-      "note": "the settings form loses its token. The shared shell still carries one for the sign-out form, so 'the body contains this session's token' stays true of every page in the app -- which is why the killer extracts the form that posts to /settings rather than searching the body. TestTheSettingsFormCarriesTheSessionToken."
+      "old": "  <input type=\"hidden\" name=\"csrf\" value=\"{{.CSRF}}\">\n\n  <fieldset>\n    <legend>Enforcement</legend>",
+      "new": "\n  <fieldset>\n    <legend>Enforcement</legend>",
+      "note": "the settings form loses its token. The shared shell still carries one for the sign-out form, so 'the body contains this session's token' stays true of every page in the app -- which is why the killer extracts the form that posts to /settings rather than searching the body. TestTheSettingsFormCarriesTheSessionToken. Re-pointed when #132 added a second form to this page: the bare token line then matched twice and check-mutations reported W213 testing nothing. The mutant names the settings form by the legend that follows it, which is the only honest way to say which form lost its token."
     },
     {
       "id": "W214",
@@ -1547,35 +1545,35 @@
       "new": "    {{- /* Settings is a link, not a form, even though the page it opens ends in a write: the\n        navigation itself changes nothing, and a GET that mutates is the thing this repo's\n        POST-only rule exists to stop.\n\n        No dashes on this action, on either side, and that is not a style choice. A trimming\n        action deletes the whitespace it points at, so a comment written between two inline\n        elements with {{- -}} removes the space that separated them: this line shipped as\n        \"ProfilesSettings\" in the masthead and the 360 px photograph is what showed it.\n        TestTheMastheadLinksAreSeparatedInTheRenderedBytes is the guard. */ -}}",
       "note": "the trimming form of the comment action on both sides -- the exact shape this branch shipped with, caught only by the 360 px photograph. A template action deletes the whitespace its dashes point at, so a comment written between two inline elements removes the space between them and the masthead renders 'ProfilesSettings'. Either dash alone is harmless, which is why the mutant restores both: the CSP guard, the route guard and the overflow check all stay green on the glued page. TestTheMastheadLinksAreSeparatedInTheRenderedBytes."
     },
-{
+    {
       "id": "W216",
       "file": "internal/web/profiles.go",
       "old": "\tif zone == \"\" {",
       "new": "\tif zone == \"\" && false {",
       "note": "the form-level blank check is gone. config.Validate still refuses an empty zone inside mutateConfig, so the status and the saved document are unchanged -- what changes is the sentence, from the field's own explanation to Validate's config-path text. That makes this mutant production-equivalent in behaviour, and it is killed only because the test asserts which refusal came back. A fixture that applied fn in place (as this one did) made it look like the blank reached the document, which is a state production cannot produce. TestABlankTimezoneIsRefusedWithTheSentenceThatExplainsIt."
     },
-{
+    {
       "id": "W217",
       "file": "internal/web/profiles.go",
       "old": "\tif _, err := time.LoadLocation(zone); err != nil {",
       "new": "\tif _, err := time.LoadLocation(zone); err == nil && false {",
       "note": "the form-level zone check is gone. config.Validate still refuses the value on the way out of mutateConfig, so nothing is stored and the status is still 422 -- what changes is the sentence: Validate's is the document-level \"profiles[0] (school).timezone: %q is not a usable timezone\", which echoes the typed value straight back and names a config path instead of the fix. TestTheTimezoneRefusalDoesNotEchoWhatWasTyped."
     },
-{
+    {
       "id": "W218",
       "file": "internal/web/profiles.go",
       "old": "\t\tid, previous, zone, sessionName(s, r)))",
       "new": "\t\tid, previous, previous, sessionName(s, r)))",
       "note": "the audit line records the old zone twice, so the value that was changed is lost. This is the one edit on the page that moves every window an account has, and \"what did it say before?\" is the first question anyone asking about a lockout has. TestTheTimezoneWriteSavesAndAuditsTheProfile."
     },
-{
+    {
       "id": "W219",
       "file": "internal/web/profiles.go",
       "old": "\t\tif config.ProfileNameTaken(c.Profiles, name, p.ID) {",
       "new": "\t\tif false && config.ProfileNameTaken(c.Profiles, name, p.ID) {",
       "note": "the rename stops consulting the collision rule at all. config.Validate checks ids, never names, and the page heads each profile with its name and falls back to the id only when the name is empty, so two alike render two identical headings, two identical table captions and two identical delete confirmations for different documents. The rule itself moved to config.ProfileNameTaken so the CLI shares it; this is the web path's decision to use it. TestARenameOntoAnotherProfilesNameIsRefused."
     },
-{
+    {
       "id": "W220",
       "package": "./internal/config/",
       "file": "internal/config/validate.go",
@@ -1583,35 +1581,35 @@
       "new": "\t\tif p.ID == exceptID && false {\n\t\t\tcontinue\n\t\t}",
       "note": "the collision check compares the name against every profile including the subject, so submitting the form without changing the field is refused as a collision with itself -- the parent cannot save anything else on the profile without retyping its name first. The rule now lives in config.ProfileNameTaken, which every write path calls, so this also breaks `plock profile edit --name` on a profile's own name. TestSavingAProfileItsOwnNameIsNotACollision, and the own-name row of TestProfileNameTakenIsTheLabelsRule."
     },
-{
+    {
       "id": "W221",
       "file": "internal/web/profiles.go",
       "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a profile needs a name; leaving the field blank would not clear it, it would \"+",
       "new": "\tname := r.FormValue(\"name\")\n\tif name == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a profile needs a name; leaving the field blank would not clear it, it would \"+",
       "note": "the name is stored untrimmed, so a field that reads as blank passes the blank check and writes whitespace -- the heading then renders empty and falls back to the id, which is the outcome the blank check exists to prevent. The rules handler above has the identical two lines, so the pattern carries the rename's own sentence to land on this one. TestABlankNameIsRefusedRatherThanStoredAsEmpty."
     },
-{
+    {
       "id": "W222",
       "file": "internal/web/profiles.go",
       "old": "\t\tif !ok {\n\t\t\treturn errUnknownProfile\n\t\t}\n\t\tprevious = p.Timezone",
       "new": "\t\tif !ok {\n\t\t\treturn nil\n\t\t}\n\t\tprevious = p.Timezone",
       "note": "posting a timezone to a profile that does not exist stops being an error, so the handler upserts a profile with an empty id and answers 303 as though a zone had been set. TestAWriteToAnUnknownProfileIsANotFoundThatChangedNothing."
     },
-{
+    {
       "id": "W223",
       "file": "internal/web/profiles.go",
       "old": "\t\tif !ok {\n\t\t\treturn errUnknownProfile\n\t\t}\n\t\t// The rule is config.ProfileNameTaken, shared with `plock profile add` and",
       "new": "\t\tif !ok {\n\t\t\treturn nil\n\t\t}\n\t\t// The rule is config.ProfileNameTaken, shared with `plock profile add` and",
       "note": "the same failure on the rename write: an unknown profile id is answered 303 with a newly invented empty-id profile carrying the typed name, instead of 404. TestAWriteToAnUnknownProfileIsANotFoundThatChangedNothing."
     },
-{
+    {
       "id": "W224",
       "file": "internal/web/profiles.go",
       "old": "\tif zone == \"Local\" {",
       "new": "\tif zone == \"LocalX\" {",
       "note": "the Local refusal is unreachable. time.LoadLocation(\"Local\") succeeds and config.Validate agrees the field holds a zone, so nothing downstream ever complains while every window in the profile silently follows the host's clock -- the one value whose meaning is \"whatever this machine says\" in a field that promises the household's zone. TestLocalIsRefusedBecauseItFollowsTheMachineRatherThanTheHousehold."
     },
-{
+    {
       "id": "W225",
       "package": "./internal/config/",
       "file": "internal/config/validate.go",
@@ -1619,7 +1617,7 @@
       "new": "\t\tif label == candidate || (false) {",
       "note": "ids stop counting as labels. The page heads a profile with its name and falls back to the id when the name is empty, and Validate requires an id but never a name, so renaming onto another profile's id recreates the two identical headings, captions and delete confirmations the check exists to prevent -- arriving through the fallback rather than the field. The arm moved into config.ProfileNameTaken, so the CLI paths lose it too. TestARenameOntoAnotherProfilesIDIsRefusedToo, and the id rows of TestProfileNameTakenIsTheLabelsRule."
     },
-{
+    {
       "id": "W226",
       "package": "./internal/schedule/",
       "file": "internal/schedule/schedule.go",
@@ -1627,7 +1625,7 @@
       "new": "\t\t} else if false {",
       "note": "a profile holding Local stops being reported. Local resolves, so the unresolvable-name branch above it stays silent, Validate accepts it, and every window in the profile is read in the machine's own zone -- the failure this function's own comment warns about, arriving through a name that loads instead of one that fails. TestProfileErrorsReportsLocalAsTheMachinesZone."
     },
-{
+    {
       "id": "W227",
       "package": "./cmd/plock/",
       "file": "cmd/plock/manage.go",
@@ -1635,7 +1633,7 @@
       "new": "\tif false {\n\t\t// The web form refuses this",
       "note": "the CLI accepts Local. The refusal then belongs to the screen rather than to the config: `plock profile edit --timezone Local` exits 0 and writes it (measured), while the web form calls the same value unusable. TestProfileEditRefusesLocalBecauseItFollowsTheMachine."
     },
-{
+    {
       "id": "W228",
       "package": "./internal/web/",
       "file": "internal/web/templates/profiles.tmpl",
@@ -1724,6 +1722,102 @@
       "old": "\ts.audit(\"profile.created\", fmt.Sprintf(\"profile %s (%s) in %s by %s\",",
       "new": "\ts.audit(\"profile.updated\", fmt.Sprintf(\"profile %s (%s) in %s by %s\",",
       "note": "the create is audited under another profile write's kind. The detail still names the id, the name and the zone, so one line read on its own looks fine; what breaks is the trail as a query -- \"what did this account make\" and \"when did profiles appear\" both miss it, and profile.updated is a kind nothing else writes, so the line lands under a heading that means nothing. TestACreatedProfileIsInTheDocumentAndAudited."
+    },
+    {
+      "id": "W241",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\tcase len(next) < auth.MinPasswordLen:",
+      "new": "\tcase false && len(next) < auth.MinPasswordLen:",
+      "note": "the page stops enforcing the length floor, so a 4-character admin password is accepted over HTTP while `plock init` still refuses it. One shared constant, two surfaces: this is #127's drift arriving in the other direction, and the account is the master switch for every child on the LAN. TestAShortNewPasswordIsRefusedByTheSameFloorAsTheCLI."
+    },
+    {
+      "id": "W242",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\tcase next != confirm:",
+      "new": "\tcase false && next != confirm:",
+      "note": "the confirmation box stops meaning anything: a typo in the second box is stored, and the operator finds out at the next sign-in. Refused before the credential is checked, so the refusal must not be the login sentence either. TestAMismatchedConfirmationIsRefusedBeforeTheCredentialIsChecked."
+    },
+    {
+      "id": "W243",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\tcase current == \"\" || next == \"\" || confirm == \"\":",
+      "new": "\tcase false && (current == \"\" || next == \"\" || confirm == \"\"):",
+      "note": "an empty new password reaches the KDF and is stored, leaving a machine whose admin account has no password and a login page that answers 'wrong username or password' about it. TestAnEmptyNewPasswordIsRefusedRatherThanHashed."
+    },
+    {
+      "id": "W244",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\tif allowed, wait := s.Throttle.Allow(key); !allowed {",
+      "new": "\tif allowed, wait := s.Throttle.Allow(key); false && !allowed {",
+      "note": "the rotation form stops consulting the throttle, making it an unbounded oracle for the current password sitting behind a correct session -- and the PBKDF2 work is the thing the throttle exists to bound, not merely to hide. TestTheRotationSharesTheLoginThrottle."
+    },
+    {
+      "id": "W245",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\t\ts.Throttle.Failure(key)\n",
+      "new": "",
+      "note": "a wrong current credential is not charged to the throttle, so the gate is never reached however many guesses are made: the form answers forever. Caught by the same test as W244, which is the point -- the gate and the counter are one rule and either half alone defeats it."
+    },
+    {
+      "id": "W246",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\tif same, err := a.Authenticate(sess.Username, next); err == nil && same {",
+      "new": "\tif same, err := a.Authenticate(sess.Username, next); false && err == nil && same {",
+      "note": "re-setting the same password is accepted. A fresh salt makes it look like a rotation to the watcher, so every session -- including the operator's -- ends within one poll for no change in security, which is the surprise the confirmation copy promises will not happen. TestRotatingToTheSamePasswordIsRefused."
+    },
+    {
+      "id": "W247",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\ts.audit(auditPasswordRotated, sess.Username)\n",
+      "new": "",
+      "note": "the credential changes with no record that it changed. An operator reading the trail after an incident cannot tell 'the password was rotated' from 'somebody tried and could not', which is the whole reason the rotation has its own event kind. TestARotationStoresTheNewCredentialAndNothingElse."
+    },
+    {
+      "id": "W248",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\"wrong username or password\"",
+      "new": "\"wrong current password\"",
+      "note": "the refusal distinguishes a failed rotation from a failed login, which hands anybody who can reach the login page a way to enumerate what the machine is listening for (#1140). TestAWrongCurrentPasswordIsRefusedWithTheLoginSentence."
+    },
+    {
+      "id": "W249",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\t\tc.Admin.UpdatedAt = time.Now().UTC()\n",
+      "new": "",
+      "note": "the credential moves and the field that says when it last moved is left stale, in the file somebody reads during an incident. Nothing consumes UpdatedAt -- which is exactly why leaving it wrong is cheap to do and expensive to find. TestARotationStoresTheNewCredentialAndNothingElse."
+    },
+    {
+      "id": "W250",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\tpage.CredentialPollText = s.credentialPoll().String()\n",
+      "new": "",
+      "note": "the page stops stating the interval the daemon polls on, so the confirmation describes a poll that is not happening. TestTheSettingsPageOffersTheRotationForm."
+    },
+    {
+      "id": "W251",
+      "package": "./internal/web/",
+      "file": "internal/web/password.go",
+      "old": "\tif s.CredentialPoll > 0 {",
+      "new": "\tif false && s.CredentialPoll > 0 {",
+      "note": "the copy quotes DefaultCredentialPoll even when the server was started with a different interval: the sentence is a promise about a poll that is not running. TestThePageNamesThePollIntervalThisServerActuallyRuns."
+    },
+    {
+      "id": "W252",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/settings.tmpl",
+      "old": "  <input type=\"hidden\" name=\"csrf\" value=\"{{.CSRF}}\">\n\n  <fieldset>\n    <legend>Admin password</legend>",
+      "new": "\n  <fieldset>\n    <legend>Admin password</legend>",
+      "note": "the credential form loses its token while the settings form and the shell keep theirs. The form guard enumerates the embedded templates rather than a list, so it should catch this by construction -- the mutant exists to check that the guard still enumerates a form nobody wrote when the guard was written. TestEveryFormOnEveryPageCarriesTheToken."
     }
   ]
 }

@@ -78,6 +78,59 @@
   </p>
 </form>
 
+{{- /* A second form, not extra fields on the one above. A credential submitted alongside the
+       enforcement switch would ride in the same body as two non-secret values, so any future bug
+       that logs a parsed form &mdash; or a proxy that echoes a query string, or an error page that
+       dumps what it read &mdash; becomes a credential leak. Separate route, separate submit, and one
+       audit kind that can only ever mean the password changed. */ -}}
+<form method="post" action="/settings/password" class="edit-form">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+
+  <fieldset>
+    <legend>Admin password</legend>
+
+    {{- /* Every field here is rendered with no value, which is the opposite of the interval box
+           above. That box comes back holding what you typed, because the refusal is about the value
+           you can see and correct. A password box that came back holding what you typed would put
+           the secret in the page source, in the browser cache, and in anything that screenshots the
+           screen &mdash; so on this form a refusal costs you your typing, and that is the correct
+           trade for a secret. */ -}}
+    <p>
+      <label for="current-password">Current password</label>
+      <input id="current-password" type="password" name="currentPassword"
+             autocomplete="current-password" required>
+    </p>
+    <p>
+      <label for="new-password">New password</label>
+      {{- /* autocomplete="new-password" is load-bearing, not decoration. A password manager that
+             offers to fill the stored credential into the new-password box produces a rotation to
+             the password that is already set, which this page refuses &mdash; and an operator who
+             was offered the fill has no way to work out why. */ -}}
+      <input id="new-password" type="password" name="newPassword"
+             autocomplete="new-password" minlength="{{.MinPasswordLen}}" required>
+    </p>
+    <p>
+      <label for="confirm-password">Type the new password again</label>
+      <input id="confirm-password" type="password" name="confirmPassword"
+             autocomplete="new-password" minlength="{{.MinPasswordLen}}" required>
+    </p>
+    <p class="muted">
+      At least {{.MinPasswordLen}} characters. The length is checked by the daemon as well as by the
+      browser, because a limit only the browser knows about is a limit you can step over.
+    </p>
+    <p class="muted">
+      Changing it signs the old password out everywhere. Every session opened under it &mdash;
+      including the one you are reading this with &mdash; ends within {{.CredentialPollText}},
+      because the daemon notices the new credential on its next check rather than the
+      instant you save. Finish anything half-written on another screen first.
+    </p>
+
+    <p>
+      <button type="submit">Change password</button>
+    </p>
+  </fieldset>
+</form>
+
 <p class="muted">
   The listening address, the TLS mode and the lock backends are not on this page. They change how
   the daemon is reached and what it asks the desktop to do, so each needs its own way of saying
