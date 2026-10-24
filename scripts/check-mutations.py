@@ -29,6 +29,7 @@ import inspect
 import os
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GO = os.environ.get("GO", "go")
@@ -58,7 +59,7 @@ SUMMARY_CALL = 'print(f"\\n{summary_line(total)}")'
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 31
+EXPECTED_RULES = 34
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -87,6 +88,66 @@ def compiles(pkg):
         text=True,
         cwd=ROOT,
     )
+
+
+def json_escapes(text):
+    """Yield (offset, escape) for every JSON \\uXXXX escape in raw file text.
+
+    This has to run on the bytes of the file and not on the decoded document, and that is the
+    whole reason #148 needs its own check rather than riding along in `check()`. Once
+    `json.loads` has run, `"\\u2014"` and `"—"` are the same string: the escape is a property of
+    the file, and it is gone by the time any decoded-doc rule can look at it.
+
+    Backslashes are consumed in pairs, so `\\u00e9` -- a literal backslash followed by `u`, which
+    is what a mutant's `old` holds when it targets a Go string escape -- is not reported. A check
+    that fired on those would be refusing correct files, and the self-test pins that case.
+    """
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "\\":
+            nxt = text[i + 1] if i + 1 < n else ""
+            if nxt == "u" and i + 6 <= n and all(c in "0123456789abcdefABCDEF"
+                                                 for c in text[i + 2:i + 6]):
+                yield i, text[i:i + 6]
+            i += 2
+            continue
+        i += 1
+
+
+def encoding_problems(label, path):
+    """Refuse a committed set file that was written by a tool rather than declared.
+
+    Two defaults do this, and both were live in `gen-cli-mutations.py` until #148: `json.dump`
+    with `ensure_ascii=True` rewrites every em dash and arrow in a note as `\\u2014` / `\\u2192`,
+    and `open()` without `encoding=` writes in the operator's locale. The first mints a diff hunk
+    on a mutant nobody changed -- #133 carried exactly one into review on a line of
+    `enforce.json` its own PR did not touch -- and the second means two machines write different
+    bytes from the same generator, which fails silently in the opposite direction.
+
+    The generator is fixed, so why keep the gate: the hunk in #133 came from neither writer. It
+    came from an ad-hoc `python3 -c` append, which is what the obvious one-liner does by default
+    when a mutant is being added at the end of a long session. A convention cannot stop that; a
+    refusal can.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except UnicodeDecodeError as exc:
+        return [f"{label} is not valid UTF-8 ({exc}); a set file declares its encoding by being "
+                f"UTF-8, not by whatever locale generated it last"]
+    out = []
+    for offset, esc in json_escapes(text):
+        line = text.count("\n", 0, offset) + 1
+        # The remedy says "edit this file", not "regenerate it". A first version told the reader
+        # to re-run the generator with ensure_ascii=False, and on this tree that deletes CI21 --
+        # `gen-cli-mutations.py` emits 20 mutants and the committed set holds 21, because CI21 was
+        # appended by hand. Advice that fixes an encoding hunk by silently dropping a mutant is
+        # the worse trade, and the gate cannot see the mutant go.
+        out.append(f"{label}:{line}: {esc} is a JSON escape for a character the file could hold "
+                   f"literally -- edit it to the character itself. Do not re-run "
+                   f"gen-cli-mutations.py to fix this: it writes fewer mutants than the committed "
+                   f"file holds.")
+    return out
 
 
 def check(doc):
@@ -397,6 +458,40 @@ def self_test():
     rule_fires("control: the source scan finds a print after the summary",
                source_report(f'    {SUMMARY_CALL}\n    print("done")\n'))
 
+    # #148's check reads the file, not the decoded document, so it is the one rule here that has
+    # to put bytes on disk. The three together are what make it evidence rather than a grep: the
+    # escape is refused, the same character written literally is accepted, and a literal
+    # backslash-u -- what a pattern targeting a Go string escape actually contains -- is not
+    # mistaken for one. Without the third, a check hollowed into "refuse any backslash" passes
+    # the first two and rejects correct set files.
+    with tempfile.TemporaryDirectory() as tmp:
+        def encoding_case(body):
+            path = os.path.join(tmp, "set.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            return encoding_problems("set.json", path)
+
+        got = encoding_case('{"description": "x",\n'
+                            '  "note": "held \\u2014 until the clock jumps",\n}\n')
+        # `rule_fires` takes the complaint the guarded check produced and fails when that is
+        # empty, so the escape case hands it `got` directly. A first pass inverted this and the
+        # self-test reported "the check it guards cannot fail" about a check that had just
+        # refused correctly -- which is at least the right direction to fail in.
+        rule_fires("a JSON-escaped em dash in a set file is refused",
+                   "; ".join(got) or "reported nothing on \\u2014")
+
+        got = encoding_case('{"description": "x",\n'
+                            '  "note": "held — until the clock jumps",\n}\n')
+        rule("the same note written with the character itself is accepted",
+             "" if not got else f"refused a literal em dash: {got}")
+
+        # The file bytes here are `"old": "\\u00e9"` -- two backslashes -- which JSON decodes to a
+        # literal backslash followed by `u`. That is what a pattern matching a Go string escape
+        # holds, and it is the case a naive grep for `\u` reports as a defect.
+        got = encoding_case('{"description": "x",\n  "old": "\\\\u00e9",\n}\n')
+        rule("a Go string escape in a pattern is not read as a JSON escape",
+             "" if not got else f"refused a backslash followed by u: {got}")
+
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a
     # list and went stale when a case was added. What it catches is deletion by removal --
@@ -426,13 +521,19 @@ def main(argv):
 
     total = bad = 0
     named = []
+    file_problems = []
     for path in paths:
+        label = os.path.relpath(path, ROOT)
         doc = load(path)
-        named.append((os.path.relpath(path, ROOT), doc))
+        named.append((label, doc))
+        # Deliberately not added to `bad`. A mutant that does not apply and a file that was
+        # written by a tool instead of declared are different failures: the closing line counts
+        # "N of M mutants would run without testing anything", and folding an encoding defect
+        # into that number would attribute a file-level problem to mutants that are fine.
+        file_problems.extend(encoding_problems(label, path))
         problems = check(doc)
         total += len(doc["mutants"])
         bad += len(problems)
-        label = os.path.relpath(path, ROOT)
         if problems:
             print(f"{label}: {len(problems)} of {len(doc['mutants'])} mutants are not testing anything")
             for mid, why in problems:
@@ -451,11 +552,17 @@ def main(argv):
         for why in dupes:
             print(f"  {why}")
 
-    if bad:
-        print(f"\n{bad} of {total} mutants would run without testing anything.")
-        print("Re-point them onto the code that replaced theirs -- updating `old` but not")
-        print("`new` is how a mutant ends up failing to compile, which the battery prints as")
-        print("a line and checks nothing.")
+    if file_problems:
+        print(f"\n{len(file_problems)} set-file encoding problem(s):")
+        for why in file_problems:
+            print(f"  {why}")
+
+    if bad or file_problems:
+        if bad:
+            print(f"\n{bad} of {total} mutants would run without testing anything.")
+            print("Re-point them onto the code that replaced theirs -- updating `old` but not")
+            print("`new` is how a mutant ends up failing to compile, which the battery prints as")
+            print("a line and checks nothing.")
         return 1
     print(f"\n{summary_line(total)}")
     return 0

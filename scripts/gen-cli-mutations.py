@@ -164,7 +164,14 @@ doc = {
     "package": "./internal/cli/",
     "mutants": mutants,
 }
-with open(OUT, "w") as fh:
-    json.dump(doc, fh, indent=2)
+# Both keywords are load-bearing, and #148 is the hunk that proves it. `ensure_ascii` defaults to
+# True, so regenerating this set re-serialises every em dash and arrow in a note as `\u2014` /
+# `\u2192` and mints a diff hunk on a mutant nobody changed -- which is what #133 carried into
+# review on a line of `enforce.json` its own PR did not touch. `encoding` defaults to the
+# operator's locale, so two machines can write different bytes from the same generator; that
+# failure is silent in the opposite direction, which is worse. A committed set file is UTF-8 by
+# declaration, not by whoever happened to run the generator last.
+with open(OUT, "w", encoding="utf-8") as fh:
+    json.dump(doc, fh, indent=2, ensure_ascii=False)
     fh.write("\n")
 print(f"wrote {OUT} with {len(mutants)} mutants, all patterns verified against the source")
