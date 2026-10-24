@@ -119,6 +119,38 @@
       "old": "\tu, ok := c.UserFor(username)\n\tif !ok || !u.Enabled {\n\t\treturn Profile{}, false\n\t}",
       "new": "\tu, ok := c.UserFor(username)\n\tif !ok {\n\t\treturn Profile{}, false\n\t}",
       "note": "ProfileFor hands a switched-off account its profile back. The daemon still does not lock that account, because enforce.go tests the switch before it ever asks for a profile -- the two checks are redundant on purpose and each alone holds the line, which is why no single mutant here is a live fail-open. What this pins is the helper's contract, the one the web layer and the dashboard also call: no set in the repo had a mutant touching Enabled anywhere. TestUserForAndProfileFor."
+    },
+    {
+      "id": "CG15",
+      "package": "./internal/config/",
+      "file": "internal/config/validate.go",
+      "old": "\t\tif n := utf8.RuneCountInString(p.Name); n > MaxNameLen {",
+      "new": "\t\tif n := utf8.RuneCountInString(p.Name); n > MaxNameLen*100 {",
+      "note": "the profile-name ceiling stops biting. The document is then bounded only by the request body limit while the enforcement loop re-decodes it every 30 seconds, and #147's overflow-wrap rule becomes the only thing standing between one long string and a broken layout. Killed by the table case in TestValidateRejectsEachMalformedField and by TestTheNameCeilingIsEnforcedOnTheEditPathToo, which is the half that matters most: with the ceiling gone from config, `plock profile edit` writes what the web page refuses, which is the drift #127 was about."
+    },
+    {
+      "id": "CG16",
+      "package": "./internal/config/",
+      "file": "internal/config/validate.go",
+      "old": "\t\t\tif n := utf8.RuneCountInString(r.Name); n > MaxNameLen {",
+      "new": "\t\t\tif n := utf8.RuneCountInString(r.Name); n > MaxNameLen*100 {",
+      "note": "the rule-name half of the same ceiling, removed on its own. A rule name is quoted by the audit trail and rendered as a row header on /profiles, and `plock rule add` reaches it without going through any form. The two checks are separate statements with separate messages, so one can be deleted while the other still passes every test that only exercises profiles."
+    },
+    {
+      "id": "CG17",
+      "package": "./internal/config/",
+      "file": "internal/config/validate.go",
+      "old": "\t\tif n := utf8.RuneCountInString(p.Name); n > MaxNameLen {",
+      "new": "\t\tif n := len(p.Name); n > MaxNameLen {",
+      "note": "bytes instead of characters, on the profile name. This is the mutant an ASCII suite cannot see: 200 `n`s are 200 bytes, so every other case still passes. TestTheNameCeilingIsCharactersNotBytes hands it 200 two-byte characters — over the ceiling in bytes, exactly at it in runes — because counting bytes would refuse every accented name a household actually writes while accepting 200 repetitions of one letter, which is the opposite of what the ceiling is for."
+    },
+    {
+      "id": "CG18",
+      "package": "./internal/config/",
+      "file": "internal/config/validate.go",
+      "old": "\t\t\tif n := utf8.RuneCountInString(r.Name); n > MaxNameLen {",
+      "new": "\t\t\tif n := len(r.Name); n > MaxNameLen {",
+      "note": "the same unit error on the rule name. Named separately from CG17 because the two statements are independent: converting one and not the other leaves a document where a profile name is counted in characters and a rule name in bytes, and no test that uses only ASCII would notice either half."
     }
   ]
 }
