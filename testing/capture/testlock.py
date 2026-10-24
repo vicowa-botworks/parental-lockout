@@ -148,11 +148,14 @@ def main():
     try:
         return capture(name)
     except SystemExit as exc:
-        cdp.refused(name, exc)
-        cdp.discard_stage()
+        cdp.report_refusal(name, exc)
     except Exception as exc:  # a traceback is not an answer; a refusal is
-        cdp.refused(name, f"{type(exc).__name__}: {exc}")
-        cdp.discard_stage()
+        cdp.report_refusal(name, f"{type(exc).__name__}: {exc}")
+    # Same shape as lock.py, same reason: the refusal helper used to raise, so the discard on the
+    # next line never ran and the exit code arrived as an uncaught exception. One discard, one
+    # explicit 1, on the outside of both handlers.
+    cdp.discard_stage()
+    return 1
 
 
 if __name__ == "__main__":

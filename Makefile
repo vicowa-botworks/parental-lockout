@@ -49,6 +49,13 @@ fmt:
 # tree once per mutant and pays minutes, and a gate that slow gets skipped. A suite that runs no
 # compiler and no battery has no such excuse, and #124's whole point is that a guard which only
 # runs when somebody remembers it is a guard whose evidence nobody can reproduce.
+#
+# The capture self-test is here for the same reason and a sharper one: it is the ONLY gate that
+# can see `testing/capture/*.py` at all. The mutants target `.go` and `.tmpl`, nothing imports
+# `pages.py`, and shellcheck does not read Python -- which is how a refusal helper that raised
+# from inside its caller's own `except` handler shipped past every check this repository has,
+# stopping the capture loop after 1 page of 5 while still exiting 1. It starts no browser and
+# writes nothing, so its cost is milliseconds.
 verify:
 	@set -e; \
 	echo "==> gofmt"; \
@@ -56,6 +63,7 @@ verify:
 	if [ -n "$$dirty" ]; then echo "not gofmt-clean:"; echo "$$dirty"; exit 1; fi; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
+	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
 	echo "==> empty selection refuses"; \
 	if python3 scripts/attack-self-test.py zzzznomatch >/dev/null 2>&1; then \
 		echo "a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \
