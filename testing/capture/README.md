@@ -20,6 +20,7 @@ go build -o plock ./cmd/plock          # or point PLOCK_BIN at a binary you alre
 ./pages-setup.sh    && ./pages.py
 ./lock-setup.sh     && ./lock.py
 ./testlock-setup.sh && ./testlock.py
+./pages.py --self-test   # the refusal contract only: no browser, no fixture, nothing written
 ```
 
 Each `*-setup.sh` builds a throwaway fixture — its own config, state directory and audit trail
@@ -239,6 +240,52 @@ now, so an unrecognised flag is an error.
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the
 flag is for. Replacing committed evidence should take two tokens, not a tab-completion.
 
+## The self-test, because nothing else in this repository can read these files
+
+`./pages.py --self-test` runs 11 rules about what a refusal does. It starts no browser, spawns no
+daemon, writes no file, and costs **0.028 s**, so `make verify` runs it beside the two mutation
+self-tests.
+
+It exists because this package is invisible to every other gate: the mutants target `.go` and
+`.tmpl` only, nothing imports `pages.py`, and shellcheck does not read Python. That is how the
+following shipped past `make verify`, `shellcheck` and a 751-mutant battery at once:
+
+`cdp.refused()` ended in `raise SystemExit(1)`. Every call to it was the first line of a caller's
+own `except` handler, so **every statement after every call to it in the package was dead code**.
+Measured with a stubbed `shoot()` that raises this branch's own width refusal:
+
+| | expected | measured on that head |
+|---|---|---|
+| pages measured | 5 | **1** — the loop died in page 1's handler |
+| `discard_stage()` | 1 call | **0** |
+| the `N/5 pages fit … refused: …` sentence | printed | **never** |
+| exit code | 1 | 1 — an uncaught exception is also exit 1 |
+
+The exit code is what hid it: a refusal is supposed to exit 1, so nothing looked wrong. The same
+line was dead in `lock.py` and `testlock.py`, each of which called `discard_stage()` immediately
+after — so a refused capture also left its staged bytes behind. The repair splits the reporter
+(`cdp.report_refusal`, which reports and returns) from the decision, which stays with the caller
+because only the caller knows whether one more page can still be measured. There is deliberately
+no raising variant left beside it.
+
+The reviewer's suggested one-word fix (`refused_pages.append(spec.url)`) was tried and measured
+before this was written: **it changes nothing**, because the raise happens on the line above. It is
+recorded here rather than quietly dropped.
+
+Three of the 13 probes written against the new self-test initially **survived**, and each was a
+hole in the pin rather than in the fix:
+
+* the rule fed `{"longest": None}` — a key that is *present* — so it tested the wrong branch. The
+  real case is the key being **absent**, because the token census is spliced on `has_rows`.
+* two declaration rules were satisfied by `capture_out` refusing the `--self-test` flag through
+  argparse, i.e. they passed on an unrelated refusal. `capture_out` is now stubbed for every rule
+  that reaches `main()`, so the only refusal a rule can see is the one it is about.
+* the canary pair only checked the problem list, so hollowing `ran.append((why, len(problems)))`
+  down to `(why, 0)` still looked satisfied. It now requires both lists to agree: `[1, 0]` and 1.
+
+After those repairs: **13 probes, 13 caught, 0 survived**, and `make verify` fails at
+`==> capture refusal contract` (exit 2) when the root cause is re-introduced.
+
 ## House rules
 
 * **A capture is evidence when the driver's transcript is pasted into the PR, and the PNG is
@@ -263,5 +310,6 @@ flag is for. Replacing committed evidence should take two tokens, not a tab-comp
 * **The shell half is shellcheck-linted by name** in the `shellcheck` job, like everything else in
   `testing/`. The job runs from the repository root without `-x`, which is why the `source=`
   directives above the `. fixture.sh` lines are written repo-root-relative — otherwise the job
-  fails on the directive instead of following it. The Python half has no lint gate, because this
-  repo has no Python environment to put one in.
+  fails on the directive instead of following it. The Python half has no *lint* gate, because this
+  repo has no Python environment to put one in — but it does have a behavioural one, and the
+  section above is why `pages.py --self-test` sits in `make verify` rather than in a README.

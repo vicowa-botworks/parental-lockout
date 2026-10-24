@@ -738,7 +738,7 @@ def require_trail(lines, must, allowed, what):
                          "the allowlist deliberately and say what it is")
 
 
-def refused(path, exc):
+def report_refusal(path, exc):
     """Every refusal comes through here, and it says what happened to the file.
 
     'exit 1, nothing written' is true and still misleading: a PNG from an earlier run is sitting
@@ -746,6 +746,21 @@ def refused(path, exc):
     run that refused. Deleting it is not the answer either -- with --out pointing at the docs
     tree, the file it would delete is the committed evidence. So the refusal names the stale
     file, with the mtime and size that say when it really came from.
+
+    It reports and does NOT exit, and that is the whole point of this function's shape. It used
+    to end in `raise SystemExit(1)`, which made every statement after every call to it in the
+    package dead code, because the raise happened inside the caller's own `except` handler:
+
+      * `pages.py` collected refused URLs to print one honest `N/5 pages fit ... refused: ...`
+        sentence. Measured with a stubbed `shoot()` that refuses: the loop stopped after page 1
+        of 5, `discard_stage()` ran 0 times, and the sentence never printed.
+      * `lock.py` and `testlock.py` each called `discard_stage()` on the next line. Dead.
+
+    The exit code laundered all of it, because an uncaught exception is also exit 1 -- the code
+    a refusal is supposed to produce. So the reporting stays here and the decision stays with
+    the caller, which is the only place that knows whether one more page can be measured. There
+    is deliberately no raising variant sitting next to it: one verb, so the next statement after
+    a refusal cannot be a silent casualty.
     """
     print(f"REFUSED: {exc}", file=sys.stderr)
     if path and op.exists(path):
@@ -756,5 +771,4 @@ def refused(path, exc):
               "this run. Do not quote it as current.", file=sys.stderr)
     else:
         print("  no file was written", file=sys.stderr)
-    raise SystemExit(1)
 
