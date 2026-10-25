@@ -71,7 +71,7 @@ COLLECT_CALL = "file_problems.extend(found)"
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 47
+EXPECTED_RULES = 49
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -599,7 +599,7 @@ def self_test():
     # the skip branch before `load`, which leaves this branch's own chain -- collection,
     # `exit_status`, the return -- as the only thing that can make the run nonzero. It costs no
     # compile: nothing here reaches `check`, and the self-test stays at 0.05 s.
-    def verdict_report(data, want):
+    def verdict_report(data, want, sentence=None):
         with tempfile.TemporaryDirectory() as box:
             path = os.path.join(box, "set.json")
             with open(path, "wb") as fh:
@@ -611,6 +611,13 @@ def self_test():
             except SystemExit as exc:
                 return ("main exited from under the caller (%s), so the sets after this one "
                         "were never checked" % exc)
+            # The sentence check goes first because on the escape arm it is the whole claim:
+            # a decodable fixture cannot be an empty set (`load` refuses one) and a fixture whose
+            # mutant applies would cost a compile, so its `bad` is 1 whatever the escape does and
+            # the exit code says nothing about this PR. The pair reads: the skip arm pins that the
+            # run is nonzero, this arm pins that the refusal is actually printed.
+            if sentence is not None and sentence not in out.getvalue():
+                return f"main exited {rc} without printing {sentence!r}"
             return None if rc == want else "main returned %r, want %r" % (rc, want)
 
     UNDECODABLE = (b'{"description": "x", "mutants": [{"id": "A1", "file": "a.go",\n'
@@ -624,6 +631,31 @@ def self_test():
     # is the same bytes with a promise that is knowingly wrong.
     rule_fires("control: the harness reports a status that is not the one it was promised",
                verdict_report(UNDECODABLE, 0))
+
+    # The arm above is the one a `\u2014` never arrives through. That fixture is not UTF-8 on
+    # purpose -- it is what forces the skip branch and leaves the chain observable -- but it also
+    # means `main` never walks the half of the loop body this PR exists for, and the pinned
+    # `file_problems.extend(found)` cannot see that either: wrap it in `if bad_bytes:` and the
+    # string survives verbatim, one indent deeper. Worse, that shape is a merge and not a mutant.
+    # `if bad_bytes: ... continue` sits five lines below the collection, inside the hunk this
+    # branch wrote, and taking the "skip early" side across those two lines moves one statement
+    # that already reads as conditional-adjacent -- the pin holds, the behavioural rule holds
+    # because the skip arm still collects, and the refusal is gone: nothing printed, exit 0,
+    # CI green, on the branch whose headline claim is that the refusal cannot be deleted.
+    #
+    # So drive the escape arm as well, and assert the sentence rather than the status. Both
+    # fixtures name a file that does not exist, so `check` reports it and nothing compiles: the
+    # self-test stays in milliseconds and needs no toolchain.
+    ESCAPED = (b'{"description": "x \\u2014 y", "mutants": [{"id": "A1", "file": "self-test-missing.go",\n'
+               b'  "old": "q", "new": "y"}], "package": "./x/"}\n')
+    # Same bytes with the character written the way the file should hold it. A clean set prints
+    # no refusal, so a sentence check hollowed into always-passing has nothing to report here --
+    # which is the only reason this fixture is a control and not a second claim.
+    CLEAN = ESCAPED.replace(b'\\u2014', "—".encode("utf-8"))
+    rule("an escaped set file is refused out loud, not only by the exit code",
+         verdict_report(ESCAPED, 1, "set-file encoding problem"))
+    rule_fires("control: the harness reports a refusal sentence that was never printed",
+               verdict_report(CLEAN, 1, "set-file encoding problem"))
 
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a
