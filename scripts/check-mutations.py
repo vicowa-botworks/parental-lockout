@@ -25,7 +25,9 @@ seconds per set and would make the gate something people skip. `make mutate` is 
 the slow target; this is the fast one that tells you the slow one is worth running.
 """
 
+import contextlib
 import inspect
+import io
 import os
 import subprocess
 import sys
@@ -69,7 +71,7 @@ COLLECT_CALL = "file_problems.extend(found)"
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 45
+EXPECTED_RULES = 47
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -581,6 +583,47 @@ def self_test():
          call_site_report(body, COLLECT_CALL))
     rule_fires("control: the call-site scan finds the collection deleted",
                call_site_report(body.replace(COLLECT_CALL, ""), COLLECT_CALL))
+
+    # And now the reason the two pins above are not enough. A text pin says a string is present;
+    # it cannot say the value it names reaches the process. Each gutting below keeps both pinned
+    # lines byte-for-byte, was run against a set file carrying a \u2014, and ships the refusal
+    # with exit 0 anyway: `found = []` one line above the pinned `extend`; `return status` turned
+    # into `return 0`; `return status` deleted; `if status:` turned into `if False:`; and the
+    # merge that keeps both pinned lines while taking main's tail from the side that never met
+    # `exit_status`. That last one is not hypothetical -- it is what a conflict resolution on
+    # these very lines produces, because the assignment and the collection are in the hunk and
+    # look load-bearing while the tail comes from the other side. Then `status` is computed and
+    # dropped, "45 rules hold" prints, CI is green, and the escape ships.
+    #
+    # So drive main and read the status back. The fixture's bytes are not UTF-8, so main takes
+    # the skip branch before `load`, which leaves this branch's own chain -- collection,
+    # `exit_status`, the return -- as the only thing that can make the run nonzero. It costs no
+    # compile: nothing here reaches `check`, and the self-test stays at 0.05 s.
+    def verdict_report(data, want):
+        with tempfile.TemporaryDirectory() as box:
+            path = os.path.join(box, "set.json")
+            with open(path, "wb") as fh:
+                fh.write(data)
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    rc = main(["check-mutations.py", path])
+            except SystemExit as exc:
+                return ("main exited from under the caller (%s), so the sets after this one "
+                        "were never checked" % exc)
+            return None if rc == want else "main returned %r, want %r" % (rc, want)
+
+    UNDECODABLE = (b'{"description": "x", "mutants": [{"id": "A1", "file": "a.go",\n'
+                   b'  "old": "\xff", "new": "y"}], "package": "./x/"}\n')
+    rule("a set file that cannot be decoded costs the process its exit status",
+         verdict_report(UNDECODABLE, 1))
+    # The control has to exercise the comparison, not the `SystemExit` arm: a harness whose last
+    # line became `return None` still reports the exit it was handed, and a `mutants: []` fixture
+    # -- the obvious second choice -- passes on exactly that hollowing, because an empty set is a
+    # clean set and main returns 0 for it whether or not the harness can read it. So the control
+    # is the same bytes with a promise that is knowingly wrong.
+    rule_fires("control: the harness reports a status that is not the one it was promised",
+               verdict_report(UNDECODABLE, 0))
 
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a
