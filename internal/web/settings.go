@@ -70,6 +70,17 @@ type settingsPage struct {
 	MinPasswordLen     int
 	CredentialPollText string
 
+	// TLSMode, CertField and KeyField belong to the transport form.
+	//
+	// TLSMode doubles as "which radio is checked" and, on a refused submit, as whatever the
+	// request carried. An unrecognised mode therefore checks no radio at all, which is the honest
+	// rendering: a control cannot be pre-selected to a position the daemon does not have, and the
+	// refusal sentence quotes what was actually sent. The two path boxes always echo the request,
+	// because a refusal about a path is useless without the path still in front of the operator.
+	TLSMode   string
+	CertField string
+	KeyField  string
+
 	// Problem names what the operator has to fix; Message names what just happened. They are
 	// mutually exclusive on every path that sets one, and a page rendering both would be
 	// refusing and accepting the same submit.
@@ -96,6 +107,13 @@ func settingsView(cfg *config.Config) settingsPage {
 		// The length floor is a package constant, so it belongs in the pure view: a test that
 		// asserts on what the page claims must see the number the server enforces, not zero.
 		MinPasswordLen: auth.MinPasswordLen,
+		// The transport trio, from the same document the daemon booted from. `tls` is never
+		// empty here because config's normalization resolves an absent key to "auto" -- the same
+		// resolution that makes an absent `enforcement` mean on (#873) -- so one of the three
+		// radios is always selected and the page never has to guess which one to light up.
+		TLSMode:   cfg.Settings.TLS,
+		CertField: cfg.Settings.CertFile,
+		KeyField:  cfg.Settings.KeyFile,
 	}
 }
 

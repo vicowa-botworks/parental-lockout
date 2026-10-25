@@ -725,6 +725,12 @@ func (s *Server) router() *http.ServeMux {
 	// credential leak, and the audit line for a rotation must not be able to read like an interval
 	// change. #132.
 	mux.Handle("POST /settings/password", s.requireAuth(http.HandlerFunc(s.handlePasswordRotate)))
+	// The transport gets a route of its own for the same two reasons the credential does: a
+	// different question, and a refusal that must not re-render fields nobody submitted. It is the
+	// only settings route that checks the filesystem before saving, because it is the only value
+	// here that the daemon reads once, at start-up -- saving a `custom` mode naming a certificate
+	// that is not there would brick the next start, which is #99's acceptance criterion.
+	mux.Handle("POST /settings/tls", s.requireAuth(http.HandlerFunc(s.handleSettingsTLSSave)))
 	mux.HandleFunc("GET /static/{file}", s.handleStatic)
 
 	return mux
