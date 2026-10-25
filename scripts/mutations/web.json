@@ -1818,6 +1818,22 @@
       "old": "  <input type=\"hidden\" name=\"csrf\" value=\"{{.CSRF}}\">\n\n  <fieldset>\n    <legend>Admin password</legend>",
       "new": "\n  <fieldset>\n    <legend>Admin password</legend>",
       "note": "the credential form loses its token while the settings form and the shell keep theirs. The form guard enumerates the embedded templates rather than a list, so it should catch this by construction -- the mutant exists to check that the guard still enumerates a form nobody wrote when the guard was written. TestEveryFormOnEveryPageCarriesTheToken."
+    },
+    {
+      "id": "W253",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tif utf8.RuneCountInString(name) <= config.MaxNameLen {",
+      "new": "\tif utf8.RuneCountInString(name) <= config.MaxNameLen*100 {",
+      "note": "the form-level refusal stops biting. config.Validate still refuses, so nothing is written — which is exactly why this needs its own catcher rather than inheriting CG15's: the parent gets a document-level sentence about `profiles[0].name` for a value they typed into a box on this page. Killed by all four subtests of TestEveryNameFormRefusesANameTheDocumentCannotHold, one per form; the rename case is the one that would otherwise slip, because that handler predates the create form and had its own checks written first."
+    },
+    {
+      "id": "W254",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tif utf8.RuneCountInString(name) <= config.MaxNameLen {",
+      "new": "\tif len(name) <= config.MaxNameLen && utf8.RuneCountInString(name) >= 0 {",
+      "note": "the form counts bytes while the document counts characters, making the form STRICTER than the config it feeds: a 200-character accented name is valid per config.Validate and refused at the page. Not equivalent, and invisible to the ASCII cases — the catcher is the `rename accepts the same length in two-byte characters` subtest, which exists for this mutant and nothing else. The body keeps a `utf8.RuneCountInString(name) >= 0` clause because this function is the only user of unicode/utf8 in the file: a plain len() replacement leaves the import unused, and a mutant that does not compile is reported as broken rather than as a catch. The clause is true for every string, so the byte count is still the only thing that decides."
     }
   ]
 }

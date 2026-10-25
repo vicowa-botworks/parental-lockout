@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // tlsModes are the settings the web server knows how to act on: generate a
@@ -30,6 +31,26 @@ const MaxPollSeconds = 86400
 // other is a 503 that says try again. Without a sentinel the only way to tell them apart is
 // to match message text, which this repo's own rule forbids.
 var ErrInvalid = errors.New("configuration is not valid")
+
+// MaxNameLen is the ceiling on a profile name and a rule name, in characters rather than bytes.
+//
+// It lives here because this function is the one sentence every write path already answers to:
+// `plock profile add`, `plock profile edit`, the create/rename/copy/rule forms and a hand-edited
+// /etc/plock/config.json all arrive at Validate, so a ceiling placed anywhere else is a rule the
+// page enforces while the CLI walks past it. That is not a hypothetical shape here -- #127 was the
+// name-collision rule enforced by the form and missed by the CLI, and a cap added to whichever form
+// was written last is the same drift pointing the other way.
+//
+// Characters, not bytes, because these are names: 200 runes lets a household write
+// "Établissement secondaire — rentrée" and refuses 200 repetitions of one letter, which is what
+// the ceiling is for. Counting bytes would refuse the first and accept the second.
+//
+// Two hundred is not derived from a layout limit. The layout limit is #147's `overflow-wrap` rule,
+// which is what actually stops one long string from widening a page, and it is still needed: a
+// 200-character token with no space in it still overflows a 312 px cell without it. What this
+// number buys is that the document has a bound somebody chose, instead of being bounded only by
+// the request body limit while the enforcement loop re-decodes it every 30 seconds.
+const MaxNameLen = 200
 
 // Validate reports every problem it finds, not just the first. The web UI shows
 // this list to a parent who has just submitted a form, and making them fix one
@@ -143,6 +164,17 @@ func (c *Config) validate(skipAdmin bool) error {
 			profileIDs[p.ID] = true
 		}
 
+		// The message deliberately does not carry the name. Every other message for this
+		// profile already embeds it through `label`, which is a pre-existing habit and a
+		// poor one, but this is the one check whose whole subject is a name long enough to
+		// be the largest thing on the page -- quoting it would make the refusal the very
+		// problem it reports, and reflect request text into a response body, which this
+		// package otherwise refuses to do (see formTimezone).
+		if n := utf8.RuneCountInString(p.Name); n > MaxNameLen {
+			add("profiles[%d].name: must be at most %d characters; this one is %d",
+				i, MaxNameLen, n)
+		}
+
 		// LoadLocation("") answers UTC rather than failing, so an unset
 		// timezone would silently evaluate every rule in the machine's zone.
 		if p.Timezone == "" {
@@ -164,6 +196,14 @@ func (c *Config) validate(skipAdmin bool) error {
 				add("%s: rule id %q is used more than once in %s", rl, r.ID, label)
 			} else {
 				ruleIDs[r.ID] = true
+			}
+
+			// Same ceiling as the profile name, and the same reason for it being here rather
+			// than in the rule form: `plock rule add` and the form have to be refused by one
+			// sentence. Not named in the message, for the reason given on the profile check.
+			if n := utf8.RuneCountInString(r.Name); n > MaxNameLen {
+				add("profiles[%d].rules[%d].name: must be at most %d characters; this one is %d",
+					i, j, MaxNameLen, n)
 			}
 
 			// Both halves of the clock go through ParseClock, the same function the

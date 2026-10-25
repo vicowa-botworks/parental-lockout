@@ -164,6 +164,87 @@ func TestACreateRefusesEveryTimezoneTheTimezoneFormRefuses(t *testing.T) {
 	}
 }
 
+// TestEveryNameFormRefusesANameTheDocumentCannotHold is the form-level half of #137.
+//
+// config.Validate owns the ceiling, so a request that gets past this check is still refused before
+// anything is written -- which is why this is about the sentence rather than about the rule. A
+// parent who typed 400 characters into a box needs to be told the box has a limit, not that
+// "profiles[0].name" is overlong in a document they have never seen.
+//
+// All four forms are asked, because the ceiling is one number and #127 is the reason: a rule the
+// page enforces while another path walks past it is worse than no rule, because the half that
+// exists reads as coverage. The rename form is the one that could otherwise slip through, since it
+// predates the create form and had its own checks written first.
+//
+// The second loop is the control. A check that refused every name would pass the first loop
+// perfectly, and "the ceiling is 200" and "the ceiling is 0" are indistinguishable from the
+// refusals alone -- only the accepted case tells them apart.
+func TestEveryNameFormRefusesANameTheDocumentCannotHold(t *testing.T) {
+	over := strings.Repeat("n", config.MaxNameLen+1)
+	justFits := strings.Repeat("n", config.MaxNameLen)
+
+	// The suffix is appended, not Sprintf'd into a template. A first version carried the whole
+	// body as a format string and the percent-encoding in `start=20%3A00` was read as a verb, so
+	// the clock fields arrived empty and the rule form refused for a reason that had nothing to
+	// do with the name. URL-encoded text and a format string do not belong in the same argument.
+	forms := []struct{ name, path, suffix string }{
+		{"create", "/profiles", "&timezone=UTC"},
+		{"rename", "/profiles/school/rename", ""},
+		{"copy", "/profiles/school/copy", ""},
+		{"add a window", "/profiles/school/rules", "&start=20%3A00&end=06%3A00&days=mon"},
+	}
+
+	for _, f := range forms {
+		t.Run(f.name+" refuses", func(t *testing.T) {
+			fx := newOverrideFixture(t)
+			before := fx.savesCount()
+
+			rec := authPost(t, fx.s, f.path, "name="+over+f.suffix)
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422; body %q", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "too long") {
+				t.Errorf("the refusal does not say the name is too long:\n%s", rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), over) {
+				t.Error("the refusal quotes the oversized name back into the response body")
+			}
+			if n := fx.savesCount() - before; n != 0 {
+				t.Errorf("a refused write still saved %d documents", n)
+			}
+		})
+	}
+
+	for _, f := range forms {
+		t.Run(f.name+" accepts one character less", func(t *testing.T) {
+			fx := newOverrideFixture(t)
+
+			rec := authPost(t, fx.s, f.path, "name="+justFits+f.suffix)
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("a name of exactly %d characters was refused with %d; body:\n%s",
+					config.MaxNameLen, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// The ceiling in characters, at the form. `justFits` is pure ASCII, so runes and bytes agree
+	// on it and this loop cannot tell the two implementations apart -- which would leave a form
+	// that counts bytes shipping green while refusing every accented name a household writes.
+	// Same length, different byte count, and config.Validate already accepts it: the form must
+	// not be stricter than the document it feeds.
+	t.Run("rename accepts the same length in two-byte characters", func(t *testing.T) {
+		fx := newOverrideFixture(t)
+		accented := strings.Repeat("é", config.MaxNameLen)
+
+		rec := authPost(t, fx.s, "/profiles/school/rename", "name="+accented)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("a %d-character name was refused with %d; the form is counting bytes "+
+				"(%d of them) rather than characters. body:\n%s",
+				config.MaxNameLen, rec.Code, len(accented), rec.Body.String())
+		}
+	})
+}
+
 func TestACreateRefusesAnEmptyName(t *testing.T) {
 	f := newOverrideFixture(t)
 	before := f.savesCount()
