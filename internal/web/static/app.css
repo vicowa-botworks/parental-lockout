@@ -79,10 +79,13 @@ td {
 
    Scoping the rule to the table would therefore have fixed the cell the review named and left the
    page overflowing anyway, because the same string is also a heading. #152 has since put a ceiling
-   on both names -- `config.MaxNameLen = 200` (`validate.go:53`, enforced at `:173` and `:204`) --
-   so this is no longer a story about a string that is bounded nowhere, and the ceiling is not what
-   retires this rule: #152 says so itself (`validate.go:48-51`), and re-measured at this head with
-   both declarations deleted, the widest name it admits still sets the page:
+   on both names -- `config.MaxNameLen = 200`, in `internal/config/validate.go`, checked on the
+   profile name and on the rule name inside `Validate` -- so this is no longer a story about a
+   string that is bounded nowhere, and the ceiling is not what retires this rule: #152 says so
+   itself, in the `MaxNameLen` doc block of that same file. Both pointers are by path and symbol
+   and not by line number, because this branch has already outlived two sets of numbers that an
+   unrelated edit moved. Re-measured at this head with both declarations deleted, the widest name
+   it admits still sets the page:
 
      a 200-rune rule name    (`th[scope="row"]`)  document 1926 px @360, 2118 px @1024
      a 200-rune profile name (`<h2>` + caption)   document 2744 px @360, 2864 px @1024
