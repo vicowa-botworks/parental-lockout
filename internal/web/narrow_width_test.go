@@ -358,9 +358,11 @@ func TestTheStylesheetPrintsTheNarrowLabels(t *testing.T) {
 		// `anywhere`, 1471 px with `break-word` alone.
 		//
 		// A grep pins presence, not effect: it would still pass if the declaration moved out of
-		// the `table.rows td` rule or lost its semicolon. The behavioural version is a second
-		// viewport in testing/capture/pages.py, which is a wider change than this PR and is filed
-		// separately rather than left implied.
+		// the `body` block that holds it, or lost its semicolon. The 360 px capture does look for
+		// a wrap rule, but for any wrap rule -- `break-word` alone satisfies it -- so nothing
+		// anywhere measures this value's effect. The behavioural version is a second viewport in
+		// testing/capture/pages.py, which is a wider change than this PR and is filed separately
+		// rather than left implied (#149).
 		{"overflow-wrap: anywhere",
 			"a wide cell can no longer shrink, so /audit is a 1471 px document at a 1024 px " +
 				"viewport (break-word alone fixes the 360 px half and not this one)"},

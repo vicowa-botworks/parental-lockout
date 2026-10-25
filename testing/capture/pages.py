@@ -100,10 +100,14 @@ def require_unbreakable(got, what):
 
     What sets the width is the longest run between the browser's break opportunities, and those are
     not only spaces: a `[{…},{…}]` blob breaks between objects, a single object does not break at all
-    (measured: 117 characters, 808 px). The rule that fixes it is `overflow-wrap` on `table.rows td`
-    in `app.css` -- `anywhere`, with `break-word` under it, because `break-word` fixes the narrow
-    layout and not the wide one. And the pin on that rule is the width refusal above, not a grep:
-    delete the rule and this page overflows, so its photograph is not taken.
+    (measured: 117 characters, 808 px). The rule that fixes it is `overflow-wrap` on `body` in
+    `app.css` -- `anywhere`, with `break-word` under it, because `break-word` fixes the narrow
+    layout and not the wide one. What the width refusal above pins is that *some* wrap rule is
+    there: delete both declarations and this page overflows, so its photograph is not taken. It
+    cannot pin which one. `break-word` on its own still yields a 360 px document at a 360 px
+    viewport, so the value that carries the desktop half is watched only by the grep in
+    `TestTheStylesheetPrintsTheNarrowLabels`, and that grep pins presence rather than effect --
+    until some criterion measures a second width, which is #149.
 
     It takes the measured object rather than the session, and lives here rather than in cdp.py, for
     the same reason its sibling checks do: it has one caller, it names the audit page, and the

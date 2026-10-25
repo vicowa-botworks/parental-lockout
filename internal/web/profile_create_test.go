@@ -458,7 +458,11 @@ func TestTheCopyFormSaysWhatTheCopyStartsWith(t *testing.T) {
 	if !strings.Contains(sent, "the same 1 window,") {
 		t.Errorf("the copy form does not say how many windows come across: %q", sent)
 	}
-	if strings.Contains(sent, "1 windows") {
+	// Anchored, because a bare "1 windows" is also the tail of a legitimate "the same 11
+	// windows": the fixture stops at two today, so the collision is latent rather than live, and
+	// it is the same one `copySentence` exists to avoid. The defect this asserts against is the
+	// rendered plural itself, so the anchor costs nothing it was actually looking for.
+	if strings.Contains(sent, "the same 1 windows") {
 		t.Errorf("the copy form pluralises one: %q", sent)
 	}
 	if !strings.Contains(sent, "no account assigned") {

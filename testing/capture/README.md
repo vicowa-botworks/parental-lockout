@@ -163,11 +163,16 @@ and not merely new is the control run: with the nav link removed again, `users.p
 `profiles.png` came back byte-identical to the previous committed files (`003ee3f8…` and
 `c31bdd55…`), so the only thing that moved them was the link.
 
+Re-checking a row is `md5sum docs/screenshots/360/*.png` against the committed file, and it is
+worth doing every time one of these is re-taken. Two of the rows below were quoting bytes no
+committed file had when that was last done -- one of them since before the branch that re-took it
+-- and this table is the only place the claim lives, which is #144.
+
 | artifact | does the in-repo driver reproduce the committed file? | why |
 |---|---|---|
 | `users.png` | **yes** — `b69eb0d1…` | |
-| `profiles.png` | **yes** — `740200cc…` | |
-| `settings.png` | **yes** — `728461cb…` | new with the settings page. It is the only page in the set refused on a *form* rather than on rows (`cdp.require_form`), because a page with no table would otherwise have been refused as an empty fixture -- and the lazy repair, dropping the check, would have let a /settings that rendered nothing but its navigation be committed as evidence that it fits |
+| `profiles.png` | **yes** — `130edd13…` | re-taken by #147, which is the change that moved it. The `740200cc…` this row quoted had already stopped matching the committed file before that PR landed, and nothing noticed -- which is #144 |
+| `settings.png` | **yes** — `42d47d9b…` | new with the settings page. It is the only page in the set refused on a *form* rather than on rows (`cdp.require_form`), because a page with no table would otherwise have been refused as an empty fixture -- and the lazy repair, dropping the check, would have let a /settings that rendered nothing but its navigation be committed as evidence that it fits |
 | `testlock.png` | **yes** — `7672219a…` | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image |
 | `lock.png` | **yes** — `910e403d…` | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no" |
 | `dashboard.png` | **no** | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs minutes apart agree; a run hours later does not |
