@@ -57,9 +57,19 @@ DISCLAIMER_FRAGMENTS = ("apply", "compile", "does not run the suite", "survives 
 # deliberate: getsource returns source text, where the escape is two characters.
 SUMMARY_CALL = 'print(f"\\n{summary_line(total)}")'
 
+# The two lines that connect a detected set-file problem to the run's verdict, pinned the same
+# way as the summary call. `exit_status` has four rules of its own and `encoding_problems` has
+# three, and none of them can read the call site: handing `exit_status` one list prints the
+# refusal and exits 0, and deleting the collection silences the refusal as well -- both measured
+# with every other rule holding. These two lines are also exactly where a merge lands, since
+# this file has been conflict-resolved on them more than once, so moving one is meant to be a
+# deliberate edit in two rather than a resolution nobody re-read.
+STATUS_CALL = "status = exit_status(bad, file_problems)"
+COLLECT_CALL = "file_problems.extend(found)"
+
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 38
+EXPECTED_RULES = 45
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -131,13 +141,21 @@ def encoding_problems(label, path):
     convention cannot stop that; a refusal can. Deleting the tool removes one way to write a bad
     set file and leaves every other way exactly as open, which is the whole argument for the
     refusal living in the gate rather than in the writer.
+
+    It answers with a second value, `bad_bytes`, because main has to decide something from this
+    result and a decision made by re-reading the sentence is a decision coupled to its wording.
+    The first version asked `any(" is not valid UTF-8 " in w for w in found)`, which held only
+    while the message below kept that exact phrase and nothing on either side was pinned: reword
+    the message and the run went back to dying inside `load` on the second set of thirteen,
+    losing the other eleven checks and the sentence written for the case. Failing closed either
+    way is why that was a note and not a breakage; a flag is why it does not have to be either.
     """
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
     except UnicodeDecodeError as exc:
         return [f"{label} is not valid UTF-8 ({exc}); a set file declares its encoding by being "
-                f"UTF-8, not by whatever locale generated it last"]
+                f"UTF-8, not by whatever locale generated it last"], True
     out = []
     for offset, esc in json_escapes(text):
         line = text.count("\n", 0, offset) + 1
@@ -151,7 +169,7 @@ def encoding_problems(label, path):
         out.append(f"{label}:{line}: {esc} is a JSON escape for a character the file could hold "
                    f"literally -- edit it to the character itself. There is no generator to "
                    f"re-run: set files are maintained by hand (#150).")
-    return out
+    return out, False
 
 
 def check(doc):
@@ -475,8 +493,18 @@ def self_test():
                 fh.write(body)
             return encoding_problems("set.json", path)
 
-        got = encoding_case('{"description": "x",\n'
-                            '  "note": "held \\u2014 until the clock jumps",\n}\n')
+        def raw_case(data):
+            # Bytes rather than text. The case main exists to survive is a file that cannot be
+            # read as UTF-8 at all, and `encoding_case` cannot put those bytes on disk: opening
+            # the file to write it is the thing that fails.
+            path = os.path.join(tmp, "raw.json")
+            with open(path, "wb") as fh:
+                fh.write(data)
+            return encoding_problems("raw.json", path)
+
+        got, bad_bytes = encoding_case(
+            '{"description": "x",\n'
+            '  "note": "held \\u2014 until the clock jumps",\n}\n')
         # `rule_fires` takes the complaint the guarded check produced and fails when that is
         # empty, so the escape case hands it `got` directly. A first pass inverted this and the
         # self-test reported "the check it guards cannot fail" about a check that had just
@@ -488,17 +516,36 @@ def self_test():
         # `34 rules hold`. A complaint the check did not make is not evidence the check made one.
         rule_fires("a JSON-escaped em dash in a set file is refused", "; ".join(got))
 
-        got = encoding_case('{"description": "x",\n'
-                            '  "note": "held — until the clock jumps",\n}\n')
+        got, bad_bytes = encoding_case(
+            '{"description": "x",\n'
+            '  "note": "held — until the clock jumps",\n}\n')
         rule("the same note written with the character itself is accepted",
              "" if not got else f"refused a literal em dash: {got}")
+        # The flag is only useful if it distinguishes. This file decodes, so main must go on and
+        # check its mutants; a flag stuck at True skips every set and prints nothing about it.
+        # Paired with the raw case below, which is the same assertion the other way round: each
+        # one is the control the other cannot be hollowed into.
+        rule("a file that decodes is not reported unreadable",
+             None if not bad_bytes else "a readable set file was reported unreadable, so main would "
+                                    "skip it and check nothing")
 
         # The file bytes here are `"old": "\\u00e9"` -- two backslashes -- which JSON decodes to a
         # literal backslash followed by `u`. That is what a pattern matching a Go string escape
         # holds, and it is the case a naive grep for `\u` reports as a defect.
-        got = encoding_case('{"description": "x",\n  "old": "\\\\u00e9",\n}\n')
+        got, bad_bytes = encoding_case('{"description": "x",\n  "old": "\\\\u00e9",\n}\n')
         rule("a Go string escape in a pattern is not read as a JSON escape",
              "" if not got else f"refused a backslash followed by u: {got}")
+
+        # 0xFF is not a UTF-8 byte in any position, so this is the file the branch in main takes:
+        # say so once, in a sentence of our own, and leave the JSON parser alone. Before #151 the
+        # run reached `load` instead and died there with `not valid JSON: 'utf-8' codec can't
+        # decode byte 0xff`, taking the remaining sets down with the one it could not read.
+        got, bad_bytes = raw_case(b'{"description": "x",\n  "note": "\xff",\n}\n')
+        rule("bytes that are not UTF-8 are reported unreadable",
+             None if bad_bytes else "a set file whose bytes do not decode was not reported "
+                                        "unreadable, so main would hand it to the JSON parser "
+                                        "and lose every set after it")
+        rule_fires("the unreadable file still gets a sentence of its own", "; ".join(got))
 
     # What a detected problem is worth at the end of the run. These four are the difference
     # between "the checks noticed" and "the run failed", and until now only the second one was
@@ -513,6 +560,27 @@ def self_test():
          status_report(exit_status(0, ["cli.json: JSON escape"]), 1))
     rule_fires("control: the exit-status check reports a wrong code",
                status_report(exit_status(0, ["cli.json: JSON escape"]), 0))
+
+    # Pinning a function is not pinning the line that calls it, and this branch's own claim --
+    # that the encoding refusal cannot be deleted -- is a claim about main, not about
+    # `exit_status`. Both guttings below were measured on this head before anything read those
+    # two lines: handing `exit_status` one list printed the refusal and exited 0, deleting the
+    # collection printed nothing and exited 0, and the tally said every rule held either way.
+    # Putting them here makes the measurement a rule instead of a review comment, and makes a
+    # merge that resolves across these lines break something on purpose. Same idiom as
+    # SUMMARY_CALL above: the text is compared by equality, so re-spelling the call is a
+    # deliberate edit in two rather than a silent one.
+    def call_site_report(source, call):
+        return None if call in source else f"main does not contain {call!r}"
+
+    rule("main hands both lists to exit_status", call_site_report(body, STATUS_CALL))
+    rule_fires("control: the call-site scan finds exit_status handed one list",
+               call_site_report(body.replace(STATUS_CALL, "status = exit_status(bad, [])"),
+                                STATUS_CALL))
+    rule("main still collects what encoding_problems reported",
+         call_site_report(body, COLLECT_CALL))
+    rule_fires("control: the call-site scan finds the collection deleted",
+               call_site_report(body.replace(COLLECT_CALL, ""), COLLECT_CALL))
 
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a
@@ -568,13 +636,17 @@ def main(argv):
         # decode byte 0xff` and the sentence written for exactly that case never printed. It also
         # took the other twelve sets down with it: there is nothing to check in a file that cannot
         # be read, but there is plenty to check in the files after it.
-        found = encoding_problems(label, path)
+        found, bad_bytes = encoding_problems(label, path)
         # Deliberately not added to `bad`. A mutant that does not apply and a file that was
         # written by a tool instead of declared are different failures: the closing line counts
         # "N of M mutants would run without testing anything", and folding an encoding defect
         # into that number would attribute a file-level problem to mutants that are fine.
         file_problems.extend(found)
-        if any(" is not valid UTF-8 " in w for w in found):
+        # The flag the check returns, not a search for a phrase inside the sentences it just
+        # built. Matching its prose worked only while the wording held, and when it stopped
+        # holding this branch stopped being taken: the run went back to dying in `load` two sets
+        # into thirteen, which is the failure the sentence above exists to prevent.
+        if bad_bytes:
             print(f"{label}: skipped -- its bytes are not UTF-8, so there is nothing to check")
             continue
         doc = load(path)
