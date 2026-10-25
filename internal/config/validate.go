@@ -39,7 +39,9 @@ var ErrInvalid = errors.New("configuration is not valid")
 // /etc/plock/config.json all arrive at Validate, so a ceiling placed anywhere else is a rule the
 // page enforces while the CLI walks past it. That is not a hypothetical shape here -- #127 was the
 // name-collision rule enforced by the form and missed by the CLI, and a cap added to whichever form
-// was written last is the same drift pointing the other way.
+// was written last is the same drift pointing the other way -- #152 is this ceiling, landed, and it
+// is a ceiling on length only: the layout bound is the `overflow-wrap` rule in
+// internal/web/static/app.css, which #147 explains and which this number does not replace.
 //
 // Characters, not bytes, because these are names: 200 runes lets a household write
 // "Établissement secondaire — rentrée" and refuses 200 repetitions of one letter, which is what
