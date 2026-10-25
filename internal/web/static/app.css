@@ -78,9 +78,21 @@ td {
       any table)                            reports own-run=125 and is what leaves 1735 px
 
    Scoping the rule to the table would therefore have fixed the cell the review named and left the
-   page overflowing anyway, because the same unbounded string is also a heading. The names are
-   bounded nowhere -- that is #137, and it is the real fix; this rule is what stops one long
-   string from being a layout defect while and after that lands.
+   page overflowing anyway, because the same string is also a heading. #152 has since put a ceiling
+   on both names -- `config.MaxNameLen = 200` (`validate.go:53`, enforced at `:173` and `:204`) --
+   so this is no longer a story about a string that is bounded nowhere, and the ceiling is not what
+   retires this rule: #152 says so itself (`validate.go:48-51`), and re-measured at this head with
+   both declarations deleted, the widest name it admits still sets the page:
+
+     a 200-rune rule name    (`th[scope="row"]`)  document 1926 px @360, 2118 px @1024
+     a 200-rune profile name (`<h2>` + caption)   document 2744 px @360, 2864 px @1024
+
+   What genuinely is bounded nowhere is `username` -- `Validate` tests it for blank and duplicate
+   and never for length -- and the audit `Detail` cell, which is the daemon's own text: a 300-rune
+   username, which the daemon accepts today, sets /users to 2932 px @360 and 3445 px @1024 with the
+   rule gone. That, not a missing ceiling, is why the declaration belongs on `body`: a heading, a
+   caption and a row header are three different scopes, and the root is the only one that covers all
+   three plus whatever the daemon itself writes.
 
    It is its own `body` block rather than two lines folded into the root rule at the top of the
    file, so the rationale travels with the declaration it explains. Both blocks apply and neither
