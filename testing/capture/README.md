@@ -292,7 +292,7 @@ comment says the grep pins *presence*, not effect: it survives the declaration m
 rule, losing its semicolon, or being overridden later. The third of those was performed here — the
 grep passed and the only thing in the repository that noticed is the criterion this branch adds.
 
-Three things about the shape, each because the obvious version was wrong:
+Five things about the shape, each because the obvious version was wrong:
 
 * **The refusal is per page per viewport, and the summary names the viewport.** `5/5 pages fit at
   360 px` and `4/5 pages fit at 1024 px; refused: /audit` are two lines; a run that prints one of
@@ -303,19 +303,50 @@ Three things about the shape, each because the obvious version was wrong:
 * **Only the artifact viewport writes bytes.** The desktop pass measures, refuses and prints; it
   never stages a PNG. `docs/screenshots/360/` is named for one width, and two passes staging one
   basename would let whichever ran last decide what gets published.
+* **The pass proves the browser moved.** `shoot()` compares the `innerWidth` the browser reports
+  against the width it asked for and refuses if they differ. Asking is not evidence: `set_width`
+  can record `self.width = width` and never reach `Emulation.setDeviceMetricsOverride`, and every
+  rule above the fake session is then green while both passes measure a 360 px document. This is
+  also what makes the overflow threshold legitimate — comparing `scrollWidth` against the *requested*
+  width is only honest while the two are pinned to agree.
+* **A fixture refusal carries to the other viewport.** The guards that ask whether the fixture was
+  pushed hard enough run on the artifact pass only, because one broken fixture is one finding. The
+  consequence was not viewport-scoped: the desktop pass measured the same page and the summary
+  printed `5/5 pages fit at 1024 px` about a page the run had just refused as non-evidence. Such a
+  page now prints `UNTESTED (fixture)` and lands in a clause of its own —
+  `4/5 pages fit at 1024 px; untested (fixture): /audit` — because it neither failed that viewport
+  nor proved anything about it.
 
-Seven of the eighteen self-test rules police this contract, and eleven guttings were run against
-them — `WIDTHS[:1]`, `if False:` on the refusal test, a summary line without its width, `set_width`
-deleted, `set_width` moved after `goto`, every viewport writing bytes, the overflow compared against
-the constant instead of the viewport, the fixture guards run at both viewports, refusals filed
-against the wrong viewport, the artifact PNG not staged, the desktop pass reporting as the artifact
-pass: **11 caught, 0 survived**.
+Nine of the twenty-one self-test rules police this contract, and thirteen guttings were run against
+them — `WIDTHS[:1]`, `if False:` on the refusal test, a summary line without its width, the
+`set_width` **call at the call site** deleted, `set_width` moved after `goto`, every viewport
+writing bytes, the overflow compared against the constant instead of the viewport, the fixture
+guards run at both viewports, refusals filed against the wrong viewport, the artifact PNG not
+staged, the desktop pass reporting as the artifact pass: **11 caught, 0 survived**.
+
+Two more were run against the *body* of `set_width`, and they are the reason the fifth bullet exists.
+Both were measured surviving all eighteen rules on the head they were aimed at, and the reason is
+structural: `_ShootSession` is the fake that stands where `set_width` is, so every rule above it can
+only observe that `shoot()` **asked**. Nothing in the repository mutates `testing/capture` either —
+the thirteen sets are Go packages — so the self-test was the only thing standing there.
+
+| the gutting, in `cdp.py` | before the assertion | after it, on a real capture |
+|---|---|---|
+| `Emulation.setDeviceMetricsOverride` deleted, `self.width` kept | survived, 18 rules green | `REFUSED: / rendered at 360 px when asked for 1024 px; the viewport never moved`, then `0/5 pages fit at 1024 px; refused: /, /users, /profiles, /audit, /settings`, nothing written, exit 1 |
+| the argument ignored, `WIDTH` (360) re-sent every pass | survived, 18 rules green | the same refusal on every page, exit 1 |
+
+The 360 line stays `5/5` in both rows, which is the point of measuring at all: the phone pass is
+still telling the truth, and only the pass that never moved is refused. A pin that lives below the
+fake is the only kind that can see these, so the assertion is in `shoot()` and the rule drives it
+with a fake that reports `innerWidth=360` at a 1024 px request.
 
 ## The self-test, because nothing else in this repository can read these files
 
-`./pages.py --self-test` runs 18 rules about what a refusal does. It starts no browser, spawns no
-daemon, writes no file, and costs **0.028 s**, so `make verify` runs it beside the two mutation
-self-tests.
+`./pages.py --self-test` runs 21 rules about what a refusal does. It starts no browser, spawns no
+daemon, writes no file, and costs **0.043 s** for its twenty-one rules, so `make verify` runs it
+beside the two mutation
+self-tests. What it cannot do is reach below its own fakes — see the two body guttings above, which
+only a real capture sees.
 
 It exists because this package is invisible to every other gate: the mutants target `.go` and
 `.tmpl` only, nothing imports `pages.py`, and shellcheck does not read Python. That is how the

@@ -194,13 +194,28 @@ PAGES = [
 CHROME_FLAGS = ("--hide-scrollbars=false",)
 
 
-def shoot(cap, spec, name, width=ARTIFACT_WIDTH):
+class FixtureRefusal(SystemExit):
+    """A refusal about the FIXTURE, not about the viewport: the page was not pushed hard enough.
+
+    It is a `SystemExit` so every handler and every rule that already treats a refusal as a
+    `SystemExit` keeps working unchanged. The type exists for one reason: a page refused this way is
+    not width evidence at ANY viewport, and `main()` has to be able to carry that to the pass that
+    never ran the guard, rather than printing `5/5 pages fit at 1024 px` about a page it just
+    refused as non-evidence -- #140's claim, printed in the opposite direction.
+    """
+
+
+def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     """Measure one page at one viewport, and photograph it if this is the artifact viewport.
 
     `width` is a parameter and not a read of `cdp.WIDTH`, because the caller walks `WIDTHS`: a
     refusal has to name the viewport it was measured at, and a helper that printed the constant
     would report every overflow as a phone problem -- which is how a 1471 px desktop document
     would keep arriving labelled 360.
+
+    `fixture_untested` says this page was already refused on the artifact pass for a reason about
+    its fixture. Returns "untested" for such a page so the caller can keep it out of the count of
+    pages that fitted; returns None otherwise.
     """
     page, session, base = spec.url, cap.session, cap.base
     session.set_width(width)
@@ -218,6 +233,18 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH):
     if spec.stress:
         extra += "," + STRESS_JS
     got = cdp.measure(session, extra)
+    # The viewport is a claim this function has to earn, not one its caller gets to make. `width` is
+    # what was asked for; `inner` is what the browser says it laid out at. Compared here, at the
+    # first moment both exist, because the failure it catches is the one this criterion exists to
+    # close: an emulation call that stops reaching the browser leaves both passes measuring a 360 px
+    # document, and the transcript prints two viewports agreeing. Nothing in the self-test can see
+    # it from above -- `_ShootSession` stands where `set_width` is, so every rule there verifies that
+    # `shoot()` ASKED. This is the one assertion below the fake, and it is also what makes comparing
+    # `scroll` against the requested `width` legitimate: the two are pinned to agree here or the run
+    # refuses there.
+    if got["inner"] != width:
+        raise SystemExit(f"{page} rendered at {got['inner']} px when asked for {width} px; the "
+                         "viewport never moved, so this measurement is about neither width")
     # Asked at every viewport, not just the artifact one. A table a wider media query hides, or a
     # form that stops rendering above 40rem, fits its viewport perfectly and reports a comfortable
     # width while having rendered nothing worth photographing. #140 was a page that fitted nothing;
@@ -258,18 +285,33 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH):
     # viewport it is later rendered at. Running them on every pass would print one broken fixture
     # twice and read as two findings.
     if spec.stress and width == ARTIFACT_WIDTH:
-        require_stress_row(got, page)
-        require_unbreakable(got, page)
+        # Retyped rather than raised directly: these two state their own sentences and this adds no
+        # words to them, it only records that the sentence is about the fixture. The type is what
+        # lets main() carry the outcome across passes without re-reading prose.
+        try:
+            require_stress_row(got, page)
+            require_unbreakable(got, page)
+        except SystemExit as exc:
+            raise FixtureRefusal(str(exc)) from None
+    # Hoisted above the split instead of repeated in both arms: each arm needs a browser that is
+    # still up, and one call cannot drift from its twin when someone moves the split.
+    cap.require_running()
+    if fixture_untested:
+        # Measured, and reported as measuring nothing. The page failed the fixture guard on the
+        # artifact pass, so the number below is a width without a stress row -- true, and not
+        # evidence. Counting it as fitting is what the reviewer drove and named.
+        print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
+              f"innerWidth={got['inner']:>4} height={got['height']:>5} "
+              f"{proof_of(got, spec)}{hard} UNTESTED (fixture)", flush=True)
+        return "untested"
     if width != ARTIFACT_WIDTH:
         # Measured, refused, printed -- and no bytes. The committed set belongs to the artifact
         # viewport; a desktop PNG staged under the same basename would be published by whichever
         # viewport happened to run last.
-        cap.require_running()
         print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
               f"innerWidth={got['inner']:>4} height={got['height']:>5} "
               f"{proof_of(got, spec)}{hard} FITS", flush=True)
         return
-    cap.require_running()
     session.write_png(name)
     print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
           f"innerWidth={got['inner']:>4} height={got['height']:>5} "
@@ -313,16 +355,32 @@ def main(shoot_fn=None):
     # ambiguity #149 was filed for: on the page that started it, 360 px and 1024 px have different
     # answers, and the honest transcript has to say which is which.
     refused = []
+    # Pages refused for something about their fixture, on whichever pass ran the guard. Carried
+    # across the viewport loop because the judgement is not viewport-scoped: a page whose stress row
+    # was never rendered cannot demonstrate anything about 1024 px either.
+    fixture_failed = set()
     with cdp.Capture("pages", CHROME_FLAGS) as cap:
         for width in WIDTHS:
             refused_here = []
+            untested_here = []
             for spec in PAGES:
                 # Only the artifact viewport owns a filename. The desktop pass is given a label so a
                 # refusal can be attributed to it, and never a path it could stage bytes into.
                 name = (op.join(out, spec.artifact + ".png") if width == ARTIFACT_WIDTH
                         else f"{spec.url} at {width} px")
+                # Set before the try: an exception arm below must not leave the caller reading a
+                # name that was never bound -- which is exactly how this line first failed, as an
+                # UnboundLocalError inside the handler for someone else's refusal.
+                outcome = None
                 try:
-                    shoot_fn(cap, spec, name, width)
+                    outcome = shoot_fn(cap, spec, name, width,
+                                       fixture_untested=spec.url in fixture_failed)
+                except FixtureRefusal as exc:
+                    # Before the SystemExit arm, which would otherwise swallow it. Reported exactly
+                    # as any other refusal is, and additionally remembered.
+                    cdp.report_refusal(name, exc)
+                    refused_here.append(spec.url)
+                    fixture_failed.add(spec.url)
                 except SystemExit as exc:
                     # `report_refusal` and not a raising helper: this handler is the only thing
                     # standing between one bad page and the four that were measured fine, and until
@@ -333,13 +391,15 @@ def main(shoot_fn=None):
                 except Exception as exc:  # a traceback is not an answer; a refusal is
                     cdp.report_refusal(name, f"{type(exc).__name__}: {exc}")
                     refused_here.append(spec.url)
-            refused.append((width, refused_here))
+                if outcome == "untested":
+                    untested_here.append(spec.url)
+            refused.append((width, refused_here, untested_here))
         # Every viewport is walked even when the first one refuses, and that is a decision rather
         # than a loop nesting. Stopping at the first failing width would report a page that is
         # broken at both as broken at one, and the second number is the one that tells you whether
         # the fix is a wrap rule or a column that nobody sized. The cost of finishing is one more
         # navigation per page; the cost of not finishing is a lie about the other viewport.
-        if any(pages for _, pages in refused):
+        if any(pages or untested for _, pages, untested in refused):
             # The count is the exit status, so it has to be the true one. This line used to print
             # `4/4 pages fit` and return 0 whatever had happened, because a refusal was caught
             # per page and the loop simply carried on -- a run that photographed three pages and
@@ -349,15 +409,26 @@ def main(shoot_fn=None):
             # decoration. `--self-test` now pins both directions -- every page measured even when
             # all five refuse, and exit 1 whenever any one of them does.
             cdp.discard_stage()
-            for width, pages in refused:
-                line = f"{len(PAGES) - len(pages)}/{len(PAGES)} pages fit at {width} px"
+            for width, pages, untested in refused:
+                # A fixture-untested page is in neither the numerator nor the refused list: it did
+                # not fail this viewport, and it did not prove anything about it either. The third
+                # clause is what keeps those two apart in the sentence.
+                line = (f"{len(PAGES) - len(pages) - len(untested)}/{len(PAGES)} pages fit at "
+                        f"{width} px")
                 if pages:
                     line += f"; refused: {', '.join(pages)}"
+                if untested:
+                    line += f"; untested (fixture): {', '.join(untested)}"
                 print(line, file=sys.stderr, flush=True)
             print(f"Nothing was written to {out}.", file=sys.stderr, flush=True)
             return 1
         cap.session.publish()
-    for width, _ in refused:
+    for width, pages, untested in refused:
+        # Unreachable while anything was refused, and it has to stay that way: this is the success
+        # sentence, and it would print a full count over a page that was never tested.
+        if pages or untested:
+            raise SystemExit(f"the success path printed a fit count for {width} px while "
+                             f"{len(pages)} refused and {len(untested)} were untested")
         print(f"{len(PAGES)}/{len(PAGES)} pages fit at {width} px", flush=True)
     print(f"-> {out}", flush=True)
     return 0
@@ -384,7 +455,7 @@ def main(shoot_fn=None):
 # than `len(ran)`: a `return` inserted in the middle of self_test() leaves both lists complete for
 # whatever ran, so only a number written somewhere else can tell a full pass from a truncated one.
 # 11 from #140, plus the seven #149 adds for the second viewport.
-EXPECTED_RULES = 18
+EXPECTED_RULES = 21
 
 
 class _FakeSession:
@@ -443,13 +514,17 @@ def _expected_pass():
     return [(p.url, w) for w in WIDTHS for p in PAGES]
 
 
-def _run_main(refuse=(), refuse_at=(), crash=None):
+def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None):
     """Call the real main() with the machine stubbed out; report what the driver actually did.
 
     `refuse` names URLs that fail at EVERY viewport. `refuse_at` names `"url@width"` pairs that
     fail at one viewport only, and that is the shape #149 is about: a page that fits at 360 px and
     is a 1471 px document at 1024 px. A harness that could only refuse a URL everywhere could not
     tell a driver that walks both viewports from one that walks the phone and calls it a day.
+
+    `fixture_refuse` names URLs that fail the FIXTURE guards, which the real driver runs on the
+    artifact pass only -- the shape the cross-pass carry has to be tested against, because a stub
+    that refused at both widths would prove nothing about carrying anything.
 
     Returns (rc, entered, stderr_text, stdout_text, published, discard_calls). `rc` is the string
     "raised" when main() let an exception escape instead of returning a code -- itself a finding,
@@ -459,13 +534,19 @@ def _run_main(refuse=(), refuse_at=(), crash=None):
     log, entered = [], []
     urls = set(refuse)
     at = set(refuse_at)
+    fx = set(fixture_refuse)
 
-    def stub(cap, spec, name, width):
+    def stub(cap, spec, name, width, fixture_untested=False):
         entered.append((spec.url, width))
         if spec.url in urls or f"{spec.url}@{width}" in at:
             raise SystemExit(f"{spec.url} is 9999 px wide at a {width} px viewport")
+        if spec.url in fx and width == ARTIFACT_WIDTH:
+            raise FixtureRefusal(f"{spec.url}: the hardest token anywhere in the table is 3 "
+                                 "characters, under the 40 this check needs to call a width "
+                                 "measurement evidence (#140).")
         if crash is not None:
             raise crash
+        return "untested" if fixture_untested else None
 
     rc = "raised"
     err = io.StringIO()
@@ -536,19 +617,25 @@ class _ShootCap:
         pass
 
 
-def _run_shoot(got, width, log=None, where=None, spec=None):
+def _run_shoot(got, width, log=None, where=None, spec=None, fixture_untested=False, out=None):
     """The real shoot() against a fake browser; returns (log, refusal_text_or_None).
 
     The fake session answers with the spec's own URL by default: `shoot` refuses a page that
     answers something else, and a rule about the fixture guards must not be satisfied -- or
     defeated -- by that check.
+
+    `out` collects what `shoot()` printed, for the rules whose claim IS the printed line; left
+    None, the output is discarded as it always was. `fixture_untested` drives the carried flag, so
+    a rule can ask what the desktop pass says about a page the artifact pass refused for its
+    fixture.
     """
     log = [] if log is None else log
     spec = Page("/users", "users", True) if spec is None else spec
-    with _fake_browser(got), contextlib.redirect_stdout(io.StringIO()):
+    with _fake_browser(got), contextlib.redirect_stdout(out or io.StringIO()):
         try:
             shoot(_ShootCap(log, spec.url if where is None else where), spec,
-                  "/tmp/opencode/selftest-users.png", width)
+                  "/tmp/opencode/selftest-users.png", width,
+                  fixture_untested=fixture_untested)
         except SystemExit as exc:
             return log, str(exc)
     return log, None
@@ -839,6 +926,123 @@ def self_test():
             problems.append("the artifact refusal does not say the photograph was withheld: "
                             f"{refusal!r}")
 
+
+    def viewport_is_verified_not_assumed(problems):
+        """The pass has to prove the browser moved, not that `set_width` was called.
+
+        Every other rule here stands above `_ShootSession`, the fake that answers where
+        `set_width` is, so all of them can only see that `shoot()` ASKED for a width. Two mutants
+        live below that line and both were measured surviving the eighteen: delete the
+        `Emulation.setDeviceMetricsOverride` call but keep `self.width = width`, and ignore the
+        argument and re-send 360. Each leaves both passes measuring a 360 px document while the
+        transcript prints two viewports agreeing -- #149's own failure, with the self-test green and
+        no mutation set over `testing/capture` to catch it. `inner == width`, asserted in `shoot()`
+        and driven here, is the one pin under the fake.
+        """
+        wide = {"scroll": 1024, "inner": 1024, "height": 900, "tables": 0, "cells": 0,
+                "forms": 1, "fields": 3}
+        # The control first: a page that really did lay out at 1024 px must pass, or every refusal
+        # below is a fixture nobody can satisfy.
+        _log, refusal = _run_shoot(wide, DESKTOP_WIDTH)
+        if refusal is not None:
+            problems.append(f"a page measured at the width it was asked for was refused: {refusal!r}")
+        # Asked for 1024, laid out at 360: the emulation call that never reached the browser.
+        _log, refusal = _run_shoot(dict(wide, inner=ARTIFACT_WIDTH, scroll=ARTIFACT_WIDTH),
+                                   DESKTOP_WIDTH)
+        if refusal is None or "never moved" not in refusal:
+            problems.append(f"a {DESKTOP_WIDTH} px pass measuring {ARTIFACT_WIDTH} px was accepted: "
+                            f"{refusal!r}")
+        for want in (str(ARTIFACT_WIDTH), str(DESKTOP_WIDTH)):
+            if want not in (refusal or ""):
+                problems.append(f"the refusal does not name {want} px: {refusal!r}")
+        # The stale direction too: a pass that kept the artifact width after being moved back would
+        # publish a 1024 px photograph under a 360 px filename.
+        _log, refusal = _run_shoot(wide, ARTIFACT_WIDTH)
+        if refusal is None or "never moved" not in refusal:
+            problems.append(f"the artifact pass measuring {DESKTOP_WIDTH} px was accepted: "
+                            f"{refusal!r}")
+
+    def fixture_refusal_is_carried_to_the_other_pass(problems):
+        """A page refused for its fixture at 360 px is not evidence at 1024 px either.
+
+        The guards run on the artifact pass only -- right, because one broken fixture is one finding.
+        The consequence was not: the desktop pass then measured the same page and the summary printed
+        `5/5 pages fit at 1024 px` about a page the run had just refused as non-evidence. That is
+        #140's claim -- a page that could not have overflowed is not width evidence -- arriving in
+        the opposite direction, and it contradicts this file's own sentence that a transcript
+        printing one line is not evidence about the other.
+        """
+        victim = "/audit"
+        rc, entered, err, out, published, _discarded = _run_main(fixture_refuse=[victim])
+        for width in WIDTHS:
+            if (victim, width) not in entered:
+                problems.append(f"{victim} was not measured at {width} px; a carried refusal is "
+                                "not a skipped page")
+        if f"untested (fixture): {victim}" not in err:
+            problems.append(f"the summary counts {victim} as fitting: {err!r}")
+        if "5/5 pages fit at 1024 px" in err:
+            problems.append(f"the summary still certifies all five at {DESKTOP_WIDTH} px: {err!r}")
+        if f"4/5 pages fit at {DESKTOP_WIDTH} px" not in err:
+            problems.append(f"the desktop line does not count {victim} out: {err!r}")
+        # The artifact pass keeps its own verdict: refused, not merely untested.
+        if f"refused: {victim}" not in err:
+            problems.append(f"the artifact pass stopped refusing {victim}: {err!r}")
+        if rc != 1:
+            problems.append(f"a fixture refusal -> main() returned {rc!r}, want 1")
+        if published:
+            problems.append("a fixture refusal published anyway")
+        # The printed line is `shoot()`'s half and the stub cannot show it -- the stub reports an
+        # outcome, it does not print a transcript. So the label is driven through the real `shoot()`
+        # against the fake browser, at the viewport that never ran the guard.
+        line = io.StringIO()
+        pushed = {"scroll": 1024, "inner": 1024, "height": 900, "tables": 1, "cells": 4,
+                  "longest": 251, "stress": True}
+        _log, refusal = _run_shoot(pushed, DESKTOP_WIDTH,
+                                   spec=Page(victim, "audit", True, stress=True),
+                                   fixture_untested=True, out=line)
+        printed = line.getvalue()
+        if refusal is not None:
+            problems.append(f"an untested page was refused at {DESKTOP_WIDTH} px instead of "
+                            f"reported: {refusal!r}")
+        if "UNTESTED (fixture)" not in printed:
+            problems.append(f"the desktop line does not say untested: {printed!r}")
+        if "FITS" in printed:
+            problems.append(f"an untested page still printed FITS: {printed!r}")
+        if "scrollWidth=1024" not in printed:
+            problems.append(f"the untested line stopped reporting what it measured: {printed!r}")
+
+        # Control: with every fixture intact, nothing is untested and both widths say five.
+        rc, _e, err, out, published, _d = _run_main()
+        if "untested" in out + err:
+            problems.append(f"a clean run reported something untested: {out!r} {err!r}")
+        if "5/5 pages fit" not in out or rc != 0 or not published:
+            problems.append(f"the control run stopped counting all five: rc={rc!r} {out!r}")
+
+    def an_untested_page_is_not_a_refusal_at_the_other_viewport(problems):
+        """The two buckets stay two. Folding them together is the tempting simplification.
+
+        A fixture-untested page did not fail the desktop viewport -- the page rendered and fitted.
+        It also did not prove anything about it. Printing it under `refused:` would tell an operator
+        to go fix a width that is not broken; printing it as fitting is the failure the rule above
+        pins. So the desktop line names it in a clause of its own and the artifact line keeps the
+        refusal, and this rule is what stops either clause being merged into the other.
+        """
+        victim = "/audit"
+        _rc, _entered, err, _out, _published, _d = _run_main(fixture_refuse=[victim])
+        desktop = [ln for ln in err.splitlines() if f"at {DESKTOP_WIDTH} px" in ln]
+        artifact = [ln for ln in err.splitlines() if f"at {ARTIFACT_WIDTH} px" in ln]
+        if len(desktop) != 1 or len(artifact) != 1:
+            problems.append(f"expected one summary line per viewport, got {err!r}")
+            return
+        if f"refused: {victim}" in desktop[0]:
+            problems.append(f"the desktop pass calls a fixture gap a width refusal: {desktop[0]!r}")
+        if f"untested (fixture): {victim}" not in desktop[0]:
+            problems.append(f"the desktop clause is missing: {desktop[0]!r}")
+        if f"refused: {victim}" not in artifact[0]:
+            problems.append(f"the artifact pass lost its refusal: {artifact[0]!r}")
+        if "untested" in artifact[0]:
+            problems.append(f"the artifact pass calls its own refusal untested: {artifact[0]!r}")
+
     def fixture_guards_run_once(problems):
         # require_stress_row and require_unbreakable ask whether the FIXTURE was pushed hard enough
         # for a width number to mean anything. Asked at both viewports they turn one broken fixture
@@ -875,6 +1079,10 @@ def self_test():
     rule("only the artifact viewport writes bytes", only_the_artifact_viewport_writes)
     rule("a refusal names the viewport that failed", refusal_names_the_viewport_that_failed)
     rule("the fixture guards run at the artifact viewport only", fixture_guards_run_once)
+    rule("the viewport is verified, not assumed", viewport_is_verified_not_assumed)
+    rule("a fixture refusal carries to the other viewport", fixture_refusal_is_carried_to_the_other_pass)
+    rule("an untested page is not a refusal at the other viewport",
+         an_untested_page_is_not_a_refusal_at_the_other_viewport)
 
     # Canary pair, through the same `rule` helper against its own lists: without it,
     # `rule = lambda w, b, *a: ran.append((w, 0))` reports 11 rules holding while calling none
