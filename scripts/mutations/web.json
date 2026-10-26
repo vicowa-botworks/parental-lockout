@@ -1,6 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
+  "expected_mutants": 257,
   "mutants": [
     {
       "id": "W1",

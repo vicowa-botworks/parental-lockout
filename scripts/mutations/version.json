@@ -1,6 +1,7 @@
 {
   "description": "internal/version: the linker-stamped build identity. Small, but it is the output an operator pastes into a bug report and the one a release script greps, and it was the last package with logic and no set.",
   "package": "./internal/version/",
+  "expected_mutants": 2,
   "mutants": [
     {
       "id": "V1",

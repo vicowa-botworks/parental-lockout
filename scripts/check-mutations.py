@@ -78,7 +78,7 @@ SCRIPT_SCAN_CALL = "script_problems = script_open_problems(script_files())"
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 66
+EXPECTED_RULES = 75
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -461,12 +461,40 @@ def self_test():
     # An empty `new` is a DELETION and 19 mutants in these sets are one, so the validator
     # must not treat it as missing -- the same mistake would have rejected a valid set.
     expect_accepts("an empty `new`, which is a deletion mutant",
-                   {"package": "./x/", "mutants": [dict(good, new="")]})
+                   {"package": "./x/", "expected_mutants": 1, "mutants": [dict(good, new="")]})
     # Three sets keep the equivalence PROOF in `equivalent`, so a string is a valid claim.
     expect_accepts("`equivalent` holding the proof as prose",
-                   {"package": "./x/", "mutants": [dict(good, equivalent="proved in a scratch file")]})
+                   {"package": "./x/", "expected_mutants": 1,
+                    "mutants": [dict(good, equivalent="proved in a scratch file")]})
     expect_accepts("a control set with every rule satisfied",
-                   {"package": "./x/", "mutants": [good, dict(good, id="T2", count=2, equivalent=True)]})
+                   {"package": "./x/", "expected_mutants": 2,
+                    "mutants": [good, dict(good, id="T2", count=2, equivalent=True)]})
+
+    # #157: the one failure the rest of this module cannot see. Everything above validates what
+    # is IN a file, so a mutant can leave a set by any route at all -- a bad merge, a hand edit, a
+    # generator, a `git checkout` of the wrong path -- and `check-mutations.py` prints one fewer
+    # and stays green. The count is a field in the set file, one line above the list it counts, so
+    # a merge that deletes a mutant deletes its neighbour and the refusal names the file.
+    expect_rejects("a set that lost a mutant is refused",
+                   {"package": "./x/", "expected_mutants": 2, "mutants": [good]},
+                   "a mutant was deleted")
+    expect_rejects("a set that gained one without raising the number is refused",
+                   {"package": "./x/", "expected_mutants": 1,
+                    "mutants": [good, dict(good, id="T2")]},
+                   "a mutant was added without")
+    expect_rejects("a set with no count at all is refused",
+                   {"package": "./x/", "mutants": [good]}, "is missing")
+    expect_rejects("a count that is not a number is refused",
+                   {"package": "./x/", "expected_mutants": "2", "mutants": [good]},
+                   "must be an integer")
+    # `True == 1` in Python, so a boolean count would compare equal to a one-mutant set and the
+    # gate would read a typo as a satisfied claim.
+    expect_rejects("a count written as a boolean is refused",
+                   {"package": "./x/", "expected_mutants": True, "mutants": [good]},
+                   "must be an integer")
+    expect_accepts("a set whose count matches its list",
+                   {"package": "./x/", "expected_mutants": 2,
+                    "mutants": [good, dict(good, id="T2")]})
 
     expect_claims("the same mutation in two sets",
                   [("a.json", {"mutants": [good]}), ("b.json", {"mutants": [good]})], True)
@@ -745,7 +773,7 @@ def self_test():
                 return f"main exited {rc} without printing {sentence!r}"
             return None if rc == want else "main returned %r, want %r" % (rc, want)
 
-    UNDECODABLE = (b'{"description": "x", "mutants": [{"id": "A1", "file": "a.go",\n'
+    UNDECODABLE = (b'{"description": "x", "expected_mutants": 1, "mutants": [{"id": "A1", "file": "a.go",\n'
                    b'  "old": "\xff", "new": "y"}], "package": "./x/"}\n')
     rule("a set file that cannot be decoded costs the process its exit status",
          verdict_report(UNDECODABLE, 1))
@@ -771,7 +799,8 @@ def self_test():
     # So drive the escape arm as well, and assert the sentence rather than the status. Both
     # fixtures name a file that does not exist, so `check` reports it and nothing compiles: the
     # self-test stays in milliseconds and needs no toolchain.
-    ESCAPED = (b'{"description": "x \\u2014 y", "mutants": [{"id": "A1", "file": "self-test-missing.go",\n'
+    ESCAPED = (b'{"description": "x \\u2014 y", "expected_mutants": 1,\n'
+               b'  "mutants": [{"id": "A1", "file": "self-test-missing.go",\n'
                b'  "old": "q", "new": "y"}], "package": "./x/"}\n')
     # Same bytes with the character written the way the file should hold it. A clean set prints
     # no refusal, so a sentence check hollowed into always-passing has nothing to report here --
@@ -781,6 +810,38 @@ def self_test():
          verdict_report(ESCAPED, 1, "set-file encoding problem"))
     rule_fires("control: the harness reports a refusal sentence that was never printed",
                verdict_report(CLEAN, 1, "set-file encoding problem"))
+
+    # The wiring, not just the function. `mutate.py` reaches these files only through `load`, so a
+    # rule that stops at `validate` would leave the battery free to run a set the gate refused --
+    # the same split this module was written for, one field later. Both directions are driven on a
+    # real file, and the pair is completed by the control below the drives.
+    ONE_MUTANT = ('{"package": "./x/", "mutants": [{"id": "T1", "file": "x.go", '
+                  '"old": "a", "new": "b"}]}')
+
+    def load_says(text, want):
+        """Drive `mutset.load` on a real temp file. `want=None` asks for a clean load."""
+        with tempfile.TemporaryDirectory() as box:
+            path = os.path.join(box, "set.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            try:
+                loaded = load(path)
+            except SystemExit as exc:
+                if want is None:
+                    return f"load() refused a set it was promised: {exc}"
+                return None if want in str(exc) else f"load() refused for the wrong reason: {exc}"
+            if want is None:
+                return None
+            return f"load() accepted a set holding {len(loaded['mutants'])} mutants"
+
+    rule("load() refuses a short set, so the battery cannot run one either",
+         load_says(ONE_MUTANT.replace("{", '{"expected_mutants": 2,', 1),
+                   "a mutant was deleted"))
+    rule("load() still loads a set whose count matches",
+         load_says(ONE_MUTANT.replace("{", '{"expected_mutants": 1,', 1), None))
+    rule_fires("control: the load harness reports a set it never refused",
+               load_says(ONE_MUTANT.replace("{", '{"expected_mutants": 1,', 1),
+                         "a mutant was deleted"))
 
     # #154: the same default, one layer down. The rules above refuse a `\u2014` in a committed set
     # file; these refuse the tool that would write it. The fixtures are source text, so nothing

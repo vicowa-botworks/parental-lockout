@@ -1,6 +1,7 @@
 {
   "package": "./internal/enforce/",
   "_about": "Each entry puts one known bug back into internal/enforce and the suite must fail. F1 is the #29 fail-open: a session that reports itself locked used to be left alone, and LockedHint is writable by the child. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
+  "expected_mutants": 36,
   "mutants": [
     {
       "id": "F1",

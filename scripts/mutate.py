@@ -76,7 +76,7 @@ import textwrap
 # The set format is validated in one place, shared with the pre-flight, so a set the
 # gate accepts can never be a set the battery refuses to load.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from mutset import load  # noqa: E402
+from mutset import EXPECTED_KEY, load  # noqa: E402
 
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # The Makefile takes GO ?= go; honouring it here keeps `make mutate GO=...` testing
@@ -714,6 +714,9 @@ def select_sets(paths, wanted, work):
         for m in keep:
             missing.discard(m["id"])
         doc["mutants"] = keep
+        # The count belongs to the list, not to the filename: this copy holds what the filter kept,
+        # and a subset that still claimed its parent's total would refuse itself at `load`.
+        doc[EXPECTED_KEY] = len(keep)
         n += 1
         tmp = os.path.join(staged_dir(work), f"subset-{n}.json")
         os.makedirs(os.path.dirname(tmp), exist_ok=True)
@@ -1012,9 +1015,10 @@ def _wide_selection(work):
     """
     path = os.path.join(work, "wide.json")
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"package": "./internal/x/",
+        ids = ("A1", "A2")
+        json.dump({"package": "./internal/x/", EXPECTED_KEY: len(ids),
                    "mutants": [{"id": i, "file": "x.go", "old": "a", "new": "b"}
-                               for i in ("A1", "A2")]}, fh)
+                               for i in ids]}, fh)
     return [(path, "wide.json [A1]")]
 
 
@@ -1861,7 +1865,7 @@ def self_test():
         def write_set(name, ids):
             p = os.path.join(td, name)
             with open(p, "w", encoding="utf-8") as fh:
-                json.dump({"package": "./internal/x/",
+                json.dump({"package": "./internal/x/", EXPECTED_KEY: len(ids),
                            "mutants": [{"id": i, "file": "x.go", "old": "a", "new": "b"}
                                        for i in ids]}, fh)
             return p
@@ -2502,7 +2506,7 @@ def self_test():
         """One valid set whose mutants are named by `ids`, so the ids are the observation."""
         os.makedirs(os.path.dirname(where) or ".", exist_ok=True)
         with open(where, "w", encoding="utf-8") as fh:
-            json.dump({"package": "./internal/web/",
+            json.dump({"package": "./internal/web/", EXPECTED_KEY: len(ids),
                        "mutants": [{"id": mid, "file": "internal/web/server.go",
                                     "old": "x", "new": "y"} for mid in ids]}, fh)
 

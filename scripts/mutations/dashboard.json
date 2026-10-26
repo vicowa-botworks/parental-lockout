@@ -1,6 +1,7 @@
 {
   "package": "./internal/dashboard/",
   "note": "The dashboard decides what a parent is told about the machine. Its mutants are the wrong sentences, not generic operator swaps.",
+  "expected_mutants": 28,
   "mutants": [
     {
       "id": "B1",
