@@ -56,6 +56,17 @@ fmt:
 # from inside its caller's own `except` handler shipped past every check this repository has,
 # stopping the capture loop after 1 page of 5 while still exiting 1. It starts no browser and
 # writes nothing, so its cost is milliseconds.
+#
+# The two empty-filter steps below keep the child's output and require the sentence, rather than
+# discarding the output and asserting only "non-zero" (#159). "Non-zero" is what a crash returns
+# too, so the old shape passed the moment the script died on the empty-argument path: the step is
+# a claim about WHY the run failed -- that it refused because it matched nothing -- and a guard
+# that cannot tell a refusal from a death is not asserting that claim. Nothing in the battery can
+# pin either step either: no mutant in any set under `scripts/mutations/` names a file under
+# `scripts/` (all 773 rows checked), and the attack suite's whole surface is `mutate.py
+# --self-test`, so deleting a step here leaves `verify` green. That is why the shape is shared by
+# both steps rather than fixed in one of them -- two invocations of the same script must not be
+# asserted in two different strengths.
 verify:
 	@set -e; \
 	echo "==> gofmt"; \
@@ -65,13 +76,25 @@ verify:
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
 	echo "==> empty selection refuses"; \
-	if python3 scripts/attack-self-test.py zzzznomatch >/dev/null 2>&1; then \
+	if nomatch_out=$$(python3 scripts/attack-self-test.py zzzznomatch 2>&1); then \
 		echo "a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \
+		exit 1; \
+	elif ! printf '%s' "$$nomatch_out" | grep -q "no row matched"; then \
+		echo "the empty-selection step failed, but not as a refusal: a refusal says \"no row matched\","; \
+		echo "and anything else means the script died -- which also exits non-zero, so the exit"; \
+		echo "status alone cannot tell the two apart. Its output was:"; \
+		printf '%s\n' "$$nomatch_out"; \
 		exit 1; \
 	fi; \
 	echo "==> empty argument refuses"; \
-	if python3 scripts/attack-self-test.py "" >/dev/null 2>&1; then \
+	if empty_out=$$(python3 scripts/attack-self-test.py "" 2>&1); then \
 		echo "an empty argument ran the suite: \"\" must mean a filter that matches nothing, not \"no filter\" -- otherwise passing \"\$$FILTER\" with FILTER unset turns this step into the whole gate, reported green, proving something else"; \
+		exit 1; \
+	elif ! printf '%s' "$$empty_out" | grep -q "no row matched"; then \
+		echo "the empty-argument step failed, but not as a refusal: a refusal says \"no row matched\","; \
+		echo "and anything else means the script died -- which also exits non-zero, so the exit"; \
+		echo "status alone cannot tell the two apart. Its output was:"; \
+		printf '%s\n' "$$empty_out"; \
 		exit 1; \
 	fi; \
 	echo "==> go vet"; $(GO) vet ./...; \
