@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
-"""Measure and photograph the five GET-rendered admin pages at 360 px.
+"""Measure the five GET-rendered admin pages at every acceptance viewport, and photograph them at
+the artifact one.
 
-The 360 px acceptance criterion is a measurement, not a reading of the stylesheet, so this
-drives a real browser: it starts the daemon on a throwaway fixture, signs in, then asks Chrome
-at a 360 px viewport for documentElement.scrollWidth and a screenshot of each page. A page that
-fits reports scrollWidth == 360; anything larger is horizontal overflow, which is what the
-criterion refuses.
+The acceptance criterion is a measurement, not a reading of the stylesheet, so this drives a real
+browser: it starts the daemon on a throwaway fixture, signs in, then asks Chrome for
+`documentElement.scrollWidth` at each viewport in `WIDTHS` and a screenshot at the artifact width.
+A page that fits reports `scrollWidth == width`; anything larger is horizontal overflow, which is
+what the criterion refuses.
+
+Two viewports, because one is not a criterion (#149). `overflow-wrap: break-word` alone measures
+360 px at a 360 px viewport and 1471 px at a 1024 px one, so a driver that looks only at the phone
+certifies a fix that leaves the desktop broken -- and `break-word` is the value a reasonable person
+reaches for first. Each viewport is refused on its own and named in its own summary line, so "the
+audit page fits" is never a sentence that quietly means "at one of the widths".
 
 These five are the easy pages: each has a URL, so a browser can be sent straight to it. The two
 result pages cannot be reached this way and have their own drivers (lock.py, testlock.py), which
 is where the click-the-shipped-button refusals live.
 
-Each page is refused on its own, before its own PNG is written, so a run that stops on the audit
-page leaves the three earlier pages freshly captured and says plainly which one it would not
-take.
+Nothing reaches `--out` until every page has passed at every viewport. Each page is measured and
+refused before its own bytes are staged, and staging is not publishing: a run that refuses the
+audit page leaves the committed artifacts exactly as they were, rather than four fresh PNGs and
+one stale one under filenames that all look current.
 
     ./pages-setup.sh && ./pages.py [--out DIR] [--overwrite]
     ./pages.py --self-test        # the refusal contract only: no browser, no fixture, no writes
@@ -30,6 +38,24 @@ import sys
 
 sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
+
+# The viewports a page has to fit, and which of them produces an artifact.
+#
+# `cdp.WIDTH` is the artifact contract: docs/screenshots/360/ is named for it and the committed
+# PNGs are taken at it. The second entry is #149, and it is here because the first one alone was
+# not a criterion. Measured on the audit page while fixing #140:
+#
+#   viewport        as shipped   `overflow-wrap: break-word`   `overflow-wrap: anywhere`
+#   360 px               914 px                       360 px                        360 px
+#   1024 px             1471 px                      1471 px                       1024 px
+#
+# The middle column is the trap: the value a reasonable person reaches for first passes the phone
+# criterion and leaves the desktop a 1471 px document, and before #149 nothing here looked at a
+# desktop width at all. So a width is refused on its own terms and named in its own summary line;
+# "the audit page fits" is only ever said about one viewport.
+ARTIFACT_WIDTH = cdp.WIDTH
+DESKTOP_WIDTH = 1024
+WIDTHS = (ARTIFACT_WIDTH, DESKTOP_WIDTH)
 
 # How hard the Detail column has to be pushed before a width measurement means anything. 60 sits
 # far below the seeded row (251 characters: the captured loginctl listing, named below) and far
@@ -168,8 +194,16 @@ PAGES = [
 CHROME_FLAGS = ("--hide-scrollbars=false",)
 
 
-def shoot(cap, spec, name):
+def shoot(cap, spec, name, width=ARTIFACT_WIDTH):
+    """Measure one page at one viewport, and photograph it if this is the artifact viewport.
+
+    `width` is a parameter and not a read of `cdp.WIDTH`, because the caller walks `WIDTHS`: a
+    refusal has to name the viewport it was measured at, and a helper that printed the constant
+    would report every overflow as a phone problem -- which is how a 1471 px desktop document
+    would keep arriving labelled 360.
+    """
     page, session, base = spec.url, cap.session, cap.base
+    session.set_width(width)
     session.goto(base + page)
     here = session.where()
     if here != page:
@@ -184,6 +218,10 @@ def shoot(cap, spec, name):
     if spec.stress:
         extra += "," + STRESS_JS
     got = cdp.measure(session, extra)
+    # Asked at every viewport, not just the artifact one. A table a wider media query hides, or a
+    # form that stops rendering above 40rem, fits its viewport perfectly and reports a comfortable
+    # width while having rendered nothing worth photographing. #140 was a page that fitted nothing;
+    # #149 is about a page that fits at the width nobody looked at, and an empty page fits at both.
     if spec.has_rows:
         cdp.require_records(got, page)
         cdp.require_labelled_cells(got, page)
@@ -200,26 +238,48 @@ def shoot(cap, spec, name):
     # refusal and unrecoverable after it.
     longest = got.get("longest")
     hard = "" if longest is None else f" hardest={longest}ch"
-    if got["scroll"] > cdp.WIDTH:
+    if got["scroll"] > width:
         cause = ("" if longest is None else
                  f", and its hardest unbreakable token is {longest} characters")
-        raise SystemExit(f"{page} is {got['scroll']} px wide at a {cdp.WIDTH} px viewport{cause}; "
-                         "the criterion refuses this page, so its photograph is not taken")
+        # The consequence differs by viewport, and saying the wrong one is a small lie with a
+        # deadline on it: only the artifact pass has a photograph to withhold.
+        consequence = ("its photograph is not taken" if width == ARTIFACT_WIDTH else
+                       "nothing is published, though this viewport takes no photograph of its own")
+        raise SystemExit(f"{page} is {got['scroll']} px wide at a {width} px viewport{cause}; "
+                         f"the criterion refuses this page, so {consequence}")
     # After the width refusal, before the write. A page that overflows should report the overflow,
     # which is the alarming fact; a page that fits is then asked whether fitting meant anything.
     # #140's whole lesson is that the audit page can fit at 360 px having been asked for nothing,
     # because the row that broke it came from the daemon failing on this machine rather than from
     # the fixture.
-    if spec.stress:
+    #
+    # The artifact pass only. These two ask whether the FIXTURE was pushed hard enough for a width
+    # measurement to mean anything -- a question about the row the daemon was handed, not about the
+    # viewport it is later rendered at. Running them on every pass would print one broken fixture
+    # twice and read as two findings.
+    if spec.stress and width == ARTIFACT_WIDTH:
         require_stress_row(got, page)
         require_unbreakable(got, page)
+    if width != ARTIFACT_WIDTH:
+        # Measured, refused, printed -- and no bytes. The committed set belongs to the artifact
+        # viewport; a desktop PNG staged under the same basename would be published by whichever
+        # viewport happened to run last.
+        cap.require_running()
+        print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
+              f"innerWidth={got['inner']:>4} height={got['height']:>5} "
+              f"{proof_of(got, spec)}{hard} FITS", flush=True)
+        return
     cap.require_running()
     session.write_png(name)
-    proof = f"tables={got['tables']} cells={got['cells']}" if spec.has_rows else \
-        f"forms={got['forms']} fields={got['fields']}"
-    print(f"  {page:<10} scrollWidth={got['scroll']:>4} innerWidth={got['inner']:>4} "
-          f"height={got['height']:>5} {proof}{hard} "
-          f"FITS  {name}", flush=True)
+    print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
+          f"innerWidth={got['inner']:>4} height={got['height']:>5} "
+          f"{proof_of(got, spec)}{hard} FITS  {name}", flush=True)
+
+
+def proof_of(got, spec):
+    """The number that says this page was really rendered, in the shape that page can give."""
+    return (f"tables={got['tables']} cells={got['cells']}" if spec.has_rows
+            else f"forms={got['forms']} fields={got['fields']}")
 
 
 def main(shoot_fn=None):
@@ -248,23 +308,38 @@ def main(shoot_fn=None):
                 "the checks that attribute width pressure to the fixture have nothing to read. "
                 "Declare it with has_rows=True.")
     out = cdp.capture_out("pages")
-    refused_pages = []
+    # One entry per viewport, each holding the pages that failed THERE. Collapsing this into one
+    # list would make "4/5 pages fit" a sentence about no particular width, which is the exact
+    # ambiguity #149 was filed for: on the page that started it, 360 px and 1024 px have different
+    # answers, and the honest transcript has to say which is which.
+    refused = []
     with cdp.Capture("pages", CHROME_FLAGS) as cap:
-        for spec in PAGES:
-            name = op.join(out, spec.artifact + ".png")
-            try:
-                shoot_fn(cap, spec, name)
-            except SystemExit as exc:
-                # `report_refusal` and not a raising helper: this handler is the only thing
-                # standing between one bad page and the four that were measured fine, and until
-                # this head the helper raised from inside it, so both `append` lines below were
-                # unreachable and the run died on the first refusal while looking like a refusal.
-                cdp.report_refusal(name, exc)
-                refused_pages.append(spec.url)
-            except Exception as exc:  # a traceback is not an answer; a refusal is
-                cdp.report_refusal(name, f"{type(exc).__name__}: {exc}")
-                refused_pages.append(spec.url)
-        if refused_pages:
+        for width in WIDTHS:
+            refused_here = []
+            for spec in PAGES:
+                # Only the artifact viewport owns a filename. The desktop pass is given a label so a
+                # refusal can be attributed to it, and never a path it could stage bytes into.
+                name = (op.join(out, spec.artifact + ".png") if width == ARTIFACT_WIDTH
+                        else f"{spec.url} at {width} px")
+                try:
+                    shoot_fn(cap, spec, name, width)
+                except SystemExit as exc:
+                    # `report_refusal` and not a raising helper: this handler is the only thing
+                    # standing between one bad page and the four that were measured fine, and until
+                    # this head the helper raised from inside it, so both `append` lines below were
+                    # unreachable and the run died on the first refusal while looking like a refusal.
+                    cdp.report_refusal(name, exc)
+                    refused_here.append(spec.url)
+                except Exception as exc:  # a traceback is not an answer; a refusal is
+                    cdp.report_refusal(name, f"{type(exc).__name__}: {exc}")
+                    refused_here.append(spec.url)
+            refused.append((width, refused_here))
+        # Every viewport is walked even when the first one refuses, and that is a decision rather
+        # than a loop nesting. Stopping at the first failing width would report a page that is
+        # broken at both as broken at one, and the second number is the one that tells you whether
+        # the fix is a wrap rule or a column that nobody sized. The cost of finishing is one more
+        # navigation per page; the cost of not finishing is a lie about the other viewport.
+        if any(pages for _, pages in refused):
             # The count is the exit status, so it has to be the true one. This line used to print
             # `4/4 pages fit` and return 0 whatever had happened, because a refusal was caught
             # per page and the loop simply carried on -- a run that photographed three pages and
@@ -274,12 +349,17 @@ def main(shoot_fn=None):
             # decoration. `--self-test` now pins both directions -- every page measured even when
             # all five refuse, and exit 1 whenever any one of them does.
             cdp.discard_stage()
-            print(f"\n{len(PAGES) - len(refused_pages)}/{len(PAGES)} pages fit at "
-                  f"{cdp.WIDTH} px; refused: {', '.join(refused_pages)}. Nothing was written to "
-                  f"{out}.", file=sys.stderr, flush=True)
+            for width, pages in refused:
+                line = f"{len(PAGES) - len(pages)}/{len(PAGES)} pages fit at {width} px"
+                if pages:
+                    line += f"; refused: {', '.join(pages)}"
+                print(line, file=sys.stderr, flush=True)
+            print(f"Nothing was written to {out}.", file=sys.stderr, flush=True)
             return 1
         cap.session.publish()
-    print(f"\n{len(PAGES)}/{len(PAGES)} pages fit at {cdp.WIDTH} px -> {out}", flush=True)
+    for width, _ in refused:
+        print(f"{len(PAGES)}/{len(PAGES)} pages fit at {width} px", flush=True)
+    print(f"-> {out}", flush=True)
     return 0
 
 
@@ -300,7 +380,11 @@ def main(shoot_fn=None):
 # loop, the handlers, the counting and the exit code are all the real ones.
 # --------------------------------------------------------------------------------------
 
-EXPECTED_RULES = 11
+# The count of rules registered below, and the reason the count is a number in the source rather
+# than `len(ran)`: a `return` inserted in the middle of self_test() leaves both lists complete for
+# whatever ran, so only a number written somewhere else can tell a full pass from a truncated one.
+# 11 from #140, plus the seven #149 adds for the second viewport.
+EXPECTED_RULES = 18
 
 
 class _FakeSession:
@@ -354,33 +438,120 @@ def _stubbed(log):
         cdp.Capture, cdp.capture_out, cdp.discard_stage = saved
 
 
-def _run_main(refuse=(), crash=None):
+def _expected_pass():
+    """The transcript a clean run has to produce: every page, at every viewport, in `WIDTHS` order."""
+    return [(p.url, w) for w in WIDTHS for p in PAGES]
+
+
+def _run_main(refuse=(), refuse_at=(), crash=None):
     """Call the real main() with the machine stubbed out; report what the driver actually did.
 
-    Returns (rc, entered, stderr_text, published, discard_calls). `rc` is the string "raised"
-    when main() let an exception escape instead of returning a code -- itself a finding, because
-    an escaping exception and a refusal both exit 1 and only the return proves the driver
+    `refuse` names URLs that fail at EVERY viewport. `refuse_at` names `"url@width"` pairs that
+    fail at one viewport only, and that is the shape #149 is about: a page that fits at 360 px and
+    is a 1471 px document at 1024 px. A harness that could only refuse a URL everywhere could not
+    tell a driver that walks both viewports from one that walks the phone and calls it a day.
+
+    Returns (rc, entered, stderr_text, stdout_text, published, discard_calls). `rc` is the string
+    "raised" when main() let an exception escape instead of returning a code -- itself a finding,
+    because an escaping exception and a refusal both exit 1 and only the return proves the driver
     finished its own bookkeeping.
     """
     log, entered = [], []
     urls = set(refuse)
+    at = set(refuse_at)
 
-    def stub(cap, spec, name):
-        entered.append(spec.url)
-        if spec.url in urls:
-            raise SystemExit(f"{spec.url} is 9999 px wide at a {cdp.WIDTH} px viewport")
+    def stub(cap, spec, name, width):
+        entered.append((spec.url, width))
+        if spec.url in urls or f"{spec.url}@{width}" in at:
+            raise SystemExit(f"{spec.url} is 9999 px wide at a {width} px viewport")
         if crash is not None:
             raise crash
 
     rc = "raised"
     err = io.StringIO()
+    console = io.StringIO()
     with _stubbed(log):
         try:
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            with contextlib.redirect_stdout(console), contextlib.redirect_stderr(err):
                 rc = main(stub)
         except SystemExit as exc:
             rc = f"raised:{exc.code}"
-    return rc, entered, err.getvalue(), "publish" in log, log.count("discard")
+    return rc, entered, err.getvalue(), console.getvalue(), "publish" in log, log.count("discard")
+
+
+@contextlib.contextmanager
+def _fake_browser(got):
+    """The CDP reads, replaced, so the real `shoot()` can be called with no Chrome.
+
+    Only the reads are faked. `shoot` itself -- the order it sets the viewport in, the checks it
+    runs, whether it stages bytes -- is the code under test, and every one of those is invisible
+    to the rules that drive `main()` through a stubbed `shoot_fn`.
+    """
+    saved = (cdp.measure, cdp.require_records, cdp.require_labelled_cells, cdp.require_form)
+    cdp.measure = lambda session, extra="": dict(got)
+    cdp.require_records = lambda g, w: None
+    cdp.require_labelled_cells = lambda g, w: None
+    cdp.require_form = lambda g, w: None
+    try:
+        yield
+    finally:
+        cdp.measure, cdp.require_records, cdp.require_labelled_cells, cdp.require_form = saved
+
+
+class _ShootSession:
+    """The session `shoot()` talks to: it records, and it remembers nothing else.
+
+    Distinct from the `_FakeSession` above, which stands in for the session `main()` publishes.
+    Two different contracts, and one class quietly serving both would let a rule pass on the
+    other's methods.
+    """
+
+    def __init__(self, log, where="/users"):
+        self.log, self._where = log, where
+
+    def set_width(self, width):
+        self.log.append(("set_width", width))
+
+    def goto(self, url):
+        self.log.append(("goto", url))
+
+    def where(self):
+        return self._where
+
+    def settle(self, seconds=0.4):
+        pass
+
+    def write_png(self, path):
+        self.log.append(("png", path))
+
+
+class _ShootCap:
+    """A Capture whose session records what `shoot()` asked it to do."""
+
+    def __init__(self, log, where="/users"):
+        self.session = _ShootSession(log, where)
+        self.base = "http://127.0.0.1:0"
+
+    def require_running(self):
+        pass
+
+
+def _run_shoot(got, width, log=None, where=None, spec=None):
+    """The real shoot() against a fake browser; returns (log, refusal_text_or_None).
+
+    The fake session answers with the spec's own URL by default: `shoot` refuses a page that
+    answers something else, and a rule about the fixture guards must not be satisfied -- or
+    defeated -- by that check.
+    """
+    log = [] if log is None else log
+    spec = Page("/users", "users", True) if spec is None else spec
+    with _fake_browser(got), contextlib.redirect_stdout(io.StringIO()):
+        try:
+            shoot(_ShootCap(log, spec.url if where is None else where), spec,
+                  "/tmp/opencode/selftest-users.png", width)
+        except SystemExit as exc:
+            return log, str(exc)
+    return log, None
 
 
 def _run_single_shot(mod, exc):
@@ -419,11 +590,12 @@ def self_test():
     urls = [p.url for p in PAGES]
 
     def all_refuse(problems):
-        rc, entered, err, published, discarded = _run_main(refuse=urls)
-        if len(entered) != len(urls):
-            problems.append(f"a refusal on every page measured {len(entered)} of {len(urls)} "
+        rc, entered, err, _out, published, discarded = _run_main(refuse=urls)
+        want = _expected_pass()
+        if len(entered) != len(want):
+            problems.append(f"a refusal on every page measured {len(entered)} of {len(want)} "
                             f"({entered}); the loop has to finish for the count it prints to be "
-                            "true")
+                            "true, at every viewport")
         if rc != 1:
             problems.append(f"every page refused -> main() returned {rc!r}, want 1")
         if discarded != 1:
@@ -435,9 +607,10 @@ def self_test():
 
     def one_refuses(problems):
         victim = urls[-1]
-        rc, entered, err, published, discarded = _run_main(refuse=[victim])
-        if entered != urls:
-            problems.append(f"one refusal stopped the loop at {entered}, want all {urls}")
+        rc, entered, err, _out, published, discarded = _run_main(refuse=[victim])
+        if entered != _expected_pass():
+            problems.append(f"one refusal stopped the loop at {entered}, "
+                            f"want {_expected_pass()}")
         if rc != 1:
             problems.append(f"one page refused -> main() returned {rc!r}, want 1")
         if victim not in err:
@@ -449,22 +622,23 @@ def self_test():
                             "want 1 and False")
 
     def none_refuses(problems):
-        rc, entered, err, published, discarded = _run_main()
+        rc, entered, err, _out, published, discarded = _run_main()
         if rc != 0:
             problems.append(f"a clean run -> main() returned {rc!r}, want 0")
         if not published:
             problems.append("a clean run did not publish the stage")
         if discarded:
             problems.append("a clean run discarded the stage")
-        if entered != urls:
-            problems.append(f"a clean run measured {entered}, want {urls}")
+        if entered != _expected_pass():
+            problems.append(f"a clean run measured {entered}, want {_expected_pass()}")
 
     def crash_is_a_refusal(problems):
         # A bug inside shoot() must not cost the other four pages either: `except Exception` is
         # the only thing standing between a TypeError on page 1 and a run that measured nothing.
-        rc, entered, err, published, discarded = _run_main(crash=TypeError("a real bug"))
-        if len(entered) != len(urls):
-            problems.append(f"an exception on every page stopped the loop at {len(entered)}")
+        rc, entered, err, _out, published, discarded = _run_main(crash=TypeError("a real bug"))
+        if len(entered) != len(_expected_pass()):
+            problems.append(f"an exception on every page stopped the loop at {len(entered)}, "
+                            f"want {len(_expected_pass())}")
         if rc != 1 or discarded != 1:
             problems.append(f"an exception -> rc={rc!r} discarded={discarded}, want 1 and 1")
         if "TypeError" not in err:
@@ -563,6 +737,126 @@ def self_test():
                     problems.append(f"{mod_name}: a {kind} refusal discarded the stage "
                                     f"{discarded} times, want 1")
 
+    def desktop_only_refusal(problems):
+        # The trap #149 exists for: a page that fits at 360 px and is a 1471 px document at
+        # 1024 px -- which is exactly what `overflow-wrap: break-word` alone produces. A driver
+        # that measures one viewport calls that run green, so the contract being pinned here is
+        # that the phone's 5/5 buys the run nothing.
+        victim = "/audit"
+        rc, _entered, err, _out, published, discarded = _run_main(
+            refuse_at=[f"{victim}@{DESKTOP_WIDTH}"])
+        if rc != 1:
+            problems.append(f"a refusal at {DESKTOP_WIDTH} px only -> main() returned {rc!r}, "
+                            "want 1")
+        if published:
+            problems.append(f"a refusal at {DESKTOP_WIDTH} px only published the stage anyway")
+        if discarded != 1:
+            problems.append(f"a refusal at {DESKTOP_WIDTH} px only discarded the stage "
+                            f"{discarded} times, want 1")
+        # Both viewports have to appear, with the right answer for each. Reading only "did it
+        # fail" would let a driver refuse the phone pass and report the desktop as fitting --
+        # the same sentence, inverted, and still a lie about the desktop.
+        if f"{len(PAGES)}/{len(PAGES)} pages fit at {ARTIFACT_WIDTH} px" not in err:
+            problems.append(f"the {ARTIFACT_WIDTH} px viewport is not reported as fitting: "
+                            f"{err.strip()[-200:]!r}")
+        if f"{len(PAGES) - 1}/{len(PAGES)} pages fit at {DESKTOP_WIDTH} px" not in err:
+            problems.append(f"the {DESKTOP_WIDTH} px viewport is not reported as refusing: "
+                            f"{err.strip()[-200:]!r}")
+        if victim not in err:
+            problems.append(f"the refusal does not name {victim!r}")
+
+    def every_viewport_measured(problems):
+        # `for width in WIDTHS[:1]` keeps every other rule in this file green: the phone still
+        # measures five pages, publishes, and exits 0. This is the rule that notices a viewport
+        # was dropped, and it is written as an exact transcript rather than a count so a pass
+        # that measured the same page twice at 360 px cannot satisfy it.
+        rc, entered, _err, _out, published, _discarded = _run_main()
+        want = _expected_pass()
+        if entered != want:
+            problems.append(f"a clean run measured {entered}, want {want}")
+        if rc != 0 or not published:
+            problems.append(f"a clean run -> rc={rc!r} published={published}, want 0 and True")
+
+    def summary_names_each_viewport(problems):
+        # "5/5 pages fit" is not a criterion until it says at what width. #140's lesson was that a
+        # fitting page can mean nothing; #149's is that it can mean a different viewport than the
+        # one you are reading about.
+        _rc, _entered, _err, out_text, _published, _discarded = _run_main()
+        for width in WIDTHS:
+            if f"{len(PAGES)}/{len(PAGES)} pages fit at {width} px" not in out_text:
+                problems.append(f"the success transcript has no line naming {width} px: "
+                                f"{out_text!r}")
+
+    def viewport_set_before_navigation(problems):
+        # Deleting `session.set_width(width)` is invisible to every rule above: main() would still
+        # walk both viewports, print two honest summary lines and publish, while both passes
+        # measured the same 360 px layout and reported it as two viewports agreeing. So this rule
+        # calls the real shoot() and reads the order of what it asked for.
+        log, refusal = _run_shoot({"scroll": 1024, "inner": 1024, "height": 900,
+                                   "tables": 1, "cells": 4, "longest": 251}, DESKTOP_WIDTH)
+        if refusal is not None:
+            problems.append(f"the desktop pass refused a page that fits: {refusal}")
+        kinds = [k for k, _ in log]
+        if ("set_width", DESKTOP_WIDTH) not in log:
+            problems.append(f"shoot() never moved the session to {DESKTOP_WIDTH} px ({log}); both "
+                            "passes would measure the artifact viewport and be reported as two")
+        if "goto" not in kinds or kinds.index("set_width") > kinds.index("goto"):
+            problems.append(f"the viewport is moved after the page is loaded ({log}); the render "
+                            "being measured is the one the previous pass left behind")
+
+    def only_the_artifact_viewport_writes(problems):
+        # A desktop PNG staged under the same basename would be published by whichever viewport ran
+        # last, and docs/screenshots/360/ would start carrying a 1024 px screenshot with nothing in
+        # the transcript saying so.
+        log, refusal = _run_shoot({"scroll": 1024, "inner": 1024, "height": 900,
+                                   "tables": 1, "cells": 4, "longest": 251}, DESKTOP_WIDTH)
+        if refusal is not None or any(k == "png" for k, _ in log):
+            problems.append(f"the {DESKTOP_WIDTH} px pass wrote bytes "
+                            f"({log}, refusal={refusal!r})")
+        log, refusal = _run_shoot({"scroll": ARTIFACT_WIDTH, "inner": ARTIFACT_WIDTH,
+                                   "height": 900, "tables": 1, "cells": 4, "longest": 251},
+                                  ARTIFACT_WIDTH)
+        if refusal is not None or not any(k == "png" for k, _ in log):
+            problems.append(f"the {ARTIFACT_WIDTH} px pass did not stage its artifact "
+                            f"({log}, refusal={refusal!r})")
+
+    def refusal_names_the_viewport_that_failed(problems):
+        # The 1471 px document has to arrive labelled 1024. A message that prints the constant
+        # instead of the viewport sends the next reader to the narrow stylesheet to fix a desktop
+        # problem, which is where #149's middle column went unnoticed in the first place.
+        wide = {"scroll": 1471, "inner": DESKTOP_WIDTH, "height": 900,
+                "tables": 1, "cells": 4, "longest": 251}
+        _log, refusal = _run_shoot(wide, DESKTOP_WIDTH)
+        if refusal is None:
+            problems.append("a 1471 px document at a 1024 px viewport was accepted")
+        elif f"{DESKTOP_WIDTH} px viewport" not in refusal:
+            problems.append(f"the refusal does not name {DESKTOP_WIDTH} px: {refusal!r}")
+        elif "photograph is not taken" in refusal:
+            problems.append("the desktop refusal withholds a photograph that does not exist: "
+                            f"{refusal!r}")
+        _log, refusal = _run_shoot(dict(wide, scroll=400, inner=ARTIFACT_WIDTH), ARTIFACT_WIDTH)
+        if refusal is None or "photograph is not taken" not in (refusal or ""):
+            problems.append("the artifact refusal does not say the photograph was withheld: "
+                            f"{refusal!r}")
+
+    def fixture_guards_run_once(problems):
+        # require_stress_row and require_unbreakable ask whether the FIXTURE was pushed hard enough
+        # for a width number to mean anything. Asked at both viewports they turn one broken fixture
+        # into two refusals, and the summary counts the same page twice -- which is the failure this
+        # file's own counting rules exist to prevent, arriving from the other direction.
+        spec = Page("/audit", "audit", True, stress=True)
+        pushed = {"scroll": 1024, "inner": 1024, "height": 900, "tables": 1, "cells": 4,
+                  "longest": 251, "stress": False}
+        _log, refusal = _run_shoot(pushed, DESKTOP_WIDTH, spec=spec)
+        if refusal is not None:
+            problems.append(f"the {DESKTOP_WIDTH} px pass ran the fixture guards ({refusal!r}); "
+                            "one broken fixture would be counted as two refusals")
+        _log, refusal = _run_shoot(dict(pushed, scroll=ARTIFACT_WIDTH, inner=ARTIFACT_WIDTH),
+                                   ARTIFACT_WIDTH, spec=spec)
+        if refusal is None or "seeded" not in refusal:
+            problems.append("the artifact pass accepted a page with no seeded stress row: "
+                            f"{refusal!r}")
+
     rule("a refusal on every page still measures all five", all_refuse)
     rule("one refusal names it and counts the rest", one_refuses)
     rule("a clean run publishes and exits 0", none_refuses)
@@ -574,6 +868,13 @@ def self_test():
     rule("a stress row needs a table", stress_needs_table)
     rule("somebody must carry the stress row", stress_must_be_carried)
     rule("lock.py and testlock.py discard and return 1", single_shot)
+    rule("a desktop-only refusal fails the run", desktop_only_refusal)
+    rule("every page is measured at every viewport", every_viewport_measured)
+    rule("each summary line names its viewport", summary_names_each_viewport)
+    rule("the viewport is moved before the page is loaded", viewport_set_before_navigation)
+    rule("only the artifact viewport writes bytes", only_the_artifact_viewport_writes)
+    rule("a refusal names the viewport that failed", refusal_names_the_viewport_that_failed)
+    rule("the fixture guards run at the artifact viewport only", fixture_guards_run_once)
 
     # Canary pair, through the same `rule` helper against its own lists: without it,
     # `rule = lambda w, b, *a: ran.append((w, 0))` reports 11 rules holding while calling none

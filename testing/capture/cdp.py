@@ -192,6 +192,20 @@ class Session:
         self.call("Emulation.setDeviceMetricsOverride", width=width, height=900,
                   deviceScaleFactor=1, mobile=True)
 
+    def set_width(self, width):
+        """Move this connection to another viewport (#149).
+
+        Only `width` moves. Every other emulation parameter is repeated from `__init__` on
+        purpose: a criterion that compares two viewports has to vary one thing, and a desktop pass
+        that also changed the scale factor or the mobile flag would report a difference whose cause
+        nobody could name. The page is re-navigated by the caller, exactly as the artifact pass
+        navigates it, so each viewport sees a fresh layout rather than a reflow of a page the
+        previous pass already measured.
+        """
+        self.width = width
+        self.call("Emulation.setDeviceMetricsOverride", width=width, height=900,
+                  deviceScaleFactor=1, mobile=True)
+
     def call(self, method, **params):
         self._mid += 1
         return self._ws.call(self._mid, method, params)
