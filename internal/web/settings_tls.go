@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -50,13 +51,22 @@ const (
 // handler runs as root — so a response that said "no such file or directory" for one path and
 // "permission denied" for another would let a signed-in operator map the root filesystem one
 // request at a time, and a third sentence ("failed to find any PEM data") would say whether a
-// file starts with a PEM block. Collapsing them costs the operator nothing they can act on
-// from a browser: the full reason goes to the daemon's own log, and `plock doctor` prints it as
-// root, which is where a certificate's problems get diagnosed anyway. The same reasoning makes
-// a failed login refuse without naming what was wrong (#1140).
+// file starts with a PEM block. The same reasoning makes a failed login refuse without naming
+// what was wrong (#1140).
+//
+// The trade only holds if the reason survives somewhere a root-only reader goes, so the handler
+// writes it to the daemon's log with the request id next to it, the way `pageError` routes a
+// suppressed detail. This sentence used to send the operator to `plock doctor` instead, and
+// doctor cannot keep that promise: its TLS check is handed `cfg.Settings.CertFile` and nothing
+// else — `checkTLS` takes one path — so a document holding A's certificate and B's key, which
+// is the reason most likely to arrive from this form, reports `tls | ok`. A foreground start is
+// no better: it can only report a pair that reached the document *without* this form, the state
+// the form exists to prevent. So the sentence names the one place that actually has the reason.
 const tlsPairRefusal = "the certificate and key you named could not be loaded, so the daemon " +
-	"would not start with them. Nothing was changed. Run `plock doctor` as root, or start the " +
-	"daemon in the foreground, to read the reason."
+	"would not start with them. Nothing was changed. The reason is in the daemon's log, on the " +
+	"line that carries this request's id, and nowhere else: `plock doctor` reads the certificate " +
+	"alone, so a key that is missing, unreadable, or not the pair to that certificate appears " +
+	"only in the log."
 
 // handleSettingsTLSSave is POST /settings/tls.
 //
@@ -99,9 +109,17 @@ func (s *Server) handleSettingsTLSSave(w http.ResponseWriter, r *http.Request) {
 	// operator holding this form needs to know which box. Validate still runs inside mutateConfig
 	// on the document about to be saved, so what follows is a better sentence, not a weaker gate.
 	if mode == TLSCustom && (typedCert == "" || typedKey == "") {
-		refuse("settings." + missingPathFields(typedCert, typedKey) +
-			` is required when tls is "custom": the daemon would start with nothing to serve the ` +
-			"handshake with. Name the file; nothing was changed.")
+		// The sentence names the box the operator has to fill, so it has to agree with what it
+		// names: one box "is required", both of them "are required". Sharing missingPathFields
+		// with the both-empty case is what used to print "settings.certFile and settings.keyFile
+		// is required".
+		verb, name := " is", "Name the file; "
+		if typedCert == "" && typedKey == "" {
+			verb, name = " are", "Name both files; "
+		}
+		refuse("settings." + missingPathFields(typedCert, typedKey) + verb +
+			` required when tls is "custom": the daemon would start with nothing to serve the ` +
+			"handshake with. " + name + "nothing was changed.")
 		return
 	}
 
@@ -111,7 +129,29 @@ func (s *Server) handleSettingsTLSSave(w http.ResponseWriter, r *http.Request) {
 	// certificate second, is a legitimate way to provision a machine, and nothing about it
 	// produces a daemon that fails to start.
 	if mode == TLSCustom {
+		// The page asks for absolute paths, and this is where that sentence is made true. A
+		// relative path resolves against the daemon's working directory, which is not the
+		// directory anyone is typing from: a relative pair that happens to load under the unit's
+		// WorkingDirectory is a daemon that comes back refusing to serve a page after somebody
+		// edits the unit file. config.Validate takes either, because the document's job is to
+		// describe the machine rather than second-guess it, so this gate is not weaker than the
+		// document's — it is the one the form's own words promised.
+		if rel := relativePathFields(typedCert, typedKey); rel != "" {
+			refuse("settings." + rel + " must be an absolute path: the daemon resolves a relative " +
+				"one against its own working directory, not the one you are typing from, and a " +
+				"certificate found that way is a start-up failure waiting for someone to edit the " +
+				"unit file. Nothing was changed.")
+			return
+		}
 		if _, err := LoadCustom(typedCert, typedKey, s.now); err != nil {
+			// The generic sentence goes to the browser and the reason comes here, with the
+			// request id next to it — the same trade `pageError` makes, and it is the half this
+			// handler used to forget. Without it the page tells a signed-in operator to go read
+			// a log that contains nothing but `POST /settings/tls 422`, and the disclosure
+			// argument above is a promise with nothing behind it. The two paths are safe to
+			// write down: the success path already puts them, quoted, in the audit trail.
+			s.logf("web: %s settings.tls refused %s + %s: %v", requestID(r),
+				strconv.Quote(typedCert), strconv.Quote(typedKey), err)
 			refuse(tlsPairRefusal)
 			return
 		}
@@ -200,6 +240,23 @@ func missingPathFields(cert, key string) string {
 		return settingsFieldCert
 	default:
 		return settingsFieldKey
+	}
+}
+
+// relativePathFields names the boxes holding a path that is not absolute, for the refusal that
+// makes the form's "absolute paths" sentence true. Same shape as missingPathFields, and the same
+// reason for it: the document-level check can cover either, while the person holding this form
+// needs to know which box.
+func relativePathFields(cert, key string) string {
+	switch {
+	case !filepath.IsAbs(cert) && !filepath.IsAbs(key):
+		return settingsFieldCert + " and settings." + settingsFieldKey
+	case !filepath.IsAbs(cert):
+		return settingsFieldCert
+	case !filepath.IsAbs(key):
+		return settingsFieldKey
+	default:
+		return ""
 	}
 }
 

@@ -473,6 +473,16 @@ func readCertFile(path string) ([]byte, error) {
 // shapeOf names what a path actually is, for the refusal above. The operator has to be able
 // to tell "you pointed me at a directory" from "you pointed me at a socket" without guessing
 // which one a mode string means.
+//
+// Nouns only, because the caller owns the clause: readCertFile appends ", not a regular file",
+// so a case here that repeats it prints the same eight words twice. That is how a device reads
+// as "a device, not a file, not a regular file" — a sentence nobody wrote and no test would
+// have caught, because the assertion only looked for the wrapper's half.
+//
+// The character-device case has to come before the block one. Go defines ModeCharDevice as
+// ModeDevice OR its own bit, so every character device matches both tests, and whichever is
+// written first is the only one that can ever run. Measured here: /dev/zero stats as
+// Dcrw-rw-rw- with ModeDevice and ModeCharDevice both set.
 func shapeOf(mode os.FileMode) string {
 	switch {
 	case mode.IsDir():
@@ -481,12 +491,15 @@ func shapeOf(mode os.FileMode) string {
 		return "a named pipe with nobody writing to it"
 	case mode&os.ModeSocket != 0:
 		return "a socket"
-	case mode&os.ModeDevice != 0:
-		return "a device, not a file"
 	case mode&os.ModeCharDevice != 0:
-		return "a character device, not a file"
+		return "a character device"
+	case mode&os.ModeDevice != 0:
+		return "a device"
 	default:
-		return "not a regular file"
+		// Not a directory, pipe, socket or device, and not a regular file either — the mode
+		// bits carry something this switch has no noun for. Naming it honestly is the point:
+		// the old default repeated the caller's clause and read as a stutter.
+		return "something the mode bits do not name"
 	}
 }
 

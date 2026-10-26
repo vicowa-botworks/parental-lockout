@@ -219,9 +219,11 @@ func TestCustomWithAnEmptyPathIsRefusedNamingTheBox(t *testing.T) {
 	for _, tc := range []struct {
 		form, want, notWant string
 	}{
-		{"tls=custom&certFile=&keyFile=", "settings.certFile and settings.keyFile", ""},
-		{"tls=custom&certFile=/x.pem&keyFile=", "settings.keyFile", ""},
-		{"tls=custom&certFile=&keyFile=/x.key", "settings.certFile", "settings.keyFile"},
+		// The verb is part of the assertion: the sentence names the box, so "certFile and keyFile
+		// is required" is the sentence that has to fail.
+		{"tls=custom&certFile=&keyFile=", "settings.certFile and settings.keyFile are required", ""},
+		{"tls=custom&certFile=/x.pem&keyFile=", "settings.keyFile is required", ""},
+		{"tls=custom&certFile=&keyFile=/x.key", "settings.certFile is required", "settings.keyFile"},
 	} {
 		f := newSettingsFixture(t)
 		f.setTLS("auto", "", "")
@@ -451,7 +453,10 @@ func TestLoadCustomRefusesANonFileWithoutReadingIt(t *testing.T) {
 	fh.Close()
 
 	for _, tc := range []struct{ name, cert, want string }{
-		{"a directory", dir, "not a regular file"},
+		// The whole phrase, not the wrapper's half of it. Asserting only "not a regular file" is
+		// what let shapeOf return a sentence that collided with the clause readCertFile appends:
+		// the test passed on the wrapper's words while the shape word was wrong.
+		{"a directory", dir, "a directory, not a regular file"},
 		{"too big", big, "larger than"},
 	} {
 		start := time.Now()
@@ -488,8 +493,13 @@ func TestLoadCustomRefusesADeviceWithoutExhaustingTheProcess(t *testing.T) {
 		if err == nil {
 			t.Fatal("LoadCustom loaded /dev/zero as a certificate")
 		}
-		if !strings.Contains(err.Error(), "not a regular file") {
-			t.Errorf("the refusal does not name the shape: %v", err)
+		// /dev/zero is a character device, and Go defines ModeCharDevice as ModeDevice OR its own
+		// bit, so the two device shapes are separable only by the order they are tested in. With
+		// the block case first this printed "a device, not a file, not a regular file" -- the
+		// wrong noun and a doubled tail -- while an assertion on the wrapper's clause stayed
+		// green, which is how it reached a review.
+		if !strings.Contains(err.Error(), "a character device, not a regular file") {
+			t.Errorf("the refusal does not name the shape as a character device: %v", err)
 		}
 	case <-time.After(10 * time.Second):
 		t.Error("LoadCustom is still reading /dev/zero after 10s. An unbounded read of a path " +
@@ -536,4 +546,150 @@ func postWithoutToken(t *testing.T, f *settingsFixture, c *http.Cookie, path, fo
 	req.RemoteAddr = "192.0.2.71:1"
 	f.s.Handler().ServeHTTP(rec, req)
 	return rec
+}
+
+// TestTheRefusedPairReasonGoesToTheLogAndNotToThePage is the routing half of the disclosure
+// trade, and the half that was missing. The page-side test above asserts the reason is ABSENT
+// from the response; nothing asserted it was PRESENT anywhere, which is exactly the failure
+// warnsink_test.go was written for -- "routing facts about where a line goes ... passes every
+// test when it is wrong, because the line still exists somewhere". It was wrong here: the
+// sentence sent the operator to the log, to `plock doctor`, and to a foreground start, and none
+// of the three had the reason. Doctor cannot have it -- checkTLS is handed the certificate path
+// alone -- so A's certificate with B's key, the reason most likely to arrive from this form,
+// reports `tls | ok` there.
+func TestTheRefusedPairReasonGoesToTheLogAndNotToThePage(t *testing.T) {
+	dir := t.TempDir()
+	cert, _ := validPair(t, dir)
+	_, otherKey := validPair(t, filepath.Join(dir, "other"))
+
+	f := newSettingsFixture(t)
+	f.setTLS("auto", "", "")
+	logged := newLogSink()
+	f.s.Logf = logged.log
+
+	rec := authPost(t, f.s, "/settings/tls", "tls=custom&certFile="+cert+"&keyFile="+otherKey)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a mismatched pair answered %d, want 422", rec.Code)
+	}
+
+	// One line, carrying all three facts. Asserting across the whole sink would let the access
+	// log's own line satisfy the request-id half and the refusal satisfy the reason half, which
+	// is the same "the line exists somewhere" mistake in a different costume.
+	lines := logged.Lines()
+	refused := ""
+	for _, l := range lines {
+		if strings.Contains(l, "settings.tls refused") {
+			refused = l
+			break
+		}
+	}
+	if refused == "" {
+		t.Fatalf("the refusal wrote nothing to the log the page tells the operator to read: %q",
+			lines)
+	}
+	if !strings.Contains(refused, "private key") {
+		t.Errorf("the refusal line does not carry the reason: %q", refused)
+	}
+	// Both paths, quoted, for the reason the audit trail quotes them: a typed path holding a
+	// newline must not be able to forge a line in a log someone else is reading.
+	if !strings.Contains(refused, strconv.Quote(cert)) || !strings.Contains(refused, strconv.Quote(otherKey)) {
+		t.Errorf("the refusal line does not name both paths as quoted values: %q", refused)
+	}
+	// Tied to the request the operator is holding. "The reason is in the log" is only actionable
+	// on a daemon serving more than one request if the reader can find their own line.
+	id := rec.Header().Get("X-Request-Id")
+	if id == "" || !strings.Contains(refused, id) {
+		t.Errorf("the refusal line is not tied to the request id the page was answered with "+
+			"(id %q): %q", id, refused)
+	}
+
+	// And the page still says nothing about the filesystem.
+	body := rec.Body.String()
+	if !strings.Contains(body, "could not be loaded") {
+		t.Errorf("the page lost its generic sentence.\n%s", body)
+	}
+	for _, leak := range []string{"private key", "no such file", "permission denied", "PEM"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("the reason leaked to the page as %q.\n%s", leak, body)
+		}
+	}
+}
+
+// TestARelativePairThatWouldLoadIsStillRefused turns the form's "Absolute paths, readable by the
+// account the daemon runs as" from a preference into a gate. config.Validate accepts a relative
+// path, so before this the pair below saved -- and it resolves against the daemon's working
+// directory, not the directory anyone typed it into. A certificate found that way is a daemon
+// that comes back unable to serve the page that set it, the one failure this form exists to
+// prevent, the first time somebody edits the unit file's WorkingDirectory.
+func TestARelativePairThatWouldLoadIsStillRefused(t *testing.T) {
+	dir := t.TempDir()
+	cert, key := validPair(t, dir)
+
+	// The control, and the only thing that makes the refusal below mean anything: from the
+	// directory holding the pair -- which is what a unit file's WorkingDirectory is to the daemon
+	// -- the relative form resolves and loads. So what refuses it cannot be an incidental failure
+	// further down.
+	t.Chdir(filepath.Dir(cert))
+	relCert, relKey := filepath.Base(cert), filepath.Base(key)
+	if _, err := LoadCustom(relCert, relKey, nil); err != nil {
+		t.Fatalf("the relative pair does not load from %s, so this case proves nothing: %v", dir, err)
+	}
+
+	f := newSettingsFixture(t)
+	f.setTLS("auto", "", "")
+
+	rec := authPost(t, f.s, "/settings/tls", "tls=custom&certFile="+relCert+"&keyFile="+relKey)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("a relative pair answered %d, want 422:\n%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "settings.certFile and settings.keyFile must be an absolute path") {
+		t.Errorf("the refusal does not name both boxes as the problem.\n%s", body)
+	}
+	if got := f.settings(); got.TLS != "auto" || got.CertFile != "" || got.KeyFile != "" {
+		t.Errorf("a refused submit stored tls=%q cert=%q key=%q", got.TLS, got.CertFile, got.KeyFile)
+	}
+	if n := f.savesCount(); n != 0 {
+		t.Errorf("a refused submit saved %d times", n)
+	}
+	if lines := f.settingsAuditLines(); len(lines) != 0 {
+		t.Errorf("a refused submit wrote %v", lines)
+	}
+
+	// One box at a time when only one is wrong, because the operator has to know which one to fix.
+	rec = authPost(t, f.s, "/settings/tls", "tls=custom&certFile="+cert+"&keyFile="+relKey)
+	body = rec.Body.String()
+	if !strings.Contains(body, "settings.keyFile must be an absolute path") {
+		t.Errorf("the refusal does not name settings.keyFile.\n%s", body)
+	}
+	if strings.Contains(body, "settings.certFile and") {
+		t.Errorf("the refusal blames settings.certFile as well, which holds an absolute path.\n%s",
+			body)
+	}
+}
+
+// TestAModeCarryingTheWhitespaceAPasteAddsIsStoredTrimmed exercises the trim where it happens.
+// The equivalence table cannot see it: it calls tlsModeWord on the value it has already trimmed,
+// so its " true" and "custom " rows test the same thing as "true" and "custom" and the trim
+// itself goes unasserted. Trimming is not correcting, and the document must not end up holding
+// the whitespace either.
+func TestAModeCarryingTheWhitespaceAPasteAddsIsStoredTrimmed(t *testing.T) {
+	dir := t.TempDir()
+	cert, key := validPair(t, dir)
+	f := newSettingsFixture(t)
+	f.setTLS("auto", "", "")
+
+	rec := authPost(t, f.s, "/settings/tls", "tls=%20custom%09&certFile="+cert+"&keyFile="+key)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a mode padded with a space and a tab answered %d, want 200:\n%s",
+			rec.Code, rec.Body.String())
+	}
+	if got := f.settings(); got.TLS != "custom" {
+		t.Errorf("the document stores tls=%q; the form trims to recognise the mode, and must not "+
+			"store what it trimmed", got.TLS)
+	}
+	lines := f.settingsAuditLines()
+	if len(lines) != 1 || !strings.Contains(lines[0], `tls "auto" to custom`) {
+		t.Errorf("the trail does not record the stored mode as the bare word custom: %v", lines)
+	}
 }

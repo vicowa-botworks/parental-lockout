@@ -1847,9 +1847,9 @@
       "id": "W256",
       "package": "./internal/web/",
       "file": "internal/web/settings_tls.go",
-      "old": "\tif mode == TLSCustom && (typedCert == \"\" || typedKey == \"\") {\n\t\trefuse(\"settings.\" + missingPathFields(typedCert, typedKey) +\n\t\t\t` is required when tls is \"custom\": the daemon would start with nothing to serve the ` +\n\t\t\t\"handshake with. Name the file; nothing was changed.\")",
-      "new": "\tif false && mode == TLSCustom && (typedCert == \"\" || typedKey == \"\") {\n\t\trefuse(\"nothing was changed.\")",
-      "note": "the empty-path rule goes, so `custom` with a blank box reaches LoadCustom and comes back as the generic refusal: the operator is not told which box. TestCustomWithAnEmptyPathIsRefusedNamingTheBox."
+      "old": "\tif mode == TLSCustom && (typedCert == \"\" || typedKey == \"\") {",
+      "new": "\tif false && mode == TLSCustom && (typedCert == \"\" || typedKey == \"\") {",
+      "note": "the empty-path rule goes, so `custom` with a blank box is refused for the wrong reason -- the absolute-path gate below catches it and says \"must be an absolute path\" where the operator needs the box named. TestCustomWithAnEmptyPathIsRefusedNamingTheBox. Re-pointed from the four-line anchor onto the guard statement when that sentence grew a plural verb: the long anchor stopped matching and the mutant went silently invalid, which is #1048 arriving in the wild."
     },
     {
       "id": "W257",
@@ -1922,6 +1922,22 @@
       "old": "    <p class=\"muted\">\n      Under \"no TLS\" the admin password and the session cookie cross the network in clear text, and\n      anything on the same network can read them. Under \"automatic\" the daemon mints its own\n      certificate and your browser warns that it is not signed by an authority it knows -- that\n      warning is expected, and it is still better than the line above. The two paths are ignored\n      unless you chose \"my own certificate\".\n    </p>",
       "new": "",
       "note": "the fail-open position is offered without its cost: #99's criterion is that a control which stops protecting the session names what stops happening, and clear text is the whole reason anybody would not choose it. TestTheTransportFormSaysWhatEachPositionMeansAndWhenItApplies."
-    }
+    },
+    {
+    "id": "W266",
+    "package": "./internal/web/",
+    "file": "internal/web/settings_tls.go",
+    "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),\n\t\t\t\tstrconv.Quote(typedCert), strconv.Quote(typedKey), err)",
+    "new": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),\n\t\t\t\tstrconv.Quote(typedCert), strconv.Quote(typedKey), nil)",
+    "note": "the refusal line is written with everything except the reason: the operator follows the page's instruction, finds a line naming both paths and ending in <nil>, and has nothing to act on. Every page-side assertion still passes, because the page never had the reason to begin with. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
+  },
+    {
+    "id": "W267",
+    "package": "./internal/web/",
+    "file": "internal/web/settings_tls.go",
+    "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
+    "new": "\t\t\t_ = fmt.Sprintf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
+    "note": "the handler computes the reason and throws it away instead of logging it -- the exact state this PR was reviewed out of. The sentence on the page still promises the log, and the suite's page-side tests assert only absence from the response, so the promise is empty and green. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
+  }
   ]
 }
