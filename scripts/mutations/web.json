@@ -1834,6 +1834,110 @@
       "old": "\tif utf8.RuneCountInString(name) <= config.MaxNameLen {",
       "new": "\tif len(name) <= config.MaxNameLen && utf8.RuneCountInString(name) >= 0 {",
       "note": "the form counts bytes while the document counts characters, making the form STRICTER than the config it feeds: a 200-character accented name is valid per config.Validate and refused at the page. Not equivalent, and invisible to the ASCII cases — the catcher is the `rename accepts the same length in two-byte characters` subtest, which exists for this mutant and nothing else. The body keeps a `utf8.RuneCountInString(name) >= 0` clause because this function is the only user of unicode/utf8 in the file: a plain len() replacement leaves the import unused, and a mutant that does not compile is reported as broken rather than as a catch. The clause is true for every string, so the byte count is still the only thing that decides."
-    }
+    },
+    {
+      "id": "W255",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\tmode, refusal := tlsModeWord(typedTLS)\n\tif refusal != \"\" {",
+      "new": "\tmode, refusal := tlsModeWord(typedTLS)\n\tif false && refusal != \"\" {",
+      "note": "the transport mode is parsed and then whatever it said is saved, so `tls=acme` reaches the document instead of being refused. TestAnUnknownOrMissingModeIsRefused."
+    },
+    {
+      "id": "W256",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\tif mode == TLSCustom && (typedCert == \"\" || typedKey == \"\") {",
+      "new": "\tif false && mode == TLSCustom && (typedCert == \"\" || typedKey == \"\") {",
+      "note": "the empty-path rule goes, so `custom` with a blank box is refused for the wrong reason -- the absolute-path gate below catches it and says \"must be an absolute path\" where the operator needs the box named. TestCustomWithAnEmptyPathIsRefusedNamingTheBox. Re-pointed from the four-line anchor onto the guard statement when that sentence grew a plural verb: the long anchor stopped matching and the mutant went silently invalid, which is #1048 arriving in the wild."
+    },
+    {
+      "id": "W257",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\t\tif _, err := LoadCustom(typedCert, typedKey, s.now); err != nil {",
+      "new": "\t\tif _, err := LoadCustom(typedCert, typedKey, s.now); err == nil {",
+      "note": "the start-up check is inverted, so a pair that loads is refused and a pair that would brick the next start is saved -- the exact failure #99 was written to prevent. TestACustomPairTheDaemonCanLoadIsSavedAndAudited and TestAPairTheDaemonCouldNotLoadIsRefusedWithoutDescribingTheFilesystem."
+    },
+    {
+      "id": "W258",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\ts.audit(\"settings.changed\", fmt.Sprintf(\"%s by %s\", strings.Join(changes, \"; \"),\n\t\tsessionName(s, r)))",
+      "new": "\t// the audit line is gone",
+      "note": "a transport change is applied silently, so the trail cannot answer who moved the daemon onto plain HTTP. TestACustomPairTheDaemonCanLoadIsSavedAndAudited."
+    },
+    {
+      "id": "W259",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\t\tif len(changes) == 0 {",
+      "new": "\t\tif false && len(changes) == 0 {",
+      "note": "a submit that changed nothing renames the config file and writes a trail line saying fields changed that did not, so the audit page stops being a record of what happened. TestATransportSubmitThatChangesNothingSaysSoAndWritesNothing."
+    },
+    {
+      "id": "W260",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\tpage.CertField = typedCert\n",
+      "new": "",
+      "note": "the refusal re-renders with the stored paths instead of the typed ones, so the operator is told a path is wrong and shown a different one. TestTheTypedPathsComeBackButTheIntervalDoesNot."
+    },
+    {
+      "id": "W261",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\tcase \"\":\n\t\treturn \"\", \"settings.tls was not submitted, so the daemon cannot tell which transport you \" +\n\t\t\t\"meant. Pick one of \" + tlsModeList() + \" explicitly; nothing was changed.\"",
+      "new": "\tcase \"\":\n\t\treturn TLSAuto, \"\"",
+      "note": "a request carrying no transport field is read as `auto`, which is the silent default #873 refuses: a truncated body would move a machine from a real certificate to a minted one without anyone choosing it. TestAnUnknownOrMissingModeIsRefused."
+    },
+    {
+      "id": "W262",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif !info.Mode().IsRegular() {",
+      "new": "\tif false && !info.Mode().IsRegular() {",
+      "note": "the shape check is dropped, so a directory, a socket or a named pipe is read as a certificate -- and the pipe parks the reader in `open` forever while the device is read until the runtime kills the process. TestLoadCustomRefusesANonFileWithoutReadingIt and TestLoadCustomRefusesADeviceWithoutExhaustingTheProcess."
+    },
+    {
+      "id": "W263",
+      "package": "./internal/web/",
+      "file": "internal/web/tls.go",
+      "old": "\tif info.Size() > maxCertFileBytes {",
+      "new": "\tif false && info.Size() > maxCertFileBytes {",
+      "note": "the bound stops refusing a large regular file before reading it. The LimitReader backstop still refuses, so the catch is the sentence: `is a 2 MiB file` becomes `grew past`, which is a statement about a file that did not grow. TestLoadCustomRefusesANonFileWithoutReadingIt."
+    },
+    {
+      "id": "W264",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/settings.tmpl",
+      "old": "    <p class=\"problem\">\n      A change here takes effect the <strong>next time the daemon starts</strong>, not now. You are\n      reading this page over the transport the daemon chose when it came up, so switching to\n      \"no TLS\" does not make this connection plain, and switching to a certificate does not make\n      it secure. Restart the daemon to apply it.\n    </p>\n    <p class=\"muted\">\n      Under \"no TLS\" the admin password and the session cookie cross the network in clear text, and\n      anything on the same network can read them. Under \"automatic\" the daemon mints its own\n      certificate and your browser warns that it is not signed by an authority it knows -- that\n      warning is expected, and it is still better than the line above. The two paths are ignored\n      unless you chose \"my own certificate\".\n    </p>\n    <p class=\"muted\">\n      If a certificate you later move, or that expires, stops the daemon from starting, the daemon\n      says so in its log and <code>plock doctor</code> names the file. Getting this page back means\n      editing <code>settings.tls</code> in the config file as root.\n    </p>",
+      "new": "",
+      "note": "the form stops saying the change waits for a restart. This is the sentence that keeps an operator from believing the wire changed the moment they pressed Save, and it is the one most likely to be tidied away as repetition of the confirmation. TestTheTransportFormSaysWhatEachPositionMeansAndWhenItApplies."
+    },
+    {
+      "id": "W265",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/settings.tmpl",
+      "old": "    <p class=\"muted\">\n      Under \"no TLS\" the admin password and the session cookie cross the network in clear text, and\n      anything on the same network can read them. Under \"automatic\" the daemon mints its own\n      certificate and your browser warns that it is not signed by an authority it knows -- that\n      warning is expected, and it is still better than the line above. The two paths are ignored\n      unless you chose \"my own certificate\".\n    </p>",
+      "new": "",
+      "note": "the fail-open position is offered without its cost: #99's criterion is that a control which stops protecting the session names what stops happening, and clear text is the whole reason anybody would not choose it. TestTheTransportFormSaysWhatEachPositionMeansAndWhenItApplies."
+    },
+    {
+    "id": "W266",
+    "package": "./internal/web/",
+    "file": "internal/web/settings_tls.go",
+    "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),\n\t\t\t\tstrconv.Quote(typedCert), strconv.Quote(typedKey), err)",
+    "new": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),\n\t\t\t\tstrconv.Quote(typedCert), strconv.Quote(typedKey), nil)",
+    "note": "the refusal line is written with everything except the reason: the operator follows the page's instruction, finds a line naming both paths and ending in <nil>, and has nothing to act on. Every page-side assertion still passes, because the page never had the reason to begin with. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
+  },
+    {
+    "id": "W267",
+    "package": "./internal/web/",
+    "file": "internal/web/settings_tls.go",
+    "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
+    "new": "\t\t\t_ = fmt.Sprintf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
+    "note": "the handler computes the reason and throws it away instead of logging it -- the exact state this PR was reviewed out of. The sentence on the page still promises the log, and the suite's page-side tests assert only absence from the response, so the promise is empty and green. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
+  }
   ]
 }

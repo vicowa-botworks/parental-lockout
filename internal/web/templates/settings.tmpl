@@ -131,9 +131,89 @@
   </fieldset>
 </form>
 
+{{- /* The transport. A third form on a third route, for the reason the other two have: this submit
+       answers a question the others did not ask, and its refusal has to re-render these boxes
+       holding these paths without touching the interval or pretending a password was submitted.
+       What makes this form different is when its value takes effect -- see the sentence under the
+       button. */ -}}
+<form method="post" action="/settings/tls" class="edit-form">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+
+  <fieldset>
+    <legend>How this page is reached</legend>
+
+    {{- /* A radio trio, not a dropdown, for the reason the enforcement pair above is one: every
+           position has to be named, and a control that can be submitted with nothing selected must
+           not have a safe-looking default. A <select> always has a selected option, so a form that
+           lost its selection in transit would silently submit whichever entry the browser happened
+           to light up. Three named positions, and a request carrying none is refused. */ -}}
+    <p>
+      <label><input type="radio" name="tls" value="auto" required
+                    {{if eq .TLSMode "auto"}}checked{{end}}>
+        Automatic -- mint a self-signed certificate</label>
+      <label><input type="radio" name="tls" value="custom" required
+                    {{if eq .TLSMode "custom"}}checked{{end}}>
+        My own certificate</label>
+      <label><input type="radio" name="tls" value="off" required
+                    {{if eq .TLSMode "off"}}checked{{end}}>
+        No TLS -- plain HTTP</label>
+    </p>
+
+    {{- /* The two paths are always shown, not revealed when "custom" is selected. Revealing them
+           would need a script, and this page runs under a CSP that forbids inline handlers and is
+           enumerated by a test that refuses them; a stylesheet-driven disclosure would hide the
+           boxes from an operator whose browser ignored it, which is the one time they need to see
+           them. They are inert under the other two modes, and the prose below says so. */ -}}
+    <p>
+      <label for="cert-file">Certificate file (under "my own certificate")</label>
+      <input id="cert-file" type="text" name="certFile" value="{{.CertField}}"
+             autocomplete="off" spellcheck="false">
+    </p>
+    <p>
+      <label for="key-file">Private key file</label>
+      <input id="key-file" type="text" name="keyFile" value="{{.KeyField}}"
+             autocomplete="off" spellcheck="false">
+    </p>
+
+    <p class="muted">
+      Absolute paths, readable by the account the daemon runs as -- which is root. Keep the key
+      itself mode <code>0600</code>: it holds the private half of whatever these two files are.
+    </p>
+    <p class="muted">
+      Nothing is saved until the pair loads. "My own certificate" is checked here, in the browser,
+      against the same rule the daemon applies when it starts -- the file has to exist, be an
+      actual file, parse as a certificate, and match the key. A pair that fails is refused and
+      nothing is written, because a saved setting the next start cannot boot on is a way to make
+      this page unreachable.
+    </p>
+    <p class="problem">
+      A change here takes effect the <strong>next time the daemon starts</strong>, not now. You are
+      reading this page over the transport the daemon chose when it came up, so switching to
+      "no TLS" does not make this connection plain, and switching to a certificate does not make
+      it secure. Restart the daemon to apply it.
+    </p>
+    <p class="muted">
+      Under "no TLS" the admin password and the session cookie cross the network in clear text, and
+      anything on the same network can read them. Under "automatic" the daemon mints its own
+      certificate and your browser warns that it is not signed by an authority it knows -- that
+      warning is expected, and it is still better than the line above. The two paths are ignored
+      unless you chose "my own certificate".
+    </p>
+    <p class="muted">
+      If a certificate you later move, or that expires, stops the daemon from starting, the daemon
+      says so in its log and <code>plock doctor</code> names the file. Getting this page back means
+      editing <code>settings.tls</code> in the config file as root.
+    </p>
+
+    <p>
+      <button type="submit">Save transport</button>
+    </p>
+  </fieldset>
+</form>
+
 <p class="muted">
-  The listening address, the TLS mode and the lock backends are not on this page. They change how
-  the daemon is reached and what it asks the desktop to do, so each needs its own way of saying
+  The listening address and the lock backends are not on this page. They change what the daemon
+  binds and what it asks the desktop to do, so each needs its own way of saying
   "you have just cut yourself off" before it is safe to offer as a form.
 </p>
 

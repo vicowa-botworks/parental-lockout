@@ -10,12 +10,14 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -410,17 +412,122 @@ func isDNSName(s string) bool {
 	return true
 }
 
+// maxCertFileBytes is the ceiling on a file this package will read as a certificate or a key.
+//
+// A certificate, its chain, and an EC key are a few kilobytes; a megabyte is already two
+// orders of magnitude past a real pair. The ceiling is not tidiness: the path arrives from a
+// configuration file and, since #99's TLS form, from a web request, and an unbounded read of
+// whatever it names is a daemon that never finishes starting. Measured on this box before the
+// ceiling existed, `tls.LoadX509KeyPair("/dev/zero", "/dev/zero")` does not return — it
+// allocates until the runtime kills the process with
+// `runtime: out of memory: cannot allocate 8388608-byte block`.
+const maxCertFileBytes = 1 << 20
+
+// readCertFile reads a certificate or key file the way the rest of this daemon reads a path
+// it was handed: open first, then ask the descriptor what it opened.
+//
+// Two shapes have to be refused before any bytes are read, and each was measured rather than
+// reasoned about:
+//
+//   - A named pipe with no writer parks a plain open in the kernel forever — LoadCustom on a
+//     FIFO was still parked after 10 s with a heap of 0 MB. O_NONBLOCK makes that open return
+//     instead of blocking, which is the same reason ensurePrivateDir passes it (#879); the
+//     shape check below is what then refuses the pipe. On Windows the constant is 0 and the
+//     open can still block, which this package accepts for the reason dir_other.go gives: the
+//     daemon only ever runs on Linux.
+//   - The mode is read from the held descriptor, not from the path. A stat on the path
+//     describes a file that may already have been swapped for something else by the time the
+//     bytes are read (#880), and the size limit is only honest about the object it measured.
+//
+// The limit is applied twice on purpose: once to the size the directory entry claims, which
+// refuses a large file before reading it, and once to what was actually read, which refuses
+// something that grew while it was being read.
+func readCertFile(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is %s, not a regular file", path, shapeOf(info.Mode()))
+	}
+	if info.Size() > maxCertFileBytes {
+		return nil, fmt.Errorf("%s is %d bytes, and a certificate file larger than %d is not a certificate file",
+			path, info.Size(), maxCertFileBytes)
+	}
+	buf, err := io.ReadAll(io.LimitReader(f, maxCertFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(buf)) > maxCertFileBytes {
+		return nil, fmt.Errorf("%s grew past %d bytes while it was being read; a certificate file does not do that",
+			path, maxCertFileBytes)
+	}
+	return buf, nil
+}
+
+// shapeOf names what a path actually is, for the refusal above. The operator has to be able
+// to tell "you pointed me at a directory" from "you pointed me at a socket" without guessing
+// which one a mode string means.
+//
+// Nouns only, because the caller owns the clause: readCertFile appends ", not a regular file",
+// so a case here that repeats it prints the same eight words twice. That is how a device reads
+// as "a device, not a file, not a regular file" — a sentence nobody wrote and no test would
+// have caught, because the assertion only looked for the wrapper's half.
+//
+// The character-device case has to come before the block one. Go defines ModeCharDevice as
+// ModeDevice OR its own bit, so every character device matches both tests, and whichever is
+// written first is the only one that can ever run. Measured here: /dev/zero stats as
+// Dcrw-rw-rw- with ModeDevice and ModeCharDevice both set.
+func shapeOf(mode os.FileMode) string {
+	switch {
+	case mode.IsDir():
+		return "a directory"
+	case mode&os.ModeNamedPipe != 0:
+		return "a named pipe with nobody writing to it"
+	case mode&os.ModeSocket != 0:
+		return "a socket"
+	case mode&os.ModeCharDevice != 0:
+		return "a character device"
+	case mode&os.ModeDevice != 0:
+		return "a device"
+	default:
+		// Not a directory, pipe, socket or device, and not a regular file either — the mode
+		// bits carry something this switch has no noun for. Naming it honestly is the point:
+		// the old default repeated the caller's clause and read as a stutter.
+		return "something the mode bits do not name"
+	}
+}
+
 // LoadCustom reads an operator-supplied pair and refuses to start on anything the
 // first handshake would trip over.
 //
 // Failing here rather than on the first request is the whole point: a daemon that
 // starts, reports healthy, and then cannot serve a page looks like a network
 // problem, and the operator debugs the wrong thing.
+//
+// It is also the check the settings form runs before it saves, so that a path typed into the
+// page cannot produce a document the next start refuses to boot on. That is why the read
+// goes through readCertFile rather than tls.LoadX509KeyPair: the form calls this same
+// function, so what the page accepts is what the daemon does, and the two cannot drift into
+// agreeing about a pair that hangs one of them.
 func LoadCustom(certFile, keyFile string, now func() time.Time) (tls.Certificate, error) {
 	if certFile == "" || keyFile == "" {
 		return tls.Certificate{}, errors.New("tls is \"custom\" but certFile or keyFile is empty")
 	}
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	certPEM, err := readCertFile(certFile)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("load %s and %s: %w", certFile, keyFile, err)
+	}
+	keyPEM, err := readCertFile(keyFile)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("load %s and %s: %w", certFile, keyFile, err)
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("load %s and %s: %w", certFile, keyFile, err)
 	}
