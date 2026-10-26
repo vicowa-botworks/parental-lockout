@@ -25,10 +25,13 @@ seconds per set and would make the gate something people skip. `make mutate` is 
 the slow target; this is the fast one that tells you the slow one is worth running.
 """
 
+import contextlib
 import inspect
+import io
 import os
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GO = os.environ.get("GO", "go")
@@ -56,9 +59,19 @@ DISCLAIMER_FRAGMENTS = ("apply", "compile", "does not run the suite", "survives 
 # deliberate: getsource returns source text, where the escape is two characters.
 SUMMARY_CALL = 'print(f"\\n{summary_line(total)}")'
 
+# The two lines that connect a detected set-file problem to the run's verdict, pinned the same
+# way as the summary call. `exit_status` has four rules of its own and `encoding_problems` has
+# three, and none of them can read the call site: handing `exit_status` one list prints the
+# refusal and exits 0, and deleting the collection silences the refusal as well -- both measured
+# with every other rule holding. These two lines are also exactly where a merge lands, since
+# this file has been conflict-resolved on them more than once, so moving one is meant to be a
+# deliberate edit in two rather than a resolution nobody re-read.
+STATUS_CALL = "status = exit_status(bad, file_problems)"
+COLLECT_CALL = "file_problems.extend(found)"
+
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 31
+EXPECTED_RULES = 49
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -87,6 +100,78 @@ def compiles(pkg):
         text=True,
         cwd=ROOT,
     )
+
+
+def json_escapes(text):
+    """Yield (offset, escape) for every JSON \\uXXXX escape in raw file text.
+
+    This has to run on the bytes of the file and not on the decoded document, and that is the
+    whole reason #148 needs its own check rather than riding along in `check()`. Once
+    `json.loads` has run, `"\\u2014"` and `"—"` are the same string: the escape is a property of
+    the file, and it is gone by the time any decoded-doc rule can look at it.
+
+    Backslashes are consumed in pairs, so `\\u00e9` -- a literal backslash followed by `u`, which
+    is what a mutant's `old` holds when it targets a Go string escape -- is not reported. A check
+    that fired on those would be refusing correct files, and the self-test pins that case.
+    """
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "\\":
+            nxt = text[i + 1] if i + 1 < n else ""
+            if nxt == "u" and i + 6 <= n and all(c in "0123456789abcdefABCDEF"
+                                                 for c in text[i + 2:i + 6]):
+                yield i, text[i:i + 6]
+            i += 2
+            continue
+        i += 1
+
+
+def encoding_problems(label, path):
+    """Refuse a committed set file that was written by a tool rather than declared.
+
+    Two defaults do this, and both were live in `gen-cli-mutations.py` until #148: `json.dump`
+    with `ensure_ascii=True` rewrites every em dash and arrow in a note as `\\u2014` / `\\u2192`,
+    and `open()` without `encoding=` writes in the operator's locale. The first mints a diff hunk
+    on a mutant nobody changed -- #133 carried exactly one into review on a line of
+    `enforce.json` its own PR did not touch -- and the second means two machines write different
+    bytes from the same generator, which fails silently in the opposite direction.
+
+    The generator that carried those defaults is gone -- #150 deleted it, because running it
+    silently dropped the hand-added CI21 -- so why keep the gate: the hunk in #133 came from
+    neither writer anyway. It came from an ad-hoc `python3 -c` append, which is what the obvious
+    one-liner does by default when a mutant is being added at the end of a long session. A
+    convention cannot stop that; a refusal can. Deleting the tool removes one way to write a bad
+    set file and leaves every other way exactly as open, which is the whole argument for the
+    refusal living in the gate rather than in the writer.
+
+    It answers with a second value, `bad_bytes`, because main has to decide something from this
+    result and a decision made by re-reading the sentence is a decision coupled to its wording.
+    The first version asked `any(" is not valid UTF-8 " in w for w in found)`, which held only
+    while the message below kept that exact phrase and nothing on either side was pinned: reword
+    the message and the run went back to dying inside `load` on the second set of thirteen,
+    losing the other eleven checks and the sentence written for the case. Failing closed either
+    way is why that was a note and not a breakage; a flag is why it does not have to be either.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except UnicodeDecodeError as exc:
+        return [f"{label} is not valid UTF-8 ({exc}); a set file declares its encoding by being "
+                f"UTF-8, not by whatever locale generated it last"], True
+    out = []
+    for offset, esc in json_escapes(text):
+        line = text.count("\n", 0, offset) + 1
+        # The remedy says "edit this file", not "regenerate it". A first version told the reader
+        # to re-run the generator with ensure_ascii=False, and on this tree that deleted CI21 --
+        # `gen-cli-mutations.py` emitted 20 mutants while the committed set held 21, because CI21
+        # was appended by hand. Advice that fixes an encoding hunk by silently dropping a mutant
+        # is the worse trade, and the gate cannot see the mutant go. #150 settled it by deleting
+        # the generator, so the sentence below no longer has to warn against a specific tool:
+        # there is no writer to re-run, and the sets are hand-maintained by declaration.
+        out.append(f"{label}:{line}: {esc} is a JSON escape for a character the file could hold "
+                   f"literally -- edit it to the character itself. There is no generator to "
+                   f"re-run: set files are maintained by hand (#150).")
+    return out, False
 
 
 def check(doc):
@@ -397,6 +482,181 @@ def self_test():
     rule_fires("control: the source scan finds a print after the summary",
                source_report(f'    {SUMMARY_CALL}\n    print("done")\n'))
 
+    # #148's check reads the file, not the decoded document, so it is the one rule here that has
+    # to put bytes on disk. The three together are what make it evidence rather than a grep: the
+    # escape is refused, the same character written literally is accepted, and a literal
+    # backslash-u -- what a pattern targeting a Go string escape actually contains -- is not
+    # mistaken for one. Without the third, a check hollowed into "refuse any backslash" passes
+    # the first two and rejects correct set files.
+    with tempfile.TemporaryDirectory() as tmp:
+        def encoding_case(body):
+            path = os.path.join(tmp, "set.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            return encoding_problems("set.json", path)
+
+        def raw_case(data):
+            # Bytes rather than text. The case main exists to survive is a file that cannot be
+            # read as UTF-8 at all, and `encoding_case` cannot put those bytes on disk: opening
+            # the file to write it is the thing that fails.
+            path = os.path.join(tmp, "raw.json")
+            with open(path, "wb") as fh:
+                fh.write(data)
+            return encoding_problems("raw.json", path)
+
+        got, bad_bytes = encoding_case(
+            '{"description": "x",\n'
+            '  "note": "held \\u2014 until the clock jumps",\n}\n')
+        # `rule_fires` takes the complaint the guarded check produced and fails when that is
+        # empty, so the escape case hands it `got` directly. A first pass inverted this and the
+        # self-test reported "the check it guards cannot fail" about a check that had just
+        # refused correctly -- which is at least the right direction to fail in. A second pass
+        # wrapped it as `"; ".join(got) or "reported nothing"` to make the message read better,
+        # which made the rule unable to fail: the fallback supplies the complaint the check
+        # failed to produce, so the empty branch was unreachable and gutting the scanner left
+        # the tally at full strength. Measured: `if False and nxt == "u"` printed
+        # `34 rules hold`. A complaint the check did not make is not evidence the check made one.
+        rule_fires("a JSON-escaped em dash in a set file is refused", "; ".join(got))
+
+        got, bad_bytes = encoding_case(
+            '{"description": "x",\n'
+            '  "note": "held — until the clock jumps",\n}\n')
+        rule("the same note written with the character itself is accepted",
+             "" if not got else f"refused a literal em dash: {got}")
+        # The flag is only useful if it distinguishes. This file decodes, so main must go on and
+        # check its mutants; a flag stuck at True skips every set and prints nothing about it.
+        # Paired with the raw case below, which is the same assertion the other way round: each
+        # one is the control the other cannot be hollowed into.
+        rule("a file that decodes is not reported unreadable",
+             None if not bad_bytes else "a readable set file was reported unreadable, so main would "
+                                    "skip it and check nothing")
+
+        # The file bytes here are `"old": "\\u00e9"` -- two backslashes -- which JSON decodes to a
+        # literal backslash followed by `u`. That is what a pattern matching a Go string escape
+        # holds, and it is the case a naive grep for `\u` reports as a defect.
+        got, bad_bytes = encoding_case('{"description": "x",\n  "old": "\\\\u00e9",\n}\n')
+        rule("a Go string escape in a pattern is not read as a JSON escape",
+             "" if not got else f"refused a backslash followed by u: {got}")
+
+        # 0xFF is not a UTF-8 byte in any position, so this is the file the branch in main takes:
+        # say so once, in a sentence of our own, and leave the JSON parser alone. Before #151 the
+        # run reached `load` instead and died there with `not valid JSON: 'utf-8' codec can't
+        # decode byte 0xff`, taking the remaining sets down with the one it could not read.
+        got, bad_bytes = raw_case(b'{"description": "x",\n  "note": "\xff",\n}\n')
+        rule("bytes that are not UTF-8 are reported unreadable",
+             None if bad_bytes else "a set file whose bytes do not decode was not reported "
+                                        "unreadable, so main would hand it to the JSON parser "
+                                        "and lose every set after it")
+        rule_fires("the unreadable file still gets a sentence of its own", "; ".join(got))
+
+    # What a detected problem is worth at the end of the run. These four are the difference
+    # between "the checks noticed" and "the run failed", and until now only the second one was
+    # ever claimed by a sentence in main. Each half is its own rule because each arrives through
+    # its own list; collapsing `or` to one operand is the gutting that used to survive.
+    def status_report(got, want):
+        return None if got == want else f"exit {got}, want {want}"
+
+    rule("a clean pass exits 0", status_report(exit_status(0, []), 0))
+    rule("a mutant that does not apply exits 1", status_report(exit_status(3, []), 1))
+    rule("a set-file encoding problem alone exits 1",
+         status_report(exit_status(0, ["cli.json: JSON escape"]), 1))
+    rule_fires("control: the exit-status check reports a wrong code",
+               status_report(exit_status(0, ["cli.json: JSON escape"]), 0))
+
+    # Pinning a function is not pinning the line that calls it, and this branch's own claim --
+    # that the encoding refusal cannot be deleted -- is a claim about main, not about
+    # `exit_status`. Both guttings below were measured on this head before anything read those
+    # two lines: handing `exit_status` one list printed the refusal and exited 0, deleting the
+    # collection printed nothing and exited 0, and the tally said every rule held either way.
+    # Putting them here makes the measurement a rule instead of a review comment, and makes a
+    # merge that resolves across these lines break something on purpose. Same idiom as
+    # SUMMARY_CALL above: the text is compared by equality, so re-spelling the call is a
+    # deliberate edit in two rather than a silent one.
+    def call_site_report(source, call):
+        return None if call in source else f"main does not contain {call!r}"
+
+    rule("main hands both lists to exit_status", call_site_report(body, STATUS_CALL))
+    rule_fires("control: the call-site scan finds exit_status handed one list",
+               call_site_report(body.replace(STATUS_CALL, "status = exit_status(bad, [])"),
+                                STATUS_CALL))
+    rule("main still collects what encoding_problems reported",
+         call_site_report(body, COLLECT_CALL))
+    rule_fires("control: the call-site scan finds the collection deleted",
+               call_site_report(body.replace(COLLECT_CALL, ""), COLLECT_CALL))
+
+    # And now the reason the two pins above are not enough. A text pin says a string is present;
+    # it cannot say the value it names reaches the process. Each gutting below keeps both pinned
+    # lines byte-for-byte, was run against a set file carrying a \u2014, and ships the refusal
+    # with exit 0 anyway: `found = []` one line above the pinned `extend`; `return status` turned
+    # into `return 0`; `return status` deleted; `if status:` turned into `if False:`; and the
+    # merge that keeps both pinned lines while taking main's tail from the side that never met
+    # `exit_status`. That last one is not hypothetical -- it is what a conflict resolution on
+    # these very lines produces, because the assignment and the collection are in the hunk and
+    # look load-bearing while the tail comes from the other side. Then `status` is computed and
+    # dropped, "45 rules hold" prints, CI is green, and the escape ships.
+    #
+    # So drive main and read the status back. The fixture's bytes are not UTF-8, so main takes
+    # the skip branch before `load`, which leaves this branch's own chain -- collection,
+    # `exit_status`, the return -- as the only thing that can make the run nonzero. It costs no
+    # compile: nothing here reaches `check`, and the self-test stays at 0.05 s.
+    def verdict_report(data, want, sentence=None):
+        with tempfile.TemporaryDirectory() as box:
+            path = os.path.join(box, "set.json")
+            with open(path, "wb") as fh:
+                fh.write(data)
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    rc = main(["check-mutations.py", path])
+            except SystemExit as exc:
+                return ("main exited from under the caller (%s), so the sets after this one "
+                        "were never checked" % exc)
+            # The sentence check goes first because on the escape arm it is the whole claim:
+            # a decodable fixture cannot be an empty set (`load` refuses one) and a fixture whose
+            # mutant applies would cost a compile, so its `bad` is 1 whatever the escape does and
+            # the exit code says nothing about this PR. The pair reads: the skip arm pins that the
+            # run is nonzero, this arm pins that the refusal is actually printed.
+            if sentence is not None and sentence not in out.getvalue():
+                return f"main exited {rc} without printing {sentence!r}"
+            return None if rc == want else "main returned %r, want %r" % (rc, want)
+
+    UNDECODABLE = (b'{"description": "x", "mutants": [{"id": "A1", "file": "a.go",\n'
+                   b'  "old": "\xff", "new": "y"}], "package": "./x/"}\n')
+    rule("a set file that cannot be decoded costs the process its exit status",
+         verdict_report(UNDECODABLE, 1))
+    # The control has to exercise the comparison, not the `SystemExit` arm: a harness whose last
+    # line became `return None` still reports the exit it was handed, and a `mutants: []` fixture
+    # -- the obvious second choice -- passes on exactly that hollowing, because an empty set is a
+    # clean set and main returns 0 for it whether or not the harness can read it. So the control
+    # is the same bytes with a promise that is knowingly wrong.
+    rule_fires("control: the harness reports a status that is not the one it was promised",
+               verdict_report(UNDECODABLE, 0))
+
+    # The arm above is the one a `\u2014` never arrives through. That fixture is not UTF-8 on
+    # purpose -- it is what forces the skip branch and leaves the chain observable -- but it also
+    # means `main` never walks the half of the loop body this PR exists for, and the pinned
+    # `file_problems.extend(found)` cannot see that either: wrap it in `if bad_bytes:` and the
+    # string survives verbatim, one indent deeper. Worse, that shape is a merge and not a mutant.
+    # `if bad_bytes: ... continue` sits five lines below the collection, inside the hunk this
+    # branch wrote, and taking the "skip early" side across those two lines moves one statement
+    # that already reads as conditional-adjacent -- the pin holds, the behavioural rule holds
+    # because the skip arm still collects, and the refusal is gone: nothing printed, exit 0,
+    # CI green, on the branch whose headline claim is that the refusal cannot be deleted.
+    #
+    # So drive the escape arm as well, and assert the sentence rather than the status. Both
+    # fixtures name a file that does not exist, so `check` reports it and nothing compiles: the
+    # self-test stays in milliseconds and needs no toolchain.
+    ESCAPED = (b'{"description": "x \\u2014 y", "mutants": [{"id": "A1", "file": "self-test-missing.go",\n'
+               b'  "old": "q", "new": "y"}], "package": "./x/"}\n')
+    # Same bytes with the character written the way the file should hold it. A clean set prints
+    # no refusal, so a sentence check hollowed into always-passing has nothing to report here --
+    # which is the only reason this fixture is a control and not a second claim.
+    CLEAN = ESCAPED.replace(b'\\u2014', "—".encode("utf-8"))
+    rule("an escaped set file is refused out loud, not only by the exit code",
+         verdict_report(ESCAPED, 1, "set-file encoding problem"))
+    rule_fires("control: the harness reports a refusal sentence that was never printed",
+               verdict_report(CLEAN, 1, "set-file encoding problem"))
+
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a
     # list and went stale when a case was added. What it catches is deletion by removal --
@@ -416,6 +676,22 @@ def self_test():
     return 0
 
 
+def exit_status(bad, file_problems):
+    """The exit code a finished pass deserves, as a number rather than as a branch in main.
+
+    `if bad or file_problems:` is where a detected problem becomes a failing run, and it was the
+    last link in a chain pinned end to end everywhere except there. Nine rules prove the checks
+    notice something; nothing proved that noticing is what makes the run fail, so dropping
+    `or file_problems` left every rule holding and printed the summary line over an escaped set
+    file. Pulled out because a branch in main cannot be handed a case and a function can.
+
+    Both halves are separate on purpose. A mutant that does not apply and a file that was
+    generated instead of declared arrive through different lists and are reported by different
+    sentences, and either one alone has to be enough to fail the run.
+    """
+    return 1 if (bad or file_problems) else 0
+
+
 def main(argv):
     if argv[1:] == ["--self-test"]:
         return self_test()
@@ -426,13 +702,33 @@ def main(argv):
 
     total = bad = 0
     named = []
+    file_problems = []
     for path in paths:
+        label = os.path.relpath(path, ROOT)
+        # Before `load`, not after it. `mutset.load` opens with encoding="utf-8" and catches
+        # ValueError -- which UnicodeDecodeError subclasses -- and then calls sys.exit, so a file
+        # whose bytes were not UTF-8 died there printing `not valid JSON: 'utf-8' codec can't
+        # decode byte 0xff` and the sentence written for exactly that case never printed. It also
+        # took the other twelve sets down with it: there is nothing to check in a file that cannot
+        # be read, but there is plenty to check in the files after it.
+        found, bad_bytes = encoding_problems(label, path)
+        # Deliberately not added to `bad`. A mutant that does not apply and a file that was
+        # written by a tool instead of declared are different failures: the closing line counts
+        # "N of M mutants would run without testing anything", and folding an encoding defect
+        # into that number would attribute a file-level problem to mutants that are fine.
+        file_problems.extend(found)
+        # The flag the check returns, not a search for a phrase inside the sentences it just
+        # built. Matching its prose worked only while the wording held, and when it stopped
+        # holding this branch stopped being taken: the run went back to dying in `load` two sets
+        # into thirteen, which is the failure the sentence above exists to prevent.
+        if bad_bytes:
+            print(f"{label}: skipped -- its bytes are not UTF-8, so there is nothing to check")
+            continue
         doc = load(path)
-        named.append((os.path.relpath(path, ROOT), doc))
+        named.append((label, doc))
         problems = check(doc)
         total += len(doc["mutants"])
         bad += len(problems)
-        label = os.path.relpath(path, ROOT)
         if problems:
             print(f"{label}: {len(problems)} of {len(doc['mutants'])} mutants are not testing anything")
             for mid, why in problems:
@@ -451,12 +747,19 @@ def main(argv):
         for why in dupes:
             print(f"  {why}")
 
-    if bad:
-        print(f"\n{bad} of {total} mutants would run without testing anything.")
-        print("Re-point them onto the code that replaced theirs -- updating `old` but not")
-        print("`new` is how a mutant ends up failing to compile, which the battery prints as")
-        print("a line and checks nothing.")
-        return 1
+    if file_problems:
+        print(f"\n{len(file_problems)} set-file encoding problem(s):")
+        for why in file_problems:
+            print(f"  {why}")
+
+    status = exit_status(bad, file_problems)
+    if status:
+        if bad:
+            print(f"\n{bad} of {total} mutants would run without testing anything.")
+            print("Re-point them onto the code that replaced theirs -- updating `old` but not")
+            print("`new` is how a mutant ends up failing to compile, which the battery prints as")
+            print("a line and checks nothing.")
+        return status
     print(f"\n{summary_line(total)}")
     return 0
 

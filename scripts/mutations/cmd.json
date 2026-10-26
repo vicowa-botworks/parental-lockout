@@ -296,9 +296,9 @@
     {
       "id": "CB3",
       "file": "cmd/plock/status.go",
-      "old": "\t\tr.Field(\"backends\", \"none \u2014 settings.lockBackends is empty, so nothing can be locked\")",
+      "old": "\t\tr.Field(\"backends\", \"none — settings.lockBackends is empty, so nothing can be locked\")",
       "new": "\t\tr.Field(\"backends\", strings.Join(rep.Backends, \" -> \"))",
-      "note": "an empty backend list renders as a bare `backends` label, which is the exact shape the never-assigned field produced. Killed only by an assertion scoped to the backends LINE: a whole-output Contains(out, \"none\") is satisfied by the unrelated \"none \u2014 the config has no users\" line, and that version of the test passed against this mutant."
+      "note": "an empty backend list renders as a bare `backends` label, which is the exact shape the never-assigned field produced. Killed only by an assertion scoped to the backends LINE: a whole-output Contains(out, \"none\") is satisfied by the unrelated \"none — the config has no users\" line, and that version of the test passed against this mutant."
     },
     {
       "id": "CH1",
