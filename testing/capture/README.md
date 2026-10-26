@@ -5,6 +5,12 @@ usable at 360 px with JavaScript off"*. They are not decoration and they are not
 each one is what a real browser reported at a real 360 px viewport, and the scripts here are what
 took them.
 
+**The measurement is no longer one viewport wide (#149).** `pages.py` walks `WIDTHS` — 360 px and
+1024 px — and refuses a page at each of them separately. The committed set stays the 360 px one:
+only the artifact viewport writes bytes, because two viewports staging a PNG under one basename
+would mean whichever ran last decided what got published. See *Two viewports* below for why one
+width was never a criterion.
+
 This folder exists because of #108. The committed `lock.png` showed a run-on sentence —
 *"...accepted the request but cannot confirm it This is the session the daemon runs inside."* —
 on a page whose tests all passed. Every check that existed at capture time passed, and the one
@@ -48,7 +54,7 @@ one page needs live in `cdp.py`.
 
 | driver | refuses when |
 |---|---|
-| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows 360 px** — checked before the PNG is written, per page; **the audit page** carries no seeded `platform.error` row, or its hardest unbreakable token is under 60 characters (#140: a page that could not have overflowed is not width evidence, and a page whose pressure came from the machine rather than the fixture is not evidence about the stylesheet) |
+| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows its viewport** — measured at every width in `WIDTHS`, refused per page per viewport, and before the PNG is written; **the audit page** carries no seeded `platform.error` row, or its hardest unbreakable token is under 60 characters (#140: a page that could not have overflowed is not width evidence, and a page whose pressure came from the machine rather than the fixture is not evidence about the stylesheet) |
 | `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows |
 | `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows |
 | all three | the daemon the fixture started is not the process still serving its port; something already answers the DevTools endpoint before the browser is launched; `--out` resolves outside the repository, names a file, or names a directory holding PNGs without `--overwrite`; an unrecognised flag |
@@ -252,11 +258,95 @@ now, so an unrecognised flag is an error.
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the
 flag is for. Replacing committed evidence should take two tokens, not a tab-completion.
 
+## Two viewports, because one was never a criterion (#149)
+
+`WIDTHS = (360, 1024)` in `pages.py`, and `Session.set_width` moves the CDP emulation between the
+passes — `width` only, with `height`, `deviceScaleFactor` and `mobile` repeated from `__init__`, so
+a pass that disagrees with the other has exactly one variable to blame.
+
+Why a second width had to be bought is the table #140 produced while it was being fixed:
+
+| viewport | as shipped | `overflow-wrap: break-word` | `overflow-wrap: anywhere` |
+|---|---|---|---|
+| 360 px | 914 px | 360 px | 360 px |
+| 1024 px | 1471 px | **1471 px** | 1024 px |
+
+The middle column is the trap. `break-word` is the value a reasonable person reaches for first, it
+satisfies the phone criterion completely, and it leaves the audit page a 1471 px document on a
+1024 px screen. Before #149 nothing here looked at a desktop width, so that fix was invisible
+rather than wrong.
+
+Both halves of that claim are measured on this branch rather than argued — and both required
+changing `app.css` and rebuilding `plock`, because the pages are served `default-src 'self'` with
+no `'unsafe-inline'` (`internal/web/middleware.go`), so a `<style>` element injected over CDP is
+silently blocked and reports `overflow-wrap: normal`. A first pass at this issue "proved" a correct
+fix had no effect, by that route.
+
+| the gutting, in a rebuilt binary | 360 px | 1024 px | what notices |
+|---|---|---|---|
+| delete `overflow-wrap: anywhere`, leaving `break-word` | 5/5 fit | `/audit` 1471 px, refused | the new criterion, and nothing else |
+| keep the declaration, override it later with `body { overflow-wrap: break-word; }` | 5/5 fit | `/audit` 1471 px, refused | the new criterion; `TestTheStylesheetPrintsTheNarrowLabels` still reports `ok` |
+
+The second row is the one worth reading twice. #147 pins the declaration with a grep, and its own
+comment says the grep pins *presence*, not effect: it survives the declaration moving out of the
+rule, losing its semicolon, or being overridden later. The third of those was performed here — the
+grep passed and the only thing in the repository that noticed is the criterion this branch adds.
+
+Five things about the shape, each because the obvious version was wrong:
+
+* **The refusal is per page per viewport, and the summary names the viewport.** `5/5 pages fit at
+  360 px` and `4/5 pages fit at 1024 px; refused: /audit` are two lines; a run that prints one of
+  them is not evidence about the other.
+* **Every viewport is walked even when the first refuses.** Stopping early reports a page broken at
+  both widths as broken at one, and the second number is the one that says whether the fix is a
+  wrap rule or a column nobody sized.
+* **Only the artifact viewport writes bytes.** The desktop pass measures, refuses and prints; it
+  never stages a PNG. `docs/screenshots/360/` is named for one width, and two passes staging one
+  basename would let whichever ran last decide what gets published.
+* **The pass proves the browser moved.** `shoot()` compares the `innerWidth` the browser reports
+  against the width it asked for and refuses if they differ. Asking is not evidence: `set_width`
+  can record `self.width = width` and never reach `Emulation.setDeviceMetricsOverride`, and every
+  rule above the fake session is then green while both passes measure a 360 px document. This is
+  also what makes the overflow threshold legitimate — comparing `scrollWidth` against the *requested*
+  width is only honest while the two are pinned to agree.
+* **A fixture refusal carries to the other viewport.** The guards that ask whether the fixture was
+  pushed hard enough run on the artifact pass only, because one broken fixture is one finding. The
+  consequence was not viewport-scoped: the desktop pass measured the same page and the summary
+  printed `5/5 pages fit at 1024 px` about a page the run had just refused as non-evidence. Such a
+  page now prints `UNTESTED (fixture)` and lands in a clause of its own —
+  `4/5 pages fit at 1024 px; untested (fixture): /audit` — because it neither failed that viewport
+  nor proved anything about it.
+
+Nine of the twenty-one self-test rules police this contract, and thirteen guttings were run against
+them — `WIDTHS[:1]`, `if False:` on the refusal test, a summary line without its width, the
+`set_width` **call at the call site** deleted, `set_width` moved after `goto`, every viewport
+writing bytes, the overflow compared against the constant instead of the viewport, the fixture
+guards run at both viewports, refusals filed against the wrong viewport, the artifact PNG not
+staged, the desktop pass reporting as the artifact pass: **11 caught, 0 survived**.
+
+Two more were run against the *body* of `set_width`, and they are the reason the fifth bullet exists.
+Both were measured surviving all eighteen rules on the head they were aimed at, and the reason is
+structural: `_ShootSession` is the fake that stands where `set_width` is, so every rule above it can
+only observe that `shoot()` **asked**. Nothing in the repository mutates `testing/capture` either —
+the thirteen sets are Go packages — so the self-test was the only thing standing there.
+
+| the gutting, in `cdp.py` | before the assertion | after it, on a real capture |
+|---|---|---|
+| `Emulation.setDeviceMetricsOverride` deleted, `self.width` kept | survived, 18 rules green | `REFUSED: / rendered at 360 px when asked for 1024 px; the viewport never moved`, then `0/5 pages fit at 1024 px; refused: /, /users, /profiles, /audit, /settings`, nothing written, exit 1 |
+| the argument ignored, `WIDTH` (360) re-sent every pass | survived, 18 rules green | the same refusal on every page, exit 1 |
+
+The 360 line stays `5/5` in both rows, which is the point of measuring at all: the phone pass is
+still telling the truth, and only the pass that never moved is refused. A pin that lives below the
+fake is the only kind that can see these, so the assertion is in `shoot()` and the rule drives it
+with a fake that reports `innerWidth=360` at a 1024 px request.
+
 ## The self-test, because nothing else in this repository can read these files
 
-`./pages.py --self-test` runs 11 rules about what a refusal does. It starts no browser, spawns no
-daemon, writes no file, and costs **0.028 s**, so `make verify` runs it beside the two mutation
-self-tests.
+`./pages.py --self-test` runs 21 rules about what a refusal does. It starts no browser, spawns no
+daemon, writes no file, and costs **0.043 s** for its twenty-one rules, so `make verify` runs it
+beside the two mutation
+self-tests. What it cannot do is reach below its own fakes — see the two body guttings above, which
+only a real capture sees.
 
 It exists because this package is invisible to every other gate: the mutants target `.go` and
 `.tmpl` only, nothing imports `pages.py`, and shellcheck does not read Python. That is how the
