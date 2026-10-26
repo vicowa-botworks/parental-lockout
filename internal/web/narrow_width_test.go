@@ -334,17 +334,41 @@ func TestTheStylesheetPrintsTheNarrowLabels(t *testing.T) {
 		t.Fatalf("app.css is not embedded: %v", err)
 	}
 	text := string(css)
-	for _, want := range []string{
+	// Each entry carries the harm its absence causes, because a single shared message lied the
+	// moment a pinned string stopped being about the phone layout: the failure text for the
+	// `overflow-wrap` entry below used to read "the stacked phone layout depends on it", which is
+	// true of the first three and false of the fourth.
+	for _, pin := range []struct{ want, why string }{
 		// The breakpoint is pinned to its value, not merely to the existence of a
 		// media query: a number small enough to never match a phone keeps every one of
 		// these strings in the file and leaves the desktop layout on a 360 px screen.
 		// 40rem is 640 px, which is comfortably past the widest phone in portrait.
-		"@media (max-width: 40rem)",
-		`content: attr(data-label)`,
-		`table.rows td[colspan]::before`,
+		{"@media (max-width: 40rem)", "a phone never gets the stacked layout at all"},
+		{`content: attr(data-label)`, "a stacked cell loses the words that say which column it is"},
+		{`table.rows td[colspan]::before`, "the full-width cell loses the label of its own column"},
+		// The second of the two `overflow-wrap` values, and this one is a grep rather than a
+		// measurement because no criterion in this repository looks at a desktop width: the 360 px
+		// capture is the only viewport anything measures, `cdp.WIDTH` is a constant, and no mutant
+		// lives in a .css file. That gap is the whole reason the string is pinned here -- deleting
+		// this declaration keeps every behavioural check green while /audit goes back to being a
+		// 1471 px document at a 1024 px viewport, because `break-word` alone passes the 360 px
+		// criterion and never feeds the intrinsic min-content width that decides the desktop one.
+		// Measured on the audit page with the real loginctl payload: 360 px viewport -> 360 px
+		// document with either value, 914 px with neither; 1024 px viewport -> 1024 px with
+		// `anywhere`, 1471 px with `break-word` alone.
+		//
+		// A grep pins presence, not effect: it would still pass if the declaration moved out of
+		// the `body` block that holds it, or lost its semicolon. The 360 px capture does look for
+		// a wrap rule, but for any wrap rule -- `break-word` alone satisfies it -- so nothing
+		// anywhere measures this value's effect. The behavioural version is a second viewport in
+		// testing/capture/pages.py, which is a wider change than this PR and is filed separately
+		// rather than left implied (#149).
+		{"overflow-wrap: anywhere",
+			"a wide cell can no longer shrink, so /audit is a 1471 px document at a 1024 px " +
+				"viewport (break-word alone fixes the 360 px half and not this one)"},
 	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("app.css no longer contains %q -- the stacked phone layout depends on it", want)
+		if !strings.Contains(text, pin.want) {
+			t.Errorf("app.css no longer contains %q -- %s", pin.want, pin.why)
 		}
 	}
 }

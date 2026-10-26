@@ -53,6 +53,58 @@ td {
 	border-bottom: 1px solid var(--line);
 }
 
+/* A cell's content has to be breakable, or the widest thing the daemon ever wrote decides how
+   wide the page is. Measured on the audit page with a real `loginctl list-sessions --json=short`
+   payload in the Detail column: the cell is 312 px and its content is 869 px at a 360 px
+   viewport, which makes the document 914 px; at 1024 px the same page is a 1471 px document,
+   because a table column cannot shrink below its content's min-content width.
+
+   The two values are not interchangeable and both are here on purpose. `break-word` fixes the
+   narrow case (document 360 px) and NOT the wide one (still 1471 px), because it never feeds the
+   intrinsic min-content width; `anywhere` fixes both (360 px and 1024 px). A browser that has
+   never heard of `anywhere` keeps the `break-word` declaration, which is the half the 360 px
+   criterion tests. Nothing about normal prose changes: both values break only as a last resort,
+   when a run does not fit the box it was given.
+
+   It is on `body`, not on `table.rows td`, because the table was only where the symptom was first
+   measured. `overflow-wrap` inherits, so one declaration on the root covers every element that
+   renders text an operator typed. Measured on /profiles with a 125-character token with no space
+   in it, at a 360 px and a 1024 px viewport:
+
+     in the rule name (`th[scope="row"]`)  1220 px / 1445 px as it was scoped to `td` -> 360 / 1024
+     in the profile name (`<caption>`)      1735 px / 1855 px, and the caption's own box fits
+                                           at 312 px while the document stays at 1735 px
+     in the profile name (`<h2>`, outside   the actual holder of that width: `section.profile > h2`
+      any table)                            reports own-run=125 and is what leaves 1735 px
+
+   Scoping the rule to the table would therefore have fixed the cell the review named and left the
+   page overflowing anyway, because the same string is also a heading. #152 has since put a ceiling
+   on both names -- `config.MaxNameLen = 200`, in `internal/config/validate.go`, checked on the
+   profile name and on the rule name inside `Validate` -- so this is no longer a story about a
+   string that is bounded nowhere, and the ceiling is not what retires this rule: #152 says so
+   itself, in the `MaxNameLen` doc block of that same file. Both pointers are by path and symbol
+   and not by line number, because this branch has already outlived two sets of numbers that an
+   unrelated edit moved. Re-measured at this head with both declarations deleted, the widest name
+   it admits still sets the page:
+
+     a 200-rune rule name    (`th[scope="row"]`)  document 1926 px @360, 2118 px @1024
+     a 200-rune profile name (`<h2>` + caption)   document 2744 px @360, 2864 px @1024
+
+   What genuinely is bounded nowhere is `username` -- `Validate` tests it for blank and duplicate
+   and never for length -- and the audit `Detail` cell, which is the daemon's own text: a 300-rune
+   username, which the daemon accepts today, sets /users to 2932 px @360 and 3445 px @1024 with the
+   rule gone. That, not a missing ceiling, is why the declaration belongs on `body`: a heading, a
+   caption and a row header are three different scopes, and the root is the only one that covers all
+   three plus whatever the daemon itself writes.
+
+   It is its own `body` block rather than two lines folded into the root rule at the top of the
+   file, so the rationale travels with the declaration it explains. Both blocks apply and neither
+   overrides the other. */
+body {
+	overflow-wrap: break-word;
+	overflow-wrap: anywhere;
+}
+
 .state-held {
 	color: var(--held);
 	font-weight: 600;

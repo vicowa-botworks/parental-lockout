@@ -160,9 +160,9 @@
       <button type="submit">Create copy</button>
     </p>
     <p class="muted">
-      The copy starts with the same {{len .Rules}} windows, read in <code>{{.Timezone}}</code>,
-      and no account assigned to it. Change the zone on the copy's own row if the other child
-      lives by different hours.
+      The copy starts with {{if eq (len .Rules) 0}}no windows{{else}}the same {{len .Rules}} window{{if gt (len .Rules) 1}}s{{end}}{{end}},
+      read in <code>{{.Timezone}}</code>, and no account assigned to it. Change the zone on the
+      copy's own row if the other child lives by different hours.
     </p>
   </form>
 
