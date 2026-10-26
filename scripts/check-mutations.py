@@ -25,6 +25,7 @@ seconds per set and would make the gate something people skip. `make mutate` is 
 the slow target; this is the fast one that tells you the slow one is worth running.
 """
 
+import ast
 import contextlib
 import inspect
 import io
@@ -66,12 +67,18 @@ SUMMARY_CALL = 'print(f"\\n{summary_line(total)}")'
 # with every other rule holding. These two lines are also exactly where a merge lands, since
 # this file has been conflict-resolved on them more than once, so moving one is meant to be a
 # deliberate edit in two rather than a resolution nobody re-read.
-STATUS_CALL = "status = exit_status(bad, file_problems)"
+STATUS_CALL = "status = exit_status(bad, file_problems, script_problems)"
 COLLECT_CALL = "file_problems.extend(found)"
+
+# The line that runs the tool scan. Pinned because it is the whole check and it is one statement:
+# a merge that takes the side without it leaves every rule in self_test holding, the sets checked,
+# the summary printed, and nothing at all looking at scripts/. The two lines above pin where a
+# problem goes once it is found; this one pins that anyone looks.
+SCRIPT_SCAN_CALL = "script_problems = script_open_problems(script_files())"
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 49
+EXPECTED_RULES = 66
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -98,6 +105,10 @@ def compiles(pkg):
         [GO, "test", "-run", "^$", "-count=1", "-timeout", "900s", *pkg.split()],
         capture_output=True,
         text=True,
+        # Named, not inherited. This decodes `go test`'s output, and this repository's own failure
+        # messages carry em dashes; under a locale that is not UTF-8 the decode raises inside
+        # subprocess and the checker reports a compile failure it did not observe.
+        encoding="utf-8",
         cwd=ROOT,
     )
 
@@ -262,6 +273,120 @@ def summary_line(total):
     """
     return (f"all {total} mutants apply and compile -- this does not run the suite, so a "
             f"mutant that survives every test is invisible here (make mutate)")
+
+
+def script_files():
+    """Every Python tool under scripts/.
+
+    These are the programs that read this repository's files and write them back -- the battery
+    restores a source through the same kind of call it read it with -- so a locale default in one
+    of them is a tool handing back bytes that are not the ones it took. That is #154: the same
+    default #151 refused in a set file, one layer down, in the tool that writes the set file.
+    """
+    dirn = os.path.join(ROOT, "scripts")
+    return sorted(os.path.join(dirn, f) for f in os.listdir(dirn) if f.endswith(".py"))
+
+
+# A child process's output is bytes with the same problem: `text=True` decodes them with
+# `locale.getpreferredencoding(False)`, and this repository's own test output carries em dashes and
+# arrows. Measured on the pre-fix tree, the first thing to die under `PYTHONUTF8=0
+# PYTHONCOERCECLOCALE=0 LC_ALL=C` was not one of the four `open()` sites #154 names -- it was
+# `subprocess.run` inside mutate.py, in `subprocess._translate_newlines`, on byte 0xe2 of a `go
+# test` line. So the gate covers both surfaces or it does not cover the failure.
+TEXT_SUBPROCESS_FUNCS = ("run", "Popen", "check_output", "check_call", "call", "getoutput",
+                         "getstatusoutput")
+
+
+def _textual_subprocess(node):
+    """True when a subprocess call asks for decoded output and does not say what to decode with."""
+    flags = {}
+    for kw in node.keywords:
+        if kw.arg in ("text", "universal_newlines", "encoding"):
+            flags[kw.arg] = kw.value
+    if "encoding" in flags:
+        return False
+    for name in ("text", "universal_newlines"):
+        node_value = flags.get(name)
+        if isinstance(node_value, ast.Constant) and node_value.value is True:
+            return True
+    return False
+
+
+def unencoded_opens(text):
+    """Complaint lines for every text-mode `open()` in *text* that names no encoding.
+
+    `ast` rather than a scan of lines, and that choice is load-bearing for more than tidiness.
+    This file's own docstring contains the phrase "open() without `encoding=`", and mutate.py's
+    comments name the same call; a line-based scan refuses the checker for describing the defect
+    it exists to find, which is how a gate like this gets loosened within a week. A call node
+    cannot be a sentence and cannot be a comment.
+
+    Binary mode is exempt because it has no encoding to name. The mode is read off the call --
+    second positional argument or `mode=` -- and never guessed from the filename, because
+    `capture.png` opened as text is precisely the mistake a path-based rule would bless.
+
+    A file that does not parse is reported rather than skipped: every tool here is expected to
+    run, so a SyntaxError is a file whose encoding defaults cannot be formed an opinion about,
+    and silence is how a scan goes blind one file at a time.
+
+    The surface is `open` and `io.open` only. `Path.read_text` / `Path.write_text` carry the same
+    locale default and nothing in scripts/ uses them today; if one does, it belongs on this list
+    rather than on a rule that quietly keeps passing it.
+    """
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        return [f"line {exc.lineno or '?'} does not parse ({exc.msg}), so its open() calls "
+                f"cannot be read at all"]
+    out = []
+    for node in ast.walk(tree):
+        fn = node.func if isinstance(node, ast.Call) else None
+        # An Attribute is included because `io.open` is builtins.open with a module in front of
+        # it; the default is the same, so the requirement is the same.
+        name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else None)
+        if name == "open":
+            pass
+        elif (name in TEXT_SUBPROCESS_FUNCS and isinstance(fn, ast.Attribute)
+              and isinstance(fn.value, ast.Name) and fn.value.id == "subprocess"):
+            # Qualified, not merely named: mutate.py has its own `run` helpers, and a rule that
+            # flagged every `run(..., text=True)` in sight would be refused as noise the first
+            # time it fired on one.
+            if _textual_subprocess(node):
+                out.append(f"line {node.lineno}: subprocess.{name} decodes a child's output with "
+                           f"text=True and names no encoding=, so a `go test` line carrying an em "
+                           f"dash is decoded with the operator's locale")
+            continue
+        else:
+            continue
+        if any(kw.arg == "encoding" for kw in node.keywords):
+            continue
+        mode = None
+        if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+            mode = node.args[1].value
+        for kw in node.keywords:
+            if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                mode = kw.value.value
+        if isinstance(mode, str) and "b" in mode:
+            continue
+        out.append(f"line {node.lineno}: open() names no encoding=, so it reads and writes in "
+                   f"whatever locale the operator's shell happens to carry")
+    return out
+
+
+def script_open_problems(paths):
+    """`unencoded_opens` over the tools, each problem labelled with the file it lives in."""
+    out = []
+    for path in paths:
+        label = os.path.relpath(path, ROOT)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            out.append(f"{label}: cannot be read ({exc}); the tools that check this repository "
+                       f"are expected to be readable")
+            continue
+        out.extend(f"{label}: {c}" for c in unencoded_opens(text))
+    return out
 
 
 def self_test():
@@ -556,12 +681,12 @@ def self_test():
     def status_report(got, want):
         return None if got == want else f"exit {got}, want {want}"
 
-    rule("a clean pass exits 0", status_report(exit_status(0, []), 0))
-    rule("a mutant that does not apply exits 1", status_report(exit_status(3, []), 1))
+    rule("a clean pass exits 0", status_report(exit_status(0, [], []), 0))
+    rule("a mutant that does not apply exits 1", status_report(exit_status(3, [], []), 1))
     rule("a set-file encoding problem alone exits 1",
-         status_report(exit_status(0, ["cli.json: JSON escape"]), 1))
+         status_report(exit_status(0, ["cli.json: JSON escape"], []), 1))
     rule_fires("control: the exit-status check reports a wrong code",
-               status_report(exit_status(0, ["cli.json: JSON escape"]), 0))
+               status_report(exit_status(0, ["cli.json: JSON escape"], []), 0))
 
     # Pinning a function is not pinning the line that calls it, and this branch's own claim --
     # that the encoding refusal cannot be deleted -- is a claim about main, not about
@@ -657,6 +782,127 @@ def self_test():
     rule_fires("control: the harness reports a refusal sentence that was never printed",
                verdict_report(CLEAN, 1, "set-file encoding problem"))
 
+    # #154: the same default, one layer down. The rules above refuse a `\u2014` in a committed set
+    # file; these refuse the tool that would write it. The fixtures are source text, so nothing
+    # here touches disk until the drive at the end -- and the pair that decides whether this check
+    # is worth having is the fourth one, not the first.
+    def open_report(body):
+        return "; ".join(unencoded_opens(body))
+
+    rule_fires("a text-mode open() with no encoding= is refused",
+               open_report('with open(os.path.join(ROOT, f)) as fh:\n    orig = fh.read()\n'))
+    rule("the same call with its encoding named is accepted",
+         None if not open_report('with open(p, "w", encoding="utf-8") as fh:\n    fh.write(x)\n')
+         else "refused a call that names encoding=: "
+              + open_report('with open(p, "w", encoding="utf-8") as fh:\n    fh.write(x)\n'))
+
+    # Binary has no encoding to name, and the mode is read off the call rather than off the
+    # filename. `capture.png` opened as text is the mistake a path-shaped rule would bless, and it
+    # is a line in mutate.py today.
+    rule("a binary open is accepted, by its mode and not by its name",
+         None if not open_report('with open(path, "rb") as fh:\n    a = fh.read()\n'
+                                 'with open(path, mode="wb") as fh:\n    b = fh.write(y)\n')
+         else "refused a binary open: "
+              + open_report('with open(path, "rb") as fh:\n    a = fh.read()\n'
+                            'with open(path, mode="wb") as fh:\n    b = fh.write(y)\n'))
+
+    # The false-positive control, and the one that decides whether this gate survives its own
+    # first annoyance: this very file says `open()` without `encoding=` in prose, and mutate.py
+    # names the call in comments. A scan that reads lines would fail the checker for describing
+    # the defect it looks for -- and the fix for that is always to widen the scan's exception
+    # list until it reports nothing.
+    rule("the word open() in a docstring or a comment is not a call",
+         None if not open_report('"""It opens a file: open() without encoding= is the bug."""\n'
+                                 '# open(p) here is prose, not a call\n')
+         else "refused prose: "
+              + open_report('"""It opens a file: open() without encoding= is the bug."""\n'
+                            '# open(p) here is prose, not a call\n'))
+
+    # Per call, not per file. A tool that gets one open right and one wrong is the common case --
+    # mutate.py had sixteen of one and none of the other -- and a check that reports the file as
+    # guilty names the wrong thing to fix. Both halves: the bad one is still found, and the good
+    # one is not swept into it.
+    MIXED = ('with open(p, encoding="utf-8") as fh:\n    a = fh.read()\n'
+             'with open(q, "w") as gh:\n    b = gh.write(a)\n')
+    rule_fires("control: the named open does not excuse the unnamed one", open_report(MIXED))
+    rule("and only the unnamed open is reported",
+         None if len(unencoded_opens(MIXED)) == 1
+         else f"reported {len(unencoded_opens(MIXED))} problems for a file with one")
+
+    # The subprocess arm, which is where the measured crash actually was. The pair that keeps this
+    # honest is the third: mutate.py has helpers named `run` of its own, and a rule that flagged
+    # those would be widened away within a review cycle.
+    rule_fires("a text=True subprocess.run with no encoding= is refused",
+               open_report('r = subprocess.run(cmd, capture_output=True, text=True)\n'))
+    rule("the same call with its encoding named is accepted",
+         None if not open_report('r = subprocess.run(cmd, capture_output=True, text=True,\n'
+                                 '                 encoding="utf-8")\n')
+         else "refused a subprocess call that names encoding=: "
+              + open_report('r = subprocess.run(cmd, capture_output=True, text=True,\n'
+                            '                 encoding="utf-8")\n'))
+    rule("a subprocess call that keeps its output as bytes is accepted",
+         None if not open_report('r = subprocess.run(cmd, capture_output=True)\n'
+                                 'r = subprocess.run(cmd, text=False)\n')
+         else "refused a byte-mode subprocess call: "
+              + open_report('r = subprocess.run(cmd, capture_output=True)\n'
+                            'r = subprocess.run(cmd, text=False)\n'))
+    rule("the older spelling is caught too",
+         None if open_report('r = subprocess.run(cmd, universal_newlines=True)\n')
+         else "a universal_newlines run with no encoding= walked past the check")
+    rule("a helper of ours that happens to be named run is not subprocess",
+         None if not open_report('r = run(cmd, text=True)\nr = go.run(cmd, text=True)\n')
+         else "refused a call that is not subprocess: "
+              + open_report('r = run(cmd, text=True)\nr = go.run(cmd, text=True)\n'))
+
+    # Fail closed on a file the scanner cannot read. Skipping it is the quiet way this check stops
+    # checking: one broken tool at a time, at full green.
+    rule_fires("a tool that does not parse is reported rather than skipped",
+               open_report('def broken(:\n'))
+
+    # Whether a reported problem reaches the process. The pin first, then the drive, because the
+    # pin cannot tell a collected list from one printed and dropped -- the lesson #151's tail
+    # learned on the lines directly above.
+    rule("main actually runs the tool scan",
+         None if SCRIPT_SCAN_CALL in body else f"main does not contain {SCRIPT_SCAN_CALL!r}")
+    rule_fires("control: the call-site scan finds the scan deleted",
+               None if SCRIPT_SCAN_CALL in body.replace(SCRIPT_SCAN_CALL, "script_problems = []")
+               else "the scan no longer sees the line it guards")
+
+    def scripts_drive(tool_body, want, sentence=None):
+        """Run main over a tree whose scripts/ holds one tool, with no set files at all.
+
+        No sets is the point. With nothing to check, `bad` is 0 and the scan is the only thing
+        that can make the run nonzero; hand it a fixture set instead and `bad` carries a number
+        whatever the scan does, which is the trap the set-file drive above documents at length.
+        """
+        global ROOT
+        saved = ROOT
+        with tempfile.TemporaryDirectory() as box:
+            os.makedirs(os.path.join(box, "scripts", "mutations"))
+            with open(os.path.join(box, "scripts", "tool.py"), "w", encoding="utf-8") as fh:
+                fh.write(tool_body)
+            ROOT = box
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    rc = main(["check-mutations.py"])
+            except SystemExit as exc:
+                return ("main exited from under the caller (%s) instead of returning a status, so "
+                        "nothing after it ran" % exc)
+            finally:
+                ROOT = saved
+            if sentence is not None and sentence not in out.getvalue():
+                return f"main exited {rc} without printing {sentence!r}"
+            return None if rc == want else "main returned %r, want %r" % (rc, want)
+
+    BAD_TOOL = 'import os\nwith open(os.path.join(ROOT, "f")) as fh:\n    x = fh.read()\n'
+    CLEAN_TOOL = BAD_TOOL.replace('ROOT, "f")) ', 'ROOT, "f"), encoding="utf-8") ')
+    rule("a tool that opens a repo file with no encoding costs the run its exit status, out loud",
+         scripts_drive(BAD_TOOL, 1, "script encoding problem"))
+    rule("a tool that names its encoding leaves the run at 0", scripts_drive(CLEAN_TOOL, 0))
+    rule_fires("control: the drive reports a status that is not the one it was promised",
+               scripts_drive(BAD_TOOL, 0, "script encoding problem"))
+
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a
     # list and went stale when a case was added. What it catches is deletion by removal --
@@ -676,7 +922,7 @@ def self_test():
     return 0
 
 
-def exit_status(bad, file_problems):
+def exit_status(bad, file_problems, script_problems):
     """The exit code a finished pass deserves, as a number rather than as a branch in main.
 
     `if bad or file_problems:` is where a detected problem becomes a failing run, and it was the
@@ -685,11 +931,16 @@ def exit_status(bad, file_problems):
     `or file_problems` left every rule holding and printed the summary line over an escaped set
     file. Pulled out because a branch in main cannot be handed a case and a function can.
 
-    Both halves are separate on purpose. A mutant that does not apply and a file that was
-    generated instead of declared arrive through different lists and are reported by different
-    sentences, and either one alone has to be enough to fail the run.
+    All three are separate on purpose. A mutant that does not apply, a set file that was generated
+    instead of declared, and a tool that reads a repo file in the operator's locale arrive through
+    three lists and are reported by three sentences; folding one into another's count attributes
+    somebody else's defect to it, which is the same argument that keeps `bad` and `file_problems`
+    apart above. Either one alone has to be enough to fail the run.
+
+    The third argument has no default. A default is how a call site that forgot the script list
+    would keep compiling -- and compiling is what a merge resolution needs in order to look fine.
     """
-    return 1 if (bad or file_problems) else 0
+    return 1 if (bad or file_problems or script_problems) else 0
 
 
 def main(argv):
@@ -699,6 +950,10 @@ def main(argv):
     if not paths:
         dirn = os.path.join(ROOT, "scripts", "mutations")
         paths = sorted(os.path.join(dirn, f) for f in os.listdir(dirn) if f.endswith(".json"))
+
+    # Once, before the sets: this looks at the tools that write the files below, and which sets
+    # this run was handed has nothing to do with what they open.
+    script_problems = script_open_problems(script_files())
 
     total = bad = 0
     named = []
@@ -747,12 +1002,16 @@ def main(argv):
         for why in dupes:
             print(f"  {why}")
 
+    if script_problems:
+        print(f"\n{len(script_problems)} script encoding problem(s):")
+        for why in script_problems:
+            print(f"  {why}")
     if file_problems:
         print(f"\n{len(file_problems)} set-file encoding problem(s):")
         for why in file_problems:
             print(f"  {why}")
 
-    status = exit_status(bad, file_problems)
+    status = exit_status(bad, file_problems, script_problems)
     if status:
         if bad:
             print(f"\n{bad} of {total} mutants would run without testing anything.")

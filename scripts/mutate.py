@@ -96,6 +96,10 @@ def run_suite(pkg):
         [GO, "test", *pkg.split(), "-count=1", "-timeout", "900s"],
         capture_output=True,
         text=True,
+        # Named, not inherited. This is the decode that died first under `LC_ALL=C` with
+        # PYTHONUTF8=0: a `go test` line carrying an em dash, raised inside
+        # subprocess._translate_newlines, on a mutant that had done nothing wrong.
+        encoding="utf-8",
         cwd=ROOT,
     )
 
@@ -121,11 +125,11 @@ def run_set(path, label):
     for f in files:
         if not os.path.isfile(os.path.join(ROOT, f)):
             sys.exit(f"{label}: {f} is not in the tree -- the set is stale")
-    orig = {f: open(os.path.join(ROOT, f)).read() for f in files}
+    orig = {f: open(os.path.join(ROOT, f), encoding="utf-8").read() for f in files}
 
     def restore():
         for f in files:
-            with open(os.path.join(ROOT, f), "w") as fh:
+            with open(os.path.join(ROOT, f), "w", encoding="utf-8") as fh:
                 fh.write(orig[f])
 
     print(f"\n{label}  ({len(mutants)} mutants, {', '.join(pkgs)})")
@@ -159,7 +163,7 @@ def run_set(path, label):
             tally["invalid"] += 1
             continue
 
-        with open(os.path.join(ROOT, src), "w") as fh:
+        with open(os.path.join(ROOT, src), "w", encoding="utf-8") as fh:
             fh.write(mutated)
         r = run_suite(mpkg)
         out = r.stdout + r.stderr
@@ -2086,7 +2090,7 @@ def self_test():
         """
         slot = os.path.join(where, name)
         os.makedirs(slot, exist_ok=True)
-        with open(os.path.join(slot, "note.txt"), "w") as fh:
+        with open(os.path.join(slot, "note.txt"), "w", encoding="utf-8") as fh:
             fh.write("chrome wrote this\n")
         try:
             os.symlink("/no/such/target/anywhere", os.path.join(slot, "SingletonCookie"))
@@ -2143,12 +2147,12 @@ def self_test():
         `keep/` is never ignored and is what each rule says no about.
         """
         os.makedirs(where, exist_ok=True)
-        with open(os.path.join(where, ".gitignore"), "w") as fh:
+        with open(os.path.join(where, ".gitignore"), "w", encoding="utf-8") as fh:
             fh.write("".join(f"{p}\n" for p in ignore))
         for name in ("keep",) + tuple(ignore):
             slot = os.path.join(where, name.rstrip("/"))
             os.makedirs(slot, exist_ok=True)
-            with open(os.path.join(slot, "capture.png"), "w") as fh:
+            with open(os.path.join(slot, "capture.png"), "w", encoding="utf-8") as fh:
                 fh.write("\n")
         git_run(["init", "-q"], where, problems)
         return where
@@ -2196,7 +2200,7 @@ def self_test():
     def _snap02(bad):
         with tempfile.TemporaryDirectory() as work:
             regular = os.path.join(work, "server.go")
-            with open(regular, "w") as fh:
+            with open(regular, "w", encoding="utf-8") as fh:
                 fh.write("package web\n")
             listener = socket.socket(socket.AF_UNIX)
             listener.bind(os.path.join(work, "SingletonSocket"))
@@ -2230,7 +2234,7 @@ def self_test():
         with tempfile.TemporaryDirectory() as work:
             src = os.path.join(work, "src")
             os.makedirs(os.path.join(src, "internal"))
-            with open(os.path.join(src, "internal", "locked.go"), "w") as fh:
+            with open(os.path.join(src, "internal", "locked.go"), "w", encoding="utf-8") as fh:
                 fh.write("package web\n")
             git_run(["init", "-q"], src, bad)
 
@@ -2274,7 +2278,7 @@ def self_test():
             src = os.path.join(work, "src")
             os.makedirs(os.path.join(src, "internal"))
             for name in ("server.go", "keep.go"):
-                with open(os.path.join(src, "internal", name), "w") as fh:
+                with open(os.path.join(src, "internal", name), "w", encoding="utf-8") as fh:
                     fh.write("package web\n")
             git_run(["init", "-q"], src, bad)
             git_run(["add", "internal/server.go", "internal/keep.go"], src, bad)
@@ -2283,7 +2287,7 @@ def self_test():
             # an assertion both ways the exemption is unpinned -- too wide silently drops source,
             # too narrow refuses a run that should have gone ahead.
             os.makedirs(os.path.join(src, ".cortexkit"), exist_ok=True)
-            with open(os.path.join(src, ".cortexkit", ".gitignore"), "w") as fh:
+            with open(os.path.join(src, ".cortexkit", ".gitignore"), "w", encoding="utf-8") as fh:
                 fh.write("state\n")
             git_run(["add", ".cortexkit/.gitignore"], src, bad)
 
@@ -2318,11 +2322,12 @@ def self_test():
         with tempfile.TemporaryDirectory() as work:
             src = os.path.join(work, "src")
             os.makedirs(os.path.join(src, "internal", "web"))
-            with open(os.path.join(src, "internal", "web", "server.go"), "w") as fh:
+            with open(os.path.join(src, "internal", "web", "server.go"), "w",
+                      encoding="utf-8") as fh:
                 fh.write("package web\n")
             for name in ("runs", "other"):
                 chrome_profile(src, name, bad)
-            with open(os.path.join(src, ".gitignore"), "w") as fh:
+            with open(os.path.join(src, ".gitignore"), "w", encoding="utf-8") as fh:
                 fh.write("runs/\n")
             git_run(["init", "-q"], src, bad)
             # Tracked, so that the copy is checked against the repository rather than against
@@ -2407,10 +2412,10 @@ def self_test():
                 # machine-wide setting this has to be immune to; the list and the config cannot be
                 # the same file, since one is git config and the other is a pattern list.
                 patterns = os.path.join(work, "excludes")
-                with open(patterns, "w") as fh:
+                with open(patterns, "w", encoding="utf-8") as fh:
                     fh.write("keep/\n")
                 cfg = os.path.join(work, "config")
-                with open(cfg, "w") as fh:
+                with open(cfg, "w", encoding="utf-8") as fh:
                     fh.write(f"[core]\n\texcludesFile = {patterns}\n")
                 repo = git_tree(os.path.join(work, "repo"), bad)
                 saved = dict(os.environ)
@@ -2452,7 +2457,7 @@ def self_test():
             # deleted: an answer worth refusing is the only way to pin the branch that throws one
             # away, and a source name is the answer that must not be believed.
             stub = os.path.join(work, "stub.py")
-            with open(stub, "w") as fh:
+            with open(stub, "w", encoding="utf-8") as fh:
                 fh.write("import sys\n"
                          "sys.stdout.buffer.write(b'server.go\\0')\n"
                          "sys.exit(3)\n")
@@ -2473,7 +2478,7 @@ def self_test():
             # be answered by hoping. The stub answers AND refuses, for the reason _snap09 gives:
             # an empty stdout let the first version of that rule pass with the branch deleted.
             stub = os.path.join(work, "stub.py")
-            with open(stub, "w") as fh:
+            with open(stub, "w", encoding="utf-8") as fh:
                 fh.write("import sys\n"
                          "sys.stdout.buffer.write(b'internal/web/server.go\\0')\n"
                          "sys.exit(3)\n")
