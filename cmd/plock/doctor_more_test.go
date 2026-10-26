@@ -47,6 +47,12 @@ func TestCheckPollIntervalBoundsTheWindow(t *testing.T) {
 // TLS is the check that decides whether the admin password crosses the network in clear
 // text, so its three expiry verdicts are each worth a test: an expired certificate makes the
 // browser refuse the page and the daemon's log say nothing about why.
+// pairOK stands in for web.LoadCustom on the rows whose subject is the certificate's validity
+// window. The pair itself is pinned by TestDoctorAndStartUpCannotDisagreeAboutThePair, against
+// the real loader and real files, because a fake cannot prove an identity with a loader it does
+// not call.
+func pairOK(string, string) error { return nil }
+
 func TestCheckTLSExpiryWindows(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	loadValid := func(string) (time.Time, time.Time, error) {
@@ -55,7 +61,7 @@ func TestCheckTLSExpiryWindows(t *testing.T) {
 
 	// The control: a certificate with months left is fine, so the three cases below cannot
 	// be a fixture that is always broken.
-	if got := checkTLS("custom", "/tmp/x.pem", now, loadValid); got.Status != verdictOK {
+	if got := checkTLS("custom", "/tmp/x.pem", "/tmp/x.key", now, loadValid, pairOK); got.Status != verdictOK {
 		t.Fatalf("control: a certificate valid for 60 more days was refused: %s", got.Detail)
 	}
 
@@ -93,7 +99,7 @@ func TestCheckTLSExpiryWindows(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			nb, na := tc.notBefore, tc.notAfter
 			load := func(string) (time.Time, time.Time, error) { return nb, na, nil }
-			got := checkTLS("custom", "/tmp/x.pem", now, load)
+			got := checkTLS("custom", "/tmp/x.pem", "/tmp/x.key", now, load, pairOK)
 			if got.Status != tc.want {
 				t.Errorf("status %q, want %q (%s)", got.Status, tc.want, got.Detail)
 			}
@@ -113,10 +119,10 @@ func TestCheckTLSExpiryWindows(t *testing.T) {
 // the operator has sectioned off -- but it has to be the loudest thing on the page, because
 // it means the admin password crosses the network in clear text.
 func TestCheckTLSWarnsLoudlyOnCleartext(t *testing.T) {
-	got := checkTLS("off", "", time.Now(), func(string) (time.Time, time.Time, error) {
+	got := checkTLS("off", "", "", time.Now(), func(string) (time.Time, time.Time, error) {
 		t.Error("the certificate was loaded while tls was off")
 		return time.Time{}, time.Time{}, nil
-	})
+	}, pairOK)
 	if got.Status != verdictWarn {
 		t.Errorf("status %q, want a warning", got.Status)
 	}
@@ -130,9 +136,9 @@ func TestCheckTLSWarnsLoudlyOnCleartext(t *testing.T) {
 // An unrecognised tls mode is a typo in the one setting that guards the credential, and the
 // server would start with whatever the zero value implies.
 func TestCheckTLSRefusesAnUnknownMode(t *testing.T) {
-	got := checkTLS("ture", "/tmp/x.pem", time.Now(), func(string) (time.Time, time.Time, error) {
+	got := checkTLS("ture", "/tmp/x.pem", "/tmp/x.key", time.Now(), func(string) (time.Time, time.Time, error) {
 		return time.Time{}, time.Time{}, nil
-	})
+	}, pairOK)
 	if got.Status == verdictOK {
 		t.Fatal(`settings.tls "ture" was accepted`)
 	}
@@ -146,9 +152,12 @@ func TestCheckTLSRefusesAnUnknownMode(t *testing.T) {
 
 // custom with no certFile is the shape where the server has nothing to serve with.
 func TestCheckTLSRefusesCustomWithNoCertificate(t *testing.T) {
-	got := checkTLS("custom", "   ", time.Now(), func(string) (time.Time, time.Time, error) {
+	got := checkTLS("custom", "   ", "/tmp/x.key", time.Now(), func(string) (time.Time, time.Time, error) {
 		t.Error("an empty certFile was opened anyway")
 		return time.Time{}, time.Time{}, nil
+	}, func(string, string) error {
+		t.Error("an empty certFile was handed to the pair loader anyway")
+		return nil
 	})
 	if got.Status == verdictOK {
 		t.Fatal(`"custom" with an empty certFile was accepted`)
@@ -158,8 +167,9 @@ func TestCheckTLSRefusesCustomWithNoCertificate(t *testing.T) {
 // A certificate that cannot be read must be reported as unreadable, not as expired. The two
 // have different fixes and only one of them is `certbot renew`.
 func TestCheckTLSReportsAnUnreadableCertificate(t *testing.T) {
-	got := checkTLS("custom", "/etc/plock/tls.pem", time.Now(),
-		func(string) (time.Time, time.Time, error) { return time.Time{}, time.Time{}, errors.New("no PEM data") })
+	got := checkTLS("custom", "/etc/plock/tls.pem", "/etc/plock/tls.key", time.Now(),
+		func(string) (time.Time, time.Time, error) { return time.Time{}, time.Time{}, errors.New("no PEM data") },
+		pairOK)
 	if got.Status == verdictOK {
 		t.Fatal("an unreadable certificate was reported as fine")
 	}

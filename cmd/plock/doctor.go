@@ -12,6 +12,7 @@ import (
 
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
+	"github.com/vicowa-botworks/parental-lockout/internal/web"
 )
 
 // defaultConfigPath is where the daemon keeps its document. It is spelled here rather
@@ -20,6 +21,20 @@ import (
 // (plock init) is where the path becomes a single exported fact; this is the seam it
 // replaces.
 const defaultConfigPath = "/etc/plock/config.json"
+
+// daemonPair asks the start-up question: would `web.New` boot with these two files? It is the only
+// answer `checkTLS` accepts about the pair, and that identity is the point — doctor and start-up
+// read the same loader, so they cannot give a config two different verdicts. #162 exists because
+// this check used to be handed the certificate alone and said `tls | ok` about a pair the daemon
+// would not start on.
+//
+// The loader's own sentence is carried through in full. Doctor is a root-only CLI run on the
+// machine itself, so the genericity the settings form owes a browser (#161) is not a fact an
+// operator at a terminal has to be kept from; here it is the thing they came for.
+func daemonPair(cert, key string) error {
+	_, err := web.LoadCustom(cert, key, time.Now)
+	return err
+}
 
 const doctorUsage = `usage: plock doctor [--json] [--try <user>] [--config PATH]
 
@@ -168,7 +183,8 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 
 	rep.add(checkEnforcementSwitch(cfg.Settings.Enforcement))
 	rep.add(checkPollInterval(cfg.Settings.PollSeconds))
-	rep.add(checkTLS(cfg.Settings.TLS, cfg.Settings.CertFile, time.Now(), certValidity))
+	rep.add(checkTLS(cfg.Settings.TLS, cfg.Settings.CertFile, cfg.Settings.KeyFile, time.Now(),
+		certValidity, daemonPair))
 	rep.add(checkDaemonRunning(systemdProbe))
 	rep.add(checkDaemonSlice(systemdProbe, doctorSelfLocation, daemonProbe))
 
