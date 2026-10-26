@@ -298,7 +298,8 @@ def run(box):
     """
     try:
         proc = subprocess.run([PYTHON, os.path.join(box, "scripts", "mutate.py"), "--self-test"],
-                              capture_output=True, text=True, cwd=box, timeout=TIMEOUT)
+                              capture_output=True, text=True, encoding="utf-8", cwd=box,
+                              timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
         # Its own state of the message, because "did not run" and "did not stop" are different
         # diagnoses. It names no patch on purpose: this branch is also reached by the baseline
