@@ -292,9 +292,9 @@
     {
       "id": "F39",
       "file": "internal/enforce/enforce.go",
-      "old": "\t\tif len(sessions) == 0 {\n\t\t\treturn rep\n\t\t}",
-      "new": "\t\tif false {\n\t\t\treturn rep\n\t\t}",
-      "note": "a read that named no session falls through to the exit sweep, so a logind that is down writes \"lockout ended\" for every child sitting at a locked screen and drops the state carrying the override bookkeeping with it. TestAPlatformErrorKeepsTheLockoutAndIsRetried, TestATotalFailureStillStopsTheTick"
+      "old": "\tif err != nil {\n\t\treturn rep\n\t}\n\n\tfor id, st := range e.state {",
+      "new": "\tif false {\n\t\treturn rep\n\t}\n\n\tfor id, st := range e.state {",
+      "note": "the exit sweep runs after a census that is short, so an id missing from `seen` is guessed to be a logout when it is really the row that could not be read: lockout.exited for a child still sitting at a locked screen, and the state carrying their override bookkeeping deleted with it. Re-pointed from `if len(sessions) == 0 { return rep }`, which this PR made equivalent -- the guard below already returns on any error, so no mutant can distinguish that arm and the battery would have been reporting an equivalent as a catch. TestAPartialReadDoesNotEndALockoutItCouldNotSee, TestATotalFailureDoesNotEndALockout"
     }
 
   ]
