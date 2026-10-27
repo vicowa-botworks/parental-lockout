@@ -169,6 +169,11 @@ func TestTheTablePathAndTheJSONPathAgreeOnAnAbsentSince(t *testing.T) {
 // only way to find out what had actually failed was to run the parser by hand. The
 // fallback arm already states the principle two tests away: both failures belong in the
 // message.
+//
+// #168 changed what this case reports, and improved it: a listing whose rows are all
+// unreadable is no longer handed to the table parser, so the message is the row-level one
+// rather than "unrecognised output … (json: …; table: no column header)". What it has to
+// keep doing is naming the field and the value, which is the whole point of the test.
 func TestAnUnreadableListingSaysWhyTheJSONFailed(t *testing.T) {
 	r := &fakeRunner{respond: func(argv []string) ([]byte, error) {
 		return []byte(`[{"session":"3","uid":1000,"user":"rodney","seat":"seat0","leader":6654,` +
@@ -179,7 +184,7 @@ func TestAnUnreadableListingSaysWhyTheJSONFailed(t *testing.T) {
 	if err == nil {
 		t.Fatal("a listing whose since is an object parsed successfully")
 	}
-	for _, want := range []string{"neither text nor a number", "no column header"} {
+	for _, want := range []string{"neither text nor a number", "row 0", "1 of 1"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q is missing %q", err, want)
 		}

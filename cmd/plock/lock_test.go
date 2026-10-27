@@ -122,6 +122,76 @@ func TestLockKeepsUnconfirmedApartFromFailure(t *testing.T) {
 	}
 }
 
+// TestLockLocksWhatAPartialListingRead is #168 on the command line. The census that read
+// four sessions out of five still names the account being asked about, and answering
+// `sessions_failed` for the whole command was answering about a session sitting in the same
+// slice -- while the one line the operator needs, "the machine was only partly seen", went
+// unmentioned.
+func TestLockLocksWhatAPartialListingRead(t *testing.T) {
+	f := &fakeLock{
+		sessions: []platform.Session{desktopSession("2", "casey")},
+		sessErr:  errors.New("session 7: loginctl show-session: timed out"),
+	}
+	path := withLockChain(t, f)
+
+	code, out, errOut := runCmd(t, "lock", "casey", "--config", path)
+	if code != exitOK {
+		t.Fatalf("exit %d, want %d: the session that read was lockable\n%s\n%s", code, exitOK, out, errOut)
+	}
+	if len(f.locked) != 1 || f.locked[0] != "2" {
+		t.Errorf("locked %v, want the session the listing did read", f.locked)
+	}
+	if !strings.Contains(errOut, "timed out") {
+		t.Errorf("the shortfall was never said: %s", errOut)
+	}
+	// stderr, so --json stays one document on stdout.
+	if strings.Contains(out, "timed out") {
+		t.Errorf("the shortfall leaked onto the report stream: %s", out)
+	}
+}
+
+// TestLockDoesNotReportALogoutForASessionItCouldNotRead is the other arm of #168: the account
+// whose row is the one that failed must not come back as "has no session on this machine".
+// That sentence is a logout, and a census that lost the row has no evidence for it.
+func TestLockDoesNotReportALogoutForASessionItCouldNotRead(t *testing.T) {
+	f := &fakeLock{
+		sessions: []platform.Session{desktopSession("2", "alex")},
+		sessErr:  errors.New("session 7: loginctl show-session: timed out"),
+	}
+	path := withLockChain(t, f)
+
+	code, out, errOut := runCmd(t, "lock", "casey", "--config", path)
+	if code == exitOK {
+		t.Fatalf("an account the census could not place was reported as handled:\n%s", out)
+	}
+	if len(f.locked) != 0 {
+		t.Errorf("locked %v for an account with no session in the read", f.locked)
+	}
+	if strings.Contains(errOut, "has no session on this machine") {
+		t.Errorf("a lost row was reported as a logout: %s", errOut)
+	}
+	if !strings.Contains(errOut, "could not read") {
+		t.Errorf("the refusal does not say the machine was only partly seen: %s", errOut)
+	}
+}
+
+// TestLockStillRefusesAListingThatReadNothing keeps the guard from becoming "ignore errors":
+// with no rows there is nothing to lock and the command says so.
+func TestLockStillRefusesAListingThatReadNothing(t *testing.T) {
+	f := &fakeLock{sessErr: errors.New("loginctl: signal: killed")}
+	path := withLockChain(t, f)
+
+	code, _, errOut := runCmd(t, "lock", "casey", "--config", path, "--json")
+	if code == exitOK {
+		t.Fatal("a listing that read nothing exited successfully")
+	}
+	// cli.Fail writes the failure document to stderr in both modes, which is what keeps
+	// stdout a single machine-readable stream on the success path.
+	if !strings.Contains(errOut, "sessions_failed") {
+		t.Errorf("the failure does not name the session read: %s", errOut)
+	}
+}
+
 func TestLockReportsAHardFailureAsAFailure(t *testing.T) {
 	// Nothing reached the desktop at all. That is a different sentence from unconfirmed and
 	// it is the one that exits non-zero.

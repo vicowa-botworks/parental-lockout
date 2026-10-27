@@ -127,7 +127,16 @@ func runLock(stdout, stderr io.Writer, args []string) int {
 
 	sessions, err := chain.Sessions(context.Background())
 	if err != nil {
-		return opFail(stderr, *asJSON, "plock lock", codeSessionsFailed, err)
+		// A listing that came back short is used as far as it reaches (#168). Whoever types
+		// this command is asking about one account, and a census that read four sessions out
+		// of five still names it — refusing here was refusing about a session sitting in the
+		// same slice. The warning goes to stderr so `--json` stays exactly one document, and
+		// the exit status stays the lock's rather than the census's. Only a read with nothing
+		// in it ends the command at this point.
+		fmt.Fprintf(stderr, "plock lock: warning: %v\n", err)
+		if len(sessions) == 0 {
+			return opFail(stderr, *asJSON, "plock lock", codeSessionsFailed, err)
+		}
 	}
 
 	want := sessions
@@ -140,6 +149,15 @@ func runLock(stdout, stderr io.Writer, args []string) int {
 			if _, ok := cfg.UserFor(target); !ok {
 				return opFail(stderr, *asJSON, "plock lock", codeNoSuchUser,
 					fmt.Errorf("no managed user %q", target))
+			}
+			// The same rule one step further along: a census that lost a row cannot
+			// establish that nobody is logged in (#168). "has no session on this machine"
+			// about the one session the listing could not read is the reassuring answer,
+			// and it is not this command's to give — the operator has to be told the
+			// machine was only partly seen.
+			if err != nil {
+				return opFail(stderr, *asJSON, "plock lock", codeSessionsFailed,
+					fmt.Errorf("%q may hold a session the listing could not read: %w", target, err))
 			}
 			return opFail(stderr, *asJSON, "plock lock", codeNoLockableSession,
 				fmt.Errorf("%q has no session on this machine", target))

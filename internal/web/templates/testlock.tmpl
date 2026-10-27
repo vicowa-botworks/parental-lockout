@@ -43,6 +43,14 @@
   desktop session, so a lock asked for at this moment would be refused before any backend was
   asked. Each row below says why.</p>
 {{- end -}}
+{{- /* #168: the rows below are what the daemon could read. Without this line a parent reads
+       three sessions as the whole of a child's login activity because one row happened to be
+       unreadable — the reassurance a partial read has not earned. Empty note, no bytes. */ -}}
+{{- if .SessionsNote -}}
+<p class="flag" role="status">The session table was only partly readable ({{.SessionsNote}}), so
+  the sessions below are what the daemon could see and not necessarily every session
+  <strong>{{.Target}}</strong> holds.</p>
+{{- end -}}
 
 <table class="rows">
   <caption>Every configured lock backend, and whether it could lock a screen right now.</caption>

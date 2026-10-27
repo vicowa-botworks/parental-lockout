@@ -432,7 +432,15 @@ func (e *Engine) Tick(ctx context.Context) Report {
 		// their window, and would lose the override bookkeeping along with it.
 		rep.Errors = append(rep.Errors, fmt.Errorf("enumerate sessions: %w", err))
 		e.emit(&rep, Event{At: now, Kind: KindPlatformError, Detail: fmt.Sprintf("enumerate sessions: %v", err)})
-		return rep
+		// A partial read is not an empty one. The rows that came back are children who
+		// are inside a window right now, and returning here is what made one flaky
+		// show-session cost the whole box a poll in which nobody was locked — with a
+		// single audit row, and a dashboard that still looked fine (#168). The state
+		// decision above stays as it is either way; this is a different decision, and
+		// the tick is the product.
+		if len(sessions) == 0 {
+			return rep
+		}
 	}
 	rep.Sessions = len(sessions)
 
@@ -463,6 +471,16 @@ func (e *Engine) Tick(ctx context.Context) Report {
 	// and then an entry when it comes back. That is the honest direction — an
 	// audit trail that claims a lockout ran after the session vanished is worse
 	// than one that shows a blip.
+	//
+	// The sweep is only sound on a complete census. After a partial read an id missing
+	// from `seen` means either "logged out" or "the row we could not read" (#168), and
+	// guessing wrong writes a lockout.exited for a child still sitting at a locked
+	// screen while dropping the state that carries their override bookkeeping. Skipping
+	// it once costs a deferred blip; running it on a partial census invents an exit.
+	if err != nil {
+		return rep
+	}
+
 	for id, st := range e.state {
 		if seen[id] {
 			continue

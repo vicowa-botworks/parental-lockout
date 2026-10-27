@@ -54,7 +54,7 @@ a breaking change.
 | `config_unstatable` | the config file's metadata could not be read |
 | `config_unwritable` | a change could not be saved |
 | `no_backend` | no configured lock backend could be built |
-| `sessions_failed` | the session list could not be read |
+| `sessions_failed` | the session list could not be read at all; a partly readable one is used and the gap is reported (#168) |
 | `no_such_user` | the named account is not managed by plock |
 | `no_lockable_session` | the account is managed but has no lockable session here |
 | `lock_failed` | the lock was attempted and nothing reached the desktop |
@@ -160,6 +160,13 @@ A machine answers in three different ways and they are three different sentences
 `unconfirmed` is not `failed`. On Plasma, `loginctl lock-session` exits 0 while Plasma
 ignores the signal, so a zero status reports that a lock was *requested*; the desktop
 backends are what actually prove it.
+
+A session listing that could only be partly read is used as far as it reaches, and the gap is
+said on stderr (#168): the warning means the census was short, so a session missing from it
+has not been found to be absent. `sessions_failed` is reserved for a listing that read
+nothing at all — and for the one case a short listing cannot answer, where the account asked
+about is the row that was lost. "has no session on this machine" is a logout, and a census
+that lost a row is not evidence for one.
 
 | Field | Type |
 |---|---|

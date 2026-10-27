@@ -85,7 +85,7 @@ func TestCheckUnenforced(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := checkUnenforced(time.Now(), []unenforcedCandidate{tc.in})
+			got := checkUnenforced(time.Now(), fullCensus([]unenforcedCandidate{tc.in}))
 			if tc.wantFail {
 				if got.Status != verdictFail {
 					t.Fatalf("status = %s, want fail: %s", got.Status, got.Detail)
@@ -112,7 +112,7 @@ func TestCheckUnenforcedNamesEveryAffectedAccount(t *testing.T) {
 		return unenforcedCandidate{Username: u, Managed: true, InWindow: true,
 			HasSession: true, Lockable: true}
 	}
-	got := checkUnenforced(time.Now(), []unenforcedCandidate{mk("zoe"), mk("casey"), mk("alex")})
+	got := checkUnenforced(time.Now(), fullCensus([]unenforcedCandidate{mk("zoe"), mk("casey"), mk("alex")}))
 	if got.Status != verdictFail {
 		t.Fatalf("status = %s", got.Status)
 	}
@@ -131,9 +131,9 @@ func TestCheckUnenforcedReportsADanglingProfileAsNeverLocked(t *testing.T) {
 	// An enabled account whose profileID does not resolve is locked out by nothing, forever.
 	// That is the same outcome as disabling the account, reached by accident, and it has to be
 	// louder than a momentary unlocked screen because no later tick will fix it.
-	got := checkUnenforced(time.Now(), []unenforcedCandidate{
+	got := checkUnenforced(time.Now(), fullCensus([]unenforcedCandidate{
 		{Username: "casey", Managed: true, DanglingProfile: "school"},
-	})
+	}))
 	if got.Status != verdictFail {
 		t.Fatalf("status = %s, want fail: %s", got.Status, got.Detail)
 	}

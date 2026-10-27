@@ -283,6 +283,11 @@ func TestLockingAnAccountWithNoSessionSaysSo(t *testing.T) {
 // TestAFailedSessionListingIsNotReportedAsNoSession is the fail-open shape on a write surface.
 // "I could not look" and "there is nothing there" are different claims, and the second one is
 // a reassurance the daemon has not earned.
+//
+// #168 changed what happens when the read came back partly full. The listing in this test
+// still names casey's session, and answering 503 about it was answering about a child whose
+// session was in the same slice: the page now locks what it read and says what it could not.
+// What has not changed is that a failed read is never rendered as an account with no session.
 func TestAFailedSessionListingIsNotReportedAsNoSession(t *testing.T) {
 	f := newLockFixture(t)
 	f.mu.Lock()
@@ -290,15 +295,78 @@ func TestAFailedSessionListingIsNotReportedAsNoSession(t *testing.T) {
 	f.mu.Unlock()
 
 	rec := authPost(t, f.s, "/users/casey/lock-now", "")
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("a failed session listing answered %d, want %d", rec.Code, http.StatusServiceUnavailable)
-	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "session table could not be read") {
-		t.Errorf("the page did not say the listing failed: %s", body)
+	if rec.Code != http.StatusOK {
+		t.Errorf("a listing that still named the session answered %d, want %d: %s",
+			rec.Code, http.StatusOK, body)
+	}
+	if got := f.askedFor(); len(got) != 1 || got[0] != "2" {
+		t.Errorf("the session that was read was not locked; asked for %v", got)
+	}
+	if !strings.Contains(body, "loginctl: signal: killed") {
+		t.Errorf("the page does not name what it could not read: %s", body)
 	}
 	if strings.Contains(body, "has no session") {
 		t.Error("a listing that failed was rendered as an account with no session")
+	}
+	// The trail carries the gap too. "locked 1" with no mention of the session that could
+	// not be read is a record that understates what was attempted, and the audit page is the
+	// surface an operator reads afterwards as evidence.
+	sawGap := false
+	for _, l := range f.audited.Lines() {
+		if strings.HasPrefix(l, "lock.listing_incomplete") {
+			sawGap = true
+		}
+	}
+	if !sawGap {
+		t.Errorf("the incomplete read wrote no audit line; wrote %v", f.audited.Lines())
+	}
+}
+
+// TestASessionListingThatReadNothingIsStillAnError is the other arm, so that "use what read"
+// cannot become "ignore errors". With no rows there is nothing to lock, and the page says it
+// could not look rather than implying the account is not logged in.
+func TestASessionListingThatReadNothingIsStillAnError(t *testing.T) {
+	f := newLockFixture(t)
+	f.setSessions(nil)
+	f.mu.Lock()
+	f.sessionsErr = errors.New("loginctl: signal: killed")
+	f.mu.Unlock()
+
+	rec := authPost(t, f.s, "/users/casey/lock-now", "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("a listing that read nothing answered %d, want %d",
+			rec.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(rec.Body.String(), "session table could not be read") {
+		t.Errorf("the page did not say the listing failed: %s", rec.Body.String())
+	}
+	if got := f.askedFor(); len(got) != 0 {
+		t.Errorf("a read that named no session locked %v", got)
+	}
+}
+
+// TestACompleteReadAddsNoNoteToTheLockPage keeps the note honest in its other direction. The
+// committed 360 px artifact is a photograph of this page on a complete read, and a note that
+// rendered when nothing was missing would silently change a screenshot nobody re-took (#144
+// is that failure in general).
+func TestACompleteReadAddsNoNoteToTheLockPage(t *testing.T) {
+	f := newLockFixture(t)
+	rec := authPost(t, f.s, "/users/casey/lock-now", "")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a complete read answered %d, so the check below proves nothing: %s", rec.Code, body)
+	}
+	if !strings.Contains(body, `scope="row">2<`) {
+		t.Fatalf("the session row is missing, so the check below proves nothing: %s", body)
+	}
+	if strings.Contains(body, "partly readable") {
+		t.Error("the partial-read note rendered on a read that was complete")
+	}
+	for _, l := range f.audited.Lines() {
+		if strings.HasPrefix(l, "lock.listing_incomplete") {
+			t.Errorf("a complete read wrote an incomplete-listing audit line: %s", l)
+		}
 	}
 }
 
@@ -331,7 +399,11 @@ func TestARefusedLockWritesNoAuditLine(t *testing.T) {
 		{"an unmanaged account", "/users/mallory/lock-now", nil},
 		{"an account with no session", "/users/casey/lock-now",
 			func(f *lockFixture) { f.setSessions(nil) }},
-		{"a listing that failed", "/users/casey/lock-now", func(f *lockFixture) {
+		// #168 moved the partly-readable listing out of this table: it now locks the rows it
+		// read, so it is an accepted action with an audit line, tested above. What is still a
+		// refusal is a read that named nothing — and that one must stay silent.
+		{"a listing that read nothing", "/users/casey/lock-now", func(f *lockFixture) {
+			f.setSessions(nil)
 			f.mu.Lock()
 			f.sessionsErr = errors.New("loginctl: signal: killed")
 			f.mu.Unlock()

@@ -300,12 +300,43 @@ func TestAServerWithNoProbePathSaysSo(t *testing.T) {
 	}
 }
 
-// TestAFailedSessionListingStillReportsTheBackends is the half-failure shape. The backend
-// answers were obtained and stand on their own; the session half failed and must say so rather
-// than rendering as "this account has no session" -- the same rule the lock route holds,
-// applied where the two reads have different status.
-func TestAFailedSessionListingStillReportsTheBackends(t *testing.T) {
+// TestAPartiallyReadableListingStillReportsTheBackends is the half-failure shape twice over:
+// the backend answers were obtained and stand on their own, and the sessions that did read are
+// still on the page with the shortfall named (#168).
+//
+// The page used to answer a short read with "the session table could not be read" and no rows.
+// Over rows that are sitting right there that sentence is its own small untruth, and it cost
+// the operator the one thing the read did establish.
+func TestAPartiallyReadableListingStillReportsTheBackends(t *testing.T) {
 	f := newProbeFixture(t)
+	f.setSessionsErr(errors.New("loginctl: signal: killed"))
+	rec := authPost(t, f.s, "/users/casey/test-lock", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a failed session read threw away the backend answers: %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "only partly readable") {
+		t.Errorf("the page did not say the listing was short: %s", body)
+	}
+	if !strings.Contains(body, "loginctl: signal: killed") {
+		t.Errorf("the page did not carry the reason: %s", body)
+	}
+	if !strings.Contains(body, `scope="row">2<`) {
+		t.Errorf("the session that did read was not listed: %s", body)
+	}
+	if strings.Contains(body, "has no session on this machine") {
+		t.Error("a listing that failed was rendered as an account with no session")
+	}
+	if !strings.Contains(body, "kde") {
+		t.Error("the backend answers were dropped along with the failed read")
+	}
+}
+
+// TestASessionListingThatReadNothingSaysItCouldNotLook is the other arm of #168: with no rows
+// the page says it could not look, rather than rendering the account as not logged in.
+func TestASessionListingThatReadNothingSaysItCouldNotLook(t *testing.T) {
+	f := newProbeFixture(t)
+	f.setSessions(nil)
 	f.setSessionsErr(errors.New("loginctl: signal: killed"))
 	rec := authPost(t, f.s, "/users/casey/test-lock", "")
 	if rec.Code != http.StatusOK {
@@ -318,8 +349,23 @@ func TestAFailedSessionListingStillReportsTheBackends(t *testing.T) {
 	if strings.Contains(body, "has no session on this machine") {
 		t.Error("a listing that failed was rendered as an account with no session")
 	}
-	if !strings.Contains(body, "kde") {
-		t.Error("the backend answers were dropped along with the failed read")
+}
+
+// TestACompleteReadAddsNoNoteToTheProbePage is the same guard as the lock page's: the note is
+// about a shortfall, and rendering it on a complete read would move a committed screenshot
+// that nobody re-took.
+func TestACompleteReadAddsNoNoteToTheProbePage(t *testing.T) {
+	f := newProbeFixture(t)
+	rec := authPost(t, f.s, "/users/casey/test-lock", "")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a complete read answered %d: %s", rec.Code, body)
+	}
+	if !strings.Contains(body, `scope="row">2<`) {
+		t.Fatalf("the session row is missing, so the check below proves nothing: %s", body)
+	}
+	if strings.Contains(body, "partly readable") {
+		t.Error("the partial-read note rendered on a read that was complete")
 	}
 }
 

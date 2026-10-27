@@ -38,12 +38,21 @@ type fakeChain struct {
 	answers  map[string]error
 	listErr  error
 	sessions []platform.Session
+	// partial models #168: the listing read these rows and lost at least one on the way, so
+	// it answers with the rows AND the error. Without this field the fake could not express
+	// the state under test -- it answered every failed listing with nil rows, which is the
+	// exact bias the production code had to be corrected for, and a fake that reproduces the
+	// bug cannot pin its fix.
+	partial bool
 }
 
 func (f *fakeChain) Sessions(context.Context) ([]platform.Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.listErr != nil {
+		if f.partial {
+			return f.sessions, f.listErr
+		}
 		return nil, f.listErr
 	}
 	return f.sessions, nil
@@ -322,5 +331,28 @@ func TestOwnedByTakesEverySessionOfThatAccountExactly(t *testing.T) {
 	}
 	if OwnedBy(nil, "casey") != nil {
 		t.Error("an empty listing returned sessions")
+	}
+}
+
+// TestAPartialListingKeepsBothItsRowsAndItsError is #168 at the layer where it was actually
+// lost. SessionsFor used to `return nil, err` for any error, so the rows were discarded before
+// the handler ever saw them and no care downstream could have locked the child whose session
+// had been read. Both halves are pinned in one test because the two ways to get this wrong are
+// opposites: drop the rows, or drop the error. The first answers 503 for a session that is
+// sitting in the slice; the second says "locked 1" about a census that lost a row.
+func TestAPartialListingKeepsBothItsRowsAndItsError(t *testing.T) {
+	boom := errors.New("loginctl list-sessions: 1 of 3 session rows could not be read: row 2")
+	c := newChain([]platform.Session{lockable("2", "casey"), lockable("5", "other")}, nil)
+	c.listErr = boom
+	c.partial = true
+
+	got, err := SessionsFor(context.Background(), c, "casey")
+	if !errors.Is(err, boom) {
+		t.Errorf("the shortfall was silently subtracted: the caller got err=%v, so the page will "+
+			"report a clean lock over a census that lost a row (#168)", err)
+	}
+	if len(got) != 1 || got[0].ID != "2" {
+		t.Errorf("SessionsFor returned %+v from a listing that did read casey's session; those rows "+
+			"are the lock (#168)", got)
 	}
 }

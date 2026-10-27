@@ -66,7 +66,12 @@ func (s *Server) handleLockNow(w http.ResponseWriter, r *http.Request) {
 
 	chain := serverChain{s: s}
 	sessions, err := lockop.SessionsFor(r.Context(), chain, name)
-	if err != nil {
+	// A listing that was only partly readable is not a listing that says "this account has
+	// no session" (#168). The sessions the daemon did read are lockable and are about to be
+	// locked; answering 503 for the whole request was answering about a child whose session
+	// was sitting in the same slice. Only a read with nothing in it is a request the page
+	// cannot act on.
+	if err != nil && len(sessions) == 0 {
 		s.pageError(w, r, "the session table could not be read", err)
 		return
 	}
@@ -83,12 +88,24 @@ func (s *Server) handleLockNow(w http.ResponseWriter, r *http.Request) {
 	// reads afterwards as evidence.
 	s.audit("lock.requested", fmt.Sprintf("%s: locked %d, unconfirmed %d, refused %d by %s",
 		name, res.Locked, res.Unconfirmed, res.Refused, sessionName(s, r)))
+	// The trail carries the gap as its own line. This log is the surface an operator reads
+	// afterwards as evidence, and "locked 1" with no mention of the session that could not
+	// be read is a record that quietly understates what was attempted (#168). It is a
+	// separate event rather than a clause on the line above because that line's shape is
+	// what the capture driver and the tests read.
+	if err != nil {
+		s.audit("lock.listing_incomplete", fmt.Sprintf("%s: %v", name, err))
+	}
 
 	byID := make(map[string]platform.Session, len(sessions))
 	for _, sess := range sessions {
 		byID[sess.ID] = sess
 	}
 	page := lockPage{Target: name, Result: res}
+	if err != nil {
+		page.Note = fmt.Sprintf("The session table was only partly readable, so the rows below are what "+
+			"the daemon could see and not necessarily every session %s has: %v.", name, err)
+	}
 	for _, o := range res.Outcomes {
 		row := lockRow{Outcome: o}
 		// The page names the session by more than its logind id, and the listing is the
@@ -122,6 +139,11 @@ type lockPage struct {
 	Target string
 	Result lockop.Result
 	Rows   []lockRow
+	// Note is a sentence about the listing itself, above the table. It is empty whenever
+	// the read was complete, so the page's ordinary pixels do not move. It carries the one
+	// fact a partial read makes uncertain: the rows below are what the daemon could see,
+	// not necessarily everything the account holds (#168).
+	Note string
 }
 
 // lockRow is one session's line, carrying the two facts the page adds over lockop's
