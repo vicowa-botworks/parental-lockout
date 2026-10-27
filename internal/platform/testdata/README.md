@@ -21,3 +21,27 @@ nor alphabetical — `LockedHint` was asked for first and printed last.
 The machine had exactly two sessions, one uid. It has no remote session and nothing
 in `closing` state, so the fixtures cannot exercise those filter cases; the tests
 that do are built from synthetic blocks and say so where they are defined.
+
+## The 259.9 capture
+
+`list-sessions.since-number.json` and `show-session-468.txt`,
+`show-session-472.txt`, `show-session-567.txt`, `show-session-570.txt` are a second
+machine of the same shape — Ubuntu, uid 1000, KDE — captured on 27 Oct under systemd
+259.9-0ubuntu0.1:
+
+    loginctl --no-ask-password list-sessions --json=short   -> list-sessions.since-number.json
+    loginctl --no-ask-password show-session 468 -p Name -p Type -p State -p Remote -p LockedHint
+      (and 472, 567, 570)                                   -> show-session-<id>.txt
+
+It exists because of the field the first capture could not see. Both rows of
+`list-sessions.json` carry `"since":null`, and 259.9 prints `"since":855186289603` on
+every row it reports as idle — a number, where `listEntry.Since` was a `*string`. The
+decode failed, `list()` decoded the whole array in one call, and the daemon saw no
+sessions at all on a machine with four lockable ones (#167). A fixture that only ever
+carries the value a field takes when it is absent cannot pin that field's type.
+
+The two captures also disagree about `since` in a way nobody has resolved: the table
+prints a wall clock (`Thu 2026-10-01 15:47:23 UTC`) and this JSON prints an integer.
+Nothing in this repository reads the field, so the disagreement is recorded in
+`since`'s comment rather than reconciled — inventing a unit would be claiming a meaning
+neither capture establishes.

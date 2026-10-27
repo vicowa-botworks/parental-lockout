@@ -46,6 +46,16 @@ one name and the session belongs to another. Overriding does not buy you a way t
 a session — the driver refuses an account with no rows, and that refusal is correct, because the
 zero-session sentence fits at any width and would report 360 px while measuring nothing.
 
+**Before blaming the machine for one of those refusals, read `serve.log` in the fixture directory.**
+A refusal that looks like "this account has no session" is also what a daemon that cannot *read*
+the session table produces. Measured 27 Oct: both POST drivers refused on a box holding four
+lockable `class=user` sessions on `seat0`, and `serve.log` had the reason —
+`session list unavailable: command: loginctl list-sessions: unrecognised output: [{"session":"468",…`,
+a field type systemd 259.9 had outrun (#167). The drivers were right to refuse and the
+reproducibility table below was wrong to imply the hardware was the limit; the page they were
+refusing to photograph said `the session table could not be read`, which is a daemon fault, not a
+missing session.
+
 ## What each driver refuses
 
 A screenshot is evidence only because the thing that took it refuses to take it in the wrong
@@ -186,15 +196,17 @@ committed file had when that was last done -- one of them since before the branc
 | `users.png` | **yes** — `b69eb0d1…` | |
 | `profiles.png` | **yes** — `130edd13…` | re-taken by #147, which is the change that moved it. The `740200cc…` this row quoted had already stopped matching the committed file before that PR landed, and nothing noticed -- which is #144 |
 | `settings.png` | **yes** — `175c1d1f…` | new with the settings page. It is the only page in the set refused on a *form* rather than on rows (`cdp.require_form`), because a page with no table would otherwise have been refused as an empty fixture -- and the lazy repair, dropping the check, would have let a /settings that rendered nothing but its navigation be committed as evidence that it fits. Re-taken by the transport form (#161), which took the page from `forms=3 fields=9` at 2069 px to `forms=4 fields=15` at 3511 px; the previous hash `42d47d9b…` is what the file was before that form, and the row is the only place that claim lives |
-| `testlock.png` | **yes** — `7672219a…` | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image |
-| `lock.png` | **yes** — `910e403d…` | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no" |
+| `testlock.png` | **yes, on an account with one session** — `7672219a…` | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image. **The page photographs the account's session census**, so the hash is good for the machine it was taken on: measured 27 Oct on an account holding four lockable sessions, the driver ran green (`tables=2 backendRows=1 cells=14`, `FITS`, `note in 4 Detail cell(s), 0 with a sentence in front of it`) and produced `a8617a2b…`. That is a faithful capture of a different page, not a broken driver |
+| `lock.png` | **yes, on an account with one session** — `910e403d…` | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no". Same census caveat: on the four-session account above it ran green (`rows=4 cells=12`, banner `rodney was not locked.`, flag `4 of 4 sessions were asked to lock`) and produced `4fc93d11…` |
 | `dashboard.png` | **no** | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs minutes apart agree; a run hours later does not |
 | `audit.png` | **no, by construction** | signing in appends an `auth.success` row to the very trail the page photographs, so every capture adds a row and two runs of one fixture cannot agree. The height that produces is a **run counter**, not a page measurement: the committed file is `360x15004` while a fixture built from nothing renders **2936 px** with `cells=40` (measured 26 Oct on `main` at `1684b29`, and again from the transport branch). So the artifact is a function of how many times anyone has run a driver on their own machine, and 15004 px is already ~92% of Chromium's 16 384 px capture surface -- #144 carries the mechanism, the row census, and the proposed bound |
 
-So five of the seven can be regenerated and two cannot. The honest claim about a one-shot artifact is
-the driver's report — `scrollWidth`, `innerWidth`, the cell census, `FITS` — not the pixels. That
-is worth saying out loud, because a PR that links `audit.png` is linking an image nobody can
-regenerate, and the thing a reviewer can re-run is the script.
+So five of the seven can be regenerated and two cannot — and two of those five, `lock.png` and
+`testlock.png`, reproduce only on an account holding the number of sessions the capture had,
+because those two pages photograph the session census. The honest claim about an artifact is
+therefore usually the driver's report — `scrollWidth`, `innerWidth`, the cell census, `FITS` —
+not the pixels. That is worth saying out loud, because a PR that links `audit.png` is linking an
+image nobody can regenerate, and the thing a reviewer can re-run is the script.
 
 ## What the audit fixture is not allowed to contain
 

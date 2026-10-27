@@ -1,0 +1,5 @@
+Name=rodney
+Remote=no
+Type=tty
+State=online
+LockedHint=no
