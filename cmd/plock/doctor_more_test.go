@@ -365,7 +365,7 @@ func TestDanglingProfilesAreListedInAStableOrder(t *testing.T) {
 				Username: n, Managed: true, DanglingProfile: "school",
 			})
 		}
-		return checkUnenforced(time.Unix(1700000000, 0).UTC(), accounts)
+		return checkUnenforced(time.Unix(1700000000, 0).UTC(), fullCensus(accounts))
 	}
 
 	var first string
@@ -414,7 +414,7 @@ func TestDanglingProfilesCountWhatTheyList(t *testing.T) {
 	for _, n := range []string{"a1", "b2", "c3"} {
 		accounts = append(accounts, unenforcedCandidate{Username: n, Managed: true, DanglingProfile: "p"})
 	}
-	got := checkUnenforced(time.Unix(1700000000, 0).UTC(), accounts)
+	got := checkUnenforced(time.Unix(1700000000, 0).UTC(), fullCensus(accounts))
 	if !strings.HasPrefix(got.Detail, "3 enabled account(s)") {
 		t.Errorf("the count is wrong: %s", got.Detail)
 	}

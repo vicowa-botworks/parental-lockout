@@ -413,7 +413,32 @@ type unenforced struct {
 //
 // An account is reported when its schedule says it is inside a window, it has a session this
 // build would lock, and that session is not locked.
-func checkUnenforced(now time.Time, accounts []unenforcedCandidate) check {
+func checkUnenforced(now time.Time, census sessionCensus) check {
+	c := checkCensus(now, census.People)
+	if census.Missing == nil {
+		return c
+	}
+	// #168: this verdict is a claim about every managed account, and the census it was
+	// computed from is missing rows. "No account is inside a window with an unlocked screen"
+	// then means "no account the daemon could read", which is a different sentence — so the
+	// gap goes on the detail line instead of staying in the daemon's log, where nobody
+	// reading doctor's output would meet it. An account that could not be read has not been
+	// found to be safe.
+	if c.Status != verdictOK {
+		c.Detail = fmt.Sprintf("%s (the session listing was also incomplete: %v)", c.Detail, census.Missing)
+		return c
+	}
+	return warnCheck("unenforced",
+		fmt.Sprintf("no account the daemon could read is inside a window with an unlocked screen, "+
+			"and the listing was incomplete: %v", census.Missing),
+		"an account whose session could not be read has not been checked at all; run `loginctl list-sessions` "+
+			"and read the daemon's log before treating the line above as all of the machine")
+}
+
+// checkCensus is the verdict on the accounts a session census could place. It is separate
+// from checkUnenforced because a census can be incomplete, and the same verdict computed
+// over a partial census needs saying differently (#168).
+func checkCensus(now time.Time, accounts []unenforcedCandidate) check {
 	const name = "unenforced"
 	var bad []unenforced
 	var dangling []string
@@ -513,14 +538,16 @@ type unenforcedCandidate struct {
 // backend that cannot see sessions; the `backends` check is where a broken backend shows up,
 // and inventing an "unlocked" verdict from an error would be the tool manufacturing the
 // alarm it was asked to investigate.
-func unenforcedCandidates(cfg *config.Config, sessions sessionSource) []unenforcedCandidate {
+func unenforcedCandidates(cfg *config.Config, sessions sessionSource) sessionCensus {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	live, err := sessions.Sessions(ctx)
-	if err != nil {
-		live = nil
-	}
+	// A listing that is only partly readable is used as far as it reaches (#168). This is
+	// where the code used to write `live = nil`, which turned "four of five sessions read"
+	// into "nobody is logged in": the account whose session could not be read was then
+	// reported as having no session at all, the most reassuring wrong answer this tool can
+	// give. The rows that read are kept and the shortfall travels with them.
+	live, missing := sessions.Sessions(ctx)
 	byUser := map[string]platform.Session{}
 	for _, s := range live {
 		// The first session wins when a uid owns several. A second desktop session for one
@@ -576,7 +603,18 @@ func unenforcedCandidates(cfg *config.Config, sessions sessionSource) []unenforc
 		}
 		out = append(out, c)
 	}
-	return out
+	return sessionCensus{People: out, Missing: missing}
+}
+
+// sessionCensus is one pass over the session table: the accounts it could place in front of
+// a screen, and the reason the table was not read completely.
+//
+// The error travels with the rows instead of replacing them (#168). A census that read four
+// sessions out of five supports a narrower claim, not a blank one, and the two ways to be
+// wrong about which one you have are "nobody is logged in" and "nobody needs locking".
+type sessionCensus struct {
+	People  []unenforcedCandidate
+	Missing error
 }
 
 // runDoctorTry is `plock doctor --try <user>`: the one path that locks a real screen.
@@ -595,8 +633,15 @@ func runDoctorTry(stdout, stderr io.Writer, chain chainView, user string, rep *r
 
 	sessions, err := chain.Sessions(ctx)
 	if err != nil {
+		// Say it, then use what came back (#168). --try is the command run when the question
+		// is "will this screen actually lock", and a listing that read three sessions out of
+		// four still names the one being asked about. Only a read with nothing in it ends the
+		// command; the shortfall stays on stderr, so the exit status cannot be read as a clean
+		// pass over a machine that was only partly seen.
 		fmt.Fprintf(stderr, "plock doctor --try: %v\n", err)
-		return exitFailure
+		if len(sessions) == 0 {
+			return exitFailure
+		}
 	}
 	var target *platform.Session
 	for i := range sessions {

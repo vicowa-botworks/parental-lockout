@@ -1,7 +1,7 @@
 {
   "package": "./cmd/plock/",
   "_about": "Each entry puts one known bug back into the CLI and the suite must fail. The set covers the two things the CLI is responsible for: refusing an action whose consequence is that a child stops being locked out, and telling the truth about the machine. A mutant here that survives is not a coverage gap -- it is a safety refusal that no test would notice being removed.",
-  "expected_mutants": 82,
+  "expected_mutants": 85,
   "mutants": [
     {
       "id": "CM1",
@@ -583,6 +583,32 @@
       "old": "\t\tcertValidity, daemonPair))",
       "new": "\t\tcertValidity, func(string, string) error { return nil }))",
       "note": "the daemon's loader is replaced by a stub that always agrees, so doctor certifies any two files it is given; the shared-answer property with web.New is the whole point of the parameter and this row is what keeps it a property rather than a comment"
+    },
+    {
+      "id": "CC22",
+      "package": "./cmd/plock/",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\tif census.Missing == nil {\n\t\treturn c\n\t}",
+      "new": "\tif true {\n\t\treturn c\n\t}",
+      "note": "doctor reports an incomplete census as a clean bill of health: the line says no account is inside a window with an unlocked screen, and what it means is no account the daemon could READ. The account whose session failed to read is the one that needs locking, and it is exactly the account this hides. TestAnIncompleteCensusIsNeverACleanBillOfHealth, TestAnIncompleteCensusRidesOnAFailingVerdict"
     }
+
+,
+    {
+      "id": "CC23",
+      "file": "cmd/plock/lock.go",
+      "old": "\t\tif len(sessions) == 0 {\n\t\t\treturn opFail(stderr, *asJSON, \"plock lock\", codeSessionsFailed, err)\n\t\t}",
+      "new": "\t\tif true {\n\t\t\treturn opFail(stderr, *asJSON, \"plock lock\", codeSessionsFailed, err)\n\t\t}",
+      "note": "a census that read four sessions out of five is refused wholesale, so `plock lock casey` fails on a session sitting in the same slice -- the operator's one manual escape hatch stops working on exactly the machine that is misbehaving. TestLockLocksWhatAPartialListingRead"
+    }
+,
+    {
+      "id": "CC24",
+      "file": "cmd/plock/lock.go",
+      "old": "\t\t\tif err != nil {\n\t\t\t\treturn opFail(stderr, *asJSON, \"plock lock\", codeSessionsFailed,\n\t\t\t\t\tfmt.Errorf(\"%q may hold a session the listing could not read: %w\", target, err))\n\t\t\t}",
+      "new": "\t\t\tif false {\n\t\t\t\treturn opFail(stderr, *asJSON, \"plock lock\", codeSessionsFailed,\n\t\t\t\t\tfmt.Errorf(\"%q may hold a session the listing could not read: %w\", target, err))\n\t\t\t}",
+      "note": "the account whose row is the one that failed comes back as \"has no session on this machine\" -- a logout the lost row is not evidence for, and the reassuring answer #168 exists to stop. TestLockDoesNotReportALogoutForASessionItCouldNotRead"
+    }
+
   ]
 }

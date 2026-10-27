@@ -247,6 +247,18 @@ Recorded here because #6 builds on it and each item cost real probing:
   four lockable ones (#167). The field is decoded as text-or-number for that reason alone
   — nothing reads it, which is precisely the kind of field that ends up deciding whether
   the product runs.
+- **A session read that comes back short is used, not thrown away (#168).** `Sessions()`
+  returns the rows it could read *alongside* the error, because a per-session `show-session`
+  that fails for any reason other than "that session is gone" costs one session, not the
+  census — and the listing is decoded row by row so one unreadable field costs one row, not the
+  array. Every consumer therefore takes rows-and-error together: the enforcement loop ticks the
+  sessions it has and records the error, `plock lock` and the lock page lock what they read and
+  name the gap, `doctor` prints the census plus what it could not read, and `plock status` and
+  the dashboard show the rows with "could not look" in the session column. Only a read with
+  **nothing** in it is answered as a failure. The rule behind all of them: a dropped session is
+  a child who is not being locked out, so the loss is said out loud and the rest of the list
+  still gets enforced. "Could not read" rendered as "nobody is logged in" is the most
+  reassuring wrong answer this product can give, and it is the one every consumer was giving.
 - The listing carries no `Remote` and no `LockedHint`. Lock state and remoteness
   require a per-session `show-session`, so the cheap `class=user` + has-a-seat filter
   runs first and the detail call only happens for real desktop sessions.

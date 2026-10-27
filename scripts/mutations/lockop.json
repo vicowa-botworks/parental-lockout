@@ -1,7 +1,7 @@
 {
   "package": "./internal/lockop/",
   "_about": "Each entry puts one known bug back into internal/lockop and the suite must fail. The package has one job -- keeping the three ways a lock can end apart (proved, asked-and-unprovable, nothing reached the desktop) -- so every mutant here collapses two of them into one, which is the failure the package was extracted to prevent: the terminal and the web page agreeing on a sentence the machine never produced. Run: python3 scripts/mutate.py scripts/mutations/lockop.json",
-  "expected_mutants": 8,
+  "expected_mutants": 9,
   "mutants": [
     {
       "id": "LO1",
@@ -48,9 +48,9 @@
     {
       "id": "LO7",
       "file": "internal/lockop/lockop.go",
-      "old": "\tif err != nil {\n\t\treturn nil, err\n\t}\n",
-      "new": "\tif false {\n\t\treturn nil, err\n\t}\n",
-      "note": "a session listing that failed comes back as an empty one, which every caller renders as \"this account is logged out\". That is the fail-open direction on the one surface whose whole job is saying whether a lock was applied. TestAFailedListingIsTheOneError."
+      "old": "\treturn OwnedBy(sessions, username), err",
+      "new": "\treturn OwnedBy(sessions, username), nil",
+      "note": "the shortfall is silently subtracted instead of reported. The rows still reach the caller, so the page locks the sessions it happened to read and says nothing about the one it did not -- 'locked 1' about a census that lost a row, which is the reassurance a partial read has not earned. Re-pointed from `if err != nil { return nil, err }`, which #168 replaced: that pattern matching nothing is how a retired mutant looks green. TestAFailedSessionListingIsNotReportedAsNoSession, TestASessionListingThatReadNothingSaysItCouldNotLook"
     },
     {
       "id": "LO8",
@@ -58,6 +58,15 @@
       "old": "func (r Result) Asked() bool { return len(r.Outcomes) > 0 }\n",
       "new": "func (r Result) Asked() bool { return r.Locked > 0 }\n",
       "note": "\"was anything touched\" becomes \"did anything lock\", so a run where every session was refused or failed reports that nothing was asked -- and the caller that answers with an exit code reports success. TestAHardErrorIsNeitherLockedNorUnconfirmed."
+    },
+    {
+      "id": "LO9",
+      "file": "internal/lockop/lockop.go",
+      "old": "\tif err != nil && len(sessions) == 0 {\n\t\treturn nil, err",
+      "new": "\tif err != nil {\n\t\treturn nil, err",
+      "note": "the rows are discarded before the handler ever sees them, which is where the lock page's 503 actually came from: one unreadable session costs every session the read did name. TestAFailedSessionListingIsNotReportedAsNoSession"
     }
+
+
   ]
 }

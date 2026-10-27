@@ -20,6 +20,14 @@
   {{- end -}}
 </p>
 
+{{- /* #168: a listing that failed part-way is not a listing that says "these are all the
+       sessions there are". The rows below are what the daemon could read, and the page says
+       so rather than letting a parent conclude a child is not logged in from a read that
+       broke. Empty on every complete read, so the page's ordinary pixels do not move. */ -}}
+{{- if .Note -}}
+<p class="flag" role="status">{{.Note}}</p>
+{{- end -}}
+
 {{- /* The sentence this whole feature exists to make possible. A raw virtual terminal
        answers "asked, cannot prove" forever, and a page that rounded that to either
        success or failure would teach an operator to distrust the only signal the machine

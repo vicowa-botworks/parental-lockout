@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 257,
+  "expected_mutants": 260,
   "mutants": [
     {
       "id": "W1",
@@ -1939,6 +1939,30 @@
     "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
     "new": "\t\t\t_ = fmt.Sprintf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
     "note": "the handler computes the reason and throws it away instead of logging it -- the exact state this PR was reviewed out of. The sentence on the page still promises the log, and the suite's page-side tests assert only absence from the response, so the promise is empty and green. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
-  }
+  },
+    {
+      "id": "W268",
+      "file": "internal/web/lock_now.go",
+      "old": "\tif err != nil && len(sessions) == 0 {",
+      "new": "\tif false {",
+      "note": "a read that named nothing is rendered as \"has no session on this machine\" -- the reassurance the daemon has not earned, and the fail-open shape this handler exists to refuse. TestASessionListingThatReadNothingIsStillAnError"
+    }
+,
+    {
+      "id": "W269",
+      "file": "internal/web/test_lock.go",
+      "old": "\tcase serr != nil && len(sessions) == 0:",
+      "new": "\tcase serr != nil:",
+      "note": "a partly readable census is reported as one that could not be read at all, and the sessions that DID read vanish from the page the operator is reading to find out what the daemon can see. TestAPartiallyReadableListingStillReportsTheBackends"
+    }
+,
+    {
+      "id": "W270",
+      "package": "./internal/web/",
+      "file": "internal/web/pages.go",
+      "old": "\t\tview.SessionsKnown = false",
+      "new": "\t\tview.SessionsKnown = true",
+      "note": "the dashboard's session column claims it looked and found nothing once the read failed -- a broken session backend rendered as a quiet house. This is the one consumer #168 names as the model the others should copy; the arm was already right, so this mutant is what keeps it right. TestTheDashboardStillRendersWhenTheSessionListIsGone"
+    }
   ]
 }

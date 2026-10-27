@@ -79,11 +79,17 @@ func (s *Server) handleTestLock(w http.ResponseWriter, r *http.Request) {
 	chain := serverChain{s: s}
 	sessions, serr := lockop.SessionsFor(r.Context(), chain, name)
 	switch {
-	case serr != nil:
+	case serr != nil && len(sessions) == 0:
 		page.SessionsFailed = true
 	case len(sessions) == 0:
 		page.NoSessions = true
 	default:
+		// #168: rows that read are shown even when the census is short. Saying "could not be
+		// read" over rows that are sitting on the page is its own small untruth, so the gap
+		// is said alongside what was seen rather than instead of it.
+		if serr != nil {
+			page.SessionsNote = serr.Error()
+		}
 		for _, sess := range sessions {
 			row := probeSession{Session: sess.ID, Seat: sess.Seat, Type: sess.Type}
 			row.Lockable = platform.IsLockable(sess)
@@ -124,6 +130,10 @@ type probePage struct {
 	Sessions       []probeSession
 	NoSessions     bool
 	SessionsFailed bool
+	// SessionsNote is why the census is short, and is empty whenever the read was complete.
+	// It is a sentence rather than a bool because a page that lists three sessions and says
+	// nothing about the fourth implies the three are all there are (#168).
+	SessionsNote string
 }
 
 // probeSession is one of the account's sessions, as far as the probe cares: where it is and

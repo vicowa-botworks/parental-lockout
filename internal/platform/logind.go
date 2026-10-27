@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"strings"
@@ -126,12 +127,19 @@ func (s *since) UnmarshalJSON(data []byte) error {
 // Probe or from the CLI's doctor output.
 func (l *logind) Sessions(ctx context.Context) ([]Session, error) {
 	entries, err := l.list(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	var out []Session
 	var errs []error
+	if err != nil {
+		// A listing that came back partly readable still names sessions this daemon can
+		// lock, and handing back nothing for it is the failure #168 is about: the machine
+		// reads as nobody being logged in, one audit row is written, and no child gets
+		// locked. Only a listing with no rows at all is a reason to give up on the poll.
+		if len(entries) == 0 {
+			return nil, err
+		}
+		errs = append(errs, err)
+	}
 	for _, e := range entries {
 		// Cheap pre-filter from the listing alone, so a machine with a dozen
 		// non-desktop sessions does not make a dozen pointless calls. class=user
@@ -329,6 +337,14 @@ func (l *logind) list(ctx context.Context) ([]listEntry, error) {
 		if jsonErr == nil {
 			return entries, nil
 		}
+		// An array that parsed but had rows in it the daemon cannot read is NOT output to
+		// fall back on: the table parser would fail over the same JSON bytes and the rows
+		// that did read would be thrown away with the ones that did not (#168). Hand back
+		// what was read, with the complaint attached.
+		var partial partialListing
+		if errors.As(jsonErr, &partial) {
+			return entries, jsonErr
+		}
 		// The flag was accepted and ignored, or the output is truncated. Fall through
 		// and read what came back as a table before spending another call.
 		entries, tableErr := parseSessionTable(out)
@@ -479,10 +495,48 @@ func validSessionID(id string) bool {
 	return id[0] != '-'
 }
 
+// partialListing says the listing was read but part of it could not be.
+//
+// It exists because of the arm in list() it is named in: a JSON decode failure is the
+// signal there to fall back to the table parser, and that is the right move for output
+// that is not JSON at all. It is the wrong move for an array that parsed and had one
+// unreadable row, because the table parser then fails over the same bytes and the whole
+// listing is reported as unrecognised — which is how #167's one bad field reached the
+// daemon as zero sessions. Distinguishing the two is the whole type.
+type partialListing struct{ err error }
+
+func (p partialListing) Error() string { return p.err.Error() }
+func (p partialListing) Unwrap() error { return p.err }
+
+// parseSessionJSON reads `loginctl list-sessions --json=short`, one row at a time.
+//
+// Decoding the array in a single call means one field the daemon cannot read costs every
+// session on the machine. That is not a hypothetical: #167 was a `since` printed as a
+// number, and the machine's four lockable sessions arrived as an error and nothing else.
+// A row that cannot be read is therefore dropped on its own, and the rows that parsed are
+// returned with the complaint attached — the same rule the table parser applies to a
+// truncated row, except that here the count is stated, because "silently skipping it is
+// how a machine full of children reads as nobody being logged in".
 func parseSessionJSON(out []byte) ([]listEntry, error) {
-	var entries []listEntry
-	if err := json.Unmarshal(out, &entries); err != nil {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, err
+	}
+	var (
+		entries []listEntry
+		bad     []string
+	)
+	for i, row := range raw {
+		var e listEntry
+		if err := json.Unmarshal(row, &e); err != nil {
+			bad = append(bad, fmt.Sprintf("row %d: %v", i, err))
+			continue
+		}
+		entries = append(entries, e)
+	}
+	if len(bad) > 0 {
+		return entries, partialListing{fmt.Errorf("loginctl list-sessions: %d of %d session rows could not be read: %s",
+			len(bad), len(raw), strings.Join(bad, "; "))}
 	}
 	return entries, nil
 }

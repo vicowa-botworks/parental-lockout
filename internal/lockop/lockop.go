@@ -94,10 +94,15 @@ func OwnedBy(sessions []platform.Session, username string) []platform.Session {
 // such account", which only the config document can answer.
 func SessionsFor(ctx context.Context, c Chain, username string) ([]platform.Session, error) {
 	sessions, err := c.Sessions(ctx)
-	if err != nil {
+	// A read that came back partly full still names the sessions this account owns (#168).
+	// Dropping them here is where the lock page's 503 really came from: the rows were
+	// discarded before the handler ever saw them, so no amount of care downstream could have
+	// locked a child whose session had been read. The error travels with the rows and the
+	// caller decides what a partial census is worth.
+	if err != nil && len(sessions) == 0 {
 		return nil, err
 	}
-	return OwnedBy(sessions, username), nil
+	return OwnedBy(sessions, username), err
 }
 
 // notLockable says what about this session the rule will not take.

@@ -1,7 +1,7 @@
 {
   "package": "./internal/enforce/",
   "_about": "Each entry puts one known bug back into internal/enforce and the suite must fail. F1 is the #29 fail-open: a session that reports itself locked used to be left alone, and LockedHint is writable by the child. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
-  "expected_mutants": 36,
+  "expected_mutants": 37,
   "mutants": [
     {
       "id": "F1",
@@ -288,6 +288,14 @@
       "old": "\tif !ok || !u.Enabled {",
       "new": "\tif !ok {",
       "note": "the diagnostic half of the account switch. Deleting it does NOT free the child -- config.ProfileFor refuses a disabled account too (CG14 is the mutant for that) -- but the release is filed as \"no profile\" and the tick emits \"user is enabled but has no profile\" every thirty seconds, so the one account the parent switched off on purpose is reported as a broken document. TestReEnablingAnAccountIsObeyedOnTheNextTick, TestSessionsThatMustNeverBeLockedAreLeftAlone."
+    },
+    {
+      "id": "F39",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif err != nil {\n\t\treturn rep\n\t}\n\n\tfor id, st := range e.state {",
+      "new": "\tif false {\n\t\treturn rep\n\t}\n\n\tfor id, st := range e.state {",
+      "note": "the exit sweep runs after a census that is short, so an id missing from `seen` is guessed to be a logout when it is really the row that could not be read: lockout.exited for a child still sitting at a locked screen, and the state carrying their override bookkeeping deleted with it. Re-pointed from `if len(sessions) == 0 { return rep }`, which this PR made equivalent -- the guard below already returns on any error, so no mutant can distinguish that arm and the battery would have been reporting an equivalent as a catch. TestAPartialReadDoesNotEndALockoutItCouldNotSee, TestATotalFailureDoesNotEndALockout"
     }
+
   ]
 }

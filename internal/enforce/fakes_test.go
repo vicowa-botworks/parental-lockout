@@ -105,6 +105,9 @@ type fakePlatform struct {
 
 	sessions    []platform.Session
 	sessionsErr error
+	// keepOnError is set by partialRead: the rows travel out with the error instead of
+	// being replaced by it (#168).
+	keepOnError bool
 
 	// lockErr is per session, because the interesting failures are "this session
 	// cannot be locked" rather than "the platform is down".
@@ -153,6 +156,9 @@ func (f *fakePlatform) Sessions(context.Context) ([]platform.Session, error) {
 	defer f.mu.Unlock()
 	f.calls++
 	if f.sessionsErr != nil {
+		if f.keepOnError {
+			return append([]platform.Session(nil), f.sessions...), f.sessionsErr
+		}
 		return nil, f.sessionsErr
 	}
 	return append([]platform.Session(nil), f.sessions...), nil
@@ -243,6 +249,20 @@ func (f *fakePlatform) setSessionsErr(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sessionsErr = err
+}
+
+// partialRead makes every later Sessions call hand back the rows it holds AND an error,
+// which is what a listing that could not read one of five sessions actually gives its caller
+// (#168).
+//
+// The fake used to be able to say only "the read failed", returning no rows with the error,
+// and a test written against that cannot distinguish a platform that is down from one
+// session that was unreadable — the exact confusion every consumer in #168 fell into.
+func (f *fakePlatform) partialRead(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sessionsErr = err
+	f.keepOnError = true
 }
 
 func (f *fakePlatform) setLockErr(id string, err error) {
