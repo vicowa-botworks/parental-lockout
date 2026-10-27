@@ -29,10 +29,14 @@ import ast
 import contextlib
 import inspect
 import io
+import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GO = os.environ.get("GO", "go")
@@ -78,7 +82,7 @@ SCRIPT_SCAN_CALL = "script_problems = script_open_problems(script_files())"
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 75
+EXPECTED_RULES = 85
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -185,6 +189,143 @@ def encoding_problems(label, path):
     return out, False
 
 
+JOURNAL_NAME = ".plock-mutant-journal.json"
+
+# The pre-run contents of every file this process has mutated, kept in memory as well as on
+# disk so a single journal spans every set the run was handed.
+_JOURNAL = {}
+
+
+def journal_path():
+    return os.path.join(ROOT, JOURNAL_NAME)
+
+
+def journal_load():
+    """The undo journal as a dict, or None when there is no journal.
+
+    A journal that exists but cannot be parsed is returned with an `unreadable` key rather
+    than as None: it is still the marker that a run died here, and answering "clean tree" to
+    a tree with an unreadable marker is the failure this whole file exists to prevent (#169).
+    """
+    try:
+        with open(journal_path(), encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        return {"unreadable": str(exc), "files": {}}
+
+
+def journal_flush():
+    """Write the journal out, atomically, before the next byte of any mutant lands.
+
+    `finally` is the current crash insurance and it does not run on SIGKILL, which is exactly
+    what a harness with a tool timeout sends. The measured case: a sweep killed at 300 s left
+    W205's `new` sitting in `internal/web/templates/testlock.tmpl`, and the next sweep reported
+    W205 as `matches 0 places` -- which reads as "someone retired this mutant in a merge" and
+    invites a re-point of a mutant that was never broken (#169).
+    """
+    tmp = journal_path() + ".tmp"
+    body = {"pid": os.getpid(),
+            "undo": "python3 scripts/check-mutations.py --restore",
+            "files": _JOURNAL}
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(body, fh)
+    os.replace(tmp, journal_path())
+
+
+def journal_record(rel, text):
+    """Claim `rel` before mutating it. The first claim is the one that counts: it holds the
+    contents from before this run touched the file, not from before this mutant."""
+    if rel in _JOURNAL:
+        return
+    _JOURNAL[rel] = text
+    journal_flush()
+
+
+def journal_clear():
+    try:
+        os.remove(journal_path())
+    except FileNotFoundError:
+        pass
+
+
+def journal_restore(journal):
+    """Write every file the journal holds back the way it was, then drop the journal."""
+    done = []
+    for rel, text in sorted(journal.get("files", {}).items()):
+        with open(os.path.join(ROOT, rel), "w", encoding="utf-8") as fh:
+            fh.write(text)
+        done.append(rel)
+    journal_clear()
+    return done
+
+
+def install_undo_signals():
+    """Put the tree back on a signal a process is allowed to catch.
+
+    SIGTERM and SIGINT cover the two ways a person or a harness stops a sweep politely: Ctrl-C
+    in a terminal, and the SIGTERM a supervisor sends before it escalates. Neither is SIGKILL --
+    no handler runs there, which is what the journal on disk is for (#169). This is the half
+    that leaves `git status` clean; the journal is the half that leaves the next run honest.
+
+    `os._exit` is deliberate. A normal raise would unwind into `check`'s finally, which restores
+    from its own cache and then reports -- mid-signal, with the tree already put back.
+    """
+
+    def undo(signum, _frame):
+        try:
+            # Shaped like the on-disk document, because that is what `journal_restore` reads.
+            # Handing it the bare {path: text} map restores nothing and still deletes the
+            # journal -- which is worse than doing nothing at all.
+            journal_restore({"files": dict(_JOURNAL)})
+        finally:
+            os._exit(128 + signum)
+
+    for name in ("SIGTERM", "SIGINT"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            signal.signal(sig, undo)
+
+
+def dirty_paths():
+    """The paths `git status --porcelain` reports, or None when git cannot answer.
+
+    None is not "clean". The sentence this feeds has to be able to say it could not look.
+    """
+    try:
+        out = subprocess.run(["git", "-C", ROOT, "status", "--porcelain"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return [line for line in out.stdout.splitlines() if line.strip()]
+
+
+def stale_corpse_note(problems, dirty):
+    """The sentence a `matches 0 places` report needs and does not have (#169).
+
+    That report is the one a person acts on, and today it cannot tell a mutant somebody
+    retired in a merge from a mutant a killed run left applied in the tree. `problems` is the
+    run's (id, why) list; `dirty` is `dirty_paths()` from before the first write, or None.
+    Returns None when there is nothing to say.
+    """
+    if not any("matches 0 places" in why for _, why in problems):
+        return None
+    if dirty:
+        return (f"{len(dirty)} path(s) were already modified when this sweep started, so a "
+                f"`matches 0 places` line may be describing a mutation a killed run left "
+                f"behind rather than a mutant that was retired. Check `git diff` on the named "
+                f"file before re-pointing anything; `python3 scripts/check-mutations.py "
+                f"--restore` undoes a journal.")
+    if dirty is None:
+        return ("this run could not ask git whether the tree was clean, so a `matches 0 places` "
+                "line cannot be told apart from a mutation a killed run left behind. "
+                "`git status --porcelain` before re-pointing anything.")
+    return None
+
+
 def check(doc):
     """Return a list of (mutant_id, problem) for one already-validated set."""
     default_pkg = doc.get("package")
@@ -226,6 +367,10 @@ def check(doc):
             abs_path = os.path.join(ROOT, rel)
             if rel not in touched:
                 touched.append(rel)
+            # Claimed before the write, not in the `finally`: the finally is the undo, and the
+            # journal is the proof of what the undo is for. A run killed by SIGKILL never gets
+            # to it (#169).
+            journal_record(rel, original[rel])
             with open(abs_path, "w", encoding="utf-8") as fh:
                 fh.write(mutated)
             rc = compiles(pkg)
@@ -964,6 +1109,221 @@ def self_test():
     rule_fires("control: the drive reports a status that is not the one it was promised",
                scripts_drive(BAD_TOOL, 0, "script encoding problem"))
 
+    # ---- #169: the undo journal -------------------------------------------------------
+    # `finally` is this tool's crash insurance and it does not run on SIGKILL, which is what a
+    # harness kills a long sweep with. The measured cost: a sweep killed at a 300 s timeout left
+    # W205's `new` sitting in internal/web/templates/testlock.tmpl, and the next sweep reported
+    # W205 as `matches 0 places` -- a healthy mutant reported as retired, with "re-point it" as
+    # the advice. These rules drive a mutant that really lands, so `compiles` is stubbed and the
+    # tree is a box; the journal, not the compiler, is what is under test.
+    GOOD_SET = ('{"package": "./x/", "expected_mutants": 1, "mutants": '
+                '[{"id": "J1", "file": "x.go", "old": "aaa", "new": "bbb"}]}')
+    MISS_SET = GOOD_SET.replace('"old": "aaa"', '"old": "zzz"')
+
+    class _RC:
+        def __init__(self, code):
+            self.returncode, self.stdout, self.stderr = code, "", ""
+
+    def journal_drive(set_text, want_rc, want=None, absent=None, pre=None, dirty=None,
+                      argv=None, keeps_journal=False):
+        """Drive `main` over a tree whose mutant really lands, then judge what it left behind.
+
+        `pre(box)` runs before the sweep and is how a journal gets planted -- the state a killed
+        run leaves is not reproducible by running one and killing it inside a self-test that has
+        to stay in milliseconds. `dirty` replaces `git status`, so the corpse note is driven
+        without a repository behind the box.
+        """
+        global ROOT, compiles, dirty_paths
+        saved = (ROOT, compiles, dirty_paths)
+        with tempfile.TemporaryDirectory() as box:
+            os.makedirs(os.path.join(box, "scripts", "mutations"))
+            with open(os.path.join(box, "x.go"), "w", encoding="utf-8") as fh:
+                fh.write("aaa\n")
+            with open(os.path.join(box, "scripts", "mutations", "s.json"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(set_text)
+            if pre:
+                pre(box)
+            ROOT = box
+            compiles = lambda pkg: _RC(0)          # noqa: E731
+            dirty_paths = lambda: dirty            # noqa: E731
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    rc = main(argv or ["check-mutations.py"])
+            finally:
+                ROOT, compiles, dirty_paths = saved
+            text = out.getvalue()
+            if rc != want_rc:
+                return f"the run returned {rc}, want {want_rc}: {text.strip()[:160]}"
+            if want and want not in text:
+                return f"the run did not print {want!r}"
+            if absent and absent in text:
+                return f"the run printed {absent!r}, which it was promised not to"
+            if os.path.exists(os.path.join(box, JOURNAL_NAME)) and not keeps_journal:
+                return (f"{JOURNAL_NAME} survived a finished run, so the next sweep would refuse "
+                        f"to read this tree")
+            if open(os.path.join(box, "x.go"), encoding="utf-8").read() != "aaa\n":
+                return "x.go was left mutated by a run that finished"
+            return None
+
+    def journal_planted(box):
+        with open(os.path.join(box, JOURNAL_NAME), "w", encoding="utf-8") as fh:
+            json.dump({"pid": 1, "files": {"x.go": "zzz\n"}}, fh)
+
+    def journal_garbage(box):
+        with open(os.path.join(box, JOURNAL_NAME), "w", encoding="utf-8") as fh:
+            fh.write("{not json at all")
+
+    def journal_mutated(box):
+        """The corpse: the file is mid-mutation and the journal says what it was."""
+        with open(os.path.join(box, "x.go"), "w", encoding="utf-8") as fh:
+            fh.write("bbb\n")
+        journal_planted(box)
+        with open(os.path.join(box, JOURNAL_NAME), "w", encoding="utf-8") as fh:
+            json.dump({"pid": 1, "files": {"x.go": "aaa\n"}}, fh)
+
+    def journal_recorded_before_the_write():
+        """The claim the whole fix rests on: the record exists BEFORE the mutant lands.
+
+        A journal written in the `finally` would satisfy every other rule here and be worthless,
+        because the `finally` is the thing SIGKILL skips. So the stub compiler reads the journal
+        and the tree while the mutant is live and says what it found.
+        """
+        global ROOT, compiles, dirty_paths
+        saved = (ROOT, compiles, dirty_paths)
+        with tempfile.TemporaryDirectory() as box:
+            os.makedirs(os.path.join(box, "scripts", "mutations"))
+            with open(os.path.join(box, "x.go"), "w", encoding="utf-8") as fh:
+                fh.write("aaa\n")
+            with open(os.path.join(box, "scripts", "mutations", "s.json"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(GOOD_SET)
+            found = {}
+
+            def probe(pkg):
+                j = journal_load() or {}
+                found["exists"] = j.get("files") is not None
+                found["original"] = j.get("files", {}).get("x.go")
+                found["undo"] = j.get("undo")
+                with open(os.path.join(ROOT, "x.go"), encoding="utf-8") as fh:
+                    found["live"] = fh.read()
+                return _RC(0)
+
+            ROOT, compiles, dirty_paths = box, probe, (lambda: [])
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    main(["check-mutations.py"])
+            finally:
+                ROOT, compiles, dirty_paths = saved
+            if not found.get("exists"):
+                return "no journal existed while the mutant was applied -- it is written too late"
+            if found.get("original") != "aaa\n":
+                return f"the journal holds {found.get('original')!r}, want the pre-run contents"
+            if found.get("live") != "bbb\n":
+                return "the mutant never reached the tree, so nothing here was ever at risk"
+            if not found.get("undo"):
+                return "the journal does not say how to undo it"
+            return None
+
+    rule("the journal is on disk while the mutant is, holding what to put back",
+         journal_recorded_before_the_write())
+    rule("a sweep that finishes leaves neither a journal nor a mutation behind",
+         journal_drive(GOOD_SET, 0, "apply and compile"))
+    rule("a sweep refuses to report on a tree a killed run left mutated",
+         journal_drive(GOOD_SET, 1, "--restore", absent="apply and compile",
+                       pre=journal_planted, keeps_journal=True))
+    rule("a journal that cannot be parsed still stops the run",
+         journal_drive(GOOD_SET, 1, "cannot be read", pre=journal_garbage,
+                       keeps_journal=True))
+    rule("--restore replays the journal, puts the file back, and drops the journal",
+         journal_drive(GOOD_SET, 0, "restored 1 file(s)", pre=journal_mutated,
+                       argv=["check-mutations.py", "--restore"]))
+    rule("a `matches 0 places` line on a dirty tree says it may be a corpse",
+         journal_drive(MISS_SET, 1, "left behind", dirty=[" M x.go"]))
+    rule("a tree git cannot answer for says it could not look",
+         journal_drive(MISS_SET, 1, "could not ask git"))
+    rule_fires("control: a clean tree is not told its mutant may be a corpse",
+               journal_drive(MISS_SET, 1, "left behind", dirty=[]))
+
+    def killed_mid_sweep(sig):
+        """Stop a real sweep with `sig` and report what the tree looks like afterwards.
+
+        The child runs this script for real, in its own box, with `GO` pointed at a stub that
+        sleeps -- so the sweep is genuinely holding a mutant when the signal lands and nothing
+        about the timing depends on how fast a machine compiles. `git init` is in the box because
+        the promise under test is the one an operator actually checks: `git status --porcelain`
+        empty (#169's fourth criterion, measured rather than argued).
+        """
+        box = tempfile.mkdtemp(prefix="plock-kill-")
+        try:
+            os.makedirs(os.path.join(box, "scripts", "mutations"))
+            for name in ("check-mutations.py", "mutset.py"):
+                shutil.copyfile(os.path.join(ROOT, "scripts", name),
+                                os.path.join(box, "scripts", name))
+            tool = os.path.join(box, "slow-go")
+            with open(tool, "w", encoding="utf-8") as fh:
+                fh.write("#!/bin/sh\nsleep 30\n")
+            os.chmod(tool, 0o755)
+            with open(os.path.join(box, "x.go"), "w", encoding="utf-8") as fh:
+                fh.write("aaa\n")
+            with open(os.path.join(box, "scripts", "mutations", "s.json"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(GOOD_SET)
+            for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "x"]):
+                subprocess.run(["git", "-C", box, "-c", "user.email=t@t.invalid",
+                                "-c", "user.name=t"] + args, capture_output=True, check=True)
+            # No __pycache__: the box is a git repository and the assertion below is
+            # `git status --porcelain`, so an import artefact is a false failure.
+            env = dict(os.environ, GO=tool, PYTHONDONTWRITEBYTECODE="1")
+            script = os.path.join(box, "scripts", "check-mutations.py")
+            child = subprocess.Popen([sys.executable, script], cwd=box, env=env,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+            journal = os.path.join(box, JOURNAL_NAME)
+            for _ in range(250):
+                if os.path.exists(journal):
+                    break
+                time.sleep(0.02)
+            else:
+                child.kill()
+                child.wait()
+                return "the sweep never wrote a journal, so there was nothing to interrupt"
+            child.send_signal(sig)
+            child.wait(timeout=30)
+            with open(os.path.join(box, "x.go"), encoding="utf-8") as fh:
+                live = fh.read()
+            dirty = subprocess.run(["git", "-C", box, "status", "--porcelain"],
+                                   capture_output=True, text=True,
+                                   encoding="utf-8").stdout.strip()
+            if sig == signal.SIGKILL:
+                if not os.path.exists(journal):
+                    return ("SIGKILL left no journal: the next sweep would read this mutated "
+                            "tree and report a healthy mutant as retired (#169)")
+                again = subprocess.run([sys.executable, script], cwd=box, env=env,
+                                       capture_output=True, text=True, encoding="utf-8",
+                                       timeout=120)
+                if again.returncode == 0 or "--restore" not in again.stdout:
+                    return ("the sweep after a SIGKILL reported on the mutated tree instead of "
+                            f"refusing (exit {again.returncode})")
+                return None
+            if live != "aaa\n" or dirty:
+                return (f"SIGTERM left the tree mutated (x.go={live!r}, git status {dirty!r}); "
+                        f"the handler is the half that keeps `git status` clean")
+            if os.path.exists(journal):
+                return ("SIGTERM restored the tree but left the journal, so the next run refuses "
+                        "a clean tree")
+            return None
+        except (OSError, subprocess.SubprocessError) as exc:
+            return f"the kill drive could not run: {exc}"
+        finally:
+            shutil.rmtree(box, ignore_errors=True)
+
+    rule("a sweep stopped by SIGTERM puts the tree back, byte for byte",
+         killed_mid_sweep(signal.SIGTERM))
+    rule("a sweep stopped by SIGKILL leaves a journal, and the next sweep refuses",
+         killed_mid_sweep(signal.SIGKILL))
+
     # A deleted rule is invisible to every rule that survives it, so the tally is pinned. This
     # is not the error the docstring above warns about: that one *derived* the count from a
     # list and went stale when a case was added. What it catches is deletion by removal --
@@ -1007,10 +1367,52 @@ def exit_status(bad, file_problems, script_problems):
 def main(argv):
     if argv[1:] == ["--self-test"]:
         return self_test()
+    if argv[1:] == ["--restore"]:
+        journal = journal_load()
+        if journal is None:
+            print(f"nothing to undo: no {JOURNAL_NAME} here")
+            return 0
+        if "unreadable" in journal:
+            print(f"{JOURNAL_NAME} exists but cannot be read ({journal['unreadable']}), so "
+                  f"nothing was restored. Read `git status --porcelain` and `git diff`, undo the "
+                  f"mutation by hand, then remove the journal.")
+            return 1
+        done = journal_restore(journal)
+        print(f"restored {len(done)} file(s) a dead run left behind: "
+              + (", ".join(done) if done else "the journal named none"))
+        return 0
     paths = argv[1:]
     if not paths:
         dirn = os.path.join(ROOT, "scripts", "mutations")
         paths = sorted(os.path.join(dirn, f) for f in os.listdir(dirn) if f.endswith(".json"))
+
+    # Before anything is read or written. A run that died with a mutant applied leaves the tree
+    # mid-mutation, and reporting on that tree produces the most confident wrong answer this
+    # tool can give: a healthy mutant reported as retired (#169).
+    stale = journal_load()
+    if stale is not None:
+        if "unreadable" in stale:
+            print(f"{JOURNAL_NAME} exists and cannot be read ({stale['unreadable']}), so this "
+                  f"run cannot tell what a dead run left applied here -- which is exactly the "
+                  f"tree it must not report on.")
+        else:
+            print(f"{JOURNAL_NAME} exists: a previous check-mutations.py run died with a mutant "
+                  f"applied (pid {stale.get('pid', 'unknown')}, "
+                  f"{len(stale.get('files', {}))} file(s) recorded).")
+        print("Nothing below is trustworthy on a tree that is still mutated. Run "
+              "`python3 scripts/check-mutations.py --restore`, or undo it by hand and delete "
+              "the journal.")
+        return 1
+    # Captured here, before the first write, because after the first write every path this
+    # reports is one this process touched.
+    dirty = dirty_paths()
+    # A second call in the same process (the self-test drives `main` repeatedly) must not carry
+    # the previous run's record forward: the journal on disk is per-run, and so is this.
+    _JOURNAL.clear()
+    # Catchable signals only, and only because they are the ones that arrive: Ctrl-C and the
+    # SIGTERM a supervisor sends before it escalates. The uncatchable one is answered by the
+    # journal, not by a handler (#169).
+    install_undo_signals()
 
     # Once, before the sets: this looks at the tools that write the files below, and which sets
     # this run was handed has nothing to do with what they open.
@@ -1019,38 +1421,48 @@ def main(argv):
     total = bad = 0
     named = []
     file_problems = []
-    for path in paths:
-        label = os.path.relpath(path, ROOT)
-        # Before `load`, not after it. `mutset.load` opens with encoding="utf-8" and catches
-        # ValueError -- which UnicodeDecodeError subclasses -- and then calls sys.exit, so a file
-        # whose bytes were not UTF-8 died there printing `not valid JSON: 'utf-8' codec can't
-        # decode byte 0xff` and the sentence written for exactly that case never printed. It also
-        # took the other twelve sets down with it: there is nothing to check in a file that cannot
-        # be read, but there is plenty to check in the files after it.
-        found, bad_bytes = encoding_problems(label, path)
-        # Deliberately not added to `bad`. A mutant that does not apply and a file that was
-        # written by a tool instead of declared are different failures: the closing line counts
-        # "N of M mutants would run without testing anything", and folding an encoding defect
-        # into that number would attribute a file-level problem to mutants that are fine.
-        file_problems.extend(found)
-        # The flag the check returns, not a search for a phrase inside the sentences it just
-        # built. Matching its prose worked only while the wording held, and when it stopped
-        # holding this branch stopped being taken: the run went back to dying in `load` two sets
-        # into thirteen, which is the failure the sentence above exists to prevent.
-        if bad_bytes:
-            print(f"{label}: skipped -- its bytes are not UTF-8, so there is nothing to check")
-            continue
-        doc = load(path)
-        named.append((label, doc))
-        problems = check(doc)
-        total += len(doc["mutants"])
-        bad += len(problems)
-        if problems:
-            print(f"{label}: {len(problems)} of {len(doc['mutants'])} mutants are not testing anything")
-            for mid, why in problems:
-                print(f"  {mid}: {why}")
-        else:
-            print(f"{label}: all {len(doc['mutants'])} mutants apply and compile")
+    seen_problems = []
+    try:
+        for path in paths:
+            label = os.path.relpath(path, ROOT)
+            # Before `load`, not after it. `mutset.load` opens with encoding="utf-8" and catches
+            # ValueError -- which UnicodeDecodeError subclasses -- and then calls sys.exit, so a
+            # file whose bytes were not UTF-8 died there printing `not valid JSON: 'utf-8' codec
+            # can't decode byte 0xff` and the sentence written for exactly that case never
+            # printed. It also took the other twelve sets down with it: there is nothing to check
+            # in a file that cannot be read, but there is plenty to check in the files after it.
+            found, bad_bytes = encoding_problems(label, path)
+            # Deliberately not added to `bad`. A mutant that does not apply and a file that was
+            # written by a tool instead of declared are different failures: the closing line
+            # counts "N of M mutants would run without testing anything", and folding an
+            # encoding defect into that number would attribute a file-level problem to mutants
+            # that are fine.
+            file_problems.extend(found)
+            # The flag the check returns, not a search for a phrase inside the sentences it just
+            # built. Matching its prose worked only while the wording held, and when it stopped
+            # holding this branch stopped being taken: the run went back to dying in `load` two
+            # sets into thirteen, which is the failure the sentence above exists to prevent.
+            if bad_bytes:
+                print(f"{label}: skipped -- its bytes are not UTF-8, so there is nothing to check")
+                continue
+            doc = load(path)
+            named.append((label, doc))
+            problems = check(doc)
+            seen_problems.extend(problems)
+            total += len(doc["mutants"])
+            bad += len(problems)
+            if problems:
+                print(f"{label}: {len(problems)} of {len(doc['mutants'])} mutants are not testing anything")
+                for mid, why in problems:
+                    print(f"  {mid}: {why}")
+            else:
+                print(f"{label}: all {len(doc['mutants'])} mutants apply and compile")
+    finally:
+        # Every file `check` touched was restored by its own finally; this drops the record that
+        # said so. It never runs when the process is stopped by a signal it cannot catch, which
+        # is why the journal is written BEFORE the first write rather than here (#169) -- this
+        # is the tidy path, not the safety net.
+        journal_clear()
 
     # One claim counted twice is a tally that overstates what the battery proved, and it is
     # invisible from inside a single set -- which is how a mutant added to guard a shared
@@ -1071,6 +1483,15 @@ def main(argv):
         print(f"\n{len(file_problems)} set-file encoding problem(s):")
         for why in file_problems:
             print(f"  {why}")
+
+    # Said after the per-set lines because it is about how to read them. A `matches 0 places`
+    # report is the one line in this output a person acts on -- it tells them to re-point a
+    # mutant -- and it cannot itself tell a retired mutant from a mutation a dead run left in
+    # the tree (#169). Informational, and deliberately not part of the exit status: a dirty tree
+    # is the normal state of a working copy, and failing on it would train people to ignore this.
+    note = stale_corpse_note(seen_problems, dirty)
+    if note:
+        print(f"\nnote: {note}")
 
     status = exit_status(bad, file_problems, script_problems)
     if status:
