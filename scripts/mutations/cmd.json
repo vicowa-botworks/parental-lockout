@@ -554,6 +554,34 @@
       "old": "\t\tif config.ProfileNameTaken(cfg.Profiles, strings.TrimSpace(*name), p.ID) {",
       "new": "\t\tif false && config.ProfileNameTaken(cfg.Profiles, strings.TrimSpace(*name), p.ID) {",
       "note": "`plock profile edit --name` sets a name with no collision check, so renaming an existing profile onto a name another profile already answers to succeeds from the CLI while the same rename is a 422 on the page. TestProfileEditRefusesANameAnotherProfileHas."
+    },
+    {
+      "id": "CC18",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\tif strings.TrimSpace(keyFile) == \"\" {",
+      "new": "\tif false && strings.TrimSpace(keyFile) == \"\" {",
+      "note": "an empty settings.keyFile is opened instead of refused, so the report describes a pair the document never named and the operator chases a file that is not in the config"
+    },
+    {
+      "id": "CC19",
+      "file": "cmd/plock/doctor_checks.go",
+      "old": "\tif err := pair(certFile, keyFile); err != nil {",
+      "new": "\tif err := pair(certFile, keyFile); false && err != nil {",
+      "note": "#162 itself: the pair is never asked about, so certificate A with key B reports `tls | ok` with a sentence byte-identical to a matching pair while web.New refuses to boot on it"
+    },
+    {
+      "id": "CC20",
+      "file": "cmd/plock/doctor.go",
+      "old": "cfg.Settings.CertFile, cfg.Settings.KeyFile, time.Now(),",
+      "new": "cfg.Settings.CertFile, \"\", time.Now(),",
+      "note": "the key half is dropped at the call site -- the shape this issue was filed for, where the check is right and is simply never handed the key. Pinned by the report-level test, not by checkTLS's own tests: a function test cannot see a call site"
+    },
+    {
+      "id": "CC21",
+      "file": "cmd/plock/doctor.go",
+      "old": "\t\tcertValidity, daemonPair))",
+      "new": "\t\tcertValidity, func(string, string) error { return nil }))",
+      "note": "the daemon's loader is replaced by a stub that always agrees, so doctor certifies any two files it is given; the shared-answer property with web.New is the whole point of the parameter and this row is what keeps it a property rather than a comment"
     }
   ]
 }

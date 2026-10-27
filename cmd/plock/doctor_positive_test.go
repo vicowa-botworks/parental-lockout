@@ -84,9 +84,9 @@ func TestCertValidityReadsARealCertificate(t *testing.T) {
 // real reader returning nothing.
 func TestCheckTLSOnARealCertificateFile(t *testing.T) {
 	now := time.Now().UTC()
-	path := writeSelfSigned(t, t.TempDir(), now.Add(-time.Hour), now.Add(60*24*time.Hour))
+	path, keyPath := writePair(t, t.TempDir(), now.Add(-time.Hour), now.Add(60*24*time.Hour))
 
-	got := checkTLS("custom", path, now, certValidity)
+	got := checkTLS("custom", path, keyPath, now, certValidity, daemonPair)
 	if got.Status != verdictOK {
 		t.Fatalf("a valid certificate on disk was reported as %q: %s", got.Status, got.Detail)
 	}
@@ -95,8 +95,9 @@ func TestCheckTLSOnARealCertificateFile(t *testing.T) {
 	}
 
 	// The same file, read at a time after it expires, must now fail. Same bytes, different
-	// clock: this is the check deciding, not the reader refusing.
-	expired := checkTLS("custom", path, now.Add(120*24*time.Hour), certValidity)
+	// clock: this is the check deciding, not the reader refusing. The pair loader is the real
+	// one and reads the real clock, so it still agrees the two go together.
+	expired := checkTLS("custom", path, keyPath, now.Add(120*24*time.Hour), certValidity, daemonPair)
 	if expired.Status != verdictFail {
 		t.Errorf("reading the same certificate 120 days later gave %q: %s", expired.Status, expired.Detail)
 	}

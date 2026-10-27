@@ -241,11 +241,21 @@ func checkPollInterval(seconds int) check {
 	}
 }
 
-// checkTLS reports the certificate the admin UI would serve.
+// checkTLS reports the transport the admin UI would come up on.
 //
 // An expired certificate is the failure mode that looks like a network problem: the daemon
 // is up, the port answers, and the browser refuses to say why in terms a parent can act on.
-func checkTLS(mode, certFile string, now time.Time, load func(string) (time.Time, time.Time, error)) check {
+//
+// `pair` is the other half of the question, and the reason it is a parameter rather than an
+// assumption: production hands it `web.LoadCustom`, the same function `web.New` calls at
+// start-up, so doctor and start-up cannot give different answers about one document. Before #162
+// this check took the certificate alone, which meant a config naming certificate A and key B —
+// the exact mistake the settings form now refuses to save — reported `tls | ok` with a sentence
+// byte-identical to a matching pair, while the daemon refused to boot on precisely that pair. Two
+// independent answers to one question is the bug. The `cmd.json` rows that drop the key argument
+// are what stop the signature quietly going back to one path.
+func checkTLS(mode, certFile, keyFile string, now time.Time,
+	load func(string) (time.Time, time.Time, error), pair func(cert, key string) error) check {
 	switch mode {
 	case "off":
 		return warnCheck("tls",
@@ -261,6 +271,19 @@ func checkTLS(mode, certFile string, now time.Time, load func(string) (time.Time
 	if strings.TrimSpace(certFile) == "" {
 		return failCheck("tls", `settings.tls is "custom" but settings.certFile is empty`,
 			"point settings.certFile at the certificate, or use \"auto\"")
+	}
+	if strings.TrimSpace(keyFile) == "" {
+		return failCheck("tls", `settings.tls is "custom" but settings.keyFile is empty`,
+			`point settings.keyFile at the private key that goes with settings.certFile, or use "auto"`)
+	}
+	// The daemon's own question, asked with the daemon's own loader, and asked first: it is the
+	// failure that stops the process. An operator whose admin UI never came up needs "these two are
+	// not a pair", not a validity window read off one half of it while the other half is unopened.
+	if err := pair(certFile, keyFile); err != nil {
+		return failCheck("tls",
+			fmt.Sprintf("the daemon will not start with %s and %s: %v", certFile, keyFile, err),
+			`web.New refuses this pair at start-up, so the admin UI never comes up; doctor asks the `+
+				`same loader rather than answering the question separately`)
 	}
 	notBefore, notAfter, err := load(certFile)
 	if err != nil {
