@@ -86,8 +86,56 @@ def git(args, cwd=None):
 
 
 def newest_commit(sources, run=git):
-    """The commit that last touched any of `sources` -- the thing a photograph ages against."""
+    """The commit that last touched any of `sources` -- the thing a photograph ages against.
+
+    An EMPTY answer is not "nothing has touched these files". It means no commit this checkout can
+    see has, and in a depth-1 clone that is the normal answer for every file in the repository.
+    Callers have to tell those apart, which is why this returns "" rather than refusing: the
+    refusal belongs where the reader can be told the check did not run.
+    """
     return run(["log", "-1", "--format=%H", "--"] + list(sources))
+
+
+def history_is_shallow(run=git):
+    """Is this a shallow clone, so the history the manifest ages against is not here at all?
+
+    `actions/checkout@v4` defaults to `fetch-depth: 1`, and a depth-1 checkout does not merely make
+    the clock coarse -- it removes every commit except one, so `newest_commit` answers with that
+    one for some files and with nothing for the rest. Reported as drift, that is seven stale
+    screenshots on a tree whose screenshots may all be current, and it sends the reader to the
+    capture package instead of to the workflow. Same distinction `check-deps.sh` draws about its
+    own scanners: an empty result is "did not scan", never "found nothing".
+    """
+    try:
+        return run(["rev-parse", "--is-shallow-repository"]).strip() == "true"
+    except SystemExit:
+        # A git too old to answer (the flag is 2.15, from 2015). Not shallow as far as this can
+        # tell; the empty-history refusal below still catches a real depth-1 checkout, so the
+        # verdict stays honest on a machine that cannot answer the cheap question.
+        return False
+
+
+def is_ancestor(older, newer, run=git):
+    """Is `older` at or before `newer` in history?
+
+    Answered with `rev-list --count newer..older`, which counts what `older` has that `newer` does
+    not: zero means `older` brings nothing the other side lacks, so it is at or before `newer` in
+    history and a photograph taken at `newer` saw the page as of `older`.
+
+    The range, not the `newer ^older` spelling, and the difference is the whole answer: `--count
+    newer ^older` is zero for an ANCESTOR and also zero for a DESCENDANT, because both have
+    nothing the other lacks in that direction. Written that way the check accepts exactly the case
+    it exists to refuse -- a page that moved while its photograph stayed put -- and stays green
+    doing it. Measured: with the caret spelling, the drift rule below stops firing.
+
+    Not `merge-base --is-ancestor` either, whose answer IS a non-zero exit code -- and `git()`
+    turns a non-zero exit into a refusal, correctly, for every command where silence would be a
+    lie. A helper that raised on "no, it is not an ancestor" would be worse than useless here,
+    because "no" is the finding this file exists to print.
+    """
+    if not older or not newer or len(older) < 7 or len(newer) < 7:
+        return False
+    return run(["rev-list", "--count", f"{newer}..{older}"]).strip() == "0"
 
 
 def dirty_sources(sources, run=git):
@@ -151,7 +199,6 @@ def record(directory, head=None, run=git, now=None):
             "page": "/" if artifact == "dashboard" else "/" + artifact,
             "png": name,
             "png_sha256": sha256(os.path.join(directory, name)),
-            "scroll_width": ARTIFACT_WIDTH,
             "sources": sources,
             "sources_rev": newest_commit(sources, run=run),
         })
@@ -222,10 +269,28 @@ def check(directory, run=git, pages=None):
                         f"{ARTIFACT_WIDTH} -- the acceptance width. A manifest taken at another "
                         f"width is not evidence about this one.")
 
+    # Before any per-page claim: a checkout without history cannot produce a verdict at all, and
+    # the difference between "these photographs are old" and "this check did not run" is the whole
+    # difference between sending someone to the capture package and sending them to the workflow.
+    if history_is_shallow(run=run):
+        return [f"{MANIFEST} was not checked: this is a shallow clone, so the history that says "
+                f"when a page last moved is not in this checkout. Nothing here is a finding about "
+                f"the photographs. Fetch the full history (`git fetch --unshallow`; in CI, "
+                f"`fetch-depth: 0` on the job that runs `make verify`) and run it again."]
+
     entries = doc.get("pages", [])
     seen = set()
     for e in entries:
         name = e.get("png", "")
+        if not name:
+            # Refused rather than allowed to fall through: `os.path.join(directory, "")` is the
+            # artifact directory, and hashing a directory raises IsADirectoryError. The gate still
+            # exits non-zero on a traceback, but the one manifest-shaped input that should say "an
+            # entry has no PNG" would say that in a Python stack trace.
+            problems.append(f"an entry in {MANIFEST} names no PNG (page "
+                            f"{e.get('page', '?')!r}): nothing to compare the recorded sources "
+                            f"against, so the entry certifies nothing")
+            continue
         seen.add(name)
         page = e.get("page", "?")
         path = os.path.join(directory, name)
@@ -254,12 +319,43 @@ def check(directory, run=git, pages=None):
             continue
         recorded = e.get("sources_rev")
         current = newest_commit(sources, run=run)
-        if recorded != current:
-            problems.append(f"{name} predates the newest change to {page}'s sources: the "
-                            f"manifest was taken at {str(recorded)[:12]}... and "
-                            f"{sources[0]} (or the shared shell) has moved to "
-                            f"{str(current)[:12]}... since. The page grew and the photograph "
-                            f"did not (#144).")
+        if not current:
+            problems.append(f"{MANIFEST} was not checked against {page}'s sources: no commit this "
+                            f"checkout can see touches {sources[0]}. That is a history problem, "
+                            f"not a photograph problem -- a shallow or filtered fetch says the "
+                            f"same thing about every page in the repository. Nothing here is a "
+                            f"finding about {name}.")
+            continue
+        if recorded == current:
+            continue
+        # The page has moved since the manifest was recorded. That is only drift if the photograph
+        # did not move with it, and the first version of this check could not tell the two apart:
+        # it compared the manifest's own commit against the page's, so a commit that changed a
+        # template AND re-took its photograph -- the one commit in which both are true -- was
+        # refused by the very change that made the photograph current, with a sentence that was
+        # false about it.
+        #
+        # So ask the history what it knows instead of what the manifest remembers. The PNG has a
+        # newest commit too, and the photograph is current exactly when the page's newest change is
+        # at or before the photograph's newest change. The bytes are pinned by `png_sha256`
+        # regardless, so accepting the atomic case cannot smuggle in a swapped file; and the
+        # failure #144 is about -- the page moved and nobody re-took -- still refuses, because then
+        # the PNG's newest commit is genuinely older than the source's.
+        shot = newest_commit([os.path.relpath(path, ROOT)], run=run)
+        if not shot:
+            problems.append(f"{MANIFEST} was not checked against {name}: no commit this checkout "
+                            f"can see touches the photograph, so there is nothing to date it "
+                            f"against. That is a fetch problem, not a finding about {name}.")
+            continue
+        if is_ancestor(current, shot, run=run):
+            continue
+        problems.append(f"{name} predates the newest change to {page}'s sources: the manifest was "
+                        f"taken at {str(recorded)[:12]}..., {sources[0]} (or the shared shell) has "
+                        f"moved to {str(current)[:12]}..., and the newest commit touching the "
+                        f"photograph is {str(shot)[:12]}... -- before that change. The page grew "
+                        f"and the photograph did not (#144). Re-take it and re-run "
+                        f"`manifest.py record`, in a commit after the one that changed the page "
+                        f"or in that same commit; what it may not be is older than the page.")
 
     for name in on_disk:
         if name not in seen:
@@ -349,8 +445,29 @@ def _png(box, name, body=b"png"):
         fh.write(body)
 
 
-def _fake_git(rev="a" * 40, dirty=()):
-    """A git that says `rev` is the newest commit and `dirty` is uncommitted."""
+# The commit a manifest recorded against is written with the default fake, so it is a name both
+# the fake and the rules below have to agree on.
+RECORDED = "a" * 40
+
+
+def _fake_git(rev=RECORDED, dirty=(), png_rev=RECORDED, shallow=False, visible=True):
+    """A git that says `rev` is the newest commit touching the sources and `dirty` is uncommitted.
+
+    `png_rev` is the newest commit touching the photographs, and it defaults to the commit the
+    manifest was recorded at: that is what a page that moved without a re-capture looks like, so
+    the drift rules below stay drift rules. Set it to `rev` to ask the other question -- a page
+    change and its re-take in one commit -- and to a commit after `rev` for a re-take with no page
+    change at all.
+
+    `shallow` and `visible` are the two ways a checkout can fail to have the history this check
+    reads. They are separate because they refuse differently: a shallow repository is refused up
+    front, before any page is looked at, while an invisible source is refused per page.
+    """
+    # Oldest first. A photograph left at the commit the manifest was recorded at is the older of
+    # the two -- that is what drift looks like -- while an explicitly named png_rev is a re-take,
+    # which sits after the page's last change.
+    history = [rev] if png_rev == rev else (
+        [png_rev, rev] if png_rev == RECORDED else [rev, png_rev])
 
     def run(args, cwd=None):
         if args[0] == "status":
@@ -359,9 +476,26 @@ def _fake_git(rev="a" * 40, dirty=()):
             # with, where the status column was sliced at an offset and the path lost a letter.
             return "\n".join(f" M {p}" for p in dirty)
         if args[0] == "log":
+            paths = args[args.index("--") + 1:] if "--" in args else []
+            if not visible:
+                return ""
+            if paths and paths[0].endswith(".png"):
+                return png_rev
             return rev
+        if args[0] == "rev-list":
+            # `rev-list --count NEWER..OLDER`: how much OLDER has that NEWER does not. Zero is
+            # "older is already behind newer", which is the answer the caller wants.
+            newer, older = args[2].split("..")
+            if older not in history or newer not in history:
+                return "?"
+            return str(max(0, history.index(older) - history.index(newer)))
+        if args[0] == "rev-parse":
+            return "true" if shallow else "false"
         return "HEAD"
     return run
+
+
+
 
 
 class _Page:
@@ -563,7 +697,110 @@ def self_test():
          None if verify_clause_problems('verify:\n\t@set -e; \\\n\techo "==> gofmt"; \\\n')
          else "the pin did not notice the clause being deleted")
 
-    EXPECTED = 19
+    # The clock, round 2. Both of these are the check describing the checkout rather than the
+    # photographs: a depth-1 fetch and an invisible source each produce a confident sentence about
+    # stale screenshots on a tree that may be perfectly current, and the reader follows the sentence
+    # to the wrong file. Measured by the reviewer on `refs/pull/174/merge` at depth 1: seven
+    # refusals, all of them about CI's fetch.
+    def shallow_checkout(box):
+        for a in ("dashboard", "users", "profiles", "audit", "settings"):
+            _png(box, a + ".png")
+        record(os.path.join(box, "docs", "screenshots", "360"), run=_fake_git(),
+               now="2026-01-01T00:00:00Z")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        # The control first: the same tree with history visible and the page unmoved is current.
+        if check(d, run=_fake_git(), pages=DRIVER):
+            return "the control: a full checkout with an unmoved page was refused"
+        problems = check(d, run=_fake_git(shallow=True, rev="b" * 40), pages=DRIVER)
+        if not any("was not checked" in p for p in problems):
+            return f"a shallow clone produced no 'did not run' sentence: {problems}"
+        if any("predates" in p for p in problems):
+            return (f"a shallow clone was reported as stale photographs: {problems}. The whole "
+                    "point of the distinction is that the reader should not go looking for a page "
+                    "that moved")
+        if len(problems) != 1:
+            return f"a shallow clone should produce one sentence, not {len(problems)}: {problems}"
+        return None
+
+    rule("a shallow checkout is reported as no verdict, not as stale screenshots",
+         in_box(shallow_checkout))
+
+    def invisible_sources(box):
+        for a in ("dashboard", "users", "profiles", "audit", "settings"):
+            _png(box, a + ".png")
+        record(os.path.join(box, "docs", "screenshots", "360"), run=_fake_git(),
+               now="2026-01-01T00:00:00Z")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        problems = check(d, run=_fake_git(visible=False), pages=DRIVER)
+        if not any("history problem" in p for p in problems):
+            return f"an empty history produced no 'this did not run' sentence: {problems[:1]}"
+        if any("predates" in p for p in problems):
+            return f"an empty history was reported as drift: {problems[:1]}"
+        # The control: the same manifest against a git that can see the page's last change, and
+        # the drift sentence is back -- so the rule above is about visibility and not about the
+        # comparison having been deleted.
+        moved = check(d, run=_fake_git(rev="b" * 40), pages=DRIVER)
+        if not any("predates" in p for p in moved):
+            return f"a page that moved without a re-take stopped being refused: {moved[:1]}"
+        return None
+
+    rule("a source no commit can be seen to touch is a fetch problem, not drift",
+         in_box(invisible_sources))
+
+    # Blocking 2: a page change and its re-taken photograph in one commit used to be refused by the
+    # commit that made the photograph current, with a sentence that was false about it.
+    def page_and_photograph_together(box):
+        for a in ("dashboard", "users", "profiles", "audit", "settings"):
+            _png(box, a + ".png")
+        record(os.path.join(box, "docs", "screenshots", "360"), run=_fake_git(),
+               now="2026-01-01T00:00:00Z")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        # The page moved to b..., and so did the photograph: one commit carrying both.
+        if check(d, run=_fake_git(rev="b" * 40, png_rev="b" * 40), pages=DRIVER):
+            return ("a page and its re-take committed together were refused -- the trap that makes "
+                    "the honest workflow red")
+        # A re-take with no page change is current too (the photograph is newer than the page).
+        if check(d, run=_fake_git(rev="b" * 40, png_rev="c" * 40), pages=DRIVER):
+            return "a re-take with no page change was refused"
+        # And the failure #144 is about still refuses: the page moved, the photograph did not.
+        if not any("predates" in p for p in check(d, run=_fake_git(rev="b" * 40), pages=DRIVER)):
+            return "the page moved and the photograph did not, and nothing was refused"
+        return None
+
+    rule("a page change and its re-take may share a commit", in_box(page_and_photograph_together))
+
+    def entry_with_no_png(box):
+        _png(box, "profiles.png")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        with open(os.path.join(d, MANIFEST), "w", encoding="utf-8") as fh:
+            json.dump({"schema": SCHEMA, "viewport": ARTIFACT_WIDTH, "pages": [{}]}, fh)
+        problems = check(d, run=_fake_git(), pages=[_Page("/profiles", "profiles")])
+        if not any("names no PNG" in p for p in problems):
+            return f"an entry with no PNG produced {problems[:1]!r}, want a sentence about the entry"
+        return None
+
+    rule("an entry with no PNG is a refusal, not a traceback", in_box(entry_with_no_png))
+
+    # `scroll_width` was the viewport wearing a measurement's name: check() never read it, so the
+    # manifest testified to a number nobody took. Now the capture hands it over and a manifest
+    # without one says so.
+    def no_unmeasured_claims(box):
+        _png(box, "profiles.png")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        record(d, run=_fake_git(), now="2026-01-01T00:00:00Z")
+        doc = read_manifest(d)
+        if "scroll_width" in doc["pages"][0]:
+            return ("the manifest carries scroll_width again. It was the viewport wearing a "
+                    "measurement's name, and it cannot be fixed by plumbing: record() is called "
+                    "once, by pages.py, which has never measured lock.png or testlock.png -- two "
+                    "of the seven entries would still be assertions. A width belongs in the "
+                    "capture transcript, where it is measured and refused, not copied into a file "
+                    "that can only ever be older than the measurement it claims to record.")
+        return None
+
+    rule("the manifest claims nothing it did not measure", in_box(no_unmeasured_claims))
+
+    EXPECTED = 24
     if len(ran) != EXPECTED:
         bad.append(f"expected {EXPECTED} rules, ran {len(ran)} -- one was deleted, or never "
                    f"reached (a `return` in self_test() skips everything below it)")

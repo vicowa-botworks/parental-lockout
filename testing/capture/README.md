@@ -271,6 +271,11 @@ check silent — it is `realpath`ed on both sides now. And `argv` was read by ha
 having written to `runs/` — the same harm from the other direction. Arguments go through `argparse`
 now, so an unrecognised flag is an error.
 
+A page change and its re-take may be committed together, or in either order, and the gate accepts
+both — what it refuses is a photograph *older* than its page. So the workflow is: edit the page,
+re-take with the command above, `git add` both, commit. `manifest.py record` runs as the last step of
+a successful capture, which is why the manifest and the PNGs land in the same commit as each other.
+
 `--overwrite` is a second flag on purpose. Writing this README and then testing its own
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the
 flag is for. Replacing committed evidence should take two tokens, not a tab-completion.
@@ -290,7 +295,7 @@ before that, the newest commit touching it predated #141.
 {"schema": "capture-manifest/1", "viewport": 360, "head": "f335044e7…",
  "captured_at": "2026-10-27T19:22:46Z",
  "pages": [{"page": "/profiles", "png": "profiles.png", "png_sha256": "cfaada23b4…",
-            "scroll_width": 360, "sources": ["internal/web/templates/profiles.tmpl",
+            "sources": ["internal/web/templates/profiles.tmpl",
              "internal/web/templates/page.tmpl", "internal/web/static/app.css",
              "internal/web/static/app.js"],
             "sources_rev": "f8cabdc17…"}]}
@@ -300,12 +305,35 @@ and `make verify` runs `manifest.py check`, which refuses when:
 
 - a PNG has no entry, or an entry has no PNG — the manifest and the artifacts have come apart;
 - a PNG's bytes are not what the manifest recorded — it was replaced without re-running the driver;
-- the newest commit over that page's `sources` is not the one recorded — **the page grew and the
-  photograph did not**;
+- the newest commit over that page's `sources` is **newer than the newest commit over the PNG** —
+  the page grew and the photograph did not;
+
+The comparison is an ancestry test, not an equality against `sources_rev`, and the first version got
+this wrong in the direction that costs an hour: it compared the manifest's own commit with the page's,
+so a commit that changed a template *and* re-took its photograph — the one commit in which both are
+true — was refused by the very change that made the photograph current, with a sentence asserting the
+opposite. `git rev-list --count <png>..<source>` asks the history instead of asking the manifest, so
+a page change and its re-take may share a commit, a re-take with no page change is current, and the
+failure this file is about still refuses. (The spelling matters: `--count <png> ^<source>` is zero for
+a descendant as well as for an ancestor, which accepts exactly the case the rule exists to refuse. The
+self-test caught it; the drift rule stopped firing.)
 - a source has an **uncommitted** change — the common case, and the one `git log` cannot see;
 - the driver photographs a page the manifest has no entry for — a fifth page added to `PAGES` and
   never photographed;
-- the manifest was recorded at a viewport other than 360.
+- the manifest was recorded at a viewport other than 360;
+- an entry names no PNG — refused as an entry, not as a traceback from hashing the artifact
+  directory;
+- **the checkout has no history to date anything against.** A shallow clone, or a source no visible
+  commit touches, produces `screenshot manifest was not checked` and nothing else — never a count of
+  stale photographs. `actions/checkout@v4` defaults to `fetch-depth: 1`, and the verify job therefore
+  sets `fetch-depth: 0`; without it every page in the repository looks stale on a runner whose
+  screenshots may all be current, which is a sentence about CI that sends the reader to this folder.
+
+The manifest carries no `scroll_width`. It held the viewport, not a measurement, and it cannot be
+fixed by plumbing the measurement through: `record()` is called once, by `pages.py`, which has never
+measured `lock.png` or `testlock.png` — two of the seven entries would still have been assertions. A
+width belongs in the capture transcript, where it is measured and refused on every run, not copied
+into a file that can only ever be older than the measurement it claims to record.
 
 What the source set is *not* is the Go code. It is the presentation layer -- templates and static
 -- because that is what a photograph is evidence about at the pixel level, and a change that alters
