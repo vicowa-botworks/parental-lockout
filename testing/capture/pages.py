@@ -38,6 +38,7 @@ import sys
 
 sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
+import manifest as capture_manifest  # noqa: E402
 
 # The viewports a page has to fit, and which of them produces an artifact.
 #
@@ -324,12 +325,17 @@ def proof_of(got, spec):
             else f"forms={got['forms']} fields={got['fields']}")
 
 
-def main(shoot_fn=None):
+def main(shoot_fn=None, record_fn=None):
     # Resolved at call time rather than as a default argument. `def main(shoot_fn=shoot)` binds
     # the function object when this module is imported, so a caller that patches `pages.shoot`
     # would be ignored -- the exact shape that once made a hermeticity fix here a silent no-op.
     if shoot_fn is None:
         shoot_fn = shoot
+    # Same reason, and it matters more here: writing the manifest is the step that turns a
+    # directory of PNGs into evidence, and the self-test has to be able to watch it happen
+    # without a git repository under it (#144).
+    if record_fn is None:
+        record_fn = capture_manifest.record
     # The trait has to be carried by somebody. A table where every `stress` flag has been dropped
     # measures five pages that could not have overflowed and reports them as fitting, which is the
     # silence #140 was filed for; refusing here means the omission is a refusal rather than a
@@ -430,6 +436,15 @@ def main(shoot_fn=None):
             raise SystemExit(f"the success path printed a fit count for {width} px while "
                              f"{len(pages)} refused and {len(untested)} were untested")
         print(f"{len(PAGES)}/{len(PAGES)} pages fit at {width} px", flush=True)
+    # Last, after every sentence that has to be true about this run. The manifest is what makes
+    # these PNGs evidence about the pages they depict (#144): it names the sources each page was
+    # rendered from and the commit that last moved them, and `make verify` refuses when that has
+    # drifted. Written here rather than beside `publish()` so the guard above -- the one that
+    # refuses to call a refused page a fit page -- cannot be stepped over by a manifest that
+    # already landed. And never on the refusal path: a manifest over a run that wrote nothing
+    # would certify photographs this run did not take.
+    record_fn(out)
+    print(f"-> {op.join(out, capture_manifest.MANIFEST)}", flush=True)
     print(f"-> {out}", flush=True)
     return 0
 
@@ -455,7 +470,7 @@ def main(shoot_fn=None):
 # than `len(ran)`: a `return` inserted in the middle of self_test() leaves both lists complete for
 # whatever ran, so only a number written somewhere else can tell a full pass from a truncated one.
 # 11 from #140, plus the seven #149 adds for the second viewport.
-EXPECTED_RULES = 21
+EXPECTED_RULES = 23
 
 
 class _FakeSession:
@@ -514,7 +529,7 @@ def _expected_pass():
     return [(p.url, w) for w in WIDTHS for p in PAGES]
 
 
-def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None):
+def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None):
     """Call the real main() with the machine stubbed out; report what the driver actually did.
 
     `refuse` names URLs that fail at EVERY viewport. `refuse_at` names `"url@width"` pairs that
@@ -554,9 +569,15 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None):
     with _stubbed(log):
         try:
             with contextlib.redirect_stdout(console), contextlib.redirect_stderr(err):
-                rc = main(stub)
+                # The manifest step is stubbed for the same reason the browser is: it asks git
+                # what it thinks, and a self-test must not inherit an answer from whatever
+                # repository happens to sit above the temp directory. `sink` hands the caller the
+                # log, so a rule can assert the step ran -- or did not.
+                rc = main(stub, lambda out: log.append("record"))
         except SystemExit as exc:
             rc = f"raised:{exc.code}"
+    if sink is not None:
+        sink.extend(log)
     return rc, entered, err.getvalue(), console.getvalue(), "publish" in log, log.count("discard")
 
 
@@ -1083,6 +1104,34 @@ def self_test():
     rule("a fixture refusal carries to the other viewport", fixture_refusal_is_carried_to_the_other_pass)
     rule("an untested page is not a refusal at the other viewport",
          an_untested_page_is_not_a_refusal_at_the_other_viewport)
+
+    def manifest_accompanies_the_artifacts(problems):
+        # The manifest is the only thing that ties a committed PNG to the page it depicts (#144).
+        # A run that publishes bytes and no manifest leaves `make verify` nothing to compare, and
+        # that is the state every screenshot on main is in today: `profiles.png` predates #141.
+        rec = []
+        rc, _entered, _err, _out, published, _discarded = _run_main(sink=rec)
+        if rc != 0 or not published:
+            problems.append(f"a clean run -> rc={rc!r} published={published}, want 0 and True")
+        if "record" not in rec:
+            problems.append("a clean run published PNGs without recording a manifest beside "
+                            "them, so nothing can tell when they stop being current (#144)")
+
+    def manifest_never_over_a_refusal(problems):
+        # The other half, and the half that decides whether the manifest means anything: a
+        # manifest written over a run that wrote no PNGs certifies photographs this run did not
+        # take, which is the failure #144 was filed against.
+        rec = []
+        rc, _entered, _err, _out, published, discarded = _run_main(refuse=["/audit"], sink=rec)
+        if rc == 0:
+            problems.append("a refused run exited 0")
+        if "record" in rec:
+            problems.append("a refused run recorded a manifest over a run that published nothing")
+        if not discarded:
+            problems.append("a refused run did not discard its stage")
+
+    rule("a published set of PNGs is recorded in the manifest", manifest_accompanies_the_artifacts)
+    rule("a refused run records no manifest", manifest_never_over_a_refusal)
 
     # Canary pair, through the same `rule` helper against its own lists: without it,
     # `rule = lambda w, b, *a: ran.append((w, 0))` reports 11 rules holding while calling none
