@@ -186,18 +186,23 @@ in the shell: on a single fixture run `users.png` came back `b69eb0d1…` and `p
 the reasons in their own rows below, and replacing them would have been churn dressed up as evidence.
 What it reports for those two is the driver's line, which is the claim a reviewer can re-run.
 
-Re-checking a row is `md5sum docs/screenshots/360/*.png` against the committed file, and it is
-worth doing every time one of these is re-taken. Two of the rows below were quoting bytes no
-committed file had when that was last done -- one of them since before the branch that re-took it
--- and this table is the only place the claim lives, which is #144.
+This table used to quote a hash per row, and every hash in it eventually named a file that no
+longer exists: three of the five `yes` rows were quoting bytes no committed PNG carried when this
+was last read, which is #144's complaint in miniature. The bytes each artifact is pinned to now
+live in `docs/screenshots/360/manifest.json`, written by the driver at the end of the run that took
+it and checked by `make verify` -- so the file↔run relationship is machine-checked and this table
+carries only what a machine cannot know: whether a fresh run reproduces the committed file at all.
+Measured again on 27 Oct against the manifest's own hashes: `profiles.png`, `settings.png` and
+`users.png` came back byte-identical; `dashboard.png` matched the previous run and not the
+committed file; `audit.png` matched neither.
 
 | artifact | does the in-repo driver reproduce the committed file? | why |
 |---|---|---|
-| `users.png` | **yes** — `b69eb0d1…` | |
-| `profiles.png` | **yes** — `130edd13…` | re-taken by #147, which is the change that moved it. The `740200cc…` this row quoted had already stopped matching the committed file before that PR landed, and nothing noticed -- which is #144 |
-| `settings.png` | **yes** — `175c1d1f…` | new with the settings page. It is the only page in the set refused on a *form* rather than on rows (`cdp.require_form`), because a page with no table would otherwise have been refused as an empty fixture -- and the lazy repair, dropping the check, would have let a /settings that rendered nothing but its navigation be committed as evidence that it fits. Re-taken by the transport form (#161), which took the page from `forms=3 fields=9` at 2069 px to `forms=4 fields=15` at 3511 px; the previous hash `42d47d9b…` is what the file was before that form, and the row is the only place that claim lives |
-| `testlock.png` | **yes, on an account with one session** — `7672219a…` | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image. **The page photographs the account's session census**, so the hash is good for the machine it was taken on: measured 27 Oct on an account holding four lockable sessions, the driver ran green (`tables=2 backendRows=1 cells=14`, `FITS`, `note in 4 Detail cell(s), 0 with a sentence in front of it`) and produced `a8617a2b…`. That is a faithful capture of a different page, not a broken driver |
-| `lock.png` | **yes, on an account with one session** — `910e403d…` | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no". Same census caveat: on the four-session account above it ran green (`rows=4 cells=12`, banner `rodney was not locked.`, flag `4 of 4 sessions were asked to lock`) and produced `4fc93d11…` |
+| `users.png` | **yes** | |
+| `profiles.png` | **yes** | re-taken by #147, which is the change that moved it. The `740200cc…` this row quoted had already stopped matching the committed file before that PR landed, and nothing noticed -- which is #144 |
+| `settings.png` | **yes** | new with the settings page. It is the only page in the set refused on a *form* rather than on rows (`cdp.require_form`), because a page with no table would otherwise have been refused as an empty fixture -- and the lazy repair, dropping the check, would have let a /settings that rendered nothing but its navigation be committed as evidence that it fits. Re-taken by the transport form (#161), which took the page from `forms=3 fields=9` at 2069 px to `forms=4 fields=15` at 3511 px; the previous hash `42d47d9b…` is what the file was before that form, and the row is the only place that claim lives |
+| `testlock.png` | **yes, on an account with one session** | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image. **The page photographs the account's session census**, so the image is good for the machine it was taken on: measured 27 Oct on an account holding four lockable sessions, the driver ran green (`tables=2 backendRows=1 cells=14`, `FITS`, `note in 4 Detail cell(s), 0 with a sentence in front of it`) and produced `a8617a2b…`. That is a faithful capture of a different page, not a broken driver |
+| `lock.png` | **yes, on an account with one session** | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no". Same census caveat: on the four-session account above it ran green (`rows=4 cells=12`, banner `rodney was not locked.`, flag `4 of 4 sessions were asked to lock`) and produced `4fc93d11…` |
 | `dashboard.png` | **no** | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs minutes apart agree; a run hours later does not |
 | `audit.png` | **no, by construction** | signing in appends an `auth.success` row to the very trail the page photographs, so every capture adds a row and two runs of one fixture cannot agree. The height that produces is a **run counter**, not a page measurement: the committed file is `360x15004` while a fixture built from nothing renders **2936 px** with `cells=40` (measured 26 Oct on `main` at `1684b29`, and again from the transport branch). So the artifact is a function of how many times anyone has run a driver on their own machine, and 15004 px is already ~92% of Chromium's 16 384 px capture surface -- #144 carries the mechanism, the row census, and the proposed bound |
 
@@ -266,9 +271,107 @@ check silent — it is `realpath`ed on both sides now. And `argv` was read by ha
 having written to `runs/` — the same harm from the other direction. Arguments go through `argparse`
 now, so an unrecognised flag is an error.
 
+A page change and its re-take may be committed together, or in either order, and the gate accepts
+both — what it refuses is a photograph *older* than its page. So the workflow is: edit the page,
+re-take with the command above, `git add` both, commit. `manifest.py record` runs as the last step of
+a successful capture, which is why the manifest and the PNGs land in the same commit as each other.
+
 `--overwrite` is a second flag on purpose. Writing this README and then testing its own
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the
 flag is for. Replacing committed evidence should take two tokens, not a tab-completion.
+
+## The manifest: what a committed PNG is evidence about (#144)
+
+The driver refuses to write anything when any page overflows. That makes the dangerous failure not
+a bad artifact but **no artifact**: the run writes nothing, the PR merges anyway, and the old
+photograph stays in `docs/` describing a page that has since grown two forms. Nothing in the
+repository compared a committed PNG against the page it depicts, so `make verify` stayed green
+through all of it. `profiles.png` on `main` is current only because #147 re-took the whole set;
+before that, the newest commit touching it predated #141.
+
+`testing/capture/manifest.py` closes it. A successful run writes `manifest.json` beside the PNGs:
+
+```json
+{"schema": "capture-manifest/1", "viewport": 360, "head": "f335044e7…",
+ "captured_at": "2026-10-27T19:22:46Z",
+ "pages": [{"page": "/profiles", "png": "profiles.png", "png_sha256": "cfaada23b4…",
+            "sources": ["internal/web/templates/profiles.tmpl",
+             "internal/web/templates/page.tmpl", "internal/web/static/app.css",
+             "internal/web/static/app.js"],
+            "sources_rev": "f8cabdc17…"}]}
+```
+
+and `make verify` runs `manifest.py check`, which refuses when:
+
+- a PNG has no entry, or an entry has no PNG — the manifest and the artifacts have come apart;
+- a PNG's bytes are not what the manifest recorded — it was replaced without re-running the driver;
+- the newest commit over that page's `sources` is **newer than the newest commit over the PNG** —
+  the page grew and the photograph did not;
+
+The comparison is an ancestry test, not an equality against `sources_rev`, and the first version got
+this wrong in the direction that costs an hour: it compared the manifest's own commit with the page's,
+so a commit that changed a template *and* re-took its photograph — the one commit in which both are
+true — was refused by the very change that made the photograph current, with a sentence asserting the
+opposite. `git rev-list --count <png>..<source>` asks the history instead of asking the manifest, so
+a page change and its re-take may share a commit, a re-take with no page change is current, and the
+failure this file is about still refuses. (The spelling matters: `--count <png> ^<source>` is zero for
+a descendant as well as for an ancestor, which accepts exactly the case the rule exists to refuse. The
+self-test caught it; the drift rule stopped firing.)
+- a source has an **uncommitted** change — the common case, and the one `git log` cannot see;
+- the driver photographs a page the manifest has no entry for — a fifth page added to `PAGES` and
+  never photographed;
+- the manifest was recorded at a viewport other than 360;
+- an entry names no PNG — refused as an entry, not as a traceback from hashing the artifact
+  directory;
+- **the checkout has no history to date anything against.** A shallow clone, or a source no visible
+  commit touches, produces `screenshot manifest was not checked` and nothing else — never a count of
+  stale photographs. `actions/checkout@v4` defaults to `fetch-depth: 1`, and the verify job therefore
+  sets `fetch-depth: 0`; without it every page in the repository looks stale on a runner whose
+  screenshots may all be current, which is a sentence about CI that sends the reader to this folder.
+
+The manifest carries no `scroll_width`. It held the viewport, not a measurement, and it cannot be
+fixed by plumbing the measurement through: `record()` is called once, by `pages.py`, which has never
+measured `lock.png` or `testlock.png` — two of the seven entries would still have been assertions. A
+width belongs in the capture transcript, where it is measured and refused on every run, not copied
+into a file that can only ever be older than the measurement it claims to record.
+
+What the source set is *not* is the Go code. It is the presentation layer -- templates and static
+-- because that is what a photograph is evidence about at the pixel level, and a change that alters
+a page's markup reaches a template in practice. A change that alters its **data** (a session census,
+a clock, a lock verdict) is the churn the table above already refuses to call a reproduction, and
+no manifest can make a time-varying page byte-stable.
+
+Every page's source set includes `page.tmpl` and `app.css` on purpose. The shell is one template
+and the stylesheet is one file, so a nav link or a wrap rule moves the pixels of all five pages;
+a manifest that scoped each page to its own template would keep four stale photographs looking
+current, which is the failure this is here to prevent.
+
+Two decisions worth keeping:
+
+- **mtimes are not evidence.** A checkout's mtimes are the checkout's, not the capture's, so a
+  clone made today would find every PNG "newer" than every template. The comparison is against git
+  history, the only clock here that means what it says.
+- **the gate is pinned to its own invocation.** `manifest.py --self-test` reads the Makefile it
+  ships in and refuses if the `manifest.py check` clause is gone. Deleting the clause is otherwise
+  indistinguishable from a repository with no stale screenshots — both are a green `verify` — and
+  a gate whose invocation can be deleted silently is a suggestion.
+
+Measured, on this tree:
+
+```
+$ printf '\n/* probe */\n' >> internal/web/static/app.css && python3 testing/capture/manifest.py check
+screenshot manifest: 7 problem(s):
+  audit.png is held against /audit's sources, and internal/web/static/app.css has an uncommitted
+  change: the page on disk is not the page in the photograph. Re-run testing/capture before
+  committing.
+```
+
+and the same check refuses with `7 committed screenshot(s) … and no manifest.json` when the
+manifest is moved away. Both directions of the parser that names that file are pinned, because the
+first version of this file printed `nternal/web/static/app.css`: `git()` called a bare `strip()`,
+which took the leading space off ` M path`, and the parser counted three characters. A sentence
+with a broken path in it is worse than no sentence, and nothing but a rule that looks at the
+string could tell.
 
 ## Two viewports, because one was never a criterion (#149)
 

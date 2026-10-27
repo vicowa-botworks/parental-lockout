@@ -22,8 +22,20 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     steps:
+      # `fetch-depth: 0`, and it is not an optimisation to undo. `actions/checkout@v4` defaults to
+      # one commit, and `make verify` runs `testing/capture/manifest.py check`, which dates every
+      # committed screenshot against the newest commit touching its page's sources. In a depth-1
+      # checkout that question has no answer: the check either names the single visible commit for
+      # everything or finds nothing at all, and both read as "these seven photographs are stale" on
+      # a tree where every one of them may be current. Reproduced by the reviewer on
+      # refs/pull/174/merge at depth 1, and it is the reason this job was red.
+      #
+      # The check now refuses a shallow checkout loudly instead of reporting drift, so a deleted
+      # line here fails with a sentence about the fetch rather than seven about the screenshots.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5

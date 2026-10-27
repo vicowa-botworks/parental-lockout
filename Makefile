@@ -57,6 +57,14 @@ fmt:
 # stopping the capture loop after 1 page of 5 while still exiting 1. It starts no browser and
 # writes nothing, so its cost is milliseconds.
 #
+# The screenshot manifest (#144) is a gate on evidence, not on code: it refuses a committed PNG in
+# docs/screenshots/360/ whose page has changed since it was taken. It is in `verify` because the
+# failure it prevents is an omission -- the capture driver refuses to write anything when any page
+# overflows, so the stale artifact is not a bad write but no write at all, in a PR that still
+# merges. The contract line above it is what makes the gate self-pinning: deleting the `check`
+# clause below makes the self-test refuse, because a gate whose invocation can be deleted silently
+# is a suggestion, and the cheapest way to pass a check is to stop calling it.
+#
 # The two empty-filter steps below keep the child's output and require the sentence, rather than
 # discarding the output and asserting only "non-zero" (#159). "Non-zero" is what a crash returns
 # too, so the old shape passed the moment the script died on the empty-argument path: the step is
@@ -75,6 +83,8 @@ verify:
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
+	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \
+	echo "==> screenshot manifest"; python3 testing/capture/manifest.py check; \
 	echo "==> empty selection refuses"; \
 	if nomatch_out=$$(python3 scripts/attack-self-test.py zzzznomatch 2>&1); then \
 		echo "a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \

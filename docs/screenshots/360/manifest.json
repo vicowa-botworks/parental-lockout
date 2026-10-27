@@ -1,0 +1,92 @@
+{
+  "captured_at": "2026-10-27T20:38:56Z",
+  "head": "7544a31251ed701094f941b4bf16d30d6a7daaaa",
+  "pages": [
+    {
+      "page": "/audit",
+      "png": "audit.png",
+      "png_sha256": "beb20adf71501508f500a2b3e1b0fccc01197680622c9d67e3d6e0d18f06a596",
+      "sources": [
+        "internal/web/templates/audit.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "f8cabdc173ce45bbdba70d7064aece7cad1b944e"
+    },
+    {
+      "page": "/",
+      "png": "dashboard.png",
+      "png_sha256": "cee0c5766d3cb7b224aa4bbe567023c3d7d6737821c2c7b439f126ad36d8559b",
+      "sources": [
+        "internal/web/templates/dashboard.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "f8cabdc173ce45bbdba70d7064aece7cad1b944e"
+    },
+    {
+      "page": "/lock",
+      "png": "lock.png",
+      "png_sha256": "b59bb2bef7fc4738d7cc45c05e80ab56d27550003ab4a5c15445acf5b94b5b4c",
+      "sources": [
+        "internal/web/templates/lock.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "a99a2edb7cda15e4be382bc38614dedd138726ab"
+    },
+    {
+      "page": "/profiles",
+      "png": "profiles.png",
+      "png_sha256": "cfaada23b4c24767a3003a7804eac9076eaa81aa969632208c42d3157f34e309",
+      "sources": [
+        "internal/web/templates/profiles.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "f8cabdc173ce45bbdba70d7064aece7cad1b944e"
+    },
+    {
+      "page": "/settings",
+      "png": "settings.png",
+      "png_sha256": "12e669d84b08a7b70c76674033d27ede61172fc879304f5f3bdd8e6ae6bb6e0c",
+      "sources": [
+        "internal/web/templates/settings.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "b5dbe66bb3ead962e0352b23493f37f4ca0fadfe"
+    },
+    {
+      "page": "/testlock",
+      "png": "testlock.png",
+      "png_sha256": "acc5ba4d5cfe5aff6e10fc2532a29ed9a8feffa81b49120cf78597b8c20346a5",
+      "sources": [
+        "internal/web/templates/testlock.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "a99a2edb7cda15e4be382bc38614dedd138726ab"
+    },
+    {
+      "page": "/users",
+      "png": "users.png",
+      "png_sha256": "c68852bdff4ecc2c1a9400d4306ab0ce2663569b5a81ab842c18c8ffa69a7cfb",
+      "sources": [
+        "internal/web/templates/users.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "f8cabdc173ce45bbdba70d7064aece7cad1b944e"
+    }
+  ],
+  "schema": "capture-manifest/1",
+  "viewport": 360
+}
