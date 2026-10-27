@@ -1,6 +1,7 @@
 {
   "package": "./internal/audit/",
   "note": "Mutants over the audit writer: the failure policy (a lost event is counted, reported every time, and escalates) and the tamper guards (symlink, FIFO, mode, ownership, path swap) that keep a root daemon from writing the trail wherever a child points it.",
+  "expected_mutants": 55,
   "mutants": [
     {
       "id": "A1",

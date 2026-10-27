@@ -1,6 +1,7 @@
 {
   "description": "internal/cli: the shared CLI plumbing. The package had no set at all until #76's CI job made an untested mutant visible as a class of problem; TakeFirst is here because it is what makes `plock unlock <user> --minutes N` parse at all (the flag-order data-loss bug), and Fail/JSON/Keys are here because they are the single implementation of the --json contract every command routes through. HAND-MAINTAINED, like every other set in this directory: there was a scripts/gen-cli-mutations.py that claimed to build this file, and it was deleted (#150) because it emitted 20 mutants into a file that held 21 -- running it silently deleted CI21, which had been appended by hand with #145, while printing `all patterns verified against the source`. Edit this file by appending an entry. Anchor `old` on a statement, never on an aligned composite-literal line: gofmt realigning a literal retires the mutant, the runner reports NOT APPLIED, and the suite stays green.",
   "package": "./internal/cli/",
+  "expected_mutants": 21,
   "mutants": [
     {
       "id": "CI1",

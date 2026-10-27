@@ -1,6 +1,7 @@
 {
   "description": "internal/users: the account listing. Every mutant here is a way a child stops appearing on the dashboard; the package's whole stance is that a missed account is the dangerous direction, so the guards that keep and report are tested as hard as the ones that drop.",
   "package": "./internal/users/",
+  "expected_mutants": 32,
   "mutants": [
     {
       "id": "U1",

@@ -1,6 +1,7 @@
 {
   "package": "./internal/lockop/",
   "_about": "Each entry puts one known bug back into internal/lockop and the suite must fail. The package has one job -- keeping the three ways a lock can end apart (proved, asked-and-unprovable, nothing reached the desktop) -- so every mutant here collapses two of them into one, which is the failure the package was extracted to prevent: the terminal and the web page agreeing on a sentence the machine never produced. Run: python3 scripts/mutate.py scripts/mutations/lockop.json",
+  "expected_mutants": 8,
   "mutants": [
     {
       "id": "LO1",

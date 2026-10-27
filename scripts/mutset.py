@@ -45,6 +45,26 @@ KNOWN_KEYS = {"id", "file", "old", "new", "package", "count", "equivalent", "not
 # fails the package-resolvability rule below.
 DOC_KEYS = {"_about", "note", "description"}
 
+# The number of mutants a set is expected to hold, and the reason it is a field in the set file
+# rather than a table in the checker: the table would live away from the thing it counts, so a
+# merge that drops a mutant would leave the table and the file agreeing with each other in
+# different commits, and the refusal would name whichever of the two was read first. Here the
+# number sits one line above the list it counts, and a merge that deletes a mutant deletes its
+# neighbour.
+#
+# What this is guarding is the one failure the rest of this module cannot see. Everything else
+# here validates what is IN a file: the patterns apply, the ids are unique, the packages resolve,
+# and `check-mutations.py` prints one fewer in its closing line. So a mutant can leave a set by
+# any route at all — a bad merge, a hand edit, a generator, a `git checkout` of the wrong path —
+# and every green tick stays green while the battery drops from 786 to 785. Deleting the entry is
+# enough; nothing has to move in the Go source for the gate to go blind.
+EXPECTED_KEY = "expected_mutants"
+
+
+def _plural(mutants):
+    """`mutant` or `mutants`, so a one-entry set does not read as a count that cannot count."""
+    return "mutant" if len(mutants) == 1 else "mutants"
+
 
 def load(path):
     """Parse one set and refuse it, in the same words, whichever script is asking."""
@@ -71,6 +91,37 @@ def validate(doc):
     if not isinstance(mutants, list) or not mutants:
         problems.append("'mutants' must be a non-empty list")
         return problems
+
+    # Checked before anything inside the list, because this is the problem that changes what the
+    # rest of the report means: a set that lost a mutant also has one fewer pattern to apply, so
+    # the gate's own line goes down by one and reads as a smaller, still-green run.
+    expected = doc.get(EXPECTED_KEY)
+    if expected is None:
+        problems.append(
+            f"{EXPECTED_KEY!r} is missing: this set holds {len(mutants)} "
+            f"{_plural(mutants)} and nothing "
+            "anywhere says how many it is supposed to hold, so one can leave it -- by a merge, a "
+            "hand edit, or a script -- and every green tick stays green while the battery gets "
+            "smaller")
+    elif isinstance(expected, bool) or not isinstance(expected, int):
+        problems.append(f"{EXPECTED_KEY!r} must be an integer, not {expected!r} -- a count that "
+                        "is not a number cannot be compared with the list it counts")
+    elif expected != len(mutants):
+        if len(mutants) < expected:
+            problems.append(
+                f"holds {len(mutants)} {_plural(mutants)}, expected {expected}: a mutant was "
+                "deleted. A "
+                "smaller tally is not a smaller claim -- if the mutant is genuinely obsolete, "
+                "remove it AND lower the number in the same edit, so the loss is a decision "
+                "someone made rather than something a merge did")
+        else:
+            problems.append(
+                f"holds {len(mutants)} {_plural(mutants)}, expected {expected}: a mutant was "
+                "added without "
+                "raising the number. Raise it in the same edit. A count that only refuses "
+                "shrinkage is a floor, and a floor drifts upward one uncounted mutant at a time "
+                "until the number means `at least` when it reads as `exactly`")
+
     default_pkg = doc.get("package")
     if default_pkg is not None and not isinstance(default_pkg, str):
         problems.append("'package' must be a string")

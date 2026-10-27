@@ -1,6 +1,7 @@
 {
   "package": "./internal/config/",
   "_about": "Each entry puts one known bug back into internal/config and the suite must fail. The set is deliberately about the aliasing invariant, because that invariant has been written down twice and violated twice: once by an element write through a shared array, once by an append into shared spare capacity. A comment restating a rule is not a regression test. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
+  "expected_mutants": 22,
   "mutants": [
     {
       "id": "CG1",
