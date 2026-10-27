@@ -71,7 +71,8 @@ SUMMARY_CALL = 'print(f"\\n{summary_line(total)}")'
 # with every other rule holding. These two lines are also exactly where a merge lands, since
 # this file has been conflict-resolved on them more than once, so moving one is meant to be a
 # deliberate edit in two rather than a resolution nobody re-read.
-STATUS_CALL = "status = exit_status(bad, file_problems, script_problems)"
+STATUS_CALL = ("status = exit_status(bad, file_problems, script_problems, "
+               "collisions)")
 COLLECT_CALL = "file_problems.extend(found)"
 
 # The line that runs the tool scan. Pinned because it is the whole check and it is one statement:
@@ -82,12 +83,13 @@ SCRIPT_SCAN_CALL = "script_problems = script_open_problems(script_files())"
 
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 85
+EXPECTED_RULES = 92
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from mutset import duplicate_claims, load, validate  # noqa: E402
+from mutset import (GRANDFATHERED_IDS, duplicate_claims, id_collisions, load,  # noqa: E402
+                     remaining_collisions, validate)
 
 
 def compiles(pkg):
@@ -585,6 +587,32 @@ def self_test():
             problems.append(f"{name}: expected {'a duplicate report' if want else 'silence'}, "
                             f"got {got}")
 
+    def expect_collisions(name, docs, want, grandfathered=GRANDFATHERED_IDS):
+        nonlocal checked
+        checked += 1
+        got = bool(id_collisions(docs, grandfathered=grandfathered))
+        if got != want:
+            problems.append(f"{name}: expected {'a collision report' if want else 'silence'}, "
+                            f"got {got}")
+
+    # #142's ratchet, both directions. The pair is the whole rule: a checker that reports every
+    # collision fails the second case, and one that reports none fails the first.
+    two_sets = [("a.json", {"package": "./x/", "mutants": [dict(good, id="FRESH")]}),
+                ("b.json", {"package": "./y/", "mutants": [dict(good, id="FRESH")]})]
+    expect_collisions("a name two sets both claim, and nobody collided before", two_sets, True)
+    expect_collisions("a name two sets both claim, already grandfathered",
+                      [("a.json", {"package": "./x/", "mutants": [dict(good, id="A1")]}),
+                       ("b.json", {"package": "./y/", "mutants": [dict(good, id="A1")]})], False)
+    expect_collisions("one name in one set",
+                      [("a.json", {"package": "./x/", "mutants": [dict(good, id="FRESH")]})],
+                      False)
+    expect_collisions("a grandfathered name, with the ceiling emptied", two_sets, True,
+                      grandfathered=frozenset())
+    if remaining_collisions(two_sets, grandfathered=frozenset({"FRESH"})) != ["FRESH"]:
+        problems.append("remaining_collisions did not report the grandfathered id still colliding")
+    if remaining_collisions(two_sets, grandfathered=frozenset()):
+        problems.append("remaining_collisions counted a collision the ceiling does not cover")
+
     expect_rejects("one id used twice in a set",
                    {"package": "./x/", "mutants": [good, dict(good, id="T1", new="c")]},
                    "is used twice in this set")
@@ -854,12 +882,26 @@ def self_test():
     def status_report(got, want):
         return None if got == want else f"exit {got}, want {want}"
 
-    rule("a clean pass exits 0", status_report(exit_status(0, [], []), 0))
-    rule("a mutant that does not apply exits 1", status_report(exit_status(3, [], []), 1))
+    rule("a clean pass exits 0", status_report(exit_status(0, [], [], []), 0))
+    rule("a mutant that does not apply exits 1", status_report(exit_status(3, [], [], []), 1))
+    # #142: a shared id fails the run without joining the count that says mutants are untested.
+    rule("a new colliding mutant id exits 1", status_report(exit_status(0, [], [], ["D9"]), 1))
+
+    def folded_into_the_tally(source):
+        return None if "bad += len(collisions)" not in source else (
+            "main adds the collision count to `bad`, which feeds the closing sentence 'N of M "
+            "mutants would run without testing anything'. Both mutants in a colliding pair run "
+            "and test what they say; the defect is in what a citation of their name means (#142), "
+            "and counting them there sends the reader to re-point two working mutants.")
+
+    rule("a colliding id is not folded into the untested-mutant tally",
+         folded_into_the_tally(body))
+    rule_fires("control: a main that folds the collision into the tally is caught",
+               folded_into_the_tally(body + chr(10) + "    bad += len(collisions)"))
     rule("a set-file encoding problem alone exits 1",
-         status_report(exit_status(0, ["cli.json: JSON escape"], []), 1))
+         status_report(exit_status(0, ["cli.json: JSON escape"], [], []), 1))
     rule_fires("control: the exit-status check reports a wrong code",
-               status_report(exit_status(0, ["cli.json: JSON escape"], []), 0))
+               status_report(exit_status(0, ["cli.json: JSON escape"], [], []), 0))
 
     # Pinning a function is not pinning the line that calls it, and this branch's own claim --
     # that the encoding refusal cannot be deleted -- is a claim about main, not about
@@ -1343,7 +1385,7 @@ def self_test():
     return 0
 
 
-def exit_status(bad, file_problems, script_problems):
+def exit_status(bad, file_problems, script_problems, id_problems):
     """The exit code a finished pass deserves, as a number rather than as a branch in main.
 
     `if bad or file_problems:` is where a detected problem becomes a failing run, and it was the
@@ -1352,16 +1394,23 @@ def exit_status(bad, file_problems, script_problems):
     `or file_problems` left every rule holding and printed the summary line over an escaped set
     file. Pulled out because a branch in main cannot be handed a case and a function can.
 
-    All three are separate on purpose. A mutant that does not apply, a set file that was generated
-    instead of declared, and a tool that reads a repo file in the operator's locale arrive through
-    three lists and are reported by three sentences; folding one into another's count attributes
-    somebody else's defect to it, which is the same argument that keeps `bad` and `file_problems`
-    apart above. Either one alone has to be enough to fail the run.
+    All four are separate on purpose. A mutant that does not apply, a set file that was generated
+    instead of declared, a tool that reads a repo file in the operator's locale, and a mutant id
+    two sets have started to share arrive through four lists and are reported by four sentences;
+    folding one into another's count attributes somebody else's defect to it, which is the same
+    argument that keeps `bad` and `file_problems` apart above. Either one alone has to be enough
+    to fail the run.
 
-    The third argument has no default. A default is how a call site that forgot the script list
-    would keep compiling -- and compiling is what a merge resolution needs in order to look fine.
+    The collision list is not folded into `bad` for a reason a reader would notice: `bad` feeds
+    the closing sentence "N of M mutants would run without testing anything", and a shared id is
+    not that. Both mutants in the colliding pair run and test exactly what they say; the defect
+    is in what a citation of their name means (#142). Counting it there would send the reader to
+    re-point two working mutants.
+
+    No argument has a default. A default is how a call site that forgot one of these lists would
+    keep compiling -- and compiling is what a merge resolution needs in order to look fine.
     """
-    return 1 if (bad or file_problems or script_problems) else 0
+    return 1 if (bad or file_problems or script_problems or id_problems) else 0
 
 
 def main(argv):
@@ -1382,6 +1431,9 @@ def main(argv):
               + (", ".join(done) if done else "the journal named none"))
         return 0
     paths = argv[1:]
+    # Whether this run sees every set, which is the only case in which "N collisions are left" is
+    # a fact about the repository rather than about the two files on the command line.
+    whole_board = not paths
     if not paths:
         dirn = os.path.join(ROOT, "scripts", "mutations")
         paths = sorted(os.path.join(dirn, f) for f in os.listdir(dirn) if f.endswith(".json"))
@@ -1475,6 +1527,17 @@ def main(argv):
         for why in dupes:
             print(f"  {why}")
 
+    # A different failure from one claim made twice, and it lives one level up: two sets each
+    # making their own claim under one name. That is the convention for 76 ids already, so the
+    # ratchet refuses only a name nobody has collided before (#142) -- a hard rename would
+    # invalidate every note and review reply that cites one, which is a worse ambiguity than the
+    # one it removes.
+    collisions = id_collisions(named)
+    if collisions:
+        print(f"\n{len(collisions)} new colliding mutant id(s) across these sets (#142):")
+        for why in collisions:
+            print(f"  {why}")
+
     if script_problems:
         print(f"\n{len(script_problems)} script encoding problem(s):")
         for why in script_problems:
@@ -1493,7 +1556,16 @@ def main(argv):
     if note:
         print(f"\nnote: {note}")
 
-    status = exit_status(bad, file_problems, script_problems)
+    # The ratchet's other direction. Retiring a collision is worth saying out loud, because the
+    # constant in mutset.py only comes down if someone notices it can, and a ceiling nobody
+    # tightens is a ceiling that quietly becomes the new floor. Informational, like the note
+    # above: the run is not allowed to fail because it got better.
+    still = remaining_collisions(named)
+    if whole_board and len(still) < len(GRANDFATHERED_IDS):
+        print(f"\nnote: {len(still)} of the {len(GRANDFATHERED_IDS)} grandfathered id collisions "
+              f"are still here, so mutset.GRANDFATHERED_IDS can come down to {len(still)}.")
+
+    status = exit_status(bad, file_problems, script_problems, collisions)
     if status:
         if bad:
             print(f"\n{bad} of {total} mutants would run without testing anything.")

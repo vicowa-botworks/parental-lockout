@@ -12,6 +12,7 @@ Usage:
     scripts/mutate.py                      # every set under scripts/mutations/
     scripts/mutate.py scripts/mutations/schedule.json
     scripts/mutate.py --only S1,W3         # a subset, for working on one finding
+    scripts/mutate.py --only platform:D9   # one set's D9, when more than one set has a D9
     scripts/mutate.py --self-test           # the verdict rules only: no Go, no battery
 
 Six ways a battery like this can report success while testing nothing, all six
@@ -683,11 +684,55 @@ def refusal_problems(text, needs, where):
              "nothing to act on"] if absent else [])
 
 
+def set_stem(path):
+    """The name `--only SET:ID` addresses a set by: its basename without the extension.
+
+    The stem rather than the path because the path is what an operator has to type twice, and
+    the ambiguity this exists to remove is between `platform.json`'s D9 and `auth.json`'s D9,
+    not between two directories. Two sets sharing a stem in one run is a different case, and it
+    is refused below rather than resolved by a rule nobody would guess.
+    """
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def split_wanted(tokens):
+    """`--only` tokens as (set key or None, mutant id) pairs, refusing what is neither.
+
+    A bare id keeps #118's rule -- every set holding it runs it, and a request that is as slow
+    as a full battery stops being used. A qualified id names one set.
+
+    The malformed token is a refusal and not a miss. `--only :D9` read as a bare id matches
+    nothing and then reports that `:D9` is in no set -- a sentence about a request that was
+    never parsed, sending the reader to the set files to look for an id with a colon in it.
+    `--only platform:` would mean "no id at all" and quietly select nothing.
+    """
+    pairs = []
+    for token in sorted(set(tokens)):
+        key, sep, mid = token.partition(":")
+        if not sep:
+            pairs.append((None, token))
+        elif not key or not mid or ":" in mid:
+            raise SystemExit(
+                f"--only {token!r} is neither a mutant id nor a SET:ID pair. A set is named by "
+                f"its file without the extension -- `platform:D9` is the D9 in "
+                f"scripts/mutations/platform.json -- and a bare id runs in every set that holds "
+                f"it, which is #118's rule and stays that way.")
+        else:
+            pairs.append((key, mid))
+    return pairs
+
+
 def select_sets(paths, wanted, work):
     """Trim every set holding a wanted id down to those ids, one trimmed file per set.
 
     Returns ``(selected, missing)``: ``selected`` is ``[(path, label)]`` in the order the
     sets were given, ``missing`` the requested ids no set holds.
+
+    A wanted token is either a mutant id or a ``SET:ID`` pair naming one set's copy of it
+    (#142). Bare stays bare: every set holding the id runs it, which is #118's rule and the
+    reason ``--only W1`` over three sets that each have a ``W1`` runs three mutants. The
+    qualified form exists because a citation of ``D9`` in a PR body is ambiguous 76 times out of
+    662 on main, and because "just the one I care about" cannot otherwise be addressed.
 
     One file per matching set, and no early ``break``. The first version wrote a single
     ``subset.json`` and stopped at the first set that matched, so ``--only W1,W48`` across
@@ -705,14 +750,34 @@ def select_sets(paths, wanted, work):
     is one -- so that reading them back is a read of the copy like every other set read in the
     run, and not something the pass-through in ``staged`` has to make an exception for.
     """
-    selected, missing, n = [], set(wanted), 0
+    pairs = split_wanted(wanted)
+    missing = set(wanted)
+    # Two sets with one stem in the same run: the qualified id is exactly as ambiguous as the
+    # bare one it was meant to replace, so it is refused rather than answered by whichever rule
+    # for "does this key match" a reader would have to remember.
+    stems = {}
     for path in paths:
+        stems.setdefault(set_stem(path), []).append(path)
+    for key, mid in pairs:
+        if key and len(stems.get(key, [])) > 1:
+            raise SystemExit(
+                f"--only {key}:{mid} names {len(stems[key])} sets in this run "
+                f"({', '.join(stems[key])}). They share a basename, so the qualified id cannot "
+                f"pick one; pass the set you mean positionally and the id bare.")
+    selected, n = [], 0
+    for path in paths:
+        stem = set_stem(path)
+        ids = {mid for key, mid in pairs if key is None or key == stem}
         doc = load(staged(path))
-        keep = [m for m in doc["mutants"] if m["id"] in wanted]
+        keep = [m for m in doc["mutants"] if m["id"] in ids]
         if not keep:
             continue
         for m in keep:
+            # Both spellings of the request are satisfied by this mutant: the bare id, and the
+            # qualified one naming the set it lives in. Dropping only the bare spelling would
+            # report `platform:D9` as unmatched after running it.
             missing.discard(m["id"])
+            missing.discard(f"{stem}:{m['id']}")
         doc["mutants"] = keep
         # The count belongs to the list, not to the filename: this copy holds what the filter kept,
         # and a subset that still claimed its parent's total would refuse itself at `load`.
@@ -722,8 +787,11 @@ def select_sets(paths, wanted, work):
         os.makedirs(os.path.dirname(tmp), exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(doc, fh, indent=1)
-        selected.append((tmp, f"{set_label(path)} "
-                              f"[{','.join(m['id'] for m in keep)}]"))
+        # Qualified, so the line in a log can be pasted back as `--only` and mean the same
+        # mutant. `D9` in a report is two mutants 76 times out of 662 on main; `platform:D9` is
+        # one, and the set header above it says which file ran.
+        qualified = ",".join("{}:{}".format(stem, m["id"]) for m in keep)
+        selected.append((tmp, f"{set_label(path)} [{qualified}]"))
     return selected, sorted(missing)
 
 
@@ -905,7 +973,39 @@ SELECT_CASES = (
      "an id two sets both hold runs in both, and neither set claims the other's"),
     ("Z9 in no set", "ab", {"Z9"}, [], ["Z9"],
      "the refusal: an empty selection is what makes main's branch reachable"),
+    # #142: the same id in two sets, which is 76 of 662 ids on main. The `dup` fixture is that
+    # situation -- dupa.json and dupb.json both hold DUP -- and the qualified request has to
+    # answer for one of them.
+    ("dupa:DUP names one of the two sets holding DUP", "dup", {"dupa:DUP"},
+     [("dupa.json", ["DUP"])], [],
+     "the ticket: a qualified id runs in the set named and not in the other set that holds it"),
+    ("dupa:DUP beside a bare DUP", "dup", {"dupa:DUP", "DUP"},
+     [("dupa.json", ["DUP"]), ("dupb.json", ["DUP"])], [],
+     "a bare id beside a qualified one still runs everywhere, so the new syntax does not narrow "
+     "#118's rule by accident"),
+    ("gamma:A1 names a set this run did not read", "ab", {"gamma:A1"}, [], ["gamma:A1"],
+     "a qualified id that matches nothing is reported as it was asked for, not as its bare id, "
+     "or the reader looks for `A1` in a set that was never the problem"),
 )
+
+
+def refused_problems(fn, want):
+    """What a request that must be refused actually did. Empty means it refused, and said why.
+
+    ``fn`` raises ``SystemExit`` for a request this tool cannot honour. Running it and catching
+    is the only way to check the answer: a parser that returns an empty selection instead of
+    refusing is indistinguishable from one that refused, from the outside, and both leave the
+    operator with a run that did nothing.
+
+    Named apart from ``refusal_problems`` on purpose, and not merged with it: that one is handed
+    the text of a refusal already in hand, this one has to make the refusal happen first.
+    """
+    try:
+        fn()
+    except SystemExit as exc:
+        text = str(exc)
+        return [] if want in text else [f"refused, but said {text!r}, want it to name {want!r}"]
+    return ["accepted a request it is supposed to refuse"]
 
 
 def scope(paths):
@@ -969,7 +1069,11 @@ def selection_problems(sel, miss, want, want_missing):
     """
     problems = []
     got_labels = [lab for _, lab in sel]
-    want_labels = [f"{name} [{','.join(ids)}]" for name, ids in want]
+    # Qualified the same way the label is built: `want` says which ids a set must run, and the
+    # report says which mutants it ran, and the two only line up if both spell the id the way a
+    # reader would paste it back.
+    want_labels = ["{} [{}]".format(name, ",".join(
+        "{}:{}".format(os.path.splitext(name)[0], i) for i in ids)) for name, ids in want]
     if got_labels != want_labels:
         problems.append(f"selected {got_labels}, want {want_labels}")
     if miss != want_missing:
@@ -1647,7 +1751,7 @@ EXPECTED_VERDICT_RULES = 35
 # a pin and a control per comparison in CHECKER_CONTROLS, the audit of main's --only block,
 # one control per entry in ONLY_BLOCK_CONTROLS. Pinned for the same reason the verdict count
 # is -- a deleted rule is invisible to the rules that survive.
-EXPECTED_SELECT_RULES = 55
+EXPECTED_SELECT_RULES = 67
 
 # How many snapshot rules the self-test is expected to run: #119's nineteen, counted the same
 # way (one per table row, one per fixture that builds a tree and asks what the snapshot did
@@ -1881,6 +1985,14 @@ def self_test():
         work = os.path.join(td, "work")
         os.mkdir(work)
 
+        # Two sets sharing a stem, which is the one case a qualified id cannot resolve. They are
+        # in subdirectories because `set_label` already gives them distinct report lines -- that
+        # is #126's fix -- while `set_stem` cannot tell them apart, and must not pretend to.
+        for sub_dir in ("a", "b"):
+            os.makedirs(os.path.join(td, sub_dir), exist_ok=True)
+        amb_a = write_set(os.path.join("a", "s.json"), ["DUP"])
+        amb_b = write_set(os.path.join("b", "s.json"), ["DUP"])
+
         fixtures = {"ab": [alpha, beta], "dup": [dup_a, dup_b]}
         for name, pair, wanted, want, want_missing, why in SELECT_CASES:
             got, miss = select_sets(fixtures[pair], wanted, work)
@@ -1891,6 +2003,34 @@ def self_test():
             rule(rules, bad, f"--only {name} asserts something",
                  [] if (want or want_missing)
                  else [f"expects nothing in either direction, so {why} is untested"])
+
+        # The requests that have to be refused rather than answered with an empty selection.
+        # Each is a real shape someone can type, and each one accepted is a run that does
+        # nothing behind a flag that looked like it was honoured.
+        rule(rules, bad, "--only refuses a token with an empty set key",
+             refused_problems(lambda: select_sets([alpha, beta], {":A1"}, work),
+                              "neither a mutant id nor a SET:ID pair"))
+        rule(rules, bad, "--only refuses a token with an empty id",
+             refused_problems(lambda: select_sets([alpha, beta], {"alpha:"}, work),
+                              "neither a mutant id nor a SET:ID pair"))
+        rule(rules, bad, "--only refuses a token with two colons",
+             refused_problems(lambda: select_sets([alpha, beta], {"alpha:A:1"}, work),
+                              "neither a mutant id nor a SET:ID pair"))
+        rule(rules, bad, "--only refuses a qualified id whose set name is ambiguous",
+             refused_problems(lambda: select_sets([amb_a, amb_b], {"s:DUP"}, work),
+                              "share a basename"))
+
+        def _raises(message):
+            def go():
+                raise SystemExit(message)
+            return go
+
+        control(rules, bad, "control: a refusal rule that accepts the request",
+                refused_problems, (lambda: None, "anything at all"),
+                "so a parser that accepts a malformed token would still be reported as refusing")
+        control(rules, bad, "control: a refusal rule that refuses for another reason",
+                refused_problems, (_raises("something else entirely"), "anything at all"),
+                "so the refusal has to be about the token, not merely non-zero")
 
         # The controls: a working checker has to refuse each of these. Both are generated
         # from what they check, so a checker that stops noticing is reported rather than
