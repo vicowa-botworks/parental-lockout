@@ -1,7 +1,7 @@
 {
   "package": "./internal/platform/",
   "_about": "Each entry puts one known bug back into internal/platform and the suite must fail. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
-  "expected_mutants": 111,
+  "expected_mutants": 116,
   "mutants": [
     {
       "id": "D10",
@@ -607,7 +607,7 @@
     {
       "id": "T4",
       "file": "internal/platform/table.go",
-      "old": "\t\t\te.Since = tableField(f)",
+      "old": "\t\t\te.Since = textField(f)",
       "new": "\t\t\t_ = f",
       "note": "SINCE is the column after the unknown one in the test, so it is what proves the mapping survived"
     },
@@ -839,6 +839,41 @@
       "old": "\tif read == nil {",
       "new": "\tif false && read == nil {",
       "note": "A nil reader accepted and then called: a wiring mistake surfaces as a nil dereference or, once someone guards the call, as 'outside' -- a deployment fact invented out of a bug. TestLocationOfRefusesANilReader"
+    },
+    {
+      "id": "L3",
+      "file": "internal/platform/logind.go",
+      "old": "\tcase c == '-' || (c >= '0' && c <= '9'):\n\t\t*s = since(data)",
+      "new": "\tcase c == '-' || (c >= '0' && c <= '9'):\n\t\treturn fmt.Errorf(\"loginctl `since` is a number\")",
+      "note": "the shipped bug put back (#167): a numeric `since` refused again, so one field on one row costs the daemon every session on the machine and the enforcement loop never locks anyone. TestALiveSystemd259ListingDecodes, TestTheLiveListingYieldsTheLockableSessions, TestTheSinceFieldTakesEveryShapeLogindHasPrinted"
+    },
+    {
+      "id": "L4",
+      "file": "internal/platform/logind.go",
+      "old": "\t\t*s = since(v)",
+      "new": "\t\t*s = since(data)",
+      "note": "text stored with its JSON quotes still on it, so a SINCE read off the table and one read off the JSON are never the same value and every comparison against the field silently misses. TestTheSinceFieldTakesEveryShapeLogindHasPrinted"
+    },
+    {
+      "id": "L5",
+      "file": "internal/platform/logind.go",
+      "old": "\t\treturn fmt.Errorf(\"loginctl `since` is neither text nor a number: %s\", firstLine(data))",
+      "new": "\t\t*s = since(data)\n\t\treturn nil",
+      "note": "the refusal deleted, so any shape at all parses into a row: the failure direction #167 was about, moved somewhere quieter instead of fixed. TestTheSinceFieldTakesEveryShapeLogindHasPrinted, TestAnUnreadableListingSaysWhyTheJSONFailed"
+    },
+    {
+      "id": "L6",
+      "file": "internal/platform/logind.go",
+      "old": "\t\t*s = \"\"\n\tcase c == '\"':",
+      "new": "\t\treturn fmt.Errorf(\"loginctl `since` is null\")\n\tcase c == '\"':",
+      "note": "the defensive null arm turned into a refusal: unreachable through today's pointer field, and the day the field stops being one a null becomes the whole listing lost again. TestANullReachesTheTypeAsTheEmptyText"
+    },
+    {
+      "id": "L7",
+      "file": "internal/platform/logind.go",
+      "old": "func textField(s string) *since {\n\tif s == \"-\" || s == \"\" {",
+      "new": "func textField(s string) *since {\n\tif false {",
+      "note": "an absent SINCE in the table stored as the literal '-' instead of nothing, so the two parsers disagree about one fact and a caller comparing them sees a value where logind said none. TestTheTablePathAndTheJSONPathAgreeOnAnAbsentSince"
     }
   ]
 }

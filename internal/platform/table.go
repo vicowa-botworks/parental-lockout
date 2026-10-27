@@ -240,7 +240,7 @@ func parseTableRow(fields []string, cols []tableCol) (listEntry, error) {
 			// special-casing "whatever is left when this is the last column". Nothing
 			// decides on SINCE, so the first token is recorded for the sake of having
 			// read the column and is not a value to build anything on.
-			e.Since = tableField(f)
+			e.Since = textField(f)
 		case -1:
 			// unknown column
 		}

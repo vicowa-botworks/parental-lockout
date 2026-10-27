@@ -240,6 +240,13 @@ Recorded here because #6 builds on it and each item cost real probing:
   plain table with exit 0. The flag that works is `--json=short`. A backend on the
   wrong flag does not fail — it feeds a table to a JSON parser every 30 seconds and
   enforces nothing forever.
+- `--json=short` prints `since` as a **number** on 259.9 (`"since":855186289603`, on
+  every row it reports as idle) and `null` on the rows it does not, while the table's
+  `SINCE` column prints a wall clock. A `*string` field refused the number, and because
+  the listing is decoded in one call, the daemon saw **no sessions at all** on a box with
+  four lockable ones (#167). The field is decoded as text-or-number for that reason alone
+  — nothing reads it, which is precisely the kind of field that ends up deciding whether
+  the product runs.
 - The listing carries no `Remote` and no `LockedHint`. Lock state and remoteness
   require a per-session `show-session`, so the cheap `class=user` + has-a-seat filter
   runs first and the detail call only happens for real desktop sessions.

@@ -1,0 +1,5 @@
+Name=rodney
+Remote=no
+Type=x11
+State=active
+LockedHint=yes

@@ -44,6 +44,13 @@ func (l *logind) Name() string { return "logind" }
 // has to be distinguishable from "empty string" only insofar as both are dropped.
 // They are pointers so the JSON decodes at all: unmarshalling null into a string is
 // an error, and an error here would mean seeing no sessions at all.
+//
+// That last sentence is the whole reason `Since` is not a *string. It was one, and
+// systemd 259.9 prints `"since":855186289603` — a number — so the decode returned an
+// error, and because `list()` decodes the whole array in one call, one field on one row
+// cost the daemon every session on the machine: four lockable desktop sessions on the
+// box this was found on, and `loginctl list-sessions: unrecognised output: [{"session":…`
+// as the only trace (#167).
 type listEntry struct {
 	Session string  `json:"session"`
 	UID     uint32  `json:"uid"`
@@ -53,7 +60,62 @@ type listEntry struct {
 	Class   string  `json:"class"`
 	TTY     *string `json:"tty"`
 	Idle    bool    `json:"idle"`
-	Since   *string `json:"since"`
+	Since   *since  `json:"since"`
+}
+
+// since is logind's `since` field, kept as the text it arrived in.
+//
+// One field, three measured shapes. `null`, on both rows of the 259.9 capture in testdata
+// that the listing reports as not idle — the manager session and the active one. A
+// wall-clock string in the table's SINCE column (`Thu 2026-10-01 15:47:23 UTC`, which is
+// what table.go's comment records it printing). And a bare integer —
+// `"since":855186289603` — on the three idle rows of that same JSON, which is the shape
+// that used to fail the decode.
+//
+// Those three are not one quantity wearing two hats, and this type does not pretend
+// otherwise: converting the integer would invent a unit for a value this repository has
+// never read. Nothing decides on `since` — `table.go` stores the table's first token and
+// two tests assert that token — so what the type is for is the decode not failing, which
+// turns out to be a load-bearing property for a field nobody reads (#167).
+//
+// A null never reaches this method through the struct: the field is a pointer, and
+// encoding/json sets a pointer to nil for a null without consulting an Unmarshaler. The
+// arm is there anyway because the alternative is the bug coming back through a door
+// nobody was watching — if the field ever stops being a pointer, or encoding/json
+// changes its mind, a null would otherwise land on the refusal, and a refusal on one row
+// is the whole listing lost. A test reaches the arm directly, so it is defensive rather
+// than dead.
+type since string
+
+// UnmarshalJSON takes text, a number, or null, and refuses anything else.
+//
+// Refusing is part of the contract. The failure this type exists to end was a value
+// silently costing the whole listing, and a decoder that accepted an object into a
+// string field would be the same bug wearing a smile — a shape this package has not
+// measured still has to arrive as an error someone can read, not as a row that parsed
+// into nothing.
+func (s *since) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("loginctl `since` arrived as no value at all")
+	}
+	switch c := data[0]; {
+	case string(data) == "null":
+		// Unreachable through listEntry, where the field is a pointer and encoding/json
+		// nils a pointer without asking. Kept on purpose and tested directly: the type's
+		// comment says which direction this guards.
+		*s = ""
+	case c == '"':
+		var v string
+		if err := json.Unmarshal(data, &v); err != nil {
+			return err
+		}
+		*s = since(v)
+	case c == '-' || (c >= '0' && c <= '9'):
+		*s = since(data)
+	default:
+		return fmt.Errorf("loginctl `since` is neither text nor a number: %s", firstLine(data))
+	}
+	return nil
 }
 
 // Sessions lists the desktop sessions worth locking.
@@ -263,15 +325,23 @@ func isDesktopEntry(e listEntry) bool {
 func (l *logind) list(ctx context.Context) ([]listEntry, error) {
 	out, err := l.r.Run(ctx, []string{"loginctl", noAsk, "list-sessions", "--json=short"}, nil, 0)
 	if err == nil {
-		if entries, jsonErr := parseSessionJSON(out); jsonErr == nil {
+		entries, jsonErr := parseSessionJSON(out)
+		if jsonErr == nil {
 			return entries, nil
 		}
 		// The flag was accepted and ignored, or the output is truncated. Fall through
 		// and read what came back as a table before spending another call.
-		if entries, tableErr := parseSessionTable(out); tableErr == nil {
+		entries, tableErr := parseSessionTable(out)
+		if tableErr == nil {
 			return entries, nil
 		}
-		return nil, fmt.Errorf("loginctl list-sessions: unrecognised output: %s", firstLine(out))
+		// Both failures belong in the message, the way the fallback arm two screens
+		// below already insists. What this arm used to say was `unrecognised output:
+		// [{"session":"468",…`, which blamed the listing and threw the decode error away
+		// — so the field that had actually failed (#167) could only be found by running
+		// the parser by hand on a machine that was already misbehaving.
+		return nil, fmt.Errorf("loginctl list-sessions: unrecognised output: %s (json: %v; table: %v)",
+			firstLine(out), jsonErr, tableErr)
 	}
 
 	// The flag itself was refused: ask without it.
@@ -443,6 +513,22 @@ func tableField(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// textField is tableField for the one column whose JSON shape is not a string.
+//
+// The two parsers do have to agree about an absent SINCE — "-" in the table and null in
+// the JSON both mean "logind did not say" — and they cannot agree about a present one,
+// because the table prints a wall clock and 259.9's JSON prints an integer. That
+// disagreement is upstream's, so it is recorded rather than smoothed over: nothing
+// decides on this field, and a parser that quietly normalised the two spellings would be
+// claiming they mean the same thing when the only thing they have in common is the column.
+func textField(s string) *since {
+	if s == "-" || s == "" {
+		return nil
+	}
+	v := since(s)
+	return &v
 }
 
 func firstLine(out []byte) string {
