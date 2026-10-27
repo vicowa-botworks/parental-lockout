@@ -64,15 +64,42 @@ func (s *Server) mutateConfig(fn func(*config.Config) error) error {
 // server failing, and says so. Collapsing the two into 503 would tell a parent to retry a
 // submission that will be refused identically forever.
 func (s *Server) mutateRefused(w http.ResponseWriter, r *http.Request, why string, err error) {
+	s.mutateRefusedAs(w, r, nil, why, err)
+}
+
+// mutateRefusedAs is mutateRefused with somewhere else to send the 422.
+//
+// A document the daemon would refuse to load is a refused WRITE, which is the category #138 says
+// has to land back on the form -- the parent typed something into a box and the box is where the
+// answer belongs. The 5xx half stays on pageError whatever the caller is: the server failing is
+// not the operator's submission being wrong, and a re-rendered form would imply their text was
+// the problem.
+func (s *Server) mutateRefusedAs(w http.ResponseWriter, r *http.Request, refuse refuser,
+	why string, err error) {
 	if errors.Is(err, config.ErrInvalid) {
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
-			// The sentinel's own text already says the configuration is not valid, so the
-			// wrapper only adds the consequence. Saying it twice reads like two errors.
-			"refusing to save: "+err.Error())
+		// The sentinel's own text already says the configuration is not valid, so the
+		// wrapper only adds the consequence. Saying it twice reads like two errors.
+		problem := "refusing to save: " + err.Error()
+		if refuse == nil {
+			s.pageRefuse(w, r, http.StatusUnprocessableEntity, problem)
+			return
+		}
+		refuse(http.StatusUnprocessableEntity, problem)
 		return
 	}
 	s.pageError(w, r, why, err)
 }
+
+// refuser is a refusal a handler hands to a helper that judges one field.
+//
+// It exists because a helper that writes the refusal itself can only ever write the plain one.
+// `formTimezone` and `formNameFits` used to take the ResponseWriter for exactly that reason --
+// "a caller cannot forget to refuse" -- and that made them the one place a refusal could not
+// become a page: the helper does not know which form was submitted or what was in it, and #138
+// is about putting the typed values back. Passing the answer instead of the writer keeps the
+// property that made these helpers functions at all: the only thing a caller can do with a false
+// is return.
+type refuser func(status int, why string)
 
 // pageRefuse answers a request the server is declining on purpose.
 //

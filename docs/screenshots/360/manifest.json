@@ -1,11 +1,11 @@
 {
-  "captured_at": "2026-10-27T20:38:56Z",
-  "head": "7544a31251ed701094f941b4bf16d30d6a7daaaa",
+  "captured_at": "2026-10-27T21:22:01Z",
+  "head": "151941656ce25b76f66fee1847bbe590f424935b",
   "pages": [
     {
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "beb20adf71501508f500a2b3e1b0fccc01197680622c9d67e3d6e0d18f06a596",
+      "png_sha256": "0b2adba88cb6c25a0466d43ad19f48201d1dfae62d2a5b8cfdcaf26ca83cd2c8",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
@@ -17,7 +17,7 @@
     {
       "page": "/",
       "png": "dashboard.png",
-      "png_sha256": "cee0c5766d3cb7b224aa4bbe567023c3d7d6737821c2c7b439f126ad36d8559b",
+      "png_sha256": "b6b106b7ca5dde5b9308d93aae3e10e15fd39a9d803979f010be7a0df1f89f01",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",
@@ -40,15 +40,27 @@
     },
     {
       "page": "/profiles",
-      "png": "profiles.png",
-      "png_sha256": "cfaada23b4c24767a3003a7804eac9076eaa81aa969632208c42d3157f34e309",
+      "png": "profiles-refused.png",
+      "png_sha256": "2821b2fa016c047960c035c5b790ab6e833c0a1213becf31282bfe6367581283",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "f8cabdc173ce45bbdba70d7064aece7cad1b944e"
+      "sources_rev": "151941656ce25b76f66fee1847bbe590f424935b"
+    },
+    {
+      "page": "/profiles",
+      "png": "profiles.png",
+      "png_sha256": "1f711beacea06d8d39862045b9684d9b869baf670119c7537047b7c01d6ea450",
+      "sources": [
+        "internal/web/templates/profiles.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "151941656ce25b76f66fee1847bbe590f424935b"
     },
     {
       "page": "/settings",

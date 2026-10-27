@@ -12,6 +12,15 @@
   {{end}}
 </p>
 
+{{- /* The sentence from a refused write, above everything on the page. It is not beside the
+       form that produced it, because the form that produced it is one of five and the parent
+       finds the sentence first and the box second (#138). The id is for the same reason the
+       boxes have ids: the row below can also carry a problem sentence, and a test that took the
+       first one in the document would be reading the evaluator rather than the refusal. */ -}}
+{{if .Notice}}
+<p id="refusal" class="problem" role="alert">{{.Notice}}</p>
+{{end}}
+
 {{- /* Creating a profile sits above the list rather than inside it, because the list is empty
        on a machine that has never had one -- and an empty list with no way out is the whole
        reason this form exists. It is outside the range for the same reason: {{.}} here is the
@@ -22,11 +31,13 @@
     <input type="hidden" name="csrf" value="{{$.CSRF}}">
     <p>
       <label for="new-profile-name">Name</label>
-      <input id="new-profile-name" type="text" name="name" required placeholder="Weekend rules">
+      <input id="new-profile-name" type="text" name="name" required placeholder="Weekend rules"
+             value="{{if .Create}}{{.Create.Name}}{{end}}">
     </p>
     <p>
       <label for="new-profile-tz">Timezone</label>
-      <input id="new-profile-tz" type="text" name="timezone" required placeholder="Europe/Paris">
+      <input id="new-profile-tz" type="text" name="timezone" required placeholder="Europe/Paris"
+             value="{{if .Create}}{{.Create.Timezone}}{{end}}">
     </p>
     <button type="submit">Create profile</button>
     <p class="muted">
@@ -37,7 +48,7 @@
   </form>
 </section>
 
-{{range .Profiles}}
+{{range $row := .Profiles}}
 <section class="profile">
   <h2>{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</h2>
   <p class="meta">
@@ -51,7 +62,11 @@
     <input type="hidden" name="csrf" value="{{$.CSRF}}">
     <p>
       <label for="rename-{{.ID}}">Rename this profile</label>
-      <input id="rename-{{.ID}}" type="text" name="name" value="{{.Name}}" required>
+      {{- /* The current name is what the box holds on a normal load; the typed one is what it
+             holds after a refusal, so the parent edits what they wrote instead of retyping it
+             from memory (#138). */ -}}
+      <input id="rename-{{.ID}}" type="text" name="name"
+             value="{{if .EchoRename}}{{.EchoRename}}{{else}}{{.Name}}{{end}}" required>
       <button type="submit">Save name</button>
     </p>
   </form>
@@ -60,8 +75,8 @@
     <input type="hidden" name="csrf" value="{{$.CSRF}}">
     <p>
       <label for="tz-{{.ID}}">Timezone</label>
-      <input id="tz-{{.ID}}" type="text" name="timezone" value="{{.Timezone}}" required
-             placeholder="Europe/Paris">
+      <input id="tz-{{.ID}}" type="text" name="timezone" required placeholder="Europe/Paris"
+             value="{{if .EchoZone}}{{.EchoZone}}{{else}}{{.Timezone}}{{end}}">
       <button type="submit">Save timezone</button>
     </p>
     <p class="muted">
@@ -116,29 +131,33 @@
 
     <p>
       <label for="name-{{.ID}}">Name</label>
-      <input id="name-{{.ID}}" type="text" name="name" required
-             placeholder="School night">
+      <input id="name-{{.ID}}" type="text" name="name" required placeholder="School night"
+             value="{{if .EchoRule}}{{.EchoRule.Name}}{{end}}">
     </p>
 
     <fieldset>
       <legend>Days</legend>
       {{range $.Days}}
-      <label><input type="checkbox" name="days" value="{{.}}"> {{.}}</label>
+      {{- /* HasDay is nil-safe, so this line renders on every load and not only on a refusal.
+             Seven checkboxes lost to a refusal about a clock is the case #138 is about. */ -}}
+      <label><input id="days-{{.}}-{{$row.ID}}" type="checkbox" name="days" value="{{.}}"
+             {{if $row.EchoRule.HasDay .}}checked{{end}}> {{.}}</label>
       {{end}}
     </fieldset>
 
     <p>
       <label for="start-{{.ID}}">From</label>
       <input id="start-{{.ID}}" type="text" name="start" inputmode="numeric"
-             placeholder="21:00" size="5">
+             placeholder="21:00" size="5" value="{{if .EchoRule}}{{.EchoRule.Start}}{{end}}">
       <label for="end-{{.ID}}">Until</label>
       <input id="end-{{.ID}}" type="text" name="end" inputmode="numeric"
-             placeholder="06:30" size="5">
+             placeholder="06:30" size="5" value="{{if .EchoRule}}{{.EchoRule.End}}{{end}}">
     </p>
 
     <p>
       <label for="allday-{{.ID}}">
-        <input id="allday-{{.ID}}" type="checkbox" name="allDay" value="on">
+        <input id="allday-{{.ID}}" type="checkbox" name="allDay" value="on"
+               {{if .EchoRule.Checked}}checked{{end}}>
         All day &mdash; the times above are then ignored
       </label>
     </p>
@@ -156,7 +175,7 @@
     <p>
       <label for="copy-{{.ID}}">Copy this profile</label>
       <input id="copy-{{.ID}}" type="text" name="name" required
-             placeholder="Same windows, other child">
+             placeholder="Same windows, other child" value="{{if .EchoCopy}}{{.EchoCopy}}{{end}}">
       <button type="submit">Create copy</button>
     </p>
     <p class="muted">

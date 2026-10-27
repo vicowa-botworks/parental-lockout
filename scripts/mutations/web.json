@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 260,
+  "expected_mutants": 273,
   "mutants": [
     {
       "id": "W1",
@@ -1582,11 +1582,11 @@
       "new": "\t\tif p.ID == exceptID && false {\n\t\t\tcontinue\n\t\t}",
       "note": "the collision check compares the name against every profile including the subject, so submitting the form without changing the field is refused as a collision with itself -- the parent cannot save anything else on the profile without retyping its name first. The rule now lives in config.ProfileNameTaken, which every write path calls, so this also breaks `plock profile edit --name` on a profile's own name. TestSavingAProfileItsOwnNameIsNotACollision, and the own-name row of TestProfileNameTakenIsTheLabelsRule."
     },
-    {
+{
       "id": "W221",
       "file": "internal/web/profiles.go",
-      "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a profile needs a name; leaving the field blank would not clear it, it would \"+",
-      "new": "\tname := r.FormValue(\"name\")\n\tif name == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a profile needs a name; leaving the field blank would not clear it, it would \"+",
+      "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\trefuse := func(status int, why string) {\n\t\ts.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, rename: name})\n",
+      "new": "\tname := r.FormValue(\"name\")\n\trefuse := func(status int, why string) {\n\t\ts.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, rename: name})\n",
       "note": "the name is stored untrimmed, so a field that reads as blank passes the blank check and writes whitespace -- the heading then renders empty and falls back to the id, which is the outcome the blank check exists to prevent. The rules handler above has the identical two lines, so the pattern carries the rename's own sentence to land on this one. TestABlankNameIsRefusedRatherThanStoredAsEmpty."
     },
     {
@@ -1634,12 +1634,12 @@
       "new": "\tif false {\n\t\t// The web form refuses this",
       "note": "the CLI accepts Local. The refusal then belongs to the screen rather than to the config: `plock profile edit --timezone Local` exits 0 and writes it (measured), while the web form calls the same value unusable. TestProfileEditRefusesLocalBecauseItFollowsTheMachine."
     },
-    {
+{
       "id": "W228",
       "package": "./internal/web/",
       "file": "internal/web/templates/profiles.tmpl",
-      "old": "      <input id=\"rename-{{.ID}}\" type=\"text\" name=\"name\" value=\"{{.Name}}\" required>",
-      "new": "      <input id=\"rename-{{.ID}}\" type=\"text\" name=\"profileName\" value=\"{{.Name}}\" required>",
+      "old": "      <input id=\"rename-{{.ID}}\" type=\"text\" name=\"name\"\n             value=\"{{if .EchoRename}}{{.EchoRename}}{{else}}{{.Name}}{{end}}\" required>",
+      "new": "      <input id=\"rename-{{.ID}}\" type=\"text\" name=\"profileName\"\n             value=\"{{if .EchoRename}}{{.EchoRename}}{{else}}{{.Name}}{{end}}\" required>",
       "note": "the rename form posts a field the handler never reads. The page still renders, the button still looks the same, and every real press answers 422 \"a profile needs a name\". Nothing that assembles its own post body can see this, and the substring check on name=\"name\" passes anyway because the add-rule form on the same page emits that name too -- which is why the round-trip reads the emitted control names off the form block instead of typing them. TestTheProfilePageCarriesAWorkingFormForBothWrites."
     },
     {
@@ -1700,20 +1700,20 @@
       "new": "\t\tsrc, ok := findProfile(c, id)\n\t\tif false && !ok {\n\t\t\treturn errUnknownProfile\n\t\t}",
       "note": "a copy of a profile that does not exist stops being a 404. The zero Profile findProfile returns on a miss is then copied, so the request either invents a profile with no windows and no zone or dies in Validate naming a timezone nobody typed -- and a stale bookmark, or a row deleted in another tab, gets a fault message instead of \"no profile on this machine has that id\". TestACopyRefusesAProfileThatDoesNotExist."
     },
-    {
+{
       "id": "W238",
       "package": "./internal/web/",
       "file": "internal/web/profiles.go",
-      "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a new profile needs a name; it is what this page, the accounts page and the audit \"+\n\t\t\t\t\"trail all point at\")\n\t\treturn\n\t}\n",
-      "new": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" && false {\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"a new profile needs a name; it is what this page, the accounts page and the audit \"+\n\t\t\t\t\"trail all point at\")\n\t\treturn\n\t}\n",
+      "old": "\tname := createForm.Name\n\tif name == \"\" {\n",
+      "new": "\tname := createForm.Name\n\tif name == \"\" && false {\n",
       "note": "the create form stops refusing a blank name. An unnamed profile is a document Validate accepts -- the page falls back to the id for its heading -- so this saves cleanly and the operator gets a profile headed by a slug they never chose, beside the one they meant to make. The refusal is the only place that says the field was not optional. TestACreateRefusesAnEmptyName."
     },
-    {
+{
       "id": "W239",
       "package": "./internal/web/",
       "file": "internal/web/profiles.go",
-      "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" {\n\t\t// The copy cannot keep the source's name: that is the duplicate the rename path\n\t\t// refuses, and `plock profile add --copy-from` refuses too. Asking is cheaper than\n\t\t// inventing a suffix nobody recognises when the page lists it.\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"the copy needs its own name; two profiles under one name cannot be told apart on \"+\n\t\t\t\t\"this page\")\n\t\treturn\n\t}\n",
-      "new": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\tif name == \"\" && false {\n\t\t// The copy cannot keep the source's name: that is the duplicate the rename path\n\t\t// refuses, and `plock profile add --copy-from` refuses too. Asking is cheaper than\n\t\t// inventing a suffix nobody recognises when the page lists it.\n\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity,\n\t\t\t\"the copy needs its own name; two profiles under one name cannot be told apart on \"+\n\t\t\t\t\"this page\")\n\t\treturn\n\t}\n",
+      "old": "\t\ts.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, copyAs: name})\n\t}\n\tif name == \"\" {\n",
+      "new": "\t\ts.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, copyAs: name})\n\t}\n\tif name == \"\" && false {\n",
       "note": "the copy form stops refusing a blank name, which is worse here than on the create: the copy's name is the ONLY thing asked for, because keeping the source's name is the duplicate the same handler refuses. So an empty field would be answered by a refusal that names nothing the operator can change. TestACopyRefusesANameThatIsTakenOrBlank."
     },
     {
@@ -1963,6 +1963,110 @@
       "old": "\t\tview.SessionsKnown = false",
       "new": "\t\tview.SessionsKnown = true",
       "note": "the dashboard's session column claims it looked and found nothing once the read failed -- a broken session backend rendered as a quiet house. This is the one consumer #168 names as the model the others should copy; the arm was already right, so this mutant is what keeps it right. TestTheDashboardStillRendersWhenTheSessionListIsGone"
+    },
+    {
+      "id": "W271",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tpage := s.profilesView(cfg)\n\tpage.Notice = why\n",
+      "new": "\tpage := s.profilesView(cfg)\n",
+      "note": "the refusal page loses its sentence. The parent is back on a page that looks like a normal load with their text in it and no indication anything was refused -- which is worse than the wall of text #138 replaced, because the wall at least said why. TestARenameRefusalPutsTheNameBack via postRefusal."
+    },
+    {
+      "id": "W272",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tpage.Create = echo.create\n",
+      "new": "\tpage.Create = nil\n",
+      "note": "the create form's boxes come back empty after a refusal, so the name survives the zone refusal only by accident of which field the handler checks first. TestACreateRefusalPutsBothBoxesBack."
+    },
+    {
+      "id": "W273",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tpage.Profiles[i].EchoRename = echo.rename\n",
+      "new": "\t\tpage.Profiles[i].EchoRename = \"\"\n",
+      "note": "the rename box is the form's only field, and this is the one line that puts it back. TestARenameRefusalPutsTheNameBack."
+    },
+    {
+      "id": "W274",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tpage.Profiles[i].EchoZone = echo.zone\n",
+      "new": "\t\tpage.Profiles[i].EchoZone = \"\"\n",
+      "note": "the zone the parent looked up is discarded again -- the exact behaviour whose comment said request text must not be echoed, which #138 answered rather than overrode. TestATimezoneRefusalPutsTheZoneBack."
+    },
+    {
+      "id": "W275",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tpage.Profiles[i].EchoCopy = echo.copyAs\n",
+      "new": "\t\tpage.Profiles[i].EchoCopy = \"\"\n",
+      "note": "the copy form's only field, lost. TestACopyRefusalPutsTheNameBack."
+    },
+    {
+      "id": "W276",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tpage.Profiles[i].EchoRule = echo.rule\n",
+      "new": "\t\tpage.Profiles[i].EchoRule = nil\n",
+      "note": "the add-a-window form loses name, clocks, days and all-day at once -- the worst case in the package, and the one a fix that only handled text inputs would leave behind. TestARuleRefusalPutsEveryFieldBack."
+    },
+    {
+      "id": "W277",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\tif page.Profiles[i].ID != echo.id {\n\t\t\tcontinue\n\t\t}\n",
+      "new": "\t\tif page.Profiles[i].ID == echo.id {\n\t\t\tcontinue\n\t\t}\n",
+      "note": "the echo is written to every row but the one that was submitted. With one profile that means no row at all; with several it would put one profile's refused text into another's boxes, which is a wrong value on the page rather than a missing one. TestARenameRefusalPutsTheNameBack."
+    },
+    {
+      "id": "W278",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\ts.renderStatus(w, r, \"profiles\", &page, status)\n",
+      "new": "\ts.render(w, r, \"profiles\", &page)\n",
+      "note": "the refusal page answers 200. render always lands on 200, so this is the line that keeps the status code the route had before #138 -- and a refusal that arrives OK is indistinguishable from an accepted save to anything not reading the prose, including the browser history and any future automation posting these forms. postRefusal's status assertion."
+    },
+    {
+      "id": "W279",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\t\t\trefuse(http.StatusUnprocessableEntity, errProfileNameTaken.Error())\n\t\tdefault:\n\t\t\ts.mutateRefusedAs(w, r, refuse, \"the profile could not be renamed\", err)",
+      "new": "\t\t\ts.pageRefuse(w, r, http.StatusUnprocessableEntity, errProfileNameTaken.Error())\n\t\tdefault:\n\t\t\ts.mutateRefusedAs(w, r, refuse, \"the profile could not be renamed\", err)",
+      "note": "one refusal on the rename route stays a plain-text wall while its neighbours became pages -- the state #138 exists to end, and the shape a future reader only discovers field by field. TestACopyRefusalPutsTheNameBack's sibling on the rename route."
+    },
+    {
+      "id": "W280",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tfor _, d := range f.Days {\n\t\tif d == day {\n",
+      "new": "\tfor _, d := range f.Days {\n\t\tif false && d == day {\n",
+      "note": "no day box ever comes back ticked. The seven checkboxes are the part of the add-a-window form no `value` attribute covers, so every text-field assertion still passes with this in. TestARuleRefusalPutsEveryFieldBack."
+    },
+    {
+      "id": "W281",
+      "package": "./internal/web/",
+      "file": "internal/web/profiles.go",
+      "old": "\tif f == nil || !f.AllDay {\n\t\treturn \"\"\n\t}\n\treturn \"checked\"\n",
+      "new": "\tif f == nil {\n\t\treturn \"\"\n\t}\n\treturn \"checked\"\n",
+      "note": "the all-day box ticks itself on every render, including a plain GET -- a checkbox whose value is not a value, so the only thing that can be wrong is `checked` appearing when it should not. TestANormalLoadCarriesNoRefusal."
+    },
+    {
+      "id": "W282",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/profiles.tmpl",
+      "old": "{{if .Notice}}\n<p id=\"refusal\" class=\"problem\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
+      "new": "{{if false}}\n<p id=\"refusal\" class=\"problem\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
+      "note": "the handler sets the sentence and the template drops it: the Go-side assertions on page.Notice would all still pass, which is why the sentence is also pinned from the markup side. postRefusal refuses a page with no sentence."
+    },
+    {
+      "id": "W283",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/profiles.tmpl",
+      "old": "             {{if $row.EchoRule.HasDay .}}checked{{end}}> {{.}}</label>",
+      "new": "             > {{.}}</label>",
+      "note": "the day boxes lose the attribute in the template rather than in the Go, which is the other half of the same guarantee and needs its own mutant for the same reason as W282. TestARuleRefusalPutsEveryFieldBack."
     }
   ]
 }
