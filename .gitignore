@@ -49,3 +49,8 @@ __pycache__/
 # 360 px capture fixtures: throwaway config, state, audit trail, Chrome profile, PNGs.
 # The committed artifacts live in docs/screenshots/360/; these are the runs they came from.
 /testing/capture/runs/
+
+# check-mutations.py undo journal (#169): written before the first mutant lands, deleted by
+# a run that finishes. Ignored so a run stopped by an uncatchable signal cannot have its marker
+# swept into a commit by `git add -A`; its presence is still what the next run refuses on.
+/.plock-mutant-journal.json
