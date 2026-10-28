@@ -36,6 +36,104 @@ type profilesPage struct {
 
 	// CSRF is filled by render through csrfCarrier, never by the handler.
 	CSRF string
+
+	// Notice is the sentence from a refused write, and empty on a normal load. It is part of
+	// the page rather than the body of an error because a refusal that also throws away the
+	// form it refused makes the parent retype the whole thing from memory (#138).
+	Notice string
+	// Create echoes the create form's boxes when that form is the one that was refused.
+	Create *formValues
+}
+
+// formValues is what a refused write carries back into the boxes it came from (#138).
+//
+// It is used through a pointer everywhere, because "this form was not the one that failed" and
+// "this form was submitted empty" have to stay different: the first leaves the box as the
+// document has it, the second puts an empty box back.
+//
+// The values reach the page as a template-escaped `value` attribute and nowhere else. The refusal
+// sentence still quotes none of them. formTimezone's comment said reflecting request text into a
+// response body is a habit this package does not have, and #138 keeps that half: what changes is
+// that the text goes back where it was typed, through html/template's escaping, instead of being
+// thrown away with the form.
+type formValues struct {
+	Name     string
+	Timezone string
+	Start    string
+	End      string
+	Days     []string
+	AllDay   bool
+}
+
+// HasDay answers the checkbox loop. Nil-safe on purpose: every form on the page asks this
+// question on every render, and a refused form is the only one that carries answers.
+func (f *formValues) HasDay(day string) bool {
+	if f == nil {
+		return false
+	}
+	for _, d := range f.Days {
+		if d == day {
+			return true
+		}
+	}
+	return false
+}
+
+// Checked is the all-day box's attribute, spelled the way the template wants it.
+func (f *formValues) Checked() string {
+	if f == nil || !f.AllDay {
+		return ""
+	}
+	return "checked"
+}
+
+// profileEcho says which form on the page a refused write came from and what was in it.
+type profileEcho struct {
+	// id is the profile whose row holds the form. Empty means the create form, which is
+	// above the list and is the only form not inside a row.
+	id     string
+	rename string
+	zone   string
+	copyAs string
+	rule   *formValues
+	create *formValues
+}
+
+// renderProfilesRefusal answers a declined write by re-rendering the page with the sentence above
+// the form and the parent's own text still in the boxes that produced it (#138).
+//
+// The split is the one renderSettingsRefusal makes: the echoed boxes come from the request and
+// every row, table and "Shared by" line is rendered from the document. A refusal page built out
+// of the submitted values would describe a profile that does not exist, which is worse than the
+// wall of text it replaces -- the parent would have to work out from the table which of their
+// changes landed.
+//
+// The status code is the caller's, unchanged. render lands on 200, and a refusal that arrived
+// "OK" would be indistinguishable from an accepted save to anything not reading the prose --
+// including the operator's own browser history and any future automation posting these forms.
+func (s *Server) renderProfilesRefusal(w http.ResponseWriter, r *http.Request, status int,
+	why string, echo profileEcho) {
+	cfg, err := s.readConfig()
+	if err != nil {
+		// The page cannot be rebuilt without the document, and the refusal still has to be
+		// said. Dropping "that name is too long" into a 503 about the config would turn a
+		// correct refusal into one the parent never hears the reason for.
+		s.pageRefuse(w, r, status, why)
+		return
+	}
+	page := s.profilesView(cfg)
+	page.Notice = why
+	page.Create = echo.create
+	for i := range page.Profiles {
+		if page.Profiles[i].ID != echo.id {
+			continue
+		}
+		page.Profiles[i].EchoRename = echo.rename
+		page.Profiles[i].EchoZone = echo.zone
+		page.Profiles[i].EchoCopy = echo.copyAs
+		page.Profiles[i].EchoRule = echo.rule
+	}
+	s.renderStatus(w, r, "profiles", &page, status)
 }
 
 // csrfCarrier itself is declared once, in pages.go, next to the render hook that uses it.
@@ -51,6 +149,15 @@ type profileRow struct {
 	// the answer to "what breaks if I delete this", and the delete refuses on exactly
 	// that list.
 	AssignedTo []string
+	// The boxes on this row that a refused write puts back the way the parent left them
+	// (#138). Four separate fields rather than one struct, because the row carries four
+	// different forms and a single echoed value would leak the rename's text into the
+	// add-a-window box beside it. Only the form that was submitted is ever set.
+	EchoRename string
+	EchoZone   string
+	EchoCopy   string
+	EchoRule   *formValues
+
 	// Complaint is the evaluator's own degraded report for the profile -- an unknown
 	// timezone falling back to a default, a rule that can never fire. It is the
 	// evaluator's sentence rather than one written here, so the page cannot present a
@@ -164,23 +271,38 @@ func (s *Server) handleAddRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Everything the form carries, taken before anything judges it: a refusal has to put back
+	// what was typed, including the fields that were perfectly fine (#138). The add-a-window
+	// form is the worst case in the package -- a refusal for one bad clock used to cost seven
+	// checkboxes, two times and a name, all of it re-entered from memory on a 360 px screen.
+	ruleForm := &formValues{
+		Days:   r.Form["days"],
+		AllDay: r.FormValue("allDay") != "",
+		Start:  strings.TrimSpace(r.FormValue("start")),
+		End:    strings.TrimSpace(r.FormValue("end")),
+	}
+	refuse := func(status int, why string) {
+		s.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, rule: ruleForm})
+	}
+
 	name := strings.TrimSpace(r.FormValue("name"))
+	ruleForm.Name = name
 	if name == "" {
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		refuse(http.StatusUnprocessableEntity,
 			"a rule needs a name; it is what the audit trail and this page both point at")
 		return
 	}
-	if !s.formNameFits(w, r, name) {
+	if !s.formNameFits(refuse, name) {
 		return
 	}
 
-	allDay := r.FormValue("allDay") != ""
-	days := r.Form["days"]
+	allDay := ruleForm.AllDay
+	days := ruleForm.Days
 	if len(days) == 0 {
 		// Refused here rather than left to Validate, which would report it as a rule
 		// that names no day. The form knows a box was never ticked; that is a better
 		// sentence than the document-level one.
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		refuse(http.StatusUnprocessableEntity,
 			"pick at least one day, or the rule would enforce nothing on any day")
 		return
 	}
@@ -214,7 +336,7 @@ func (s *Server) handleAddRule(w http.ResponseWriter, r *http.Request) {
 			s.pageRefuse(w, r, http.StatusNotFound, "no profile on this machine has that id")
 			return
 		}
-		s.mutateRefused(w, r, "the rule could not be saved", err)
+		s.mutateRefusedAs(w, r, refuse, "the rule could not be saved", err)
 		return
 	}
 
@@ -303,13 +425,15 @@ var errProfileNameTaken = config.ErrProfileNameTaken
 // this page. The two say the same rule in the two voices that fit, and neither is the gate: the
 // ceiling is Validate's, so a path that skips this check is still refused before anything is
 // written.
-func (s *Server) formNameFits(w http.ResponseWriter, r *http.Request, name string) bool {
+func (s *Server) formNameFits(refuse refuser, name string) bool {
 	if utf8.RuneCountInString(name) <= config.MaxNameLen {
 		return true
 	}
-	// The name is not echoed. It came from the request, and it is by definition too long to
-	// put in a response about being too long (see formTimezone on the same point).
-	s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+	// The name is not quoted in the sentence: it came from the request, and it is by definition
+	// too long to put in a response about being too long (see formTimezone on the same point).
+	// #138 changed the other half -- the caller's refuser puts it back in the box, escaped, so
+	// the parent can shorten what they typed instead of retyping it from memory.
+	refuse(http.StatusUnprocessableEntity,
 		fmt.Sprintf("that name is too long; it can be at most %d characters, so it fits the "+
 			"page that has to show it and the audit trail that has to quote it", config.MaxNameLen))
 	return false
@@ -325,8 +449,10 @@ func (s *Server) formNameFits(w http.ResponseWriter, r *http.Request, name strin
 // calls out about Validate.
 //
 // It writes the refusal rather than returning a sentence so that a caller cannot forget to:
-// the only thing a caller can do with a false is return.
-func (s *Server) formTimezone(w http.ResponseWriter, r *http.Request) (string, bool) {
+// the only thing a caller can do with a false is return. The refusal goes through the caller's
+// refuser rather than straight to the ResponseWriter, which is what lets the same check answer a
+// refusal-page handler and a plain one (#138).
+func (s *Server) formTimezone(r *http.Request, refuse refuser) (string, bool) {
 	zone := strings.TrimSpace(r.FormValue("timezone"))
 	if zone == "" {
 		// Refused rather than saved as blank, because blank is not "unset" here:
@@ -334,16 +460,18 @@ func (s *Server) formTimezone(w http.ResponseWriter, r *http.Request) (string, b
 		// the profile to UTC while the page still looked like a profile that had simply
 		// not been filled in. Validate says the same thing at document level; this is the
 		// form-level sentence, and the days checkbox on the rule form set the precedent.
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		refuse(http.StatusUnprocessableEntity,
 			"a profile needs a timezone; a blank one is read as UTC, which would move every "+
 				"window in it without anyone choosing that")
 		return "", false
 	}
 	if _, err := time.LoadLocation(zone); err != nil {
-		// The typed value is deliberately not echoed back. It came from the request, and
-		// reflecting request text into a response body is a habit this package does not
-		// have even when the response is plain text (see handleDeleteProfile).
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		// The sentence quotes nothing from the request: reflecting request text into a
+		// response body is a habit this package does not have even when the response is plain
+		// text (see handleDeleteProfile). #138 kept that and moved the value instead -- it goes
+		// back into the box as a template-escaped `value` attribute, which is where the parent
+		// can act on it, rather than being thrown away with the form.
+		refuse(http.StatusUnprocessableEntity,
 			"that is not a timezone this machine can load; use a zone name such as "+
 				"Europe/Paris, from the IANA zone list")
 		return "", false
@@ -356,7 +484,7 @@ func (s *Server) formTimezone(w http.ResponseWriter, r *http.Request) (string, b
 		// "every window below is read in this zone" cannot hold the one value that answers to
 		// no zone at all -- and the machine's own zone is set by the distro installer, not by
 		// the parent reading this page.
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		refuse(http.StatusUnprocessableEntity,
 			"Local is not a timezone for a profile; it follows whatever the machine's clock is "+
 				"set to, so the hours would move on their own. Pick the zone the household "+
 				"lives in, such as Europe/Paris.")
@@ -376,7 +504,13 @@ func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	zone, ok := s.formTimezone(w, r)
+	// The box is echoed from the raw field, not from the judged one: the value that was
+	// refused is the value the parent has to correct (#138).
+	typed := strings.TrimSpace(r.FormValue("timezone"))
+	refuse := func(status int, why string) {
+		s.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, zone: typed})
+	}
+	zone, ok := s.formTimezone(r, refuse)
 	if !ok {
 		return
 	}
@@ -398,7 +532,7 @@ func (s *Server) handleProfileTimezone(w http.ResponseWriter, r *http.Request) {
 			s.pageRefuse(w, r, http.StatusNotFound, "no profile on this machine has that id")
 			return
 		}
-		s.mutateRefused(w, r, "the timezone could not be saved", err)
+		s.mutateRefusedAs(w, r, refuse, "the timezone could not be saved", err)
 		return
 	}
 
@@ -440,13 +574,16 @@ func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := strings.TrimSpace(r.FormValue("name"))
+	refuse := func(status int, why string) {
+		s.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, rename: name})
+	}
 	if name == "" {
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		refuse(http.StatusUnprocessableEntity,
 			"a profile needs a name; leaving the field blank would not clear it, it would "+
 				"just make the page fall back to the id")
 		return
 	}
-	if !s.formNameFits(w, r, name) {
+	if !s.formNameFits(refuse, name) {
 		return
 	}
 
@@ -472,10 +609,12 @@ func (s *Server) handleProfileRename(w http.ResponseWriter, r *http.Request) {
 			s.pageRefuse(w, r, http.StatusNotFound, "no profile on this machine has that id")
 		case errors.Is(err, errProfileNameTaken):
 			// Its own sentence rather than err.Error(), which carries no name to leak and
-			// would read as a system fault rather than a collision the operator can fix.
-			s.pageRefuse(w, r, http.StatusUnprocessableEntity, errProfileNameTaken.Error())
+			// would read as a system fault rather than a collision the operator can fix. The
+			// typed name goes back in the box (#138): the fix is to change it, and the box is
+			// where that happens.
+			refuse(http.StatusUnprocessableEntity, errProfileNameTaken.Error())
 		default:
-			s.mutateRefused(w, r, "the profile could not be renamed", err)
+			s.mutateRefusedAs(w, r, refuse, "the profile could not be renamed", err)
 		}
 		return
 	}
@@ -506,17 +645,27 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := strings.TrimSpace(r.FormValue("name"))
+	// Both boxes are echoed even when only one of them was refused: the create form is two
+	// fields and a refusal about the zone should not cost the name (#138).
+	createForm := &formValues{
+		Name:     strings.TrimSpace(r.FormValue("name")),
+		Timezone: strings.TrimSpace(r.FormValue("timezone")),
+	}
+	refuse := func(status int, why string) {
+		s.renderProfilesRefusal(w, r, status, why, profileEcho{create: createForm})
+	}
+
+	name := createForm.Name
 	if name == "" {
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		refuse(http.StatusUnprocessableEntity,
 			"a new profile needs a name; it is what this page, the accounts page and the audit "+
 				"trail all point at")
 		return
 	}
-	if !s.formNameFits(w, r, name) {
+	if !s.formNameFits(refuse, name) {
 		return
 	}
-	zone, ok := s.formTimezone(w, r)
+	zone, ok := s.formTimezone(r, refuse)
 	if !ok {
 		return
 	}
@@ -536,10 +685,10 @@ func (s *Server) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}); err != nil {
 		if errors.Is(err, errProfileNameTaken) {
-			s.pageRefuse(w, r, http.StatusUnprocessableEntity, errProfileNameTaken.Error())
+			refuse(http.StatusUnprocessableEntity, errProfileNameTaken.Error())
 			return
 		}
-		s.mutateRefused(w, r, "the profile could not be created", err)
+		s.mutateRefusedAs(w, r, refuse, "the profile could not be created", err)
 		return
 	}
 
@@ -572,16 +721,19 @@ func (s *Server) handleCopyProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := strings.TrimSpace(r.FormValue("name"))
+	refuse := func(status int, why string) {
+		s.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, copyAs: name})
+	}
 	if name == "" {
 		// The copy cannot keep the source's name: that is the duplicate the rename path
 		// refuses, and `plock profile add --copy-from` refuses too. Asking is cheaper than
 		// inventing a suffix nobody recognises when the page lists it.
-		s.pageRefuse(w, r, http.StatusUnprocessableEntity,
+		refuse(http.StatusUnprocessableEntity,
 			"the copy needs its own name; two profiles under one name cannot be told apart on "+
 				"this page")
 		return
 	}
-	if !s.formNameFits(w, r, name) {
+	if !s.formNameFits(refuse, name) {
 		return
 	}
 
@@ -608,9 +760,9 @@ func (s *Server) handleCopyProfile(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, errUnknownProfile):
 			s.pageRefuse(w, r, http.StatusNotFound, "no profile on this machine has that id")
 		case errors.Is(err, errProfileNameTaken):
-			s.pageRefuse(w, r, http.StatusUnprocessableEntity, errProfileNameTaken.Error())
+			refuse(http.StatusUnprocessableEntity, errProfileNameTaken.Error())
 		default:
-			s.mutateRefused(w, r, "the profile could not be copied", err)
+			s.mutateRefusedAs(w, r, refuse, "the profile could not be copied", err)
 		}
 		return
 	}

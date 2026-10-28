@@ -229,8 +229,23 @@ class Session:
         return self.value("location.pathname")
 
     def value(self, expr):
-        return self.call("Runtime.evaluate", expression=expr,
-                         returnByValue=True)["result"].get("value")
+        """Evaluate in the page and hand back the value, or `threw: <what>` when it did not run.
+
+        The `threw:` shape is what the callers already test for, and it has to cover the failure
+        that never throws. A script with a syntax error is rejected before a single node is looked
+        up, so there is no exception object and no `result.value` -- Chrome reports it in
+        `exceptionDetails`, which used to be dropped on the floor here. `value()` then answered
+        `None`, a caller asking `got.startswith("threw")` got a clean False, and the driver printed
+        "the refusal form vanished" about a form that was sitting in the page. The parse error is
+        the finding, so it goes into the same string the runtime throws go into.
+        """
+        out = self.call("Runtime.evaluate", expression=expr, returnByValue=True)
+        bad = out.get("exceptionDetails")
+        if bad:
+            exc = bad.get("exception") or {}
+            return "threw: " + (exc.get("description") or exc.get("value") or bad.get("text")
+                                or "the page refused to evaluate the script")
+        return out["result"].get("value")
 
     def json(self, expr):
         return json.loads(self.value(expr))

@@ -48,7 +48,7 @@ in CI has something to do with what happens here.
 | `e2e/e2e.sh` | the full loop against the real session: configure, serve, watch it lock, unlock by hand, watch it re-lock, read the audit trail | root, a desktop session, your password |
 | `e2e/forge-hint.sh` | the #29 attack as a check: writes `LockedHint` with no privilege and insists enforcement does not believe it | nothing for the first half; root for the second |
 | `e2e/lib.sh` | the two questions both scripts ask about the machine — "is a locker running for this uid" and "which session is the desktop" — in one place | sourced, never run |
-| `capture/pages.py` + `pages-setup.sh` | measures the five GET-rendered admin pages at a 360 px viewport and photographs them | a browser, no root |
+| `capture/pages.py` + `pages-setup.sh` | measures the five GET-rendered admin pages at a 360 px viewport and photographs them — six artifacts, because `/profiles` is photographed twice: once as a normal load and once as the page a refused write answers with (#138), which is the one carrying the prose | a browser, no root |
 | `capture/lock.py` + `lock-setup.sh` | clicks the dashboard's real `Lock now` button so the POST carries the real CSRF token, then photographs the result page — and refuses to, if the page is not the verdict page | a browser, no root; the account must hold a session |
 | `capture/testlock.py` + `testlock-setup.sh` | the same for `Check backends`, with the audit trail checked before the PNG is written | a browser, no root; the account must hold a session |
 | `capture/cdp.py` | the plumbing all three need, and the refusals more than one page shares, in one place | imported, never run |

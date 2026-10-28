@@ -67,9 +67,37 @@ SHARED_SOURCES = ("internal/web/templates/page.tmpl",
                   "internal/web/static/app.js")
 
 
-def sources_for(artifact):
+def template_for(artifact, page=None):
+    """Which template a photograph is evidence about -- the PAGE decides, not the file name.
+
+    `profiles-refused.png` is the `/profiles` page in the state a refused write answers with. It is
+    a second STATE of one page, not a second template, and deriving the template from the stem sent
+    `record` looking for `internal/web/templates/profiles-refused.tmpl` and refusing to write the
+    manifest: "a PNG named after a page with no template is not evidence about anything" -- true,
+    and the wrong conclusion, because the page has a template and the file name does not.
+
+    An artifact the driver does not declare (`lock`, `testlock`, taken by their own drivers) keeps
+    the stem rule, which is the only thing known about it.
+    """
+    if page is None:
+        return artifact
+    return page.strip("/").split("/")[0] or "dashboard"
+
+
+def sources_for(artifact, page=None):
     """The files a page's photograph is evidence about: its template, and what wraps it."""
-    return [f"internal/web/templates/{artifact}.tmpl"] + list(SHARED_SOURCES)
+    return [f"internal/web/templates/{template_for(artifact, page)}.tmpl"] + list(SHARED_SOURCES)
+
+
+def pages_by_artifact():
+    """`{png stem: url}` for every artifact the capture driver says it takes.
+
+    The driver is the only thing that knows what each photograph depicts, and it already declares
+    both halves -- `Page("/profiles", "profiles-refused", ...)` -- so this reads the pair rather
+    than re-deriving one from the other. Same import seam as `driver_pages()`, so there is still
+    exactly one list of pages in this repository.
+    """
+    return {spec.artifact: spec.url for spec in driver_pages()}
 
 
 def git(args, cwd=None):
@@ -187,16 +215,19 @@ def record(directory, head=None, run=git, now=None):
     would certify photographs this run did not take.
     """
     entries = []
+    declared = pages_by_artifact()
     for name in pngs_in(directory):
         artifact = name[:-len(".png")]
-        sources = sources_for(artifact)
+        page = declared.get(artifact)
+        sources = sources_for(artifact, page)
         missing = [s for s in sources if not os.path.exists(os.path.join(ROOT, s))]
         if missing:
             raise SystemExit(f"{name}: its manifest cannot be written, because {missing[0]} "
                              f"does not exist. A PNG named after a page with no template is not "
                              f"evidence about anything.")
         entries.append({
-            "page": "/" if artifact == "dashboard" else "/" + artifact,
+            "page": page if page is not None
+            else ("/" if artifact == "dashboard" else "/" + artifact),
             "png": name,
             "png_sha256": sha256(os.path.join(directory, name)),
             "sources": sources,
@@ -304,7 +335,7 @@ def check(directory, run=git, pages=None):
             problems.append(f"{name} is not the file this manifest recorded ({got[:12]}... on "
                             f"disk, {str(want)[:12]}... recorded): it was replaced without "
                             f"re-running the capture, so nothing here says it still fits")
-        sources = e.get("sources") or sources_for(name[:-len(".png")])
+        sources = e.get("sources") or sources_for(name[:-len(".png")], e.get("page"))
         missing = [s for s in sources if not os.path.exists(os.path.join(ROOT, s))]
         if missing:
             problems.append(f"{page}'s manifest names {missing[0]}, which does not exist. A page "
@@ -577,6 +608,31 @@ def self_test():
     def says(name, problems):
         return None if any(name in p for p in problems) else f"no problem named {name!r}"
 
+    def a_second_state_of_one_page_shares_its_template():
+        """`profiles-refused` is a STATE of `/profiles`, so its evidence is `profiles.tmpl`.
+
+        The stem was the only rule, and it made a second state of a page unrecordable: `record`
+        asked for `profiles-refused.tmpl`, found no such file, and refused to write the manifest at
+        all -- "a PNG named after a page with no template is not evidence about anything". True, and
+        the wrong conclusion: the page has a template and the file name does not. The artifact #138
+        exists to produce was the one this tool could not certify.
+        """
+        if sources_for("profiles-refused", "/profiles") != sources_for("profiles", "/profiles"):
+            return ("the second state does not share the page's source set, so a change to "
+                    "/profiles would leave its other photograph certified as current")
+        if any("profiles-refused" in s for s in sources_for("profiles-refused", "/profiles")):
+            return ("the template is still read out of the file name, so `record` refuses a second "
+                    "state of a page instead of manifesting it")
+        # The control, and the other half of the rule: `lock.png` and `testlock.png` are taken by
+        # their own drivers and are not in the page table. Resolving everything through the page
+        # would leave them with no sources at all -- a manifest that checks nothing.
+        if not any(s.endswith("lock.tmpl") for s in sources_for("lock")):
+            return ("an artifact the driver does not declare no longer resolves to its own "
+                    "template, so its photograph is pinned to nothing")
+        return None
+
+    rule("a second state of a page shares its template",
+         a_second_state_of_one_page_shares_its_template())
     rule("a tree whose PNGs have no manifest is refused",
          says("no manifest", drive(one_png)))
     rule("an empty artifact directory is refused rather than passed",
@@ -800,7 +856,7 @@ def self_test():
 
     rule("the manifest claims nothing it did not measure", in_box(no_unmeasured_claims))
 
-    EXPECTED = 24
+    EXPECTED = 25
     if len(ran) != EXPECTED:
         bad.append(f"expected {EXPECTED} rules, ran {len(ran)} -- one was deleted, or never "
                    f"reached (a `return` in self_test() skips everything below it)")

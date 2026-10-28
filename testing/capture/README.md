@@ -192,21 +192,23 @@ was last read, which is #144's complaint in miniature. The bytes each artifact i
 live in `docs/screenshots/360/manifest.json`, written by the driver at the end of the run that took
 it and checked by `make verify` -- so the file↔run relationship is machine-checked and this table
 carries only what a machine cannot know: whether a fresh run reproduces the committed file at all.
-Measured again on 27 Oct against the manifest's own hashes: `profiles.png`, `settings.png` and
-`users.png` came back byte-identical; `dashboard.png` matched the previous run and not the
-committed file; `audit.png` matched neither.
+Measured again on 28 Oct against the manifest's own hashes, on the run that took the refused-write
+page: `profiles.png`, `profiles-refused.png`, `settings.png` and `users.png` came back
+byte-identical; `dashboard.png` and `audit.png` did not, which is why that PR commits the two that
+reproduce and leaves the two that churn -- the same choice #161 made for the same reason.
 
 | artifact | does the in-repo driver reproduce the committed file? | why |
 |---|---|---|
 | `users.png` | **yes** | |
-| `profiles.png` | **yes** | re-taken by #147, which is the change that moved it. The `740200cc…` this row quoted had already stopped matching the committed file before that PR landed, and nothing noticed -- which is #144 |
+| `profiles.png` | **yes** | re-taken by #147, which is the change that moved it. The `740200cc…` this row quoted had already stopped matching the committed file before that PR landed, and nothing noticed -- which is #144. Moved again by #138, whose refusal page is the artifact below |
+| `profiles-refused.png` | **yes** | new with #138: the same URL photographed AFTER a refused write, so one page carries two artifacts and the manifest has to answer "which template does `profiles-refused` belong to" -- a *state* of a page is not a file named after it, so `template_for` asks the driver which `Page` declared the artifact and falls back to the stem only for the ones that declare nothing (`lock`, `testlock`). Reproduced byte-identical on the run that recorded the manifest |
 | `settings.png` | **yes** | new with the settings page. It is the only page in the set refused on a *form* rather than on rows (`cdp.require_form`), because a page with no table would otherwise have been refused as an empty fixture -- and the lazy repair, dropping the check, would have let a /settings that rendered nothing but its navigation be committed as evidence that it fits. Re-taken by the transport form (#161), which took the page from `forms=3 fields=9` at 2069 px to `forms=4 fields=15` at 3511 px; the previous hash `42d47d9b…` is what the file was before that form, and the row is the only place that claim lives |
 | `testlock.png` | **yes, on an account with one session** | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image. **The page photographs the account's session census**, so the image is good for the machine it was taken on: measured 27 Oct on an account holding four lockable sessions, the driver ran green (`tables=2 backendRows=1 cells=14`, `FITS`, `note in 4 Detail cell(s), 0 with a sentence in front of it`) and produced `a8617a2b…`. That is a faithful capture of a different page, not a broken driver |
 | `lock.png` | **yes, on an account with one session** | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no". Same census caveat: on the four-session account above it ran green (`rows=4 cells=12`, banner `rodney was not locked.`, flag `4 of 4 sessions were asked to lock`) and produced `4fc93d11…` |
 | `dashboard.png` | **no** | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs minutes apart agree; a run hours later does not |
 | `audit.png` | **no, by construction** | signing in appends an `auth.success` row to the very trail the page photographs, so every capture adds a row and two runs of one fixture cannot agree. The height that produces is a **run counter**, not a page measurement: the committed file is `360x15004` while a fixture built from nothing renders **2936 px** with `cells=40` (measured 26 Oct on `main` at `1684b29`, and again from the transport branch). So the artifact is a function of how many times anyone has run a driver on their own machine, and 15004 px is already ~92% of Chromium's 16 384 px capture surface -- #144 carries the mechanism, the row census, and the proposed bound |
 
-So five of the seven can be regenerated and two cannot — and two of those five, `lock.png` and
+So six of the eight can be regenerated and two cannot — and two of those six, `lock.png` and
 `testlock.png`, reproduce only on an account holding the number of sessions the capture had,
 because those two pages photograph the session census. The honest claim about an artifact is
 therefore usually the driver's report — `scrollWidth`, `innerWidth`, the cell census, `FITS` —
@@ -292,13 +294,13 @@ before that, the newest commit touching it predated #141.
 `testing/capture/manifest.py` closes it. A successful run writes `manifest.json` beside the PNGs:
 
 ```json
-{"schema": "capture-manifest/1", "viewport": 360, "head": "f335044e7…",
- "captured_at": "2026-10-27T19:22:46Z",
- "pages": [{"page": "/profiles", "png": "profiles.png", "png_sha256": "cfaada23b4…",
+{"schema": "capture-manifest/1", "viewport": 360, "head": "a889d0d8b…",
+ "captured_at": "2026-10-28T01:55:37Z",
+ "pages": [{"page": "/profiles", "png": "profiles.png", "png_sha256": "1f711bea…",
             "sources": ["internal/web/templates/profiles.tmpl",
              "internal/web/templates/page.tmpl", "internal/web/static/app.css",
              "internal/web/static/app.js"],
-            "sources_rev": "f8cabdc17…"}]}
+            "sources_rev": "0a42139d…"}]}
 ```
 
 and `make verify` runs `manifest.py check`, which refuses when:
@@ -432,7 +434,7 @@ Five things about the shape, each because the obvious version was wrong:
   `4/5 pages fit at 1024 px; untested (fixture): /audit` — because it neither failed that viewport
   nor proved anything about it.
 
-Nine of the twenty-one self-test rules police this contract, and thirteen guttings were run against
+Nine of the twenty-nine self-test rules police this contract, and thirteen guttings were run against
 them — `WIDTHS[:1]`, `if False:` on the refusal test, a summary line without its width, the
 `set_width` **call at the call site** deleted, `set_width` moved after `goto`, every viewport
 writing bytes, the overflow compared against the constant instead of the viewport, the fixture
@@ -457,8 +459,8 @@ with a fake that reports `innerWidth=360` at a 1024 px request.
 
 ## The self-test, because nothing else in this repository can read these files
 
-`./pages.py --self-test` runs 21 rules about what a refusal does. It starts no browser, spawns no
-daemon, writes no file, and costs **0.043 s** for its twenty-one rules, so `make verify` runs it
+`./pages.py --self-test` runs 29 rules about what a refusal does. It starts no browser, spawns no
+daemon, writes no file, and costs **0.036 s** for its twenty-nine rules, so `make verify` runs it
 beside the two mutation
 self-tests. What it cannot do is reach below its own fakes — see the two body guttings above, which
 only a real capture sees.

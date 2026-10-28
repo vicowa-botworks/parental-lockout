@@ -251,9 +251,12 @@ func TestLocalIsRefusedBecauseItFollowsTheMachineRatherThanTheHousehold(t *testi
 		t.Fatalf("status = %d, want 422; body %q -- Local loads, so nothing else refuses it",
 			rec.Code, rec.Body.String())
 	}
-	if body := rec.Body.String(); !strings.Contains(body, "machine's clock") {
-		t.Errorf("the refusal does not say why Local is not a household zone;\nthe page says:\n%s",
-			body)
+	// The sentence rather than the body: the box holds "Local" now (#138), so a grep over the
+	// whole page would pass on the echoed value. The apostrophe is the other half -- in HTML
+	// html/template writes it as &#39;, and the claim is about the sentence a parent reads.
+	if got := refusalParagraph(rec.Body.String()); !strings.Contains(got, "machine's clock") {
+		t.Errorf("the refusal does not say why Local is not a household zone; the sentence is %q",
+			got)
 	}
 	if p, _ := profileFrom(t, f, "school"); p.Timezone == "Local" {
 		t.Error("Local was stored anyway; the profile now follows the host's zone")

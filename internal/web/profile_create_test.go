@@ -154,8 +154,11 @@ func TestACreateRefusesEveryTimezoneTheTimezoneFormRefuses(t *testing.T) {
 			if rec.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("status = %d, want 422; body %q", rec.Code, rec.Body.String())
 			}
-			if !strings.Contains(rec.Body.String(), c.want) {
-				t.Errorf("the refusal does not say why %q is no good:\n%s", c.zone, rec.Body.String())
+			// The sentence, not the body: #138 put the typed zone back in the box, so the body
+			// now contains what was refused and a grep over it proves nothing about the prose.
+			if got := refusalParagraph(rec.Body.String()); !strings.Contains(got, c.want) {
+				t.Errorf("the refusal does not say why %q is no good; the sentence is %q:\n%s",
+					c.zone, got, rec.Body.String())
 			}
 			if n := f.savesCount() - before; n != 0 {
 				t.Errorf("a refused create still saved %d documents", n)
@@ -187,11 +190,11 @@ func TestEveryNameFormRefusesANameTheDocumentCannotHold(t *testing.T) {
 	// body as a format string and the percent-encoding in `start=20%3A00` was read as a verb, so
 	// the clock fields arrived empty and the rule form refused for a reason that had nothing to
 	// do with the name. URL-encoded text and a format string do not belong in the same argument.
-	forms := []struct{ name, path, suffix string }{
-		{"create", "/profiles", "&timezone=UTC"},
-		{"rename", "/profiles/school/rename", ""},
-		{"copy", "/profiles/school/copy", ""},
-		{"add a window", "/profiles/school/rules", "&start=20%3A00&end=06%3A00&days=mon"},
+	forms := []struct{ name, path, suffix, box string }{
+		{"create", "/profiles", "&timezone=UTC", "new-profile-name"},
+		{"rename", "/profiles/school/rename", "", "rename-school"},
+		{"copy", "/profiles/school/copy", "", "copy-school"},
+		{"add a window", "/profiles/school/rules", "&start=20%3A00&end=06%3A00&days=mon", "name-school"},
 	}
 
 	for _, f := range forms {
@@ -203,11 +206,22 @@ func TestEveryNameFormRefusesANameTheDocumentCannotHold(t *testing.T) {
 			if rec.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("status = %d, want 422; body %q", rec.Code, rec.Body.String())
 			}
-			if !strings.Contains(rec.Body.String(), "too long") {
-				t.Errorf("the refusal does not say the name is too long:\n%s", rec.Body.String())
+			body := rec.Body.String()
+			if got := refusalParagraph(body); !strings.Contains(got, "too long") {
+				t.Errorf("the refusal does not say the name is too long; the sentence is %q:\n%s",
+					got, body)
 			}
-			if strings.Contains(rec.Body.String(), over) {
-				t.Error("the refusal quotes the oversized name back into the response body")
+			// #138 moved the oversized name back into the box it was typed into, so "the body
+			// must not contain it" is no longer the property -- and it was never quite the right
+			// one either. Two replace it, and both are checked here because this is the one name
+			// that is by definition too long to want retyped: the sentence still quotes no request
+			// text, and the value comes back in its own box rather than as prose.
+			if strings.Contains(refusalParagraph(body), over) {
+				t.Error("the refusal sentence quotes the oversized name back")
+			}
+			if got, ok := echoedValue(body, f.box); !ok || got != over {
+				t.Errorf("the %q box holds %d characters (present=%v), want the %d that were typed",
+					f.box, len(got), ok, len(over))
 			}
 			if n := fx.savesCount() - before; n != 0 {
 				t.Errorf("a refused write still saved %d documents", n)

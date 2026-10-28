@@ -33,6 +33,7 @@ the committed artifacts is an explicit `--out docs/screenshots/360`.
 import contextlib
 import importlib
 import io
+import json
 import os.path as op
 import sys
 
@@ -174,15 +175,52 @@ def require_unbreakable(got, what):
 # quietly, which is the exact failure #140 is about. Here the rule and the page that carries it are
 # one line of this table, and main() refuses to run at all if no line carries it.
 class Page:
-    def __init__(self, url, artifact, has_rows, stress=False):
+    def __init__(self, url, artifact, has_rows, stress=False, refuse=None):
         self.url, self.artifact = url, artifact
         self.has_rows, self.stress = has_rows, stress
+        self.refuse = refuse
+
+
+class Refusal:
+    """A page photographed AFTER a refused write rather than on a plain GET (#138).
+
+    `action` is matched as a suffix because the form's action carries the profile's id, which
+    belongs to the fixture and not to this file. The driver reads the real action off the DOM,
+    fills the boxes, and clicks the button that is in the page -- the same discipline the two POST
+    drivers hold to, for the same reason: a driver that assembled its own post body would keep
+    passing on a page whose shipped form posted a field no handler reads.
+
+    `fields` are the boxes to fill before the click, and `checks` how many boxes of a repeated name
+    to tick. `keep` names the one whose value has to still be in the box in the photograph, and
+    `keep_value` is what was put there: a screenshot of a refusal sentence alone cannot show the
+    half of #138 that is actually new, which is that the parent's own text came back with it.
+
+    `about` is a needle the refusal sentence has to contain. It exists because the two measurements
+    above can both pass on the wrong refusal: if the checkbox fill silently stopped ticking, the
+    route answers 422 about the days instead, the echo puts `25:99` back anyway -- it is the same
+    closure -- and the run publishes a `profiles-refused.png` that is a photograph of a different
+    bug than the one its filename claims.
+    """
+
+    def __init__(self, action, fields, checks=None, keep="", keep_value="", about=""):
+        self.action, self.fields = action, fields
+        self.checks = checks or {}
+        self.keep, self.keep_value = keep, keep_value
+        self.about = about
 
 
 PAGES = [
     Page("/", "dashboard", True),
     Page("/users", "users", True),
     Page("/profiles", "profiles", True),
+    # The refused profile form, as its own artifact. It is a different page from /profiles as of
+    # #138 -- a sentence above the list and a form full of typed text -- and the page with more
+    # prose in it is the one a 360 px criterion has to be measured on, not the tidy one.
+    Page("/profiles", "profiles-refused", True,
+         refuse=Refusal("/rules",
+                        {"name": "School night", "start": "21:00", "end": "25:99"},
+                        checks={"days": 2}, keep="end", keep_value="25:99",
+                        about="HH:MM")),
     Page("/audit", "audit", True, stress=True),
     Page("/settings", "settings", False),
 ]
@@ -225,6 +263,16 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     if here != page:
         raise SystemExit(f"{page} answered {here} instead; nothing was measured")
     session.settle()
+    if spec.refuse:
+        # After the landing check and before the measurement: the page has to be the one this entry
+        # declares before anything is posted to it, and the width has to be measured on the response
+        # to that post rather than on the form as first rendered.
+        action = refusal_form(session, spec)
+        session.settle()
+        landed = session.where()
+        if landed != action:
+            raise SystemExit(f"{page}: the refused write was supposed to answer at {action} and "
+                             f"the browser is at {landed}; nothing was measured")
     # One read per page. `extra` is what measure() takes for exactly this: the census keys a page
     # needs are spliced into the same object, so the number printed in the transcript, the number
     # the width refusal quotes and the number the stress guards compare are all from one render.
@@ -233,6 +281,8 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         extra += "," + LONGEST_JS
     if spec.stress:
         extra += "," + STRESS_JS
+    if spec.refuse:
+        extra += refusal_extra(action, spec.refuse.keep)
     got = cdp.measure(session, extra)
     # The viewport is a claim this function has to earn, not one its caller gets to make. `width` is
     # what was asked for; `inner` is what the browser says it laid out at. Compared here, at the
@@ -285,6 +335,11 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     # measurement to mean anything -- a question about the row the daemon was handed, not about the
     # viewport it is later rendered at. Running them on every pass would print one broken fixture
     # twice and read as two findings.
+    # After the width refusal, like the fixture guards: a page that overflows should report the
+    # overflow, which is the alarming fact. Before any write, because a photograph of a refusal
+    # that is not a refusal is the wrong evidence filed under the right filename.
+    if spec.refuse:
+        require_refusal(got, spec, page)
     if spec.stress and width == ARTIFACT_WIDTH:
         # Retyped rather than raised directly: these two state their own sentences and this adds no
         # words to them, it only records that the sentence is about the fixture. The type is what
@@ -317,6 +372,130 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
           f"innerWidth={got['inner']:>4} height={got['height']:>5} "
           f"{proof_of(got, spec)}{hard} FITS  {name}", flush=True)
+
+
+# Read after a refused write. Both keys are the photograph's proof that the refusal happened in
+# the browser and not only in this file: `refusal` is the sentence the parent is shown, and `kept`
+# is what is still in the box they typed into.
+REFUSAL_JS = ("'refusal':(document.querySelector('#refusal')||{}).innerText||'',"
+              "'kept':(function(){const f=document.querySelector('form[action=\"%s\"]');"
+              "if(!f)return null;const i=f.querySelector('[name=\"%s\"]');"
+              "return i?i.value:null})()")
+
+
+def fill_script(action, fields, checks):
+    """The JavaScript that types into the shipped form, given the action it was found under.
+
+    Two bugs lived in this string, and both were reported as something else:
+
+      * `querySelectorAll(...)[:2]` is not a slice. It is a parse error, measured against the
+        same `google-chrome --headless=new` these drivers drive (Chrome 156): the reply carries
+        `exceptionDetails.exception.description = "SyntaxError: Unexpected token ':'"`, and
+        `result` holds the error object with no `value` key in it. Nothing is undefined and no
+        `TypeError` is thrown at runtime, so the `try` below cannot see it -- what actually
+        happened was that `value()` read `["result"].get("value")`, dropped `exceptionDetails`
+        and answered `None`, and the driver printed "the form vanished" about a form that was
+        sitting right there. `Array.from(...).slice(0, n)` is the same intent in a language that
+        has it, and the parse error now reaches the `threw:` string from the other side.
+      * the whole script is one expression the browser runs verbatim, so a wrong selector here is
+        not a wrong measurement, it is a wrong page. Hence the `try`: a script that throws at
+        RUNTIME returns `threw: <message>` and the caller says which of the two failures it is. A
+        script that never parses is the same shape now, but by way of `cdp.value`, not this `try`.
+    """
+    return ("(() => { try { const f = document.querySelector('form[action=\"%s\"]'); if (!f) "
+            "return 'gone'; " % action
+            + "".join("f.querySelector('[name=\"%s\"]').value = %s; " % (k, json.dumps(v))
+                      for k, v in fields.items())
+            + "".join("Array.from(f.querySelectorAll('[name=\"%s\"]')).slice(0, %d)"
+                      ".forEach(i => i.checked = true); " % (k, n) for k, n in checks.items())
+            + "return 'filled'; } catch (e) { return 'threw: ' + e.message; } })()")
+
+
+def refusal_extra(resolved_action, keep):
+    """The two keys the refused page is measured with, read out of the form that answered.
+
+    `resolved_action` is what the probe found (`/profiles/school/rules`), never the suffix the spec
+    declares to FIND it (`/rules`). Splicing the suffix yields `form[action="/rules"]`, which
+    matches nothing: `kept` comes back null on a page that echoed the typed value correctly, and the
+    driver refuses the capture by accusing the product of the bug this branch closes. The sentence
+    check still passes, because `#refusal` is global -- which is what made the pair read like a
+    product failure instead of a selector one.
+    """
+    return "," + (REFUSAL_JS % (resolved_action, keep))
+
+
+def refusal_form(session, spec):
+    """Fill the shipped form and press its own button, returning the action it posted to.
+
+    The probe runs before anything is typed and refuses a form that cannot post. A page whose
+    button is missing, or whose CSRF field is empty, answers 422 for a reason that has nothing to
+    do with the field under test, and the photograph would be of the wrong refusal -- and would
+    look like a refusal in the transcript, because a refusal is what gets printed either way.
+    """
+    ref = spec.refuse
+    probe = ("(() => { const f = document.querySelector('form[action$=\"%s\"]');"
+             "if (!f) return JSON.stringify({missing: true});"
+             "const b = f.querySelector('button[type=submit]');"
+             "const c = f.querySelector('input[name=csrf]');"
+             "return JSON.stringify({action: f.getAttribute('action'), button: !!b,"
+             "csrf: !!(c && c.value)}); })()") % ref.action
+    found = json.loads(session.value(probe) or "{}")
+    if found.get("missing"):
+        raise SystemExit(f"{spec.url} carries no form whose action ends in {ref.action!r}, so "
+                         "there is nothing to refuse and no refusal to photograph")
+    if not found.get("button"):
+        raise SystemExit(f"the form at {found.get('action')!r} has no submit button; pressing it "
+                         "would be a script posting a form, not the shipped control")
+    if not found.get("csrf"):
+        raise SystemExit("the refusal form posts no CSRF token -- the click would be refused as a "
+                         "forged request, and the photograph would be of the wrong refusal")
+    action = found["action"]
+
+    fill = fill_script(action, ref.fields, ref.checks)
+    got = session.value(fill)
+    if got != "filled":
+        # Two different failures print the same sentence otherwise. A form that is gone and a form
+        # whose fields the driver got wrong are fixed in different files, and the second one is a
+        # bug in this driver rather than in the page.
+        if got and str(got).startswith("threw"):
+            raise SystemExit(f"{spec.url}: the refusal form at {action!r} is present but could not "
+                             f"be filled ({got}). A form that is missing says 'gone'; this is the "
+                             f"driver asking for a field that is not on the form, or setting one "
+                             f"wrong.")
+        raise SystemExit(f"{spec.url}: the refusal form at {action!r} vanished before it could be "
+                         "filled")
+    clicked = ("(() => { const f = document.querySelector('form[action=\"%s\"]');"
+               "const b = f && f.querySelector('button[type=submit]');"
+               "if (!b) return 'no button'; b.click(); return 'clicked'; })()") % action
+    if session.value(clicked) != "clicked":
+        raise SystemExit(f"{spec.url}: the button at {action!r} was never clicked, so nothing was "
+                         "refused and the photograph would be a plain GET")
+    return action
+
+
+def require_refusal(got, spec, what):
+    """Refuse a photograph that does not show what it is named for (#138).
+
+    Both halves are refusals rather than notes because the artifact IS the claim: a PNG called
+    `profiles-refused` that shows an accepted write, or a refusal that threw the typed value away
+    again, is evidence for the bug rather than against it.
+    """
+    if not (got.get("refusal") or "").strip():
+        raise SystemExit(f"{what} shows no refusal sentence, so this is a photograph of a page "
+                         "that accepted the write. The artifact the criterion wants is the refused "
+                         "one, and nothing is published either way")
+    want = spec.refuse.keep_value
+    if got.get("kept") != want:
+        raise SystemExit(f"{what} refused, but the {spec.refuse.keep!r} box holds "
+                         f"{got.get('kept')!r} instead of {want!r}: the write was refused and the "
+                         "typed value thrown away, which is the behaviour #138 closed. A sentence "
+                         "over an empty form is not the fix")
+    needle = spec.refuse.about
+    if needle and needle not in (got.get("refusal") or ""):
+        raise SystemExit(f"{what} was refused for something else -- the sentence does not say "
+                         f"{needle!r}, it says {got.get('refusal')!r}. The artifact is named for "
+                         "the refusal this page is evidence about, and a 422 about a different "
+                         "field photographs the same way")
 
 
 def proof_of(got, spec):
@@ -469,8 +648,13 @@ def main(shoot_fn=None, record_fn=None):
 # The count of rules registered below, and the reason the count is a number in the source rather
 # than `len(ran)`: a `return` inserted in the middle of self_test() leaves both lists complete for
 # whatever ran, so only a number written somewhere else can tell a full pass from a truncated one.
-# 11 from #140, plus the seven #149 adds for the second viewport.
-EXPECTED_RULES = 23
+# 11 from #140, plus the seven #149 adds for the second viewport, plus the four #138 adds for the
+# page that has to be photographed refused (the refusal itself, the click that produces it, and the
+# two measurements that read the refused page back), plus two on the review round: how a script the
+# page refused to run gets reported, and the needle that makes the refused artifact mean the refusal
+# its filename names. The two canaries are registered like every other rule and deliberately not
+# counted: they exist to prove the helper is not hollow.
+EXPECTED_RULES = 29
 
 
 class _FakeSession:
@@ -626,6 +810,25 @@ class _ShootSession:
     def write_png(self, path):
         self.log.append(("png", path))
 
+    def value(self, js):
+        """The three scripts `refusal_form` runs, answered the way a real page answers.
+
+        Each script gets its own reply rather than one canned string for all of them: the driver's
+        whole contract is that it probes the form, fills it, and then clicks it, and a session that
+        answered every script identically would let step two and step three go unrun while the rule
+        still saw a refusal-free `shoot()`. An unrecognised script fails loudly for the same
+        reason. The action is the URL this session reports, because `shoot()` pins the landing
+        against it.
+        """
+        self.log.append(("value", js[:20]))
+        if "action$=" in js:
+            return json.dumps({"action": self._where, "button": True, "csrf": True})
+        if "'filled'" in js:
+            return "filled"
+        if "'clicked'" in js:
+            return "clicked"
+        raise AssertionError("unexpected script from the refusal driver: " + js[:70])
+
 
 class _ShootCap:
     """A Capture whose session records what `shoot()` asked it to do."""
@@ -696,6 +899,97 @@ def self_test():
         (bad_to if bad_to is not None else bad).extend(problems)
 
     urls = [p.url for p in PAGES]
+
+    # Both rules below take their spec from the table rather than building one, for the reason
+    # #140 established: a rule that invented its own Page would keep passing the day somebody
+    # drops `refuse=` off PAGES, and the artifact would stop being taken while its guard stayed
+    # green.
+    refused_spec = next((p for p in PAGES if p.refuse), None)
+
+    def refusal_photograph_proves_a_refusal(problems):
+        """A page with no sentence on it is not a refusal, and its PNG is not published."""
+        if refused_spec is None:
+            problems.append("no page in PAGES carries a Refusal, so the #138 artifact is not being "
+                            "taken and the rules that police it are checking nothing")
+            return
+        keep = refused_spec.refuse.keep_value
+        base = {"inner": 360, "scroll": 300, "height": 900, "tables": 1, "cells": 4,
+                "forms": 3, "fields": 9, "longest": 12,
+                "refusal": "the clock must be written as HH:MM", "kept": keep}
+        # The control first. A guard that refused every page would pass the two arms below, and
+        # "the refused page is refused" is not a property anyone wants pinned.
+        log, refusal = _run_shoot(dict(base), ARTIFACT_WIDTH, spec=refused_spec)
+        if refusal is not None:
+            problems.append(f"a page that shows a sentence and keeps {keep!r} was refused: "
+                            f"{refusal}")
+        if not any(k == "png" for k, _ in log):
+            problems.append("the refused-write page fitted and no PNG was staged")
+        for key in ("refusal", "kept"):
+            got = dict(base)
+            got[key] = ""
+            log, refusal = _run_shoot(got, ARTIFACT_WIDTH, spec=refused_spec)
+            if refusal is None:
+                problems.append(f"{key}='' was photographed without a refusal, so a PNG named for "
+                                "a refusal would be published over a page that is not one")
+            if any(k == "png" for k, _ in log):
+                problems.append(f"{key}='' still staged bytes after refusing")
+
+    def refusal_form_is_clicked_not_reimplemented(problems):
+        """The driver fills the shipped form and presses its own button.
+
+        Three ways that click stops being a click, each of which still produces a 422 for a reason
+        unrelated to the field under test: no form, no button, no CSRF token. Two of the three look
+        like a successful refusal in the transcript, because a refusal is what gets printed either
+        way, so the driver refuses them rather than photographing whatever comes back.
+        """
+        if refused_spec is None:
+            problems.append("no page carries a Refusal, so there is no form to click")
+            return
+
+        class _Form:
+            """A session that answers each script with the reply that script would get."""
+
+            def __init__(self, probe):
+                self.probe = probe
+                self.seen = []
+
+            def value(self, js):
+                self.seen.append(js)
+                if "action$=" in js:
+                    return self.probe
+                if "'filled'" in js:
+                    return "filled"
+                if "'clicked'" in js:
+                    return "clicked"
+                raise AssertionError("unexpected script: " + js[:70])
+
+        # The control: a form that is really there gets filled, clicked, and reports the action the
+        # page carries, because that action is what `shoot()` pins the landing against.
+        good = '{"action": "/profiles/school/rules", "button": true, "csrf": true}'
+        session = _Form(good)
+        with contextlib.redirect_stdout(io.StringIO()):
+            action = refusal_form(session, refused_spec)
+        if action != "/profiles/school/rules":
+            problems.append(f"a present form reported action {action!r}, want the action on the "
+                            "page: the click has to be aimed at the form that was filled")
+        if not any("'clicked'" in js for js in session.seen):
+            problems.append("the driver never clicked a button")
+        for probe, want in (
+            ('{"missing": true}', "no form whose action ends in"),
+            ('{"action": "/profiles/school/rules", "button": false, "csrf": true}',
+             "no submit button"),
+            ('{"action": "/profiles/school/rules", "button": true, "csrf": false}',
+             "no CSRF token"),
+        ):
+            session = _Form(probe)
+            refusal = None
+            with contextlib.redirect_stdout(io.StringIO()):
+                try:
+                    refusal_form(session, refused_spec)
+                except SystemExit as exc:
+                    refusal = str(exc)
+            if refusal is None or want not in refusal:
+                problems.append(f"{probe} produced {refusal!r}, want a refusal naming {want!r}")
 
     def all_refuse(problems):
         rc, entered, err, _out, published, discarded = _run_main(refuse=urls)
@@ -1001,9 +1295,13 @@ def self_test():
                                 "not a skipped page")
         if f"untested (fixture): {victim}" not in err:
             problems.append(f"the summary counts {victim} as fitting: {err!r}")
-        if "5/5 pages fit at 1024 px" in err:
-            problems.append(f"the summary still certifies all five at {DESKTOP_WIDTH} px: {err!r}")
-        if f"4/5 pages fit at {DESKTOP_WIDTH} px" not in err:
+        # Written from len(PAGES) rather than from the numbers this rule was first written against:
+        # a hardcoded 5/5 silently stops being a claim the day a sixth page joins PAGES, and this is
+        # the rule whose whole job is to notice a count that means less than it looks like.
+        if f"{len(PAGES)}/{len(PAGES)} pages fit at {DESKTOP_WIDTH} px" in err:
+            problems.append(f"the summary still certifies every page at {DESKTOP_WIDTH} px: "
+                            f"{err!r}")
+        if f"{len(PAGES) - 1}/{len(PAGES)} pages fit at {DESKTOP_WIDTH} px" not in err:
             problems.append(f"the desktop line does not count {victim} out: {err!r}")
         # The artifact pass keeps its own verdict: refused, not merely untested.
         if f"refused: {victim}" not in err:
@@ -1036,8 +1334,8 @@ def self_test():
         rc, _e, err, out, published, _d = _run_main()
         if "untested" in out + err:
             problems.append(f"a clean run reported something untested: {out!r} {err!r}")
-        if "5/5 pages fit" not in out or rc != 0 or not published:
-            problems.append(f"the control run stopped counting all five: rc={rc!r} {out!r}")
+        if f"{len(PAGES)}/{len(PAGES)} pages fit" not in out or rc != 0 or not published:
+            problems.append(f"the control run stopped counting every page: rc={rc!r} {out!r}")
 
     def an_untested_page_is_not_a_refusal_at_the_other_viewport(problems):
         """The two buckets stay two. Folding them together is the tempting simplification.
@@ -1082,7 +1380,125 @@ def self_test():
             problems.append("the artifact pass accepted a page with no seeded stress row: "
                             f"{refusal!r}")
 
-    rule("a refusal on every page still measures all five", all_refuse)
+    def kept_box_read_from_the_form_that_posted(problems):
+        """The kept-value selector names the form that answered, not the suffix that found it.
+
+        Measured on the real page: splicing the declared suffix asks the browser for
+        `form[action="/rules"]`, which is no form at all, so `kept` comes back null on a page whose
+        box still held the typed value -- and `require_refusal` then refuses the capture for
+        discarding a value the product had just put back. The sentence half of the same measurement
+        passes either way, because `#refusal` is global, which is what made the pair read like a
+        product failure rather than a selector one.
+        """
+        if refused_spec is None:
+            problems.append("no page carries a Refusal, so there is no kept box to read")
+            return
+        resolved = "/profiles/school/rules"
+        splice = refusal_extra(resolved, "end")
+        if 'form[action="%s"]' % resolved not in splice:
+            problems.append("the kept-value selector does not name the form that posted, so it "
+                            "reads a box that is not on the page")
+        control = "," + (REFUSAL_JS % (refused_spec.refuse.action, refused_spec.refuse.keep))
+        if control == splice:
+            problems.append("nothing distinguishes the declared suffix from the resolved action, "
+                            "so this rule cannot tell the two splices apart")
+        if 'form[action="%s"]' % resolved in control:
+            problems.append("the control is not a control: the declared suffix already resolves to "
+                            "the posted form")
+
+    def fill_script_slices_no_node_list(problems):
+        """`NodeList` is not an array and does not slice, so the checkbox fill has to copy it.
+
+        The script is handed to the browser verbatim, which makes this string the behaviour rather
+        than a proxy for it. The failure it pins is a misdiagnosis rather than a crash: the bad
+        parse was reported to the operator as "the refusal form vanished", about a form that was
+        there, because the CDP error field was dropped before anyone could read it.
+
+        Honest about its own reach: without a browser this can only be a text pin, so it cannot see
+        the fill hollowed out in place. `.forEach(i => i.checked = true)` becoming
+        `.forEach(i => i.value = true)` keeps every substring checked here and ticks nothing; the
+        sentence needle in `Refusal.about` is what turns that hollowing red on a real run.
+        """
+        script = fill_script("/profiles/school/rules", {"end": "25:99"}, {"days": 2})
+        if "querySelectorAll('[name=\"days\"]')[:2]" in script:
+            problems.append("the fill script slices a NodeList, which is undefined in a browser")
+        if "Array.from(f.querySelectorAll('[name=\"days\"]')).slice(0, 2)" not in script:
+            problems.append("the checkbox fill no longer copies the NodeList before slicing it, so "
+                            "it throws and the driver blames the page")
+        if "catch" not in script:
+            problems.append("the fill script has no catch, so a script that throws is reported to "
+                            "the operator as a form that is missing")
+
+    def a_script_that_never_parsed_is_not_a_vanished_form(problems):
+        """A script with a syntax error never runs, so the `try` written inside it cannot report it.
+
+        Driven, not text-pinned: the first version of this rule grepped cdp.py for the word
+        `exceptionDetails`, and stayed green with the code that reads it deleted, because the word
+        is in the docstring above that code. So the real `Session.value` is called here with the
+        two replies Chrome actually sends -- the one carrying a parse error, and a normal one --
+        and what it returns is what gets asserted. Dropping the field is what turned a bad fill
+        script into "the refusal form vanished", and the misreport cost more time than the bug.
+        """
+
+        def evaluate(reply):
+            class _Transport:
+                def call(self, method, **params):
+                    return reply
+
+            _Transport.value = cdp.Session.value
+            return _Transport().value("document.querySelectorAll('x')[:2]")
+
+        thrown = evaluate({"exceptionDetails": {
+            "text": "Uncaught", "lineNumber": 0, "columnNumber": 43,
+            "exception": {"type": "object", "subtype": "error", "className": "SyntaxError",
+                          "description": "SyntaxError: Unexpected token ':'"}},
+            "result": {"type": "object", "subtype": "error",
+                       "className": "SyntaxError"}})
+        if not (isinstance(thrown, str) and thrown.startswith("threw")):
+            problems.append(f"a script the page refused to run answered {thrown!r}; the callers "
+                            'test startswith("threw"), so anything else is read as a form that '
+                            "is not there")
+        elif "SyntaxError" not in thrown:
+            problems.append("a refused script is reported as a shape rather than a reason: the "
+                            f"reply was {thrown!r}, with no SyntaxError in it")
+        if evaluate({"result": {"type": "string", "value": "filled"}}) != "filled":
+            problems.append("a script that ran no longer hands back its value, so every caller "
+                            "that compares against a string fails on a page that worked")
+
+    def the_refused_artifact_is_refused_about_its_own_refusal(problems):
+        """A 422 about the wrong field photographs exactly like a 422 about the right one.
+
+        Behavioural rather than a text pin, because `require_refusal` is pure and can be driven
+        here. The hole is a fill that silently ticks nothing: the route then refuses the days, the
+        echo still puts `25:99` back because it is the same closure, and both measurements the
+        driver already makes pass on a photograph of a different bug than the filename claims.
+        """
+        if refused_spec is None:
+            problems.append("no page carries a Refusal, so no artifact is named for a refusal")
+            return
+        needle = refused_spec.refuse.about
+        if not needle:
+            problems.append("the refused artifact declares no needle, so any 422 on this page "
+                            "publishes a photograph named for the clock")
+            return
+        clock = {"refusal": '"25:99" is not HH:MM on a 24-hour clock', "kept": "25:99"}
+        other = {"refusal": "pick at least one day for the window", "kept": "25:99"}
+        if needle in other["refusal"]:
+            problems.append("the control sentence already contains the needle, so this rule "
+                            "cannot tell a clock refusal from any other")
+            return
+        for got, want_refused in ((clock, False), (other, True)):
+            try:
+                require_refusal(dict(got), refused_spec, "profiles-refused")
+                said = None
+            except SystemExit as exc:
+                said = str(exc)
+            if (said is not None) != want_refused:
+                problems.append(f"require_refusal {'refused' if said else 'accepted'} "
+                                f"{got['refusal']!r}; the needle {needle!r} is the only thing that "
+                                "makes the filename mean the refusal it is named for")
+
+    rule("a refusal on every page still measures every page", all_refuse)
     rule("one refusal names it and counts the rest", one_refuses)
     rule("a clean run publishes and exits 0", none_refuses)
     rule("a crash in shoot is a refusal, not an abort", crash_is_a_refusal)
@@ -1104,6 +1520,15 @@ def self_test():
     rule("a fixture refusal carries to the other viewport", fixture_refusal_is_carried_to_the_other_pass)
     rule("an untested page is not a refusal at the other viewport",
          an_untested_page_is_not_a_refusal_at_the_other_viewport)
+    rule("a photographed refusal has to be a refusal", refusal_photograph_proves_a_refusal)
+    rule("the refusal is produced by clicking the shipped form",
+         refusal_form_is_clicked_not_reimplemented)
+    rule("the kept box is read out of the form that posted", kept_box_read_from_the_form_that_posted)
+    rule("the fill script slices a NodeList like an array", fill_script_slices_no_node_list)
+    rule("a script that never parsed is not a vanished form",
+         a_script_that_never_parsed_is_not_a_vanished_form)
+    rule("the refused artifact is refused about its own refusal",
+         the_refused_artifact_is_refused_about_its_own_refusal)
 
     def manifest_accompanies_the_artifacts(problems):
         # The manifest is the only thing that ties a committed PNG to the page it depicts (#144).
