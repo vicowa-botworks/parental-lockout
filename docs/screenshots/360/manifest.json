@@ -1,11 +1,11 @@
 {
-  "captured_at": "2026-10-27T21:22:01Z",
-  "head": "151941656ce25b76f66fee1847bbe590f424935b",
+  "captured_at": "2026-10-28T01:55:37Z",
+  "head": "a889d0d8bcb5b4afd2febdd5b81df1ba34c3d0a8",
   "pages": [
     {
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "0b2adba88cb6c25a0466d43ad19f48201d1dfae62d2a5b8cfdcaf26ca83cd2c8",
+      "png_sha256": "beb20adf71501508f500a2b3e1b0fccc01197680622c9d67e3d6e0d18f06a596",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
@@ -17,7 +17,7 @@
     {
       "page": "/",
       "png": "dashboard.png",
-      "png_sha256": "b6b106b7ca5dde5b9308d93aae3e10e15fd39a9d803979f010be7a0df1f89f01",
+      "png_sha256": "cee0c5766d3cb7b224aa4bbe567023c3d7d6737821c2c7b439f126ad36d8559b",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",
@@ -48,7 +48,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "151941656ce25b76f66fee1847bbe590f424935b"
+      "sources_rev": "0a42139d1e35b49365bfda72ea7e48a7d3f9f53c"
     },
     {
       "page": "/profiles",
@@ -60,7 +60,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "151941656ce25b76f66fee1847bbe590f424935b"
+      "sources_rev": "0a42139d1e35b49365bfda72ea7e48a7d3f9f53c"
     },
     {
       "page": "/settings",
