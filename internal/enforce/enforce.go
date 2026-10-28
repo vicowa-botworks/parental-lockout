@@ -95,6 +95,36 @@ const (
 	// and the daemon still re-arms every tick. Only the audit line deduplicates.
 	KindLockUnconfirmed = "lock.unconfirmed"
 
+	// KindLockReleased is an observed transition: a session that reported itself
+	// LOCKED on one poll reports itself unlocked on the next, inside a window whose
+	// lock had been confirmed. The screen came off between two ticks.
+	//
+	// It exists because the containment for #177 is invisible without it. The session
+	// bus exports org.gnome.ScreenSaver.SetActive, served by a process running as the
+	// controlled user's own uid, and #177 measured SetActive(false) dismissing a
+	// password-gated lock shield with no password at all (the wrong password is
+	// rejected; the right one unlocks; SetActive(false) needs neither). The loop
+	// already absorbs that, because it re-asserts every tick whatever the session says
+	// about itself (#29), so the child gets at most one poll of the desktop. But an
+	// absorbed attack and a quiet night then write the same line — lock.asserted,
+	// every 30 seconds, forever. The parent's question is not "is it locked now", it is
+	// "is someone fighting it", and only a count answers that.
+	//
+	// Cadence: once per observed transition. This is NOT the flood KindLockUnconfirmed
+	// deduplicates. That one fires on every poll of a perfectly healthy GNOME machine,
+	// because the machine can never corroborate its own lock; this one needs someone
+	// to actually take the screen off, so the worst case is one line per poll and only
+	// while someone is genuinely fighting the loop — which is the case an operator most
+	// wants to see, and the running count in the detail says how long it has been
+	// going. A screen left unlocked is reported once, not every poll: the transition is
+	// consumed, and the next line needs the hint to go up and come down again.
+	//
+	// It never gates anything. The release is inferred from LockedHint, which the
+	// child owns (#29), so it is evidence of tampering and nothing else: the tick
+	// calls platform.Lock whether or not this fires. Refusing to lock on the strength
+	// of a release would be the exact fail-open #29 killed.
+	KindLockReleased = "lock.released"
+
 	// KindConfigStale is emitted on every tick that runs on a previously loaded
 	// document because the file could not be read. Repeated by design: a parent
 	// editing the schedule needs to know their edit did not land.
@@ -312,6 +342,24 @@ type sessionState struct {
 	// Report.Errors still carries the fault every tick, so the live verdict is unchanged.
 	// What dedupes is the audit file.
 	unconfirmedReported bool
+
+	// confirmedAndSeenLocked is true once this lockout has both CONFIRMED a lock and
+	// seen the session report itself locked. It is what makes a release reportable:
+	// the release rule needs an observed transition from locked to unlocked, not the
+	// absence of a locked report.
+	//
+	// The distinction is the whole difference between a tamper alarm and a false one.
+	// A confirmation does not require the hint — the locker-identity corroborator
+	// proves the lock without it — so on a desktop that never writes LockedHint a
+	// level test ("it says unlocked") would fire on every poll of a perfectly healthy
+	// machine, which is the alarm-on-a-quiet-box failure #35 exists to prevent. A
+	// session that never said locked has no evidence of a release, and says nothing.
+	confirmedAndSeenLocked bool
+
+	// releases counts the KindLockReleased lines this lockout has produced, so the
+	// detail can say how many times the screen came back unlocked and not merely that
+	// it did once. Cleared with the rest of the lockout's bookkeeping.
+	releases int
 
 	// profileErrs is the schedule complaint set this session was last reported with,
 	// so KindScheduleDegraded fires when the set changes rather than every tick. The
@@ -878,6 +926,29 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 	// locked, which #6 measured to be idempotent: a repaint. The cost of being wrong
 	// in the other direction is the product.
 	hinted := s.Locked
+
+	// An observed transition: this session reported itself LOCKED on the previous
+	// poll, having had a lock confirmed, and it now reports itself unlocked. Something
+	// between the two polls took the screen off. On GNOME one SetActive(false) call
+	// from the child's own session bus does exactly that (#177), and SetLockedHint is
+	// writable the same way (#29), so the expected author of this line is the child.
+	//
+	// Reported, then locked again. The re-assert below is the containment and it is
+	// not conditional on anything here: this decides what the trail says, never
+	// whether the screen goes back on.
+	rel := e.ensure(s.ID)
+	if rel.confirmedAndSeenLocked && !hinted {
+		rel.releases++
+		e.emit(rep, Event{At: now, Kind: KindLockReleased, Username: s.Username,
+			SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
+			Detail: releasedDetail(rel.releases)})
+		// The transition is consumed. Until a confirmed poll sees the screen locked
+		// again there is no NEXT transition to report, so a child who unlocks once and
+		// walks away writes one line, and one who unlocks every poll writes one line
+		// per poll.
+		rel.confirmedAndSeenLocked = false
+	}
+
 	err := e.Platform.Lock(ctx, s)
 	if err != nil && ctx.Err() != nil {
 		// The machine is going down, and this is not a lock outcome.
@@ -907,7 +978,16 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 		// transition and gets its line again. Without this the alarm would fire once
 		// per process rather than once per episode, and an episode that starts hours
 		// after a healthy stretch is exactly the one worth reading.
-		e.ensure(s.ID).unconfirmedReported = false
+		//
+		// confirmedAndSeenLocked is the other half of the same idea: it records that
+		// this lock is both confirmed and VISIBLE in the hint, which is what lets the
+		// next tick notice the hint going away. The confirmation alone is not enough
+		// and the hint alone is not ours to believe.
+		st := e.ensure(s.ID)
+		st.unconfirmedReported = false
+		if hinted {
+			st.confirmedAndSeenLocked = true
+		}
 
 	case errors.Is(err, platform.ErrUnconfirmed):
 		// The request reached a backend; nobody could prove the screen locked.
@@ -915,6 +995,11 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 		// so, because this is the one outcome where the child may still be at the
 		// desktop.
 		st := e.markEnforcing(rep, s, now, ruleID, ruleName, "lock requested but not confirmed")
+		// confirmedAndSeenLocked is deliberately NOT cleared here. "Could not
+		// corroborate this poll" is not "the screen came off", and a session that has
+		// already shown us the hint go up is still worth believing when the hint later
+		// goes down — especially on a GNOME-only configuration, which corroborates on
+		// the tick the hint moves and almost never again afterwards (#35).
 		rep.Errors = append(rep.Errors, fmt.Errorf("lock %s: %w", s.Describe(), err))
 
 		// A raw virtual terminal is a different statement from "unconfirmed
@@ -950,6 +1035,11 @@ func (e *Engine) tickSession(ctx context.Context, cfg *config.Config, s platform
 	default:
 		// Nothing reached the desktop. Keep the state as it was: if we were
 		// enforcing, we still believe we should be, and the next tick tries again.
+		//
+		// confirmedAndSeenLocked is deliberately left alone for the same reason. A
+		// failed call is the absence of information, not evidence the screen came off:
+		// the lock we confirmed last tick is very likely still up. Clearing it here
+		// would hide a real dismissal behind a gdbus blip.
 		rep.Errors = append(rep.Errors, fmt.Errorf("lock %s: %w", s.Describe(), err))
 		e.emit(rep, Event{At: now, Kind: KindPlatformError, Username: s.Username,
 			SessionID: s.ID, RuleID: ruleID, RuleName: ruleName,
@@ -990,6 +1080,21 @@ func unconfirmedDetail(hinted bool) string {
 		return "a backend accepted the lock and the session already claimed to be locked; neither proves the screen is locked"
 	}
 	return "a backend accepted the lock; nothing confirmed the screen locked"
+}
+
+// releasedDetail words a lock.released line. The count is the payload: a parent
+// deciding whether to act needs to know this is the third time tonight or the
+// thirtieth, and the audit file is the only place that knows.
+//
+// Both readings are named because the trail cannot tell them apart: the signal this
+// is inferred from is one the session user can write, so "the screen came off" and
+// "someone wrote the hint" are the same line here. What they have in common is that
+// neither happens on a machine nobody is touching.
+func releasedDetail(n int) string {
+	if n == 1 {
+		return "the session reported the screen locked on one poll and unlocked on the next, after a confirmed lock; locked again now. Only the session user can write that signal, so this is either the screen coming off or someone writing the hint, and neither happens on a machine nobody is touching"
+	}
+	return fmt.Sprintf("the screen has come back unlocked %d times since this lockout began, each time after a confirmed lock; locked again now. Only the session user can write the signal this is inferred from, so this is either someone dismissing the lock or someone writing the hint, and neither happens on a machine nobody is touching", n)
 }
 
 // canNeverConfirm reports whether a session is one no backend will ever be able to
@@ -1095,6 +1200,19 @@ func (e *Engine) release(rep *Report, s platform.Session, now time.Time, detail 
 		}
 		st.enforcing = false
 		st.ruleID, st.ruleName = "", ""
+		// The release bookkeeping is per-lockout too. A child who dismissed the lock
+		// all of last night must not leave the daemon still believing a lock was
+		// confirmed when tonight's window opens, or tonight's first tick would read as
+		// a dismissal of yesterday's lock.
+		//
+		// No mutant covers this pair, and the reason is F6's: the delete below drops
+		// the whole entry unless an override is holding, and an override that is holding
+		// means no lock has been attempted since it was granted -- which is the only way
+		// to set either field. So no input reaches the next lockout with the entry kept
+		// and the flag set. It stays as insurance against a change to that delete's
+		// condition; the path that can leak is the override one, and F44 owns it.
+		st.confirmedAndSeenLocked = false
+		st.releases = 0
 		// Per-lockout bookkeeping starts again the next time this session is inside a
 		// window. Leaving unenforceableReported set would mean a child who was
 		// unenforceable last night is never escalated again, because the flag says
@@ -1136,6 +1254,13 @@ func (e *Engine) releaseState(id string) {
 		st.enforcing = false
 		st.ruleID, st.ruleName = "", ""
 		st.unenforceableReported = false
+		st.confirmedAndSeenLocked = false
+		st.releases = 0
+		// Same reason as the exit path, and sharper here: an override means the child
+		// is handed their desktop back on purpose. If confirmedAndSeenLocked survived
+		// the exemption, the tick after the override expires would report the parent's
+		// own grant as the child dismissing a lock. This is the one release path where
+		// the entry survives, so it is the one place that bookkeeping can leak.
 		// The only reset of unconfirmedReported besides the clear-on-confirm at the top of
 		// the lock path. It is load-bearing: this is the one place the state entry survives
 		// a release, so it is the only place "already told you" can be carried into the next

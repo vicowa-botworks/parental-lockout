@@ -1,11 +1,11 @@
 {
-  "captured_at": "2026-10-28T01:55:37Z",
-  "head": "a889d0d8bcb5b4afd2febdd5b81df1ba34c3d0a8",
+  "captured_at": "2026-10-28T15:39:44Z",
+  "head": "60f0dc047a0af66e19029dd9d3a4b7956b46303a",
   "pages": [
     {
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "beb20adf71501508f500a2b3e1b0fccc01197680622c9d67e3d6e0d18f06a596",
+      "png_sha256": "717ee09510d3cfc9777774ffeac48ecb8d5fd9ca48f233c273f572769bcec8b6",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
@@ -17,7 +17,7 @@
     {
       "page": "/",
       "png": "dashboard.png",
-      "png_sha256": "cee0c5766d3cb7b224aa4bbe567023c3d7d6737821c2c7b439f126ad36d8559b",
+      "png_sha256": "b6b106b7ca5dde5b9308d93aae3e10e15fd39a9d803979f010be7a0df1f89f01",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",

@@ -34,6 +34,7 @@ from what it excludes. The child is:
 |---|---|
 | Files and directories they own | symlinks, FIFOs, and planted binaries can appear on paths the daemon reads or execs |
 | Their own session's logind properties | `SetLockedHint` is authorized by uid alone, so the lock state the daemon reads is **writable by the child** |
+| Their own session's screensaver interface | `org.gnome.ScreenSaver.SetActive` is served by a process running at their uid, and #177 measured it dismissing a password-gated lock with no password at all |
 | Their own account's environment | `$PATH`, locale, and anything else inherited by a process they start |
 | The process table | they can start and stop processes, including ones that *look* like the screensaver locker |
 | The wall clock, within their session | not directly — the daemon reads the system clock — but timezone and DST behaviour are theirs to influence through config if config were writable, which it is not |
@@ -248,6 +249,10 @@ alone. **The lock state the daemon reads is a value the adversary can write.**
 | A chain with no backends refuses loudly | `TestChainWithNoBackendsRefusesLoudly` |
 | The premise of this whole section — that `SetLockedHint` is authorized by uid alone — still holds on the target host | `testing/e2e/forge-hint.sh`, unprivileged mode: flips your own session's hint, reads it back, shows no locker running while it says "locked", restores it. Re-run from a clone, not from memory; the development host was measured 2026-10-18 (`no` → `yes` → restored, uid 1000, no polkit prompt). Its root mode checks the other half: that the loop keeps asserting while the hint lies. |
 | A cancelled context is a shutdown, not a lock outcome | enforce suite |
+| A lock that comes back between polls is reported, and never as a reason to stop locking | `TestAConfirmedLockThatComesBackIsReportedOnce`, `TestReportingAReleaseNeverChangesWhetherTheLockIsAsserted` (`lock.released`; mutants F40–F43) |
+| The release is an observed transition, not a level, so a locker that corroborates without ever writing `LockedHint` is not accused every poll | `TestAReleaseIsNeverReportedForASessionThatNeverReportedLocked` (F41), `TestAConfirmedLockThatComesBackIsReportedOnce` (F42, the flag must be consumed) |
+| The parent's own override is never written up as the child dismissing a lock | `TestAnOverrideDoesNotReportTheParentsOwnGrantAsADismissal` (F44), `TestANewLockoutDoesNotReportLastNightsLockAsADismissal` |
+| **Measured 2026-10-28, GNOME 50.1 in a VM:** `org.gnome.ScreenSaver.SetActive(false)` dismisses a password-gated lock shield with no password, from the child's own session bus | The wrong password is rejected and the right one unlocks, so the shield is a working lock; `SetActive(false)` needs neither. `SetActive(true)` locks, and `GetActive` then reads `true` while logind's `LockedHint` reads `yes` — both signals the child owns. Nothing in user space closes this on GNOME: the method is served by `gsd-screensaver` at the child's uid. **It does not carry to Plasma** — measured the same day in a KDE guest (#179), Plasma 6 refuses the unlock direction (`SetActive(false)` returns and changes nothing; only the password clears the locker) while honouring the lock direction (`SetActive(true)` raises the real locker from a proven-unlocked desktop). The containment is that the loop re-asserts every poll, and `lock.released` is what makes the fight visible. Recipes and screenshots: issues #177 and #179. |
 
 ---
 
@@ -312,7 +317,8 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 | **A raw VT session** | Deliberately kept lockable even though it can never be confirmed. Refusing `Type == "tty"` would make `Sessions()` report nobody, the loop find nothing to do, and the machine go quiet while the child keeps typing — the same outcome for the child, minus the signal. The loud permanent `ErrUnconfirmed` is the safe failure. |
 | **Application or website filtering** | Out of scope by design. |
 | **The child reading the audit trail** | They cannot — §3. The operator can: `internal/audit` has a reader that follows rotation, but no command exposes it yet, so today the trail is read with `tail` and `jq` over a root-owned file. |
-| **GNOME corroboration of a lock** | No second signal has been measured on GNOME hardware. A GNOME-only config therefore reports `lock.unconfirmed` on transitions. Issue #35. |
+| **Dismissing the lock from inside the session** | `org.gnome.ScreenSaver.SetActive(false)` clears a password-gated lock with no password, served at the child's own uid (#177). Measured on Plasma 6 this does **not** work — the compositor refuses it (#179) — so the row is about GNOME, and the child's route out of a Plasma lock is typing their own password. User space cannot close this: the method, the bus and the process all belong to the account being locked out, and the only thing above it is root — which is the adversary this document does not defend against. What is done instead is containment plus evidence: the loop re-asserts every poll, so the exposure is one poll interval, and `lock.released` says it happened and how often. A parent who needs the window closed entirely needs a different mechanism (no session, no display server), not a different signal. |
+| **GNOME corroboration of a lock** | Measured now, on GNOME 50.1 in a VM (issue #177, closing the measurement half of #35): `GetActive` answers `false` on an unlocked desktop, so unlike ksmserver's same-named method it does mean something — but it is served by `gsd-screensaver` at the child's uid and `SetActive` is exported to them, so wiring it in would corroborate nothing a forged `LockedHint` does not already fail to prove. A GNOME-only config therefore reports `lock.unconfirmed` on transitions and keeps re-asserting. The remaining half of #35 is a second signal that is *not* served by the child's own bus, and there is no such thing on GNOME today. |
 | **A child sharing an account with the admin, when the daemon was started from that desktop** | The daemon declines to lock its own login session, because locking it removes the only way to stop the daemon. This never applies to the supported deployment — a systemd system unit lives under `system.slice` and shares no slice with any user, so the rule is inert and every account is enforced. Where it does fire, `plock serve` says so on stderr at startup, the trail carries one `lock.unenforceable` line naming `deploy/plock.service` as the fix, and `plock status` marks the affected session `declinedByDaemon` instead of leaving it to look like a failing backend (§4). |
 | **A non-Linux build** | The guards fail closed — `ownerIsWriter` and `fileUID` return `errOwnershipUnsupported` and the writer refuses — but the *race* protection is lost: without `O_NOFOLLOW` a path can still be swapped between check and open. v0.1 ships Linux only. |
 | **A malicious package or supply chain** | There are zero third-party modules, which is the whole mitigation available (`scripts/check-deps.sh`). |
@@ -320,7 +326,18 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 
 ## 9. Residual risk, honestly ranked
 
-1. **The e2e step has no transcript in a PR.** `docs/PLAN.md` §13 asks for a run against a real KDE
+1. **A child can hold the desktop for one poll interval at a time, on purpose — on GNOME.**
+   `org.gnome.ScreenSaver.SetActive(false)` clears a password-gated lock shield with no
+   password (#177, measured on GNOME 50.1 in a VM), and the method is served by
+   `gsd-screensaver` running at the child's own uid — so there is no signal above it that
+   user space could check. Plasma 6 refuses the same call (#179, measured in a KDE guest),
+   which makes this the desktop-specific risk it was assumed to be universal; on Plasma the
+   child's route out is their own password, which is a different problem and a slower one. The loop re-asserts every poll, which bounds each dismissal to
+   the poll interval, and `lock.released` records that it happened and how many times;
+   neither closes the gap, and nothing in this document should be read as claiming
+   otherwise. A parent who needs the window shut completely has to remove the session, not
+   out-ask it.
+2. **The e2e step has no transcript in a PR.** `docs/PLAN.md` §13 asks for a run against a real KDE
    session with the transcript in the PR. One run happened, on the development host, on 2026-10-15:
    the screen locked, was confirmed on both signals, re-locked 10 s after a manual unlock, and left
    three audit lines behind. It counts for less than nothing here, because the harness that produced
@@ -329,11 +346,11 @@ Listed because an unlisted gap is indistinguishable from an oversight.
    `testing/e2e/e2e.sh` and the run has to be repeated from it, with the transcript pasted into a
    PR, before this item comes off the list. Nothing in this document substitutes for that run: every
    claim above is a unit test, and unit tests here run against fixtures for the bus and `/proc`.
-2. **The Plasma premise is unmeasured.** `docs/PLAN.md` §7 records that Plasma "historically"
+3. **The Plasma premise is unmeasured.** `docs/PLAN.md` §7 records that Plasma "historically"
    ignores logind's `Lock` signal. The chain's shape does not depend on which way that turns out,
    but the *operator experience* does: if Plasma honours it, the chain confirms on logind and the
    desktop backend is a no-op; if it does not, the desktop backend is load-bearing.
-3. **`gdbus` and `loginctl` are resolved from the daemon's `$PATH`.** A child who can write a
+4. **`gdbus` and `loginctl` are resolved from the daemon's `$PATH`.** A child who can write a
    directory on that PATH can answer the lock call themselves. Root's `PATH` normally contains
    nothing world-writable, so this is a host assumption rather than a hole. It is *not* the child's
    environment doing the resolving: `exec.CommandContext` calls `LookPath` when it is constructed,
@@ -341,7 +358,7 @@ Listed because an unlisted gap is indistinguishable from an oversight.
    copies of one tool, `cmd.Path` is the daemon's copy and the daemon's copy runs. The exposure is
    the daemon's own PATH, which is why it applies identically to `loginctl` and why resolving the
    name in advance closes nothing.
-4. **The audit trail proves the daemon acted, not that the screen locked.** That distinction is the
+5. **The audit trail proves the daemon acted, not that the screen locked.** That distinction is the
    whole content of §5, and it survives every defense there: on a backend that cannot corroborate,
    the honest answer is "unconfirmed", and the trail says so.
 

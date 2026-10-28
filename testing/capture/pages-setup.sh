@@ -101,6 +101,11 @@ with open(sys.argv[2]) as fh:
 rows = [
     ("lock.asserted", "casey", "2", "r-allday", "All weekend, every hour",
      "re-asserted although the session reported itself locked; that report is not evidence the screen is locked", ""),
+    # #177: the row a parent most needs to recognise, and the longest sentence the engine
+    # writes. Seeded with the counted arm rather than the first-release arm because the two
+    # are different strings and this is the one that says how often it has happened.
+    ("lock.released", "casey", "2", "r-curfew", "Weeknight curfew including the weekend",
+     "the screen has come back unlocked 2 times since this lockout began, each time after a confirmed lock; locked again now. Only the session user can write the signal this is inferred from, so this is either someone dismissing the lock or someone writing the hint, and neither happens on a machine nobody is touching", ""),
     ("lock.unconfirmed", "casey", "2", "r-curfew", "Weeknight curfew including the weekend",
      "a backend accepted the lock; nothing confirmed the screen locked", ""),
     ("lockout.entered", "casey", "2", "r-allday", "All weekend, every hour", "", ""),

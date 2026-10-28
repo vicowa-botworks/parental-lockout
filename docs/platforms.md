@@ -104,14 +104,19 @@ as proof that a child was actually locked out.
 > **Does locking via `org.freedesktop.ScreenSaver.Lock()` cause the desktop to write
 > `LockedHint=true`?**
 
-This has not been answered, because answering it means locking a live desktop and this box
-has a person working at it. It is the first thing to check on any new machine, and the
-expected answer is stated so that a wrong one is obvious:
+**Answered on 2026-10-28, in a KDE guest: yes.** Ubuntu 26.04, `plasma-desktop 4:6.6.6`,
+sddm autologin of a second user on seat0, Wayland session. `org.freedesktop.ScreenSaver.Lock`
+at `/ScreenSaver` on `org.kde.screensaver` — the daemon's own route, exactly as
+`internal/platform/desktop.go` calls it — brought up the real Plasma locker, `LockedHint`
+went `yes` and `GetActive` read `(true,)`, and the password cleared it. Rig, recipe and
+screenshots: `/home/rodney/vm/kde179`, `s4-lock.sh`.
 
-**Expected: yes.** `ksmserver` calls `SetLockedHint(true)` on its own logind session when
-the locker starts. If it does not, a KDE lock can never be confirmed, and `Chain.Lock`
-will call **every** backend on **every** poll and finish with `ErrUnconfirmed` — the screen
-gets locked, the daemon reports it did not, and the audit log is wrong.
+It is still the first thing to check on any new machine, because a `no` fails silently:
+something in the session calls `SetLockedHint(true)` when the locker starts (on this build
+that is the compositor, not ksmserver — see the corroboration section below), and if nothing
+does, a KDE lock can never be confirmed and `Chain.Lock` will call **every** backend on
+**every** poll and finish with `ErrUnconfirmed` — the screen gets locked, the daemon reports
+it did not, and the audit log is wrong.
 
 Recipe:
 
@@ -291,16 +296,57 @@ answer for the duration of one `Chain.Lock` is the obvious next step and is file
 follow-up rather than done here, because a cache of a security answer needs its own
 reasoning about staleness.
 
-**GNOME is not covered, deliberately.** GNOME draws its lock screen inside `gnome-shell`,
-so there is no separate locker to find. The candidate signal is
-`org.gnome.ScreenSaver.GetActive`, and it has **not** been measured on this box — the KDE
-spelling of that call answers `(true,)` on an unlocked desktop (§3), so assuming the GNOME
-one means "locked" would build a rubber stamp and hand the corroborator back to the
-attacker. The GNOME backend therefore reports itself uncorroborated, `Probe` says so in
-words, and the consequence is stated: on a GNOME-only configuration a lock is confirmed on
-the tick that changes the hint and reported unconfirmed on every tick after it. That is
-worse news for GNOME operators than for KDE ones and it is the honest reading of #29, not
-an oversight.
+**GNOME is not corroborating, and now that is a measurement rather than a guess.** GNOME
+draws its lock screen inside `gnome-shell`, so there is no separate locker to find. The
+candidate signal is `org.gnome.ScreenSaver.GetActive`, measured on 2026-10-28 on GNOME
+50.1 in a throwaway VM (`/home/rodney/vm/gnome35`, recipe in issue #177):
+
+- `GetActive` answers `(false,)` on an unlocked desktop. So unlike the KDE spelling of the
+  same-named call, which answers `(true,)` unlocked (§3), the GNOME one does mean something.
+- It is not usable as a corroborator. The bus name is owned by `gsd-screensaver` **running
+  as the logged-in child's own uid**, and the same interface exports `SetActive(b)` to that
+  bus. A signal the controlled user can write cannot corroborate a lock (#29), whatever it
+  reads while nobody is touching it.
+- `SetActive(false)` from the child's own session bus dismisses the lock shield with **no
+  password**. The shield is a real lock — the wrong password is rejected and the right one
+  unlocks — so this is not a screen that was never locked. `SetActive(true)` locks, and
+  `GetActive` then reads `true` while logind's `LockedHint` reads `yes`: both of the
+  signals the daemon has are inside the child's reach.
+- It is not a GNOME quirk. The Plasma host exports the same method on the same-named
+  interface, on the user's own bus:
+
+  ```
+  $ busctl --user introspect org.freedesktop.ScreenSaver /org/freedesktop/ScreenSaver
+  org.freedesktop.ScreenSaver  interface - - -
+  .SetActive    method  b  b  -
+  ```
+
+  Measured on 2026-10-28 in a KDE guest (`/home/rodney/vm/kde179`, #179), and the answer is
+  an asymmetry rather than the symmetry this section assumed: **Plasma 6 honours
+  `SetActive(true)` and refuses `SetActive(false)`.** From a desktop whose unlocked state was
+  established first — password in, `GetActive` `(false,)`, `LockedHint` `no` — the child's
+  `SetActive(true)` raised the real Plasma locker and both signals read locked; `SetActive(false)`
+  then returned `(false,)` and changed nothing, and only the password cleared it. So the #177
+  bypass is `gsd-screensaver`-specific, not a property of the interface. What *is* true on both
+  desktops is the other direction: the child can raise a lock the daemon never asked for, and
+  no signal available to the daemon distinguishes it from a real one.
+
+  The same measurement moved the surface itself. On Plasma 6 / Wayland,
+  `org.freedesktop.ScreenSaver` is owned by **`kwin_wayland`** at the child's uid and exports
+  the interface at `/ScreenSaver`, while `/org/freedesktop/ScreenSaver` — the path that
+  answers on the X11 host, where ksmserver owns the name — exports nothing there but the
+  generic D-Bus interfaces. `GetActive`'s *unlocked* answer is owner-dependent too: `(true,)`
+  from ksmserver, `(false,)` from kwin. So a probe must resolve the path rather than assume
+  it, and there is no single answer to "what does `GetActive` mean" to design a corroborator
+  against.
+
+The GNOME backend therefore still reports itself uncorroborated, `Probe` says so in words,
+and the consequence is unchanged: on a GNOME-only configuration a lock is confirmed on the
+tick that changes the hint and reported unconfirmed on every tick after it. What the
+measurement settles is #35: the signal it asked to have measured has now been measured, and
+there is no GNOME lock signal that is not served by the child's own bus, so there is nothing
+to wire in. What carries the case from here is `lock.released`, which makes a dismissal
+visible instead of merely re-asserted away.
 
 ### The premise this whole design rests on is still unmeasured
 
