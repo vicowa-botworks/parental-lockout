@@ -13,8 +13,11 @@ import (
 // One implementation covers both desktops this daemon targets, because that is what
 // was measured on the target platform rather than what the ticket assumed. On Plasma
 // 6.6.6 the lock method is org.freedesktop.ScreenSaver.Lock at object path
-// /ScreenSaver, served by ksmserver under three well-known names
-// (org.kde.screensaver, org.freedesktop.ScreenSaver, org.kde.ksmserver). The two
+// /ScreenSaver, exported under three well-known names (org.kde.screensaver,
+// org.freedesktop.ScreenSaver, org.kde.ksmserver) — but not by one process, which is what
+// the ordered dests list is for. On an X11 session ksmserver owns them; on a Wayland
+// session kwin_wayland owns the first two and serves /ScreenSaver, leaving ksmserver only
+// org.kde.ksmserver (measured 2026-10-28 in a KDE guest, #179). The two
 // commands the ticket named do not exist there at all: org.kde.KScreen is owned by
 // kscreen_backend and exposes only /backend, and /KSMServer offers no lockScreen.
 // GNOME exposes the same interface under org.gnome.ScreenSaver, so "kde" and "gnome"

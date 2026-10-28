@@ -104,14 +104,19 @@ as proof that a child was actually locked out.
 > **Does locking via `org.freedesktop.ScreenSaver.Lock()` cause the desktop to write
 > `LockedHint=true`?**
 
-This has not been answered, because answering it means locking a live desktop and this box
-has a person working at it. It is the first thing to check on any new machine, and the
-expected answer is stated so that a wrong one is obvious:
+**Answered on 2026-10-28, in a KDE guest: yes.** Ubuntu 26.04, `plasma-desktop 4:6.6.6`,
+sddm autologin of a second user on seat0, Wayland session. `org.freedesktop.ScreenSaver.Lock`
+at `/ScreenSaver` on `org.kde.screensaver` — the daemon's own route, exactly as
+`internal/platform/desktop.go` calls it — brought up the real Plasma locker, `LockedHint`
+went `yes` and `GetActive` read `(true,)`, and the password cleared it. Rig, recipe and
+screenshots: `/home/rodney/vm/kde179`, `s4-lock.sh`.
 
-**Expected: yes.** `ksmserver` calls `SetLockedHint(true)` on its own logind session when
-the locker starts. If it does not, a KDE lock can never be confirmed, and `Chain.Lock`
-will call **every** backend on **every** poll and finish with `ErrUnconfirmed` — the screen
-gets locked, the daemon reports it did not, and the audit log is wrong.
+It is still the first thing to check on any new machine, because a `no` fails silently:
+something in the session calls `SetLockedHint(true)` when the locker starts (on this build
+that is the compositor, not ksmserver — see the corroboration section below), and if nothing
+does, a KDE lock can never be confirmed and `Chain.Lock` will call **every** backend on
+**every** poll and finish with `ErrUnconfirmed` — the screen gets locked, the daemon reports
+it did not, and the audit log is wrong.
 
 Recipe:
 
@@ -316,10 +321,24 @@ candidate signal is `org.gnome.ScreenSaver.GetActive`, measured on 2026-10-28 on
   .SetActive    method  b  b  -
   ```
 
-  Whether ksmserver **honours** `SetActive(false)` against a live locker is not measured —
-  finding out means locking a workstation somebody is using, so it belongs in a KDE guest.
-  What is measured is that the primitive is there on both desktops, which is why §8 of
-  `docs/security.md` treats it as a platform property rather than a GNOME bug.
+  Measured on 2026-10-28 in a KDE guest (`/home/rodney/vm/kde179`, #179), and the answer is
+  an asymmetry rather than the symmetry this section assumed: **Plasma 6 honours
+  `SetActive(true)` and refuses `SetActive(false)`.** From a desktop whose unlocked state was
+  established first — password in, `GetActive` `(false,)`, `LockedHint` `no` — the child's
+  `SetActive(true)` raised the real Plasma locker and both signals read locked; `SetActive(false)`
+  then returned `(false,)` and changed nothing, and only the password cleared it. So the #177
+  bypass is `gsd-screensaver`-specific, not a property of the interface. What *is* true on both
+  desktops is the other direction: the child can raise a lock the daemon never asked for, and
+  no signal available to the daemon distinguishes it from a real one.
+
+  The same measurement moved the surface itself. On Plasma 6 / Wayland,
+  `org.freedesktop.ScreenSaver` is owned by **`kwin_wayland`** at the child's uid and exports
+  the interface at `/ScreenSaver`, while `/org/freedesktop/ScreenSaver` — the path that
+  answers on the X11 host, where ksmserver owns the name — exports nothing there but the
+  generic D-Bus interfaces. `GetActive`'s *unlocked* answer is owner-dependent too: `(true,)`
+  from ksmserver, `(false,)` from kwin. So a probe must resolve the path rather than assume
+  it, and there is no single answer to "what does `GetActive` mean" to design a corroborator
+  against.
 
 The GNOME backend therefore still reports itself uncorroborated, `Probe` says so in words,
 and the consequence is unchanged: on a GNOME-only configuration a lock is confirmed on the
