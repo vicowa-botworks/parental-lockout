@@ -216,6 +216,64 @@ def packages_of(m, default):
     return frozenset(raw.split())
 
 
+# Every mutant id that more than one set claimed on 27 Oct, when #142's ratchet was written: 76
+# of 723 distinct ids. They are named, not pattern-matched, because the shape `letter+digits` is
+# exactly how a NEW collision gets introduced -- adding `W20` to a second set would be invisible
+# to a rule that grandfathered "the W family" -- and because renaming 76 ids would invalidate
+# every note and review reply that cites one, which is a worse ambiguity than the one being fixed.
+#
+# The list is a ceiling and only ever shrinks: `id_collisions` refuses any id outside it, and
+# `remaining_collisions` reports how much of it has been retired so the constant can come down.
+GRANDFATHERED_IDS = frozenset("""
+A1 A2 A3 A4 A5 C1 C2 C3 C4 D1 D2 D3 D4 D5 D6 D8 D9 F1 F2 H1 H2 H3 H4 H5 H6 H7 I1 I2 I3 I4 I5 I6
+K1 K2 L1 L2 P1 P2 P3 P4 P5 R1 R2 R3 R4 S1 S2 S3 S4 S5 S6 S7 S8 T1 T2 T4 T5 T6 W1 W2 W3 W4 W5 W6
+W7 W8 W9 W10 W12 W13 W14 W15 W16 W17 W18 W19
+""".split())
+
+# `T3` is absent above on purpose: it is claimed by exactly one set (platform.json), so giving
+# that name to a mutant in a second set would be a NEW collision. A ratchet that grandfathered
+# the whole `T` family -- or "any id of the form letter+digits" -- would let it through, which is
+# the shape nearly every new mutant id in this repository takes.
+
+
+def _ids_by_set(named_docs):
+    """{mutant id: [the sets claiming it]}, in the order the sets were handed over."""
+    where = {}
+    for label, doc in named_docs:
+        for m in doc.get("mutants", []):
+            if isinstance(m, dict) and m.get("id"):
+                where.setdefault(m["id"], []).append(label)
+    return where
+
+
+def id_collisions(named_docs, grandfathered=GRANDFATHERED_IDS):
+    """Ids claimed by more than one set that are not on the grandfathered list. Sentences.
+
+    Ids are unique per set file and that convention is not wrong -- `A1` in audit.json and `A1`
+    in auth.json are different mutants, and 76 of them already coexist. What costs somebody an
+    hour is the citation: "kills D9" in a PR body names two mutants, and `--only D9` cannot
+    address one of them, so "just the mutant I care about" costs a second set's whole battery.
+    `--only platform:D9` exists now (#142), so a new collision is a choice, not a convention,
+    and it is refused rather than absorbed.
+    """
+    problems = []
+    for mid, labels in sorted(_ids_by_set(named_docs).items()):
+        if len(labels) < 2 or mid in grandfathered:
+            continue
+        problems.append(
+            f"{mid} is claimed by {len(labels)} sets ({', '.join(sorted(labels))}): a citation of "
+            f"`{mid}` no longer says which mutant is meant, and `--only {mid}` runs both. Give "
+            f"the new one a name the other sets do not use, or retire one of the pair.")
+    return problems
+
+
+def remaining_collisions(named_docs, grandfathered=GRANDFATHERED_IDS):
+    """The grandfathered ids that still collide -- the number the ceiling can come down to."""
+    where = _ids_by_set(named_docs)
+    return sorted(mid for mid, labels in where.items()
+                  if len(labels) > 1 and mid in grandfathered)
+
+
 def duplicate_claims(named_docs):
     """Mutants whose claim is already made by another mutant. ``named_docs`` is [(label, doc)].
 

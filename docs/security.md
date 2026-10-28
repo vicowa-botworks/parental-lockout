@@ -361,5 +361,15 @@ Three mechanisms, in decreasing order of how much they catch:
    were wrong. For a daemon whose failure mode is a lockout that silently stops happening, that
    difference is the whole product.
 
+**Cite a mutant by its set.** Ids are unique per set file and not across them: `D9` is
+`auth.json`'s directory-mode ceiling *and* `platform.json`'s ignored report write, so "kills D9"
+names two mutants and `--only D9` runs both. Write `platform.json`'s D9 in prose, and address one
+of them on the command line the same way — `scripts/mutate.py --only platform:D9`. A bare id still
+means every set that holds it, and that is #118's rule rather than an oversight: a selection that
+quietly ran one of two prints a `TOTAL` that reads like the whole answer. 76 ids collided before
+the qualified form existed and are named in `mutset.GRANDFATHERED_IDS`; `check-mutations.py`
+refuses a **new** collision and reports how many of the 76 are still here, so the ceiling comes
+down as they are retired instead of quietly becoming the floor.
+
 A claim in this file that no test backs is a bug in this file. If you find one, the fix is to write
 the test — not to delete the claim, and not to weaken the guard to match the test.
