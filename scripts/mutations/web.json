@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 273,
+  "expected_mutants": 274,
   "mutants": [
     {
       "id": "W1",
@@ -1582,7 +1582,7 @@
       "new": "\t\tif p.ID == exceptID && false {\n\t\t\tcontinue\n\t\t}",
       "note": "the collision check compares the name against every profile including the subject, so submitting the form without changing the field is refused as a collision with itself -- the parent cannot save anything else on the profile without retyping its name first. The rule now lives in config.ProfileNameTaken, which every write path calls, so this also breaks `plock profile edit --name` on a profile's own name. TestSavingAProfileItsOwnNameIsNotACollision, and the own-name row of TestProfileNameTakenIsTheLabelsRule."
     },
-{
+    {
       "id": "W221",
       "file": "internal/web/profiles.go",
       "old": "\tname := strings.TrimSpace(r.FormValue(\"name\"))\n\trefuse := func(status int, why string) {\n\t\ts.renderProfilesRefusal(w, r, status, why, profileEcho{id: id, rename: name})\n",
@@ -1634,7 +1634,7 @@
       "new": "\tif false {\n\t\t// The web form refuses this",
       "note": "the CLI accepts Local. The refusal then belongs to the screen rather than to the config: `plock profile edit --timezone Local` exits 0 and writes it (measured), while the web form calls the same value unusable. TestProfileEditRefusesLocalBecauseItFollowsTheMachine."
     },
-{
+    {
       "id": "W228",
       "package": "./internal/web/",
       "file": "internal/web/templates/profiles.tmpl",
@@ -1700,7 +1700,7 @@
       "new": "\t\tsrc, ok := findProfile(c, id)\n\t\tif false && !ok {\n\t\t\treturn errUnknownProfile\n\t\t}",
       "note": "a copy of a profile that does not exist stops being a 404. The zero Profile findProfile returns on a miss is then copied, so the request either invents a profile with no windows and no zone or dies in Validate naming a timezone nobody typed -- and a stale bookmark, or a row deleted in another tab, gets a fault message instead of \"no profile on this machine has that id\". TestACopyRefusesAProfileThatDoesNotExist."
     },
-{
+    {
       "id": "W238",
       "package": "./internal/web/",
       "file": "internal/web/profiles.go",
@@ -1708,7 +1708,7 @@
       "new": "\tname := createForm.Name\n\tif name == \"\" && false {\n",
       "note": "the create form stops refusing a blank name. An unnamed profile is a document Validate accepts -- the page falls back to the id for its heading -- so this saves cleanly and the operator gets a profile headed by a slug they never chose, beside the one they meant to make. The refusal is the only place that says the field was not optional. TestACreateRefusesAnEmptyName."
     },
-{
+    {
       "id": "W239",
       "package": "./internal/web/",
       "file": "internal/web/profiles.go",
@@ -2050,7 +2050,7 @@
       "file": "internal/web/profiles.go",
       "old": "\tif f == nil || !f.AllDay {\n\t\treturn \"\"\n\t}\n\treturn \"checked\"\n",
       "new": "\tif f == nil {\n\t\treturn \"\"\n\t}\n\treturn \"checked\"\n",
-      "note": "the all-day box ticks itself on every render, including a plain GET -- a checkbox whose value is not a value, so the only thing that can be wrong is `checked` appearing when it should not. TestANormalLoadCarriesNoRefusal."
+      "note": "the all-day box ticks itself on every rule-form refusal, not only the ones that said all-day -- a checkbox whose value is not a value, so the only thing that can be wrong is `checked` appearing when it should not. A plain GET cannot see this at all: EchoRule is nil there, so Checked() takes its nil arm and the mutation changes nothing. TestARuleRefusalPutsEveryFieldBack, which posts no allDay."
     },
     {
       "id": "W282",
@@ -2067,6 +2067,14 @@
       "old": "             {{if $row.EchoRule.HasDay .}}checked{{end}}> {{.}}</label>",
       "new": "             > {{.}}</label>",
       "note": "the day boxes lose the attribute in the template rather than in the Go, which is the other half of the same guarantee and needs its own mutant for the same reason as W282. TestARuleRefusalPutsEveryFieldBack."
+    },
+    {
+      "id": "W284",
+      "package": "./internal/web/",
+      "file": "internal/web/write.go",
+      "old": "\ts.pageError(w, r, why, err)\n}",
+      "new": "\tif refuse != nil {\n\t\trefuse(http.StatusServiceUnavailable, why)\n\t\treturn\n\t}\n\ts.pageError(w, r, why, err)\n}",
+      "note": "the 5xx half of the seam is deliberately unchanged, and this is the mutation that says so: a server failure re-renders the form and implies the typed text caused a disk failure, inviting a resubmit against a mount that is still read-only. The 503 tests drive the delete route, which carries no refuser, so nothing else reaches this branch. TestASaveFailureIsStillNotAForm."
     }
   ]
 }

@@ -2,6 +2,7 @@ package web
 
 import (
 	"html"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"strings"
@@ -142,6 +143,40 @@ func TestARenameRefusalPutsTheNameBack(t *testing.T) {
 	}
 }
 
+// TestARenameOntoAnotherProfilesNamePutsTheNameBack is this route's collision refusal, the sibling
+// of TestACopyRefusalPutsTheNameBack two forms down. The test above does not cover it: that one
+// drives the length ceiling, which is a different call site on the same route, so the route could
+// echo one refusal and answer the other in plain text. That is the exact state #138 exists to end,
+// and W279 had to hollow this call site out before the suite noticed it was still there.
+func TestARenameOntoAnotherProfilesNamePutsTheNameBack(t *testing.T) {
+	fx := newOverrideFixture(t)
+	if rec := authPost(t, fx.s, "/profiles", "name=Kids&timezone=UTC"); rec.Code != http.StatusSeeOther {
+		t.Fatalf("the second profile was not created: %d %q", rec.Code, rec.Body.String())
+	}
+	before := fx.savesCount()
+
+	// A collision rather than the ceiling, because this is the refusal whose fix is to change the
+	// word in the box. The ceiling refusal cannot show that: the typed name is 61 q's there, and
+	// putting it back is a detail, not the way out.
+	body, sentence := postRefusal(t, fx.s, "/profiles/school/rename", "name=Kids")
+	if got, ok := echoedValue(body, "rename-school"); !ok {
+		t.Error("the rename box is gone from the refusal page")
+	} else if got != "Kids" {
+		t.Errorf("the rename box holds %q, want the typed name back (#138)", got)
+	}
+	// The shared predicate's own sentence. It carries no name, so this also pins the rule that
+	// request text stays out of the prose now that it has somewhere else to go.
+	if !strings.Contains(sentence, "already has that name") {
+		t.Errorf("the refusal does not say what collided: %q", sentence)
+	}
+	if strings.Contains(sentence, "Kids") {
+		t.Errorf("the refusal sentence quotes what was typed: %q", sentence)
+	}
+	if n := fx.savesCount() - before; n != 0 {
+		t.Errorf("a refused rename still saved %d documents", n)
+	}
+}
+
 // TestATimezoneRefusalPutsTheZoneBack is the form whose handler used to say the typed value would
 // deliberately not be echoed. #138 kept the sentence free of request text and moved the value into
 // the box, so the parent corrects the zone they looked up instead of re-looking it up.
@@ -200,6 +235,15 @@ func TestARuleRefusalPutsEveryFieldBack(t *testing.T) {
 		if strings.Contains(inputTag(body, "days-"+day+"-school"), "checked") {
 			t.Errorf("the %q day box came back ticked, and it was never ticked", day)
 		}
+	}
+	// The eighth box on the same form, asserted the same way. It can only fail by adding
+	// something: a Checked() that asks "did a rule form come back refused" instead of "did this
+	// form say all-day" ticks the box on every rule refusal, so a parent who never touched it is
+	// told back that the window runs all day -- on the one page where they are deciding what the
+	// window does. TestARuleRefusalKeepsTheAllDayBox cannot see it, because that one submits
+	// allDay=on, and a plain GET cannot either, because there is no echoed form to ask.
+	if tag := inputTag(body, "allday-school"); strings.Contains(tag, "checked") {
+		t.Errorf("the all-day box ticked itself on a form that never ticked it; tag was %q", tag)
 	}
 	if n := fx.savesCount() - before; n != 0 {
 		t.Errorf("a refused rule still saved %d documents", n)
@@ -346,5 +390,41 @@ func TestANormalLoadCarriesNoRefusal(t *testing.T) {
 		if tag := inputTag(body, "days-"+day+"-school"); strings.Contains(tag, "checked") {
 			t.Errorf("the %q day box is ticked on a page nobody submitted anything to", day)
 		}
+	}
+	// The eighth box, for the same reason. It does not catch W281 -- on a plain GET there is no
+	// echoed form, so Checked() takes its nil arm and the mutant changes nothing here -- and it is
+	// still the assertion this page owes: an all-day window nobody asked for is wrong on every
+	// render, and this is the only render that proves the page starts clean.
+	if tag := inputTag(body, "allday-school"); strings.Contains(tag, "checked") {
+		t.Errorf("the all-day box is ticked on a page nobody submitted anything to")
+	}
+}
+
+// TestASaveFailureIsStillNotAForm pins the half of the seam this PR deliberately did not move.
+//
+// The echo is for refusals the operator can act on: the form came back because what was typed is
+// the problem. A seam failure is not that, and answering it with the form would be worse than the
+// plain error page -- it implies the typed text caused a disk failure, and invites the parent to
+// correct a field that was never the problem and submit again while the mount is still read-only.
+// Nothing else in the package reaches that branch: the 503 tests drive the delete route, which
+// carries no refuser, so the five routes that now do could silently start routing 5xx through the
+// echo and stay green. W284 is that mutation.
+func TestASaveFailureIsStillNotAForm(t *testing.T) {
+	fx := newOverrideFixture(t)
+	fx.mu.Lock()
+	fx.failOn = fs.ErrPermission
+	fx.mu.Unlock()
+
+	rec := authPost(t, fx.s, "/profiles/school/rename", "name=Renamed+again")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %.200q", rec.Code, rec.Body.String())
+	}
+	if s := refusalParagraph(rec.Body.String()); s != "" {
+		t.Errorf("a server failure was answered with a refusal page carrying %q", s)
+	}
+	// The typed name must not be sitting in a box on the error page either: that is the same
+	// mistake with the paragraph removed.
+	if got, ok := echoedValue(rec.Body.String(), "rename-school"); ok {
+		t.Errorf("the error page carries a form holding %q; a seam failure is not a form problem", got)
 	}
 }
