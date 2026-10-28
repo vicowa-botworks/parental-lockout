@@ -388,14 +388,15 @@ def fill_script(action, fields, checks):
 
     Two bugs lived in this string, and both were reported as something else:
 
-      * `querySelectorAll(...)[:2]` is not a slice. It is a parse error: node 22 runs V8, the same
-        engine Chrome evaluates this in, and V8 rejects `a[:2]` with `SyntaxError: Expression
-        expected` before a single node is looked up. Nothing is undefined and no `TypeError` is
-        thrown, so the `try` below cannot see it -- what actually happened was that the CDP reply
-        carried the error in `exceptionDetails`, `value()` dropped that field and answered `None`,
-        and the driver printed "the form vanished" about a form that was sitting right there.
-        `Array.from(...).slice(0, n)` is the same intent in a language that has it, and the parse
-        error now reaches the `threw:` string from the other side.
+      * `querySelectorAll(...)[:2]` is not a slice. It is a parse error, measured against the
+        same `google-chrome --headless=new` these drivers drive (Chrome 156): the reply carries
+        `exceptionDetails.exception.description = "SyntaxError: Unexpected token ':'"`, and
+        `result` holds the error object with no `value` key in it. Nothing is undefined and no
+        `TypeError` is thrown at runtime, so the `try` below cannot see it -- what actually
+        happened was that `value()` read `["result"].get("value")`, dropped `exceptionDetails`
+        and answered `None`, and the driver printed "the form vanished" about a form that was
+        sitting right there. `Array.from(...).slice(0, n)` is the same intent in a language that
+        has it, and the parse error now reaches the `threw:` string from the other side.
       * the whole script is one expression the browser runs verbatim, so a wrong selector here is
         not a wrong measurement, it is a wrong page. Hence the `try`: a script that throws at
         RUNTIME returns `threw: <message>` and the caller says which of the two failures it is. A
@@ -1447,8 +1448,12 @@ def self_test():
             _Transport.value = cdp.Session.value
             return _Transport().value("document.querySelectorAll('x')[:2]")
 
-        thrown = evaluate({"exceptionDetails": {"text": "SyntaxError: Expression expected"},
-                           "result": {}})
+        thrown = evaluate({"exceptionDetails": {
+            "text": "Uncaught", "lineNumber": 0, "columnNumber": 43,
+            "exception": {"type": "object", "subtype": "error", "className": "SyntaxError",
+                          "description": "SyntaxError: Unexpected token ':'"}},
+            "result": {"type": "object", "subtype": "error",
+                       "className": "SyntaxError"}})
         if not (isinstance(thrown, str) and thrown.startswith("threw")):
             problems.append(f"a script the page refused to run answered {thrown!r}; the callers "
                             'test startswith("threw"), so anything else is read as a form that '
@@ -1456,7 +1461,7 @@ def self_test():
         elif "SyntaxError" not in thrown:
             problems.append("a refused script is reported as a shape rather than a reason: the "
                             f"reply was {thrown!r}, with no SyntaxError in it")
-        if evaluate({"result": {"value": "filled"}}) != "filled":
+        if evaluate({"result": {"type": "string", "value": "filled"}}) != "filled":
             problems.append("a script that ran no longer hands back its value, so every caller "
                             "that compares against a string fails on a page that worked")
 
