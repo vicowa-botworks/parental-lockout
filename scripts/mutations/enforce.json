@@ -1,15 +1,15 @@
 {
   "package": "./internal/enforce/",
   "_about": "Each entry puts one known bug back into internal/enforce and the suite must fail. F1 is the #29 fail-open: a session that reports itself locked used to be left alone, and LockedHint is writable by the child. See scripts/mutate.py for what the run checks and what equivalent means. Run: make mutate",
-  "expected_mutants": 37,
+  "expected_mutants": 42,
   "mutants": [
     {
       "id": "F1",
       "package": "./internal/enforce/",
       "file": "internal/enforce/enforce.go",
-      "old": "\thinted := s.Locked\n\terr := e.Platform.Lock(ctx, s)",
-      "new": "\thinted := s.Locked\n\tif s.Locked {\n\t\te.markEnforcing(rep, s, now, ruleID, ruleName, \"window open; session already reports itself locked\")\n\t\treturn\n\t}\n\terr := e.Platform.Lock(ctx, s)",
-      "note": "the pre-#29 behaviour: one autostart line writing LockedHint would stop enforcement silently forever"
+      "old": "\terr := e.Platform.Lock(ctx, s)\n\tif err != nil && ctx.Err() != nil {",
+      "new": "\tif s.Locked {\n\t\te.markEnforcing(rep, s, now, ruleID, ruleName, \"window open; session already reports itself locked\")\n\t\treturn\n\t}\n\terr := e.Platform.Lock(ctx, s)\n\tif err != nil && ctx.Err() != nil {",
+      "note": "the pre-#29 behaviour: one autostart line writing LockedHint would stop enforcement silently forever. Re-pointed from the two lines above it, which lock.released now separates; the skip belongs in front of the call either way. TestReportingAReleaseNeverChangesWhetherTheLockIsAsserted is the same fail-open seen from the other side."
     },
     {
       "id": "F2",
@@ -182,9 +182,9 @@
     },
     {
       "id": "F23",
-      "old": "\t\te.ensure(s.ID).unconfirmedReported = false",
-      "new": "\t\t_ = e.ensure(s.ID)",
-      "note": "a confirmed tick does not re-arm the alarm, so the second episode of an uptime is silent",
+      "old": "\t\tst.unconfirmedReported = false\n\t\tif hinted {",
+      "new": "\t\tif hinted {",
+      "note": "a confirmed tick does not re-arm the alarm, so the second episode of an uptime is silent. Re-pointed: the reset is a named `st` now that the confirmed branch also records the hint. TestANewLockoutReportsUnconfirmedAgain.",
       "package": "./internal/enforce/",
       "file": "internal/enforce/enforce.go"
     },
@@ -295,7 +295,46 @@
       "old": "\tif err != nil {\n\t\treturn rep\n\t}\n\n\tfor id, st := range e.state {",
       "new": "\tif false {\n\t\treturn rep\n\t}\n\n\tfor id, st := range e.state {",
       "note": "the exit sweep runs after a census that is short, so an id missing from `seen` is guessed to be a logout when it is really the row that could not be read: lockout.exited for a child still sitting at a locked screen, and the state carrying their override bookkeeping deleted with it. Re-pointed from `if len(sessions) == 0 { return rep }`, which this PR made equivalent -- the guard below already returns on any error, so no mutant can distinguish that arm and the battery would have been reporting an equivalent as a catch. TestAPartialReadDoesNotEndALockoutItCouldNotSee, TestATotalFailureDoesNotEndALockout"
+    },
+    {
+      "id": "F40",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif rel.confirmedAndSeenLocked && !hinted {",
+      "new": "\tif false {",
+      "note": "the dismissal goes back to being invisible. #177 measured SetActive(false) on the child's own session bus clearing a password-gated lock with no password; the loop already re-asserts every poll, so the absorb works and, with this gone, nothing else says it happened -- an absorbed attack and a quiet night both write lock.asserted. TestAConfirmedLockThatComesBackIsReportedOnce."
+    },
+    {
+      "id": "F41",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\tif rel.confirmedAndSeenLocked && !hinted {",
+      "new": "\tif !hinted {",
+      "note": "the level instead of the transition: report whenever the hint says unlocked. A locker that corroborates without ever writing LockedHint is a healthy machine, so this accuses someone of tampering on every poll of it -- the alarm-on-a-quiet-box failure #35 already cost this package its cadence work. TestAReleaseIsNeverReportedForASessionThatNeverReportedLocked."
+    },
+    {
+      "id": "F42",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\trel.confirmedAndSeenLocked = false\n\t}",
+      "new": "\t}",
+      "note": "the transition is never consumed, so a screen left unlocked reports a fresh dismissal every thirty seconds for as long as it stays off. The flood is the point: it is what makes the first line unread. TestAConfirmedLockThatComesBackIsReportedOnce."
+    },
+    {
+      "id": "F43",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\tif hinted {\n\t\t\tst.confirmedAndSeenLocked = true\n\t\t}",
+      "new": "\t\tif false {\n\t\t\tst.confirmedAndSeenLocked = true\n\t\t}",
+      "note": "the rule is never armed, so no release is ever reportable even though the transition still happens. Reads as a quieter trail and nothing else: the lock is still re-asserted, the hint is still read, and the audit file goes back to saying lock.asserted forever. TestAConfirmedLockThatComesBackIsReportedOnce."
+    },
+    {
+      "id": "F44",
+      "package": "./internal/enforce/",
+      "file": "internal/enforce/enforce.go",
+      "old": "\t\tst.unenforceableReported = false\n\t\tst.confirmedAndSeenLocked = false\n\t\tst.releases = 0",
+      "new": "\t\tst.unenforceableReported = false",
+      "note": "the exemption path keeps the release bookkeeping. An override hands the child their desktop back on purpose, so the first poll after it expires reports the parent's own grant as the child dismissing a lock -- the one false accusation this line cannot afford, because it is the line a parent acts on. This is the one release path where the state entry survives, which is why the reset has to be here and not only in the delete on the exit path. TestAnOverrideDoesNotReportTheParentsOwnGrantAsADismissal."
     }
-
   ]
 }
