@@ -356,7 +356,13 @@ CLI edits, so a `plock profile` change takes effect on the next tick with no res
 
 ## `plock version`
 
-Prints the version, the commit, and the Go toolchain the binary was built with.
+Prints the version, the commit, and the UTC build timestamp — the three values stamped in at
+link time. An unstamped build prints the honest defaults:
+
+    plock dev (commit none, built unknown)
+
+`make build` stamps all three, and `make verify` builds a stamped probe binary and compares this
+exact line before it will call the build good.
 
 ## Positional arguments
 
