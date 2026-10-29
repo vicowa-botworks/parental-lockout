@@ -53,16 +53,52 @@ note what it means: replacing the credential is how you lock yourself out of the
 you mistype it, and existing admin sessions keep working until they expire (see
 [docs/security.md](security.md) §6).
 
-Now add the rules. As of this release the policy is edited as JSON — there is no CLI editor
-yet, and the ones that will replace hand-editing (`plock profile`, `plock user`,
-`plock override`) are ticket #11 and not in this build. So:
+Now add the rules. The CLI writes them, so nothing here needs hand-edited JSON:
 
 ```
-sudo editor /etc/plock/config.json
+sudo /usr/local/bin/plock profile add schoolnight --name "School night" --timezone Europe/London
+sudo /usr/local/bin/plock profile rule add schoolnight bedtime --days mon,tue,wed,thu,sun \
+     --start 21:00 --end 06:30 --name Bedtime
+sudo /usr/local/bin/plock profile rule add schoolnight school --days mon,tue,wed,thu,fri \
+     --start 08:15 --end 13:30 --name "School hours"
+sudo /usr/local/bin/plock user assign casey schoolnight
 ```
 
-Write it with the file already in place rather than by redirecting a heredoc into it, so a
-mistake leaves the previous policy on disk, and check it parses before restarting the daemon:
+Each of these writes the same file the web UI writes, atomically, and the daemon picks the change
+up on its next tick — there is nothing to restart. `plock profile -h` and
+[docs/cli.md](cli.md) cover the rest: `--all-day` for a rule with no minute free, `profile rule
+disable` to park a rule without deleting it, `profile rm` on a profile that still has users
+assigned to it refuses rather than leaving them with no schedule:
+
+```
+sudo /usr/local/bin/plock profile rm schoolnight
+```
+
+```
+plock profile rm: 1 user(s) are assigned to "schoolnight": casey
+Removing it would leave them with no schedule, which means no lockout.
+Reassign them first: plock user assign <user> <profile>
+```
+
+That refusal is the shape of every write here: the command validates before it saves, so a rule
+that cannot mean anything is refused on the command line instead of becoming a crash loop at
+three in the morning. The one you hit first is the empty window:
+
+```
+sudo /usr/local/bin/plock profile rule add schoolnight equal --days mon --start 09:00 --end 09:00
+```
+
+```
+plock profile rule add: refusing to write: configuration is not valid: 1 problem(s): profiles[0] (School night).rules[2] (equal).start: 09:00 is also the end time, so the window is empty and enforces nothing; for a rule with no minute free set allDay instead — 00:00 to 23:59 is a minute short
+```
+
+The web UI at `/profiles` does the same thing with a form, and it is the easier way to see what a
+rule will do — but it needs the daemon running, and §4 is where the daemon starts.
+
+Hand-editing `/etc/plock/config.json` still works, and is the route for anything the CLI does not
+expose yet. If you take it, write the file with the previous one already in place rather than
+redirecting a heredoc into it, so a mistake leaves the old policy on disk, and check it parses
+before you restart anything:
 
 ```
 sudo python3 -c "import json,sys; json.load(open('/etc/plock/config.json'))"
@@ -113,10 +149,17 @@ The `enforce: running` line is the one to look for. It exists because its absenc
 invisible: `serve` started the web UI, logged a cheerful line about listening, and enforced
 nothing. If the daemon comes up without that line, it is not enforcing.
 
-Read the whole startup block rather than scanning for that one line. A rule that is wrong in a
-permissive direction is otherwise invisible until the week you notice nothing was ever locked,
-and the startup lines are where a degraded schedule announces itself — an unknown timezone
-falling back to a default, or a rule that can never fire, is reported here and nowhere else.
+Read the whole startup block rather than scanning for that one line. It names the config file it
+actually opened — `--config` pointing at the wrong file is the one mistake that reads as success,
+because the wrong document still loads and still validates — and it says which backends answered
+the probe, which is the difference between a daemon that enforces and one that only serves the UI.
+
+A schedule the evaluator could read but not obey is **not** in the journal. A profile whose
+timezone is `Local` passes validation and then moves every window in it whenever the host's zone
+moves; the daemon reports that as `schedule.degraded` in the audit trail and in `plock status`'s
+`degraded` field, not as a log line. A timezone that does not resolve at all is louder: the
+daemon refuses the file and never reaches the loop. So run `plock status` once the daemon is up —
+that is where a rule that is wrong in a permissive direction actually shows.
 
 ### If it crash-loops instead
 
