@@ -41,6 +41,20 @@ Requires(postun): systemd
 %global debug_package %{nil}
 %global _missing_build_ids_terminate_build 0
 
+# Fedora's default is `compat`, which makes rpm synthesize /usr/lib/.build-id/<2>/<sha>
+# symlinks to every ELF it packages and add them to the file list. Measured on the first CI
+# run of this spec: the .rpm owned 13 paths and the .deb 10, and the three extras were
+# exactly that tree -- a directory, its two-hex-digit parent, and a 0777 symlink named after
+# a hash of the binary.
+#
+# Turned off rather than tolerated, for two reasons. The gate in scripts/package-verify.sh
+# asserts both formats install the same program in the same places, and that claim is worth
+# keeping whole; and a path whose name is a content hash of the payload is the one kind of
+# filename guaranteed to differ between two builds, which is the opposite of what a package's
+# file list is for. There is nothing for the link to find anyway: this is a static Go binary
+# with no debuginfo package.
+%global _build_id_links none
+
 # rpm's install post-processing strips the ELF files it finds. On a binary this project
 # already built with `-s -w` there is nothing left to take out, and what strip does instead
 # is rewrite the file: same sections, same sizes, a different section-table offset, 1016
