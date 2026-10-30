@@ -445,6 +445,42 @@ def uncopyable_is_source(path):
     return os.path.isdir(path) or os.path.isfile(path)
 
 
+def fstype(path, mounts="/proc/mounts"):
+    """The filesystem `path` sits on, by longest-mount-point match. No subprocess, no shell.
+
+    Because a mutant can depend on the filesystem its test's temp directory happens to live
+    on. A49 was the proof: the fixture was a directory, and an empty directory reports
+    st_size 4096 on ext4, 40 on tmpfs and 0 on btrfs -- so the guard it exists to pin was
+    caught on the GitHub runners and walked free on any developer machine with TMPDIR on
+    btrfs, with the tally identical in both places (issue #185). The fixture is a symlink
+    now, but the tally still cannot see a premise like that, so the run states the ground it
+    measured on.
+
+    Returns "unknown" rather than guessing when /proc/mounts is unreadable or absent: this is
+    a line in a log, and a wrong filesystem name in it is worse than none.
+    """
+    try:
+        with open(mounts) as fh:
+            rows = fh.read().splitlines()
+    except OSError:
+        return "unknown"
+    target = os.path.realpath(path)
+    best, best_len = "unknown", -1
+    for line in rows:
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        point, kind = parts[1], parts[2]
+        if target == point or target.startswith(point.rstrip("/") + "/"):
+            # Longest mount point wins: /home/x on btrfs must beat / on ext4. rstrip first,
+            # because "/" would otherwise count as deep as "/tmp" and the winner would be
+            # whichever row /proc/mounts happens to print first.
+            depth = len(point.rstrip("/"))
+            if depth > best_len:
+                best, best_len = kind, depth
+    return best
+
+
 def note_uncopyable(path, err, skipped, fatal):
     """Sort one copytree failure into "skip it" or "stop the run".
 
@@ -1774,7 +1810,7 @@ EXPECTED_SELECT_RULES = 67
 # twenty-eighth that main actually stages before running. The last four are controls over the
 # four checkers those rules compare through, because a fixture that asserts inline cannot be
 # shown failing.
-EXPECTED_SNAPSHOT_RULES = 37
+EXPECTED_SNAPSHOT_RULES = 38
 
 
 def set_reads_problems(body, name):
@@ -2849,6 +2885,73 @@ def self_test():
          else [f"it said {unreadable or 'nothing'}, so an auditor that could not read the code "
                f"reports the code as clean -- which is the same false green as a hollowed rule"])
 
+    # What ground the run stands on. These are snapshot-family rules because they are about
+    # the temp root the battery copies into, and they exist for a measured reason: A49's
+    # fixture was a directory, an empty directory reports st_size 4096 on ext4, 40 on tmpfs
+    # and 0 on btrfs, and so a guard caught on the GitHub runners walked free on any developer
+    # machine with TMPDIR on btrfs while both tallies read identically (issue #185). The
+    # fixture is a symlink now. What remains true is that a rule cannot see this, so the run
+    # prints it -- and a helper that names the wrong filesystem in that line is worse than one
+    # that says nothing, which is what the three rules below are for.
+    #
+    # The mounts table is injected rather than read from /proc so the rules assert against
+    # rows a real machine has been measured to produce, and stay reproducible on a runner
+    # whose own mounts change under them.
+
+    def _fstype_fixture(work, rows):
+        """Write a mounts table and return it, so fstype() parses bytes, not a fixture object."""
+        path = os.path.join(work, "mounts")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(rows) + "\n")
+        return path
+
+    def _snap_fstype(bad):
+        with tempfile.TemporaryDirectory() as work:
+            # The paths below are literals, not fixtures on disk. The mounts table is invented,
+            # so the paths have to be read as strings -- and making them real would nest them
+            # inside this run's TMPDIR, which is the one thing that must not decide the answer.
+            both = _fstype_fixture(work, [
+                "overlay / btrfs rw 0 0",
+                "tmpfs /tmp tmpfs rw 0 0",
+            ])
+            probe = "/tmp/plock-mutate-abc123"
+            if fstype(probe, mounts=both) != "tmpfs":
+                bad.append(f"fstype() said {fstype(probe, mounts=both)!r} for a path with a mount "
+                           f"of its own under `/` -- the shallowest row won, so the run names "
+                           f"the filesystem its fixtures are NOT on")
+            # Same rows, printed the other way round. A rule that only passes with one kernel's
+            # ordering is a rule that reports a different filesystem on a different machine.
+            flip = os.path.join(work, "mounts-flip")
+            with open(flip, "w", encoding="utf-8") as fh:
+                fh.write("tmpfs /tmp tmpfs rw 0 0\noverlay / btrfs rw 0 0\n")
+            if fstype(probe, mounts=flip) != "tmpfs":
+                bad.append(f"fstype() said {fstype(probe, mounts=flip)!r} with the same two rows "
+                           f"in the other order, so the answer depends on print order")
+            # A path with nothing under it but `/` has to report `/`, not "unknown": the common
+            # case on a machine whose home is the only filesystem.
+            if fstype("/home/rodney/plock", mounts=both) != "btrfs":
+                bad.append(f"fstype() said {fstype('/home/rodney/plock', mounts=both)!r} for a "
+                           f"path whose only mount is `/` -- falling back to `unknown` here "
+                           f"would blank the line on every single-disk machine")
+            # And it refuses to guess. A wrong filesystem name in the log is a false lead for
+            # whoever is chasing a survivor, so an unreadable table yields `unknown`.
+            if fstype(probe, mounts=os.path.join(work, "no-such-mounts")) != "unknown":
+                bad.append("fstype() invented an answer from an unreadable mounts table")
+            # A deeper mount point wins over a shallower one that also matches, and the three
+            # types are all different so a wrong pick cannot be excused as "same answer anyway".
+            nested = _fstype_fixture(work, [
+                "tmpfs /tmp tmpfs rw 0 0",
+                "/dev/x /tmp/btrfs ext4 rw 0 0",
+                "overlay / btrfs rw 0 0",
+            ])
+            deep = "/tmp/btrfs/plock-mutate-abc123"
+            if fstype(deep, mounts=nested) != "ext4":
+                bad.append(f"fstype() said {fstype(deep, mounts=nested)!r} for a path under two "
+                           f"nested mounts; the deepest mount point is the one holding it")
+
+    run_rule(srules, bad, "snapshot: the tmpdir filesystem is named by the deepest mount, and "
+                          "refused rather than guessed", _snap_fstype)
+
     # The two helpers every rule above is counted through are themselves attack surface, and
     # the canary that watches them now lives OUTSIDE this function -- see
     # helper_canary_problems. It used to be inline here, comparing two local counts, and the
@@ -3212,6 +3315,10 @@ def main():
     try:
         skipped = snapshot(SRC, ROOT)
         print(f"running against a copy of the tree in {ROOT}")
+        # A survivor can be a property of the filesystem, not of the suite (issue #185), so
+        # the run records the ground it stood on. Two runs with different tmpfs are not the
+        # same measurement, and the tally alone cannot say so.
+        print(f"tmpdir filesystem: {fstype(work)}")
         for path in skipped:
             print(f"snapshot left out an uncopyable path that is not source: {path}")
 

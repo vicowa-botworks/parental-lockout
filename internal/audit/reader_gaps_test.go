@@ -27,17 +27,31 @@ func TestGenerationsReportsANonRegularGenerationAsTheFinding(t *testing.T) {
 	}
 	// Generation .1 replaced by something that is not a plain file.
 	//
-	// A DIRECTORY, not a FIFO or a device node, and the reason is the assertion below: a
-	// FIFO, a socket and a character device all report st_size == 0, so a mutant that adds
-	// their size to the trail's total is indistinguishable from the guard on those shapes.
-	// A directory has a real size (4096 on ext4), so "the size of somebody else's file is
-	// being counted" becomes observable instead of unmeasurable.
+	// A SYMLINK, and the reason is the assertion below: a FIFO, a socket and a character
+	// device all report st_size == 0, so a mutant that adds their size to the trail's total
+	// is indistinguishable from the guard on those shapes. A symlink's st_size is the length
+	// of its target string, so it is non-zero on every filesystem -- which is what the
+	// fixture used to be a directory for, and a directory is not: btrfs reports 0 for an
+	// empty one (ext4 4096, tmpfs 40), and on the common Fedora/openSUSE/Arch layout, where
+	// TMPDIR is on btrfs, the guard this test exists to pin was walking free. See issue #185.
+	//
+	// Generations() Lstats rather than Stats, so the link is the finding and its target is
+	// irrelevant -- it does not have to exist.
 	gen1 := path + ".1"
 	if err := os.Remove(gen1); err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(gen1, 0o700); err != nil {
-		t.Fatalf("cannot place a directory at a generation path here: %v", err)
+	target := "a-generation-that-was-replaced-and-its-name-is-the-size-we-are-counting"
+	if err := os.Symlink(target, gen1); err != nil {
+		t.Fatalf("cannot place a symlink at a generation path here: %v", err)
+	}
+	// The premise, checked rather than assumed. Everything below measures nothing if the
+	// shape reports no size, so say so out loud instead of passing for the wrong reason --
+	// the exact failure this test had on btrfs.
+	if fi, err := os.Lstat(gen1); err != nil {
+		t.Fatal(err)
+	} else if fi.Size() == 0 {
+		t.Skipf("a symlink to %q reports size 0 on this filesystem, so nothing here would be measured", target)
 	}
 
 	gens, total, err := (&Reader{Path: path}).Generations()
@@ -51,9 +65,9 @@ func TestGenerationsReportsANonRegularGenerationAsTheFinding(t *testing.T) {
 		t.Errorf("generation 0 is the live file and was reported as non-regular")
 	}
 	if gens[1].Regular {
-		t.Errorf("generation 1 is a directory and was reported as a normal log file")
+		t.Errorf("generation 1 is a symlink and was reported as a normal log file")
 	}
-	// The size of a directory is not the trail's bytes. Counting it would make the answer
+	// The size of a link is not the trail's bytes. Counting it would make the answer
 	// to "how big is my audit log" depend on what the path was replaced with.
 	if gens[1].Size != 0 {
 		t.Errorf("a non-regular generation contributed %d bytes to the trail's total", gens[1].Size)
