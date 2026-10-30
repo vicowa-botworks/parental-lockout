@@ -458,6 +458,11 @@ def fstype(path, mounts="/proc/mounts"):
 
     Returns "unknown" rather than guessing when /proc/mounts is unreadable or absent: this is
     a line in a log, and a wrong filesystem name in it is worse than none.
+
+    Mount points arrive octal-escaped -- proc(5) writes space as \\040, tab as \\011, newline
+    as \\012 and backslash as \\134 -- so a path under `/home\\040dir` would otherwise match
+    only `/` and report the root's filesystem with full confidence. That is the same
+    confident-wrong-answer outcome the `unknown` rule exists to prevent, one row earlier.
     """
     try:
         with open(mounts, encoding="utf-8") as fh:
@@ -470,7 +475,7 @@ def fstype(path, mounts="/proc/mounts"):
         parts = line.split()
         if len(parts) < 3:
             continue
-        point, kind = parts[1], parts[2]
+        point, kind = unescape_mount(parts[1]), parts[2]
         if target == point or target.startswith(point.rstrip("/") + "/"):
             # Longest mount point wins: /home/x on btrfs must beat / on ext4. rstrip first,
             # because "/" would otherwise count as deep as "/tmp" and the winner would be
@@ -479,6 +484,32 @@ def fstype(path, mounts="/proc/mounts"):
             if depth > best_len:
                 best, best_len = kind, depth
     return best
+
+
+# The four sequences proc(5) escapes in a mount point, and only these. Anything else that
+# starts with a backslash is left alone: a mount point is allowed to contain a backslash it
+# did not escape, and rewriting it would invent a path the kernel never reported.
+MOUNT_ESCAPES = {"040": " ", "011": "\t", "012": "\n", "134": "\\"}
+
+
+def unescape_mount(point):
+    """Turn one octal-escaped mount point back into the path it names.
+
+    One pass, not four replaces, because four replaces let an escaped backslash unescape
+    itself: `\\134040` is the five characters `\\040`, and a replace-`\\134`-first pass would
+    then see the `\\040` it just produced and yield a space the kernel never wrote.
+    """
+    if "\\" not in point:
+        return point
+    out, i = [], 0
+    while i < len(point):
+        if point[i] == "\\" and point[i + 1:i + 4] in MOUNT_ESCAPES:
+            out.append(MOUNT_ESCAPES[point[i + 1:i + 4]])
+            i += 4
+        else:
+            out.append(point[i])
+            i += 1
+    return "".join(out)
 
 
 def note_uncopyable(path, err, skipped, fatal):
@@ -2907,14 +2938,22 @@ def self_test():
 
     def _snap_fstype(bad):
         with tempfile.TemporaryDirectory() as work:
-            # The paths below are literals, not fixtures on disk. The mounts table is invented,
-            # so the paths have to be read as strings -- and making them real would nest them
-            # inside this run's TMPDIR, which is the one thing that must not decide the answer.
+            # The paths below are literals, not fixtures on disk: the mounts table is invented,
+            # so the paths have to be read as strings. Making them real would nest them inside
+            # this run's TMPDIR, which is the one thing that must not decide the answer.
+            #
+            # They are derived from realpath("/tmp") rather than spelled "/tmp", because
+            # fstype() realpaths its probe -- correctly, for the log line: a TMPDIR reached
+            # through a link really does sit on the filesystem behind the link. On a host where
+            # /tmp IS a link (macOS resolves it to /private/tmp) a literal "/tmp" row would
+            # match nothing and the rule would go red over a correct implementation. Same class
+            # as the bug this PR fixes: a test whose premise is the host's layout.
+            tmp_root = os.path.realpath("/tmp")
+            probe = tmp_root + "/plock-mutate-abc123"
             both = _fstype_fixture(work, [
                 "overlay / btrfs rw 0 0",
-                "tmpfs /tmp tmpfs rw 0 0",
+                f"tmpfs {tmp_root} tmpfs rw 0 0",
             ])
-            probe = "/tmp/plock-mutate-abc123"
             if fstype(probe, mounts=both) != "tmpfs":
                 bad.append(f"fstype() said {fstype(probe, mounts=both)!r} for a path with a mount "
                            f"of its own under `/` -- the shallowest row won, so the run names "
@@ -2923,16 +2962,17 @@ def self_test():
             # ordering is a rule that reports a different filesystem on a different machine.
             flip = os.path.join(work, "mounts-flip")
             with open(flip, "w", encoding="utf-8") as fh:
-                fh.write("tmpfs /tmp tmpfs rw 0 0\noverlay / btrfs rw 0 0\n")
+                fh.write(f"tmpfs {tmp_root} tmpfs rw 0 0\noverlay / btrfs rw 0 0\n")
             if fstype(probe, mounts=flip) != "tmpfs":
                 bad.append(f"fstype() said {fstype(probe, mounts=flip)!r} with the same two rows "
                            f"in the other order, so the answer depends on print order")
             # A path with nothing under it but `/` has to report `/`, not "unknown": the common
             # case on a machine whose home is the only filesystem.
-            if fstype("/home/rodney/plock", mounts=both) != "btrfs":
-                bad.append(f"fstype() said {fstype('/home/rodney/plock', mounts=both)!r} for a "
-                           f"path whose only mount is `/` -- falling back to `unknown` here "
-                           f"would blank the line on every single-disk machine")
+            home = os.path.realpath("/home") + "/plock"
+            if fstype(home, mounts=both) != "btrfs":
+                bad.append(f"fstype() said {fstype(home, mounts=both)!r} for a path whose only "
+                           f"mount is `/` -- falling back to `unknown` here would blank the line "
+                           f"on every single-disk machine")
             # And it refuses to guess. A wrong filesystem name in the log is a false lead for
             # whoever is chasing a survivor, so an unreadable table yields `unknown`.
             if fstype(probe, mounts=os.path.join(work, "no-such-mounts")) != "unknown":
@@ -2940,14 +2980,34 @@ def self_test():
             # A deeper mount point wins over a shallower one that also matches, and the three
             # types are all different so a wrong pick cannot be excused as "same answer anyway".
             nested = _fstype_fixture(work, [
-                "tmpfs /tmp tmpfs rw 0 0",
-                "/dev/x /tmp/btrfs ext4 rw 0 0",
+                f"tmpfs {tmp_root} tmpfs rw 0 0",
+                f"/dev/x {tmp_root}/btrfs ext4 rw 0 0",
                 "overlay / btrfs rw 0 0",
             ])
-            deep = "/tmp/btrfs/plock-mutate-abc123"
+            deep = tmp_root + "/btrfs/plock-mutate-abc123"
             if fstype(deep, mounts=nested) != "ext4":
                 bad.append(f"fstype() said {fstype(deep, mounts=nested)!r} for a path under two "
                            f"nested mounts; the deepest mount point is the one holding it")
+            # An octal-escaped mount point (proc(5): space is \\040) has to be read back before
+            # it is matched. Without the unescape a path under `/home\\040dir` matches only `/`
+            # and reports the root's filesystem with full confidence -- the confident wrong
+            # answer the `unknown` rule refuses to give, arriving one row earlier.
+            spaced = _fstype_fixture(work, [
+                "overlay / btrfs rw 0 0",
+                "tmpfs /home\\040dir ext4 rw 0 0",
+            ])
+            if fstype("/home dir/plock", mounts=spaced) != "ext4":
+                bad.append(f"fstype() said {fstype('/home dir/plock', mounts=spaced)!r} for a path "
+                           f"under an octal-escaped mount point; matching the escaped text leaves "
+                           f"only `/` to match, and the line then names the wrong filesystem")
+            # The escape table itself, including the case a naive four-replace gets wrong:
+            # \\134040 is a literal backslash followed by "040", not a space.
+            for esc, want in (("/home\\040dir", "/home dir"), ("a\\011b", "a\tb"),
+                              ("x\\012y", "x\ny"), ("back\\134slash", "back\\slash"),
+                              ("\\134040", "\\040"), ("plain", "plain")):
+                got = unescape_mount(esc)
+                if got != want:
+                    bad.append(f"unescape_mount({esc!r}) = {got!r}, want {want!r}")
 
     run_rule(srules, bad, "snapshot: the tmpdir filesystem is named by the deepest mount, and "
                           "refused rather than guessed", _snap_fstype)
