@@ -118,6 +118,18 @@ report_state() {
     fi
   done
 }
+# "exists" is not "is still the same file". A scriptlet that deleted a sentinel and let
+# something else create it again would report exists, so the upgrade path re-reads the
+# contents plant_state wrote.
+report_sentinels() {
+  for p in /etc/plock/config.json /var/lib/plock/plock.key /var/log/plock/plock.log; do
+    if [ -r "$p" ] && [ -f "$p" ] && [ "$(head -n 1 "$p")" = sentinel ]; then
+      printf 'SENTINEL %s=kept\n' "${p#/}"
+    else
+      printf 'SENTINEL %s=lost\n' "${p#/}"
+    fi
+  done
+}
 
 report_enabled() {
   # "Nothing is running yet" is the product's promise. A symlink in a target's .wants
@@ -174,6 +186,28 @@ done
 report_enabled
 plant_state
 
+# An upgrade, with a family's state in place. The reinstall above only proves the second
+# install does not fail; this proves it does not touch what the family depends on.
+#
+# The .deb's postrm runs with `upgrade` as its argument on this path and `purge` is the only
+# branch that deletes, so a dropped argument would keep the state for the wrong reason --
+# which is why the sentinels are re-read rather than merely re-stat'd, and why the erase note
+# must not appear in this log.
+#
+# /var/lib/plock is chmodded to a mode the package never chose: %post creates directories only
+# when absent, and a scriptlet that re-chmodded an existing one would be the arbitrary-chmod
+# primitive the spec's comment refuses to be.
+chmod 0701 /var/lib/plock
+dpkg -i /work/plock.deb >/tmp/dpkg-u.log 2>&1 || {
+  echo 'package-verify: upgrading over an installed .deb failed:' >&2
+  cat /tmp/dpkg-u.log >&2
+  exit 1
+}
+report_state UPGRADE
+report_sentinels
+printf 'KEPTMODE %s\n' "$(stat -c '%a' /var/lib/plock)"
+printf 'ERASENOTE %s\n' "$(grep -c 'left in place' /tmp/dpkg-u.log || true)"
+
 # remove, then purge. The two are different promises and the .deb has to keep both: remove
 # leaves every byte of state, purge takes the policy and the key and leaves the trail.
 dpkg -r plock >/tmp/dpkg-r.log 2>&1 || {
@@ -225,6 +259,27 @@ done
 
 report_enabled
 plant_state
+
+# The upgrade case -- the one the spec's `$1` branches exist for and this gate never ran.
+# %preun stops and disables only on an erase ($1 = 0); stopping on an upgrade would unlock
+# every screen the daemon is holding because a package was updated. %postun prints its
+# "left in place" note only on an erase too, so the note's absence here is the observable
+# proof that the erase branch did not fire.
+#
+# `rpm -U` of an identical version refuses, so the same bytes go back with --force: what is
+# under test is the scriptlet argument, not rpm's version comparison. Same two extra claims as
+# the .deb probe, for the same reasons -- the sentinels re-read, and a foreign mode on a
+# directory the package did not create.
+chmod 0701 /var/lib/plock
+rpm -Uvh --force /work/plock.rpm >/tmp/rpmu.log 2>&1 || {
+  echo 'package-verify: rpm -U --force, the upgrade path, failed:' >&2
+  cat /tmp/rpmu.log >&2
+  exit 1
+}
+report_state UPGRADE
+report_sentinels
+printf 'KEPTMODE %s\n' "$(stat -c '%a' /var/lib/plock)"
+printf 'ERASENOTE %s\n' "$(grep -c 'left in place' /tmp/rpmu.log || true)"
 
 # rpm has no purge, so erase is the only teardown, and it must keep everything: see the note
 # in deploy/packaging/plock.spec.
@@ -348,6 +403,36 @@ state_is 'dpkg -P kept the audit trail' "$work/deb.txt" PURGE var/log/plock/ploc
 state_is 'rpm -e kept the policy' "$work/rpm.txt" ERASE etc/plock/config.json exists
 state_is 'rpm -e kept the key' "$work/rpm.txt" ERASE var/lib/plock/plock.key exists
 state_is 'rpm -e kept the audit trail' "$work/rpm.txt" ERASE var/log/plock/plock.log exists
+
+# An upgrade is the third promise, and the one neither format used to be asked about: a
+# package update must not touch a family's rules, its key or its trail.
+echo "and what an upgrade left alone:"
+for f in deb rpm; do
+  # `what`, not `label`: state_is and check_mode both assign to a global `label`, so a loop
+  # variable with that name gets rewritten by the first call and every later line in this
+  # section is printed with the previous verdicts glued onto it.
+  case $f in
+    deb) what='dpkg -i over an installed .deb' ;;
+    rpm) what='rpm -U --force over an installed .rpm' ;;
+  esac
+  state_is "$what kept the policy" "$work/$f.txt" UPGRADE etc/plock/config.json exists
+  state_is "$what kept the key" "$work/$f.txt" UPGRADE var/lib/plock/plock.key exists
+  state_is "$what kept the audit trail" "$work/$f.txt" UPGRADE var/log/plock/plock.log exists
+  for p in etc/plock/config.json var/lib/plock/plock.key var/log/plock/plock.log; do
+    if grep -q "^SENTINEL $p=kept\$" "$work/$f.txt"; then
+      printf '  ok   %s still holds the bytes it planted (%s)\n' "$p" "$f"
+    else
+      printf '  FAIL %s was replaced, not kept, by the %s upgrade\n' "$p" "$f"
+      fail=$((fail + 1))
+    fi
+  done
+  # 0701 is the mode the probe put there, not one either package knows about. Anything else
+  # means a scriptlet chmodded a directory it did not create.
+  check "$what left a foreign mode on /var/lib/plock alone" 701 "$(field KEPTMODE "$work/$f.txt")"
+  # The erase note is the observable half of the `$1` branch: if it printed during an upgrade,
+  # the scriptlet took the erase path and unlocked the screens with it.
+  check "$what did not take the erase branch" 0 "$(field ERASENOTE "$work/$f.txt")"
+done
 if [ "$fail" -ne 0 ]; then
   printf 'package-verify: %d problem(s)\n' "$fail" >&2
   exit 1

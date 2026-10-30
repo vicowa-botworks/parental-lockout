@@ -240,7 +240,11 @@ install -m 0644 "$UNIT_SRC" "$UNIT_DST"
 if [ -d docs ]; then
   install -d -m 0755 "$DOC_DIR"
   install -d -m 0755 "$DOC_DIR/docs"
-  for f in docs/*.md; do
+  # Named, not globbed. `docs/*.md` ships whatever the repository happens to hold, and the
+  # repository holds PLAN.md -- an internal working document that would otherwise go out in a
+  # released .deb sitting next to security.md. A glob decides what ships by being edited for
+  # some other reason; this list decides it by being read.
+  for f in docs/setup.md docs/cli.md docs/security.md docs/platforms.md; do
     [ -f "$f" ] && install -m 0644 "$f" "$DOC_DIR/docs/"
   done
 fi

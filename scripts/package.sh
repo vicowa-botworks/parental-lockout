@@ -24,7 +24,12 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/package-lib.sh"
 
 FORMAT=all
-ARCH=all
+# The host's arch, not `all`. `--arch all` is a real thing to want and still works, but the
+# raw script is the entry point someone reaches for from a shell, and on x86_64 it used to
+# build the amd64 pair plus the arm64 .deb and then exit non-zero at the rpm leg -- three
+# artifacts written, a failure printed, and no explanation that rpm cannot cross-build. The
+# Makefile already defaults to the host for this reason (see ARCH there).
+ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
 OUT=dist
 BIN=${BIN_SRC:-}
 

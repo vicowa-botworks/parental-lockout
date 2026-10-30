@@ -202,6 +202,23 @@ stage() {
   arch=$2
   bin=$3
 
+  # The build's umask is part of the artifact, so it is pinned rather than inherited.
+  #
+  # `install -d` without -m, and the plain `mkdir` calls below, take the mode of every parent
+  # directory in the payload from the environment: under umask 002 the staged `./etc/` and
+  # `./usr/` are 0775, under 022 they are 0755, and the two `.deb` files of one commit then
+  # have different sha256. Measured on 30 Oct: same commit, same SOURCE_DATE_EPOCH,
+  # `umask 002` → 74f5466…, `umask 022` → 03a3ad6…, and repeating 002 reproduced the first.
+  #
+  # Nothing here can catch it afterwards. dpkg-deb records the tree it is handed, rpm builds
+  # its own parents from %files so the .rpm never showed the drift, and package-verify.sh
+  # filters exactly these scaffolding directories out of its FILE comparison -- so the gate
+  # that exists to prove the two formats agree was blind to the one input they disagreed on.
+  # Cosmetic on install (everything is root:root and a pre-existing directory keeps its own
+  # mode), but SHA256SUMS is a promise about bytes, and a promise that holds only under one
+  # umask is not a promise.
+  umask 022
+
   rm -rf "$root"
   mkdir -p "$root"
 

@@ -204,9 +204,18 @@ package:
 # PACKAGE_VERIFY=1 is required by the script itself, so this target is the explicit form of
 # "yes, pull two images and install a root daemon in each".
 package-verify:
-	@PACKAGE_VERIFY=1 scripts/package-verify.sh \
-		--deb "$(firstword $(wildcard $(PACKAGE)/*.deb))" \
-		--rpm "$(firstword $(wildcard $(PACKAGE)/*.rpm))"
+	@set -eu; \
+	debs=$$(find $(PACKAGE) -maxdepth 1 -name '*.deb' -type f 2>/dev/null | LC_ALL=C sort); \
+	rpms=$$(find $(PACKAGE) -maxdepth 1 -name '*.rpm' -type f 2>/dev/null | LC_ALL=C sort); \
+	nd=$$(printf '%s\n' "$$debs" | sed '/^$$/d' | wc -l); \
+	nr=$$(printf '%s\n' "$$rpms" | sed '/^$$/d' | wc -l); \
+	if [ "$$nd" -ne 1 ] || [ "$$nr" -ne 1 ]; then \
+		printf 'package-verify: want exactly one .deb and one .rpm in %s, found %s and %s\n' '$(PACKAGE)' "$$nd" "$$nr" >&2; \
+		printf '%s\n%s\n' "$$debs" "$$rpms" | sed '/^$$/d' | sed 's/^/  /' >&2; \
+		printf 'more than one is ambiguous: the alphabetically first artifact would be verified, and\nplock_0.0.0+32390ce_amd64.deb sorts before plock_0.3.0_amd64.deb, so the stale build\nwins and a green gate says nothing about the artifact you meant. rm -rf %s, or pass\nthe two files to scripts/package-verify.sh yourself.\n' '$(PACKAGE)' >&2; \
+		exit 1; \
+	fi; \
+	PACKAGE_VERIFY=1 scripts/package-verify.sh --deb "$$debs" --rpm "$$rpms"
 
 clean:
 	rm -rf bin

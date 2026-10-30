@@ -59,6 +59,12 @@ jobs:
         run: PACKAGE_VERIFY=1 scripts/package-verify.sh --deb dist/*.deb --rpm dist/*.rpm
 
       - name: Refuse an artifact that is not a tagged release
+        # Only a tag push has a tag to be. On a workflow_dispatch, GITHUB_REF_NAME is the
+        # branch, so the comparison below cannot succeed and the step would fail every
+        # dispatch before upload-artifact ran -- a red tick on the one path whose whole job is
+        # to leave an artifact behind (the comment at the top of this file). The tag path keeps
+        # the gate; the dispatch path has nothing to gate.
+        if: startsWith(github.ref, 'refs/tags/')
         # A tag push whose describe does not match the tag means the tag was not reachable
         # or the tree was dirty; either way the artifact would be stamped with something other
         # than the release it is being published under. Better a red tick than a release page
