@@ -1,7 +1,7 @@
 {
   "package": "./internal/audit/",
   "note": "Mutants over the audit writer: the failure policy (a lost event is counted, reported every time, and escalates) and the tamper guards (symlink, FIFO, mode, ownership, path swap) that keep a root daemon from writing the trail wherever a child points it.",
-  "expected_mutants": 55,
+  "expected_mutants": 58,
   "mutants": [
     {
       "id": "A1",
@@ -209,16 +209,16 @@
     {
       "id": "A32",
       "file": "internal/audit/audit.go",
-      "old": "\tif fi, err := statFile(f); err == nil {\n\t\tw.size = fi.Size()\n\t} else {",
-      "new": "\tif fi, err := statFile(f); err == nil {\n\t\t_, _ = fi, err\n\t\tw.size = 0\n\t} else {",
-      "note": "the bug #33 found: the bound counted from process start, so every restart added another MaxBytes before the first rotation"
+      "old": "\tw.size = fi.Size()",
+      "new": "\tw.size = 0",
+      "note": "the bug #33 found: the bound counted from process start, so every restart added another MaxBytes before the first rotation. Re-pointed when the shape and owner verdicts moved ahead of the chmod: the size is now read from the stat the guards already did, so the line is a statement on its own rather than the body of an `err == nil` arm"
     },
     {
       "id": "A33",
       "file": "internal/audit/audit.go",
-      "old": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, err)\n\t\tw.size = w.MaxBytes",
-      "new": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, err)\n\t\tw.size = 0",
-      "note": "an unmeasurable file treated as empty, which moves the bound in the same direction by a rarer route"
+      "old": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, statErr)\n\t\tw.size = w.MaxBytes",
+      "new": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, statErr)\n\t\tw.size = 0",
+      "note": "an unmeasurable file treated as empty, which moves the bound in the same direction by a rarer route. Re-pointed with the same restructure: the unmeasurable arm is an early return now, and the error variable it names is statErr, the one value that cannot be trusted"
     },
     {
       "id": "A34",
@@ -388,6 +388,27 @@
       "old": "\t\tRuleName: wire.RuleName,",
       "new": "\t\tRuleName: wire.Detail,",
       "note": "the copy is present but reads the wrong field, so every field of Record comes back non-zero and the completeness loop passes while the page shows a rule called 'changed'. This mutant exists to keep the guard honest: a loop that only asks whether a field arrived cannot see a field that arrived with someone else's value, so the explicit per-field assertions in TestTailRoundTripsEveryField and TestRuleNameReachesTheTrail are load-bearing and not redundant with it"
+    },
+    {
+      "id": "A59",
+      "file": "internal/audit/audit.go",
+      "old": "\tif !fi.Mode().IsRegular() {\n\t\tf.Close()\n\t\treturn fmt.Errorf(\"refusing to append the trail to %s: %w\", w.Path, ErrNotRegular)",
+      "new": "\tif false {\n\t\tf.Close()\n\t\treturn fmt.Errorf(\"refusing to append the trail to %s: %w\", w.Path, ErrNotRegular)",
+      "note": "the shape check at open is dead, so the descriptor is chmodded before anything asks whether it is a file: /dev/null goes to 0600 and the refusal arrives afterwards. A8 kills the same verdict in verify(); this is the copy that has to run first, because verify() runs after the chmod"
+    },
+    {
+      "id": "A60",
+      "file": "internal/audit/audit.go",
+      "old": "\tif !mine {\n\t\tf.Close()\n\t\treturn fmt.Errorf(\"%w: %s is owned by another account\", ErrNotRootOwned, w.Path)",
+      "new": "\tif false && !mine {",
+      "note": "the ownership check at open is dead, so a root daemon tightens another account's file and then declines to write it. A10 kills the verify() copy; that copy can no longer prevent the chmod, so this is the guard that carries the rule. The condition is falsified rather than the block deleted because `mine` would then be declared and unused, and a mutant that does not compile is reported as invalid, not as caught"
+    },
+    {
+      "id": "A61",
+      "file": "internal/audit/audit.go",
+      "old": "\tfi, statErr := statFile(f)",
+      "new": "\tfi, statErr := os.Stat(w.Path)",
+      "note": "the verdict is taken from the name instead of the held descriptor, which is the TOCTOU this package exists to refuse: between the stat and the chmod the path can be anything, and the file that gets chmodded need not be the file that was judged"
     }
   ]
 }

@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -52,6 +53,21 @@ func TestTheNullDeviceIsRefusedAsAnAuditPath(t *testing.T) {
 		// the run to be root to reach the shape check itself.
 		t.Skip("reaching /dev/null's shape needs a root run; the directory guard fires first otherwise")
 	}
+	// The mode is read before the writer is pointed at the node, and put back if the
+	// run finds it changed. This test is the only place the real device is reached,
+	// and a root run that leaves /dev/null at 0600 does not merely fail — it stops
+	// every later process on the machine from opening /dev/null, including the shell
+	// the next test runs in. Restoring is the difference between a red test and a
+	// bricked runner, and the assertion below is what makes the red test happen.
+	before := deviceMode(t, "/dev/null")
+	t.Cleanup(func() {
+		if now := deviceMode(t, "/dev/null"); now != before {
+			if err := os.Chmod("/dev/null", before); err != nil {
+				t.Errorf("the run changed /dev/null from %04o to %04o and it could not be put back: %v", before, now, err)
+			}
+		}
+	})
+
 	var logs []string
 	w := &Writer{Path: "/dev/null", Logf: func(f string, a ...any) { logs = append(logs, f) }}
 	defer w.Close()
@@ -65,6 +81,150 @@ func TestTheNullDeviceIsRefusedAsAnAuditPath(t *testing.T) {
 	}
 	if dropped, _ := w.Stats(); dropped != 1 {
 		t.Errorf("%d events dropped, want 1: an event that went to /dev/null is a lost event", dropped)
+	}
+	if now := deviceMode(t, "/dev/null"); now != before {
+		t.Errorf("refusing /dev/null chmodded it first: mode went %04o to %04o. The shape check runs after the fchmod, so a misconfigured unit file takes the machine's null device down with it",
+			before, now)
+	}
+}
+
+// deviceMode reads a path's permission bits for the guards that must prove they
+// left the file alone.
+func deviceMode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return fi.Mode().Perm()
+}
+
+// A refusal must not leave a mark.
+//
+// The writer opens the audit path, sets its mode on the held descriptor, and only
+// then decides whether the file is one it may append to. That order means every
+// refusal at open is also a chmod: the daemon reaches into a file it has just
+// decided is not its trail and rewrites its permissions.
+//
+// On /dev/null that is the machine's null device going to 0600 (the test above,
+// root only, and the reason it restores the mode before failing). The same defect
+// on a regular file is an arbitrary-chmod primitive with a refusal printed
+// afterwards: a root daemon pointed at another account's file tightens it to 0600
+// and then declines to write it. The ownership verdict is supplied through the
+// statFile seam because an unprivileged run cannot create a file it does not own —
+// but the mode asserted at the end is read off the real inode, so it measures
+// whether the chmod ran before the verdict rather than restating the fake.
+func TestARefusedTrailIsNotChmoddedOnTheWayToRefusingIt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plock.log")
+	const before os.FileMode = 0o640
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// WriteFile masks the mode with the umask; the point of this fixture is a file
+	// whose mode is a fact, so it is set explicitly rather than requested.
+	if err := os.Chmod(path, before); err != nil {
+		t.Fatal(err)
+	}
+
+	restore := statFile
+	statFile = func(f *os.File) (os.FileInfo, error) {
+		fi, err := f.Stat()
+		if err != nil {
+			return nil, err
+		}
+		return otherOwner{fi}, nil
+	}
+	t.Cleanup(func() { statFile = restore })
+
+	var logs []string
+	w := &Writer{Path: path, Logf: func(f string, a ...any) { logs = append(logs, f) }}
+	defer w.Close()
+
+	err := w.Write(Record{Kind: "lockout.entered"})
+	if err == nil {
+		t.Fatal("appended to a trail the writing account does not own")
+	}
+	if !strings.Contains(err.Error(), "owned by another account") {
+		t.Errorf("error %q does not name ownership as the reason", err)
+	}
+	if now := deviceMode(t, path); now != before {
+		t.Errorf("the writer refused the file and chmodded it anyway: mode went %04o to %04o. Deciding not to use a file must not rewrite it",
+			before, now)
+	}
+}
+
+// otherOwner restates a real FileInfo as one belonging to a different account.
+// See the note on charDevice for why the verdict needs a seam and the mode does
+// not.
+type otherOwner struct{ fs.FileInfo }
+
+func (o otherOwner) Sys() any {
+	st, ok := o.FileInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return o.FileInfo.Sys()
+	}
+	copied := *st
+	copied.Uid = st.Uid + 1000
+	return &copied
+}
+
+// charDevice restates a real FileInfo as the shape the writer must refuse.
+//
+// It exists because the shapes that matter — /dev/null, /dev/zero, a block device —
+// are all behind a directory an unprivileged test cannot pass the ownership guard
+// in, and mknod needs privileges CI does not have. statFile is already a seam for
+// exactly this kind of unreachable branch (see its definition); this drives the
+// shape check through it with a real descriptor on a real file, so the assertion
+// about that file's mode is a measurement and not a restatement of the fake.
+type charDevice struct{ fs.FileInfo }
+
+func (charDevice) Mode() fs.FileMode { return os.ModeDevice | os.ModeCharDevice | 0o666 }
+
+// The same ordering, on the shape half: the node is refused, so the node must be
+// the node the writer found.
+//
+// The mode asserted here is the real file's, read from the real filesystem after
+// the refusal. The fake only changes what the writer is told about the descriptor;
+// if the chmod still runs before the verdict, it lands on the real inode and this
+// reads it back.
+func TestANonRegularShapeIsRefusedBeforeTheModeIsTouched(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "plock.log")
+	const before os.FileMode = 0o644
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, before); err != nil {
+		t.Fatal(err)
+	}
+
+	restore := statFile
+	statFile = func(f *os.File) (os.FileInfo, error) {
+		fi, err := f.Stat()
+		if err != nil {
+			return nil, err
+		}
+		return charDevice{fi}, nil
+	}
+	t.Cleanup(func() { statFile = restore })
+
+	var logs []string
+	w := &Writer{Path: path, Logf: func(f string, a ...any) { logs = append(logs, f) }}
+	defer w.Close()
+
+	err := w.Write(Record{Kind: "lockout.entered"})
+	if err == nil {
+		t.Fatal("the trail was accepted on a descriptor reported as a character device")
+	}
+	if !strings.Contains(err.Error(), "regular file") {
+		t.Errorf("error %q does not say the path is not a regular file", err)
+	}
+	if dropped, _ := w.Stats(); dropped != 1 {
+		t.Errorf("%d events dropped, want 1: a refused event is a lost event", dropped)
+	}
+	if now := deviceMode(t, path); now != before {
+		t.Errorf("the writer refused the shape and chmodded it first: mode went %04o to %04o", before, now)
 	}
 }
 

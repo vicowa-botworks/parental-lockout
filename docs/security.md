@@ -104,16 +104,25 @@ reach**.
 | A trail owned by another account is refused | `TestAAuditFileOwnedByAnotherAccountIsRefusedAtAnyUmask` |
 | A symlink at the audit path is refused, including one planted after the first write | `TestASymlinkAtTheAuditPathIsRefused`, `TestASymlinkAtTheAuditPathIsRefusedByTheOpenItself`, `TestAPathReplacedByASymlinkAfterTheFirstWriteIsNamedAsASymlink` |
 | A FIFO at the audit path fails fast instead of parking the tick | `TestAFIFOAtTheAuditPathFailsFastInsteadOfParkingTheTick` |
+| A file the writer refuses is not chmodded on the way to refusing it: the verdict on shape and owner runs **before** the `fchmod` | `TestARefusedTrailIsNotChmoddedOnTheWayToRefusingIt`, `TestANonRegularShapeIsRefusedBeforeTheModeIsTouched`, `TestTheNullDeviceIsRefusedAsAnAuditPath` |
 | Rotation neither fails nor tears a line under concurrency | `TestRotationUnderConcurrencyNeverFailsOrTearsALine` |
 | Rotation bounds are counted from bytes already on disk, not from process start | audit suite |
 
-**Claim with a weaker basis than the rest.** `TestTheNullDeviceIsRefusedAsAnAuditPath` covers the
-"not a regular file" check on the held descriptor, and it is the one security test in this document
-that **skips in CI**: reaching `/dev/null`'s shape needs a root run, because `/dev` is root's and the
-directory guard fires first. The realistic version of that attack is a FIFO, which *is* covered
-unprivileged above. What is covered only under root is a character device at the audit path — which
-the child cannot create without root anyway. Stated rather than glossed, because "every claim has a
-test" is only honest if the one test that does not run in CI is named.
+**Claim with a weaker basis than the rest.** `TestTheNullDeviceIsRefusedAsAnAuditPath` is the one
+security test in this document that **skips in CI**: reaching `/dev/null`'s shape needs a root run,
+because `/dev` is root's and the directory guard fires first. The realistic version of that attack is
+a FIFO, which *is* covered unprivileged above. What is covered only under root is a character device
+at the audit path — which the child cannot create without root anyway. Stated rather than glossed,
+because "every claim has a test" is only honest if the one test that does not run in CI is named.
+
+What the root run used to be the only witness of was an *ordering*, and it no longer is. The writer
+once set the mode on the descriptor and asked what the descriptor was one step later in `verify()`,
+so every refusal at open was also a chmod: a root run aimed at `/dev/null` left it `crw-------`,
+which stops every later process on the machine from opening `/dev/null` — including the next process
+anything tries to run. The shape and owner verdicts now run ahead of `tightenMode`, and the two
+unprivileged tests above pin that by reading the real inode back after the refusal; only the device
+itself still needs root. That test now also puts `/dev/null`'s mode back before it fails, because a
+red test should not brick the runner that reports it.
 
 ---
 
@@ -286,8 +295,9 @@ the code existed; each one now names a test that runs.
 ## 7. The CLI refuses rather than repairs
 
 `plock init` runs as root and touches directories that may already exist with modes it did not
-choose. `chmod`ing a path a root process did not open is an arbitrary-chmod primitive, so the rule
-throughout is: **refuse, and say which guard fired.**
+choose. `chmod`ing a path a root process did not open is an arbitrary-chmod primitive, and
+tightening a descriptor *before* judging what it is the same primitive reached from the other side —
+the rule throughout is: **judge first, then change, and refuse rather than repair.**
 
 | Claim | Test |
 |---|---|
