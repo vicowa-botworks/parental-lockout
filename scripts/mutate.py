@@ -460,7 +460,7 @@ def fstype(path, mounts="/proc/mounts"):
     a line in a log, and a wrong filesystem name in it is worse than none.
     """
     try:
-        with open(mounts) as fh:
+        with open(mounts, encoding="utf-8") as fh:
             rows = fh.read().splitlines()
     except OSError:
         return "unknown"
