@@ -162,8 +162,22 @@ jobs:
   # It is a separate job rather than a step in `verify` because it pulls two distribution
   # images, and `verify` is the gate every developer runs on every save.
   packages:
-    name: packages
-    runs-on: ubuntu-latest
+    name: packages (${{ matrix.arch }})
+    # The same two native runners the release workflow uses, and for the same reason (see the
+    # comment in release.yml): rpm refuses to build for a foreign architecture at all, so an
+    # x86_64 runner can build an aarch64 .deb but not its .rpm, and can never put either on a
+    # machine that runs them. Before this, CI built amd64 only and the entire aarch64 path --
+    # the rpm build, and the install gate on real arm64 Debian and Fedora -- ran for the first
+    # time on a tag, which is the worst possible moment to discover it.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -176,8 +190,11 @@ jobs:
       # A clean checkout of a tag is the release case; a clean checkout of a branch is the
       # development case and gets the 0.0.0+<sha> placeholder (scripts/package-lib.sh).
       - name: Build both formats
-        run: scripts/package.sh --format all --arch amd64 --out dist
+        run: scripts/package.sh --format all --arch ${{ matrix.arch }} --out dist
 
+      # No --platform on the containers this step starts: on the arm64 runner, `debian:13` and
+      # `fedora:43` resolve to their arm64 manifests, which is what makes this an arm64 install
+      # gate rather than an amd64 one wearing an arm64 filename.
       - name: Install both, on machines that do not exist
         run: PACKAGE_VERIFY=1 scripts/package-verify.sh --deb dist/*.deb --rpm dist/*.rpm
 
