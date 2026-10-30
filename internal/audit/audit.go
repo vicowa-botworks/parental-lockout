@@ -307,6 +307,63 @@ func (w *Writer) open() error {
 	if err != nil {
 		return err
 	}
+
+	// The file is judged before it is changed.
+	//
+	// The mode is set on the descriptor, which is the only safe place to set it
+	// (see tightenMode), and that made it the one thing this function did before it
+	// knew what it had opened. The order was: open, fchmod 0600, and only in the
+	// caller's verify() ask whether the thing behind the descriptor is a file at
+	// all. So every refusal at open was also a write: point settings.auditPath at
+	// /dev/null from a root unit and the refusal arrives a microsecond after
+	// /dev/null has become crw-------, which is not a broken daemon but a machine
+	// where nothing can open /dev/null any more — including the next process
+	// anything tries to run. Point it at another account's regular file and the
+	// daemon has chmodded a file it just declined to touch: the same arbitrary-chmod
+	// primitive the descriptor was chosen to avoid, reached through the descriptor
+	// instead of through the path.
+	//
+	// internal/config already does this in the right order — checkRegular on the
+	// held descriptor, then tightenMode — and this package is the one holding the
+	// root privileges, so it is the one that cannot afford the other order.
+	//
+	// Both verdicts verify() makes about the *identity* of the file are made here
+	// now, because both are made about something the chmod would invalidate: the
+	// shape, and who owns it. The rest of verify() stays where it is — the mode and
+	// the name have to be re-checked on every write regardless, and a file that was
+	// legitimately accepted once has already been legitimately tightened.
+	fi, statErr := statFile(f)
+	if statErr != nil {
+		// Nothing is chmodded when the descriptor could not be identified: "I cannot
+		// tell what this is" is not a licence to change it. The bound goes to its
+		// conservative end, and verify() — which stats the descriptor itself — decides
+		// on the write whether this is a trail at all.
+		//
+		// maxBytes(), not MaxBytes: MaxBytes is the *configured* threshold and zero
+		// means "use the default", which is exactly what the daemon does — serve.go
+		// builds &audit.Writer{Path: …, Logf: …} and sets nothing. Reading the field
+		// there stored 0, and 0 is the permissive end: "measured as empty", the very
+		// thing this arm exists to refuse, with the log line promising a rotation that
+		// is then a full DefaultMaxBytes away.
+		w.logf("audit: cannot stat %s to measure the existing trail: %v; rotating on the next write", w.Path, statErr)
+		w.size = w.maxBytes()
+		w.f = f
+		return nil
+	}
+	if !fi.Mode().IsRegular() {
+		f.Close()
+		return fmt.Errorf("refusing to append the trail to %s: %w", w.Path, ErrNotRegular)
+	}
+	mine, err := ownerIsWriter(fi)
+	if err != nil {
+		f.Close()
+		return err
+	}
+	if !mine {
+		f.Close()
+		return fmt.Errorf("%w: %s is owned by another account", ErrNotRootOwned, w.Path)
+	}
+
 	// The mode in the open is masked by the umask, so it is a request rather than a
 	// result. Setting it on the descriptor is what makes PLAN §10's 0600 a fact
 	// about the file instead of a fact about how the daemon happened to be started.
@@ -334,16 +391,7 @@ func (w *Writer) open() error {
 	// growth this bound is sized against — which does not relax the bound. The per-tick
 	// producer is still there in KindPlatformError, and a bound that only holds while the
 	// engine behaves as expected is not a bound.
-	//
-	// A file that cannot be stat'ed is not treated as empty either — that would be the same
-	// mistake in a rarer costume — so the bound is kept at the conservative end and the next
-	// write decides.
-	if fi, err := statFile(f); err == nil {
-		w.size = fi.Size()
-	} else {
-		w.logf("audit: cannot stat %s to measure the existing trail: %v; rotating on the next write", w.Path, err)
-		w.size = w.MaxBytes
-	}
+	w.size = fi.Size()
 	return nil
 }
 

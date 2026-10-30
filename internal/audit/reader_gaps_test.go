@@ -162,6 +162,12 @@ func TestASymlinkRefusalNamesTheLink(t *testing.T) {
 // Treating an unmeasurable file as empty moves the rotation bound in the unsafe direction,
 // and it is silent unless the operator is told. The branch is unreachable without a seam --
 // see statFile -- so the test injects the refusal rather than leaving the guard unexercised.
+//
+// It runs against two constructions on purpose. The configured one is what a caller who
+// thought about rotation writes; the other is what the daemon actually builds -- serve.go
+// constructs &audit.Writer{Path: …, Logf: …} and leaves MaxBytes at zero, which means
+// "the default". A test that only ever sets MaxBytes cannot tell `w.size = w.maxBytes()`
+// from `w.size = w.MaxBytes`, and the second one stores 0 on every real deployment.
 func TestAnUnmeasurableTrailIsTreatedAsFullNotEmpty(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "plock.log")
@@ -174,32 +180,64 @@ func TestAnUnmeasurableTrailIsTreatedAsFullNotEmpty(t *testing.T) {
 	}
 	t.Cleanup(func() { statFile = restore })
 
-	w := New(path)
-	w.Now = now
-	w.MaxBytes = 400
-	w.Logf = func(format string, args ...any) {
-		mu.Lock()
-		defer mu.Unlock()
-		seen = append(seen, fmt.Sprintf(format, args...))
-	}
-	t.Cleanup(func() { w.Close() })
+	for _, tc := range []struct {
+		name string
+		// build makes the writer the way its caller would, without knowing which
+		// bound the unmeasurable arm is going to read.
+		build func(logf func(string, ...any)) *Writer
+		want  int64
+	}{
+		{
+			name: "the bound the operator configured",
+			build: func(logf func(string, ...any)) *Writer {
+				w := New(path)
+				w.MaxBytes = 400
+				w.Logf = logf
+				return w
+			},
+			want: 400,
+		},
+		{
+			// The regression. This is the only Writer the daemon builds, and against
+			// it the field reads zero -- the permissive end, "measured as empty".
+			name: "the bound the daemon actually builds",
+			build: func(logf func(string, ...any)) *Writer {
+				return &Writer{Path: path, Logf: logf}
+			},
+			want: DefaultMaxBytes,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mu.Lock()
+			seen = nil // each subtest judges its own warning, not the previous one's
+			mu.Unlock()
+			w := tc.build(func(format string, args ...any) {
+				mu.Lock()
+				defer mu.Unlock()
+				seen = append(seen, fmt.Sprintf(format, args...))
+			})
+			w.Now = now
+			t.Cleanup(func() { w.Close() })
 
-	if err := w.Write(Record{Kind: "lock.asserted", Username: "kid"}); err != nil {
-		t.Fatal(err)
-	}
-	// The conservative end: the bound is already reached, so the NEXT write rotates rather
-	// than appending past what the operator configured. Zero here would mean "start over",
-	// and a trail that cannot be measured would then never rotate at all.
-	if w.size != 400 {
-		t.Errorf("an unmeasurable trail resolved to %d bytes against a 400-byte bound; it must resolve to the bound", w.size)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(seen) == 0 {
-		t.Fatal("the writer guessed at the size without saying so")
-	}
-	if !strings.Contains(seen[0], "cannot stat") {
-		t.Errorf("the warning does not say measurement failed: %q", seen[0])
+			if err := w.Write(Record{Kind: "lock.asserted", Username: "kid"}); err != nil {
+				t.Fatal(err)
+			}
+			// The conservative end: the bound is already reached, so the NEXT write
+			// rotates rather than appending past what the operator configured. Zero
+			// here would mean "start over", and a trail that cannot be measured would
+			// then never rotate at all.
+			if w.size != tc.want {
+				t.Errorf("an unmeasurable trail resolved to %d bytes against a %d-byte bound; it must resolve to the bound", w.size, tc.want)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(seen) == 0 {
+				t.Fatal("the writer guessed at the size without saying so")
+			}
+			if !strings.Contains(seen[0], "cannot stat") {
+				t.Errorf("the warning does not say measurement failed: %q", seen[0])
+			}
+		})
 	}
 }
 
