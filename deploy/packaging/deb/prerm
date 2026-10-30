@@ -1,0 +1,27 @@
+#!/bin/sh
+# prerm -- the .deb's pre-removal step.
+#
+# Removing the binary under a running daemon leaves a service that enforces from a
+# definition whose program is gone, so a removal does stop it. That is the one destructive
+# thing this scriptlet does, and it is what deploy/install.sh --uninstall does too.
+#
+# An *upgrade* does not stop it. Replacing the file on disk is not a reason to unlock every
+# screen on the machine mid-evening: the running daemon keeps enforcing with the code it
+# started with, and the operator restarts it when they choose. A package that restarted a
+# locking daemon silently would be restarting it into whatever the new binary's first tick
+# decides, which is a policy change nobody approved.
+set -eu
+
+case "${1:-}" in
+remove | deconfigure | failed-upgrade | disappear-overwrite)
+  if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    # Each call is allowed to fail: the unit may never have been enabled, and a machine
+    # where plock was installed but never started must still be able to remove it. Failing
+    # here would leave the package half-removed with no way forward but --force-remove.
+    systemctl stop plock >/dev/null 2>&1 || true
+    systemctl disable plock >/dev/null 2>&1 || true
+  fi
+  ;;
+esac
+
+exit 0

@@ -54,3 +54,6 @@ __pycache__/
 # a run that finishes. Ignored so a run stopped by an uncatchable signal cannot have its marker
 # swept into a commit by `git add -A`; its presence is still what the next run refuses on.
 /.plock-mutant-journal.json
+
+# packaging artifacts (scripts/package.sh); never commit a built package
+/dist

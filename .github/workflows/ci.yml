@@ -91,8 +91,16 @@ jobs:
           "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" \
             deploy/install.sh \
             deploy/run-dev.sh \
+            deploy/packaging/deb/postinst \
+            deploy/packaging/deb/prerm \
+            deploy/packaging/deb/postrm \
             scripts/check-builds.sh \
             scripts/check-deps.sh \
+            scripts/package.sh \
+            scripts/package-lib.sh \
+            scripts/package-deb.sh \
+            scripts/package-rpm.sh \
+            scripts/package-verify.sh \
             testing/e2e/e2e.sh \
             testing/e2e/forge-hint.sh \
             testing/e2e/lib.sh \
@@ -141,3 +149,37 @@ jobs:
       # locally. It checks the checker first, then every set in the tree.
       - name: Check every mutant still applies and compiles
         run: make check-mutations
+
+  # The two package formats are built from one staged tree and then installed on two real
+  # distributions that are not this runner, so that "the .deb and the .rpm contain the same
+  # program in the same places" is a measured claim rather than a hope.
+  #
+  # This is the job that would have caught the first draft of the spec: rpm's install
+  # post-processing stripped the ELF payload, so the .rpm's binary differed from the .deb's
+  # at byte 41 -- identical build info, 1016 bytes of padding, two different hashes for one
+  # release. Nothing that reads one package at a time can see that.
+  #
+  # It is a separate job rather than a step in `verify` because it pulls two distribution
+  # images, and `verify` is the gate every developer runs on every save.
+  packages:
+    name: packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      # A clean checkout of a tag is the release case; a clean checkout of a branch is the
+      # development case and gets the 0.0.0+<sha> placeholder (scripts/package-lib.sh).
+      - name: Build both formats
+        run: scripts/package.sh --format all --arch amd64 --out dist
+
+      - name: Install both, on machines that do not exist
+        run: PACKAGE_VERIFY=1 scripts/package-verify.sh --deb dist/*.deb --rpm dist/*.rpm
+
+      - name: Show what would be published
+        run: cat dist/SHA256SUMS

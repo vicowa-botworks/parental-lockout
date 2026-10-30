@@ -38,6 +38,40 @@ GNOME-only machine a lock is confirmed on the tick that moves logind's hint and 
 unconfirmed on every tick after it. You need root on the machine, and one other device on the
 same network to act as the parent's browser; a phone is fine.
 
+### From a package
+
+Every release carries a `.deb` and an `.rpm` for amd64 and arm64 on the
+[releases page](https://github.com/vicowa-botworks/parental-lockout/releases), with one
+`SHA256SUMS` over all four:
+
+```sh
+sha256sum -c SHA256SUMS                   # before you install any of them
+sudo dpkg -i plock_<version>_amd64.deb    # Debian, Ubuntu
+sudo rpm -i plock-<version>-1.x86_64.rpm  # Fedora, RHEL
+```
+
+A package is built by staging with [`deploy/install.sh`](deploy/install.sh) rather than by a
+second recipe, so it puts the same files in the same places with the same modes as the source
+install below. That is not a claim the build makes about itself: `make package-verify` installs
+both formats into throwaway Debian and Fedora images and compares what each one did — same
+binary, same unit, same paths, same modes, nothing enabled — because two formats are exactly how
+one program ends up behaving differently depending on whether the operator typed `apt` or `dnf`.
+
+A package also starts and enables nothing and never writes the config file, for the same reasons
+as below. What differs is only the word for "and delete my data":
+
+```sh
+sudo dpkg -r plock    # leaves the policy, the key and the audit trail alone
+sudo dpkg -P plock    # deletes the policy and the key; keeps the audit trail
+sudo rpm -e plock     # leaves everything; rpm has no purge
+```
+
+No package operation deletes the audit trail. `deploy/install.sh --uninstall --purge` does, and
+says so before you run it — that is a decision to make once, in front of you, rather than one
+that fits inside a word in a script.
+
+### From source
+
 ```sh
 git clone https://github.com/vicowa-botworks/parental-lockout
 cd parental-lockout

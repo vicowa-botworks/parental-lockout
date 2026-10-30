@@ -1,0 +1,146 @@
+name: Release
+
+# Publishing is a tag push, and nothing else publishes. A release that can be produced by a
+# merge is a release that happens by accident, and this one ships a root daemon whose first
+# act is to lock other people's screens.
+on:
+  push:
+    tags:
+      - 'v*'
+  # A dispatch builds the artifacts and leaves them as a workflow artifact. It does not
+  # publish: there is no tag to publish, and creating one from a workflow is how a tag named
+  # after a guess ends up on the repo.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  artifacts:
+    name: artifacts (${{ matrix.arch }})
+    # Each architecture is built on a runner of that architecture, and the reason is rpm: it
+    # refuses to build for a foreign one at all (`No compatible architectures found for build`),
+    # and neither --target nor _cross_platform lifts it. Cross-building the .deb works, so the
+    # alternative would be shipping one format on one architecture and half a format on the other.
+    #
+    # Building natively is also what makes the install gate mean something on arm64: an x86_64
+    # runner can only ever build an aarch64 package, never put it on a machine.
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The version comes from `git describe --tags`, and a depth-1 checkout has no tags,
+          # so without this every artifact would be stamped 0.0.0+<sha> and the release would
+          # carry a version that is not the tag it was cut from.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - name: Build both formats
+        run: scripts/package.sh --format all --arch ${{ matrix.arch }} --out dist
+
+      # Both architectures are installed and compared, because both are built natively: the
+      # amd64 pair goes onto an x86_64 Fedora and Debian, the arm64 pair onto aarch64 ones. This
+      # is the check that a cross-build could never have run -- building a package proves the
+      # bytes, installing it proves the scriptlets, the modes and the dependency.
+      - name: Install both, on machines that do not exist
+        run: PACKAGE_VERIFY=1 scripts/package-verify.sh --deb dist/*.deb --rpm dist/*.rpm
+
+      - name: Refuse an artifact that is not a tagged release
+        # A tag push whose describe does not match the tag means the tag was not reachable
+        # or the tree was dirty; either way the artifact would be stamped with something other
+        # than the release it is being published under. Better a red tick than a release page
+        # where the files and the version disagree.
+        run: |
+          set -euo pipefail
+          got=$(git describe --tags --exact-match HEAD 2>/dev/null || echo '')
+          if [ "$got" != "${GITHUB_REF_NAME}" ]; then
+            echo "HEAD is not exactly the tag ${GITHUB_REF_NAME} (describe says '${got:-nothing}')" >&2
+            echo "a release artifact must be built from the tag it publishes" >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plock-${{ github.ref_name }}-${{ matrix.arch }}
+          path: dist/
+          retention-days: 30
+
+  release:
+    name: publish
+    needs: artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: plock-${{ github.ref_name }}-*
+          path: staged
+          merge-multiple: true
+
+      # One checksums file over everything that ships, computed here rather than per build:
+      # two arch jobs each writing SHA256SUMS would produce two files claiming to be the
+      # checksums of the release.
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd staged
+          rm -f SHA256SUMS
+          find . -maxdepth 1 \( -name '*.deb' -o -name '*.rpm' \) -type f -printf '%P\n' |
+            LC_ALL=C sort | xargs -r sha256sum >SHA256SUMS
+          cat SHA256SUMS
+          if [ "$(wc -l <SHA256SUMS)" -lt 4 ]; then
+            echo "expected at least four artifacts (two formats, two architectures)" >&2
+            exit 1
+          fi
+
+      - name: Release notes
+        run: |
+          set -euo pipefail
+          cat >notes.md <<'NOTES'
+          Install the package for your distribution, then create the policy before starting
+          anything:
+
+              sudo dpkg -i plock_<version>_amd64.deb      # Debian, Ubuntu
+              sudo rpm -i plock-<version>-1.x86_64.rpm    # Fedora, RHEL
+
+              sudo plock init --username YOUR_LOGIN --password-stdin
+              sudo plock doctor
+              sudo systemctl enable --now plock
+
+          Installing does not start or enable the service, and it does not write a policy
+          file. Both are decisions the operator makes once, in front of them: the first
+          lockout should happen on a day somebody chose, and the admin credential should be
+          a password somebody typed.
+
+          `plock doctor` is the step not to skip -- it says whether this machine can actually
+          lock its screen, which is a different question from whether the daemon is running.
+
+          Verify the files before installing them:
+
+              sha256sum -c SHA256SUMS
+
+          NOTES
+          cat notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --verify-tag \
+            --title "plock ${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            staged/*

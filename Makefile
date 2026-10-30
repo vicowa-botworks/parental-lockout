@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify check-mutations mutate clean install uninstall run-dev
+.PHONY: build fmt vet test verify check-mutations mutate package package-verify clean install uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -171,6 +171,42 @@ check-mutations:
 # filed for.
 mutate: check-mutations
 	@GO="$(GO)" python3 -u scripts/mutate.py
+
+# package builds the installable artifacts (.deb and .rpm) under dist/.
+#
+# It is not a prerequisite of `install` and not part of `verify`, for the reason the repo
+# already draws between verify and mutate: packaging needs dpkg, and an rpm build needs a
+# container runtime, so a gate that requires them is a gate people skip. What it does need
+# is the payload coming from deploy/install.sh, which is why `make package` cannot invent a
+# second layout for the same program -- see scripts/package-lib.sh.
+#
+# ARCH defaults to this machine's, because rpm builds only for the machine it runs on: an
+# aarch64 rpm cannot be produced on x86_64 at all, so `--arch all` here would build three of
+# four artifacts and then stop. The release workflow is where all four get built, one job per
+# architecture on a runner of that architecture (`.github/workflows/release.yml`). A cross
+# .deb is fine and useful: `make package ARCH=arm64` on x86_64 gives you one.
+#
+# The version is `git describe --tags`, and a dirty tree is refused: an artifact stamped with
+# a commit that does not contain the code in it is a false report about what is locking your
+# children's screens. PKG_VERSION=x.y.z overrides for a release build, ALLOW_DIRTY=1 for a
+# throwaway.
+PACKAGE ?= dist
+ARCH ?= $(shell uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+
+package:
+	@scripts/package.sh --format all --arch $(ARCH) --out $(PACKAGE)
+
+# package-verify installs both artifacts into two throwaway distributions and compares what
+# each one did: same binary, same unit, same paths, same modes, nothing enabled, and the
+# state surviving the teardown each format promises. It is the only check that can see the
+# failure two formats make easy -- the .deb and the .rpm disagreeing.
+#
+# PACKAGE_VERIFY=1 is required by the script itself, so this target is the explicit form of
+# "yes, pull two images and install a root daemon in each".
+package-verify:
+	@PACKAGE_VERIFY=1 scripts/package-verify.sh \
+		--deb "$(firstword $(wildcard $(PACKAGE)/*.deb))" \
+		--rpm "$(firstword $(wildcard $(PACKAGE)/*.rpm))"
 
 clean:
 	rm -rf bin

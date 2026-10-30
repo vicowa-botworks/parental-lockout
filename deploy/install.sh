@@ -60,6 +60,9 @@ sysd() {
     "Environment:" \
     "  DESTDIR      stage under a prefix instead of the live system (no systemctl)" \
     "  BIN_SRC      binary to install  (default bin/plock)" \
+    "  BIN_ARCH     architecture the binary is for (default: this machine's). A different" \
+    "               one is checked against the binary's ELF header instead of run, which is" \
+    "               what a cross-built package needs and still refuses a wrong-arch file." \
     "  UNIT_SRC     unit file to install (default deploy/plock.service)" "" \
     "Neither starting nor enabling the service is this script's doing; it prints the" \
     "command and waits."
@@ -167,12 +170,59 @@ fi
 # ---------------------------------------------------------------------------
 
 [ -f "$BIN_SRC" ] || die "no binary at $BIN_SRC -- run \`make build' first (or set BIN_SRC)"
-# Executing it is the check. A file that exists is not necessarily the program: a stale
-# binary from another branch, an architecture mismatch from a cross build, or a truncated
-# copy from a half-finished scp all pass a plain existence test, and the failure would
-# surface as a crash loop on a machine that is supposed to be enforcing tonight.
-if ! "$BIN_SRC" version >/dev/null 2>&1; then
-  die "$BIN_SRC does not run on this machine. Try: $BIN_SRC version"
+
+# BIN_ARCH is the architecture the binary is meant for, and it defaults to this machine's.
+#
+# Executing it is the check. A file that exists is not necessarily the program: a stale binary
+# from another branch, an architecture mismatch from a cross build, or a truncated copy from a
+# half-finished scp all pass a plain existence test, and the failure would surface as a crash
+# loop on a machine that is supposed to be enforcing tonight.
+#
+# A cross build cannot be executed here no matter how correct it is, so saying "set BIN_ARCH to
+# skip the check" would put an off switch on the guard. The assertion is the same either way --
+# this is the program we mean, for the machine we mean -- only the means of answering it
+# changes: read the ELF header instead of running it. That is also a stronger cross check than
+# the one it replaces, because it names the architecture the package claims to be.
+BIN_ARCH=${BIN_ARCH:-}
+
+host_arch() {
+  case "$(uname -m)" in
+    x86_64) printf 'amd64\n' ;;
+    aarch64) printf 'arm64\n' ;;
+    *) printf '%s\n' "$(uname -m)" ;;
+  esac
+}
+
+# elf_machine prints an ELF file's e_machine as a decimal number, and nothing when the file is
+# not an ELF. Offset 18, two bytes, little-endian: both architectures this project packages are
+# little-endian, and anything else prints a number no case arm matches, so the check fails
+# closed rather than guessing.
+elf_machine() {
+  magic=$(od -An -tu1 -N4 "$1" 2>/dev/null | tr -d ' \n')
+  [ "$magic" = "127697670" ] || return 0
+  b0=$(od -An -tu1 -j18 -N1 "$1" 2>/dev/null | tr -d ' \n')
+  b1=$(od -An -tu1 -j19 -N1 "$1" 2>/dev/null | tr -d ' \n')
+  [ -n "$b0" ] && [ -n "$b1" ] || return 0
+  printf '%s\n' "$((b0 + b1 * 256))"
+}
+
+want_arch=${BIN_ARCH:-$(host_arch)}
+case "$want_arch" in
+  amd64) want_machine=62 ;;  # EM_X86_64
+  arm64) want_machine=183 ;; # EM_AARCH64
+  *) die "BIN_ARCH '$want_arch' is not amd64 or arm64" ;;
+esac
+
+if [ "$want_arch" = "$(host_arch)" ]; then
+  if ! "$BIN_SRC" version >/dev/null 2>&1; then
+    die "$BIN_SRC does not run on this machine. Try: $BIN_SRC version"
+  fi
+else
+  got_machine=$(elf_machine "$BIN_SRC")
+  if [ "$got_machine" != "$want_machine" ]; then
+    die "$BIN_SRC is not a program for $want_arch (its ELF e_machine is ${got_machine:-not an ELF at all}; $want_arch is $want_machine).
+     Refusing to install a binary for a machine that is not the one being packaged."
+  fi
 fi
 
 # 0755, not 0700: the daemon execs nothing by path that a user runs, but `plock doctor` and
