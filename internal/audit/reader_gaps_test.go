@@ -226,6 +226,13 @@ func TestAnUnmeasurableTrailIsTreatedAsFullNotEmpty(t *testing.T) {
 			// rotates rather than appending past what the operator configured. Zero
 			// here would mean "start over", and a trail that cannot be measured would
 			// then never rotate at all.
+			//
+			// What this asserts is the first write. rotate() ends in open(), so on a trail
+			// that stays unmeasurable the arm runs again and re-arms the bound: one record
+			// per generation, warning and all, rather than one rotation and then a recovered
+			// measurement. Measured, not asserted here -- this subtest writes once, and the
+			// multi-write behaviour is recorded in issue #186 rather than pinned by a test.
+			// Conservative in both cases; the sentence is what had to stop claiming more.
 			if w.size != tc.want {
 				t.Errorf("an unmeasurable trail resolved to %d bytes against a %d-byte bound; it must resolve to the bound", w.size, tc.want)
 			}

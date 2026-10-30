@@ -335,9 +335,27 @@ func (w *Writer) open() error {
 	fi, statErr := statFile(f)
 	if statErr != nil {
 		// Nothing is chmodded when the descriptor could not be identified: "I cannot
-		// tell what this is" is not a licence to change it. The bound goes to its
-		// conservative end, and verify() — which stats the descriptor itself — decides
-		// on the write whether this is a trail at all.
+		// tell what this is" is not a licence to change it.
+		//
+		// What happens next depends on why the stat failed, and the two cases do not look
+		// alike. Both measured in #186, by a temporary probe in this package that was then
+		// deleted; neither is pinned by a shipped test, so treat this as a description of
+		// what was observed, not of what is asserted.
+		//
+		//   Through the seam below — what the tests exercise — every later write still
+		//   measures. rotate() ends in open(), so this arm runs again after each rotation and
+		//   sets the bound again: the trail shards one record per generation and the line
+		//   above prints on every write. Conservative for disk, and it never recovers on its
+		//   own, so "rotating on the next write" describes the first rotation only.
+		//
+		//   On a genuine fstat failure the operator sees neither. verify() calls
+		//   w.f.Stat() directly (it does not read this seam), so the same failure refuses
+		//   every write as a dropped event: nothing rotates, nothing shards, and the counter
+		//   this arm just set is never consulted again.
+		//
+		// So what this arm buys is the honesty of the counter and of the sentence printed
+		// beside it — pinned by A62 — not a change in on-disk layout for the failure it
+		// exists for.
 		//
 		// maxBytes(), not MaxBytes: MaxBytes is the *configured* threshold and zero
 		// means "use the default", which is exactly what the daemon does — serve.go
