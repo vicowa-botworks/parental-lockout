@@ -336,11 +336,17 @@ func (w *Writer) open() error {
 	if statErr != nil {
 		// Nothing is chmodded when the descriptor could not be identified: "I cannot
 		// tell what this is" is not a licence to change it. The bound goes to its
-		// conservative end for the same reason it always has, and verify() — which
-		// stats the descriptor itself — decides on the write whether this is a trail
-		// at all.
+		// conservative end, and verify() — which stats the descriptor itself — decides
+		// on the write whether this is a trail at all.
+		//
+		// maxBytes(), not MaxBytes: MaxBytes is the *configured* threshold and zero
+		// means "use the default", which is exactly what the daemon does — serve.go
+		// builds &audit.Writer{Path: …, Logf: …} and sets nothing. Reading the field
+		// there stored 0, and 0 is the permissive end: "measured as empty", the very
+		// thing this arm exists to refuse, with the log line promising a rotation that
+		// is then a full DefaultMaxBytes away.
 		w.logf("audit: cannot stat %s to measure the existing trail: %v; rotating on the next write", w.Path, statErr)
-		w.size = w.MaxBytes
+		w.size = w.maxBytes()
 		w.f = f
 		return nil
 	}

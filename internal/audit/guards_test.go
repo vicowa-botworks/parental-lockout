@@ -59,9 +59,9 @@ func TestTheNullDeviceIsRefusedAsAnAuditPath(t *testing.T) {
 	// every later process on the machine from opening /dev/null, including the shell
 	// the next test runs in. Restoring is the difference between a red test and a
 	// bricked runner, and the assertion below is what makes the red test happen.
-	before := deviceMode(t, "/dev/null")
+	before := filePerm(t, "/dev/null")
 	t.Cleanup(func() {
-		if now := deviceMode(t, "/dev/null"); now != before {
+		if now := filePerm(t, "/dev/null"); now != before {
 			if err := os.Chmod("/dev/null", before); err != nil {
 				t.Errorf("the run changed /dev/null from %04o to %04o and it could not be put back: %v", before, now, err)
 			}
@@ -82,15 +82,16 @@ func TestTheNullDeviceIsRefusedAsAnAuditPath(t *testing.T) {
 	if dropped, _ := w.Stats(); dropped != 1 {
 		t.Errorf("%d events dropped, want 1: an event that went to /dev/null is a lost event", dropped)
 	}
-	if now := deviceMode(t, "/dev/null"); now != before {
+	if now := filePerm(t, "/dev/null"); now != before {
 		t.Errorf("refusing /dev/null chmodded it first: mode went %04o to %04o. The shape check runs after the fchmod, so a misconfigured unit file takes the machine's null device down with it",
 			before, now)
 	}
 }
 
-// deviceMode reads a path's permission bits for the guards that must prove they
-// left the file alone.
-func deviceMode(t *testing.T, path string) os.FileMode {
+// filePerm reads a path's permission bits for the guards that must prove they left
+// the file alone. It is used on ordinary files and on /dev/null alike, so the name says
+// what it reads rather than what the first caller passed it.
+func filePerm(t *testing.T, path string) os.FileMode {
 	t.Helper()
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -148,7 +149,7 @@ func TestARefusedTrailIsNotChmoddedOnTheWayToRefusingIt(t *testing.T) {
 	if !strings.Contains(err.Error(), "owned by another account") {
 		t.Errorf("error %q does not name ownership as the reason", err)
 	}
-	if now := deviceMode(t, path); now != before {
+	if now := filePerm(t, path); now != before {
 		t.Errorf("the writer refused the file and chmodded it anyway: mode went %04o to %04o. Deciding not to use a file must not rewrite it",
 			before, now)
 	}
@@ -223,7 +224,7 @@ func TestANonRegularShapeIsRefusedBeforeTheModeIsTouched(t *testing.T) {
 	if dropped, _ := w.Stats(); dropped != 1 {
 		t.Errorf("%d events dropped, want 1: a refused event is a lost event", dropped)
 	}
-	if now := deviceMode(t, path); now != before {
+	if now := filePerm(t, path); now != before {
 		t.Errorf("the writer refused the shape and chmodded it first: mode went %04o to %04o", before, now)
 	}
 }

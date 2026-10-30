@@ -1,7 +1,7 @@
 {
   "package": "./internal/audit/",
   "note": "Mutants over the audit writer: the failure policy (a lost event is counted, reported every time, and escalates) and the tamper guards (symlink, FIFO, mode, ownership, path swap) that keep a root daemon from writing the trail wherever a child points it.",
-  "expected_mutants": 58,
+  "expected_mutants": 59,
   "mutants": [
     {
       "id": "A1",
@@ -216,9 +216,9 @@
     {
       "id": "A33",
       "file": "internal/audit/audit.go",
-      "old": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, statErr)\n\t\tw.size = w.MaxBytes",
+      "old": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, statErr)\n\t\tw.size = w.maxBytes()",
       "new": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, statErr)\n\t\tw.size = 0",
-      "note": "an unmeasurable file treated as empty, which moves the bound in the same direction by a rarer route. Re-pointed with the same restructure: the unmeasurable arm is an early return now, and the error variable it names is statErr, the one value that cannot be trusted"
+      "note": "an unmeasurable file treated as empty, which moves the bound in the same direction by a rarer route. Re-pointed twice: once when the unmeasurable arm became an early return naming statErr, and again when the bound started reading maxBytes() -- the field it used to name is the configured threshold, which is zero on the writer the daemon builds"
     },
     {
       "id": "A34",
@@ -408,7 +408,14 @@
       "file": "internal/audit/audit.go",
       "old": "\tfi, statErr := statFile(f)",
       "new": "\tfi, statErr := os.Stat(w.Path)",
-      "note": "the verdict is taken from the name instead of the held descriptor, which is the TOCTOU this package exists to refuse: between the stat and the chmod the path can be anything, and the file that gets chmodded need not be the file that was judged"
+      "note": "the verdict stops arriving through the seam and reads the name instead of the held descriptor. What this mutant proves is exactly that: the fake hangs off statFile, so routing around it makes the guards blind and the tests say so. It cannot demonstrate the TOCTOU the swap would open -- no test plants a change between the stat and the chmod -- so the claim in the code comment is the thing under test here, not this mutant. A31 kills the same substitution in tightenMode, where a path swap after the open is measured for real"
+    },
+    {
+      "id": "A62",
+      "file": "internal/audit/audit.go",
+      "old": "\t\tw.size = w.maxBytes()",
+      "new": "\t\tw.size = w.MaxBytes",
+      "note": "the bound read from the field instead of the accessor. MaxBytes is the configured threshold and zero means 'the default', which is what the daemon does -- serve.go builds &audit.Writer{Path: …, Logf: …} and sets nothing -- so this stores 0, the permissive end, while the line above it promises a rotation that is then a full DefaultMaxBytes away. A33 cannot see the difference because it zeroes both; only the subtest that builds the writer the way serve.go does can, which is why that subtest exists"
     }
   ]
 }
