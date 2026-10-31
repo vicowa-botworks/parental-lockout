@@ -113,12 +113,20 @@ jobs:
     # Only a tag push has a tag to publish. Without this the job still runs on a
     # workflow_dispatch -- needs: artifacts is satisfied, the artifacts download, and the last
     # step calls `gh release create "$GITHUB_REF_NAME" --verify-tag` with GITHUB_REF_NAME set to
-    # the branch, which fails. The step-level guard at the artifacts job does not cover this job:
-    # it skips its own step, the job succeeds, and this one runs anyway. So the contract this file
-    # states at the top -- a dispatch builds artifacts and does not publish -- was being enforced
-    # by an API 404 rather than by a condition, and every manual dispatch printed a red Release
-    # run next to a green artifact. A guard that has to fail in order to be true is not a guard;
+    # the branch. The step-level guard at the artifacts job does not cover this job: it skips its
+    # own step, the job succeeds, and this one runs anyway. So the contract this file states at
+    # the top -- a dispatch builds artifacts and does not publish -- was being enforced by an API
+    # 404 rather than by a condition. A guard that has to fail in order to be true is not a guard;
     # it is a surprise with a log.
+    #
+    # How that failure would have been worded is stated as a mechanism, not as an observation:
+    # this job has produced zero log lines from its Publish step in this repository's history. The
+    # workflow has run twice and `publish` was `skipped` in both, so nobody has seen it fail at the
+    # tag or at anything else. What the step would have hit, from the gh source and a local
+    # reproduction, is `failed to run git: fatal: not a git repository` -- there is no checkout
+    # here, so `gh` has no repository to act on -- and after the GH_REPO line in that step, a
+    # branch name would reach the API and fail on --verify-tag instead. Either way it fails before
+    # creating anything; the point of the `if:` is that it now fails by not running.
     if: startsWith(github.ref, 'refs/tags/')
     # `contents: write` is what `gh release create` needs, and it is the only scope this job asks
     # for. `actions: read` is deliberately NOT here: an earlier version of this comment justified
@@ -153,7 +161,12 @@ jobs:
 
       # One checksums file over everything that ships, computed here rather than per build:
       # two arch jobs each writing SHA256SUMS would produce two files claiming to be the
-      # checksums of the release.
+      # checksums of the release. They do in fact arrive as two files with one name -- each leg
+      # writes dist/SHA256SUMS, and `merge-multiple: true` unpacks both onto the same
+      # staged/SHA256SUMS, so one silently overwrites the other. Harmless only because the step
+      # below truncates the file and rewrites it from the packages actually present; if it ever
+      # stops doing that, the surviving checksums list is whichever leg uploaded last, and it
+      # would still verify.
       - name: Checksums
         run: |
           set -euo pipefail
@@ -206,6 +219,15 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has no checkout step, so there is no git remote in the cwd for `gh` to read,
+          # and `gh` resolves a repository from --repo, then GH_REPO, then that remote -- it does
+          # NOT read the runner's GITHUB_REPOSITORY. Without this the step dies before any HTTP
+          # request with `failed to run git: fatal: not a git repository`, which means the tag is
+          # never consulted, --verify-tag is never evaluated, and `contents: write` is never asked
+          # for. Measured with gh 2.67.0 in an empty directory: unset GH_REPO and the failure is
+          # the git one; with GH_REPO set the same command reaches the API and answers "tag
+          # v0.0.0-probe doesn't exist in the repo ..., aborting due to --verify-tag".
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           gh release create "${GITHUB_REF_NAME}" \

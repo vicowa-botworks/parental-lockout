@@ -33,7 +33,8 @@ FORMAT=all
 # intact, on purpose: the refusal in `arches` below quotes the value it rejected, so the operator
 # who passed no flag at all sees the machine's own answer instead of being told their argument was
 # wrong. Mapping it to empty here would lose the only fact that explains the failure.
-ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+RAW_ARCH=$(uname -m)
+ARCH=$(printf '%s' "$RAW_ARCH" | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
 OUT=dist
 BIN=${BIN_SRC:-}
 
@@ -63,7 +64,7 @@ case "$ARCH" in
   all) arches="amd64 arm64" ;;
   amd64 | x86_64) arches=amd64 ;;
   arm64 | aarch64) arches=arm64 ;;
-  *) die "--arch takes amd64, arm64 or all (got '$ARCH'; this machine reports $(uname -m))" ;;
+  *) die "--arch takes amd64, arm64 or all (got '$ARCH'; this machine reports $RAW_ARCH)" ;;
 esac
 
 check_version
