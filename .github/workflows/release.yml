@@ -77,10 +77,14 @@ jobs:
         run: |
           set -euo pipefail
           safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
-          # Trim after substituting, for readability rather than legality: the substitution
-          # already guarantees nothing outside [A-Za-z0-9._-] survives, and the value never reaches
-          # either end of a name the runner inspects -- it is always bracketed by `plock-` and
-          # `-${arch}`. What the loops do is keep `plock--fix-amd64` from being `plock---fix-amd64`.
+          # Trim after substituting, for readability rather than legality: the substitution already
+          # guarantees nothing outside [A-Za-z0-9._-] survives, and the derived value never lands at
+          # either end of a name the runner inspects -- here it is bracketed by `plock-` and
+          # `-${arch}`, and in the publish job by `plock-` and the `-*` of the download pattern. What
+          # the loops do is cosmetic and measured: tag `>fix` substitutes to `-fix`, so the upload
+          # name would be `plock--fix-amd64` instead of `plock-fix-amd64`; `>>fix` would put three
+          # hyphens there. The loop strips every leading hyphen, so no trimmed value can begin with
+          # one -- `plock--` is unreachable after the trim, not merely unlikely.
           #
           # `-` is the only character they can ever meet, measured over the whole printable set as
           # the first and last character of `git tag`: 21 characters are creatable at either end
@@ -185,10 +189,14 @@ jobs:
         run: |
           set -euo pipefail
           safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
-          # Trim after substituting, for readability rather than legality: the substitution
-          # already guarantees nothing outside [A-Za-z0-9._-] survives, and the value never reaches
-          # either end of a name the runner inspects -- it is always bracketed by `plock-` and
-          # `-${arch}`. What the loops do is keep `plock--fix-amd64` from being `plock---fix-amd64`.
+          # Trim after substituting, for readability rather than legality: the substitution already
+          # guarantees nothing outside [A-Za-z0-9._-] survives, and the derived value never lands at
+          # either end of a name the runner inspects -- here it is bracketed by `plock-` and
+          # `-${arch}`, and in the publish job by `plock-` and the `-*` of the download pattern. What
+          # the loops do is cosmetic and measured: tag `>fix` substitutes to `-fix`, so the upload
+          # name would be `plock--fix-amd64` instead of `plock-fix-amd64`; `>>fix` would put three
+          # hyphens there. The loop strips every leading hyphen, so no trimmed value can begin with
+          # one -- `plock--` is unreachable after the trim, not merely unlikely.
           #
           # `-` is the only character they can ever meet, measured over the whole printable set as
           # the first and last character of `git tag`: 21 characters are creatable at either end
