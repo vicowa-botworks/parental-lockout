@@ -1,0 +1,65 @@
+#!/bin/sh
+# postinst -- the .deb's post-install step.
+#
+# It does two things: it tells systemd to re-read the unit files, and it makes sure the
+# directories the unit names exist with the modes the daemon needs.
+#
+# It does not enable plock and it does not start it. That is the same decision
+# deploy/install.sh makes and for the same reason: enabling a root daemon that locks other
+# people's sessions is a choice the operator makes once, in front of them. A package that
+# ran `systemctl enable --now` would mean the first lockout happened on the machine's next
+# boot, and the person who typed `apt install plock` to look at it would not be the person
+# expecting a locked screen.
+#
+# It also does not write /etc/plock/config.json. That file is the policy and it holds the
+# admin credential; `plock init` creates it with a password the operator supplies.
+set -eu
+
+CONF_DIR=/etc/plock
+STATE_DIR=/var/lib/plock
+LOG_DIR=/var/log/plock
+
+# systemctl is not on every system a .deb can be unpacked into -- a container image is the
+# common case, and dpkg will happily install plock there. Absent systemd means there is no
+# manager to notify, which is not a failure of the install.
+have_systemd=0
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  have_systemd=1
+fi
+
+if [ "$have_systemd" = 1 ]; then
+  systemctl daemon-reload || true
+fi
+
+# Created here rather than left to StateDirectory=/LogsDirectory= so the modes are right
+# before the first start, exactly as install.sh does. Only when absent: a directory that is
+# already there belongs to whoever made it, and a package chmodding it on upgrade is the
+# arbitrary-chmod primitive the audit writer spends its life refusing.
+for pair in "0700 $CONF_DIR" "0700 $STATE_DIR" "0750 $LOG_DIR"; do
+  mode=${pair%% *}
+  dir=${pair#* }
+  if [ ! -d "$dir" ]; then
+    install -d -m "$mode" -o root -g root "$dir"
+  fi
+done
+
+cat <<'GUIDE'
+
+plock is installed but nothing is running, and nothing will start until you say so.
+
+There is no policy file yet. Create one, naming the account and reading the password off
+stdin so it never appears in argv or your shell history:
+
+    plock init --username YOUR_LOGIN --password-stdin
+
+Then check this machine can actually lock its screen before you make it a service:
+
+    plock doctor
+
+Start it when you are ready:
+
+    systemctl enable --now plock
+
+GUIDE
+
+exit 0

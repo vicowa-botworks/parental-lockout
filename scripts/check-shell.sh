@@ -6,13 +6,19 @@
 # error in it and found out nine minutes later on a runner. Same gap as the script-encoding
 # guard, same cost, same fix.
 #
-# The list is derived from git rather than spelled out. The CI job used a list of twelve names,
-# and a list of names is a list that goes stale: a thirteenth script added by the next PR is not
-# linted by anything until someone remembers to add it, and nothing fails when they don't.
-# `git ls-files '*.sh'` is the set of scripts the repository actually ships, so a new one is
-# linted by the PR that adds it. Measured on main the derived list was the same twelve files; on
-# this branch it is thirteen, because the script that derives it is itself a tracked shell script
-# and is therefore linted by itself.
+# The list is derived from git rather than spelled out. The CI job used to carry a list of names,
+# and a list of names is a list that goes stale: the next script added by a PR is not linted by
+# anything until someone remembers to add it, and nothing fails when they don't. Two pathspecs,
+# because one is not enough. `*.sh` is the set of scripts the repository ships by extension;
+# `deploy/packaging/deb/*` is the set it ships by convention -- dpkg maintainer scripts are
+# `postinst`, `prerm` and `postrm`, with no extension to match, and they are exactly the files the
+# hand-maintained list had picked up. Dropping them would have been silent in the worst way: the
+# step keeps printing a green tick and a smaller number. The invariant that makes the glob safe is
+# that everything under that directory IS a maintainer script, so a non-script appearing there is
+# itself the thing to catch.
+#
+# Measured on main the derived list was twelve files; on this branch it is twenty-one (five
+# packaging drivers, three maintainer scripts, and the deriving script itself).
 #
 # `.opencode/` is excluded, for the reason the CI job gave when it was hand-maintained: that tree
 # holds agent tooling that is installed nowhere and is written in bash with POSIX-undefined
@@ -33,7 +39,7 @@ set -euo pipefail
 # a relative `cd` whenever the script was invoked as `bash scripts/check-shell.sh` (dirname of that
 # $0 is `scripts`, which neither starts with `/` nor `./`). Measured with a decoy directory holding
 # its own scripts/ and its own git tree: the step printed `over 1 scripts` and exited 0 -- a pass
-# that linted one file from another repository and none of these thirteen. Neither guard downstream
+# that linted one file from another repository and none of ours. Neither guard downstream
 # can see it: one asks whether the binary exists, the other whether the list is empty, and a
 # foreign list is neither. Of the three shapes this file exists to refuse -- linted nothing, linted
 # a subset, linted the wrong thing -- this was the one that could still exit 0.
@@ -65,7 +71,7 @@ esac
 # and arrived in 4.4 (`mapfile` itself in 4.0), while `#!/usr/bin/env bash` takes whatever is first
 # on PATH -- macOS still ships 3.2, RHEL 7 ships 4.2. Without this the script dies at the mapfile
 # with `mapfile: command not found` and rc 127, which does refuse rather than pass, but says
-# nothing about a step whose entire claim is "13 scripts linted".
+# nothing about a step whose entire claim is "N scripts linted".
 if [ "${BASH_VERSINFO[0]}" -lt 4 ] ||
    { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
   printf 'check-shell: bash 4.4 or newer is required (the file list is read NUL-delimited by\n' >&2
@@ -76,7 +82,8 @@ fi
 # Anchored to the repository, not to the caller, and after the resolution above so that a
 # caller-relative binary path still means what the caller meant. `git ls-files` limits its pathspec
 # to the current directory and prints paths relative to it, so an unanchored run from testing/
-# lints 8 of 13 scripts and calls that a pass -- the same shape the empty-list guard below refuses
+# lints a subset -- 8 of 13 when measured on main -- and calls that a pass. It is the same shape
+# the empty-list guard below refuses
 # at zero. It gets worse than incomplete: shellcheck follows `source` only across the batch it is
 # handed, so the subset also produced 11 SC2034/SC1091 findings for files that are clean when the
 # whole set is passed. Both directions wrong, and only for whoever runs this directly, which is
@@ -108,7 +115,7 @@ fi
 # complaint is followed by the reason that actually applies.
 list=$(mktemp) || exit 1
 trap 'rm -f "$list"' EXIT
-if ! git ls-files -z '*.sh' > "$list"; then
+if ! git ls-files -z '*.sh' 'deploy/packaging/deb/*' > "$list"; then
   printf 'check-shell: git ls-files failed, so there is no list of scripts to lint.\n' >&2
   printf 'That is usually a checkout outside a git tree, not a pathspec problem.\n' >&2
   exit 1
@@ -119,7 +126,7 @@ mapfile -d '' -t all < "$list"
 files=()
 for f in "${all[@]}"; do
   # Prefix test by stripping, not with `case`: an empty pattern in a case arm matches every
-  # path, so `SHELLCHECK_EXCLUDE_PREFIX=` -- "exclude nothing" -- would exclude all thirteen and
+  # path, so `SHELLCHECK_EXCLUDE_PREFIX=` -- "exclude nothing" -- would exclude the whole set and
   # the run would refuse for having found nothing. Measured, and it is the wrong failure to make
   # of a flag whose whole job is to be turned off. Stripping also stops a prefix containing `*`
   # from being read as a glob.
@@ -131,7 +138,7 @@ done
 
 if [ "${#files[@]}" -eq 0 ]; then
   # Not "nothing to do, success". A gate that lints zero files prints the same green as a gate
-  # that lints thirteen, and the way that happens is the interesting one: a pathspec change, a
+  # that lints twenty-one, and the way that happens is the interesting one: a pathspec change, a
   # checkout outside a git tree, or an exclusion that grew. `verify`'s empty-selection step
   # refuses for exactly this reason.
   printf 'check-shell: no shell scripts found (excluded prefix %s), so this checked nothing.\n' \

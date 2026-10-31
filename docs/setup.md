@@ -35,6 +35,50 @@ To take it back off: `make uninstall`. That leaves `/etc/plock`, `/var/log/plock
 program's scratch space, and a refresh install should not need the rules rewritten.
 `make uninstall PURGE=1` deletes them, and nothing can reconstruct the trail afterwards.
 
+### Instead of building: the package
+
+On Ubuntu or Debian the release page carries a `.deb` (and an `.rpm`, and both for arm64):
+
+```
+sha256sum -c SHA256SUMS
+sudo dpkg -i plock_<version>_amd64.deb
+```
+
+It installs the same paths with the same modes as `make install`, because the package is
+built by staging with `deploy/install.sh` rather than by a recipe of its own — and CI installs
+both package formats into throwaway distributions and compares what each one did, so "the same
+paths" is checked rather than asserted. It starts and enables nothing and writes no config
+file either, so everything below this point is unchanged.
+
+One thing the package deliberately does *not* own: `/var/lib/plock` and `/var/log/plock`. It
+creates them in its scriptlets only when absent, and no package is ever the owner of either.
+A package that owns a directory deletes it on erase, and those two hold the TLS key and the
+audit trail — so an `apt purge` of the program would otherwise be a root command that destroys
+the evidence of what the program did. That is the whole reason `dpkg -P` above keeps the trail
+and deletes the key it was told to manage.
+
+The same reasoning is why you should not edit `/etc/systemd/system/plock.service`. It is a
+package file in both formats, so your edit is overwritten on the next upgrade — dpkg silently,
+rpm with a `.rpmnew` you have to notice. A drop-in is not a package file and survives
+everything:
+
+```
+sudo systemctl edit plock      # writes /etc/systemd/system/plock.service.d/override.conf
+sudo systemctl daemon-reload
+```
+
+Taking it back off has more than one word for it:
+
+```
+sudo dpkg -r plock    # leaves the policy, the key and the audit trail alone
+sudo dpkg -P plock    # deletes the policy and the key; keeps the audit trail
+sudo rpm -e plock     # leaves everything; rpm has no purge
+```
+
+No package operation deletes the audit trail. `make uninstall PURGE=1` does, and says so before
+you run it: taking the record of what the daemon did is a decision to make once, in front of you,
+rather than one that fits inside a word in a script.
+
 ## 2. Create the policy
 
 `plock init` is non-interactive: it needs the account name and where the password comes from.

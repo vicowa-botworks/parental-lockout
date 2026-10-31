@@ -1,0 +1,49 @@
+#!/bin/sh
+# postrm -- the .deb's post-removal step.
+#
+# `remove` leaves every byte of state alone: the policy, the credential, the private key
+# and the audit trail. Reinstalling after a remove is a normal thing to do, and a family's
+# rules surviving a package operation is the behaviour an operator should be able to
+# assume.
+#
+# `purge` deletes the policy and the key, because that is what the word is for. It does
+# NOT delete the audit trail.
+#
+# deploy/install.sh --purge does take the trail, and says so in the line the operator has
+# just read: "There is no undo for the trail." A package purge is one word in a script
+# (`apt-get purge plock`), and the trail is the one artefact someone might need *because*
+# the daemon is being taken off the machine. So the trail stays, and its location is
+# printed so it is not a secret. If the answer is that a purge should erase evidence, that
+# is a decision to make deliberately and not one to leave inside a scriptlet.
+set -eu
+
+CONF_DIR=/etc/plock
+STATE_DIR=/var/lib/plock
+LOG_DIR=/var/log/plock
+
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+case "${1:-}" in
+purge | disappear-overwrite)
+  # Only the directories this package's postinst created, and only the ones holding
+  # material the package's presence implied. rm -rf on a path that a symlink could have
+  # replaced is not something a root scriptlet should do blind, so the link check is on
+  # the path itself rather than assumed.
+  for dir in "$CONF_DIR" "$STATE_DIR"; do
+    if [ -L "$dir" ]; then
+      printf 'postrm: %s is a symlink, not a directory; leaving it alone. Remove it yourself if that is not what you expected.\n' "$dir" >&2
+      continue
+    fi
+    [ -d "$dir" ] && rm -rf -- "$dir"
+  done
+
+  if [ -d "$LOG_DIR" ] && [ ! -L "$LOG_DIR" ]; then
+    printf 'postrm: the audit trail at %s was left in place. It is the record of what the\n' "$LOG_DIR" >&2
+    printf '        daemon did; delete it when you are sure nobody needs it.\n' >&2
+  fi
+  ;;
+esac
+
+exit 0
