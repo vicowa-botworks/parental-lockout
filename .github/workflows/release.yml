@@ -79,12 +79,15 @@ jobs:
           safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
           # Trim after substituting, for readability rather than legality: the substitution already
           # guarantees nothing outside [A-Za-z0-9._-] survives, and the derived value never lands at
-          # either end of a name the runner inspects -- here it is bracketed by `plock-` and
-          # `-${arch}`, and in the publish job by `plock-` and the `-*` of the download pattern. What
-          # the loops do is cosmetic and measured: tag `>fix` substitutes to `-fix`, so the upload
-          # name would be `plock--fix-amd64` instead of `plock-fix-amd64`; `>>fix` would put three
-          # hyphens there. The loop strips every leading hyphen, so no trimmed value can begin with
-          # one -- `plock--` is unreachable after the trim, not merely unlikely.
+          # either end of a name the runner inspects -- in the artifacts job it is bracketed by
+          # `plock-` and `-${arch}`, in the publish job by `plock-` and the `-*` of the download
+          # pattern. What the loops do is cosmetic and measured: tag `>fix` substitutes to `-fix`, so
+          # the upload name would be `plock--fix-amd64` instead of `plock-fix-amd64`; `>>fix` would
+          # put three hyphens there. The loop strips every leading hyphen, so no *non-empty* trimmed
+          # value can begin with one. The one way to reach `plock--amd64` is a ref that sanitizes
+          # away entirely -- any of the 21 characters below as a whole tag name -- and that name is
+          # legal: hyphen is not on the runner's ban list, and the publish pattern `plock--*` still
+          # finds it. Empty is a cosmetic outcome, not a broken one.
           #
           # `-` is the only character they can ever meet, measured over the whole printable set as
           # the first and last character of `git tag`: 21 characters are creatable at either end
@@ -191,12 +194,15 @@ jobs:
           safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
           # Trim after substituting, for readability rather than legality: the substitution already
           # guarantees nothing outside [A-Za-z0-9._-] survives, and the derived value never lands at
-          # either end of a name the runner inspects -- here it is bracketed by `plock-` and
-          # `-${arch}`, and in the publish job by `plock-` and the `-*` of the download pattern. What
-          # the loops do is cosmetic and measured: tag `>fix` substitutes to `-fix`, so the upload
-          # name would be `plock--fix-amd64` instead of `plock-fix-amd64`; `>>fix` would put three
-          # hyphens there. The loop strips every leading hyphen, so no trimmed value can begin with
-          # one -- `plock--` is unreachable after the trim, not merely unlikely.
+          # either end of a name the runner inspects -- in the artifacts job it is bracketed by
+          # `plock-` and `-${arch}`, in the publish job by `plock-` and the `-*` of the download
+          # pattern. What the loops do is cosmetic and measured: tag `>fix` substitutes to `-fix`, so
+          # the upload name would be `plock--fix-amd64` instead of `plock-fix-amd64`; `>>fix` would
+          # put three hyphens there. The loop strips every leading hyphen, so no *non-empty* trimmed
+          # value can begin with one. The one way to reach `plock--amd64` is a ref that sanitizes
+          # away entirely -- any of the 21 characters below as a whole tag name -- and that name is
+          # legal: hyphen is not on the runner's ban list, and the publish pattern `plock--*` still
+          # finds it. Empty is a cosmetic outcome, not a broken one.
           #
           # `-` is the only character they can ever meet, measured over the whole printable set as
           # the first and last character of `git tag`: 21 characters are creatable at either end
