@@ -459,6 +459,11 @@ def fstype(path, mounts="/proc/mounts"):
     Returns "unknown" rather than guessing when /proc/mounts is unreadable or absent: this is
     a line in a log, and a wrong filesystem name in it is worse than none.
 
+    Two rows for the same mount point -- a bind over a path, or a remount over the same one -- are
+    resolved toward the later row, because that is the entry path resolution itself uses. See the
+    `>=` below; first-row-wins there names a filesystem the directory is not on, with the same
+    confidence as a correct answer.
+
     Mount points arrive octal-escaped -- proc(5) writes space as \\040, tab as \\011, newline
     as \\012 and backslash as \\134 -- so a path under `/home\\040dir` would otherwise match
     only `/` and report the root's filesystem with full confidence. That is the same
@@ -481,7 +486,13 @@ def fstype(path, mounts="/proc/mounts"):
             # because "/" would otherwise count as deep as "/tmp" and the winner would be
             # whichever row /proc/mounts happens to print first.
             depth = len(point.rstrip("/"))
-            if depth > best_len:
+            # `>=`, not `>`: a tie means the same mount point is listed twice -- a bind over a
+            # path, or a remount over the same one -- and path resolution uses the most recent
+            # entry, so the later row names the filesystem the directory is on. First-row-wins
+            # prints the other one, with the same confidence, in a log line whose only job is to
+            # be trusted later. `/` is rstripped above, so this cannot make the root row tie with
+            # anything: its depth is 0 and every other mount point is deeper.
+            if depth >= best_len:
                 best, best_len = kind, depth
     return best
 
@@ -2929,9 +2940,19 @@ def self_test():
     # rows a real machine has been measured to produce, and stay reproducible on a runner
     # whose own mounts change under them.
 
-    def _fstype_fixture(work, rows):
-        """Write a mounts table and return it, so fstype() parses bytes, not a fixture object."""
-        path = os.path.join(work, "mounts")
+    def _fstype_fixture(work, rows, name="mounts"):
+        """Write a mounts table and return it, so fstype() parses bytes, not a fixture object.
+
+        The name is a parameter, not a constant, because the table is written into a directory
+        shared by every fixture in this rule and the path is the only identity a fixture has.
+        Measured: with a fixed name, a fixture added after `both` and read before the `home`
+        assertion silently replaced the bytes `both` names, and that assertion then went red on
+        a correct implementation -- `fstype()` answered `unknown` for `/home/plock` because the
+        file it was pointed at no longer had a `/` row. Two fixtures aliasing one path is
+        invisible until one of them is read late, which is exactly how a self-test starts
+        reporting a bug that is not there.
+        """
+        path = os.path.join(work, name)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(rows) + "\n")
         return path
@@ -2953,7 +2974,7 @@ def self_test():
             both = _fstype_fixture(work, [
                 "overlay / btrfs rw 0 0",
                 f"tmpfs {tmp_root} tmpfs rw 0 0",
-            ])
+            ], name="mounts-both")
             if fstype(probe, mounts=both) != "tmpfs":
                 bad.append(f"fstype() said {fstype(probe, mounts=both)!r} for a path with a mount "
                            f"of its own under `/` -- the shallowest row won, so the run names "
@@ -2966,6 +2987,19 @@ def self_test():
             if fstype(probe, mounts=flip) != "tmpfs":
                 bad.append(f"fstype() said {fstype(probe, mounts=flip)!r} with the same two rows "
                            f"in the other order, so the answer depends on print order")
+            # One mount point listed TWICE -- a bind over a path, or a remount over the same one.
+            # The two rows above differ in depth, so nothing there pins the tie; this does. Path
+            # resolution uses the most recent entry, so the later row is the filesystem the
+            # directory is actually on, and first-row-wins prints the one it is not. Not a
+            # hypothetical: this box's own /proc/mounts lists /proc/sys/fs/binfmt_misc twice.
+            tie = _fstype_fixture(work, [
+                f"overlay {tmp_root} btrfs rw 0 0",
+                f"tmpfs {tmp_root} ext4 rw 0 0",
+            ], name="mounts-tie")
+            if fstype(probe, mounts=tie) != "ext4":
+                bad.append(f"fstype() said {fstype(probe, mounts=tie)!r} where one mount point is "
+                           f"listed twice; the most recent entry is the one path resolution uses, "
+                           f"so first-row-wins names a filesystem the directory is not on")
             # A path with nothing under it but `/` has to report `/`, not "unknown": the common
             # case on a machine whose home is the only filesystem.
             home = os.path.realpath("/home") + "/plock"
@@ -2983,7 +3017,7 @@ def self_test():
                 f"tmpfs {tmp_root} tmpfs rw 0 0",
                 f"/dev/x {tmp_root}/btrfs ext4 rw 0 0",
                 "overlay / btrfs rw 0 0",
-            ])
+            ], name="mounts-nested")
             deep = tmp_root + "/btrfs/plock-mutate-abc123"
             if fstype(deep, mounts=nested) != "ext4":
                 bad.append(f"fstype() said {fstype(deep, mounts=nested)!r} for a path under two "
@@ -2995,7 +3029,7 @@ def self_test():
             spaced = _fstype_fixture(work, [
                 "overlay / btrfs rw 0 0",
                 "tmpfs /home\\040dir ext4 rw 0 0",
-            ])
+            ], name="mounts-spaced")
             if fstype("/home dir/plock", mounts=spaced) != "ext4":
                 bad.append(f"fstype() said {fstype('/home dir/plock', mounts=spaced)!r} for a path "
                            f"under an octal-escaped mount point; matching the escaped text leaves "
