@@ -1362,7 +1362,7 @@
       "file": "internal/web/users_write.go",
       "old": "enabled := r.FormValue(\"enabled\") != \"\"",
       "new": "enabled := true",
-      "note": "a browser sends nothing for a clear checkbox, so reading absence as enabled switches an account back on every time the operator saves any other field on its row -- the row would look unchanged and the audit would say enabled. TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff."
+      "note": "a browser sends nothing for a clear checkbox, so reading absence as enabled switches an account back on every time the operator saves any other field on its row -- the row would look unchanged and the audit would say enabled. TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff. Killed twice as of #197: TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff, and the rendered-form round-trip, which now asserts the enabled flag it posts (TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts). If the checkbox test is ever edited, the rendered-form test is what remains."
     },
     {
       "id": "W146",
