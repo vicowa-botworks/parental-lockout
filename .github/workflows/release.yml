@@ -65,20 +65,22 @@ jobs:
         # path is byte-identical to what it was.
         #
         # `/` is not the whole ban, though it is the only part this repository's branch convention
-        # can produce. The runner rejects the rest of the NTFS-forbidden set, and git permits part
-        # of it: `git check-ref-format` accepts `fix>a`, `fix"a`, `fix|a`, `-fix` and `fix-`, all
-        # of which the runner would refuse (git already rejects `*`). So the substitution replaces
-        # every character outside the artifact-safe set rather than only the slash. A ref cannot
-        # start with `/`, so the substitution never creates a hyphen at either end -- but the ref
-        # can already have one there, so the value is trimmed as well as substituted. Both jobs
-        # must derive the value identically, so this block is duplicated here and at the download
-        # rather than factored: a mismatch downloads zero files.
+        # can produce. The runner rejects the rest of the NTFS-forbidden set, and git will create
+        # refs carrying part of it. The oracle is what git will make, not what its grammar parses,
+        # because `github.ref_name` comes from a ref somebody created: `git tag -- '>fix'`,
+        # '"fix', '|fix', 'fix>a' and 'fix-' are all accepted, while `*` and a trailing `.` are
+        # refused. (`git check-ref-format refs/heads/-fix` exits 0 and is the wrong test -- git
+        # refuses to *create* that name.) So the substitution replaces every character outside the
+        # artifact-safe set rather than only the slash. Both jobs must derive the value
+        # identically, so this block is duplicated here and at the download rather than factored: a
+        # mismatch downloads zero files.
         run: |
           set -euo pipefail
           safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
-          # Trim, do not replace: the runner also refuses a name that opens or closes with a
-          # punctuation character, and the substitution above can leave a hyphen there when the
-          # ref itself starts or ends with one (`-fix`, `fix-` are both valid git refs).
+          # Trim after substituting. A ref may begin with an unsafe character -- `git tag --
+          # '>fix'` creates one -- and the substitution turns that into a leading hyphen. A ref may
+          # end with `-` (`git tag -- 'v1.2.3-'` creates one) but can never begin with one, and can
+          # never end with `.`. So `-` is the only character either loop can ever be asked to strip.
           while [ "${safe#-}" != "$safe" ]; do safe=${safe#-}; done
           while [ "${safe%-}" != "$safe" ]; do safe=${safe%-}; done
           echo "safe=$safe" >> "$GITHUB_OUTPUT"
@@ -137,22 +139,24 @@ jobs:
     # 404 rather than by a condition. A guard that has to fail in order to be true is not a guard;
     # it is a surprise with a log.
     #
-    # How that failure would have been worded is stated as a mechanism, not as an observation:
-    # this job has produced zero log lines from its Publish step in this repository's history. The
-    # workflow has run twice and `publish` was `skipped` in both, so nobody has seen it fail at the
-    # tag or at anything else. What the step would have hit, from the gh source and a local
-    # reproduction, is `failed to run git: fatal: not a git repository` -- there is no checkout
-    # here, so `gh` has no repository to act on -- and after the GH_REPO line in that step, a
-    # branch name would reach the API and fail on --verify-tag instead. Either way it fails before
-    # creating anything; the point of the `if:` is that it now fails by not running.
+    # What this failure looks like is no longer a guess. Run 41184236321 dispatched the workflow on
+    # a throwaway branch with the gate below replaced -- the only execution this job has ever had --
+    # and Publish went red with `tag probe/dispatch-experiment doesn't exist in the repo ...,
+    # aborting due to --verify-tag flag`. That is the case *after* the GH_REPO line in the step
+    # below. Before it the step died earlier and elsewhere, `failed to run git: fatal: not a git
+    # repository`, reproduced locally on gh 2.46.0 and 2.67.0. Either way it fails before creating
+    # anything: tags and releases were both still length 0 after the run. The point of the `if:` is
+    # that it now fails by not running.
     if: startsWith(github.ref, 'refs/tags/')
     # `contents: write` is what `gh release create` needs, and it is the only scope this job asks
     # for. `actions: read` is deliberately NOT here: an earlier version of this comment justified
     # it by the download step below, and that was wrong twice over. download-artifact's own README
     # scopes the same-run case without any scope -- `actions:read` is what a cross-run or
-    # cross-repo download needs -- and run 41167592068 is the direct test: the artifacts job
-    # uploaded two ~8 MB artifacts under workflow-level `contents: read`, which per the docs sets
-    # every unlisted scope to none, so an in-run artifact moves with `actions: none`. A scope that
+    # cross-repo download needs -- and two runs are the direct test, one per direction. Upload:
+    # 41167592068 moved two ~8 MB artifacts under workflow-level `contents: read`, which per the
+    # docs sets every unlisted scope to none. Download: 41184236321, where this job ran with
+    # `actions: none`, set no `github-token` on the step, and pulled 16,495,047 bytes across two
+    # artifacts. An in-run artifact needs no `actions` scope in either direction. A scope that
     # cannot be named in a step is a scope not to hold; if a step ever calls the artifacts REST
     # API directly, that is the commit that adds it.
     permissions:
@@ -168,13 +172,17 @@ jobs:
         # nothing, `xargs -r` writes a zero-byte SHA256SUMS, `lines -lt 4` is true and Checksums
         # exits 1 -- so the job fails and no release is created. That guard is the reporter only
         # because the step does `mkdir -p staged` first; without it the step died at `cd` and the
-        # guard below never ran.
+        # guard below never ran. The other arm is measured too: run 41184236321 produced four real
+        # packages and the guard stayed silent, so `4` is a reachable number, not an unsatisfiable
+        # one. Only the empty arm still rests on local reproduction -- a matching download creates
+        # `staged/`, so nothing in CI has ever reached the guard with zero files.
         run: |
           set -euo pipefail
           safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
-          # Trim, do not replace: the runner also refuses a name that opens or closes with a
-          # punctuation character, and the substitution above can leave a hyphen there when the
-          # ref itself starts or ends with one (`-fix`, `fix-` are both valid git refs).
+          # Trim after substituting. A ref may begin with an unsafe character -- `git tag --
+          # '>fix'` creates one -- and the substitution turns that into a leading hyphen. A ref may
+          # end with `-` (`git tag -- 'v1.2.3-'` creates one) but can never begin with one, and can
+          # never end with `.`. So `-` is the only character either loop can ever be asked to strip.
           while [ "${safe#-}" != "$safe" ]; do safe=${safe#-}; done
           while [ "${safe%-}" != "$safe" ]; do safe=${safe%-}; done
           echo "safe=$safe" >> "$GITHUB_OUTPUT"
