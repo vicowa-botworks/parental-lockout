@@ -287,8 +287,6 @@ func TestAStaleEntryCanBeUnmanaged(t *testing.T) {
 	}
 }
 
-var selectedOptionRe = regexp.MustCompile(`(?s)<option value="([^"]*)"[^>]*selected`)
-
 // The form on the page, posted exactly as the page renders it.
 //
 // Every other test in this file hand-builds its body, which is what let the shipped logout
@@ -297,72 +295,106 @@ var selectedOptionRe = regexp.MustCompile(`(?s)<option value="([^"]*)"[^>]*selec
 // option all come out of the rendered HTML, so a template that drops the hidden field or
 // renames a control fails this test and nothing else.
 func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
-	f := newAssignFixture(t)
-	resp, _ := login(t, f.s, "parent", "hunter2")
-	c := cookieOf(t, resp)
+	// What the page MARKS and what the operator CHOOSES are different things, and conflating them is
+	// what kept the old fallback invisible for a whole round. The template marks the option equal to
+	// the account's CURRENT profile (users.tmpl:88), so on a row that already has an entry the marked
+	// value, the posted value and the pre-existing document are all the same string -- "the stored id
+	// equals the marked one" is then satisfied by the document as it stood BEFORE the POST. Measured:
+	// deleting the positive write in users_write.go (UpsertUser -> `_ = enabled`) left this test green
+	// while TestAssigningAProfileStoresTheAssignmentAndAuditsIt and
+	// TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff both went red. So each case names the
+	// choice the operator makes and posts an option the page OFFERS but does not mark. It is still
+	// read out of the rendered markup -- the option list is the page's own output -- which is what
+	// keeps this from being the guess the previous commit removed.
+	for _, tc := range []struct {
+		name     string
+		username string
+		choose   string
+	}{
+		// A managed row moving to a different profile: the page marks `school`, the operator picks
+		// the other thing the page offers.
+		{name: "reassigning a managed account", username: "casey", choose: "weekend"},
+		// The first-time assign: the row marks nothing, and this is the verb retargeting away from
+		// ada had given up. Naming the choice is what makes it reachable without inventing it.
+		{name: "assigning an account with no entry yet", username: "ada", choose: "school"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAssignFixture(t)
+			f.mu.Lock()
+			f.doc.Profiles = append(append([]config.Profile(nil), f.doc.Profiles...),
+				config.Profile{ID: "weekend", Name: "Weekend curfew", Timezone: "UTC"})
+			f.mu.Unlock()
+			resp, _ := login(t, f.s, "parent", "hunter2")
+			c := cookieOf(t, resp)
 
-	get := httptest.NewRequest("GET", "/users", nil)
-	get.Header.Set("Accept", "text/html")
-	get.AddCookie(c)
-	rec := httptest.NewRecorder()
-	f.s.Handler().ServeHTTP(rec, get)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /users: %d %s", rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
+			get := httptest.NewRequest("GET", "/users", nil)
+			get.Header.Set("Accept", "text/html")
+			get.AddCookie(c)
+			rec := httptest.NewRecorder()
+			f.s.Handler().ServeHTTP(rec, get)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET /users: %d %s", rec.Code, rec.Body.String())
+			}
+			body := rec.Body.String()
 
-	action, fields := parseForm(t, body, "/users/casey/profile")
-	token, ok := fields["csrf"]
-	if !ok || token == "" {
-		t.Fatalf("the rendered form carries no CSRF token; the form is:\n%s",
-			formFragment(body, action))
-	}
-	// The profile comes from a <select>, which parseForm does not read -- it walks
-	// <input> elements, so the chosen option is taken from the markup the way a browser
-	// would: the option the page MARKS. There is deliberately no "or the first one if none
-	// is" fallback any more. `<option value="([^"]+)">` skips the value="" placeholder, so it
-	// INVENTS the first real profile, and on the row this test used to target (ada, unmanaged)
-	// nothing is marked -- the fallback was the live path, and the doc paragraph described a
-	// choice the page never made. Inventing changes the verb: a browser pressing Save on a row
-	// that marks nothing submits the placeholder, which means removal, while the invented value
-	// means assignment. Measured on a managed row whose profile was deleted -- the page says the
-	// profile is missing and marks nothing -- the fallback posted `school` and stored a row under
-	// a claim about the chosen option. postRowForm below refuses the same guess; the file's two
-	// rendered-form helpers now say the same thing about what they will not make up.
-	frag := formFragment(body, action)
-	m := selectedOptionRe.FindStringSubmatch(frag)
-	if m == nil {
-		t.Fatalf("the page marks no chosen profile on this row, so there is nothing to post without "+
-			"inventing one -- and an invented value means assignment where the browser's empty "+
-			"placeholder means removal:\n%s", frag)
-	}
-	profile := m[1]
-	enabled := ""
-	if strings.Contains(frag, `name="enabled" value="on" checked`) {
-		enabled = "&enabled=on"
-	}
+			action, fields := parseForm(t, body, "/users/"+tc.username+"/profile")
+			token, ok := fields["csrf"]
+			if !ok || token == "" {
+				t.Fatalf("the rendered form carries no CSRF token; the form is:\n%s",
+					formFragment(body, action))
+			}
+			// The profile comes from a <select>, which parseForm does not read -- it walks <input>
+			// elements -- so the chosen option is taken from the markup. From the OPTION LIST, not
+			// from the marked option: see the table above.
+			frag := formFragment(body, action)
+			profile := offeredOption(t, frag, tc.choose)
+			enabled := ""
+			if strings.Contains(frag, `name="enabled" value="on" checked`) {
+				enabled = "&enabled=on"
+			}
 
-	post := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", action,
-		strings.NewReader("csrf="+token+"&profile="+url.QueryEscape(profile)+enabled))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "text/html")
-	req.AddCookie(c)
-	req.RemoteAddr = "192.0.2.71:1"
-	f.s.Handler().ServeHTTP(post, req)
+			post := httptest.NewRecorder()
+			req := httptest.NewRequest("POST", action,
+				strings.NewReader("csrf="+token+"&profile="+url.QueryEscape(profile)+enabled))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Accept", "text/html")
+			req.AddCookie(c)
+			req.RemoteAddr = "192.0.2.71:1"
+			f.s.Handler().ServeHTTP(post, req)
 
-	if post.Code != http.StatusSeeOther {
-		t.Fatalf("posting the rendered form was refused: %d %s", post.Code, post.Body.String())
+			if post.Code != http.StatusSeeOther {
+				t.Fatalf("posting the rendered form was refused: %d %s", post.Code, post.Body.String())
+			}
+			got := f.assignment(tc.username)
+			if got == nil {
+				t.Fatalf("the form posted successfully but stored nothing (posted profile=%q)", profile)
+			}
+			// "Something got stored" cannot say WHICH profile it posted, and that is exactly how an
+			// invented one stayed invisible.
+			if got.ProfileID != profile {
+				t.Errorf("the form posted profile %q and the handler stored %q", profile, got.ProfileID)
+			}
+		})
 	}
-	got := f.assignment("casey")
-	if got == nil {
-		t.Fatalf("the form posted successfully but stored nothing (posted profile=%q)", profile)
+}
+
+// offeredOption returns want if the rendered <select> actually offers it, and fails otherwise. It
+// exists so a test can name the profile the OPERATOR picked without inventing one: reading the
+// marked option says what the page already thinks, and `<option value="([^"]+)">` -- the fallback
+// this file used until #197 -- silently skips the value="" placeholder and hands back the first real
+// profile, which is a different VERB on a row that marks nothing (the browser would submit removal).
+// The guard is membership in the page's own option list, so a profile renamed or removed upstream
+// fails here rather than posting a value nothing offered.
+func offeredOption(t *testing.T, frag, want string) string {
+	t.Helper()
+	for _, m := range regexp.MustCompile(`(?s)<option value="([^"]*)"`).FindAllStringSubmatch(frag, -1) {
+		if m[1] == want {
+			return want
+		}
 	}
-	// "Something got stored" cannot say WHICH profile it posted, and that is exactly how an
-	// invented one stayed invisible. The stored id has to be the one the page marked.
-	if got.ProfileID != profile {
-		t.Errorf("the page marked profile %q and the handler stored %q", profile, got.ProfileID)
-	}
+	t.Fatalf("the page does not offer profile %q, so the test may not post it; the row is:\n%s",
+		want, frag)
+	return ""
 }
 
 // The dropdown is the only place a parent learns which profiles can be chosen, so an empty
