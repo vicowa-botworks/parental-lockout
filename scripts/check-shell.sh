@@ -29,6 +29,16 @@
 #
 # bash, not sh, for one reason: the file list is read NUL-delimited (see the note by the loop).
 set -euo pipefail
+# CDPATH makes `cd` consult the environment before the current directory, and the anchor below is
+# a relative `cd` whenever the script was invoked as `bash scripts/check-shell.sh` (dirname of that
+# $0 is `scripts`, which neither starts with `/` nor `./`). Measured with a decoy directory holding
+# its own scripts/ and its own git tree: the step printed `over 1 scripts` and exited 0 -- a pass
+# that linted one file from another repository and none of these thirteen. Neither guard downstream
+# can see it: one asks whether the binary exists, the other whether the list is empty, and a
+# foreign list is neither. Of the three shapes this file exists to refuse -- linted nothing, linted
+# a subset, linted the wrong thing -- this was the one that could still exit 0.
+CDPATH=
+unset CDPATH
 
 SHELLCHECK=${SHELLCHECK:-shellcheck}
 # `-`, not `:-`: an empty value is an answer ("exclude nothing"), not a request for the default.
