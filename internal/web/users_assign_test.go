@@ -378,8 +378,11 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 			// elsewhere -- but not HERE, which is the point of a test that reads the page. Mutant
 			// `enabled := r.FormValue("enabled") != ""` -> `enabled := true` (users_write.go:63) left
 			// this test taking the 303 and checking only the profile it was already checking for.
-			// The teeth are in the `ada` case; `casey`'s entry is already enabled:true in the fixture,
-			// so her row cannot distinguish the two -- the same asymmetry the table exists to cover.
+			// Each direction is caught by the OPPOSITE row, so neither case alone suffices: the fixture's
+			// casey entry is already enabled:true, so forcing true changes nothing she can show (she dies
+			// on `enabled := false`, where the posted checked=true and the stored false differ), while
+			// ada has no entry to start from and so dies on `enabled := true`. That is the same
+			// asymmetry the two-case table exists to cover, measured both ways at e129fe1.
 			if got.Enabled != (enabled != "") {
 				t.Errorf("the form posted enabled=%v and the handler stored enabled=%v",
 					enabled != "", got.Enabled)
