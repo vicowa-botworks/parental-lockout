@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify check-mutations mutate clean install uninstall run-dev
+.PHONY: build fmt vet test verify check-scripts check-shell check-mutations mutate clean install uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -80,7 +80,10 @@ verify:
 	echo "==> gofmt"; \
 	dirty=$$($(GOFMT) -l .); \
 	if [ -n "$$dirty" ]; then echo "not gofmt-clean:"; echo "$$dirty"; exit 1; fi; \
+	echo "==> script and set-file encoding guards"; python3 scripts/check-scripts.py; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
+	echo "==> mutation-gate self-test"; python3 scripts/check-mutations.py --self-test; \
+	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
 	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \
@@ -144,6 +147,16 @@ verify:
 check-mutations:
 	@python3 scripts/check-mutations.py --self-test
 	@GO="$(GO)" python3 scripts/check-mutations.py
+
+# The two halves of the gate that need no Go toolchain, as targets so each can be run on its own
+# the way `make check-mutations` can. Both are already inside `verify` (#189); they exist here
+# because the thing worth running alone is the thing that just failed, and because CI's shellcheck
+# job calls the script through this name rather than repeating its file list.
+check-scripts:
+	@python3 scripts/check-scripts.py
+
+check-shell:
+	@SHELLCHECK="$${SHELLCHECK:-shellcheck}" ./scripts/check-shell.sh
 
 # mutate puts each known bug back into the source one at a time and insists the suite
 # notices. A green `go test` says the code passes the tests; it does not say the tests

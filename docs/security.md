@@ -378,8 +378,13 @@ Listed because an unlisted gap is indistinguishable from an oversight.
 
 Three mechanisms, in decreasing order of how much they catch:
 
-1. **`make verify`** — gofmt, vet, build, `-race` tests, the version stamp, the zero-dependency
-   guard, and cross-builds for linux/amd64, darwin/arm64 and windows/amd64.
+1. **`make verify`** — gofmt, the script and set-file encoding guards, shellcheck over every
+   tracked `.sh`, the mutation self-test, the attack suite, vet, build, `-race` tests, the version
+   stamp, the zero-dependency guard, and cross-builds for linux/amd64, darwin/arm64 and
+   windows/amd64. shellcheck is the one step that can skip: it is not vendored, so a machine
+   without it prints `check-shell: SKIPPED` and carries on. CI sets `SHELLCHECK_REQUIRED=1`, where
+   the same absence is a failure — a lint job that green-ticks having linted nothing is the same
+   colour as the real thing.
 2. **`scripts/check-mutations.py`** — every mutant pattern in `scripts/mutations/` must apply
    exactly once and compile. Run it before any battery and after any rebase or merge; it derives its
    root from its own location, so run it from inside the worktree.
