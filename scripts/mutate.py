@@ -490,8 +490,11 @@ def fstype(path, mounts="/proc/mounts"):
             # path, or a remount over the same one -- and path resolution uses the most recent
             # entry, so the later row names the filesystem the directory is on. First-row-wins
             # prints the other one, with the same confidence, in a log line whose only job is to
-            # be trusted later. `/` is rstripped above, so this cannot make the root row tie with
-            # anything: its depth is 0 and every other mount point is deeper.
+            # be trusted later. `/` is rstripped above, so this cannot make the root row beat any
+            # OTHER mount point: its depth is 0 and every other mount point is deeper. Two rows
+            # for `/` itself do tie at depth 0 and now resolve last-wins, which is the wanted
+            # answer -- a remount over `/` is the entry in effect -- so this is not a claim that
+            # duplicate root rows are impossible.
             if depth >= best_len:
                 best, best_len = kind, depth
     return best
@@ -2981,9 +2984,10 @@ def self_test():
                            f"the filesystem its fixtures are NOT on")
             # Same rows, printed the other way round. A rule that only passes with one kernel's
             # ordering is a rule that reports a different filesystem on a different machine.
-            flip = os.path.join(work, "mounts-flip")
-            with open(flip, "w", encoding="utf-8") as fh:
-                fh.write(f"tmpfs {tmp_root} tmpfs rw 0 0\noverlay / btrfs rw 0 0\n")
+            flip = _fstype_fixture(work, [
+                f"tmpfs {tmp_root} tmpfs rw 0 0",
+                "overlay / btrfs rw 0 0",
+            ], name="mounts-flip")
             if fstype(probe, mounts=flip) != "tmpfs":
                 bad.append(f"fstype() said {fstype(probe, mounts=flip)!r} with the same two rows "
                            f"in the other order, so the answer depends on print order")
@@ -3000,6 +3004,22 @@ def self_test():
                 bad.append(f"fstype() said {fstype(probe, mounts=tie)!r} where one mount point is "
                            f"listed twice; the most recent entry is the one path resolution uses, "
                            f"so first-row-wins names a filesystem the directory is not on")
+            # The same two rows, reversed -- the companion this rule already writes for depth
+            # above. One order alone cannot tell "the tie-break is positional" from "prefer the
+            # row that looks like a real filesystem": a tie-break that scores the device or the
+            # type -- `prefer = 0 if parts[0] == "overlay" else 1`, say -- answers ext4 here and
+            # ext4 there, and walks out of the one-sided fixture green. Reaching past `autofs`
+            # for a name that looks more like a filesystem is exactly the shortcut someone
+            # optimising this function would write, and it is wrong for every pair where the
+            # later row is the automounter.
+            tie_flip = _fstype_fixture(work, [
+                f"tmpfs {tmp_root} ext4 rw 0 0",
+                f"overlay {tmp_root} btrfs rw 0 0",
+            ], name="mounts-tie-flip")
+            if fstype(probe, mounts=tie_flip) != "btrfs":
+                bad.append(f"fstype() said {fstype(probe, mounts=tie_flip)!r} with the duplicate "
+                           f"rows reversed; only one order being pinned means the tie-break is "
+                           f"choosing a row by what it looks like, not by where it sits")
             # A path with nothing under it but `/` has to report `/`, not "unknown": the common
             # case on a machine whose home is the only filesystem.
             home = os.path.realpath("/home") + "/plock"
