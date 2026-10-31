@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -277,7 +278,7 @@ func TestAStaleEntryCanBeUnmanaged(t *testing.T) {
 		config.User{Username: "oldkid", ProfileID: "school", Enabled: true})
 	f.mu.Unlock()
 
-	rec := authPost(t, f.s, "/users/oldkid/profile", "profile=")
+	rec := postRowForm(t, f, "oldkid")
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
 	}
@@ -285,8 +286,6 @@ func TestAStaleEntryCanBeUnmanaged(t *testing.T) {
 		t.Error("the stale entry survived")
 	}
 }
-
-var selectedOptionRe = regexp.MustCompile(`(?s)<option value="([^"]*)"[^>]*selected`)
 
 // The form on the page, posted exactly as the page renders it.
 //
@@ -296,58 +295,116 @@ var selectedOptionRe = regexp.MustCompile(`(?s)<option value="([^"]*)"[^>]*selec
 // option all come out of the rendered HTML, so a template that drops the hidden field or
 // renames a control fails this test and nothing else.
 func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
-	f := newAssignFixture(t)
-	resp, _ := login(t, f.s, "parent", "hunter2")
-	c := cookieOf(t, resp)
+	// What the page MARKS and what the operator CHOOSES are different things, and conflating them is
+	// what kept the old fallback invisible for a whole round. The template marks the option equal to
+	// the account's CURRENT profile (users.tmpl:88), so on a row that already has an entry the marked
+	// value, the posted value and the pre-existing document are all the same string -- "the stored id
+	// equals the marked one" is then satisfied by the document as it stood BEFORE the POST. Measured:
+	// deleting the positive write in users_write.go (UpsertUser -> `_ = enabled`) left this test green
+	// while TestAssigningAProfileStoresTheAssignmentAndAuditsIt and
+	// TestAnAssignmentWithTheCheckboxClearIsStoredSwitchedOff both went red. So each case names the
+	// choice the operator makes and posts an option the page OFFERS but does not mark. It is still
+	// read out of the rendered markup -- the option list is the page's own output -- which is what
+	// keeps this from being the guess the previous commit removed.
+	for _, tc := range []struct {
+		name     string
+		username string
+		choose   string
+	}{
+		// A managed row moving to a different profile: the page marks `school`, the operator picks
+		// the other thing the page offers.
+		{name: "reassigning a managed account", username: "casey", choose: "weekend"},
+		// The first-time assign: the row marks nothing, and this is the verb retargeting away from
+		// ada had given up. Naming the choice is what makes it reachable without inventing it.
+		{name: "assigning an account with no entry yet", username: "ada", choose: "school"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAssignFixture(t)
+			f.mu.Lock()
+			f.doc.Profiles = append(append([]config.Profile(nil), f.doc.Profiles...),
+				config.Profile{ID: "weekend", Name: "Weekend curfew", Timezone: "UTC"})
+			f.mu.Unlock()
+			resp, _ := login(t, f.s, "parent", "hunter2")
+			c := cookieOf(t, resp)
 
-	get := httptest.NewRequest("GET", "/users", nil)
-	get.Header.Set("Accept", "text/html")
-	get.AddCookie(c)
-	rec := httptest.NewRecorder()
-	f.s.Handler().ServeHTTP(rec, get)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /users: %d %s", rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
+			get := httptest.NewRequest("GET", "/users", nil)
+			get.Header.Set("Accept", "text/html")
+			get.AddCookie(c)
+			rec := httptest.NewRecorder()
+			f.s.Handler().ServeHTTP(rec, get)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("GET /users: %d %s", rec.Code, rec.Body.String())
+			}
+			body := rec.Body.String()
 
-	action, fields := parseForm(t, body, "/users/ada/profile")
-	token, ok := fields["csrf"]
-	if !ok || token == "" {
-		t.Fatalf("the rendered form carries no CSRF token; the form is:\n%s",
-			formFragment(body, action))
+			action, fields := parseForm(t, body, "/users/"+tc.username+"/profile")
+			token, ok := fields["csrf"]
+			if !ok || token == "" {
+				t.Fatalf("the rendered form carries no CSRF token; the form is:\n%s",
+					formFragment(body, action))
+			}
+			// The profile comes from a <select>, which parseForm does not read -- it walks <input>
+			// elements -- so the chosen option is taken from the markup. From the OPTION LIST, not
+			// from the marked option: see the table above.
+			frag := formFragment(body, action)
+			profile := offeredOption(t, frag, tc.choose)
+			enabled := ""
+			if strings.Contains(frag, `name="enabled" value="on" checked`) {
+				enabled = "&enabled=on"
+			}
+
+			post := httptest.NewRecorder()
+			req := httptest.NewRequest("POST", action,
+				strings.NewReader("csrf="+token+"&profile="+url.QueryEscape(profile)+enabled))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Accept", "text/html")
+			req.AddCookie(c)
+			req.RemoteAddr = "192.0.2.71:1"
+			f.s.Handler().ServeHTTP(post, req)
+
+			if post.Code != http.StatusSeeOther {
+				t.Fatalf("posting the rendered form was refused: %d %s", post.Code, post.Body.String())
+			}
+			got := f.assignment(tc.username)
+			if got == nil {
+				t.Fatalf("the form posted successfully but stored nothing (posted profile=%q)", profile)
+			}
+			// "Something got stored" cannot say WHICH profile it posted, and that is exactly how an
+			// invented one stayed invisible.
+			if got.ProfileID != profile {
+				t.Errorf("the form posted profile %q and the handler stored %q", profile, got.ProfileID)
+			}
+			// The body carries `enabled` too, read off the row's `checked`, and the class is covered
+			// elsewhere -- but not HERE, which is the point of a test that reads the page. Mutant
+			// `enabled := r.FormValue("enabled") != ""` -> `enabled := true` (users_write.go:63) left
+			// this test taking the 303 and checking only the profile it was already checking for.
+			// The teeth are in the `ada` case; `casey`'s entry is already enabled:true in the fixture,
+			// so her row cannot distinguish the two -- the same asymmetry the table exists to cover.
+			if got.Enabled != (enabled != "") {
+				t.Errorf("the form posted enabled=%v and the handler stored enabled=%v",
+					enabled != "", got.Enabled)
+			}
+		})
 	}
-	// The profile comes from a <select>, which parseForm does not read -- it walks
-	// <input> elements. So the chosen option is taken from the markup the same way a
-	// browser would: the option marked selected, or the first one if none is.
-	profile := ""
-	if m := selectedOptionRe.FindStringSubmatch(formFragment(body, action)); m != nil {
-		profile = m[1]
-	} else {
-		m := regexp.MustCompile(`(?s)<option value="([^"]+)"`).FindStringSubmatch(formFragment(body, action))
-		if m == nil {
-			t.Fatalf("the form offers no profile to assign; the form is:\n%s", formFragment(body, action))
+}
+
+// offeredOption returns want if the rendered <select> actually offers it, and fails otherwise. It
+// exists so a test can name the profile the OPERATOR picked without inventing one: reading the
+// marked option says what the page already thinks, and `<option value="([^"]+)">` -- the fallback
+// this file used until #197 -- silently skips the value="" placeholder and hands back the first real
+// profile, which is a different VERB on a row that marks nothing (the browser would submit removal).
+// The guard is membership in the page's own option list, so a profile renamed or removed upstream
+// fails here rather than posting a value nothing offered.
+func offeredOption(t *testing.T, frag, want string) string {
+	t.Helper()
+	for _, m := range regexp.MustCompile(`(?s)<option value="([^"]*)"`).FindAllStringSubmatch(frag, -1) {
+		if m[1] == want {
+			return want
 		}
-		profile = m[1]
 	}
-	enabled := ""
-	if strings.Contains(formFragment(body, action), `name="enabled" value="on" checked`) {
-		enabled = "&enabled=on"
-	}
-
-	post := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", action,
-		strings.NewReader("csrf="+token+"&profile="+profile+enabled))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(c)
-	req.RemoteAddr = "192.0.2.71:1"
-	f.s.Handler().ServeHTTP(post, req)
-
-	if post.Code != http.StatusSeeOther {
-		t.Fatalf("posting the rendered form was refused: %d %s", post.Code, post.Body.String())
-	}
-	if f.assignment("ada") == nil {
-		t.Errorf("the form posted successfully but stored nothing (posted profile=%q)", profile)
-	}
+	t.Fatalf("the page does not offer profile %q, so the test may not post it; the row is:\n%s",
+		want, frag)
+	return ""
 }
 
 // The dropdown is the only place a parent learns which profiles can be chosen, so an empty
@@ -402,4 +459,195 @@ func TestTheAssignmentDropdownIsInNameOrderNotDocumentOrder(t *testing.T) {
 	if alpha > school {
 		t.Error("the dropdown follows document order; a profile added later should not move the others")
 	}
+}
+
+// #192: a machine with no profiles rendered a dropdown containing exactly one option.
+//
+// The report was that the Accounts page "only has the Not Managed option in the drop down box, and
+// there is no way to make it managed" -- true on every fresh install, because the dropdown's real
+// options are `range $.Profiles` and that is empty until somebody makes a profile. The enabled
+// checkbox then stored a flag with nothing to enable, and Save was refused with a sentence about
+// *stopping* management. The Profiles page had already been given this treatment (#135) and pinned;
+// the Accounts page had never been rendered with zero profiles by any test.
+
+// TestTheUsersPageOffersNoDeadDropdownWithoutProfiles is the reported symptom, asserted on the
+// rendered page rather than on the config that produced it.
+func TestTheUsersPageOffersNoDeadDropdownWithoutProfiles(t *testing.T) {
+	f := newAssignFixture(t)
+	f.mu.Lock()
+	f.doc.Profiles = nil
+	f.doc.Users = nil
+	f.mu.Unlock()
+
+	rec := authGet(t, f.s, "/users")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+
+	// A <select> whose only option is the empty one is a control that cannot express an action.
+	// Asserting the absence of the form, not the presence of a sentence, is what makes this fail
+	// on a page that added an apology next to the same dead dropdown. Absence is a whole-page
+	// claim; the two positive ones are row-scoped, because `href="/profiles"` is in the shell's
+	// nav (page.tmpl) on every page in the product, so over the whole body that assertion can
+	// never fail -- pointing the paragraph's link at /users left the package green.
+	if strings.Contains(body, `name="profile"`) {
+		t.Errorf("the page still offers a profile dropdown with nothing in it:\n%s", body)
+	}
+	row := userRow(t, body, "ada")
+	for _, want := range []string{`href="/profiles"`, "no profile to assign"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("ada's row does not say what is missing or where to fix it (missing %q):\n%s",
+				want, row)
+		}
+	}
+}
+
+// The other zero-profile row: an account still in the document whose profile was the one that got
+// deleted. Its only valid action IS removal, and taking the dropdown away without offering that
+// would strand the row -- the same trap the stale-account branch above already avoids.
+//
+// Both halves are asserted because the handler half alone is not enough: with the render branch
+// `{{if .Configured}}` mutated to `false` -- the exact stranding this test names -- all three
+// zero-profile tests stayed green, because a POST never asks what the page offered.
+func TestTheUsersPageStillLetsADanglingEntryBeUnmanaged(t *testing.T) {
+	f := newAssignFixture(t)
+	f.mu.Lock()
+	f.doc.Profiles = nil
+	f.mu.Unlock()
+
+	// The render half: the row must offer the action, not the apology. Scoped to the row,
+	// because the page holds a second account that is correctly told to go make a profile --
+	// asserting on the whole body would fail on a page that got both rows right.
+	rec := authGet(t, f.s, "/users")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	row := userRow(t, rec.Body.String(), "casey")
+	if !strings.Contains(row, "Stop managing") {
+		t.Errorf("the dangling entry is offered no action at all:\n%s", row)
+	}
+	if strings.Contains(row, "no profile to assign") {
+		t.Errorf("the dangling entry is told to go make a profile instead of being given its way out:\n%s", row)
+	}
+
+	// The handler half, through the form the row rendered rather than a body typed beside it.
+	post := postRowForm(t, f, "casey")
+	if post.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303; body %s", post.Code, post.Body.String())
+	}
+	if f.assignment("casey") != nil {
+		t.Error("the entry outlived the only action the page could offer for it")
+	}
+}
+
+// The refusal must name the thing that is missing. The old message was not merely unhelpful here:
+// it described stopping management, which is the opposite of the request that produced it.
+func TestAnEmptyAssignmentWithNoProfilesNamesTheProfileNotRemoval(t *testing.T) {
+	f := newAssignFixture(t)
+	f.mu.Lock()
+	f.doc.Profiles = nil
+	f.mu.Unlock()
+
+	rec := authPost(t, f.s, "/users/ada/profile", "profile=")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(strings.ToLower(body), "stop managing") {
+		t.Errorf("the refusal describes the opposite of the attempted action:\n%s", body)
+	}
+	if !strings.Contains(strings.ToLower(body), "profile") {
+		t.Errorf("the refusal does not name what is missing:\n%s", body)
+	}
+	if f.savesCount() != 0 {
+		t.Errorf("the refusal still reached the write seam %d times", f.savesCount())
+	}
+	if f.assignment("ada") != nil {
+		t.Error("the refusal wrote an entry for the account")
+	}
+}
+
+// userRow cuts one account's <tr> out of the rendered accounts page. Row scope is the point:
+// the zero-profile page deliberately renders two different rows -- the dangling entry gets its
+// removal form, an unmanaged account gets the "no profile to assign" paragraph -- and an
+// assertion over the whole body cannot tell "the wrong row" from "both rows right".
+func userRow(t *testing.T, body, name string) string {
+	t.Helper()
+	marker := `<th scope="row">` + name + `</th>`
+	i := strings.Index(body, marker)
+	if i < 0 {
+		t.Fatalf("the page has no row for %q:\n%s", name, body)
+	}
+	start := strings.LastIndex(body[:i], "<tr")
+	end := strings.Index(body[i:], "</tr>")
+	if start < 0 || end < 0 {
+		t.Fatalf("could not bound the row for %q", name)
+	}
+	return body[start : i+end]
+}
+
+// postRowForm posts the form the page ACTUALLY RENDERED for one account's row, and returns the
+// response. It exists because a hand-written body proves the handler accepts a request, and
+// nothing connects that request to the control the operator was shown. Two mutants inside the
+// removal arm survived a POST and a render that were never joined: `value=""` -> `value="p-gone"`
+// on the hidden profile field (the button then answers 404 "no profile has that id" -- the row's
+// only action, broken) and the CSRF value emptied (the #75 shape: 403, the parent presses the
+// button, nothing happens, nothing says why). Both are green when the body is typed next to the
+// template and red when it is taken from it.
+//
+// TestEveryFormOnEveryPageCarriesTheToken cannot cover this cell: the stale arm and the
+// zero-profile arm render the same formShape string, so the one pageStates does render satisfies
+// reach for the one it does not, and hasToken matches the field NAME, never its value.
+func postRowForm(t *testing.T, f *assignFixture, username string) *httptest.ResponseRecorder {
+	t.Helper()
+	resp, _ := login(t, f.s, "parent", "hunter2")
+	c := cookieOf(t, resp)
+
+	get := httptest.NewRequest("GET", "/users", nil)
+	get.Header.Set("Accept", "text/html")
+	get.AddCookie(c)
+	rec := httptest.NewRecorder()
+	f.s.Handler().ServeHTTP(rec, get)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /users: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+
+	action, fields := parseForm(t, body, "/users/"+username+"/profile")
+	if fields["csrf"] == "" {
+		t.Errorf("the rendered form carries no CSRF token, so the button cannot be pressed at all:\n%s",
+			formFragment(body, action))
+	}
+	// parseForm walks <input> elements and nothing else, so a row that chooses its profile from a
+	// <select> would come back with NO profile key at all -- and the handler reads an absent profile
+	// as removal. Measured on a machine with profiles, on the dropdown arm: `STATUS 303`, entry
+	// `{casey school enabled}` before, `<nil>` after. A test that said "the assignment the operator
+	// chose round-trips" would go green while DELETING it, which is the exact shape this helper was
+	// written to end -- a payload assembled beside the template instead of out of it, this time
+	// assembled by the fix. Refusing is the only pin available, because the defect would live in
+	// test code and no mutant reaches there. The dropdown arm is covered by
+	// TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts, which reads the selected option.
+	if frag := formFragment(body, action); strings.Contains(frag, "<select") {
+		t.Fatalf("postRowForm reads <input> only; this row renders a <select>, so posting it would "+
+			"drop the chosen profile and ask for removal. Read the selected option as "+
+			"TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts does:\n%s", frag)
+	}
+	// The payload is the row's own, including the empty profile that MEANS removal. Rebuilding
+	// the body here is what let a non-empty value pass unnoticed.
+	q := url.Values{}
+	for k, v := range fields {
+		q.Set(k, v)
+	}
+
+	post := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", action, strings.NewReader(q.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// A browser submitting this form is a top-level navigation and sends Accept: text/html; authPost
+	// sets it on every write it makes. Without it the helper exercises the programmatic-caller shape,
+	// which is the one thing its "send what the page sends" argument does not send.
+	req.Header.Set("Accept", "text/html")
+	req.AddCookie(c)
+	f.s.Handler().ServeHTTP(post, req)
+	return post
 }

@@ -78,7 +78,7 @@
             <button type="submit">Stop managing</button>
             <span class="muted">the entry is all that is left of this account</span>
           </form>
-        {{- else}}
+        {{- else if $.Profiles}}
           <form method="post" action="/users/{{$row.Username}}/profile" class="edit-form">
             <input type="hidden" name="csrf" value="{{$.CSRF}}">
             <label class="opt" for="profile-{{$row.Username}}">Profile</label>
@@ -94,6 +94,26 @@
             </label>
             <button type="submit">Save</button>
           </form>
+        {{- else}}
+          {{- /* No profiles at all. A dropdown whose only option is "not managed" is a control that
+                 cannot express any action, and it was rendered as though it worked: on a fresh
+                 machine every row showed it, the enabled checkbox stored a flag with nothing to
+                 enable, and Save was refused with a sentence about *stopping* management. Say what
+                 is missing and where to fix it instead. (#192) */ -}}
+          {{- if .Configured}}
+          <form method="post" action="/users/{{$row.Username}}/profile" class="edit-form">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <input type="hidden" name="profile" value="">
+            <button type="submit">Stop managing</button>
+            <span class="muted">there are no profiles left to assign; this entry points at one that
+              is gone</span>
+          </form>
+          {{- else}}
+          <p class="muted">
+            There is no profile to assign yet, so this account cannot be managed from here.
+            <a href="/profiles">Create a profile</a> and come back.
+          </p>
+          {{- end}}
         {{- end}}
       </td>
     </tr>
