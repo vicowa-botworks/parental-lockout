@@ -63,7 +63,25 @@ jobs:
         # dispatch path this file promises worked only for a branch with no slash in it, and every
         # branch in this repository's convention has one. A tag never contains `/`, so the tag
         # path is byte-identical to what it was.
-        run: echo "safe=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+        #
+        # `/` is not the whole ban, though it is the only part this repository's branch convention
+        # can produce. The runner rejects the rest of the NTFS-forbidden set, and git permits part
+        # of it: `git check-ref-format` accepts `fix>a`, `fix"a`, `fix|a`, `-fix` and `fix-`, all
+        # of which the runner would refuse (git already rejects `*`). So the substitution replaces
+        # every character outside the artifact-safe set rather than only the slash. A ref cannot
+        # start with `/`, so the substitution never creates a hyphen at either end -- but the ref
+        # can already have one there, so the value is trimmed as well as substituted. Both jobs
+        # must derive the value identically, so this block is duplicated here and at the download
+        # rather than factored: a mismatch downloads zero files.
+        run: |
+          set -euo pipefail
+          safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
+          # Trim, do not replace: the runner also refuses a name that opens or closes with a
+          # punctuation character, and the substitution above can leave a hyphen there when the
+          # ref itself starts or ends with one (`-fix`, `fix-` are both valid git refs).
+          while [ "${safe#-}" != "$safe" ]; do safe=${safe#-}; done
+          while [ "${safe%-}" != "$safe" ]; do safe=${safe%-}; done
+          echo "safe=$safe" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -151,7 +169,15 @@ jobs:
         # exits 1 -- so the job fails and no release is created. That guard is the reporter only
         # because the step does `mkdir -p staged` first; without it the step died at `cd` and the
         # guard below never ran.
-        run: echo "safe=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
+          # Trim, do not replace: the runner also refuses a name that opens or closes with a
+          # punctuation character, and the substitution above can leave a hyphen there when the
+          # ref itself starts or ends with one (`-fix`, `fix-` are both valid git refs).
+          while [ "${safe#-}" != "$safe" ]; do safe=${safe#-}; done
+          while [ "${safe%-}" != "$safe" ]; do safe=${safe%-}; done
+          echo "safe=$safe" >> "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@v4
         with:
