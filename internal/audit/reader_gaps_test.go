@@ -18,48 +18,95 @@ import (
 // A generation that is not a regular file is a tamper finding, and its size is somebody
 // else's file. Reporting it as a normal generation with that size both hides the finding and
 // inflates "how much disk is the trail using".
+//
+// Two shapes, because the whole argument about this fixture is about the shape's size, and the
+// two shapes answer differently. A FIFO, a socket and a character device all report
+// st_size == 0, so on those a mutant that adds the size to the trail's total is
+// indistinguishable from the guard; only a shape with a real size makes "the size of somebody
+// else's file is being counted" observable. A symlink's st_size is the length of its target
+// string, so it is non-zero on every filesystem. A directory's is whatever the filesystem
+// happens to say -- 4096 on ext4, 40 on tmpfs, 0 on btrfs -- which is precisely how A49 walked
+// free on the common Fedora/openSUSE/Arch layout (issue #185). So the symlink carries the
+// guard everywhere, and the directory stays because it is the shape the guard was written
+// against, with its premise checked rather than assumed.
 func TestGenerationsReportsANonRegularGenerationAsTheFinding(t *testing.T) {
-	dir := t.TempDir()
-	path := writeTrail(t, dir, 1)
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Generation .1 replaced by something that is not a plain file.
-	//
-	// A DIRECTORY, not a FIFO or a device node, and the reason is the assertion below: a
-	// FIFO, a socket and a character device all report st_size == 0, so a mutant that adds
-	// their size to the trail's total is indistinguishable from the guard on those shapes.
-	// A directory has a real size (4096 on ext4), so "the size of somebody else's file is
-	// being counted" becomes observable instead of unmeasurable.
-	gen1 := path + ".1"
-	if err := os.Remove(gen1); err != nil && !os.IsNotExist(err) {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(gen1, 0o700); err != nil {
-		t.Fatalf("cannot place a directory at a generation path here: %v", err)
-	}
+	// Long on purpose: the link's st_size IS this string's length, so a short target would
+	// make the assertion below depend on how much the live trail happens to hold.
+	const target = "a-generation-that-was-replaced-and-its-name-is-the-size-we-are-counting"
+	for _, shape := range []struct {
+		name  string
+		place func(t *testing.T, gen1 string) string
+	}{
+		{"a symlink", func(t *testing.T, gen1 string) string {
+			// Generations() Lstats rather than Stats, so the link is the finding and its
+			// target is irrelevant -- it does not have to exist.
+			if err := os.Symlink(target, gen1); err != nil {
+				t.Fatalf("cannot place a symlink at a generation path here: %v", err)
+			}
+			return fmt.Sprintf("a symlink to %q", target)
+		}},
+		{"a directory", func(t *testing.T, gen1 string) string {
+			if err := os.Mkdir(gen1, 0o700); err != nil {
+				t.Fatalf("cannot place a directory at a generation path here: %v", err)
+			}
+			return "an empty directory"
+		}},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := writeTrail(t, dir, 1)
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Generation .1 replaced by something that is not a plain file.
+			gen1 := path + ".1"
+			if err := os.Remove(gen1); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			what := shape.place(t, gen1)
 
-	gens, total, err := (&Reader{Path: path}).Generations()
-	if err != nil {
-		t.Fatalf("Generations: %v", err)
-	}
-	if len(gens) != 2 {
-		t.Fatalf("got %d generations, want 2: %v", len(gens), gens)
-	}
-	if !gens[0].Regular {
-		t.Errorf("generation 0 is the live file and was reported as non-regular")
-	}
-	if gens[1].Regular {
-		t.Errorf("generation 1 is a directory and was reported as a normal log file")
-	}
-	// The size of a directory is not the trail's bytes. Counting it would make the answer
-	// to "how big is my audit log" depend on what the path was replaced with.
-	if gens[1].Size != 0 {
-		t.Errorf("a non-regular generation contributed %d bytes to the trail's total", gens[1].Size)
-	}
-	if total != int64(len(body)) {
-		t.Errorf("total = %d, want %d (the live file only)", total, len(body))
+			// The premise, checked rather than assumed: everything below measures nothing if
+			// the shape reports no size, so say that out loud instead of passing for the
+			// wrong reason -- the exact failure this test had on btrfs.
+			//
+			// For the symlink arm this cannot fire on Linux: st_size is the target's length
+			// and an empty target is refused (measured: os.Symlink("", …) → ENOENT, and the
+			// shortest possible target reports 1). It is kept for both arms on purpose. A
+			// premise check written once, around the fixture seam, is what stops the next
+			// shape being added without it; one written only where it can currently fail is
+			// how the directory got here.
+			fi, err := os.Lstat(gen1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fi.Size() == 0 {
+				t.Skipf("%s reports size 0 on this filesystem, so nothing below would be measured", what)
+			}
+
+			gens, total, err := (&Reader{Path: path}).Generations()
+			if err != nil {
+				t.Fatalf("Generations: %v", err)
+			}
+			if len(gens) != 2 {
+				t.Fatalf("got %d generations, want 2: %v", len(gens), gens)
+			}
+			if !gens[0].Regular {
+				t.Errorf("generation 0 is the live file and was reported as non-regular")
+			}
+			if gens[1].Regular {
+				t.Errorf("generation 1 is %s and was reported as a normal log file", what)
+			}
+			// The size of somebody else's file is not the trail's bytes. Counting it would
+			// make the answer to "how big is my audit log" depend on what the path was
+			// replaced with.
+			if gens[1].Size != 0 {
+				t.Errorf("a non-regular generation contributed %d bytes to the trail's total", gens[1].Size)
+			}
+			if total != int64(len(body)) {
+				t.Errorf("total = %d, want %d (the live file only)", total, len(body))
+			}
+		})
 	}
 }
 
