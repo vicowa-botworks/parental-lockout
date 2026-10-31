@@ -50,6 +50,11 @@ jobs:
 
       - name: Name prefix for this run's artifacts
         id: slug
+        # `shell: bash` is not decoration: `${var//pat/repl}` is a bashism, and the default here
+        # only happens to be bash because Linux runners default to it. Measured under dash the
+        # same line dies with `Bad substitution`, exit 2 -- loud, but a step whose correctness
+        # depends on an unset default is a step that breaks the day someone adds a `shell:` line.
+        shell: bash
         # `github.ref_name` is the tag on a push and the BRANCH on a workflow_dispatch, and a
         # branch may contain `/` -- which is not a legal artifact-name character (the runner
         # rejects the upload with "The artifact name is not valid", listing NTFS as the reason).
@@ -115,20 +120,27 @@ jobs:
     # run next to a green artifact. A guard that has to fail in order to be true is not a guard;
     # it is a surprise with a log.
     if: startsWith(github.ref, 'refs/tags/')
-    # `contents: write` is what `gh release create` needs. `actions: read` is here because this
-    # job's first step lists and downloads the artifacts of the run, and specifying any permission
-    # sets every unlisted one to none -- so a block that names only contents would take the
-    # artifact listing away from the job that exists to publish those artifacts.
+    # `contents: write` is what `gh release create` needs, and it is the only scope this job asks
+    # for. `actions: read` is deliberately NOT here: an earlier version of this comment justified
+    # it by the download step below, and that was wrong twice over. download-artifact's own README
+    # scopes the same-run case without any scope -- `actions:read` is what a cross-run or
+    # cross-repo download needs -- and run 41167592068 is the direct test: the artifacts job
+    # uploaded two ~8 MB artifacts under workflow-level `contents: read`, which per the docs sets
+    # every unlisted scope to none, so an in-run artifact moves with `actions: none`. A scope that
+    # cannot be named in a step is a scope not to hold; if a step ever calls the artifacts REST
+    # API directly, that is the commit that adds it.
     permissions:
       contents: write
-      actions: read
     steps:
       - name: Name prefix for this run's artifacts
         id: slug
+        shell: bash
         # The same expression as the artifacts job, not a claim that a tag cannot contain `/`.
         # Two jobs agreeing about a name by each deriving it the same way beats one of them
-        # assuming what the other produced -- a mismatch here downloads zero files and the
-        # checksum step below would then publish a release with no packages in it.
+        # assuming what the other produced. The failure it prevents is measured, and it is a red
+        # tick rather than a bad release: a mismatch downloads zero files, `find staged -type f`
+        # is then empty, `xargs -r sha256sum` writes a zero-byte SHA256SUMS, `lines -lt 4` is true
+        # and the Checksums step below exits 1 -- so the job fails and no release is created.
         run: echo "safe=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@v4
