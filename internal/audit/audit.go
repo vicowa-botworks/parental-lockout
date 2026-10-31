@@ -342,16 +342,24 @@ func (w *Writer) open() error {
 		// deleted; neither is pinned by a shipped test, so treat this as a description of
 		// what was observed, not of what is asserted.
 		//
-		//   Through the seam below — what the tests exercise — every later write still
-		//   measures. rotate() ends in open(), so this arm runs again after each rotation and
-		//   sets the bound again: the trail shards one record per generation and the line
-		//   above prints on every write. Conservative for disk, and it never recovers on its
-		//   own, so "rotating on the next write" describes the first rotation only.
+		//   Through the seam below — what the tests exercise — the bound holds and the
+		//   trail shards one record per generation: rotate() ends in open(), so this arm
+		//   runs again after each rotation and re-arms. Measured at the head that wrote
+		//   this: three writes against a 400-byte bound leave plock.log empty and
+		//   plock.log.1, .2 and .3 holding one record each, and print the line below on
+		//   every write. Conservative for disk, and it never recovers on its own.
 		//
-		//   On a genuine fstat failure the operator sees neither. verify() calls
+		//   The rotation lands on the write that prints this line, not on the one after
+		//   it: Write() opens, appends, and compares w.size against the bound in the same
+		//   call, so the record that trips the arm is the record that renames the file.
+		//   That is why the sentence below promises no rotation at all — an earlier draft
+		//   said "rotating on the next write", which was true of nothing: late by one
+		//   write on the seam path, and never on the genuine one.
+		//
+		//   On a genuine fstat failure the operator sees neither state. verify() calls
 		//   w.f.Stat() directly (it does not read this seam), so the same failure refuses
-		//   every write as a dropped event: nothing rotates, nothing shards, and the counter
-		//   this arm just set is never consulted again.
+		//   every write as a dropped event: nothing rotates, nothing shards, and the
+		//   counter this arm just set is never consulted again.
 		//
 		// So what this arm buys is the honesty of the counter and of the sentence printed
 		// beside it — pinned by A62 — not a change in on-disk layout for the failure it
@@ -363,7 +371,7 @@ func (w *Writer) open() error {
 		// there stored 0, and 0 is the permissive end: "measured as empty", the very
 		// thing this arm exists to refuse, with the log line promising a rotation that
 		// is then a full DefaultMaxBytes away.
-		w.logf("audit: cannot stat %s to measure the existing trail: %v; rotating on the next write", w.Path, statErr)
+		w.logf("audit: cannot stat %s to measure the existing trail: %v; treating the trail as full", w.Path, statErr)
 		w.size = w.maxBytes()
 		w.f = f
 		return nil

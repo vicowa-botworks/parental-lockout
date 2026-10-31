@@ -222,17 +222,17 @@ func TestAnUnmeasurableTrailIsTreatedAsFullNotEmpty(t *testing.T) {
 			if err := w.Write(Record{Kind: "lock.asserted", Username: "kid"}); err != nil {
 				t.Fatal(err)
 			}
-			// The conservative end: the bound is already reached, so the NEXT write
-			// rotates rather than appending past what the operator configured. Zero
-			// here would mean "start over", and a trail that cannot be measured would
-			// then never rotate at all.
+			// The conservative end of the two: the bound is stored as already reached, so
+			// this write is the one that rotates. Zero would mean "measured as empty" — the
+			// trail keeps the bytes it cannot measure and rotates only after a further
+			// bound of new writes, late by whatever it already held. That is the A62
+			// regression, and it is the permissive end; an earlier draft of this comment
+			// called it "never rotate at all", which is not what zero does.
 			//
-			// What this asserts is the first write. rotate() ends in open(), so on a trail
-			// that stays unmeasurable the arm runs again and re-arms the bound: one record
-			// per generation, warning and all, rather than one rotation and then a recovered
-			// measurement. Measured, not asserted here -- this subtest writes once, and the
-			// multi-write behaviour is recorded in issue #186 rather than pinned by a test.
-			// Conservative in both cases; the sentence is what had to stop claiming more.
+			// One write is what this asserts. What happens across writes — the arm
+			// re-arming after each rotation, one record per generation, the warning on
+			// every one of them — is described at the arm in audit.go and measured in
+			// issue #186; it is not pinned here.
 			if w.size != tc.want {
 				t.Errorf("an unmeasurable trail resolved to %d bytes against a %d-byte bound; it must resolve to the bound", w.size, tc.want)
 			}
