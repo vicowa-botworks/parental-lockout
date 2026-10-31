@@ -10,7 +10,9 @@
 # and a list of names is a list that goes stale: a thirteenth script added by the next PR is not
 # linted by anything until someone remembers to add it, and nothing fails when they don't.
 # `git ls-files '*.sh'` is the set of scripts the repository actually ships, so a new one is
-# linted by the PR that adds it. Measured on main: the derived list is the same twelve files.
+# linted by the PR that adds it. Measured on main the derived list was the same twelve files; on
+# this branch it is thirteen, because the script that derives it is itself a tracked shell script
+# and is therefore linted by itself.
 #
 # `.opencode/` is excluded, for the reason the CI job gave when it was hand-maintained: that tree
 # holds agent tooling that is installed nowhere and is written in bash with POSIX-undefined
@@ -28,15 +30,6 @@
 # bash, not sh, for one reason: the file list is read NUL-delimited (see the note by the loop).
 set -euo pipefail
 
-# Anchored to the repository, not to the caller. `git ls-files` limits its pathspec to the current
-# directory and prints paths relative to it, so an unanchored run from testing/ lints 8 of 13
-# scripts and calls that a pass -- the same shape the empty-list guard below refuses at zero. It
-# gets worse than incomplete: shellcheck follows `source` only across the batch it is handed, so
-# the subset also produced 11 SC2034/SC1091 findings for files that are clean when the whole set
-# is passed. Both directions wrong, and only for whoever runs this directly, which is the reader
-# of this script.
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-
 SHELLCHECK=${SHELLCHECK:-shellcheck}
 # `-`, not `:-`: an empty value is an answer ("exclude nothing"), not a request for the default.
 EXCLUDE_PREFIX=${SHELLCHECK_EXCLUDE_PREFIX-.opencode/}
@@ -44,6 +37,41 @@ EXCLUDE_PREFIX=${SHELLCHECK_EXCLUDE_PREFIX-.opencode/}
 # exit 0 -- a shellcheck job that green-ticks having linted nothing is worse than no shellcheck
 # job, because it is the same colour as the real thing.
 SHELLCHECK_REQUIRED=${SHELLCHECK_REQUIRED:-}
+
+# Resolved before the anchor, not after it. `command -v` looks a relative path up in the current
+# directory, so doing it after the `cd` above resolves `SHELLCHECK=./local-sc` against the
+# repository root and prints "not installed" for a binary sitting in the directory the caller was
+# standing in -- a green run that linted nothing, which is the exact shape this script exists to
+# refuse. Absolute paths and bare names on PATH are unaffected; only a caller-supplied relative
+# path could tell the difference, and it is the caller who would be surprised.
+case "$SHELLCHECK" in
+  # Absolute paths are already resolved -- and matching them here would be a real breakage, since
+  # CI passes one: `/tmp/...` matches `*/*` and would be rewritten onto the repository root.
+  /*) ;;
+  */*) [ -f "$SHELLCHECK" ] && SHELLCHECK="$PWD/${SHELLCHECK#./}" ;;
+esac
+
+# bash 4.4 at minimum, and said out loud. `mapfile -d` is what reads the NUL-delimited list below
+# and arrived in 4.4 (`mapfile` itself in 4.0), while `#!/usr/bin/env bash` takes whatever is first
+# on PATH -- macOS still ships 3.2, RHEL 7 ships 4.2. Without this the script dies at the mapfile
+# with `mapfile: command not found` and rc 127, which does refuse rather than pass, but says
+# nothing about a step whose entire claim is "13 scripts linted".
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] ||
+   { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  printf 'check-shell: bash 4.4 or newer is required (the file list is read NUL-delimited by\n' >&2
+  printf 'mapfile -d); this is %s. Refusing rather than linting an unknown subset.\n' "$BASH_VERSION" >&2
+  exit 1
+fi
+
+# Anchored to the repository, not to the caller, and after the resolution above so that a
+# caller-relative binary path still means what the caller meant. `git ls-files` limits its pathspec
+# to the current directory and prints paths relative to it, so an unanchored run from testing/
+# lints 8 of 13 scripts and calls that a pass -- the same shape the empty-list guard below refuses
+# at zero. It gets worse than incomplete: shellcheck follows `source` only across the batch it is
+# handed, so the subset also produced 11 SC2034/SC1091 findings for files that are clean when the
+# whole set is passed. Both directions wrong, and only for whoever runs this directly, which is
+# the reader of this script.
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 if ! command -v "$SHELLCHECK" >/dev/null 2>&1; then
   if [ -n "$SHELLCHECK_REQUIRED" ]; then
@@ -63,8 +91,20 @@ fi
 # NUL-delimited, because a path may contain a space and word splitting would hand shellcheck two
 # of them. `git ls-files -z` prints one NUL-terminated path per file; mapfile -d '' reads that
 # exactly. A newline-delimited read would be the same bug wearing a loop.
+#
+# Through a temp file rather than a process substitution: `set -o pipefail` does not cover
+# `< <(git …)`, so a git failure would leave an empty array and the only thing noticing would be
+# the guard below -- which would then blame the pathspec when git is what failed. Here git's own
+# complaint is followed by the reason that actually applies.
+list=$(mktemp) || exit 1
+trap 'rm -f "$list"' EXIT
+if ! git ls-files -z '*.sh' > "$list"; then
+  printf 'check-shell: git ls-files failed, so there is no list of scripts to lint.\n' >&2
+  printf 'That is usually a checkout outside a git tree, not a pathspec problem.\n' >&2
+  exit 1
+fi
 all=()
-mapfile -d '' -t all < <(git ls-files -z '*.sh')
+mapfile -d '' -t all < "$list"
 
 files=()
 for f in "${all[@]}"; do
@@ -81,7 +121,7 @@ done
 
 if [ "${#files[@]}" -eq 0 ]; then
   # Not "nothing to do, success". A gate that lints zero files prints the same green as a gate
-  # that lints twelve, and the way that happens is the interesting one: a pathspec change, a
+  # that lints thirteen, and the way that happens is the interesting one: a pathspec change, a
   # checkout outside a git tree, or an exclusion that grew. `verify`'s empty-selection step
   # refuses for exactly this reason.
   printf 'check-shell: no shell scripts found (excluded prefix %s), so this checked nothing.\n' \
