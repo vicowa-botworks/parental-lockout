@@ -229,10 +229,12 @@ func TestAnUnmeasurableTrailIsTreatedAsFullNotEmpty(t *testing.T) {
 			// regression, and it is the permissive end; an earlier draft of this comment
 			// called it "never rotate at all", which is not what zero does.
 			//
-			// One write is what this asserts. What happens across writes — the arm
-			// re-arming after each rotation, one record per generation, the warning on
-			// every one of them — is described at the arm in audit.go and measured in
-			// issue #186; it is not pinned here.
+			// One write is what this asserts: the rotation it triggers, and the re-arm
+			// inside that rotation, are pinned by the assertion below — not re-arming
+			// reads "resolved to 0 bytes", because rotate() is what zeroes the counter.
+			// What happens at the second rotation and later — one record per generation,
+			// the warning on every one of them — is described at the arm in audit.go and
+			// measured in issue #186, and is not pinned here.
 			if w.size != tc.want {
 				t.Errorf("an unmeasurable trail resolved to %d bytes against a %d-byte bound; it must resolve to the bound", w.size, tc.want)
 			}
