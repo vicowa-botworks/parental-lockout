@@ -29,6 +29,10 @@ FORMAT=all
 # build the amd64 pair plus the arm64 .deb and then exit non-zero at the rpm leg -- three
 # artifacts written, a failure printed, and no explanation that rpm cannot cross-build. The
 # Makefile already defaults to the host for this reason (see ARCH there).
+# An unmapped `uname -m` (armv7l, riscv64, a Raspberry Pi Zero) falls through with the raw string
+# intact, on purpose: the refusal in `arches` below quotes the value it rejected, so the operator
+# who passed no flag at all sees the machine's own answer instead of being told their argument was
+# wrong. Mapping it to empty here would lose the only fact that explains the failure.
 ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
 OUT=dist
 BIN=${BIN_SRC:-}
@@ -59,7 +63,7 @@ case "$ARCH" in
   all) arches="amd64 arm64" ;;
   amd64 | x86_64) arches=amd64 ;;
   arm64 | aarch64) arches=arm64 ;;
-  *) die "--arch takes amd64, arm64 or all" ;;
+  *) die "--arch takes amd64, arm64 or all (got '$ARCH'; this machine reports $(uname -m))" ;;
 esac
 
 check_version
