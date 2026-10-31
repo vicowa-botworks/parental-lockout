@@ -2168,7 +2168,7 @@
       "file": "internal/web/templates/users.tmpl",
       "old": "<a href=\"/profiles\">Create a profile</a> and come back.",
       "new": "<a href=\"/users\">Create a profile</a> and come back.",
-      "note": "the paragraph tells the operator where to fix the missing profile and sends them to the page that cannot fix it. Invisible to any whole-body assertion, because the shell's nav writes href=\\\"/profiles\\\" on every page in the product -- which is how this exact retarget walked green through the whole package until the assertion was row-scoped. TestTheUsersPageOffersNoDeadDropdownWithoutProfiles. (#192)"
+      "note": "the paragraph tells the operator where to fix the missing profile and sends them to the page that cannot fix it. Invisible to any whole-body assertion, because the shell's nav writes href=\"/profiles\" on every page in the product -- which is how this exact retarget walked green through the whole package until the assertion was row-scoped. TestTheUsersPageOffersNoDeadDropdownWithoutProfiles. (#192)"
     }
   ]
 }

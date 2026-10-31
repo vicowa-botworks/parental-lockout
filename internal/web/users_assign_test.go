@@ -311,34 +311,42 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 	}
 	body := rec.Body.String()
 
-	action, fields := parseForm(t, body, "/users/ada/profile")
+	action, fields := parseForm(t, body, "/users/casey/profile")
 	token, ok := fields["csrf"]
 	if !ok || token == "" {
 		t.Fatalf("the rendered form carries no CSRF token; the form is:\n%s",
 			formFragment(body, action))
 	}
 	// The profile comes from a <select>, which parseForm does not read -- it walks
-	// <input> elements. So the chosen option is taken from the markup the same way a
-	// browser would: the option marked selected, or the first one if none is.
-	profile := ""
-	if m := selectedOptionRe.FindStringSubmatch(formFragment(body, action)); m != nil {
-		profile = m[1]
-	} else {
-		m := regexp.MustCompile(`(?s)<option value="([^"]+)"`).FindStringSubmatch(formFragment(body, action))
-		if m == nil {
-			t.Fatalf("the form offers no profile to assign; the form is:\n%s", formFragment(body, action))
-		}
-		profile = m[1]
+	// <input> elements, so the chosen option is taken from the markup the way a browser
+	// would: the option the page MARKS. There is deliberately no "or the first one if none
+	// is" fallback any more. `<option value="([^"]+)">` skips the value="" placeholder, so it
+	// INVENTS the first real profile, and on the row this test used to target (ada, unmanaged)
+	// nothing is marked -- the fallback was the live path, and the doc paragraph described a
+	// choice the page never made. Inventing changes the verb: a browser pressing Save on a row
+	// that marks nothing submits the placeholder, which means removal, while the invented value
+	// means assignment. Measured on a managed row whose profile was deleted -- the page says the
+	// profile is missing and marks nothing -- the fallback posted `school` and stored a row under
+	// a claim about the chosen option. postRowForm below refuses the same guess; the file's two
+	// rendered-form helpers now say the same thing about what they will not make up.
+	frag := formFragment(body, action)
+	m := selectedOptionRe.FindStringSubmatch(frag)
+	if m == nil {
+		t.Fatalf("the page marks no chosen profile on this row, so there is nothing to post without "+
+			"inventing one -- and an invented value means assignment where the browser's empty "+
+			"placeholder means removal:\n%s", frag)
 	}
+	profile := m[1]
 	enabled := ""
-	if strings.Contains(formFragment(body, action), `name="enabled" value="on" checked`) {
+	if strings.Contains(frag, `name="enabled" value="on" checked`) {
 		enabled = "&enabled=on"
 	}
 
 	post := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", action,
-		strings.NewReader("csrf="+token+"&profile="+profile+enabled))
+		strings.NewReader("csrf="+token+"&profile="+url.QueryEscape(profile)+enabled))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
 	req.AddCookie(c)
 	req.RemoteAddr = "192.0.2.71:1"
 	f.s.Handler().ServeHTTP(post, req)
@@ -346,8 +354,14 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 	if post.Code != http.StatusSeeOther {
 		t.Fatalf("posting the rendered form was refused: %d %s", post.Code, post.Body.String())
 	}
-	if f.assignment("ada") == nil {
-		t.Errorf("the form posted successfully but stored nothing (posted profile=%q)", profile)
+	got := f.assignment("casey")
+	if got == nil {
+		t.Fatalf("the form posted successfully but stored nothing (posted profile=%q)", profile)
+	}
+	// "Something got stored" cannot say WHICH profile it posted, and that is exactly how an
+	// invented one stayed invisible. The stored id has to be the one the page marked.
+	if got.ProfileID != profile {
+		t.Errorf("the page marked profile %q and the handler stored %q", profile, got.ProfileID)
 	}
 }
 
