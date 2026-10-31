@@ -3076,7 +3076,11 @@ def self_test():
             tables = []
             for table in (auto, auto_flip):
                 with open(table, encoding="utf-8") as fh:
-                    tables.append([row.split()[3] for row in fh.read().splitlines() if row.strip()])
+                    rows = [row.split() for row in fh.read().splitlines() if row.strip()]
+                # Guarded index: this runs while building the table, before any guard can judge
+                # it, so a row that ever loses its options column would die as IndexError and the
+                # traceback would swallow the failures already sitting in `bad`.
+                tables.append([parts[3] if len(parts) > 3 else "" for parts in rows])
             if any(len(opts) != 2
                    or not (("fd=" in opts[0]) != ("fd=" in opts[1])
                            and ("nosuid" in opts[0]) != ("nosuid" in opts[1])
@@ -3087,6 +3091,29 @@ def self_test():
                            "`nosuid`, length and option count -- the shipped code never reads "
                            "mount options, so a fixture that stops differing there silently "
                            "returns every placeholder-spotting tie-break to green")
+            # The generic pair above is the other copy of the same pattern -- two literals typed
+            # out twice in reverse order -- and it guards the two columns the automounter pair
+            # cannot: both of those rows are real devices, so nothing there can distinguish a
+            # positional tie-break from one that prefers a row by its name. Equalise `tie` until
+            # its rows are byte-identical and every assertion still passes; the only difference
+            # left is position, which is the whole thing under test.
+            #
+            # Accumulate, then report once. The same guard with `bad.append` inside the loop fires
+            # twice per run -- measured -- and two lines for one defect is how a reader starts
+            # doubting the report. The `len(parts) < 3` term keeps the short-circuit honest about
+            # rows this guard cannot judge rather than scoring them as passes.
+            generic = []
+            for table in (tie, tie_flip):
+                with open(table, encoding="utf-8") as fh:
+                    generic.append([row.split() for row in fh.read().splitlines() if row.strip()])
+            if any(len(pair) != 2 or any(len(parts) < 3 for parts in pair)
+                   or len({parts[0] for parts in pair}) != 2
+                   or len({parts[2] for parts in pair}) != 2
+                   for pair in generic):
+                bad.append("the generic tie fixtures no longer differ on device and filesystem "
+                           "type -- they are the only pair that can tell a positional tie-break "
+                           "from one that prefers a row by its name, and equalising them leaves "
+                           "position as the only difference a reader could mistake for intent")
             # A path with nothing under it but `/` has to report `/`, not "unknown": the common
             # case on a machine whose home is the only filesystem.
             home = os.path.realpath("/home") + "/plock"
