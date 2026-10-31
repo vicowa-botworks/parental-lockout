@@ -3062,14 +3062,31 @@ def self_test():
             # Separability, not difference: `len(set(opts)) < 2` catches flattening but misses a
             # row with its markers stripped while the columns still differ, which is the case the
             # on-top order exists to catch. Measured both ways.
-            with open(auto, encoding="utf-8") as fh:
-                opts = [row.split()[3] for row in fh.read().splitlines() if row.strip()]
-            if len(opts) != 2 or not (("fd=" in opts[0]) != ("fd=" in opts[1])
-                                      and ("nosuid" in opts[0]) != ("nosuid" in opts[1])):
-                bad.append("the automounter tie fixtures are no longer separable by `fd=` and "
-                           "`nosuid` -- the shipped code never reads mount options, so a fixture "
-                           "that stops differing there silently returns every placeholder-spotting "
-                           "tie-break to green")
+            #
+            # Both tables, not just the first. `auto` and `auto_flip` are independent copies of the
+            # same two literals typed out twice in opposite order, so a tidy-up inside one block
+            # leaves the other real -- and the buried fixture passing while the on-top one is
+            # flattened is precisely the half that dies only in the flip. Reading one file pinned
+            # half the pair and said nothing about it.
+            #
+            # Shape as well as markers: a tie-break can key on the options string's length or its
+            # comma-count, so the two rows must differ there too. Whitespace field count is NOT one
+            # of them -- any real pair has six fields per row, so a `len(parts)` tie-break is an
+            # equivalent mutant that survives for a reason unrelated to this fixture. Count commas.
+            tables = []
+            for table in (auto, auto_flip):
+                with open(table, encoding="utf-8") as fh:
+                    tables.append([row.split()[3] for row in fh.read().splitlines() if row.strip()])
+            if any(len(opts) != 2
+                   or not (("fd=" in opts[0]) != ("fd=" in opts[1])
+                           and ("nosuid" in opts[0]) != ("nosuid" in opts[1])
+                           and len(opts[0]) != len(opts[1])
+                           and len(opts[0].split(",")) != len(opts[1].split(",")))
+                   for opts in tables):
+                bad.append("the automounter tie fixtures are no longer separable by `fd=`, "
+                           "`nosuid`, length and option count -- the shipped code never reads "
+                           "mount options, so a fixture that stops differing there silently "
+                           "returns every placeholder-spotting tie-break to green")
             # A path with nothing under it but `/` has to report `/`, not "unknown": the common
             # case on a machine whose home is the only filesystem.
             home = os.path.realpath("/home") + "/plock"
