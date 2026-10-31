@@ -81,9 +81,33 @@ COLLECT_CALL = "file_problems.extend(found)"
 # problem goes once it is found; this one pins that anyone looks.
 SCRIPT_SCAN_CALL = "script_problems = script_open_problems(script_files())"
 
+# The two calls scripts/check-scripts.py makes back into this file. Pinned from here because that
+# file is the half of this gate `make verify` runs (#189), and a deleted call over there is
+# invisible from in here: every rule in this self-test would still hold, `make verify` would
+# still print OK, and the guard the pre-push gate exists to run would be running nothing. The
+# same shape as SCRIPT_SCAN_CALL, one file over -- which is exactly why it needs its own pin.
+SCRIPTS_TOOL_CALL = "script_problems = gate.script_open_problems(gate.script_files())"
+SCRIPTS_SET_CALL = "found, bad_bytes = gate.encoding_problems(label, path)"
+
 # How many rules self_test must run. Pinned because a deleted rule is invisible to every rule
 # that survives it -- see the assertion in self_test for what that does and does not catch.
-EXPECTED_RULES = 92
+EXPECTED_RULES = 95
+
+# What `--help` prints. A string rather than a docstring because the docstring is this file's
+# own explanation of the gate and would run to two screens here.
+USAGE = """usage: check-mutations.py [--self-test | --restore | SET_FILE ...]
+
+With no arguments, check every set under scripts/mutations/: that each mutant still applies,
+and that the package and its tests still compile with it applied. Nothing is run, so a mutant
+that survives every test is invisible here -- that is `make mutate`.
+
+  --self-test   check the rules this file depends on; no toolchain, milliseconds
+  --restore     undo a mutation a dead run left applied (see .mutation-journal.json)
+  --help        this
+
+The half of this that needs no Go toolchain -- the encoding guards over scripts/ and the set
+files -- runs in `make verify` as scripts/check-scripts.py, which imports the guards from here
+rather than copying them."""
 
 # Shape rules come from mutset, the same module the battery loads. Two validators that
 # disagree are how a set ends up green at this gate and refused at the battery.
@@ -1116,6 +1140,30 @@ def self_test():
                None if SCRIPT_SCAN_CALL in body.replace(SCRIPT_SCAN_CALL, "script_problems = []")
                else "the scan no longer sees the line it guards")
 
+    # The other file that runs these guards. `make verify` reaches the encoding pass through
+    # scripts/check-scripts.py (#189), which imports the functions from here rather than copying
+    # them -- so the copy cannot drift, but the *call* can disappear, and from inside this file
+    # that disappearance is silent: the full pass still scans scripts/, still prints its own
+    # summary, and `make verify` never runs any of it. Read the same way main's body is read, and
+    # fail closed the same way: a check-scripts.py that cannot be read is a missing gate, not a
+    # skipped one.
+    try:
+        with open(os.path.join(ROOT, "scripts", "check-scripts.py"), encoding="utf-8") as fh:
+            scripts_body = fh.read()
+    except OSError as err:
+        problems.append(f"cannot read scripts/check-scripts.py to pin the pre-push gate: {err}")
+        scripts_body = ""
+    rule("check-scripts.py runs the tool scan through this file",
+         None if SCRIPTS_TOOL_CALL in scripts_body
+         else f"scripts/check-scripts.py no longer contains {SCRIPTS_TOOL_CALL!r}, so `make "
+              f"verify` is not running the guard it was added to run")
+    rule("check-scripts.py runs the set-file scan through this file",
+         None if SCRIPTS_SET_CALL in scripts_body
+         else f"scripts/check-scripts.py no longer contains {SCRIPTS_SET_CALL!r}")
+    rule_fires("control: the pin finds the pre-push tool scan deleted",
+               None if SCRIPTS_TOOL_CALL in scripts_body.replace(SCRIPTS_TOOL_CALL, "pass")
+               else "the pin no longer sees the call it guards")
+
     def scripts_drive(tool_body, want, sentence=None):
         """Run main over a tree whose scripts/ holds one tool, with no set files at all.
 
@@ -1416,6 +1464,17 @@ def exit_status(bad, file_problems, script_problems, id_problems):
 def main(argv):
     if argv[1:] == ["--self-test"]:
         return self_test()
+    # Before the argument loop. `--help` used to fall through to `paths = argv[1:]` and be opened
+    # as a set file, so the tool that reports encoding problems died with a FileNotFoundError
+    # traceback naming `encoding_problems` -- sending the reader to the wrong function for a
+    # missing usage line (found by CI on #188).
+    if any(arg in ("-h", "--help") for arg in argv[1:]):
+        print(USAGE)
+        return 0
+    if any(arg == "--scripts" for arg in argv[1:]):
+        print("`--scripts` is not a flag of this tool; the cheap half is its own file:\n"
+              "  python3 scripts/check-scripts.py        (0.05 s, no Go; this runs it too)")
+        return 2
     if argv[1:] == ["--restore"]:
         journal = journal_load()
         if journal is None:

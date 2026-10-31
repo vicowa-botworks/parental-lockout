@@ -86,29 +86,18 @@ jobs:
           "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" --version
 
       - name: Lint the shipped scripts
-        run: |
-          set -euo pipefail
-          "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" \
-            deploy/install.sh \
-            deploy/run-dev.sh \
-            deploy/packaging/deb/postinst \
-            deploy/packaging/deb/prerm \
-            deploy/packaging/deb/postrm \
-            scripts/check-builds.sh \
-            scripts/check-deps.sh \
-            scripts/package.sh \
-            scripts/package-lib.sh \
-            scripts/package-deb.sh \
-            scripts/package-rpm.sh \
-            scripts/package-verify.sh \
-            testing/e2e/e2e.sh \
-            testing/e2e/forge-hint.sh \
-            testing/e2e/lib.sh \
-            testing/capture/fixture.sh \
-            testing/capture/post-fixture.sh \
-            testing/capture/pages-setup.sh \
-            testing/capture/lock-setup.sh \
-            testing/capture/testlock-setup.sh
+        # The file list lives in scripts/check-shell.sh, not here. It used to be twelve names in
+        # this step, which is a list that goes stale silently: the thirteenth script, added by the
+        # next PR, is linted by nothing until someone remembers this step exists, and no check
+        # fails when they don't. The script derives the set from `git ls-files`, and `make verify`
+        # calls the same one, so the local gate and this job cannot disagree about what is shipped
+        # (issue #189). The packaging branch that added this job's sibling also deleted twenty
+        # names from the list below without deleting a single file from the set -- which is only
+        # safe because the derivation covers extension-less scripts too; see the pathspec there.
+        env:
+          SHELLCHECK: /tmp/shellcheck-${{ env.SHELLCHECK_VERSION }}/shellcheck
+          SHELLCHECK_REQUIRED: "1"
+        run: make check-shell
 
   # Every file under scripts/mutations/ is a list of claims of the form "this guard is
   # tested, and here is the exact source text that would break if it were removed". Two

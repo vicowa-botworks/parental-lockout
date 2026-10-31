@@ -285,7 +285,7 @@ fails if `go.mod` ever grows one.
 
 ```sh
 make build      # -> bin/plock
-make verify     # gofmt, vet, build, race tests, dependency guard
+make verify     # gofmt, script and shell guards, vet, build, race tests, dependency guard
 make mutate     # put each known bug back and insist the suite notices
 make run-dev    # the whole loop, unprivileged, against a throwaway config
 ```
