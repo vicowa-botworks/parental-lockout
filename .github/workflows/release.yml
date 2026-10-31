@@ -138,9 +138,11 @@ jobs:
         # The same expression as the artifacts job, not a claim that a tag cannot contain `/`.
         # Two jobs agreeing about a name by each deriving it the same way beats one of them
         # assuming what the other produced. The failure it prevents is measured, and it is a red
-        # tick rather than a bad release: a mismatch downloads zero files, `find staged -type f`
-        # is then empty, `xargs -r sha256sum` writes a zero-byte SHA256SUMS, `lines -lt 4` is true
-        # and the Checksums step below exits 1 -- so the job fails and no release is created.
+        # tick rather than a bad release: a mismatch downloads zero files, `find` then matches
+        # nothing, `xargs -r` writes a zero-byte SHA256SUMS, `lines -lt 4` is true and Checksums
+        # exits 1 -- so the job fails and no release is created. That guard is the reporter only
+        # because the step does `mkdir -p staged` first; without it the step died at `cd` and the
+        # guard below never ran.
         run: echo "safe=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@v4
@@ -155,6 +157,13 @@ jobs:
       - name: Checksums
         run: |
           set -euo pipefail
+          # `mkdir -p`, not just `cd`: download-artifact does not create `path` when its pattern
+          # matches nothing, so on a name mismatch the step died at `cd` with "No such file or
+          # directory" -- loud, but it blames the filesystem for a wiring mistake and the guard
+          # below never runs. Creating it makes the four-artifact check the thing that reports the
+          # empty case, in words. A partial set already reached the guard either way: two files
+          # write two lines and `2 -lt 4` fires.
+          mkdir -p staged
           cd staged
           rm -f SHA256SUMS
           find . -maxdepth 1 \( -name '*.deb' -o -name '*.rpm' \) -type f -printf '%P\n' |
