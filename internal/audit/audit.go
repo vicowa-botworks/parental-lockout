@@ -338,16 +338,36 @@ func (w *Writer) open() error {
 		// tell what this is" is not a licence to change it.
 		//
 		// What happens next depends on why the stat failed, and the two cases do not look
-		// alike. Both measured in #186, by a temporary probe in this package that was then
-		// deleted; neither is pinned by a shipped test, so treat this as a description of
-		// what was observed, not of what is asserted.
+		// alike. What is pinned and what is only observed, precisely — because a block that
+		// says "nothing here is tested" invites someone to delete the assertion that is
+		// quietly holding two of its three claims up:
+		//
+		//   The same-write rotation and the post-rotation re-arm are both pinned, by the
+		//   assertion in TestAnUnmeasurableTrailIsTreatedAsFullNotEmpty. Deferring the
+		//   rotation reads "resolved to 470 bytes against a 400-byte bound"; not re-arming
+		//   after rotate() zeroes the counter reads "resolved to 0 bytes". Both measured.
+		//
+		//   What has no pin is writes two and later: every shipped test that holds the seam
+		//   failing writes exactly one record. The multi-write behaviour was measured in
+		//   #186 by a probe that was then deleted.
+		//
+		//   The genuine-fstat case is not reachable from a test at all — the seam below is
+		//   the only injection point — so everything said about it is observation.
 		//
 		//   Through the seam below — what the tests exercise — the bound holds and the
 		//   trail shards one record per generation: rotate() ends in open(), so this arm
 		//   runs again after each rotation and re-arms. Measured at the head that wrote
 		//   this: three writes against a 400-byte bound leave plock.log empty and
 		//   plock.log.1, .2 and .3 holding one record each, and print the line below on
-		//   every write. Conservative for disk, and it never recovers on its own.
+		//   every write. Bounded for disk, and it never recovers on its own.
+		//
+		//   "Bounded" is not "kept", and for this file the difference is the point. rotate()
+		//   deletes past Keep, so the sharding is bounded by the retention: eight writes with
+		//   the default Keep of 5 leave the five most recent records on disk and the other
+		//   three nowhere (measured at this head: the count and the byte total both plateau
+		//   at five after the fifth write). Seam-only, so not the daemon's failure mode — but
+		//   a trail whose job is that a parent can read what happened should be described
+		//   with that clause next to the reassuring word, not without it.
 		//
 		//   The rotation lands on the write that prints this line, not on the one after
 		//   it: Write() opens, appends, and compares w.size against the bound in the same
