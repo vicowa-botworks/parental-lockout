@@ -2943,7 +2943,7 @@ def self_test():
     # rows a real machine has been measured to produce, and stay reproducible on a runner
     # whose own mounts change under them.
 
-    def _fstype_fixture(work, rows, name="mounts"):
+    def _fstype_fixture(work, rows, *, name):
         """Write a mounts table and return it, so fstype() parses bytes, not a fixture object.
 
         The name is a parameter, not a constant, because the table is written into a directory
@@ -3008,10 +3008,7 @@ def self_test():
             # above. One order alone cannot tell "the tie-break is positional" from "prefer the
             # row that looks like a real filesystem": a tie-break that scores the device or the
             # type -- `prefer = 0 if parts[0] == "overlay" else 1`, say -- answers ext4 here and
-            # ext4 there, and walks out of the one-sided fixture green. Reaching past `autofs`
-            # for a name that looks more like a filesystem is exactly the shortcut someone
-            # optimising this function would write, and it is wrong for every pair where the
-            # later row is the automounter.
+            # ext4 there, and walks out of the one-sided fixture green.
             tie_flip = _fstype_fixture(work, [
                 f"tmpfs {tmp_root} ext4 rw 0 0",
                 f"overlay {tmp_root} btrfs rw 0 0",
@@ -3020,6 +3017,31 @@ def self_test():
                 bad.append(f"fstype() said {fstype(probe, mounts=tie_flip)!r} with the duplicate "
                            f"rows reversed; only one order being pinned means the tie-break is "
                            f"choosing a row by what it looks like, not by where it sits")
+            # The pair above has no automounter in it, so it cannot see the shortcut it names:
+            # `prefer = 0 if kind == "autofs" else 1` answers ext4/btrfs correctly for every row
+            # pair that rule contains and survives the whole self-test. It is not equivalent to
+            # the shipped code either -- with this box's own two rows, `binfmt_misc` under
+            # `systemd-1 … autofs`, head says `autofs` and that shortcut says `binfmt_misc`, the
+            # same confident-wrong-name outcome this rule exists to remove. So these are the real
+            # rows, both orders: buried, which is what this machine actually looks like, and on
+            # top, which is rarer but is the half that makes "positional, not cosmetic" a claim
+            # rather than a hope.
+            auto = _fstype_fixture(work, [
+                f"systemd-1 {tmp_root} autofs rw 0 0",
+                f"binfmt_misc {tmp_root} binfmt_misc rw 0 0",
+            ], name="mounts-tie-auto")
+            if fstype(probe, mounts=auto) != "binfmt_misc":
+                bad.append(f"fstype() said {fstype(probe, mounts=auto)!r} with the automounter "
+                           f"buried under the filesystem in effect; the later row is the entry "
+                           f"path resolution uses, whatever either row is called")
+            auto_flip = _fstype_fixture(work, [
+                f"binfmt_misc {tmp_root} binfmt_misc rw 0 0",
+                f"systemd-1 {tmp_root} autofs rw 0 0",
+            ], name="mounts-tie-auto-flip")
+            if fstype(probe, mounts=auto_flip) != "autofs":
+                bad.append(f"fstype() said {fstype(probe, mounts=auto_flip)!r} with the automounter "
+                           f"on top; skipping a row because it is `autofs` is a cosmetic "
+                           f"tie-break, and this is the order that catches it")
             # A path with nothing under it but `/` has to report `/`, not "unknown": the common
             # case on a machine whose home is the only filesystem.
             home = os.path.realpath("/home") + "/plock"
