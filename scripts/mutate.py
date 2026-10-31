@@ -3053,6 +3053,23 @@ def self_test():
                 bad.append(f"fstype() said {fstype(probe, mounts=auto_flip)!r} with the automounter "
                            f"on top; skipping a row because it is `autofs` is a cosmetic "
                            f"tie-break, and this is the order that catches it")
+            # The pair above is only as strong as these two strings being separable, and the
+            # shipped code never reads the options column -- so if they ever stop being separable,
+            # nothing goes red: the tie-breaks come back one at a time and the suite stays green.
+            # That is not hypothetical. These are the longest lines this rule writes and their
+            # values are per-boot (`fd=36`, `pgrp=1`, `pipe_ino=757`), so "let me flatten these to
+            # `rw`" is the obvious future tidy-up, and it would silently reopen the hole.
+            # Separability, not difference: `len(set(opts)) < 2` catches flattening but misses a
+            # row with its markers stripped while the columns still differ, which is the case the
+            # on-top order exists to catch. Measured both ways.
+            with open(auto, encoding="utf-8") as fh:
+                opts = [row.split()[3] for row in fh.read().splitlines() if row.strip()]
+            if len(opts) != 2 or not (("fd=" in opts[0]) != ("fd=" in opts[1])
+                                      and ("nosuid" in opts[0]) != ("nosuid" in opts[1])):
+                bad.append("the automounter tie fixtures are no longer separable by `fd=` and "
+                           "`nosuid` -- the shipped code never reads mount options, so a fixture "
+                           "that stops differing there silently returns every placeholder-spotting "
+                           "tie-break to green")
             # A path with nothing under it but `/` has to report `/`, not "unknown": the common
             # case on a machine whose home is the only filesystem.
             home = os.path.realpath("/home") + "/plock"
