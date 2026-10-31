@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -277,7 +278,7 @@ func TestAStaleEntryCanBeUnmanaged(t *testing.T) {
 		config.User{Username: "oldkid", ProfileID: "school", Enabled: true})
 	f.mu.Unlock()
 
-	rec := authPost(t, f.s, "/users/oldkid/profile", "profile=")
+	rec := postRowForm(t, f, "oldkid")
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
 	}
@@ -430,14 +431,18 @@ func TestTheUsersPageOffersNoDeadDropdownWithoutProfiles(t *testing.T) {
 
 	// A <select> whose only option is the empty one is a control that cannot express an action.
 	// Asserting the absence of the form, not the presence of a sentence, is what makes this fail
-	// on a page that added an apology next to the same dead dropdown.
+	// on a page that added an apology next to the same dead dropdown. Absence is a whole-page
+	// claim; the two positive ones are row-scoped, because `href="/profiles"` is in the shell's
+	// nav (page.tmpl) on every page in the product, so over the whole body that assertion can
+	// never fail -- pointing the paragraph's link at /users left the package green.
 	if strings.Contains(body, `name="profile"`) {
 		t.Errorf("the page still offers a profile dropdown with nothing in it:\n%s", body)
 	}
+	row := userRow(t, body, "ada")
 	for _, want := range []string{`href="/profiles"`, "no profile to assign"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the page does not say what is missing or where to fix it (missing %q):\n%s",
-				want, body)
+		if !strings.Contains(row, want) {
+			t.Errorf("ada's row does not say what is missing or where to fix it (missing %q):\n%s",
+				want, row)
 		}
 	}
 }
@@ -470,8 +475,8 @@ func TestTheUsersPageStillLetsADanglingEntryBeUnmanaged(t *testing.T) {
 		t.Errorf("the dangling entry is told to go make a profile instead of being given its way out:\n%s", row)
 	}
 
-	// The handler half: the offered action works.
-	post := authPost(t, f.s, "/users/casey/profile", "profile=")
+	// The handler half, through the form the row rendered rather than a body typed beside it.
+	post := postRowForm(t, f, "casey")
 	if post.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303; body %s", post.Code, post.Body.String())
 	}
@@ -524,4 +529,51 @@ func userRow(t *testing.T, body, name string) string {
 		t.Fatalf("could not bound the row for %q", name)
 	}
 	return body[start : i+end]
+}
+
+// postRowForm posts the form the page ACTUALLY RENDERED for one account's row, and returns the
+// response. It exists because a hand-written body proves the handler accepts a request, and
+// nothing connects that request to the control the operator was shown. Two mutants inside the
+// removal arm survived a POST and a render that were never joined: `value=""` -> `value="p-gone"`
+// on the hidden profile field (the button then answers 404 "no profile has that id" -- the row's
+// only action, broken) and the CSRF value emptied (the #75 shape: 403, the parent presses the
+// button, nothing happens, nothing says why). Both are green when the body is typed next to the
+// template and red when it is taken from it.
+//
+// TestEveryFormOnEveryPageCarriesTheToken cannot cover this cell: the stale arm and the
+// zero-profile arm render the same formShape string, so the one pageStates does render satisfies
+// reach for the one it does not, and hasToken matches the field NAME, never its value.
+func postRowForm(t *testing.T, f *assignFixture, username string) *httptest.ResponseRecorder {
+	t.Helper()
+	resp, _ := login(t, f.s, "parent", "hunter2")
+	c := cookieOf(t, resp)
+
+	get := httptest.NewRequest("GET", "/users", nil)
+	get.Header.Set("Accept", "text/html")
+	get.AddCookie(c)
+	rec := httptest.NewRecorder()
+	f.s.Handler().ServeHTTP(rec, get)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /users: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+
+	action, fields := parseForm(t, body, "/users/"+username+"/profile")
+	if fields["csrf"] == "" {
+		t.Errorf("the rendered form carries no CSRF token, so the button cannot be pressed at all:\n%s",
+			formFragment(body, action))
+	}
+	// The payload is the row's own, including the empty profile that MEANS removal. Rebuilding
+	// the body here is what let a non-empty value pass unnoticed.
+	q := url.Values{}
+	for k, v := range fields {
+		q.Set(k, v)
+	}
+
+	post := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", action, strings.NewReader(q.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(c)
+	f.s.Handler().ServeHTTP(post, req)
+	return post
 }

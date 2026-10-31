@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 280,
+  "expected_mutants": 285,
   "mutants": [
     {
       "id": "W1",
@@ -2121,6 +2121,46 @@
       "old": "          {{- if .Configured}}\n          <form method=\"post\" action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
       "new": "          {{- if false}}\n          <form method=\"post\" action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
       "note": "the dangling entry is told to go and make a profile instead of being given the only action it has, stranding the row -- the failure the dangling test names, which is why that test now renders as well as posts. Survived this set before that assertion existed. TestTheUsersPageStillLetsADanglingEntryBeUnmanaged. (#192)"
+    },
+    {
+      "id": "W291",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">\n            <button type=\"submit\">Stop managing</button>\n            <span class=\"muted\">there are no profiles left",
+      "new": "action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"p-gone\">\n            <button type=\"submit\">Stop managing</button>\n            <span class=\"muted\">there are no profiles left",
+      "note": "the zero-profile row's only action stops meaning removal: the button the page renders now posts a profile id, and the handler answers 404 'no profile on this machine has that id'. Invisible to a POST typed next to the template and to TestEveryFormOnEveryPageCarriesTheToken, whose hasToken matches the field name and never its value. TestTheUsersPageStillLetsADanglingEntryBeUnmanaged posts the row's own form. (#192)"
+    },
+    {
+      "id": "W292",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">\n            <button type=\"submit\">Stop managing</button>\n            <span class=\"muted\">there are no profiles left",
+      "new": "action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">\n            <button type=\"submit\">Stop managing</button>\n            <span class=\"muted\">there are no profiles left",
+      "note": "the #75 shape on the row #192 added: the gate answers 403, the parent presses Stop managing, nothing happens and nothing says why. The structural guard cannot see it -- the stale arm and this arm render the same formShape, so the page pageStates does render satisfies reach for the one it does not. TestTheUsersPageStillLetsADanglingEntryBeUnmanaged. (#192)"
+    },
+    {
+      "id": "W293",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "action=\"/users/{{.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
+      "new": "action=\"/users/{{.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"p-gone\">",
+      "note": "the stale-row arm, same defect as W291 on the older branch: the row whose account is gone is the other surface that can clean the entry up, and its button now posts an id instead of the empty field that means removal. Green until the test posts the rendered form rather than a body. TestAStaleEntryCanBeUnmanaged. (#192)"
+    },
+    {
+      "id": "W294",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "action=\"/users/{{.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
+      "new": "action=\"/users/{{.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
+      "note": "the #75 shape on the stale-row arm: a token-less request from the one row that can clean up a dead entry. Green while the test posts a typed body, because the body carries the fixture's own token. TestAStaleEntryCanBeUnmanaged. (#192)"
+    },
+    {
+      "id": "W295",
+      "package": "./internal/web/",
+      "file": "internal/web/users_write.go",
+      "old": "\t\t\tif len(c.Profiles) == 0 && !knownAccount(c, name) {",
+      "new": "\t\t\tif !knownAccount(c, name) {",
+      "note": "the other half of the guard's &&, so the pair is pinned in both directions: with no profiles the refusal fires for EVERY unmanaged account, including one that has an entry and is legitimately being unmanaged. W285 drops !knownAccount; this drops the profile test. Caught by the pre-existing TestStoppingManagementOfAnAccountThatWasNeverManagedSaysSo, not by the three #192 tests -- which is why it is declared here rather than left as an inference from a green suite. (#192)"
     }
   ]
 }
