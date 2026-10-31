@@ -12,8 +12,13 @@ on:
   # after a guess ends up on the repo.
   workflow_dispatch:
 
+# Read at the workflow, write only where writing happens. `contents: write` here would also cover
+# the artifacts job, which reads the repository and uploads workflow artifacts -- and this is a
+# repository whose artifact is a root daemon whose first act is to lock other people's screens, so
+# the job that only ever reads should not be the one holding a write token. The publish job below
+# asks for write for itself.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   artifacts:
@@ -42,6 +47,56 @@ jobs:
           # so without this every artifact would be stamped 0.0.0+<sha> and the release would
           # carry a version that is not the tag it was cut from.
           fetch-depth: 0
+
+      - name: Name prefix for this run's artifacts
+        id: slug
+        # `shell: bash` is not decoration: `${var//pat/repl}` is a bashism, and the default here
+        # only happens to be bash because Linux runners default to it. Measured under dash the
+        # same line dies with `Bad substitution`, exit 2 -- loud, but a step whose correctness
+        # depends on an unset default is a step that breaks the day someone adds a `shell:` line.
+        shell: bash
+        # `github.ref_name` is the tag on a push and the BRANCH on a workflow_dispatch, and a
+        # branch may contain `/` -- which is not a legal artifact-name character (the runner
+        # rejects the upload with "The artifact name is not valid", listing NTFS as the reason).
+        # Measured on run 41166398103: both arch legs built three files each and then died at
+        # upload-artifact, because the branch was `fix/release-job-gate-and-arch-message`. So the
+        # dispatch path this file promises worked only for a branch with no slash in it, and every
+        # branch in this repository's convention has one. A tag never contains `/`, so the tag
+        # path is byte-identical to what it was.
+        #
+        # `/` is not the whole ban, though it is the only part this repository's branch convention
+        # can produce. The runner rejects the rest of the NTFS-forbidden set, and git will create
+        # refs carrying part of it. The oracle is what git will make, not what its grammar parses,
+        # because `github.ref_name` comes from a ref somebody created: `git tag -- '>fix'`,
+        # '"fix', '|fix', 'fix>a' and 'fix-' are all accepted, while `*` and a trailing `.` are
+        # refused. (`git check-ref-format refs/heads/-fix` exits 0 and is the wrong test -- git
+        # refuses to *create* that name.) So the substitution replaces every character outside the
+        # artifact-safe set rather than only the slash. Both jobs must derive the value
+        # identically, so this block is duplicated here and at the download rather than factored: a
+        # mismatch downloads zero files.
+        run: |
+          set -euo pipefail
+          safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
+          # Trim after substituting, for readability rather than legality: the substitution already
+          # guarantees nothing outside [A-Za-z0-9._-] survives, and the derived value never lands at
+          # either end of a name the runner inspects -- in the artifacts job it is bracketed by
+          # `plock-` and `-${arch}`, in the publish job by `plock-` and the `-*` of the download
+          # pattern. What the loops do is cosmetic and measured: tag `>fix` substitutes to `-fix`, so
+          # the upload name would be `plock--fix-amd64` instead of `plock-fix-amd64`; `>>fix` would
+          # put three hyphens there. The loop strips every leading hyphen, so no *non-empty* trimmed
+          # value can begin with one. The one way to reach `plock--amd64` is a ref that sanitizes
+          # away entirely -- any of the 21 characters below as a whole tag name -- and that name is
+          # legal: hyphen is not on the runner's ban list, and the publish pattern `plock--*` still
+          # finds it. Empty is a cosmetic outcome, not a broken one.
+          #
+          # `-` is the only character they can ever meet, measured over the whole printable set as
+          # the first and last character of `git tag`: 21 characters are creatable at either end
+          # and outside the whitelist (`!"#$%&'()+,;<=>@]`{|}`), every one of them substituted to a
+          # hyphen. `-` alone is creatable at the end and not the start, which is why the leading
+          # loop is not dead code -- `>fix` is a real tag and arrives here as `-fix`.
+          while [ "${safe#-}" != "$safe" ]; do safe=${safe#-}; done
+          while [ "${safe%-}" != "$safe" ]; do safe=${safe%-}; done
+          echo "safe=$safe" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -80,7 +135,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: plock-${{ github.ref_name }}-${{ matrix.arch }}
+          name: plock-${{ steps.slug.outputs.safe }}-${{ matrix.arch }}
           path: dist/
           retention-days: 30
 
@@ -88,19 +143,100 @@ jobs:
     name: publish
     needs: artifacts
     runs-on: ubuntu-latest
+    # Only a tag push has a tag to publish. Without this the job still runs on a
+    # workflow_dispatch -- needs: artifacts is satisfied, the artifacts download, and the last
+    # step calls `gh release create "$GITHUB_REF_NAME" --verify-tag` with GITHUB_REF_NAME set to
+    # the branch. The step-level guard at the artifacts job does not cover this job: it skips its
+    # own step, the job succeeds, and this one runs anyway. So the contract this file states at
+    # the top -- a dispatch builds artifacts and does not publish -- was being enforced by an API
+    # 404 rather than by a condition. A guard that has to fail in order to be true is not a guard;
+    # it is a surprise with a log.
+    #
+    # What this failure looks like is no longer a guess. Run 41184236321 dispatched the workflow on
+    # a throwaway branch with the gate below replaced -- the only execution this job has ever had --
+    # and Publish went red with `tag probe/dispatch-experiment doesn't exist in the repo ...,
+    # aborting due to --verify-tag flag`. That is the case *after* the GH_REPO line in the step
+    # below. Before it the step died earlier and elsewhere, `failed to run git: fatal: not a git
+    # repository`, reproduced locally on gh 2.46.0 and 2.67.0. Either way it fails before creating
+    # anything: tags and releases were both still length 0 after the run. The point of the `if:` is
+    # that it now fails by not running.
+    if: startsWith(github.ref, 'refs/tags/')
+    # `contents: write` is what `gh release create` needs, and it is the only scope this job asks
+    # for. `actions: read` is deliberately NOT here: an earlier version of this comment justified
+    # it by the download step below, and that was wrong twice over. download-artifact's own README
+    # scopes the same-run case without any scope -- `actions:read` is what a cross-run or
+    # cross-repo download needs -- and two runs are the direct test, one per direction. Upload:
+    # 41167592068 moved two ~8 MB artifacts under workflow-level `contents: read`, which per the
+    # docs sets every unlisted scope to none. Download: 41184236321, where this job ran with
+    # `actions: none`, set no `github-token` on the step, and pulled 16,495,047 bytes across two
+    # artifacts. An in-run artifact needs no `actions` scope in either direction. A scope that
+    # cannot be named in a step is a scope not to hold; if a step ever calls the artifacts REST
+    # API directly, that is the commit that adds it.
+    permissions:
+      contents: write
     steps:
+      - name: Name prefix for this run's artifacts
+        id: slug
+        shell: bash
+        # The same expression as the artifacts job, not a claim that a tag cannot contain `/`.
+        # Two jobs agreeing about a name by each deriving it the same way beats one of them
+        # assuming what the other produced. The failure it prevents is measured, and it is a red
+        # tick rather than a bad release: a mismatch downloads zero files, `find` then matches
+        # nothing, `xargs -r` writes a zero-byte SHA256SUMS, `lines -lt 4` is true and Checksums
+        # exits 1 -- so the job fails and no release is created. That guard is the reporter only
+        # because the step does `mkdir -p staged` first; without it the step died at `cd` and the
+        # guard below never ran. The other arm is measured too: run 41184236321 produced four real
+        # packages and the guard stayed silent, so `4` is a reachable number, not an unsatisfiable
+        # one. Only the empty arm still rests on local reproduction -- a matching download creates
+        # `staged/`, so nothing in CI has ever reached the guard with zero files.
+        run: |
+          set -euo pipefail
+          safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
+          # Trim after substituting, for readability rather than legality: the substitution already
+          # guarantees nothing outside [A-Za-z0-9._-] survives, and the derived value never lands at
+          # either end of a name the runner inspects -- in the artifacts job it is bracketed by
+          # `plock-` and `-${arch}`, in the publish job by `plock-` and the `-*` of the download
+          # pattern. What the loops do is cosmetic and measured: tag `>fix` substitutes to `-fix`, so
+          # the upload name would be `plock--fix-amd64` instead of `plock-fix-amd64`; `>>fix` would
+          # put three hyphens there. The loop strips every leading hyphen, so no *non-empty* trimmed
+          # value can begin with one. The one way to reach `plock--amd64` is a ref that sanitizes
+          # away entirely -- any of the 21 characters below as a whole tag name -- and that name is
+          # legal: hyphen is not on the runner's ban list, and the publish pattern `plock--*` still
+          # finds it. Empty is a cosmetic outcome, not a broken one.
+          #
+          # `-` is the only character they can ever meet, measured over the whole printable set as
+          # the first and last character of `git tag`: 21 characters are creatable at either end
+          # and outside the whitelist (`!"#$%&'()+,;<=>@]`{|}`), every one of them substituted to a
+          # hyphen. `-` alone is creatable at the end and not the start, which is why the leading
+          # loop is not dead code -- `>fix` is a real tag and arrives here as `-fix`.
+          while [ "${safe#-}" != "$safe" ]; do safe=${safe#-}; done
+          while [ "${safe%-}" != "$safe" ]; do safe=${safe%-}; done
+          echo "safe=$safe" >> "$GITHUB_OUTPUT"
+
       - uses: actions/download-artifact@v4
         with:
-          pattern: plock-${{ github.ref_name }}-*
+          pattern: plock-${{ steps.slug.outputs.safe }}-*
           path: staged
           merge-multiple: true
 
       # One checksums file over everything that ships, computed here rather than per build:
       # two arch jobs each writing SHA256SUMS would produce two files claiming to be the
-      # checksums of the release.
+      # checksums of the release. They do in fact arrive as two files with one name -- each leg
+      # writes dist/SHA256SUMS, and `merge-multiple: true` unpacks both onto the same
+      # staged/SHA256SUMS, so one silently overwrites the other. Harmless only because the step
+      # below truncates the file and rewrites it from the packages actually present; if it ever
+      # stops doing that, the surviving checksums list is whichever leg uploaded last, and it
+      # would still verify.
       - name: Checksums
         run: |
           set -euo pipefail
+          # `mkdir -p`, not just `cd`: download-artifact does not create `path` when its pattern
+          # matches nothing, so on a name mismatch the step died at `cd` with "No such file or
+          # directory" -- loud, but it blames the filesystem for a wiring mistake and the guard
+          # below never runs. Creating it makes the four-artifact check the thing that reports the
+          # empty case, in words. A partial set already reached the guard either way: two files
+          # write two lines and `2 -lt 4` fires.
+          mkdir -p staged
           cd staged
           rm -f SHA256SUMS
           find . -maxdepth 1 \( -name '*.deb' -o -name '*.rpm' \) -type f -printf '%P\n' |
@@ -143,6 +279,15 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has no checkout step, so there is no git remote in the cwd for `gh` to read,
+          # and `gh` resolves a repository from --repo, then GH_REPO, then that remote -- it does
+          # NOT read the runner's GITHUB_REPOSITORY. Without this the step dies before any HTTP
+          # request with `failed to run git: fatal: not a git repository`, which means the tag is
+          # never consulted, --verify-tag is never evaluated, and `contents: write` is never asked
+          # for. Measured with gh 2.67.0 in an empty directory: unset GH_REPO and the failure is
+          # the git one; with GH_REPO set the same command reaches the API and answers "tag
+          # v0.0.0-probe doesn't exist in the repo ..., aborting due to --verify-tag".
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           gh release create "${GITHUB_REF_NAME}" \
