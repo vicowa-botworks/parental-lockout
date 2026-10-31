@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 274,
+  "expected_mutants": 280,
   "mutants": [
     {
       "id": "W1",
@@ -1925,37 +1925,35 @@
       "note": "the fail-open position is offered without its cost: #99's criterion is that a control which stops protecting the session names what stops happening, and clear text is the whole reason anybody would not choose it. TestTheTransportFormSaysWhatEachPositionMeansAndWhenItApplies."
     },
     {
-    "id": "W266",
-    "package": "./internal/web/",
-    "file": "internal/web/settings_tls.go",
-    "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),\n\t\t\t\tstrconv.Quote(typedCert), strconv.Quote(typedKey), err)",
-    "new": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),\n\t\t\t\tstrconv.Quote(typedCert), strconv.Quote(typedKey), nil)",
-    "note": "the refusal line is written with everything except the reason: the operator follows the page's instruction, finds a line naming both paths and ending in <nil>, and has nothing to act on. Every page-side assertion still passes, because the page never had the reason to begin with. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
-  },
+      "id": "W266",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),\n\t\t\t\tstrconv.Quote(typedCert), strconv.Quote(typedKey), err)",
+      "new": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),\n\t\t\t\tstrconv.Quote(typedCert), strconv.Quote(typedKey), nil)",
+      "note": "the refusal line is written with everything except the reason: the operator follows the page's instruction, finds a line naming both paths and ending in <nil>, and has nothing to act on. Every page-side assertion still passes, because the page never had the reason to begin with. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
+    },
     {
-    "id": "W267",
-    "package": "./internal/web/",
-    "file": "internal/web/settings_tls.go",
-    "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
-    "new": "\t\t\t_ = fmt.Sprintf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
-    "note": "the handler computes the reason and throws it away instead of logging it -- the exact state this PR was reviewed out of. The sentence on the page still promises the log, and the suite's page-side tests assert only absence from the response, so the promise is empty and green. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
-  },
+      "id": "W267",
+      "package": "./internal/web/",
+      "file": "internal/web/settings_tls.go",
+      "old": "\t\t\ts.logf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
+      "new": "\t\t\t_ = fmt.Sprintf(\"web: %s settings.tls refused %s + %s: %v\", requestID(r),",
+      "note": "the handler computes the reason and throws it away instead of logging it -- the exact state this PR was reviewed out of. The sentence on the page still promises the log, and the suite's page-side tests assert only absence from the response, so the promise is empty and green. TestTheRefusedPairReasonGoesToTheLogAndNotToThePage."
+    },
     {
       "id": "W268",
       "file": "internal/web/lock_now.go",
       "old": "\tif err != nil && len(sessions) == 0 {",
       "new": "\tif false {",
       "note": "a read that named nothing is rendered as \"has no session on this machine\" -- the reassurance the daemon has not earned, and the fail-open shape this handler exists to refuse. TestASessionListingThatReadNothingIsStillAnError"
-    }
-,
+    },
     {
       "id": "W269",
       "file": "internal/web/test_lock.go",
       "old": "\tcase serr != nil && len(sessions) == 0:",
       "new": "\tcase serr != nil:",
       "note": "a partly readable census is reported as one that could not be read at all, and the sessions that DID read vanish from the page the operator is reading to find out what the daemon can see. TestAPartiallyReadableListingStillReportsTheBackends"
-    }
-,
+    },
     {
       "id": "W270",
       "package": "./internal/web/",
@@ -2075,6 +2073,54 @@
       "old": "\ts.pageError(w, r, why, err)\n}",
       "new": "\tif refuse != nil {\n\t\trefuse(http.StatusServiceUnavailable, why)\n\t\treturn\n\t}\n\ts.pageError(w, r, why, err)\n}",
       "note": "the 5xx half of the seam is deliberately unchanged, and this is the mutation that says so: a server failure re-renders the form and implies the typed text caused a disk failure, inviting a resubmit against a mount that is still read-only. The 503 tests drive the delete route, which carries no refuser, so nothing else reaches this branch. TestASaveFailureIsStillNotAForm."
+    },
+    {
+      "id": "W285",
+      "package": "./internal/web/",
+      "file": "internal/web/users_write.go",
+      "old": "\t\t\tif len(c.Profiles) == 0 && !knownAccount(c, name) {",
+      "new": "\t\t\tif len(c.Profiles) == 0 {",
+      "note": "the zero-profile refusal stops asking whether the account has an entry, so an account still in the document whose profile was the one deleted is refused instead of unmanaged -- the row the page just offered a Stop managing button is told there is nothing to stop. TestTheUsersPageStillLetsADanglingEntryBeUnmanaged. (#192)"
+    },
+    {
+      "id": "W286",
+      "package": "./internal/web/",
+      "file": "internal/web/users_write.go",
+      "old": "\t\t\tif len(c.Profiles) == 0 && !knownAccount(c, name) {\n\t\t\t\treturn fmt.Errorf(\"%w: %s\", errNoProfileSelected, name)\n\t\t\t}",
+      "new": "",
+      "note": "the guard is gone entirely and the empty field on an unmanaged account falls back into the removal branch: the operator on a machine with no profiles is refused with 'there is nothing to stop managing', the sentence that describes the opposite of pressing Save to start managing. TestAnEmptyAssignmentWithNoProfilesNamesTheProfileNotRemoval. (#192)"
+    },
+    {
+      "id": "W287",
+      "package": "./internal/web/",
+      "file": "internal/web/users_write.go",
+      "old": "s.pageRefuse(w, r, http.StatusBadRequest,\n\t\t\t\t\"no profile is selected",
+      "new": "s.pageRefuse(w, r, http.StatusNotFound,\n\t\t\t\t\"no profile is selected",
+      "note": "a request the operator can correct by making a profile is reported as a missing thing, which is the 404 the removal case owns and no longer distinguishes the two shapes the empty field arrives in. TestAnEmptyAssignmentWithNoProfilesNamesTheProfileNotRemoval. (#192)"
+    },
+    {
+      "id": "W288",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "        {{- else if $.Profiles}}",
+      "new": "        {{- else if true}}",
+      "note": "the branch is unreachable and the dead dropdown returns: with no profiles the page renders a <select> whose only option is the empty one, which is the reported defect itself. TestTheUsersPageOffersNoDeadDropdownWithoutProfiles. (#192)"
+    },
+    {
+      "id": "W289",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "          {{- if .Configured}}\n          <form method=\"post\" action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
+      "new": "          {{- if true}}\n          <form method=\"post\" action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
+      "note": "every zero-profile row gets the removal form, so an account that was never managed is offered 'Stop managing' -- a control that claims an entry exists and posts a request the handler refuses. TestTheUsersPageOffersNoDeadDropdownWithoutProfiles. (#192)"
+    },
+    {
+      "id": "W290",
+      "package": "./internal/web/",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "          {{- if .Configured}}\n          <form method=\"post\" action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
+      "new": "          {{- if false}}\n          <form method=\"post\" action=\"/users/{{$row.Username}}/profile\" class=\"edit-form\">\n            <input type=\"hidden\" name=\"csrf\" value=\"{{$.CSRF}}\">\n            <input type=\"hidden\" name=\"profile\" value=\"\">",
+      "note": "the dangling entry is told to go and make a profile instead of being given the only action it has, stranding the row -- the failure the dangling test names, which is why that test now renders as well as posts. Survived this set before that assertion existed. TestTheUsersPageStillLetsADanglingEntryBeUnmanaged. (#192)"
     }
   ]
 }

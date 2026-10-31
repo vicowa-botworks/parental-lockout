@@ -445,15 +445,35 @@ func TestTheUsersPageOffersNoDeadDropdownWithoutProfiles(t *testing.T) {
 // The other zero-profile row: an account still in the document whose profile was the one that got
 // deleted. Its only valid action IS removal, and taking the dropdown away without offering that
 // would strand the row -- the same trap the stale-account branch above already avoids.
+//
+// Both halves are asserted because the handler half alone is not enough: with the render branch
+// `{{if .Configured}}` mutated to `false` -- the exact stranding this test names -- all three
+// zero-profile tests stayed green, because a POST never asks what the page offered.
 func TestTheUsersPageStillLetsADanglingEntryBeUnmanaged(t *testing.T) {
 	f := newAssignFixture(t)
 	f.mu.Lock()
 	f.doc.Profiles = nil
 	f.mu.Unlock()
 
-	rec := authPost(t, f.s, "/users/casey/profile", "profile=")
-	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("status = %d, want 303; body %s", rec.Code, rec.Body.String())
+	// The render half: the row must offer the action, not the apology. Scoped to the row,
+	// because the page holds a second account that is correctly told to go make a profile --
+	// asserting on the whole body would fail on a page that got both rows right.
+	rec := authGet(t, f.s, "/users")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	row := userRow(t, rec.Body.String(), "casey")
+	if !strings.Contains(row, "Stop managing") {
+		t.Errorf("the dangling entry is offered no action at all:\n%s", row)
+	}
+	if strings.Contains(row, "no profile to assign") {
+		t.Errorf("the dangling entry is told to go make a profile instead of being given its way out:\n%s", row)
+	}
+
+	// The handler half: the offered action works.
+	post := authPost(t, f.s, "/users/casey/profile", "profile=")
+	if post.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303; body %s", post.Code, post.Body.String())
 	}
 	if f.assignment("casey") != nil {
 		t.Error("the entry outlived the only action the page could offer for it")
@@ -485,4 +505,23 @@ func TestAnEmptyAssignmentWithNoProfilesNamesTheProfileNotRemoval(t *testing.T) 
 	if f.assignment("ada") != nil {
 		t.Error("the refusal wrote an entry for the account")
 	}
+}
+
+// userRow cuts one account's <tr> out of the rendered accounts page. Row scope is the point:
+// the zero-profile page deliberately renders two different rows -- the dangling entry gets its
+// removal form, an unmanaged account gets the "no profile to assign" paragraph -- and an
+// assertion over the whole body cannot tell "the wrong row" from "both rows right".
+func userRow(t *testing.T, body, name string) string {
+	t.Helper()
+	marker := `<th scope="row">` + name + `</th>`
+	i := strings.Index(body, marker)
+	if i < 0 {
+		t.Fatalf("the page has no row for %q:\n%s", name, body)
+	}
+	start := strings.LastIndex(body[:i], "<tr")
+	end := strings.Index(body[i:], "</tr>")
+	if start < 0 || end < 0 {
+		t.Fatalf("could not bound the row for %q", name)
+	}
+	return body[start : i+end]
 }

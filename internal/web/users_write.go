@@ -36,6 +36,15 @@ import (
 // that account. Writing User{ProfileID: ""} instead would not merely be refused by
 // Validate — it would be refused *after* the caller believed the account was unmanaged,
 // which is the difference between a refusal and a half-done change.
+// errNoProfileSelected is the empty profile field arriving on an account that has no entry to
+// remove. It is not the same request as "stop managing" and must not borrow that message: the
+// shape is what a machine with no profiles produces when somebody presses Save meaning to start
+// managing, and telling them there is nothing to stop hides the thing actually missing. (#192)
+//
+// Raised and translated only here, so it lives on the route that owns it rather than beside
+// errUnknownAccount, which several routes share.
+var errNoProfileSelected = errors.New("no profile was selected")
+
 func (s *Server) handleAssignProfile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
