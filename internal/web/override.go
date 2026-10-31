@@ -166,6 +166,12 @@ func (s *Server) handleOverrideClear(w http.ResponseWriter, r *http.Request) {
 // failure, so the handler can answer 404 rather than 503.
 var errUnknownAccount = errors.New("the account is no longer managed")
 
+// errNoProfileSelected is the empty profile field arriving on an account that has no entry to
+// remove. It is not the same request as "stop managing" and must not borrow that message: the
+// shape is what a machine with no profiles produces when somebody presses Save meaning to start
+// managing, and telling them there is nothing to stop hides the thing actually missing. (#192)
+var errNoProfileSelected = errors.New("no profile was selected")
+
 // overrideUntil turns the form into an instant.
 //
 // "Until the current window ends" is resolved here rather than stored as a sentinel, because

@@ -403,3 +403,86 @@ func TestTheAssignmentDropdownIsInNameOrderNotDocumentOrder(t *testing.T) {
 		t.Error("the dropdown follows document order; a profile added later should not move the others")
 	}
 }
+
+// #192: a machine with no profiles rendered a dropdown containing exactly one option.
+//
+// The report was that the Accounts page "only has the Not Managed option in the drop down box, and
+// there is no way to make it managed" -- true on every fresh install, because the dropdown's real
+// options are `range $.Profiles` and that is empty until somebody makes a profile. The enabled
+// checkbox then stored a flag with nothing to enable, and Save was refused with a sentence about
+// *stopping* management. The Profiles page had already been given this treatment (#135) and pinned;
+// the Accounts page had never been rendered with zero profiles by any test.
+
+// TestTheUsersPageOffersNoDeadDropdownWithoutProfiles is the reported symptom, asserted on the
+// rendered page rather than on the config that produced it.
+func TestTheUsersPageOffersNoDeadDropdownWithoutProfiles(t *testing.T) {
+	f := newAssignFixture(t)
+	f.mu.Lock()
+	f.doc.Profiles = nil
+	f.doc.Users = nil
+	f.mu.Unlock()
+
+	rec := authGet(t, f.s, "/users")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+
+	// A <select> whose only option is the empty one is a control that cannot express an action.
+	// Asserting the absence of the form, not the presence of a sentence, is what makes this fail
+	// on a page that added an apology next to the same dead dropdown.
+	if strings.Contains(body, `name="profile"`) {
+		t.Errorf("the page still offers a profile dropdown with nothing in it:\n%s", body)
+	}
+	for _, want := range []string{`href="/profiles"`, "no profile to assign"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page does not say what is missing or where to fix it (missing %q):\n%s",
+				want, body)
+		}
+	}
+}
+
+// The other zero-profile row: an account still in the document whose profile was the one that got
+// deleted. Its only valid action IS removal, and taking the dropdown away without offering that
+// would strand the row -- the same trap the stale-account branch above already avoids.
+func TestTheUsersPageStillLetsADanglingEntryBeUnmanaged(t *testing.T) {
+	f := newAssignFixture(t)
+	f.mu.Lock()
+	f.doc.Profiles = nil
+	f.mu.Unlock()
+
+	rec := authPost(t, f.s, "/users/casey/profile", "profile=")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303; body %s", rec.Code, rec.Body.String())
+	}
+	if f.assignment("casey") != nil {
+		t.Error("the entry outlived the only action the page could offer for it")
+	}
+}
+
+// The refusal must name the thing that is missing. The old message was not merely unhelpful here:
+// it described stopping management, which is the opposite of the request that produced it.
+func TestAnEmptyAssignmentWithNoProfilesNamesTheProfileNotRemoval(t *testing.T) {
+	f := newAssignFixture(t)
+	f.mu.Lock()
+	f.doc.Profiles = nil
+	f.mu.Unlock()
+
+	rec := authPost(t, f.s, "/users/ada/profile", "profile=")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(strings.ToLower(body), "stop managing") {
+		t.Errorf("the refusal describes the opposite of the attempted action:\n%s", body)
+	}
+	if !strings.Contains(strings.ToLower(body), "profile") {
+		t.Errorf("the refusal does not name what is missing:\n%s", body)
+	}
+	if f.savesCount() != 0 {
+		t.Errorf("the refusal still reached the write seam %d times", f.savesCount())
+	}
+	if f.assignment("ada") != nil {
+		t.Error("the refusal wrote an entry for the account")
+	}
+}
