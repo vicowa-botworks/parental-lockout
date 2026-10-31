@@ -3026,17 +3026,28 @@ def self_test():
             # rows, both orders: buried, which is what this machine actually looks like, and on
             # top, which is rarer but is the half that makes "positional, not cosmetic" a claim
             # rather than a hope.
+            #
+            # The options column is copied verbatim from /proc/mounts rather than flattened to
+            # `rw`, and that is the load-bearing half. A real duplicate pair reliably differs
+            # there, and it is what a "spot the automounter placeholder" heuristic would actually
+            # read: the placeholder is precisely the row carrying `fd=`, `pgrp=` and `timeout=`.
+            # With `rw 0 0` on both rows, `prefer = 0 if "fd=" in parts[3] else 1` walks out of
+            # this rule green, and so does the inverse scoring `nosuid` down; with the real fields
+            # each order catches one direction. Splitting on whitespace still yields one options
+            # field, because proc(5) separates options with commas and never with spaces.
             auto = _fstype_fixture(work, [
-                f"systemd-1 {tmp_root} autofs rw 0 0",
-                f"binfmt_misc {tmp_root} binfmt_misc rw 0 0",
+                f"systemd-1 {tmp_root} autofs "
+                "rw,relatime,fd=36,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=757 0 0",
+                f"binfmt_misc {tmp_root} binfmt_misc rw,nosuid,nodev,noexec,relatime 0 0",
             ], name="mounts-tie-auto")
             if fstype(probe, mounts=auto) != "binfmt_misc":
                 bad.append(f"fstype() said {fstype(probe, mounts=auto)!r} with the automounter "
                            f"buried under the filesystem in effect; the later row is the entry "
                            f"path resolution uses, whatever either row is called")
             auto_flip = _fstype_fixture(work, [
-                f"binfmt_misc {tmp_root} binfmt_misc rw 0 0",
-                f"systemd-1 {tmp_root} autofs rw 0 0",
+                f"binfmt_misc {tmp_root} binfmt_misc rw,nosuid,nodev,noexec,relatime 0 0",
+                f"systemd-1 {tmp_root} autofs "
+                "rw,relatime,fd=36,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=757 0 0",
             ], name="mounts-tie-auto-flip")
             if fstype(probe, mounts=auto_flip) != "autofs":
                 bad.append(f"fstype() said {fstype(probe, mounts=auto_flip)!r} with the automounter "
