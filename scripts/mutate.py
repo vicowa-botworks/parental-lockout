@@ -459,6 +459,11 @@ def fstype(path, mounts="/proc/mounts"):
     Returns "unknown" rather than guessing when /proc/mounts is unreadable or absent: this is
     a line in a log, and a wrong filesystem name in it is worse than none.
 
+    Two rows for the same mount point -- a bind over a path, or a remount over the same one -- are
+    resolved toward the later row, because that is the entry path resolution itself uses. See the
+    `>=` below; first-row-wins there names a filesystem the directory is not on, with the same
+    confidence as a correct answer.
+
     Mount points arrive octal-escaped -- proc(5) writes space as \\040, tab as \\011, newline
     as \\012 and backslash as \\134 -- so a path under `/home\\040dir` would otherwise match
     only `/` and report the root's filesystem with full confidence. That is the same
@@ -481,7 +486,16 @@ def fstype(path, mounts="/proc/mounts"):
             # because "/" would otherwise count as deep as "/tmp" and the winner would be
             # whichever row /proc/mounts happens to print first.
             depth = len(point.rstrip("/"))
-            if depth > best_len:
+            # `>=`, not `>`: a tie means the same mount point is listed twice -- a bind over a
+            # path, or a remount over the same one -- and path resolution uses the most recent
+            # entry, so the later row names the filesystem the directory is on. First-row-wins
+            # prints the other one, with the same confidence, in a log line whose only job is to
+            # be trusted later. `/` is rstripped above, so this cannot make the root row beat any
+            # OTHER mount point: its depth is 0 and every other mount point is deeper. Two rows
+            # for `/` itself do tie at depth 0 and now resolve last-wins, which is the wanted
+            # answer -- a remount over `/` is the entry in effect -- so this is not a claim that
+            # duplicate root rows are impossible.
+            if depth >= best_len:
                 best, best_len = kind, depth
     return best
 
@@ -2929,9 +2943,19 @@ def self_test():
     # rows a real machine has been measured to produce, and stay reproducible on a runner
     # whose own mounts change under them.
 
-    def _fstype_fixture(work, rows):
-        """Write a mounts table and return it, so fstype() parses bytes, not a fixture object."""
-        path = os.path.join(work, "mounts")
+    def _fstype_fixture(work, rows, *, name):
+        """Write a mounts table and return it, so fstype() parses bytes, not a fixture object.
+
+        The name is a parameter, not a constant, because the table is written into a directory
+        shared by every fixture in this rule and the path is the only identity a fixture has.
+        Measured: with a fixed name, a fixture added after `both` and read before the `home`
+        assertion silently replaced the bytes `both` names, and that assertion then went red on
+        a correct implementation -- `fstype()` answered `unknown` for `/home/plock` because the
+        file it was pointed at no longer had a `/` row. Two fixtures aliasing one path is
+        invisible until one of them is read late, which is exactly how a self-test starts
+        reporting a bug that is not there.
+        """
+        path = os.path.join(work, name)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(rows) + "\n")
         return path
@@ -2953,19 +2977,143 @@ def self_test():
             both = _fstype_fixture(work, [
                 "overlay / btrfs rw 0 0",
                 f"tmpfs {tmp_root} tmpfs rw 0 0",
-            ])
+            ], name="mounts-both")
             if fstype(probe, mounts=both) != "tmpfs":
                 bad.append(f"fstype() said {fstype(probe, mounts=both)!r} for a path with a mount "
                            f"of its own under `/` -- the shallowest row won, so the run names "
                            f"the filesystem its fixtures are NOT on")
             # Same rows, printed the other way round. A rule that only passes with one kernel's
             # ordering is a rule that reports a different filesystem on a different machine.
-            flip = os.path.join(work, "mounts-flip")
-            with open(flip, "w", encoding="utf-8") as fh:
-                fh.write(f"tmpfs {tmp_root} tmpfs rw 0 0\noverlay / btrfs rw 0 0\n")
+            flip = _fstype_fixture(work, [
+                f"tmpfs {tmp_root} tmpfs rw 0 0",
+                "overlay / btrfs rw 0 0",
+            ], name="mounts-flip")
             if fstype(probe, mounts=flip) != "tmpfs":
                 bad.append(f"fstype() said {fstype(probe, mounts=flip)!r} with the same two rows "
                            f"in the other order, so the answer depends on print order")
+            # One mount point listed TWICE -- a bind over a path, or a remount over the same one.
+            # The two rows above differ in depth, so nothing there pins the tie; this does. Path
+            # resolution uses the most recent entry, so the later row is the filesystem the
+            # directory is actually on, and first-row-wins prints the one it is not. Not a
+            # hypothetical: this box's own /proc/mounts lists /proc/sys/fs/binfmt_misc twice.
+            tie = _fstype_fixture(work, [
+                f"overlay {tmp_root} btrfs rw 0 0",
+                f"tmpfs {tmp_root} ext4 rw 0 0",
+            ], name="mounts-tie")
+            if fstype(probe, mounts=tie) != "ext4":
+                bad.append(f"fstype() said {fstype(probe, mounts=tie)!r} where one mount point is "
+                           f"listed twice; the most recent entry is the one path resolution uses, "
+                           f"so first-row-wins names a filesystem the directory is not on")
+            # The same two rows, reversed -- the companion this rule already writes for depth
+            # above. One order alone cannot tell "the tie-break is positional" from "prefer the
+            # row that looks like a real filesystem": a tie-break that scores the device or the
+            # type -- `prefer = 0 if parts[0] == "overlay" else 1`, say -- answers ext4 here and
+            # ext4 there, and walks out of the one-sided fixture green.
+            tie_flip = _fstype_fixture(work, [
+                f"tmpfs {tmp_root} ext4 rw 0 0",
+                f"overlay {tmp_root} btrfs rw 0 0",
+            ], name="mounts-tie-flip")
+            if fstype(probe, mounts=tie_flip) != "btrfs":
+                bad.append(f"fstype() said {fstype(probe, mounts=tie_flip)!r} with the duplicate "
+                           f"rows reversed; only one order being pinned means the tie-break is "
+                           f"choosing a row by what it looks like, not by where it sits")
+            # The pair above has no automounter in it, so it cannot see the shortcut it names:
+            # `prefer = 0 if kind == "autofs" else 1` answers ext4/btrfs correctly for every row
+            # pair that rule contains and survives the whole self-test. It is not equivalent to
+            # the shipped code either -- with this box's own two rows, `binfmt_misc` under
+            # `systemd-1 … autofs`, head says `autofs` and that shortcut says `binfmt_misc`, the
+            # same confident-wrong-name outcome this rule exists to remove. So these are the real
+            # rows, both orders: buried, which is what this machine actually looks like, and on
+            # top, which is rarer but is the half that makes "positional, not cosmetic" a claim
+            # rather than a hope.
+            #
+            # The options column is copied verbatim from /proc/mounts rather than flattened to
+            # `rw`, and that is the load-bearing half. A real duplicate pair reliably differs
+            # there, and it is what a "spot the automounter placeholder" heuristic would actually
+            # read: the placeholder is precisely the row carrying `fd=`, `pgrp=` and `timeout=`.
+            # With `rw 0 0` on both rows, `prefer = 0 if "fd=" in parts[3] else 1` walks out of
+            # this rule green, and so does the inverse scoring `nosuid` down; with the real fields
+            # each order catches one direction. Splitting on whitespace still yields one options
+            # field, because proc(5) separates options with commas and never with spaces.
+            auto = _fstype_fixture(work, [
+                f"systemd-1 {tmp_root} autofs "
+                "rw,relatime,fd=36,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=757 0 0",
+                f"binfmt_misc {tmp_root} binfmt_misc rw,nosuid,nodev,noexec,relatime 0 0",
+            ], name="mounts-tie-auto")
+            if fstype(probe, mounts=auto) != "binfmt_misc":
+                bad.append(f"fstype() said {fstype(probe, mounts=auto)!r} with the automounter "
+                           f"buried under the filesystem in effect; the later row is the entry "
+                           f"path resolution uses, whatever either row is called")
+            auto_flip = _fstype_fixture(work, [
+                f"binfmt_misc {tmp_root} binfmt_misc rw,nosuid,nodev,noexec,relatime 0 0",
+                f"systemd-1 {tmp_root} autofs "
+                "rw,relatime,fd=36,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=757 0 0",
+            ], name="mounts-tie-auto-flip")
+            if fstype(probe, mounts=auto_flip) != "autofs":
+                bad.append(f"fstype() said {fstype(probe, mounts=auto_flip)!r} with the automounter "
+                           f"on top; skipping a row because it is `autofs` is a cosmetic "
+                           f"tie-break, and this is the order that catches it")
+            # The pair above is only as strong as these two strings being separable, and the
+            # shipped code never reads the options column -- so if they ever stop being separable,
+            # nothing goes red: the tie-breaks come back one at a time and the suite stays green.
+            # That is not hypothetical. These are the longest lines this rule writes and their
+            # values are per-boot (`fd=36`, `pgrp=1`, `pipe_ino=757`), so "let me flatten these to
+            # `rw`" is the obvious future tidy-up, and it would silently reopen the hole.
+            # Separability, not difference: `len(set(opts)) < 2` catches flattening but misses a
+            # row with its markers stripped while the columns still differ, which is the case the
+            # on-top order exists to catch. Measured both ways.
+            #
+            # Both tables, not just the first. `auto` and `auto_flip` are independent copies of the
+            # same two literals typed out twice in opposite order, so a tidy-up inside one block
+            # leaves the other real -- and the buried fixture passing while the on-top one is
+            # flattened is precisely the half that dies only in the flip. Reading one file pinned
+            # half the pair and said nothing about it.
+            #
+            # Shape as well as markers: a tie-break can key on the options string's length or its
+            # comma-count, so the two rows must differ there too. Whitespace field count is NOT one
+            # of them -- any real pair has six fields per row, so a `len(parts)` tie-break is an
+            # equivalent mutant that survives for a reason unrelated to this fixture. Count commas.
+            tables = []
+            for table in (auto, auto_flip):
+                with open(table, encoding="utf-8") as fh:
+                    rows = [row.split() for row in fh.read().splitlines() if row.strip()]
+                # Guarded index: this runs while building the table, before any guard can judge
+                # it, so a row that ever loses its options column would die as IndexError and the
+                # traceback would swallow the failures already sitting in `bad`.
+                tables.append([parts[3] if len(parts) > 3 else "" for parts in rows])
+            if any(len(opts) != 2
+                   or not (("fd=" in opts[0]) != ("fd=" in opts[1])
+                           and ("nosuid" in opts[0]) != ("nosuid" in opts[1])
+                           and len(opts[0]) != len(opts[1])
+                           and len(opts[0].split(",")) != len(opts[1].split(",")))
+                   for opts in tables):
+                bad.append("the automounter tie fixtures are no longer separable by `fd=`, "
+                           "`nosuid`, length and option count -- the shipped code never reads "
+                           "mount options, so a fixture that stops differing there silently "
+                           "returns every placeholder-spotting tie-break to green")
+            # The generic pair above is the other copy of the same pattern -- two literals typed
+            # out twice in reverse order -- and it guards the two columns the automounter pair
+            # cannot: both of those rows are real devices, so nothing there can distinguish a
+            # positional tie-break from one that prefers a row by its name. Equalise `tie` until
+            # its rows are byte-identical and every assertion still passes; the only difference
+            # left is position, which is the whole thing under test.
+            #
+            # Accumulate, then report once. The same guard with `bad.append` inside the loop fires
+            # twice per run -- measured -- and two lines for one defect is how a reader starts
+            # doubting the report. The `len(parts) < 3` term keeps the short-circuit honest about
+            # rows this guard cannot judge rather than scoring them as passes.
+            generic = []
+            for table in (tie, tie_flip):
+                with open(table, encoding="utf-8") as fh:
+                    generic.append([row.split() for row in fh.read().splitlines() if row.strip()])
+            if any(len(pair) != 2 or any(len(parts) < 3 for parts in pair)
+                   or len({parts[0] for parts in pair}) != 2
+                   or len({parts[2] for parts in pair}) != 2
+                   for pair in generic):
+                bad.append("the generic tie fixtures no longer differ on device and filesystem "
+                           "type -- they are the only pair that can tell a positional tie-break "
+                           "from one that prefers a row by its name, and equalising them leaves "
+                           "position as the only difference a reader could mistake for intent")
             # A path with nothing under it but `/` has to report `/`, not "unknown": the common
             # case on a machine whose home is the only filesystem.
             home = os.path.realpath("/home") + "/plock"
@@ -2983,7 +3131,7 @@ def self_test():
                 f"tmpfs {tmp_root} tmpfs rw 0 0",
                 f"/dev/x {tmp_root}/btrfs ext4 rw 0 0",
                 "overlay / btrfs rw 0 0",
-            ])
+            ], name="mounts-nested")
             deep = tmp_root + "/btrfs/plock-mutate-abc123"
             if fstype(deep, mounts=nested) != "ext4":
                 bad.append(f"fstype() said {fstype(deep, mounts=nested)!r} for a path under two "
@@ -2995,7 +3143,7 @@ def self_test():
             spaced = _fstype_fixture(work, [
                 "overlay / btrfs rw 0 0",
                 "tmpfs /home\\040dir ext4 rw 0 0",
-            ])
+            ], name="mounts-spaced")
             if fstype("/home dir/plock", mounts=spaced) != "ext4":
                 bad.append(f"fstype() said {fstype('/home dir/plock', mounts=spaced)!r} for a path "
                            f"under an octal-escaped mount point; matching the escaped text leaves "
