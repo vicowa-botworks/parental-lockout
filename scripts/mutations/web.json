@@ -1404,7 +1404,7 @@
       "file": "internal/web/templates/users.tmpl",
       "old": "{{if and $row.Configured (eq $row.Configured.ProfileID .ID)}} selected{{end}}",
       "new": "",
-      "note": "the dropdown no longer marks the row's current profile, so saving any other field on the row moves the child to whichever option the browser shows first -- a silent reassignment dressed up as a save. TestTheAssignmentFormOffersEveryProfile."
+      "note": "the dropdown no longer marks the row's current profile, so saving any other field on the row moves the child to whichever option the browser shows first -- a silent reassignment dressed up as a save. TestTheAssignmentFormOffersEveryProfile. Killed once. It died twice before #197 moved the rendered-form test off the marked option (that test now posts an offered-but-unmarked choice, which is the honest shape but no longer reads the mark); if TestTheAssignmentFormOffersEveryProfile's structural `selected` assertion is ever edited, this mutant has no second killer."
     },
     {
       "id": "W152",
