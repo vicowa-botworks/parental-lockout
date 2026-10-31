@@ -77,10 +77,16 @@ jobs:
         run: |
           set -euo pipefail
           safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
-          # Trim after substituting. A ref may begin with an unsafe character -- `git tag --
-          # '>fix'` creates one -- and the substitution turns that into a leading hyphen. A ref may
-          # end with `-` (`git tag -- 'v1.2.3-'` creates one) but can never begin with one, and can
-          # never end with `.`. So `-` is the only character either loop can ever be asked to strip.
+          # Trim after substituting, for readability rather than legality: the substitution
+          # already guarantees nothing outside [A-Za-z0-9._-] survives, and the value never reaches
+          # either end of a name the runner inspects -- it is always bracketed by `plock-` and
+          # `-${arch}`. What the loops do is keep `plock--fix-amd64` from being `plock---fix-amd64`.
+          #
+          # `-` is the only character they can ever meet, measured over the whole printable set as
+          # the first and last character of `git tag`: 21 characters are creatable at either end
+          # and outside the whitelist (`!"#$%&'()+,;<=>@]`{|}`), every one of them substituted to a
+          # hyphen. `-` alone is creatable at the end and not the start, which is why the leading
+          # loop is not dead code -- `>fix` is a real tag and arrives here as `-fix`.
           while [ "${safe#-}" != "$safe" ]; do safe=${safe#-}; done
           while [ "${safe%-}" != "$safe" ]; do safe=${safe%-}; done
           echo "safe=$safe" >> "$GITHUB_OUTPUT"
@@ -179,10 +185,16 @@ jobs:
         run: |
           set -euo pipefail
           safe=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}
-          # Trim after substituting. A ref may begin with an unsafe character -- `git tag --
-          # '>fix'` creates one -- and the substitution turns that into a leading hyphen. A ref may
-          # end with `-` (`git tag -- 'v1.2.3-'` creates one) but can never begin with one, and can
-          # never end with `.`. So `-` is the only character either loop can ever be asked to strip.
+          # Trim after substituting, for readability rather than legality: the substitution
+          # already guarantees nothing outside [A-Za-z0-9._-] survives, and the value never reaches
+          # either end of a name the runner inspects -- it is always bracketed by `plock-` and
+          # `-${arch}`. What the loops do is keep `plock--fix-amd64` from being `plock---fix-amd64`.
+          #
+          # `-` is the only character they can ever meet, measured over the whole printable set as
+          # the first and last character of `git tag`: 21 characters are creatable at either end
+          # and outside the whitelist (`!"#$%&'()+,;<=>@]`{|}`), every one of them substituted to a
+          # hyphen. `-` alone is creatable at the end and not the start, which is why the leading
+          # loop is not dead code -- `>fix` is a real tag and arrives here as `-fix`.
           while [ "${safe#-}" != "$safe" ]; do safe=${safe#-}; done
           while [ "${safe%-}" != "$safe" ]; do safe=${safe%-}; done
           echo "safe=$safe" >> "$GITHUB_OUTPUT"
