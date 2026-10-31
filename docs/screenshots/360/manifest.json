@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-10-31T11:38:21Z",
-  "head": "4a624028d6dd9051b1275ae37a17809682414c4e",
+  "captured_at": "2026-10-31T11:38:43Z",
+  "head": "a08f190a800fd77aa9df95396cb0ce85f61c10c5",
   "pages": [
     {
       "page": "/audit",
@@ -96,7 +96,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "f8cabdc173ce45bbdba70d7064aece7cad1b944e"
+      "sources_rev": "a08f190a800fd77aa9df95396cb0ce85f61c10c5"
     }
   ],
   "schema": "capture-manifest/1",
