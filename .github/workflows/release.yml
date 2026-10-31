@@ -48,6 +48,18 @@ jobs:
           # carry a version that is not the tag it was cut from.
           fetch-depth: 0
 
+      - name: Name prefix for this run's artifacts
+        id: slug
+        # `github.ref_name` is the tag on a push and the BRANCH on a workflow_dispatch, and a
+        # branch may contain `/` -- which is not a legal artifact-name character (the runner
+        # rejects the upload with "The artifact name is not valid", listing NTFS as the reason).
+        # Measured on run 41166398103: both arch legs built three files each and then died at
+        # upload-artifact, because the branch was `fix/release-job-gate-and-arch-message`. So the
+        # dispatch path this file promises worked only for a branch with no slash in it, and every
+        # branch in this repository's convention has one. A tag never contains `/`, so the tag
+        # path is byte-identical to what it was.
+        run: echo "safe=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -85,7 +97,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: plock-${{ github.ref_name }}-${{ matrix.arch }}
+          name: plock-${{ steps.slug.outputs.safe }}-${{ matrix.arch }}
           path: dist/
           retention-days: 30
 
@@ -111,9 +123,17 @@ jobs:
       contents: write
       actions: read
     steps:
+      - name: Name prefix for this run's artifacts
+        id: slug
+        # The same expression as the artifacts job, not a claim that a tag cannot contain `/`.
+        # Two jobs agreeing about a name by each deriving it the same way beats one of them
+        # assuming what the other produced -- a mismatch here downloads zero files and the
+        # checksum step below would then publish a release with no packages in it.
+        run: echo "safe=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/download-artifact@v4
         with:
-          pattern: plock-${{ github.ref_name }}-*
+          pattern: plock-${{ steps.slug.outputs.safe }}-*
           path: staged
           merge-multiple: true
 
