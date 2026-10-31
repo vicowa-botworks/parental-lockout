@@ -335,9 +335,55 @@ func (w *Writer) open() error {
 	fi, statErr := statFile(f)
 	if statErr != nil {
 		// Nothing is chmodded when the descriptor could not be identified: "I cannot
-		// tell what this is" is not a licence to change it. The bound goes to its
-		// conservative end, and verify() — which stats the descriptor itself — decides
-		// on the write whether this is a trail at all.
+		// tell what this is" is not a licence to change it.
+		//
+		// What happens next depends on why the stat failed, and the two cases do not look
+		// alike. What is pinned and what is only observed, precisely — because a block that
+		// says "nothing here is tested" invites someone to delete the assertion that is
+		// quietly holding two of its three claims up:
+		//
+		//   The same-write rotation and the post-rotation re-arm are both pinned, by the
+		//   assertion in TestAnUnmeasurableTrailIsTreatedAsFullNotEmpty. Deferring the
+		//   rotation reads "resolved to 470 bytes against a 400-byte bound"; not re-arming
+		//   after rotate() zeroes the counter reads "resolved to 0 bytes". Both measured.
+		//
+		//   What has no pin is writes two and later: every shipped test that holds the seam
+		//   failing writes exactly one record. The multi-write behaviour was measured in
+		//   #186 by a probe that was then deleted.
+		//
+		//   The genuine-fstat case is not reachable from a test at all — the seam below is
+		//   the only injection point — so everything said about it is observation.
+		//
+		//   Through the seam below — what the tests exercise — the bound holds and the
+		//   trail shards one record per generation: rotate() ends in open(), so this arm
+		//   runs again after each rotation and re-arms. Measured at the head that wrote
+		//   this: three writes against a 400-byte bound leave plock.log empty and
+		//   plock.log.1, .2 and .3 holding one record each, and print the line below on
+		//   every write. Bounded for disk, and it never recovers on its own.
+		//
+		//   "Bounded" is not "kept", and for this file the difference is the point. rotate()
+		//   deletes past Keep, so the sharding is bounded by the retention: eight writes with
+		//   the default Keep of 5 leave the five most recent records on disk and the other
+		//   three nowhere (measured at this head: the count and the byte total both plateau
+		//   at five after the fifth write). Seam-only, so not the daemon's failure mode — but
+		//   a trail whose job is that a parent can read what happened should be described
+		//   with that clause next to the reassuring word, not without it.
+		//
+		//   The rotation lands on the write that prints this line, not on the one after
+		//   it: Write() opens, appends, and compares w.size against the bound in the same
+		//   call, so the record that trips the arm is the record that renames the file.
+		//   That is why the sentence below promises no rotation at all — an earlier draft
+		//   said "rotating on the next write", which was true of nothing: late by one
+		//   write on the seam path, and never on the genuine one.
+		//
+		//   On a genuine fstat failure the operator sees neither state. verify() calls
+		//   w.f.Stat() directly (it does not read this seam), so the same failure refuses
+		//   every write as a dropped event: nothing rotates, nothing shards, and the
+		//   counter this arm just set is never consulted again.
+		//
+		// So what this arm buys is the honesty of the counter and of the sentence printed
+		// beside it — pinned by A62 — not a change in on-disk layout for the failure it
+		// exists for.
 		//
 		// maxBytes(), not MaxBytes: MaxBytes is the *configured* threshold and zero
 		// means "use the default", which is exactly what the daemon does — serve.go
@@ -345,7 +391,7 @@ func (w *Writer) open() error {
 		// there stored 0, and 0 is the permissive end: "measured as empty", the very
 		// thing this arm exists to refuse, with the log line promising a rotation that
 		// is then a full DefaultMaxBytes away.
-		w.logf("audit: cannot stat %s to measure the existing trail: %v; rotating on the next write", w.Path, statErr)
+		w.logf("audit: cannot stat %s to measure the existing trail: %v; treating the trail as full", w.Path, statErr)
 		w.size = w.maxBytes()
 		w.f = f
 		return nil

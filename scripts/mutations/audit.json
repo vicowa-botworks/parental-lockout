@@ -216,9 +216,9 @@
     {
       "id": "A33",
       "file": "internal/audit/audit.go",
-      "old": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, statErr)\n\t\tw.size = w.maxBytes()",
-      "new": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; rotating on the next write\", w.Path, statErr)\n\t\tw.size = 0",
-      "note": "an unmeasurable file treated as empty, which moves the bound in the same direction by a rarer route. Re-pointed twice: once when the unmeasurable arm became an early return naming statErr, and again when the bound started reading maxBytes() -- the field it used to name is the configured threshold, which is zero on the writer the daemon builds"
+      "old": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; treating the trail as full\", w.Path, statErr)\n\t\tw.size = w.maxBytes()",
+      "new": "\t\tw.logf(\"audit: cannot stat %s to measure the existing trail: %v; treating the trail as full\", w.Path, statErr)\n\t\tw.size = 0",
+      "note": "an unmeasurable file treated as empty, which moves the bound in the same direction by a rarer route. Re-pointed twice: once when the unmeasurable arm became an early return naming statErr, and again when the bound started reading maxBytes() -- the field it used to name is the configured threshold, which is zero on the writer the daemon builds; and a third time when the operator line stopped promising a rotation on the next write. This mutant embeds that sentence in both old and new, so changing the sentence without re-pointing it fails the apply sweep loudly instead of silently retiring the mutant. Re-point it in the same commit as the sentence."
     },
     {
       "id": "A34",
