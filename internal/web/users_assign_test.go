@@ -563,6 +563,20 @@ func postRowForm(t *testing.T, f *assignFixture, username string) *httptest.Resp
 		t.Errorf("the rendered form carries no CSRF token, so the button cannot be pressed at all:\n%s",
 			formFragment(body, action))
 	}
+	// parseForm walks <input> elements and nothing else, so a row that chooses its profile from a
+	// <select> would come back with NO profile key at all -- and the handler reads an absent profile
+	// as removal. Measured on a machine with profiles, on the dropdown arm: `STATUS 303`, entry
+	// `{casey school enabled}` before, `<nil>` after. A test that said "the assignment the operator
+	// chose round-trips" would go green while DELETING it, which is the exact shape this helper was
+	// written to end -- a payload assembled beside the template instead of out of it, this time
+	// assembled by the fix. Refusing is the only pin available, because the defect would live in
+	// test code and no mutant reaches there. The dropdown arm is covered by
+	// TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts, which reads the selected option.
+	if frag := formFragment(body, action); strings.Contains(frag, "<select") {
+		t.Fatalf("postRowForm reads <input> only; this row renders a <select>, so posting it would "+
+			"drop the chosen profile and ask for removal. Read the selected option as "+
+			"TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts does:\n%s", frag)
+	}
 	// The payload is the row's own, including the empty profile that MEANS removal. Rebuilding
 	// the body here is what let a non-empty value pass unnoticed.
 	q := url.Values{}
@@ -573,6 +587,10 @@ func postRowForm(t *testing.T, f *assignFixture, username string) *httptest.Resp
 	post := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", action, strings.NewReader(q.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// A browser submitting this form is a top-level navigation and sends Accept: text/html; authPost
+	// sets it on every write it makes. Without it the helper exercises the programmatic-caller shape,
+	// which is the one thing its "send what the page sends" argument does not send.
+	req.Header.Set("Accept", "text/html")
 	req.AddCookie(c)
 	f.s.Handler().ServeHTTP(post, req)
 	return post
