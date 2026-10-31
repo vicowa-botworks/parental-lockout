@@ -81,8 +81,9 @@ verify:
 	dirty=$$($(GOFMT) -l .); \
 	if [ -n "$$dirty" ]; then echo "not gofmt-clean:"; echo "$$dirty"; exit 1; fi; \
 	echo "==> script and set-file encoding guards"; python3 scripts/check-scripts.py; \
-	echo "==> shellcheck"; SHELLCHECK="$${SHELLCHECK:-shellcheck}" ./scripts/check-shell.sh; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
+	echo "==> mutation-gate self-test"; python3 scripts/check-mutations.py --self-test; \
+	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
 	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \

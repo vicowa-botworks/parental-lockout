@@ -17,9 +17,9 @@ file the other half reads.
 
 Measured on the tree that shipped the bug:
 
-    the encoding pass alone, over 13 scripts        0.009 s
-    `python3 scripts/check-mutations.py --self-test`  0.24 s
-    `make check-mutations`, whole target            2 m 56 s
+    the encoding pass alone, over 5 tools and 13 set files   0.009 s
+    `python3 scripts/check-mutations.py --self-test`           0.24 s
+    `make check-mutations`, whole target                     2 m 56 s
 
 So the cheap half lives here, and this file is in `verify`. It **imports** the guards rather
 than copying them: two copies of a check are two chances for the gates to disagree about what is
