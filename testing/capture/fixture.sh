@@ -82,12 +82,64 @@ capture_admin() {
     --password-stdin --force --config "$CONFIG" --state-dir "$STATE"
 }
 
+# The instant the fixture's document claims to have been built at, and the zone it claims to be
+# in. Declared rather than read from the host, because a photograph is a function of the clock it
+# was taken on: `datetime.now()` in a setup script puts the wall clock into the audit trail's `at`
+# column, and `.astimezone()` with no argument puts the *host's zone* into it as well. Two honest
+# runs then differ by the minutes between them and by whoever's machine ran them, which is
+# issue #207's cause 1 — the reason `audit.png` could not be re-taken.
+#
+# 2026-03-18 21:34:05 at -04:00 is a Wednesday evening in America/New_York after that year's
+# spring-forward, so it is a plain offset — the fixture does not want a fold or a jump in the frame
+# — and an evening, which is when a curfew page means something.
+#
+# Overridable for exactly one reason: proving the capture is clock-independent. Two runs that set
+# different PLOCK_CAPTURE_STAMP values and still produce identical PNGs are the claim; nothing
+# should be run with these set to anything else.
+CAPTURE_STAMP="${PLOCK_CAPTURE_STAMP:-2026-03-18T21:34:05}"
+CAPTURE_ZONE="${PLOCK_CAPTURE_ZONE:--04:00}"
+
+# How many rows the trail holds once the driver has signed in, and therefore how many the audit page
+# has to render. Declared by the setup script that seeds a trail (pages-setup.sh); empty means this
+# fixture photographs no trail. The driver refuses a page that does not match the number, because
+# the alternative — measured, README'd — was a PNG whose height was a run counter: every sign-in
+# appends an `auth.success` row to the very trail the page photographs, and the committed file had
+# reached 360x15004 while a fixture built from nothing rendered 2936 px (#207's cause 2).
+CAPTURE_AUDIT_ROWS="${PLOCK_CAPTURE_AUDIT_ROWS:-}"
+
+# The census the daemon is allowed to see. Empty means "ask the machine", which is what the two POST
+# fixtures do on purpose — lock.png and testlock.png are evidence about a real lock on a real
+# session, and a stubbed census would photograph a fiction. A page fixture that wants its Sessions
+# cell to be the fixture's names bin here; see testing/capture/bin/loginctl for what it answers and
+# why one account holds a session and the other holds none.
+CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-}"
+
+# The zone the *reader* is in, which the audit page's When column depends on (#207's seventh cause,
+# measured here rather than assumed). internal/web/templates/audit.tmpl:86 formats each row with
+# `MST`, and Go's `time.Parse` adopts the process's local Location when a row's offset matches it --
+# so one and the same trail rendered `2026-03-18 21:33:05 EDT` on a machine in America/New_York and
+# `2026-03-18 21:33:05 -0400` on one in UTC or Asia/Kolkata. Three runs of a nine-line program under
+# `TZ=` each, output verbatim in the issue. The instant and the offset survive all three; it is the
+# label that belongs to whoever is reading.
+#
+# Declaring it here is what makes the frame the same bytes on every host. It does not make the label
+# correct: a trail row's zone abbreviation is the reader's, not the row's, and that is filed as its
+# own finding rather than fixed by a fixture, because the fix belongs in the template and the
+# decision about what a parent should see (an offset, or a name the writer chose) is not this
+# folder's to make. An unparseable TZ is not diagnosed here -- Go falls back to UTC, which prints
+# `-0400`, which the audit page's declared state then refuses. That is the right place to notice.
+CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-}"
+
 # capture_env
 #
 # The fixture's own answers, in one file the driver reads. Keeping the port, the account and the
 # password here rather than in both halves means a fixture and its driver cannot disagree about
 # which daemon the browser should be pointed at — and a browser aimed at a daemon that is not the
 # one just started photographs a different machine's admin UI.
+#
+# The four optional keys below are written only when declared. A driver reads a missing one as "this
+# fixture did not choose", never as zero or as the empty string: a fixture that says nothing about
+# its clock must not be silently re-stamped to a date somebody else chose.
 capture_env() {
   {
     echo "# written by $RUN_NAME-setup.sh; the driver reads this and refuses without it"
@@ -96,11 +148,33 @@ capture_env() {
     echo "PLOCK_CAPTURE_TARGET=$CAPTURE_TARGET"
     echo "PLOCK_CAPTURE_PORT=$RUN_PORT"
     echo "PLOCK_CAPTURE_CDP=$RUN_CDP"
+    if [ -n "$CAPTURE_STAMP" ]; then echo "PLOCK_CAPTURE_STAMP=$CAPTURE_STAMP"; fi
+    if [ -n "$CAPTURE_ZONE" ]; then echo "PLOCK_CAPTURE_ZONE=$CAPTURE_ZONE"; fi
+    if [ -n "$CAPTURE_AUDIT_ROWS" ]; then echo "PLOCK_CAPTURE_AUDIT_ROWS=$CAPTURE_AUDIT_ROWS"; fi
+    if [ -n "$CAPTURE_PATH_PREPEND" ]; then echo "PLOCK_CAPTURE_PATH_PREPEND=$CAPTURE_PATH_PREPEND"; fi
   } > "$ENVFILE"
+  # The last line is not decoration: every line above is a condition, and the setup scripts run
+  # under `set -euo pipefail` (fixture.sh is sourced, so it inherits that). A `[ -n ] && echo` list
+  # that takes the false arm is a failing command list, which under -e ends the script one line
+  # before it wrote a file nobody expected to be missing.
+  return 0
 }
 
 capture_done() {
   local events=0
   [ -f "$AUDIT" ] && events="$(wc -l < "$AUDIT")"
+  # The fixture's own arithmetic, checked at the bench rather than at the browser. Declared rows
+  # include the one the sign-in appends, so a seeded trail one line short of the declaration is
+  # either a dropped seed row or a number that was not updated when a row was removed — and either
+  # way the driver's refusal would name the audit page instead of the heredoc that caused it.
+  if [ -n "$CAPTURE_AUDIT_ROWS" ] && [ "$events" -ne $((CAPTURE_AUDIT_ROWS - 1)) ]; then
+    echo "REFUSED: $AUDIT holds $events seeded rows, and this fixture declares $CAPTURE_AUDIT_ROWS" >&2
+    echo "rows on the page including the one the sign-in appends. Fix $RUN_NAME-setup.sh: add the" >&2
+    echo "row back, or lower the number it declares -- the page is photographed against it." >&2
+    exit 1
+  fi
   echo "wrote $CONFIG and $AUDIT ($events events); fixture.env names port $RUN_PORT"
+  if [ -n "$CAPTURE_PATH_PREPEND" ]; then
+    echo "census: $CAPTURE_PATH_PREPEND on the daemon's PATH, not this machine's loginctl"
+  fi
 }

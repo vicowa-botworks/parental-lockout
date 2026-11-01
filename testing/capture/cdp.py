@@ -442,6 +442,10 @@ class Capture:
         self.server = None
         self.chrome = None
         self.session = None
+        # The trail as the fixture left it, taken inside _start before the browser signs in. Empty
+        # here so a caller that asks before _start ran gets an honest zero rather than an
+        # AttributeError in the middle of a refusal message.
+        self.trail_before = []
         self._flags = tuple(extra_chrome_flags)
 
     def __enter__(self):
@@ -459,11 +463,59 @@ class Capture:
             return r.status, r.headers, r.read()
 
     def _start(self):
+        # The daemon's PATH, when the fixture has an opinion about it.
+        #
+        # This exists because the dashboard's Sessions cell is not a property of the config. `GET /`
+        # asks the platform layer, the command backend delegates listing to logind
+        # (internal/platform/command.go:133), and `loginctl` is resolved through PATH
+        # (internal/platform/exec.go:74-79 — bare name, `exec.LookPath`, no absolute fallback). So
+        # the daemon asked *this machine*, and the committed dashboard.png reported `session list
+        # unavailable` while three fresh runs on the same box reported `no desktop session` — two
+        # honest captures of one fixture, two different pages, both of them current by every check
+        # manifest.py has (#207 cause 6). A fixture that names bin/ puts its own census first; a
+        # fixture that names nothing keeps asking the machine, which is what the two POST fixtures
+        # want, because their subject is a real lock on a real session.
+        #
+        # Prepend, not replace: the daemon still has to find the things nobody stubbed. Absolute
+        # only — `exec.LookPath` refuses a relative PATH entry (`exec.go:67-72`), so a relative name
+        # here would mean `loginctl: not found in PATH` and a page saying `session list unavailable`
+        # for a reason that looks like the product's.
+        daemon_env = None
+        prepend = self.env.get("PLOCK_CAPTURE_PATH_PREPEND")
+        zone = self.env.get("PLOCK_CAPTURE_TZ")
+        if prepend or zone:
+            daemon_env = dict(os.environ)
+        if prepend:
+            if not op.isabs(prepend):
+                raise SystemExit(
+                    f"{self.dir}/fixture.env declares PLOCK_CAPTURE_PATH_PREPEND={prepend!r}, which "
+                    "is not an absolute path; exec.LookPath refuses a relative PATH entry, so the "
+                    "daemon would find no loginctl at all and the page would say `session list "
+                    "unavailable` for a reason nobody chose")
+            if not op.isdir(prepend):
+                raise SystemExit(f"PLOCK_CAPTURE_PATH_PREPEND={prepend!r} is not a directory, so "
+                                 "nothing could be prepended to the daemon's PATH")
+            daemon_env["PATH"] = prepend + os.pathsep + os.environ.get("PATH", "")
+            print(f"census: the daemon's PATH starts at {prepend}", flush=True)
+        if zone:
+            # The reader's zone, because the audit page labels each row with `MST` and Go hands a
+            # parsed instant the local zone's abbreviation when its offset matches (measured: one
+            # trail, three TZ values, `EDT` / `-0400` / `-0400`). Set it on the daemon rather than on
+            # the browser because the daemon is the reader -- it renders the row.
+            #
+            # Not validated here. Go falls back to UTC for a zone it cannot load, which prints
+            # `-0400`, which the audit page's declared state then refuses with the row it saw: the
+            # right place to notice is where the label would have been photographed.
+            daemon_env["TZ"] = zone
+            print(f"reader zone: TZ={zone} for the daemon, not {os.environ.get('TZ') or 'the host default'}",
+                  flush=True)
+
         self.server = subprocess.Popen(
             [self.bin, "serve", "--config", op.join(self.dir, "config.json"),
              "--state-dir", op.join(self.dir, "state"),
              "--audit-path", op.join(self.dir, "audit.jsonl")],
-            stdout=open(op.join(self.dir, "serve.log"), "wb"), stderr=subprocess.STDOUT)
+            stdout=open(op.join(self.dir, "serve.log"), "wb"), stderr=subprocess.STDOUT,
+            env=daemon_env)
         try:
             # The port answering is not evidence that *our* daemon is answering. Measured: with a
             # second `plock serve` already holding the fixture's port, this fixture's daemon dies
@@ -554,6 +606,11 @@ class Capture:
                     f"this fixture's chrome.log recorded {self.browser_id!r}, so the capture would "
                     "drive a browser it did not start.")
 
+            # Where this run's own rows begin. Read after the daemon is confirmed and before the
+            # browser is authenticated, because the sign-in is the first thing in this run that can
+            # write to the trail; anything appended after this mark belongs to this run.
+            self.trail_before = audit_lines(op.join(self.dir, "audit.jsonl"))
+
             # Sign in inside this browser, the way a person does. A cookie captured by a second
             # client would never reach Chrome, and an unauthenticated Chrome quietly photographs
             # the login page at every address while still reporting 360 px -- a green run that
@@ -579,9 +636,79 @@ class Capture:
                 raise SystemExit("login did not navigate away from /login; the password is wrong "
                                  "or the account was never created")
             print(f"signed in as {self.env['PLOCK_CAPTURE_USER']} at {self.base}", flush=True)
+
+            # The trail's clock, owned before a single pixel is measured. Only a fixture that
+            # declares its row count asks for this: the two POST fixtures photograph a trail that is
+            # *supposed* to grow, because the row their page shows is the one the click wrote, and
+            # pinning it to a declared instant would erase the finding.
+            if self.env.get("PLOCK_CAPTURE_AUDIT_ROWS"):
+                pin_appended_rows(op.join(self.dir, "audit.jsonl"), self.trail_before,
+                                  self.declared_stamp(), int(self.declared_rows()),
+                                  f"{op.basename(self.dir)} fixture")
+
+            # Page scripts off, from here to the last photograph, and the login happened above so
+            # the session cookie is already in the jar.
+            #
+            # Two reasons, and the second is the one that decides it. The first: static/app.js:76-104
+            # selects every `time[data-unix]` and rewrites its textContent from Date.now(), on load
+            # and then every second, so the "until" in a frame taken with scripts running is a live
+            # countdown reading `58m 12s` rather than the `EndsAtClock` the server put there —
+            # unrepeatable pixels, #207's cause 4, and the reason pinning the Go clock alone would
+            # not have pinned the image. The second: this folder's own criterion is "usable at 360 px
+            # with JavaScript off", and a photograph taken with the scripts on has never tested that
+            # sentence. The committed frames are therefore re-taken under the condition the criterion
+            # actually names, which is the honest direction to move in even though it changes pixels
+            # that are currently in the docs tree.
+            #
+            # Emulation.setScriptExecutionDisabled rather than a Chrome launch flag, and that choice
+            # is measured, not stylistic. `--disable-javascript` is still *accepted* by this machine's
+            # Chrome (156.0.8078.79 starts it without a word of complaint) and does nothing: a page
+            # whose script sets document.title to "JS RAN" came back with that title at the flag and
+            # with `orig` under the CDP call. A flag that is accepted and ignored is the worst shape
+            # of refusal to build a criterion on, because the capture looks configured. The driver's
+            # own Runtime.evaluate calls are unaffected — measured, `1+1` still came back 2 with the
+            # page's scripts disabled — because this switches off the page's world, not this client's.
+            self.session.call("Emulation.setScriptExecutionDisabled", value=True)
         except BaseException:
             self.close()
             raise
+
+    def declared_stamp(self):
+        """The instant this fixture says the clock reads, as `<date>T<time><offset>`.
+
+        Validated rather than pasted. The value goes verbatim into the `at` field of a trail row and
+        comes back out as text in the When column, so a typo here — `2026-13-40`, `25:99`, an offset
+        written `-4:00` where the ISO form wants `-04:00` — would otherwise surface as an unreadable
+        row on a photographed page, or as a traceback from `int()` further down. Both are worse
+        answers than this one, and the sentence names the file to edit.
+        """
+        stamp = self.env.get("PLOCK_CAPTURE_STAMP", "")
+        zone = self.env.get("PLOCK_CAPTURE_ZONE", "")
+        for key, value in (("PLOCK_CAPTURE_STAMP", stamp), ("PLOCK_CAPTURE_ZONE", zone)):
+            if not value:
+                raise SystemExit(
+                    f"{op.basename(self.dir)} declares PLOCK_CAPTURE_AUDIT_ROWS but not {key}, so "
+                    "there is no declared instant to stamp the sign-in's row with. Name both from "
+                    "the same fixture, or name neither and let the trail keep the clock it wrote.")
+        whole = stamp + zone
+        try:
+            datetime.datetime.fromisoformat(whole)
+        except ValueError as exc:
+            raise SystemExit(
+                f"{op.basename(self.dir)} declares PLOCK_CAPTURE_STAMP={stamp!r} with "
+                f"PLOCK_CAPTURE_ZONE={zone!r}, which is not an instant ({exc}). The concatenation is "
+                "written straight into a trail row's `at` field and printed in the When column.")
+        return whole
+
+    def declared_rows(self):
+        """The row count the fixture declares, or a refusal that says what it expected."""
+        raw = self.env.get("PLOCK_CAPTURE_AUDIT_ROWS", "")
+        if not raw.isdigit():
+            raise SystemExit(
+                f"{op.basename(self.dir)} declares PLOCK_CAPTURE_AUDIT_ROWS={raw!r}, which is not a "
+                "count. The fixture's declared number is what the audit page's row count is compared "
+                "against, so it has to be a plain integer.")
+        return raw
 
     def require_running(self):
         """The daemon and the browser this fixture started must still be the ones in use.
@@ -757,6 +884,89 @@ def audit_lines(path):
             return [l for l in fh if l.strip()]
     except FileNotFoundError:
         return []
+
+
+# The one row a signed-in capture appends to the trail, and the emitter that writes it:
+# `s.audit("auth.success", sess.Username)` at internal/web/handlers.go:150. Named here because two
+# separate checks need the same name, and a third would be the fixture's.
+SIGNIN_KIND = "auth.success"
+
+# The `at` field, as the Go writer emits it (`"at":"..."`) and as a fixture's own seeder emits it
+# (`"at": "..."`). Replacing the value and nothing else is deliberate: re-encoding the row through
+# json.dumps would reformat the whole line, and a fixture's claim is about *when*, not about
+# whether the trail is pretty.
+_AT_FIELD = re.compile(r'("at"\s*:\s*")[^"]*(")')
+
+
+def pin_appended_rows(path, seeded, stamp, declared_rows, what):
+    """Make the rows this run appended carry the fixture's declared instant, or refuse.
+
+    The fixture owns its clock (issue #207, cause 1): the trail is seeded at the instant the setup
+    script declares instead of at `datetime.now()`, so the When column no longer depends on when the
+    photograph was taken. One row is outside the seeder's reach — the sign-in has to happen over real
+    HTTP, through the handler, because the driver authenticates the way a person does — and
+    `audit.Writer` stamps it with `time.Now` (`cmd/plock/serve.go:224` sets no `At`, and
+    `web.Options` has no clock to be given). This is the other half of owning the stamp: the row the
+    product wrote is identified, checked, and re-stamped to the same declared instant.
+
+    Checked, then rewritten, in that order, because the two refusals are the point:
+
+      * the count has to be the fixture's declared number, so the run counter cannot come back. The
+        committed audit.png had reached 360x15004 while a fixture built from nothing rendered 2936
+        px — the height was a tally of how many times anyone had run a driver on their own machine
+        (#207 cause 2). A fixture that declares 8 rows and finds 9 after one sign-in is a fixture
+        whose sign-in writes more than it used to, and that is worth a refusal, not a shrug.
+      * every appended row has to be the sign-in's own kind. This is the one that catches the
+        enforcement loop having written to the trail during the capture — which is exactly what
+        happens if a fixture hands a *held, enabled* account a session: the next tick locks it and
+        appends a `lock.*` row to the page being photographed. Re-stamping a row like that would
+        have hidden a real event behind a plausible timestamp, which is worse than a tall image.
+
+    The seeded rows are written back unchanged and the file is replaced in place. In place matters:
+    the daemon holds this path open with O_APPEND, and O_APPEND counts from the *current* end, so a
+    truncate-and-write cannot be interleaved with a concurrent append on the same inode, while
+    unlink-and-recreate would leave the daemon appending to an orphaned file the page never shows.
+    """
+    try:
+        with open(path) as fh:
+            lines = [l for l in fh if l.strip()]
+    except FileNotFoundError:
+        lines = []
+    if len(lines) < len(seeded):
+        raise SystemExit(
+            f"{what}: the trail holds {len(lines)} rows and the fixture seeded {len(seeded)}, so "
+            "the file was replaced underneath this run. Nothing was re-stamped: a trail that can "
+            "shrink between the fixture and the photograph is not evidence about either.")
+    appended = lines[len(seeded):]
+    kinds = sorted({json.loads(l).get("kind", "") for l in appended})
+    if len(lines) != declared_rows:
+        raise SystemExit(
+            f"{what}: this fixture declares {declared_rows} rows on the page and the trail holds "
+            f"{len(lines)} ({kinds or 'nothing'} appended since it was seeded). The sign-in writes "
+            f"exactly one {SIGNIN_KIND!r} row and nothing else may write during a capture — if "
+            "either of those has changed, the fixture's declared number and this check both have to "
+            "be updated on purpose, because the artifact's height is that number (#207).")
+    wrong = sorted(set(kinds) - {SIGNIN_KIND})
+    if wrong:
+        raise SystemExit(
+            f"{what}: the run appended {wrong}; the only row a capture may add to the trail it is "
+            f"about to photograph is {SIGNIN_KIND!r}. Re-stamping that would put the fixture's "
+            "clock on an event the fixture did not choose — which is the same lie as a tall image, "
+            "with better manners.")
+    if not appended:
+        return 0
+    pinned = [_AT_FIELD.sub(lambda m: m.group(1) + stamp + m.group(2), l) for l in appended]
+    for original, rewritten in zip(appended, pinned):
+        if rewritten == original:
+            raise SystemExit(
+                f"{what}: asked to stamp {stamp!r} on a row that does not change when the `at` "
+                f"field is replaced: {original[:160]} — the row has no `at` field this function "
+                "recognises, so the When column is not what this fixture thinks it is.")
+    with open(path, "w") as fh:
+        fh.writelines(l if l.endswith("\n") else l + "\n" for l in seeded + pinned)
+    print(f"trail: {len(pinned)} appended row(s) re-stamped to {stamp}; "
+          f"{len(seeded) + len(pinned)} rows, the fixture's declared count", flush=True)
+    return len(pinned)
 
 
 def require_trail(lines, must, allowed, what):
