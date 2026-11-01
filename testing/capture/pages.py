@@ -791,7 +791,7 @@ def main(shoot_fn=None, record_fn=None):
 # page refused to run gets reported, and the needle that makes the refused artifact mean the refusal
 # its filename names. The two canaries are registered like every other rule and deliberately not
 # counted: they exist to prove the helper is not hollow.
-EXPECTED_RULES = 35
+EXPECTED_RULES = 36
 
 
 class _FakeSession:
@@ -1727,6 +1727,65 @@ def self_test():
         if "pages-nosuch" not in str(rc):
             problems.append(f"the refusal does not name the fixture it refused: {str(rc)[:120]!r}")
 
+    def capture_out_returns_one_directory(problems):
+        """`--out` resolves inside the repo and comes back as ONE string, through the real function.
+
+        Review round 4 asserted the opposite -- that `capture_out` returns two values while every
+        caller unpacks one, so any `--out` invocation raises TypeError. It does not: the function has
+        two returns, `op.join(RUNS, default_name)` and `target`, both single. The argument was still
+        worth ending, because the file's own README documents the `--out docs/screenshots/360
+        --overwrite` flow and NOTHING in this self-test had ever called the real `capture_out`. A claim
+        about an unexercised call can be made again next week, so this calls it.
+        """
+        saved = list(sys.argv)
+        try:
+            sys.argv = ["pages.py", "--out", "docs/screenshots/360", "--overwrite"]
+            got = cdp.capture_out("pages", fixture_flag=True)
+        except BaseException as exc:  # a refusal here is a finding, not a pass
+            problems.append(f"the real capture_out raised {type(exc).__name__} on the documented "
+                            f"`--out docs/screenshots/360 --overwrite`: {exc}")
+            return
+        finally:
+            sys.argv = saved
+        if not isinstance(got, str):
+            problems.append(f"capture_out returned {type(got).__name__}, and every caller unpacks one "
+                            "value from it -- lock.py:162, testlock.py:147, pages.py:669")
+            return
+        if not got.endswith("docs/screenshots/360"):
+            problems.append(f"capture_out sent the capture to {got!r} instead of the directory "
+                            "--out named")
+        # The flag is part of the contract: --out says where, --overwrite says the files there are
+        # the ones you mean to replace. Without the second, a bare --out would replace committed
+        # evidence, which is the harm the two-flag rule exists to gate.
+        sys.argv = ["pages.py", "--out", "docs/screenshots/360"]
+        try:
+            cdp.capture_out("pages", fixture_flag=True)
+            problems.append("--out without --overwrite was accepted, so one flag would replace "
+                            "committed artifacts")
+        except SystemExit as exc:
+            if "overwrite" not in str(exc).lower():
+                problems.append(f"--out without --overwrite refused for the wrong reason: {exc}")
+        finally:
+            sys.argv = saved
+        # And the flag it does not give out: a driver that never asked must not accept --fixture.
+        sys.argv = ["pages.py", "--fixture", "pages"]
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                cdp.capture_out("lock")
+            problems.append("capture_out accepted --fixture for a driver that never passed "
+                            "fixture_flag, so lock.py would photograph an unset-up fixture")
+        except SystemExit as exc:
+            # The refusal is argparse's, so the sentence is on stderr and the exception carries only
+            # the exit code. Asserting on str(exc) would be asserting on "2"; the text is what names
+            # the flag, so the text is what gets read. Measured: str(exc) == "2", stderr carries
+            # "unrecognized arguments: --fixture pages".
+            if "fixture" not in err.getvalue() or exc.code == 0:
+                problems.append(f"--fixture refused for the wrong reason (code {exc.code}, stderr "
+                                f"{err.getvalue().strip()!r})")
+        finally:
+            sys.argv = saved
+
     def a_needle_page_naming_the_default_fixture_is_refused(problems):
         """The invariant, asserted by constructing the page that breaks it.
 
@@ -1751,13 +1810,22 @@ def self_test():
                         "notice at all")
 
     def a_page_is_recorded_where_it_is_photographed(problems):
-        """One name, one directory, for the file the manifest certifies.
+        """The manifest's stem->url map is a projection of THIS table, in the right orientation.
 
-        The driver writes `op.join(out, spec.artifact + ".png")`; `manifest` reads the stem of every
-        `*.png` in the directory it is handed and looks the stem up in `pages_by_artifact()`. Both come
-        from `spec.artifact`, so the pair is single-sourced today -- and that is exactly the kind of
-        statement a later edit can make false without touching either side. The two probes below are
-        the difference.
+        What this rule can and cannot see, stated because the first version of its comment got it
+        wrong in a way a reviewer could not tell from the code. `manifest.pages_by_artifact()` is
+        `{spec.artifact: spec.url for spec in driver_pages()}` and `driver_pages()` IMPORTS this same
+        `PAGES` -- one list, deliberately, so there is no second table to fall out of agreement. So the
+        loop below cannot catch a page declared wrongly (both sides would be wrong together); what it
+        catches is the projection turning around or keying on something else. Measured: keying
+        `pages_by_artifact` by `spec.url` makes every artifact report `None` and the count rule report
+        `5 artifacts ... and 7 to the driver`. Two artifacts sharing a stem is the other way the same
+        projection fails -- one photograph standing in for two pages -- and giving a second page the
+        stem `users` turns it red.
+
+        What it does NOT pin, and the reason there is no rule for it: that `out` is the directory the
+        manifest is later pointed at. `capture_out` realpath()s its target and `main` hands the same
+        value to write and to record, so the binding is the pin.
         """
         declared = capture_manifest.pages_by_artifact()
         for spec in PAGES:
@@ -1823,6 +1891,7 @@ def self_test():
     rule("a page from the wrong document refuses", a_page_from_the_wrong_document_refuses)
     rule("a needle page must name a non-default fixture",
          a_needle_page_naming_the_default_fixture_is_refused)
+    rule("capture_out resolves --out and returns one directory", capture_out_returns_one_directory)
     rule("a page is recorded where it is photographed", a_page_is_recorded_where_it_is_photographed)
     rule("one refusal names it and counts the rest", one_refuses)
     rule("a clean run publishes and exits 0", none_refuses)
