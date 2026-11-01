@@ -110,7 +110,7 @@ def require_stress_row(got, what):
 # census above takes it — innerText is the rendered text, so a cell that wraps correctly is exactly
 # the thing that could hand back something the declaration does not match. Whitespace is collapsed
 # because the templates indent their markup: the dashboard's `<time>` element sits on its own line,
-# and the When cell is `\n 2026-03-18 21:34:05 EDT\n`, which is the same *text* and not the same
+# and the When cell is `\n 2026-03-18 21:34:05 -04:00\n`, which is the same *text* and not the same
 # string. The head is empty for a table with no `<th>` per row, which is what the audit page is.
 ROWS_JS = ("rows:[...document.querySelectorAll('table.rows tbody tr')].map(tr=>["
            "[...tr.querySelectorAll('th')].map(e=>e.textContent.trim())[0]||'',"
@@ -382,13 +382,16 @@ PAGES = [
     #
     # The pair pins the newest row: the event the sign-in wrote, at the instant the fixture declares,
     # in the zone the fixture declares the reader to be in. That last part is not decoration. The When
-    # column is formatted with `MST` (internal/web/templates/audit.tmpl:86) and Go's time.Parse hands
-    # a row whose offset matches the local zone that zone's abbreviation, so the same trail prints
-    # `... 21:34:05 EDT` on one host and `... 21:34:05 -0400` on another (measured under TZ= for
-    # America/New_York, UTC and Asia/Kolkata). Declaring the reader's zone is what makes the frame
-    # repeatable; that the label is the reader's rather than the row's is a finding of its own.
+    # column used to be formatted with `MST` (internal/web/templates/audit.tmpl), and Go's
+    # time.Parse hands a row whose offset matches the local zone that zone's abbreviation, so the
+    # same trail printed `... 21:34:05 EDT` on one host and `... 21:34:05 -0400` on another (measured
+    # under TZ= for America/New_York, UTC and Asia/Kolkata). #210 made the column print the stored
+    # offset, so the text below is now host-independent and the declared state would hold without
+    # PLOCK_CAPTURE_TZ. The zone stays declared because a daemon's local zone is a condition of a
+    # frame whatever the template does with it, and this pair is the thing that would notice if a
+    # host-dependent label ever came back -- which is exactly how it earned its place here.
     Page("/audit", "audit", True, stress=True, declares_rows=True, state=(
-        ("auth.success", "2026-03-18 21:34:05 EDT"),
+        ("auth.success", "2026-03-18 21:34:05 -04:00"),
     )),
     Page("/settings", "settings", False),
 ]
@@ -2002,7 +2005,7 @@ def self_test():
         sequence: 15 004 px from a fixture that renders 2 936.
         """
         spec = next(p for p in PAGES if p.declares_rows)
-        row = ["", ["2026-03-18 21:34:05 EDT", "auth.success", "nobody", "", "parent"]]
+        row = ["", ["2026-03-18 21:34:05 -04:00", "auth.success", "nobody", "", "parent"]]
         for want, count, should_refuse in ((8, 8, False), (8, 7, True), (8, 9, True)):
             got = {"rows": [list(row) for _ in range(count)]}
             try:

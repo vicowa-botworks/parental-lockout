@@ -82,8 +82,20 @@ the spelling may be what failed here.{{end}}</p>
          phone width and nothing in the desktop layout notices. */ -}}
     <tr>
       <td data-label="When">
+        {{- /* The offset, not the abbreviation (#210). `MST` here printed a zone NAME, and which
+             name it printed depended on the machine rendering the page: `time.Parse` gives a parsed
+             instant the local zone when the stored offset matches that zone's abbreviation at that
+             moment and a zone named after the bare offset otherwise, so one row on disk read
+             `21:33:05 EDT` under TZ=America/New_York and `21:33:05 -0400` under TZ=UTC and under
+             TZ=Asia/Kolkata. A daemon started by systemd inherits no TZ (deploy/plock.service sets
+             none), so the common host was inventing a label for every row it has ever shown. The
+             instant and its offset are the record's; an abbreviation belongs to whoever is reading,
+             which makes it the wrong thing to put in an audit trail a parent will quote. The column
+             now says exactly what the file says, and says it the same way as the `datetime`
+             attribute beside it. Pinned by TestTheAuditRowIsStampedTheSameWhoeverReadsIt, which
+             fails on all four zones it tries against the old layout. */ -}}
         <time datetime="{{.At.Format "2006-01-02T15:04:05Z07:00"}}">
-          {{.At.Format "2006-01-02 15:04:05 MST"}}
+          {{.At.Format "2006-01-02 15:04:05 -07:00"}}
         </time>
       </td>
       <td data-label="Event">{{.Kind}}</td>

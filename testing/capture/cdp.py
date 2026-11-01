@@ -498,10 +498,13 @@ class Capture:
             daemon_env["PATH"] = prepend + os.pathsep + os.environ.get("PATH", "")
             print(f"census: the daemon's PATH starts at {prepend}", flush=True)
         if zone:
-            # The reader's zone, because the audit page labels each row with `MST` and Go hands a
-            # parsed instant the local zone's abbreviation when its offset matches (measured: one
-            # trail, three TZ values, `EDT` / `-0400` / `-0400`). Set it on the daemon rather than on
-            # the browser because the daemon is the reader -- it renders the row.
+            # The reader's zone. It was load-bearing for the When column: the template asked for
+            # `MST`, and Go hands a parsed instant the local zone's abbreviation when its offset
+            # matches (measured: one trail, three TZ values, `EDT` / `-0400` / `-0400`). #210 changed
+            # the column to the stored offset, so the frame no longer depends on this; it stays
+            # because the daemon is the reader of every other clock on the page and a frame should
+            # not inherit one from the host by accident. Set on the daemon, not the browser, because
+            # the daemon is what renders the row.
             #
             # Not validated here. Go falls back to UTC for a zone it cannot load, which prints
             # `-0400`, which the audit page's declared state then refuses with the row it saw: the

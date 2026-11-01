@@ -114,12 +114,13 @@ CAPTURE_AUDIT_ROWS="${PLOCK_CAPTURE_AUDIT_ROWS:-}"
 # why one account holds a session and the other holds none.
 CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-}"
 
-# The zone the *reader* is in, which the audit page's When column depends on (#207's seventh cause,
-# measured here rather than assumed). internal/web/templates/audit.tmpl:86 formats each row with
-# `MST`, and Go's `time.Parse` adopts the process's local Location when a row's offset matches it --
-# so one and the same trail rendered `2026-03-18 21:33:05 EDT` on a machine in America/New_York and
-# `2026-03-18 21:33:05 -0400` on one in UTC or Asia/Kolkata. Three runs of a nine-line program under
-# `TZ=` each, output verbatim in the issue. The instant and the offset survive all three; it is the
+# The zone the *reader* is in (#207's seventh cause, measured here rather than assumed).
+# internal/web/templates/audit.tmpl used to format each row with `MST`, and Go's `time.Parse` adopts
+# the process's local Location when a row's offset matches it -- so one and the same trail rendered
+# `2026-03-18 21:33:05 EDT` on a machine in America/New_York and `2026-03-18 21:33:05 -0400` on one
+# in UTC or Asia/Kolkata. Three runs of a nine-line program under `TZ=` each, output verbatim in the
+# issue. #210 made the column print the stored offset, so this no longer decides that text; the zone
+# is still declared because a daemon's clock is a condition of the frame it renders. The instant and the offset survive all three; it is the
 # label that belongs to whoever is reading.
 #
 # Declaring it here is what makes the frame the same bytes on every host. It does not make the label
