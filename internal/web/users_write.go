@@ -26,6 +26,15 @@ import (
 // and errUnknownProfile. Re-declaring a second pair for this route would put two errors with
 // the same meaning in one package, and the next handler would pick whichever one it happened
 // to see first.
+//
+// errNoProfileSelected is the exception, and the exception is deliberate: it is the empty
+// profile field arriving on an account that has no entry to remove. It is not the same request
+// as "stop managing" and must not borrow that message — the shape is what a machine with no
+// profiles produces when somebody presses Save meaning to start managing, and telling them
+// there is nothing to stop hides the thing actually missing. (#192) Raised and translated only
+// here, so it lives on the route that owns it rather than beside errUnknownAccount, which
+// several routes share.
+var errNoProfileSelected = errors.New("no profile was selected")
 
 // handleAssignProfile is POST /users/{name}/profile.
 //
@@ -79,6 +88,17 @@ func (s *Server) handleAssignProfile(w http.ResponseWriter, r *http.Request) {
 	assigned := ""
 	if err := s.mutateConfig(func(c *config.Config) error {
 		if profileID == "" {
+			// An empty field means two different things and only one of them is a removal.
+			// The dropdown offers "not managed" as its empty choice, so this is also what
+			// arrives when there were no other choices to render. The document decides which
+			// case this is: with no profiles at all, "nothing to stop managing" describes the
+			// opposite of what the operator meant -- they pressed Save to start managing and
+			// had no way to. With profiles available, an empty field on an unmanaged account
+			// really is a request to remove an entry that is not there. Checked inside the
+			// mutation because that is the document the write would land in. (#192)
+			if len(c.Profiles) == 0 && !knownAccount(c, name) {
+				return fmt.Errorf("%w: %s", errNoProfileSelected, name)
+			}
 			if err := c.RemoveUser(name); err != nil {
 				return fmt.Errorf("%w: %s", errUnknownAccount, err)
 			}
@@ -97,6 +117,13 @@ func (s *Server) handleAssignProfile(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, errUnknownProfile):
 			s.pageRefuse(w, r, http.StatusNotFound, "no profile on this machine has that id")
+		case errors.Is(err, errNoProfileSelected):
+			// Names the missing thing and where to make it. The accounts page refuses to
+			// render a dropdown with nothing in it (#192), so reaching this from the browser
+			// means the document lost its last profile between the page and the POST -- the
+			// message has to stand on its own either way.
+			s.pageRefuse(w, r, http.StatusBadRequest,
+				"no profile is selected, and a profile is what manages an account. Create one on the profiles page first.")
 		case errors.Is(err, errUnknownAccount):
 			s.pageRefuse(w, r, http.StatusNotFound,
 				"that account is not managed, so there is nothing to stop managing")

@@ -152,6 +152,14 @@ type profileOption struct {
 //
 // Sorted by name and then id, because two profiles can share a name and a dropdown whose
 // duplicates are ordered by document position gives no way to tell which one a save picked.
+//
+// TRIPWIRE: this slice must stay unfiltered. Its emptiness IS the accounts page's branch
+// (users.tmpl `else if $.Profiles`), and handleAssignProfile re-derives the same branch from
+// len(c.Profiles) because the two have to answer the same question -- the page must never offer
+// a control the handler will refuse, nor refuse a request the page had no way to make. Filtering
+// here ("hide profiles that fail validation" is the plausible shape) desynchronises them and
+// brings back #192 exactly: a page saying "there is no profile to assign" beside a handler that
+// thinks there is one.
 func profileOptions(cfg *config.Config) []profileOption {
 	if cfg == nil {
 		return nil
