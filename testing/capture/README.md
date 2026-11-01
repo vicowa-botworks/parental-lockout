@@ -259,13 +259,14 @@ reproduce and leaves the two that churn -- the same choice #161 made for the sam
 | `users-no-profiles.png` | **yes, measured** | new with #198: the `/users` page from a **second fixture** (`pages-noprof-setup.sh`), photographed because #192 changed what this page says when there is nothing to assign and no artifact showed it. Two fresh fixtures two runs apart gave `8bbb8293e0c0…` both times and both equal the committed file; re-measured on #207's head under two host timezones, `ce38334c39ad…` both times and equal to the file this branch re-recorded. It is the only artifact here whose *fixture* differs rather than its *state* -- see "A second state, or a second fixture" |
 | `audit.png` | **yes, by construction** | was **no**, and the mechanism was worth the issue: signing in over HTTP writes `auth.success` into the trail the page photographs (`internal/web/handlers.go:150`), so every capture appended a row and the height was a **run counter** — `360x15004` committed against `2936 px` from a fixture built from nothing, ~254 px per run, already ~92% of Chromium's 16 384 px capture surface (#144 has the bound). Three things now hold it: the fixture seeds its trail at a declared instant instead of `datetime.now().astimezone()`; `cdp.pin_appended_rows` re-stamps the sign-in's row to that instant and refuses if the count or the kind is anything but the eight declared `auth.success` rows — so an enforcement row cannot arrive with a plausible timestamp on it; and `require_declared_rows` refuses a *page* that renders a number other than the fixture's. A third cause surfaced while this was being written and is measured, not reasoned about: `audit.tmpl:86` formats each row with `MST`, and Go's `time.Parse` adopts the local Location when a row's offset matches it, so one trail rendered `2026-03-18 21:33:05 EDT` under `TZ=America/New_York` and `2026-03-18 21:33:05 -0400` under `TZ=UTC` and under `TZ=Asia/Kolkata` (three runs of a nine-line program). `PLOCK_CAPTURE_TZ` pins the reader's zone so the frame repeats; that the label is the reader's rather than the row's is a finding for the template, filed separately, and this row would have quietly hidden it |
 
-So five of the nine reproduce on any machine — the six from the `pages` fixture and one from
+So seven of the nine reproduce on any machine — the six from the `pages` fixture and one from
 `pages-noprof` — and the two POST artifacts, `lock.png` and `testlock.png`, reproduce only on an
 account holding the number of sessions the capture had, because those two pages photograph the real
 session census on purpose: their subject *is* a lock on a real session, so they are the two fixtures
 that must not be handed `bin/loginctl`. They are also the two whose committed frames were taken with
 page scripts running, which is the condition this branch stopped capturing in; re-taking them is
-#207's remaining work and needs a machine where locking a session is what the test is allowed to do.
+**#213**, which also records why that is a decision rather than a step — a re-take locks the capturing
+machine's session for real.
 That is worth saying out loud: **the nine committed files are no longer one homogeneous set** — seven
 are taken with scripts off and a declared clock, two are not, and the difference is a condition of
 the capture rather than a property of the pages.
