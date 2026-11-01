@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -40,6 +42,32 @@ func repoFile(t *testing.T, parts ...string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(raw)
+}
+
+// shOut runs a shell script from the repository root under `sh` and returns its `key=value` lines.
+//
+// `sh` and not `bash` because that is the shebang on every packaging script, and a guard written
+// against a dialect the shipped code does not claim would pass on the way to a broken package.
+// Every argument is one line-group of the script, joined with newlines, so a caller can pass the
+// prologue and the probes as separate strings without tracking who owes a trailing newline.
+func shOut(t *testing.T, script ...string) map[string]string {
+	t.Helper()
+	joined := strings.Join(script, "\n")
+	cmd := exec.Command("sh", "-c", joined)
+	cmd.Dir = filepath.Join("..", "..")
+	cmd.Env = append(os.Environ(), "PKG_VERSION=v0.1.0")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("sh -c failed: %v\nscript:\n%s\nstderr:\n%s", err, joined, stderr.String())
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if k, v, ok := strings.Cut(line, "="); ok {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // TestReadmeCommandTableNamesEveryCommand pins the README's command table to `plock -h`.
@@ -294,6 +322,122 @@ func TestSetupQuotedRefusalsAreRealOutput(t *testing.T) {
 			t.Errorf("docs/setup.md does not quote what `plock %s` actually prints:\n%s\n"+
 				"The page says its output is pasted from a real run, so paste this run.",
 				strings.Join(tc.args, " "), quoted)
+		}
+	}
+}
+
+// versionCell reads one cell out of docs/releases.md's version table by its row label.
+//
+// A missing row is fatal, not skipped: the whole point of reading a table is that a row can
+// disappear, and a guard that returns "" when its row is gone agrees with the document that
+// deleted it.
+func versionCell(t *testing.T, doc, label string) string {
+	t.Helper()
+	prefix := "| " + label
+	for _, line := range strings.Split(doc, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			continue
+		}
+		cells := strings.Split(line, "|")
+		if len(cells) < 3 {
+			t.Fatalf("docs/releases.md row %q has %d cells; the version table format changed and "+
+				"this guard can no longer read it", label, len(cells)-2)
+		}
+		return strings.TrimSpace(cells[2])
+	}
+	t.Fatalf("docs/releases.md has no `%s` row in its version table. The row is the claim; if the "+
+		"table changed shape, update this reader as well as the page.", label)
+	return ""
+}
+
+// TestReleaseDocQuotesTheVersionsThePackagingProduces pins docs/releases.md's version table to
+// scripts/package-lib.sh, which is what actually computes those strings.
+//
+// The page promises an operator what `dpkg-deb -f` and a filename will say about a release they
+// are about to install on the machine that locks their children's screens. Written by hand it is
+// a transcription of behaviour; the first release measured it correct (`Version: 0.1.0`,
+// `plock-0.1.0-1.x86_64.rpm`, `plock v0.1.0 (commit …)`), and a measurement is not a pin. So the
+// values here come from the helpers themselves, sourced the way scripts/package.sh sources them —
+// `sh`, because that is the shebang on every packaging script and the one dialect this library
+// claims to speak.
+func TestReleaseDocQuotesTheVersionsThePackagingProduces(t *testing.T) {
+	out := shOut(t, "set -eu\n. scripts/package-lib.sh\n"+
+		`echo "raw=$(pkg_version)"`, `echo "deb=$(deb_version)"`,
+		`echo "rpmver=$(rpm_version)"`, `echo "rpmrel=$(rpm_release)"`)
+
+	doc := repoFile(t, "docs", "releases.md")
+	tag := "v0.1.0" // any tagged shape; the point is the prefix, not the number
+
+	for _, key := range []string{"raw", "deb", "rpmver", "rpmrel"} {
+		if out[key] == "" {
+			t.Fatalf("scripts/package-lib.sh printed no %s= value; the guard is reading nothing", key)
+		}
+	}
+
+	// The leading `v` is a tag prefix: pkg_version keeps it, the package versions do not. A
+	// change to either half is a change an operator sees in a filename, so both halves are
+	// asserted rather than the difference between them.
+	if out["raw"] != tag {
+		t.Fatalf("pkg_version with PKG_VERSION=%s returned %q; docs/releases.md is pinned to the "+
+			"helpers, so this failure means the helper changed, not the page", tag, out["raw"])
+	}
+	if want := "`" + out["deb"] + "`"; versionCell(t, doc, "`.deb` version") != want {
+		t.Errorf("docs/releases.md gives the .deb version as %s; deb_version says %s. Update the "+
+			"page from the helper, never the other way round.", versionCell(t, doc, "`.deb` version"), want)
+	}
+	if want := "`plock-" + out["rpmver"] + "-" + out["rpmrel"] + ".<arch>.rpm`"; versionCell(t, doc, "`.rpm`") != want {
+		t.Errorf("docs/releases.md gives the .rpm filename as %s; rpm_version and rpm_release say %s",
+			versionCell(t, doc, "`.rpm`"), want)
+	}
+	if want := "`plock " + out["raw"] + " (commit"; !strings.Contains(versionCell(t, doc, "`plock version`"), want) {
+		t.Errorf("docs/releases.md does not show `plock version` keeping the tag prefix (want %q in its "+
+			"row). The stamp gate in the Makefile compares the same string.", want)
+	}
+}
+
+// TestReleaseDocNamesTheEventThatPublishes pins the page's central claim to the workflow: a tag
+// push publishes, and nothing else does.
+//
+// This is the failure that produced the page being empty in the first place. README.md sends an
+// operator to the releases page; the page is populated only by `.github/workflows/release.yml`,
+// and the two conditions the document names — the `v*` trigger, and the job-level tag guard that
+// keeps a manual dispatch from calling `gh release create` with a branch name — are both editable
+// without touching a word of the prose. A workflow edited so that a merge could publish would make
+// the document false in the direction that matters: a root daemon whose first act is to lock other
+// people's screens, shipped without anybody deciding to ship it.
+func TestReleaseDocNamesTheEventThatPublishes(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "release.yml")
+	doc := repoFile(t, "docs", "releases.md")
+
+	const (
+		trigger = `- 'v*'`
+		gate    = `if: startsWith(github.ref, 'refs/tags/')`
+	)
+	if !strings.Contains(wf, trigger) {
+		t.Errorf("release.yml no longer triggers on a %s tag push; docs/releases.md still tells a "+
+			"maintainer that pushing a tag is what publishes. One of the two is wrong, and the empty "+
+			"releases page is how that stays hidden.", trigger)
+	}
+	// Scoped to the publish job, because the file contains the same condition twice and only one
+	// of them is the claim. Measured: deleting the job-level `if:` and leaving the step-level one
+	// passed a whole-file search — the step guard skips its own step, the artifacts job still goes
+	// green, and the sibling publish job runs anyway. That is the failure the document describes,
+	// so the reader has to be able to tell the two apart.
+	start := strings.Index(wf, "\n  release:\n")
+	if start < 0 {
+		t.Fatalf("release.yml has no `release:` job; docs/releases.md's table names it, and this " +
+			"guard can no longer tell which job publishes")
+	}
+	if !strings.Contains(wf[start:], gate) {
+		t.Errorf("the release job in release.yml has no %s. Without it a workflow_dispatch calls "+
+			"`gh release create` with GITHUB_REF_NAME set to the branch, and docs/releases.md says a "+
+			"dispatch does not publish.", gate)
+	}
+	for _, claim := range []string{"`v*`", "refs/tags/"} {
+		if !strings.Contains(doc, claim) {
+			t.Errorf("docs/releases.md never states the trigger in terms a reader can grep for (%s), "+
+				"so this guard's failure would not tell a maintainer which line of the workflow to look at.",
+				claim)
 		}
 	}
 }
