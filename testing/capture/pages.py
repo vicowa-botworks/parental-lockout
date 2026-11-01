@@ -926,7 +926,7 @@ def main(shoot_fn=None, record_fn=None):
 # page refused to run gets reported, and the needle that makes the refused artifact mean the refusal
 # its filename names. The two canaries are registered like every other rule and deliberately not
 # counted: they exist to prove the helper is not hollow.
-EXPECTED_RULES = 36
+EXPECTED_RULES = 38
 
 
 class _FakeSession:
@@ -1944,6 +1944,88 @@ def self_test():
                         "after a daemon and a browser are up, and nothing in this self-test would "
                         "notice at all")
 
+    def the_declared_state_is_the_thing_photographed(problems):
+        """#207: a page in another state is refused, and the same check passes on the real one.
+
+        The discrimination is the whole rule. Both readings are handed to the same `spec` -- the
+        declared `locked out until 00:00` and the `until 05:00` that #209's absent fix produces from
+        the same fixture -- so this cannot be satisfied by a check that refuses everything or by one
+        that refuses nothing. The third case is the one that used to be silently fine: a row that has
+        moved or vanished, which is what an undeclared state looks like when the fixture changes
+        under the declaration.
+        """
+        spec = next(p for p in PAGES if p.url == "/" and p.state)
+        good = {"rows": [["casey", ["locked out until 00:00", "no desktop session"]],
+                         ["alex", ["nothing scheduled", "x11 · seat0 · locked"]]]}
+        try:
+            require_declared_state(good, spec, "/")
+        except SystemExit as exc:
+            problems.append(f"the declared state refused the page it declares: {exc}")
+        drifted = {"rows": [["casey", ["locked out until 05:00", "no desktop session"]],
+                            ["alex", ["nothing scheduled", "x11 · seat0 · locked"]]]}
+        try:
+            require_declared_state(drifted, spec, "/")
+            problems.append("a dashboard saying `until 05:00` for a rule that says midnight passed "
+                            "the declared state -- which is #208's defect arriving as an artifact")
+        except SystemExit as exc:
+            if "05:00" not in str(exc) or "00:00" not in str(exc):
+                problems.append(f"the state refusal names neither the cell it saw nor the one "
+                                f"declared: {exc}")
+        try:
+            require_declared_state({"rows": [["alex", ["nothing scheduled"]]]}, spec, "/")
+            problems.append("a dashboard with no casey row passed the declared state")
+        except SystemExit as exc:
+            if "casey" not in str(exc):
+                problems.append(f"the missing-row refusal does not name the row it wanted: {exc}")
+        try:
+            require_declared_state({"rows": []}, spec, "/")
+            problems.append("an empty row census passed the declared state; an empty table fits at "
+                            "any width, which is exactly the case that must not be quiet")
+        except SystemExit as exc:
+            if "no row census" not in str(exc):
+                problems.append(f"the empty-census refusal says something else: {exc}")
+        # And the declaration is not vacuous: every pair has to be a pair, or a typo in PAGES turns
+        # the check off for that page while the page still photographs.
+        for page in PAGES:
+            for pair in page.state:
+                if len(pair) != 2 or not all(isinstance(x, str) and x for x in pair):
+                    problems.append(f"{page.artifact}: a state pair must be two non-empty strings, "
+                                    f"got {pair!r}")
+
+    def the_audit_row_count_is_the_fixtures(problems):
+        """#207: the height of audit.png is a declared number, so it cannot be a run counter.
+
+        Seven plus the sign-in is what pages-setup.sh declares today; the rule does not restate that
+        number, it asks whether a page that disagrees is refused and by how much -- 7, 8 and 9 are the
+        three ways this has actually been wrong (a dropped seed row, the fixture's own count, a second
+        sign-in in one run). The committed artifact was the 92%-of-the-capture-surface end of that
+        sequence: 15 004 px from a fixture that renders 2 936.
+        """
+        spec = next(p for p in PAGES if p.declares_rows)
+        row = ["", ["2026-03-18 21:34:05 EDT", "auth.success", "nobody", "", "parent"]]
+        for want, count, should_refuse in ((8, 8, False), (8, 7, True), (8, 9, True)):
+            got = {"rows": [list(row) for _ in range(count)]}
+            try:
+                require_declared_rows(got, spec, want, "/audit")
+                if should_refuse:
+                    problems.append(f"a page rendering {count} rows passed against {want} declared")
+            except SystemExit as exc:
+                if not should_refuse:
+                    problems.append(f"the declared count refused its own number: {exc}")
+                elif str(count) not in str(exc) or str(want) not in str(exc):
+                    problems.append(f"the count refusal names neither number: {exc}")
+        # The wiring, because a check nobody splices in is a comment with a name. `declares_rows` is
+        # what makes shoot() ask the browser for the census; without it `rows` is absent and the
+        # refusal below is the difference between a red run and a green one that measured nothing.
+        if not spec.declares_rows:
+            problems.append("/audit no longer declares its row count")
+        try:
+            require_declared_rows({}, spec, 8, "/audit")
+            problems.append("a page with no row census at all passed the row-count check")
+        except SystemExit as exc:
+            if "renders 0 rows" not in str(exc):
+                problems.append(f"the missing-census case reports something odd: {exc}")
+
     def a_page_is_recorded_where_it_is_photographed(problems):
         """The manifest's stem->url map is a projection of THIS table, in the right orientation.
 
@@ -2086,6 +2168,12 @@ def self_test():
 
     rule("a published set of PNGs is recorded in the manifest", manifest_accompanies_the_artifacts)
     rule("a refused run records no manifest", manifest_never_over_a_refusal)
+    # #207's two. Both are cheap and both are the difference between a check that exists and a check
+    # that runs: each hands the same spec the declared reading and the drifted one, so a rule that
+    # refuses everything cannot pass either.
+    rule("the declared state is the thing photographed",
+         the_declared_state_is_the_thing_photographed)
+    rule("the audit row count is the fixture's", the_audit_row_count_is_the_fixtures)
 
     # Canary pair, through the same `rule` helper against its own lists: without it,
     # `rule = lambda w, b, *a: ran.append((w, 0))` reports 11 rules holding while calling none

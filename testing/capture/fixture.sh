@@ -152,6 +152,7 @@ capture_env() {
     if [ -n "$CAPTURE_ZONE" ]; then echo "PLOCK_CAPTURE_ZONE=$CAPTURE_ZONE"; fi
     if [ -n "$CAPTURE_AUDIT_ROWS" ]; then echo "PLOCK_CAPTURE_AUDIT_ROWS=$CAPTURE_AUDIT_ROWS"; fi
     if [ -n "$CAPTURE_PATH_PREPEND" ]; then echo "PLOCK_CAPTURE_PATH_PREPEND=$CAPTURE_PATH_PREPEND"; fi
+    if [ -n "$CAPTURE_TZ" ]; then echo "PLOCK_CAPTURE_TZ=$CAPTURE_TZ"; fi
   } > "$ENVFILE"
   # The last line is not decoration: every line above is a condition, and the setup scripts run
   # under `set -euo pipefail` (fixture.sh is sourced, so it inherits that). A `[ -n ] && echo` list
