@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -348,16 +349,33 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 			// from the marked option: see the table above.
 			frag := formFragment(body, action)
 			profile := offeredOption(t, frag, tc.choose)
-			// Read the tick off the checkbox's OWN tag, by id. The previous shape asked whether the
-			// row contained `name="enabled" value="on" checked`, which is a claim about attribute
-			// ORDER: moving `checked` before `value="on"` renders the identical page with the box
-			// still ticked, and that read answered "not checked" -- so the test quietly stopped
-			// posting enabled for the one row that had it, and the assertion below then compared
-			// false against false on both rows. Same root as #200's render pin, and no mutant can
-			// reach it because the defect would live in test code.
+			tag := inputTag(body, "enabled-"+tc.username)
+			// Read the control off its OWN tag, by id, and post the PAIR the page renders rather than
+			// the pair the test remembers. Both halves are repairs:
+			//   - The first shape asked whether the row CONTAINED `name="enabled" value="on" checked`,
+			//     a claim about attribute ORDER: swapping them renders the identical page with the box
+			//     still ticked, and that read answered "not checked".
+			//   - The next shape read only the tick and then hand-wrote &enabled=on. Renaming
+			//     name="enabled" and emptying value="on" were each GREEN for the whole package, because
+			//     the test kept posting the right pair whatever the markup said.
+			// Parsing name and value makes this a second killer for both classes, and it is what a
+			// browser actually sends. Same root as #200's render pin: no mutant can reach a defect that
+			// lives in test code, so the test must not be the thing that knows the answer.
 			enabled := ""
-			if strings.Contains(inputTag(body, "enabled-"+tc.username), "checked") {
-				enabled = "&enabled=on"
+			postedEnabled := false
+			if strings.Contains(tag, "checked") {
+				name, hasName := inputAttr(tag, "name")
+				if !hasName {
+					t.Fatalf("row %s: a ticked enabled control with no name posts nothing at all: %s",
+						tc.username, tag)
+				}
+				value, _ := inputAttr(tag, "value")
+				// users_write.go:63 is `r.FormValue("enabled") != ""`, so a TICKED box whose value is
+				// empty posts enabled= and stores OFF. The comment above that line reasons that a lost
+				// checkbox "stops managing rather than silently starting to" -- true of absence, and
+				// this is not absence: the operator sees a tick.
+				postedEnabled = value != ""
+				enabled = "&" + url.QueryEscape(name) + "=" + url.QueryEscape(value)
 			}
 
 			post := httptest.NewRecorder()
@@ -390,9 +408,9 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 			// on `enabled := false`, where the posted checked=true and the stored false differ), while
 			// ada has no entry to start from and so dies on `enabled := true`. That is the same
 			// asymmetry the two-case table exists to cover, measured both ways at e129fe1.
-			if got.Enabled != (enabled != "") {
-				t.Errorf("the form posted enabled=%v and the handler stored enabled=%v",
-					enabled != "", got.Enabled)
+			if got.Enabled != postedEnabled {
+				t.Errorf("the form posted enabled=%q (from the rendered box) and the handler stored enabled=%v",
+					strings.TrimPrefix(enabled, "&enabled="), got.Enabled)
 			}
 		})
 	}
@@ -495,11 +513,45 @@ func TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled(t *testing.T) {
 		if !strings.Contains(tag, `type="checkbox"`) {
 			t.Errorf("row %s: the enabled control is not a checkbox: %s", tc.username, tag)
 		}
+		// The third attribute, and the one with an outcome behind it: a TICKED box with an empty value
+		// posts `enabled=`, and users_write.go:63 reads that as OFF. The page says enabled, the next
+		// save of anything on the row stops managing the account.
+		if v, hasValue := inputAttr(tag, "value"); !hasValue || (v == "" && tc.want) {
+			t.Errorf("row %s: a ticked box with value=%q posts enabled=, which the handler reads as OFF: %s",
+				tc.username, v, tag)
+		}
+		// Association, not position: `form="..."` is legal HTML and moves the control off the row's
+		// form, so the browser submits no enabled at all and every save flips the entry off. Neither
+		// reader can see this by slicing -- both take the tag off the whole body -- so it needs its own
+		// assertion. Scoping the read to the form was tried first and stays green under the mutant:
+		// the mutation is not positional, so a positional slice cannot report it.
+		if strings.Contains(tag, "form=") {
+			t.Errorf("row %s: the enabled control re-associates itself away from the row's form: %s",
+				tc.username, tag)
+		}
 		if got := strings.Contains(tag, "checked"); got != tc.want {
 			t.Errorf("row %s (%s): checkbox shows ticked = %v, want %v; the tag is %s",
 				tc.username, tc.why, got, tc.want, tag)
 		}
 	}
+}
+
+// inputAttr reads one attribute out of an already-isolated <input> tag, distinguishing "absent" from
+// "present and empty". That distinction is the whole point here: `value=""` is what a browser posts as
+// `enabled=`, and users_write.go:63 reads that as OFF, while a missing value posts nothing at all.
+// echoedValue in profiles_echo_test.go cannot make it -- it returns ("", true) for both.
+func inputAttr(tag, attr string) (string, bool) {
+	marker := attr + `="`
+	i := strings.Index(tag, marker)
+	if i < 0 {
+		return "", false
+	}
+	rest := tag[i+len(marker):]
+	q := strings.Index(rest, `"`)
+	if q < 0 {
+		return "", false
+	}
+	return html.UnescapeString(rest[:q]), true
 }
 
 // The order the dropdown offers profiles in is the only thing distinguishing two profiles
