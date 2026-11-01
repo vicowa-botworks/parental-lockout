@@ -627,7 +627,7 @@ class Capture:
                 p.kill()
 
 
-def capture_out(default_name):
+def capture_out(default_name, fixture_flag=False):
     """Where the PNGs land: inside this repository, and only under a flag you meant to type.
 
     Never the repo's own docs/ tree unless it is asked for by name -- an overwrite is exactly the
@@ -651,7 +651,17 @@ def capture_out(default_name):
                          "testing/capture/runs/" + default_name)
     ap.add_argument("--overwrite", action="store_true",
                     help="required to replace PNGs that already exist in --out")
-    a = ap.parse_args()
+    # `--fixture` belongs to the driver and not to this helper -- but argparse owns the whole command
+    # line, so an undeclared flag dies here as "unrecognized arguments" before the driver gets to
+    # refuse it for a better reason. It is therefore declared only by drivers that pass
+    # fixture_flag=True and left undeclared everywhere else, so `lock.py --fixture x` stays an error
+    # rather than an ignored word. The VALUE is read once, by the driver's own fixture_mode(); this
+    # exists only so argparse does not reject an argument it has no use for.
+    argv = sys.argv[1:]
+    if fixture_flag:
+        ap.add_argument("--fixture", metavar="NAME", default="pages",
+                        help="which capture fixture to photograph; see the driver's PAGES table")
+    a = ap.parse_args(argv)
     if not a.out:
         return op.join(RUNS, default_name)
     target = op.realpath(a.out if op.isabs(a.out) else op.join(REPO, a.out))

@@ -24,6 +24,7 @@ outside the repository, invisible to a clone.
 ```sh
 go build -o plock ./cmd/plock          # or point PLOCK_BIN at a binary you already built
 ./pages-setup.sh    && ./pages.py
+./pages-noprof-setup.sh && ./pages.py --fixture pages-noprof   # the accounts page, no profiles
 ./lock-setup.sh     && ./lock.py
 ./testlock-setup.sh && ./testlock.py
 ./pages.py --self-test   # the refusal contract only: no browser, no fixture, nothing written
@@ -206,9 +207,10 @@ reproduce and leaves the two that churn -- the same choice #161 made for the sam
 | `testlock.png` | **yes, on an account with one session** | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image. **The page photographs the account's session census**, so the image is good for the machine it was taken on: measured 27 Oct on an account holding four lockable sessions, the driver ran green (`tables=2 backendRows=1 cells=14`, `FITS`, `note in 4 Detail cell(s), 0 with a sentence in front of it`) and produced `a8617a2b…`. That is a faithful capture of a different page, not a broken driver |
 | `lock.png` | **yes, on an account with one session** | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no". Same census caveat: on the four-session account above it ran green (`rows=4 cells=12`, banner `rodney was not locked.`, flag `4 of 4 sessions were asked to lock`) and produced `4fc93d11…` |
 | `dashboard.png` | **no** | the page renders `until <clock>` / `next at <clock>` from `EndsAtClock` and `NextLockAtClock`, so the image is a function of the time of day. Two runs minutes apart agree; a run hours later does not. **A second host dependency, measured 28 Oct:** the Sessions cell renders whatever `Sessions()` returned when the frame was taken, and that is not fixture state either. The committed frame said `session list unavailable`; three fresh captures on the same host say `no desktop session`, same dimensions, different pixels. It is not #170 resurfacing — `git merge-base --is-ancestor a404b23 a889d0d8` says the polymorphic-`since` fix was already in the tree the old frame came from — and the two obvious host candidates were each removed from the driver's environment and ruled out: `DBUS_SESSION_BUS_ADDRESS` unset and `XDG_RUNTIME_DIR` unset both still render `no desktop session`. So the cell reports the machine, the cause is still open, and `manifest.py check` calls both frames current because `/`'s declared sources are `dashboard.tmpl` and `page.tmpl` and neither moves when the platform layer changes |
+| `users-no-profiles.png` | **yes, measured** | new with #198: the `/users` page from a **second fixture** (`pages-noprof-setup.sh`), photographed because #192 changed what this page says when there is nothing to assign and no artifact showed it. Two fresh fixtures two runs apart gave `8bbb8293e0c0…` both times and both equal the committed file. It is the only artifact here whose *fixture* differs rather than its *state* -- see "A second state, or a second fixture" -- and the reason it reproduces is that the page renders no clock and no trail, so the sign-in row that makes `audit.png` unrepeatable is not in the frame |
 | `audit.png` | **no, by construction** | signing in appends an `auth.success` row to the very trail the page photographs, so every capture adds a row and two runs of one fixture cannot agree. The height that produces is a **run counter**, not a page measurement: the committed file had reached `360x15004` while a fixture built from nothing rendered **2936 px** with `cells=40` (measured 26 Oct on `main` at `1684b29`, and again from the transport branch). So the artifact was a function of how many times anyone has run a driver on their own machine, and 15004 px is already ~92% of Chromium's 16 384 px capture surface -- #144 carries the mechanism, the row census, and the proposed bound. **The counter is now measured rather than inferred:** on #178's head, run 1 on a fresh fixture gave `height=3056 cells=40` and run 2 on the same fixture gave `height=3310 cells=45` with `wc -l` agreeing at 9 rows, so ~254 px per appended row. #178 re-took the file at `360x3056` -- 7 seeded events plus the one sign-in, which is the shortest frame this page can produce and the first time the committed bytes came from a fresh fixture. That fixes the artifact and nothing about the mechanism: nothing refuses to write a frame off a trail that has already been photographed, so the next accidental second run re-commits a taller page and this row still says **no** |
 
-So six of the eight can be regenerated and two cannot — and two of those six, `lock.png` and
+So seven of the nine can be regenerated and two cannot — and two of those six, `lock.png` and
 `testlock.png`, reproduce only on an account holding the number of sessions the capture had,
 because those two pages photograph the session census. The honest claim about an artifact is
 therefore usually the driver's report — `scrollWidth`, `innerWidth`, the cell census, `FITS` —
@@ -255,11 +257,51 @@ The timestamps carry the machine's own UTC offset for the same reason the daemon
 prints each row's zone, so a trail stamped `Z` renders `15:48:17 UTC` beside `11:52:18 EDT` in one
 column.
 
+## A second state, or a second fixture
+
+Two artifacts can share a URL for two different reasons, and picking the wrong mechanism produces a
+photograph that is impossible to tell from a correct one.
+
+**A second state** (`profiles-refused.png`) is the same document reached by a different request. One
+fixture, one daemon, one POST in front of the GET; the `Refusal` on the `Page` declares what to fill
+and which sentence has to come back.
+
+**A second fixture** (`users-no-profiles.png`) is a different *document*. `users.tmpl` chooses the
+no-profiles branch on `{{else if $.Profiles}}`, which is a property of the config, not of the request
+-- so it needs its own config, its own daemon, its own port and its own `runs/` directory. `--fixture`
+names which one the driver photographs, `PAGES` says which artifacts belong to it, and the page's own
+`needles` refuse a run that reached a document that does not say them. The last part is load-bearing:
+the ordinary accounts page fits at 360 px, has rows and has a label in every cell, so every width and
+census check passes on a photograph of the wrong thing.
+
+An earlier version of this also wrote `PLOCK_CAPTURE_MODE` into `fixture.env` and had the driver
+compare it with `--fixture`. That check cannot fire: `capture_begin` takes the run directory's name and
+writes both halves from it, so there is no second source to disagree with -- and the self-test rule
+built on it passed because the *fake* let `loaded` be set apart from the name, which is a state
+production cannot reach. Deleted rather than commented. The needles are the falsifiable version, and
+`a_page_from_the_wrong_document_refuses` is the rule that says so.
+
+**What is deliberately not here:** the dangling-entry row -- an account whose `profileID` names a
+profile that is gone. That document cannot be booted. `config.Load` validates nothing
+(`internal/config/store.go:48`) but `serve.go:97` validates after it, measured:
+`users[0].profileID: "school" does not name an existing profile`, and the daemon exits 1 before it
+answers. The web UI cannot produce it either -- `DeleteProfile` answers `ErrProfileInUse` while an
+account still names the profile -- so the only route in is editing the file *while the daemon is
+running*, which `readConfig` picks up on the next request. Reaching that from a driver means editing
+the fixture's config between boot and navigation: a state **transition**, which wants the `Refusal`
+mechanism beside it and its own needle, not a static document. It stays pinned by
+`TestTheUsersPageStillLetsADanglingEntryBeUnmanaged` and unpinned by any artifact.
+
 ## Re-capturing the committed artifacts
 
 ```sh
 ./pages.py --out docs/screenshots/360 --overwrite
+./pages.py --fixture pages-noprof --out docs/screenshots/360 --overwrite
 ```
+
+Each fixture writes its own `runs/<fixture>/` scratch directory and records its manifest there, so a
+one-page re-capture cannot certify another run's PNGs as just-taken. Both invocations above land in
+the committed directory only because `--out` names it.
 
 `--out` resolves against the **repository**, not your shell's directory, and refuses a target
 outside it. Both halves are measured: `--out docs/screenshots/360` typed from `testing/capture`

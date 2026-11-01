@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-10-31T11:58:37Z",
-  "head": "21747e077f6b5f7c91421bb040e4aa8626d23149",
+  "captured_at": "2026-11-01T05:43:26Z",
+  "head": "d9d7077277c70686e494106fa9721f776398e401",
   "pages": [
     {
       "page": "/audit",
@@ -85,6 +85,18 @@
         "internal/web/static/app.js"
       ],
       "sources_rev": "a99a2edb7cda15e4be382bc38614dedd138726ab"
+    },
+    {
+      "page": "/users",
+      "png": "users-no-profiles.png",
+      "png_sha256": "8bbb8293e0c0266208f0f4596ba9d9cad0bb51e49749495d2f6cd5e56ac1baed",
+      "sources": [
+        "internal/web/templates/users.tmpl",
+        "internal/web/templates/page.tmpl",
+        "internal/web/static/app.css",
+        "internal/web/static/app.js"
+      ],
+      "sources_rev": "a08f190a800fd77aa9df95396cb0ce85f61c10c5"
     },
     {
       "page": "/users",

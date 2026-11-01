@@ -175,10 +175,24 @@ def require_unbreakable(got, what):
 # quietly, which is the exact failure #140 is about. Here the rule and the page that carries it are
 # one line of this table, and main() refuses to run at all if no line carries it.
 class Page:
-    def __init__(self, url, artifact, has_rows, stress=False, refuse=None):
+    def __init__(self, url, artifact, has_rows, stress=False, refuse=None,
+                 fixture="pages", needles=()):
         self.url, self.artifact = url, artifact
         self.has_rows, self.stress = has_rows, stress
         self.refuse = refuse
+        # Which FIXTURE this artifact is evidence about. Most pages are photographed from the one
+        # document `pages-setup.sh` builds; `pages-noprof` is a different daemon on a different
+        # document, because its page is a property of the document and not of a POST (#198). The
+        # value is the run directory's name, which is also what `PLOCK_CAPTURE_MODE` in
+        # fixture.env says the daemon serving that port was built from -- so a driver that asks for
+        # one fixture and reaches another is refused rather than photographed.
+        self.fixture = fixture
+        # Strings the rendered page HAS to contain for this artifact to be what it is named for.
+        # `Refusal.about` does this job for a refused write; this is the same idea for a page whose
+        # subject is a branch of a template. Without it, running this driver against a fixture that
+        # DOES have profiles produces a perfectly well-formed, 360-px-fitting, entirely wrong
+        # `users-no-profiles.png`, and every other check in this file passes on it.
+        self.needles = tuple(needles)
 
 
 class Refusal:
@@ -221,6 +235,14 @@ PAGES = [
                         {"name": "School night", "start": "21:00", "end": "25:99"},
                         checks={"days": 2}, keep="end", keep_value="25:99",
                         about="HH:MM")),
+    # The same URL as the `/users` row above, from a different document, showing what #192 made it
+    # say when there is nothing to assign. It is declared beside its sibling rather than in a table
+    # of its own so that "which page is this evidence about" still has one answer: manifest.py's
+    # template_for asks this list, gets `/users`, and pins the artifact to `users.tmpl` + `page.tmpl`
+    # exactly like `users.png` -- the second STATE of a page is not a second template (#138's rule,
+    # #198's second use of it).
+    Page("/users", "users-no-profiles", True, fixture="pages-noprof",
+         needles=("There is no profile to assign yet", "Create a profile")),
     Page("/audit", "audit", True, stress=True),
     Page("/settings", "settings", False),
 ]
@@ -283,6 +305,8 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         extra += "," + STRESS_JS
     if spec.refuse:
         extra += refusal_extra(action, spec.refuse.keep)
+    if spec.needles:
+        extra += "," + NEEDLE_JS
     got = cdp.measure(session, extra)
     # The viewport is a claim this function has to earn, not one its caller gets to make. `width` is
     # what was asked for; `inner` is what the browser says it laid out at. Compared here, at the
@@ -340,6 +364,10 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     # that is not a refusal is the wrong evidence filed under the right filename.
     if spec.refuse:
         require_refusal(got, spec, page)
+    if spec.needles:
+        # Before the width refusal and before any write: a page from the wrong fixture has nothing
+        # worth measuring, and withholding the photograph is the whole point.
+        require_needles(got, spec, name if width != ARTIFACT_WIDTH else spec.artifact)
     if spec.stress and width == ARTIFACT_WIDTH:
         # Retyped rather than raised directly: these two state their own sentences and this adds no
         # words to them, it only records that the sentence is about the fixture. The type is what
@@ -498,10 +526,80 @@ def require_refusal(got, spec, what):
                          "field photographs the same way")
 
 
+
+# The page's own text, read in the same pass as every other measurement (one navigation, one read --
+# a second `Runtime.evaluate` would be a second render, and the width, the census and the sentence
+# would then not be from the same page). Only pages that declare needles pay for it.
+NEEDLE_JS = "'body':(document.body||{}).innerText||''"
+
+
+def require_needles(got, spec, what):
+    """Refuse a photograph of the wrong document (#198).
+
+    This is the only check that can tell `users-no-profiles.png` taken from the fixture it names from
+    `users-no-profiles.png` taken from the ordinary one. Width, census and fit all pass on the wrong
+    fixture -- the ordinary accounts page is a fine page, it is simply not this one -- and the file
+    would be committed as evidence about a branch nobody looked at.
+    """
+    body = got.get("body") or ""
+    missing = [n for n in spec.needles if n not in body]
+    if missing:
+        raise FixtureRefusal(
+            f"{what} does not say {missing[0]!r}, so this is not the page the artifact is named "
+            f"for. The document being served is the wrong fixture: run "
+            f"{spec.fixture}-setup.sh and pass --fixture {spec.fixture}. Rendered text begins "
+            f"{body[:160]!r}")
+
+
 def proof_of(got, spec):
     """The number that says this page was really rendered, in the shape that page can give."""
     return (f"tables={got['tables']} cells={got['cells']}" if spec.has_rows
             else f"forms={got['forms']} fields={got['fields']}")
+
+
+def fixture_mode(argv=None):
+    """Which fixture this run photographs, defaulting to the long-standing one.
+
+    Parsed from argv rather than the environment: `--out` already works this way, and a mode that
+    arrives silently from the environment would let a stale export decide which document a committed
+    artifact was taken from. Both `--fixture NAME` and `--fixture=NAME` are accepted because `--out`
+    accepts both, and a mistyped `--fixturex` is refused for the same reason `--outt` is.
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    mode = "pages"
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--fixture":
+            if i + 1 >= len(argv):
+                raise SystemExit("--fixture wants a fixture name, e.g. --fixture pages-noprof")
+            mode, i = argv[i + 1], i + 2
+            continue
+        if a.startswith("--fixture="):
+            mode, i = a.split("=", 1)[1], i + 1
+            continue
+        if a.startswith("--fixture"):
+            raise SystemExit(f"{a} is not a flag; the fixture selector is --fixture NAME")
+        i += 1
+    return mode
+
+
+def select_pages(mode, pages=None):
+    """The artifacts one fixture can produce, and a refusal when the pair does not exist.
+
+    Filtering is what makes a second fixture safe to add: without it, running the driver against
+    `pages-noprof` would photograph the dashboard, the audit page and the settings form against a
+    document built for none of them, and each would either refuse for an unrelated reason or, worse,
+    fit at 360 px and be reported as a measurement.
+    """
+    pages = PAGES if pages is None else pages
+    chosen = [p for p in pages if p.fixture == mode]
+    if not chosen:
+        named = sorted({p.fixture for p in pages})
+        raise SystemExit(
+            f"no page declares fixture {mode!r}; the fixtures this driver knows are {named}. "
+            f"Run {mode}-setup.sh and name it with --fixture {mode}")
+    return chosen
 
 
 def main(shoot_fn=None, record_fn=None):
@@ -534,7 +632,18 @@ def main(shoot_fn=None, record_fn=None):
                 f"{p.url} carries the #140 stress row but is declared as a page with no table, so "
                 "the checks that attribute width pressure to the fixture have nothing to read. "
                 "Declare it with has_rows=True.")
-    out = cdp.capture_out("pages")
+    mode = fixture_mode()
+    selected = select_pages(mode)
+    # The two declaration guards above deliberately read PAGES and not `selected`: they ask whether
+    # this FILE declares a stress row somewhere, which is true in every fixture mode, and narrowing
+    # them to the selection would let a mode with one quiet page delete the audit page's insurance.
+    # What the selection changes is what gets MEASURED, and a run in pages-noprof says "1/1 pages
+    # fit" -- a claim about one page, which is the only page it looked at.
+    # Named by the MODE, not a constant: two fixtures writing one scratch directory means the second
+    # run's manifest certifies the first run's PNGs as just-captured, with a `captured_at` and
+    # `sources_rev` that describe a run which photographed one page. Separate directories make each
+    # manifest the record of the run that wrote it.
+    out = cdp.capture_out(mode, fixture_flag=True)
     # One entry per viewport, each holding the pages that failed THERE. Collapsing this into one
     # list would make "4/5 pages fit" a sentence about no particular width, which is the exact
     # ambiguity #149 was filed for: on the page that started it, 360 px and 1024 px have different
@@ -544,11 +653,11 @@ def main(shoot_fn=None, record_fn=None):
     # across the viewport loop because the judgement is not viewport-scoped: a page whose stress row
     # was never rendered cannot demonstrate anything about 1024 px either.
     fixture_failed = set()
-    with cdp.Capture("pages", CHROME_FLAGS) as cap:
+    with cdp.Capture(mode, CHROME_FLAGS) as cap:
         for width in WIDTHS:
             refused_here = []
             untested_here = []
-            for spec in PAGES:
+            for spec in selected:
                 # Only the artifact viewport owns a filename. The desktop pass is given a label so a
                 # refusal can be attributed to it, and never a path it could stage bytes into.
                 name = (op.join(out, spec.artifact + ".png") if width == ARTIFACT_WIDTH
@@ -598,8 +707,12 @@ def main(shoot_fn=None, record_fn=None):
                 # A fixture-untested page is in neither the numerator nor the refused list: it did
                 # not fail this viewport, and it did not prove anything about it either. The third
                 # clause is what keeps those two apart in the sentence.
-                line = (f"{len(PAGES) - len(pages) - len(untested)}/{len(PAGES)} pages fit at "
-                        f"{width} px")
+                # `selected`, never PAGES: the denominator is "pages this run looked at". A fixture
+                # mode photographs one page, and `1/7 pages fit` would be a sentence about a sweep
+                # that did not happen -- while `7/7` after a one-page run would be worse. The mode is
+                # in the line so a one-page transcript cannot be read as the whole set.
+                line = (f"{len(selected) - len(pages) - len(untested)}/{len(selected)} pages fit "
+                        f"at {width} px (fixture {mode})")
                 if pages:
                     line += f"; refused: {', '.join(pages)}"
                 if untested:
@@ -614,7 +727,8 @@ def main(shoot_fn=None, record_fn=None):
         if pages or untested:
             raise SystemExit(f"the success path printed a fit count for {width} px while "
                              f"{len(pages)} refused and {len(untested)} were untested")
-        print(f"{len(PAGES)}/{len(PAGES)} pages fit at {width} px", flush=True)
+        print(f"{len(selected)}/{len(selected)} pages fit at {width} px (fixture {mode})",
+              flush=True)
     # Last, after every sentence that has to be true about this run. The manifest is what makes
     # these PNGs evidence about the pages they depict (#144): it names the sources each page was
     # rendered from and the commit that last moved them, and `make verify` refuses when that has
@@ -654,7 +768,7 @@ def main(shoot_fn=None, record_fn=None):
 # page refused to run gets reported, and the needle that makes the refused artifact mean the refusal
 # its filename names. The two canaries are registered like every other rule and deliberately not
 # counted: they exist to prove the helper is not hollow.
-EXPECTED_RULES = 29
+EXPECTED_RULES = 33
 
 
 class _FakeSession:
@@ -666,12 +780,19 @@ class _FakeSession:
 
 
 class _FakeCap:
-    """Stands in for cdp.Capture: a context manager whose session records being published."""
+    """Stands in for cdp.Capture: a context manager whose session records being published.
 
-    def __init__(self, log):
+    `fixture_name` is echoed back and nothing else, because that is all the real Capture can do
+    either: the run directory's name is where it reads fixture.env from, so no fake can produce a
+    directory that disagrees with the name it was asked for. An earlier version let `loaded` be set
+    apart from it, and the rule built on that pair pinned a state production cannot reach.
+    """
+
+    def __init__(self, log, fixture_name="pages"):
         self.log = log
         self.session = _FakeSession(log)
         self.base = "http://127.0.0.1:0"
+        self.name = fixture_name
 
     def __enter__(self):
         return self
@@ -699,8 +820,9 @@ def _stubbed(log):
     measured. Stubbing it means the only refusal a rule can see is the one the rule is about.
     """
     saved = (cdp.Capture, cdp.capture_out, cdp.discard_stage)
-    cdp.Capture = lambda *a, **k: _FakeCap(log)
-    cdp.capture_out = lambda name: "/tmp/opencode/selftest-pages"
+    cdp.Capture = lambda name="pages", *a, **k: _FakeCap(log, name)
+    cdp.capture_out = lambda name, fixture_flag=False: (
+        log.append("capture_out:%s" % fixture_flag), "/tmp/opencode/selftest-pages")[1]
     cdp.discard_stage = lambda: log.append("discard")
     try:
         yield
@@ -708,12 +830,26 @@ def _stubbed(log):
         cdp.Capture, cdp.capture_out, cdp.discard_stage = saved
 
 
-def _expected_pass():
-    """The transcript a clean run has to produce: every page, at every viewport, in `WIDTHS` order."""
-    return [(p.url, w) for w in WIDTHS for p in PAGES]
+# What a clean run owes, per fixture, written out by hand.
+#
+# This is deliberately NOT derived from PAGES. `_expected_pass` below has to agree with the driver's
+# own selection or every census rule becomes a tautology -- and it already was one: deleting a Page
+# from PAGES shrinks the derived expectation and the rule passes, so the oldest self-test in this file
+# could not notice a page silently stopping being photographed. Held literally, a dropped page breaks
+# the equality in `census_matches_the_declaration` instead, and that rule is the one that fails.
+CENSUS = {
+    "pages": [("/", "dashboard"), ("/users", "users"), ("/profiles", "profiles"),
+              ("/profiles", "profiles-refused"), ("/audit", "audit"), ("/settings", "settings")],
+    "pages-noprof": [("/users", "users-no-profiles")],
+}
 
 
-def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None):
+def _expected_pass(mode="pages"):
+    """The transcript a clean run has to produce: every page of that fixture, at every viewport."""
+    return [(p.url, w) for w in WIDTHS for p in select_pages(mode)]
+
+
+def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None, argv=()):
     """Call the real main() with the machine stubbed out; report what the driver actually did.
 
     `refuse` names URLs that fail at EVERY viewport. `refuse_at` names `"url@width"` pairs that
@@ -751,6 +887,8 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None)
     err = io.StringIO()
     console = io.StringIO()
     with _stubbed(log):
+        saved_argv = list(sys.argv)
+        sys.argv = ["pages.py"] + list(argv)
         try:
             with contextlib.redirect_stdout(console), contextlib.redirect_stderr(err):
                 # The manifest step is stubbed for the same reason the browser is: it asks git
@@ -760,9 +898,14 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None)
                 rc = main(stub, lambda out: log.append("record"))
         except SystemExit as exc:
             rc = f"raised:{exc.code}"
+        finally:
+            sys.argv = saved_argv
     if sink is not None:
         sink.extend(log)
     return rc, entered, err.getvalue(), console.getvalue(), "publish" in log, log.count("discard")
+
+
+_LAST_EXTRA = []
 
 
 @contextlib.contextmanager
@@ -774,7 +917,9 @@ def _fake_browser(got):
     to the rules that drive `main()` through a stubbed `shoot_fn`.
     """
     saved = (cdp.measure, cdp.require_records, cdp.require_labelled_cells, cdp.require_form)
-    cdp.measure = lambda session, extra="": dict(got)
+    # The `extra` string is recorded because a guard that reads a census key the measurement never
+    # asked for is a guard that always fails, and from outside this fake the two are identical.
+    cdp.measure = lambda session, extra="": (_LAST_EXTRA.append(extra), dict(got))[1]
     cdp.require_records = lambda g, w: None
     cdp.require_labelled_cells = lambda g, w: None
     cdp.require_form = lambda g, w: None
@@ -898,7 +1043,10 @@ def self_test():
         (ran_to if ran_to is not None else ran).append((why, len(problems)))
         (bad_to if bad_to is not None else bad).extend(problems)
 
-    urls = [p.url for p in PAGES]
+    # From the literal CENSUS, not from PAGES. Every count below is a claim about how many pages a
+    # clean default-mode run photographed, and deriving it from the list the driver iterates makes
+    # each one unfalsifiable: drop a Page from PAGES and the expectation shrinks with it.
+    urls = [u for u, _ in CENSUS["pages"]]
 
     # Both rules below take their spec from the table rather than building one, for the reason
     # #140 established: a rule that invented its own Page would keep passing the day somebody
@@ -1158,10 +1306,10 @@ def self_test():
         # Both viewports have to appear, with the right answer for each. Reading only "did it
         # fail" would let a driver refuse the phone pass and report the desktop as fitting --
         # the same sentence, inverted, and still a lie about the desktop.
-        if f"{len(PAGES)}/{len(PAGES)} pages fit at {ARTIFACT_WIDTH} px" not in err:
+        if f"{len(CENSUS["pages"])}/{len(CENSUS["pages"])} pages fit at {ARTIFACT_WIDTH} px" not in err:
             problems.append(f"the {ARTIFACT_WIDTH} px viewport is not reported as fitting: "
                             f"{err.strip()[-200:]!r}")
-        if f"{len(PAGES) - 1}/{len(PAGES)} pages fit at {DESKTOP_WIDTH} px" not in err:
+        if f"{len(CENSUS["pages"]) - 1}/{len(CENSUS["pages"])} pages fit at {DESKTOP_WIDTH} px" not in err:
             problems.append(f"the {DESKTOP_WIDTH} px viewport is not reported as refusing: "
                             f"{err.strip()[-200:]!r}")
         if victim not in err:
@@ -1185,7 +1333,7 @@ def self_test():
         # one you are reading about.
         _rc, _entered, _err, out_text, _published, _discarded = _run_main()
         for width in WIDTHS:
-            if f"{len(PAGES)}/{len(PAGES)} pages fit at {width} px" not in out_text:
+            if f"{len(CENSUS["pages"])}/{len(CENSUS["pages"])} pages fit at {width} px" not in out_text:
                 problems.append(f"the success transcript has no line naming {width} px: "
                                 f"{out_text!r}")
 
@@ -1298,10 +1446,10 @@ def self_test():
         # Written from len(PAGES) rather than from the numbers this rule was first written against:
         # a hardcoded 5/5 silently stops being a claim the day a sixth page joins PAGES, and this is
         # the rule whose whole job is to notice a count that means less than it looks like.
-        if f"{len(PAGES)}/{len(PAGES)} pages fit at {DESKTOP_WIDTH} px" in err:
+        if f"{len(CENSUS["pages"])}/{len(CENSUS["pages"])} pages fit at {DESKTOP_WIDTH} px" in err:
             problems.append(f"the summary still certifies every page at {DESKTOP_WIDTH} px: "
                             f"{err!r}")
-        if f"{len(PAGES) - 1}/{len(PAGES)} pages fit at {DESKTOP_WIDTH} px" not in err:
+        if f"{len(CENSUS["pages"]) - 1}/{len(CENSUS["pages"])} pages fit at {DESKTOP_WIDTH} px" not in err:
             problems.append(f"the desktop line does not count {victim} out: {err!r}")
         # The artifact pass keeps its own verdict: refused, not merely untested.
         if f"refused: {victim}" not in err:
@@ -1334,7 +1482,7 @@ def self_test():
         rc, _e, err, out, published, _d = _run_main()
         if "untested" in out + err:
             problems.append(f"a clean run reported something untested: {out!r} {err!r}")
-        if f"{len(PAGES)}/{len(PAGES)} pages fit" not in out or rc != 0 or not published:
+        if f"{len(CENSUS["pages"])}/{len(CENSUS["pages"])} pages fit" not in out or rc != 0 or not published:
             problems.append(f"the control run stopped counting every page: rc={rc!r} {out!r}")
 
     def an_untested_page_is_not_a_refusal_at_the_other_viewport(problems):
@@ -1498,7 +1646,109 @@ def self_test():
                                 f"{got['refusal']!r}; the needle {needle!r} is the only thing that "
                                 "makes the filename mean the refusal it is named for")
 
+    def census_matches_the_declaration(problems):
+        """Every artifact is photographed by exactly one fixture, and the literal list says which.
+
+        This is the rule that makes the counts elsewhere real. `urls` and `_expected_pass` both come
+        from here now, so without a literal on the other side of them, deleting a Page from PAGES
+        would shrink the expectation and every census rule would keep passing -- including the one
+        whose whole job is noticing a page stopped being photographed.
+        """
+        declared = {mode: [(q.url, q.artifact) for q in PAGES if q.fixture == mode]
+                    for mode in CENSUS}
+        for mode, want in CENSUS.items():
+            got = declared.get(mode, [])
+            if got != want:
+                problems.append(f"fixture {mode}: CENSUS says {want} and PAGES declares {got}. "
+                                "One of them is stale, and the counts in this file are derived from "
+                                "CENSUS so a stale entry moves the numbers with the mistake")
+        seen = [a for rows in CENSUS.values() for _, a in rows]
+        dupes = {a for a in seen if seen.count(a) > 1}
+        if dupes:
+            problems.append(f"artifacts photographed by more than one fixture: {sorted(dupes)}")
+        missing = [p.artifact for p in PAGES if p.artifact not in seen]
+        if missing:
+            problems.append(f"pages declared but in no fixture's CENSUS: {missing} -- they would "
+                            "be measured and then excluded from every count this file prints")
+
+    def a_fixture_mode_selects_its_own_pages(problems):
+        for mode, want in (("pages", CENSUS["pages"]), ("pages-noprof", CENSUS["pages-noprof"])):
+            log = []
+            rc, entered, _err, _out, published, _disc = _run_main(
+                argv=["--fixture", mode], sink=log)
+            # argparse owns the whole command line, so a driver that stops declaring the flag makes
+            # the real CLI die on "unrecognized arguments" while this fake -- which never parses --
+            # keeps measuring every page. The flag has to be asserted, not assumed.
+            if "capture_out:True" not in log:
+                problems.append(f"--fixture {mode}: the driver did not ask capture_out to accept "
+                                f"--fixture (log: {log}); the real CLI would reject the flag")
+            if rc != 0:
+                problems.append(f"--fixture {mode} returned {rc!r}, want 0")
+            want_pass = [(u, w) for w in WIDTHS for u, _ in want]
+            if entered != want_pass:
+                problems.append(f"--fixture {mode} measured {entered}, want {want_pass}. A mode "
+                                "that photographs the pages of another fixture writes artifacts "
+                                "whose names promise a document that was never served")
+
+    def an_unknown_fixture_refuses(problems):
+        rc, entered, err, _out, published, _disc = _run_main(argv=["--fixture", "pages-nosuch"])
+        # A declaration guard, so it raises SystemExit with the message rather than reporting a
+        # per-page refusal and returning 1 -- the message lands in the exit code, not on stderr, and
+        # that is the right shape: nothing has started yet, so there is no run to summarise.
+        if not str(rc).startswith("raised:"):
+            problems.append(f"--fixture pages-nosuch returned {rc!r}, want a refusal")
+        if entered:
+            problems.append(f"an unknown fixture still measured {entered}")
+        if published:
+            problems.append("an unknown fixture published a stage")
+        if "pages-nosuch" not in str(rc):
+            problems.append(f"the refusal does not name the fixture it refused: {str(rc)[:120]!r}")
+
+    def a_page_from_the_wrong_document_refuses(problems):
+        """The needles, run through the real shoot().
+
+        Nothing else in this file can tell `users-no-profiles.png` taken from the fixture it names
+        from the same file taken from the ordinary one. The ordinary accounts page fits at 360 px,
+        has rows, and has a label in every cell -- it is a perfectly good photograph of the wrong
+        thing, which is what makes it committable.
+        """
+        spec = next((p for p in PAGES if p.artifact == "users-no-profiles"), None)
+        if spec is None:
+            problems.append("no Page declares users-no-profiles, so the artifact has no needle "
+                            "and no driver; it cannot be evidence about anything")
+            return
+        if not spec.needles:
+            problems.append("users-no-profiles declares no needles, so any /users render publishes "
+                            "a photograph named for the no-profiles state")
+            return
+        base = {"scroll": 360, "inner": 360, "height": 700, "tables": 1, "cells": 12,
+                "forms": 2, "fields": 4, "longest": 14}
+        body = "\n".join(spec.needles)
+        # The measurement has to actually ask for the text. A guard reading a key the census never
+        # took is the failure `stress_must_be_carried` exists for, in the other direction.
+        _LAST_EXTRA.clear()
+        try:
+            _log, refusal = _run_shoot(dict(base, body=body), ARTIFACT_WIDTH, spec=spec)
+            if refusal is not None:
+                problems.append(f"the right document was refused: {refusal!r}")
+            # NEEDLE_JS by identity, not "body" as a substring: the other fragments already mention
+            # document.body, so a substring test stays true when the needle read is deleted. Measured.
+            if not any(NEEDLE_JS in e for e in _LAST_EXTRA):
+                problems.append("shoot() never asked the browser for the page text, so the needle "
+                                "guard compares a key the measurement never took")
+            _log, refusal = _run_shoot(dict(base, body="Accounts  casey  school  Save"),
+                                       ARTIFACT_WIDTH, spec=spec)
+            if refusal is None or "wrong fixture" not in refusal:
+                problems.append(f"an accounts page with profiles was accepted as "
+                                f"users-no-profiles: {refusal!r}")
+        finally:
+            _LAST_EXTRA.clear()
+
     rule("a refusal on every page still measures every page", all_refuse)
+    rule("the literal census matches the page declaration", census_matches_the_declaration)
+    rule("a fixture mode selects only its own pages", a_fixture_mode_selects_its_own_pages)
+    rule("an unknown fixture refuses before the browser starts", an_unknown_fixture_refuses)
+    rule("a page from the wrong document refuses", a_page_from_the_wrong_document_refuses)
     rule("one refusal names it and counts the rest", one_refuses)
     rule("a clean run publishes and exits 0", none_refuses)
     rule("a crash in shoot is a refusal, not an abort", crash_is_a_refusal)
