@@ -37,14 +37,38 @@ cross-build could never have checked.
 `scripts/package-lib.sh` owns the version, and the leading `v` is a tag prefix, not part of
 the version:
 
-| | from tag `v0.1.0` | from an untagged tree |
-|---|---|---|
-| `.deb` version | `0.1.0` | `0.0.0+<describe>` |
-| `.rpm` | `plock-0.1.0-1.<arch>.rpm` | `plock-0.0.0-0.untagged.<describe>.<arch>.rpm` |
-| `plock version` | `plock v0.1.0 (commit …, built …)` | `plock <describe>` — the short sha, or `v0.1.0-3-g<sha>` between releases |
+| | HEAD **is** the tag | past the tag | no tag reachable from HEAD |
+|---|---|---|---|
+| `.deb` version | `0.1.0` | `0.1.0+10.geecf24a` | `0.0.0+sha.abc1234` |
+| `.deb` file | `plock_0.1.0_amd64.deb` | `plock_0.1.0+10.geecf24a_amd64.deb` | `plock_0.0.0+sha.abc1234_amd64.deb` |
+| `.rpm` | `plock-0.1.0-1.<arch>.rpm` | `plock-0.1.0-1.10.geecf24a.<arch>.rpm` | `plock-0.0.0-0.untagged.sha.abc1234.<arch>.rpm` |
+| `plock version` | `plock v0.1.0 (commit …, built …)` | `plock v0.1.0-10-geecf24a (commit …, built …)` | `plock sha-abc1234 (commit …, built …)` |
 
-An untagged build sorts **below** `1` deliberately: a developer's throwaway must never look
-like an upgrade to a machine that already has a release on it. `check_version` refuses a
+Three states, not two. The middle one is where an ordinary checkout of this repository lives now that
+the first tag has landed: `main` is ten commits past `v0.1.0`, `git describe` says
+`v0.1.0-10-geecf24a`, and the tag is still reachable from HEAD, so `is_tagged` takes the *tagged* arm
+and the version is built on the release. The third column is what this table used to call "an untagged
+tree", which is the wrong name for it -- no tag is reachable in a shallow clone, a fork cloned without
+tags, or a hand-set `PKG_VERSION` that is not a version, and none of those is a checkout between
+releases. Every cell is read out of `scripts/package-lib.sh` by
+`TestReleaseDocQuotesTheVersionsThePackagingProduces`, the middle and third arms through the same
+`PKG_VERSION` door the helper itself uses, so nothing here is transcribed from behaviour. The `…` in
+the last row is the build stamp, not an ellipsis for missing text: `internal/version.String` appends
+`(commit …, built …)` to every arm, and a binary nobody stamped says `(commit none, built unknown)` --
+`dev` for the version -- because the package defaults to honest rather than to a number that might be
+someone else's.
+
+The last two columns sort against a release in opposite directions and both directions are
+deliberate, and measured rather than reasoned about. A build *past* a tag is an **upgrade** of it:
+`dpkg --compare-versions 0.1.0+10.geecf24a gt 0.1.0` succeeds, and on `fedora:43`
+`rpmdev-vercmp 0.1.0-1.10.geecf24a 0.1.0-1` prints `0.1.0-1.10.geecf24a > 0.1.0-1` (rc=11) -- which is
+what a build off `main` is for, since a maintainer has to be able to install it over the last release.
+A build with **no tag behind it** sorts below every release: the same comparator prints
+`0.0.0-0.untagged.sha.abc1234 < 0.1.0-1` (rc=12), so a developer's throwaway cannot displace a release
+on a machine that already has one. Both directions were read off one invocation set whose third line
+was `0.1.0-1 == 0.1.0-1` (rc=0) -- the control that says the comparator is comparing and not answering
+whatever it is asked. Stating only the second half, as this page did, told anyone packaging from `main`
+the opposite of what their package manager proceeds to do. `check_version` refuses a
 string either tool would silently mangle — a tag with a space in it is taken by `dpkg` and
 rejected by `rpm`, so the two packages would be built from two different strings — and a
 dirty tree is refused rather than sanitised, because `plock version` would otherwise report a
@@ -54,7 +78,8 @@ you are about to delete.
 ## The guards in the workflow, and why each one is there
 
 Every one of these replaced a failure that was actually observed, most of them in the two
-dispatch runs that came before the first release.
+dispatch runs that came before the first release -- `41166398103`, `41167592068` and `41184236321`,
+all three of them `workflow_dispatch`, and the last is the run whose artifacts are quoted below.
 
 - **`if: startsWith(github.ref, 'refs/tags/')` on the publish job.** Without it a
   `workflow_dispatch` satisfies `needs: artifacts`, downloads, and calls

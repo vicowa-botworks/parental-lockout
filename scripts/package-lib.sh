@@ -43,9 +43,15 @@ pkg_version() {
 #
 # It is the difference between two kinds of odd version string. A tag named `v1.0rc1` is
 # somebody's decision and deserves a refusal, because rpm would sort it against `1.0.1` in
-# a way that surprises whoever writes the upgrade. An untagged tree is nobody's decision --
-# it is a checkout between releases, and this repo had no tags at all for its first two
-# hundred commits -- so it gets a placeholder rather than an error.
+# a way that surprises whoever writes the upgrade. A tree with NO tag reachable is nobody's
+# decision -- a shallow clone, a fork cloned without tags, or a hand-set PKG_VERSION that is
+# not a version, and this repo had no tags at all for its first two hundred commits -- so it
+# gets a placeholder rather than an error.
+#
+# A checkout between releases is NOT this arm, though this comment used to say it was. The tag
+# is reachable there, so is_tagged is true and the version is built on the release: main, ten
+# commits past v0.1.0, packages as 0.1.0+10.geecf24a and installs OVER v0.1.0, not under it.
+# docs/releases.md's version table carries all three states, pinned to this file.
 #
 # The obvious test, "does it start with a digit", is wrong: `git describe --always` falls
 # back to the short sha, and half of all shas start with a digit. So the question is asked

@@ -52,10 +52,24 @@ func repoFile(t *testing.T, parts ...string) string {
 // prologue and the probes as separate strings without tracking who owes a trailing newline.
 func shOut(t *testing.T, script ...string) map[string]string {
 	t.Helper()
+	return shEnvOut(t, []string{"PKG_VERSION=v0.1.0"}, script...)
+}
+
+// shEnvOut is shOut with the environment stated rather than defaulted.
+//
+// PKG_VERSION is the door the helpers offer for saying what a build is, and it is the only way to
+// ask about a tree this repository is not standing in. "Ten commits past the tag" would need a
+// checkout ten commits past the tag -- a moving target that changes every time anything merges --
+// while `PKG_VERSION=v0.1.0-10-geecf24a` produces, byte for byte, what that tree produces: measured
+// at eecf24a with PKG_VERSION unset, `git describe` says v0.1.0-10-geecf24a and the helpers return
+// deb 0.1.0+10.geecf24a and rpm 0.1.0-1.10.geecf24a, identical to what the same values return when
+// handed to PKG_VERSION directly. One value of the door per column of the table.
+func shEnvOut(t *testing.T, env []string, script ...string) map[string]string {
+	t.Helper()
 	joined := strings.Join(script, "\n")
 	cmd := exec.Command("sh", "-c", joined)
 	cmd.Dir = filepath.Join("..", "..")
-	cmd.Env = append(os.Environ(), "PKG_VERSION=v0.1.0")
+	cmd.Env = append(os.Environ(), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -326,12 +340,37 @@ func TestSetupQuotedRefusalsAreRealOutput(t *testing.T) {
 	}
 }
 
-// versionCell reads one cell out of docs/releases.md's version table by its row label.
+// The three arms of docs/releases.md's version table, as column numbers.
+//
+// Named because a reader that takes a bare 2 or 3 cannot tell you which arm it meant when the
+// table's column order changes, and the order is the page's argument: the middle column is the
+// state a maintainer is usually in and the last is the rare one.
+const (
+	colTag   = 2 // HEAD is the tag
+	colPast  = 3 // some commits past the tag; the tag is still reachable
+	colNoTag = 4 // no tag reachable from HEAD at all
+)
+
+// armCol maps an arm's name in the test table to its column in the page.
+func armCol(name string) int {
+	switch name {
+	case "past the tag":
+		return colPast
+	case "no tag reachable":
+		return colNoTag
+	}
+	panic("unknown version arm " + name)
+}
+
+// versionCell reads one cell out of docs/releases.md's version table by row label and column.
 //
 // A missing row is fatal, not skipped: the whole point of reading a table is that a row can
 // disappear, and a guard that returns "" when its row is gone agrees with the document that
-// deleted it.
-func versionCell(t *testing.T, doc, label string) string {
+// deleted it. The column argument is the same kind of guard: the table used to have two arms and
+// a reader that always took cells[2] would have kept passing on a table that deleted the third
+// column, which is the exact edit this file's own history makes impossible to remember. Column 1
+// is the row label; 2, 3 and 4 are the three version arms.
+func versionCell(t *testing.T, doc, label string, col int) string {
 	t.Helper()
 	prefix := "| " + label
 	for _, line := range strings.Split(doc, "\n") {
@@ -339,11 +378,12 @@ func versionCell(t *testing.T, doc, label string) string {
 			continue
 		}
 		cells := strings.Split(line, "|")
-		if len(cells) < 3 {
-			t.Fatalf("docs/releases.md row %q has %d cells; the version table format changed and "+
-				"this guard can no longer read it", label, len(cells)-2)
+		if len(cells) <= col {
+			t.Fatalf("docs/releases.md row %q has %d cells and this guard wants column %d; the version "+
+				"table lost an arm, and a reader that quietly returned the wrong one would agree with "+
+				"the page that deleted it", label, len(cells)-2, col)
 		}
-		return strings.TrimSpace(cells[2])
+		return strings.TrimSpace(cells[col])
 	}
 	t.Fatalf("docs/releases.md has no `%s` row in its version table. The row is the claim; if the "+
 		"table changed shape, update this reader as well as the page.", label)
@@ -374,6 +414,67 @@ func TestReleaseDocQuotesTheVersionsThePackagingProduces(t *testing.T) {
 		}
 	}
 
+	// The other two arms of the table. Each is a `PKG_VERSION` the helpers can be handed, which is
+	// how a table documents a tree the checkout is not in: "past the tag" is what `main` is now, and
+	// it will be a different number of commits past it by the next merge, so the value is pinned to
+	// the shape and the page quotes the instance.
+	//
+	//   past the tag        the state every ordinary checkout is in since the first tag landed.
+	//                       `is_tagged` is TRUE here -- the tag is reachable -- so the version is
+	//                       built ON the release and sorts above it.
+	//   no tag reachable    a shallow clone, a fork without tags, a non-numeric PKG_VERSION. The
+	//                       0.0.0 placeholder, which sorts below every release on purpose.
+	arms := []struct {
+		name string
+		env  string
+	}{
+		{"past the tag", "PKG_VERSION=v0.1.0-10-geecf24a"},
+		{"no tag reachable", "PKG_VERSION=sha-abc1234"},
+	}
+	for _, arm := range arms {
+		arm := arm
+		got := shEnvOut(t, []string{arm.env}, "set -eu\n. scripts/package-lib.sh\n"+
+			`echo "raw=$(pkg_version)"`, `echo "deb=$(deb_version)"`,
+			`echo "rpmver=$(rpm_version)"`, `echo "rpmrel=$(rpm_release)"`)
+		for _, key := range []string{"raw", "deb", "rpmver", "rpmrel"} {
+			if got[key] == "" {
+				t.Fatalf("%s: scripts/package-lib.sh printed no %s= value", arm.name, key)
+			}
+		}
+		// The two arms must not collapse into one another. Without this, a helper change that made
+		// every untagged-ish string take the same branch would still satisfy the cell-by-cell
+		// compares below whenever the page happened to agree with the collapsed value.
+		if got["deb"] == out["deb"] {
+			t.Errorf("%s: deb_version returned %q, the tagged release's own version. The whole point "+
+				"of the arm is that a build is NOT the release it descends from.", arm.name, got["deb"])
+		}
+		if want := "`" + got["deb"] + "`"; versionCell(t, doc, "`.deb` version", armCol(arm.name)) != want {
+			t.Errorf("docs/releases.md gives the .deb version for %s as %s; deb_version says %s. Update "+
+				"the page from the helper, never the other way round.", arm.name,
+				versionCell(t, doc, "`.deb` version", armCol(arm.name)), want)
+		}
+		if want := "`plock_" + got["deb"] + "_amd64.deb`"; versionCell(t, doc, "`.deb` file", armCol(arm.name)) != want {
+			t.Errorf("docs/releases.md gives the .deb filename for %s as %s; scripts/package.sh writes "+
+				"$OUT/plock_$(deb_version)_$(deb_arch <arch>).deb, so %s", arm.name,
+				versionCell(t, doc, "`.deb` file", armCol(arm.name)), want)
+		}
+		want := "`plock-" + got["rpmver"] + "-" + got["rpmrel"] + ".<arch>.rpm`"
+		if versionCell(t, doc, "`.rpm`", armCol(arm.name)) != want {
+			t.Errorf("docs/releases.md gives the .rpm filename for %s as %s; rpm_version and rpm_release "+
+				"say %s", arm.name, versionCell(t, doc, "`.rpm`", armCol(arm.name)), want)
+		}
+		// Every arm shows the parenthetical, because `version.String` prints it whatever it was
+		// handed -- an unstamped binary says `(commit none, built unknown)` rather than dropping the
+		// half that is missing. So the shape is the same in all three columns and only the version
+		// token differs, which is what the tagged arm's own compare below already assumes.
+		if claim := "`plock " + got["raw"] + " (commit"; !strings.Contains(versionCell(t, doc, "`plock version`", armCol(arm.name)), claim) {
+			t.Errorf("docs/releases.md shows `plock version` for %s without the build stamp "+
+				"(want %q in its cell); internal/version.String appends `(commit …, built …)` to every "+
+				"arm, so a cell that stops at the version is describing an output no binary produces.",
+				arm.name, claim)
+		}
+	}
+
 	// The leading `v` is a tag prefix: pkg_version keeps it, the package versions do not. A
 	// change to either half is a change an operator sees in a filename, so both halves are
 	// asserted rather than the difference between them.
@@ -381,15 +482,20 @@ func TestReleaseDocQuotesTheVersionsThePackagingProduces(t *testing.T) {
 		t.Fatalf("pkg_version with PKG_VERSION=%s returned %q; docs/releases.md is pinned to the "+
 			"helpers, so this failure means the helper changed, not the page", tag, out["raw"])
 	}
-	if want := "`" + out["deb"] + "`"; versionCell(t, doc, "`.deb` version") != want {
+	if want := "`" + out["deb"] + "`"; versionCell(t, doc, "`.deb` version", colTag) != want {
 		t.Errorf("docs/releases.md gives the .deb version as %s; deb_version says %s. Update the "+
-			"page from the helper, never the other way round.", versionCell(t, doc, "`.deb` version"), want)
+			"page from the helper, never the other way round.", versionCell(t, doc, "`.deb` version", colTag), want)
 	}
-	if want := "`plock-" + out["rpmver"] + "-" + out["rpmrel"] + ".<arch>.rpm`"; versionCell(t, doc, "`.rpm`") != want {
+	if want := "`plock_" + out["deb"] + "_amd64.deb`"; versionCell(t, doc, "`.deb` file", colTag) != want {
+		t.Errorf("docs/releases.md gives the .deb filename as %s; scripts/package.sh writes "+
+			"$OUT/plock_$(deb_version)_$(deb_arch <arch>).deb, so %s",
+			versionCell(t, doc, "`.deb` file", colTag), want)
+	}
+	if want := "`plock-" + out["rpmver"] + "-" + out["rpmrel"] + ".<arch>.rpm`"; versionCell(t, doc, "`.rpm`", colTag) != want {
 		t.Errorf("docs/releases.md gives the .rpm filename as %s; rpm_version and rpm_release say %s",
-			versionCell(t, doc, "`.rpm`"), want)
+			versionCell(t, doc, "`.rpm`", colTag), want)
 	}
-	if want := "`plock " + out["raw"] + " (commit"; !strings.Contains(versionCell(t, doc, "`plock version`"), want) {
+	if want := "`plock " + out["raw"] + " (commit"; !strings.Contains(versionCell(t, doc, "`plock version`", colTag), want) {
 		t.Errorf("docs/releases.md does not show `plock version` keeping the tag prefix (want %q in its "+
 			"row). The stamp gate in the Makefile compares the same string.", want)
 	}
@@ -438,6 +544,154 @@ func TestReleaseDocNamesTheEventThatPublishes(t *testing.T) {
 			t.Errorf("docs/releases.md never states the trigger in terms a reader can grep for (%s), "+
 				"so this guard's failure would not tell a maintainer which line of the workflow to look at.",
 				claim)
+		}
+	}
+}
+
+// onBlock is the `on:` section of a workflow, read by indentation.
+//
+// Read by hand rather than parsed because this repository ships no third-party dependency --
+// see scripts/check-deps.sh, which is part of `make verify` and refuses a `require` line in
+// go.mod -- so a YAML library is not an option, and a hand-rolled reader is fifteen lines whose
+// own behaviour the tests below establish. What it is for is a *set*: `strings.Contains(wf,
+// "- 'v*'")` says the tag trigger still exists and says nothing about what else was added beside
+// it, and the property the page claims in its first sentence is that nothing else publishes.
+type onBlock struct {
+	top      []string // top-level keys under `on:`
+	pushKeys []string // keys directly under `push:`
+	pushTags []string // list items under `push.tags:`
+}
+
+func readOnBlock(t *testing.T, wf string) onBlock {
+	t.Helper()
+	var b onBlock
+	lines := strings.Split(wf, "\n")
+	i := 0
+	for ; i < len(lines); i++ {
+		if lines[i] == "on:" {
+			break
+		}
+	}
+	if i == len(lines) {
+		t.Fatalf("release.yml has no `on:` block at column 0; docs/releases.md's claim that only a tag " +
+			"push publishes is unenforceable until this reader can find the triggers again")
+	}
+	inPush := false
+	for _, l := range lines[i+1:] {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(l) - len(strings.TrimLeft(l, " "))
+		switch {
+		case indent == 0:
+			return b // the next top-level key; `on:` is over
+		case indent == 2:
+			key := strings.TrimSuffix(trimmed, ":")
+			inPush = key == "push"
+			if strings.HasPrefix(trimmed, "- ") {
+				key = strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+			}
+			b.top = append(b.top, key)
+		case indent > 2 && inPush:
+			// Deeper than `push:` itself, at whatever depth the trigger's children sit: a key is a
+			// trigger dimension (`branches`, `paths`, `tags`) and a list item is a value of the
+			// dimension above it. Checked by depth rather than by counting on two-space steps,
+			// because the file under test writes `- 'v*'` six columns in and a reader that assumed
+			// four found nothing to compare.
+			if strings.HasPrefix(trimmed, "- ") {
+				b.pushTags = append(b.pushTags, strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+				continue
+			}
+			b.pushKeys = append(b.pushKeys, strings.TrimSuffix(trimmed, ":"))
+		}
+	}
+	t.Fatalf("the `on:` block ran to the end of release.yml without a following top-level key")
+	return b
+}
+
+// TestReleaseWorkflowPublishesOnTagsAndNothingElse pins the SET of things that can publish.
+//
+// The guard this replaces asked whether `- 'v*'` and the job-level `if:` were still in the file.
+// Both survived every edit that matters: measured on this branch, adding `pull_request: branches:
+// [main]` to `on:` left both tests green, and so did adding `branches: [main]` under `push` while
+// keeping `tags` -- a merge to main would then create a release, and the page's first sentence says
+// the opposite. A membership test cannot defend a set property, so this reads the block and asks
+// the set question: which events, what under `push`, and which tags.
+func TestReleaseWorkflowPublishesOnTagsAndNothingElse(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "release.yml")
+	doc := repoFile(t, "docs", "releases.md")
+	b := readOnBlock(t, wf)
+
+	for _, key := range b.top {
+		if key != "push" && key != "workflow_dispatch" {
+			t.Errorf("release.yml now triggers on %q, and docs/releases.md opens by telling a maintainer "+
+				"\"There is no other route\" than a tag push. `workflow_dispatch` is allowed because it "+
+				"builds artifacts and the publish job's own `if:` refuses it; %q is not something that job "+
+				"can refuse itself.", key, key)
+		}
+	}
+	if len(b.top) == 0 {
+		t.Fatal("the `on:` block has no triggers at all; nothing publishes, and the page needs rewriting")
+	}
+	// `branches` or `paths` under `push` is the merge-to-main publish. `tags` alone is the claim.
+	for _, key := range b.pushKeys {
+		if key != "tags" {
+			t.Errorf("release.yml's `push` trigger carries %q beside `tags`. A branch push still fails the "+
+				"publish job's `if: startsWith(github.ref, 'refs/tags/')`, so this does not publish by "+
+				"itself -- what it does is move the whole protection onto one `if:` line, so that deleting "+
+				"that line and merging to main together produce a release. docs/releases.md tells a reader "+
+				"the trigger set is what prevents the accident; this guard is what keeps that sentence true "+
+				"rather than accidentally true.", key)
+		}
+	}
+	if len(b.pushTags) != 1 || b.pushTags[0] != "'v*'" {
+		t.Errorf("release.yml publishes on push of %v; docs/releases.md names the pattern as `v*`, and a "+
+			"second or different pattern means the page describes half the trigger set.", b.pushTags)
+	}
+	// The page has to keep saying the thing the guard defends, in words a reader can grep.
+	for _, claim := range []string{"There is no other route", "`v*`", "refs/tags/"} {
+		if !strings.Contains(doc, claim) {
+			t.Errorf("docs/releases.md no longer states %q. This guard's failure has to point a reader at "+
+				"the sentence that became false, and it cannot do that from a paraphrase.", claim)
+		}
+	}
+}
+
+// TestReleaseDocPinsTheWorkflowLinesItExplains covers three facts the page presents as measured
+// history and nothing pinned at all: `GH_REPO` on the publish job, `mkdir -p staged` before the
+// artifact count, and `--verify-tag`.
+//
+// Each is a line whose deletion the page says causes a specific failure, and each deletion was
+// green. They are cheap, they are the kind of line a careless cleanup deletes ("the mkdir is
+// redundant, download-artifact makes its path" -- it does not), and the page is now the canonical
+// description of them, which is the definition of something worth a pin.
+func TestReleaseDocPinsTheWorkflowLinesItExplains(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "release.yml")
+	doc := repoFile(t, "docs", "releases.md")
+
+	for _, pinned := range []struct {
+		inWorkflow string
+		inDoc      string
+		why        string
+	}{
+		{"GH_REPO:", "`GH_REPO`",
+			"without it `gh` resolves the repository from the runner's context and publishes somewhere " +
+				"nobody chose"},
+		{"mkdir -p staged", "`mkdir -p staged`",
+			"download-artifact does not create its `path`, so the count that follows runs against a " +
+				"directory that does not exist"},
+		{"--verify-tag", "`--verify-tag`",
+			"the release must name a commit the tag points at, not whatever GITHUB_REF_NAME resolved to"},
+	} {
+		if !strings.Contains(wf, pinned.inWorkflow) {
+			t.Errorf("release.yml no longer contains %q, and docs/releases.md still explains it as one of "+
+				"the guards that replaced an observed failure: %s.", pinned.inWorkflow, pinned.why)
+		}
+		if !strings.Contains(doc, pinned.inDoc) {
+			t.Errorf("docs/releases.md no longer mentions %s. The workflow line %q is what the bullet "+
+				"describes; if the guard is gone, delete the bullet in the same commit rather than "+
+				"leaving a history lesson about a line that never existed.", pinned.inDoc, pinned.inWorkflow)
 		}
 	}
 }
