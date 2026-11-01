@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 286,
+  "expected_mutants": 287,
   "mutants": [
     {
       "id": "W1",
@@ -2169,6 +2169,13 @@
       "old": "<a href=\"/profiles\">Create a profile</a> and come back.",
       "new": "<a href=\"/users\">Create a profile</a> and come back.",
       "note": "the paragraph tells the operator where to fix the missing profile and sends them to the page that cannot fix it. Invisible to any whole-body assertion, because the shell's nav writes href=\"/profiles\" on every page in the product -- which is how this exact retarget walked green through the whole package until the assertion was row-scoped. TestTheUsersPageOffersNoDeadDropdownWithoutProfiles. (#192)"
+    },
+    {
+      "id": "W297",
+      "file": "internal/web/templates/users.tmpl",
+      "old": "<input id=\"enabled-{{$row.Username}}\" type=\"checkbox\" name=\"enabled\" value=\"on\"{{if and $row.Configured $row.Configured.Enabled}} checked{{end}}>",
+      "new": "<input id=\"enabled-{{$row.Username}}\" type=\"checkbox\" name=\"enabled\" value=\"on\" checked>",
+      "note": "the enabled box ticks itself on for EVERY row, including an entry that is switched off. The operator sees enabled, saves anything else on that row, and the write sets enabled=on -- an account left free on purpose comes back locked out from an edit that never touched the checkbox. This is W145's outcome reached from the render side, where W145 cannot see it. The inverse mutant (delete the conditional, so the box never ticks) is not declared separately: the `new` here already covers the dangerous direction, and both are killed by the same attribute-scoped read. TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled. (#200)"
     }
   ]
 }

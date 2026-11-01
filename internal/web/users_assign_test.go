@@ -348,8 +348,15 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 			// from the marked option: see the table above.
 			frag := formFragment(body, action)
 			profile := offeredOption(t, frag, tc.choose)
+			// Read the tick off the checkbox's OWN tag, by id. The previous shape asked whether the
+			// row contained `name="enabled" value="on" checked`, which is a claim about attribute
+			// ORDER: moving `checked` before `value="on"` renders the identical page with the box
+			// still ticked, and that read answered "not checked" -- so the test quietly stopped
+			// posting enabled for the one row that had it, and the assertion below then compared
+			// false against false on both rows. Same root as #200's render pin, and no mutant can
+			// reach it because the defect would live in test code.
 			enabled := ""
-			if strings.Contains(frag, `name="enabled" value="on" checked`) {
+			if strings.Contains(inputTag(body, "enabled-"+tc.username), "checked") {
 				enabled = "&enabled=on"
 			}
 
@@ -434,6 +441,55 @@ func TestTheAssignmentFormOffersEveryProfile(t *testing.T) {
 	// first.
 	if !strings.Contains(body, `value="school" selected`) {
 		t.Error("casey's row does not show its current profile as selected")
+	}
+}
+
+// The enabled box is the operator's only control over whether a managed account is locked out at all,
+// and it is rendered from the ENTRY, not from the row: `users.tmpl:92` ticks it with
+// {{if and $row.Configured $row.Configured.Enabled}}. Nothing pinned that conditional -- deleting it,
+// OR replacing it with a bare ` checked` so every row ticks itself on, left `go test ./internal/web/`
+// green (#200). The second is the dangerous one: a box that shows enabled for an entry that is switched
+// off means the operator's NEXT save of anything on that row writes enabled=on, so an account left free
+// on purpose comes back locked out from an edit that never touched the checkbox.
+//
+// Why both mutants survived is the fixture, not the assertion: no /users fixture had a row that was
+// managed AND switched off, so "ticks itself on" changed a rendering nothing could tell apart. ada is
+// made managed-and-disabled here for exactly that reason -- without that row the test below passes for
+// the wrong reason.
+//
+// Read by ATTRIBUTE, never by adjacency. An earlier shape asked whether the row contained
+// `name="enabled" value="on" checked`, which is a claim about ORDER: swapping the two attributes
+// renders the identical page and made that read answer "not checked" while the box stayed ticked.
+func TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled(t *testing.T) {
+	f := newAssignFixture(t)
+	f.mu.Lock()
+	f.doc.Users = []config.User{
+		{Username: "casey", ProfileID: "school", Enabled: true},
+		{Username: "ada", ProfileID: "school", Enabled: false},
+	}
+	f.mu.Unlock()
+
+	body := authGet(t, f.s, "/users").Body.String()
+	for _, tc := range []struct {
+		username string
+		why      string
+		want     bool
+	}{
+		{username: "casey", why: "entry enabled", want: true},
+		{username: "ada", why: "entry switched off", want: false},
+	} {
+		tag := inputTag(body, "enabled-"+tc.username)
+		if tag == "" {
+			t.Fatalf("row %s renders no enabled checkbox at all", tc.username)
+		}
+		// Both rows are managed, so both must OFFER the box; only one may show it ticked.
+		if !strings.Contains(tag, `type="checkbox"`) {
+			t.Errorf("row %s: the enabled control is not a checkbox: %s", tc.username, tag)
+		}
+		if got := strings.Contains(tag, "checked"); got != tc.want {
+			t.Errorf("row %s (%s): checkbox shows ticked = %v, want %v; the tag is %s",
+				tc.username, tc.why, got, tc.want, tag)
+		}
 	}
 }
 
