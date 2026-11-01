@@ -60,6 +60,11 @@ func refusalParagraph(body string) string {
 // By id rather than by position because the profiles page has four inputs called "name" -- one per
 // profile plus the create form's -- and a test that took the first would pass on whichever form
 // rendered first.
+// Limit worth knowing before relying on the result: the slice runs from `id="` to the next `>`, so it
+// DISCARDS every attribute written before `id`. An element whose id is not its first attribute comes
+// back short, and a caller checking for `type="checkbox"` then reports "not a checkbox" when the real
+// cause is truncation. Users.tmpl:92 puts id first, which is why the checks in users_assign_test.go are
+// safe today; a template that reordered the attributes would fail there, loudly but with the wrong name.
 func inputTag(body, id string) string {
 	marker := `id="` + id + `"`
 	i := strings.Index(body, marker)

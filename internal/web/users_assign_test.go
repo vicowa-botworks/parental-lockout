@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -348,9 +349,50 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 			// from the marked option: see the table above.
 			frag := formFragment(body, action)
 			profile := offeredOption(t, frag, tc.choose)
+			tag := inputTag(body, "enabled-"+tc.username)
+			// Read the control off its OWN tag, by id, and post the PAIR the page renders rather than
+			// the pair the test remembers. Both halves are repairs:
+			//   - The first shape asked whether the row CONTAINED `name="enabled" value="on" checked`,
+			//     a claim about attribute ORDER: swapping them renders the identical page with the box
+			//     still ticked, and that read answered "not checked".
+			//   - The next shape read only the tick and then hand-wrote &enabled=on. Renaming
+			//     name="enabled" and emptying value="on" were each GREEN for the whole package, because
+			//     the test kept posting the right pair whatever the markup said.
+			// Parsing name and value makes this a second killer for both classes, and it is what a
+			// browser actually sends. Same root as #200's render pin: no mutant can reach a defect that
+			// lives in test code, so the test must not be the thing that knows the answer.
 			enabled := ""
-			if strings.Contains(frag, `name="enabled" value="on" checked`) {
-				enabled = "&enabled=on"
+			emptyValue := false
+			postedEnabled := false
+			if strings.Contains(tag, "checked") {
+				name, hasName := inputAttr(tag, "name")
+				if !hasName {
+					t.Fatalf("row %s: a ticked enabled control with no name posts nothing at all: %s",
+						tc.username, tag)
+				}
+				value, _ := inputAttr(tag, "value")
+				// A ticked box posts `name=value`, and the handler's rule is `FormValue("enabled") != ""`
+				// (users_write.go:63). So the box only says "on" if its VALUE says so: ticked with
+				// value="" posts `enabled=` and stores off.
+				//
+				// This used to collapse both cases to one bool, which read the page correctly and then
+				// decided the question the test is for -- and it decided it from the handler, which is
+				// the half under test. The empty case cannot occur on the shipped page (`value="on"`), and
+				// W293 kills the mutation by refusing the value outright; what belongs here is the round
+				// trip REFUSING TO PAPER OVER it. So the empty case asserts the browser's own rule, and
+				// the payload it produced, rather than borrowing the handler's verdict:
+				//   checked + empty value  =>  the pair is posted, and it is not enough to switch on.
+				// If "empty means true" is ever decided on purpose, this fails and the sentence below is
+				// where the reader learns which side was chosen.
+				enabled = "&" + url.QueryEscape(name) + "=" + url.QueryEscape(value)
+				postedEnabled = value != ""
+				if value == "" {
+					if !strings.Contains(enabled+"=", "&"+url.QueryEscape(name)+"=") {
+						t.Fatalf("row %s: a ticked box with an empty value must still post its name: %s",
+							tc.username, tag)
+					}
+					emptyValue = true
+				}
 			}
 
 			post := httptest.NewRecorder()
@@ -383,9 +425,15 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 			// on `enabled := false`, where the posted checked=true and the stored false differ), while
 			// ada has no entry to start from and so dies on `enabled := true`. That is the same
 			// asymmetry the two-case table exists to cover, measured both ways at e129fe1.
-			if got.Enabled != (enabled != "") {
-				t.Errorf("the form posted enabled=%v and the handler stored enabled=%v",
-					enabled != "", got.Enabled)
+			if got.Enabled != postedEnabled {
+				why := ""
+				if emptyValue {
+					// Not "the handler stored false" as a verdict about the handler: the browser could
+					// not have said otherwise, because the box's value is what carries the meaning.
+					why = " -- and the box's value was empty, so the browser posted no meaning to store"
+				}
+				t.Errorf("the form posted enabled=%q (from the rendered box) and the handler stored enabled=%v%s",
+					strings.TrimPrefix(enabled, "&enabled="), got.Enabled, why)
 			}
 		})
 	}
@@ -435,6 +483,98 @@ func TestTheAssignmentFormOffersEveryProfile(t *testing.T) {
 	if !strings.Contains(body, `value="school" selected`) {
 		t.Error("casey's row does not show its current profile as selected")
 	}
+}
+
+// The enabled box is the operator's only control over whether a managed account is locked out at all,
+// and it is rendered from the ENTRY, not from the row: `users.tmpl:92` ticks it with
+// {{if and $row.Configured $row.Configured.Enabled}}. Nothing pinned that conditional -- deleting it,
+// OR replacing it with a bare ` checked` so every row ticks itself on, left `go test ./internal/web/`
+// green (#200). The second is the dangerous one: a box that shows enabled for an entry that is switched
+// off means the operator's NEXT save of anything on that row writes enabled=on, so an account left free
+// on purpose comes back locked out from an edit that never touched the checkbox.
+//
+// Why both mutants survived is the fixture, not the assertion: no /users fixture had a row that was
+// managed AND switched off, so "ticks itself on" changed a rendering nothing could tell apart. ada is
+// made managed-and-disabled here for exactly that reason -- without that row the test below passes for
+// the wrong reason.
+//
+// Read by ATTRIBUTE, never by adjacency. An earlier shape asked whether the row contained
+// `name="enabled" value="on" checked`, which is a claim about ORDER: swapping the two attributes
+// renders the identical page and made that read answer "not checked" while the box stayed ticked.
+func TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled(t *testing.T) {
+	f := newAssignFixture(t)
+	f.mu.Lock()
+	f.doc.Users = []config.User{
+		{Username: "casey", ProfileID: "school", Enabled: true},
+		{Username: "ada", ProfileID: "school", Enabled: false},
+	}
+	f.mu.Unlock()
+
+	body := authGet(t, f.s, "/users").Body.String()
+	for _, tc := range []struct {
+		username string
+		why      string
+		want     bool
+	}{
+		{username: "casey", why: "entry enabled", want: true},
+		{username: "ada", why: "entry switched off", want: false},
+	} {
+		tag := inputTag(body, "enabled-"+tc.username)
+		if tag == "" {
+			t.Fatalf("row %s renders no enabled checkbox at all", tc.username)
+		}
+		// A control is pinned by three things: the NAME it posts under, the TYPE it is, and whether it
+		// is ticked. Reading only the last two leaves the first unpinned -- renaming name="enabled"
+		// keeps a ticked checkbox that renders identically, posts enabledX=on, and is then read by
+		// users_write.go:63 as ABSENCE, so every save of any other field on the row silently switches
+		// the account off. That is W145's other direction arriving from the render side.
+		if !strings.Contains(tag, `name="enabled"`) {
+			t.Errorf("row %s: the enabled control does not post the field the handler reads: %s",
+				tc.username, tag)
+		}
+		// Both rows are managed, so both must OFFER the box; only one may show it ticked.
+		if !strings.Contains(tag, `type="checkbox"`) {
+			t.Errorf("row %s: the enabled control is not a checkbox: %s", tc.username, tag)
+		}
+		// The third attribute, and the one with an outcome behind it: a TICKED box with an empty value
+		// posts `enabled=`, and users_write.go:63 reads that as OFF. The page says enabled, the next
+		// save of anything on the row stops managing the account.
+		if v, hasValue := inputAttr(tag, "value"); !hasValue || (v == "" && tc.want) {
+			t.Errorf("row %s: a ticked box with value=%q posts enabled=, which the handler reads as OFF: %s",
+				tc.username, v, tag)
+		}
+		// Association, not position: `form="..."` is legal HTML and moves the control off the row's
+		// form, so the browser submits no enabled at all and every save flips the entry off. Neither
+		// reader can see this by slicing -- both take the tag off the whole body -- so it needs its own
+		// assertion. Scoping the read to the form was tried first and stays green under the mutant:
+		// the mutation is not positional, so a positional slice cannot report it.
+		if strings.Contains(tag, "form=") {
+			t.Errorf("row %s: the enabled control re-associates itself away from the row's form: %s",
+				tc.username, tag)
+		}
+		if got := strings.Contains(tag, "checked"); got != tc.want {
+			t.Errorf("row %s (%s): checkbox shows ticked = %v, want %v; the tag is %s",
+				tc.username, tc.why, got, tc.want, tag)
+		}
+	}
+}
+
+// inputAttr reads one attribute out of an already-isolated <input> tag, distinguishing "absent" from
+// "present and empty". That distinction is the whole point here: `value=""` is what a browser posts as
+// `enabled=`, and users_write.go:63 reads that as OFF, while a missing value posts nothing at all.
+// echoedValue in profiles_echo_test.go cannot make it -- it returns ("", true) for both.
+func inputAttr(tag, attr string) (string, bool) {
+	marker := attr + `="`
+	i := strings.Index(tag, marker)
+	if i < 0 {
+		return "", false
+	}
+	rest := tag[i+len(marker):]
+	q := strings.Index(rest, `"`)
+	if q < 0 {
+		return "", false
+	}
+	return html.UnescapeString(rest[:q]), true
 }
 
 // The order the dropdown offers profiles in is the only thing distinguishing two profiles
