@@ -195,14 +195,14 @@
       "new": "return hi.In(loc)"
     },
     {
-      "id": "W20",
+      "id": "Y1",
       "file": "internal/schedule/wall.go",
       "old": "return best.In(loc)",
       "new": "return best",
       "note": "the instant is right and the zone is UTC, so every Equal in the engine passes while wallClock prints a clock in the wrong zone (issue #208)"
     },
     {
-      "id": "W21",
+      "id": "Y2",
       "file": "internal/schedule/wall.go",
       "old": "return hi.Truncate(time.Second).In(loc)",
       "new": "return hi.Truncate(time.Second)",
