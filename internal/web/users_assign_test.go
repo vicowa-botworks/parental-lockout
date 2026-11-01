@@ -362,6 +362,7 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 			// browser actually sends. Same root as #200's render pin: no mutant can reach a defect that
 			// lives in test code, so the test must not be the thing that knows the answer.
 			enabled := ""
+			emptyValue := false
 			postedEnabled := false
 			if strings.Contains(tag, "checked") {
 				name, hasName := inputAttr(tag, "name")
@@ -370,12 +371,28 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 						tc.username, tag)
 				}
 				value, _ := inputAttr(tag, "value")
-				// users_write.go:63 is `r.FormValue("enabled") != ""`, so a TICKED box whose value is
-				// empty posts enabled= and stores OFF. The comment above that line reasons that a lost
-				// checkbox "stops managing rather than silently starting to" -- true of absence, and
-				// this is not absence: the operator sees a tick.
-				postedEnabled = value != ""
+				// A ticked box posts `name=value`, and the handler's rule is `FormValue("enabled") != ""`
+				// (users_write.go:63). So the box only says "on" if its VALUE says so: ticked with
+				// value="" posts `enabled=` and stores off.
+				//
+				// This used to collapse both cases to one bool, which read the page correctly and then
+				// decided the question the test is for -- and it decided it from the handler, which is
+				// the half under test. The empty case cannot occur on the shipped page (`value="on"`), and
+				// W293 kills the mutation by refusing the value outright; what belongs here is the round
+				// trip REFUSING TO PAPER OVER it. So the empty case asserts the browser's own rule, and
+				// the payload it produced, rather than borrowing the handler's verdict:
+				//   checked + empty value  =>  the pair is posted, and it is not enough to switch on.
+				// If "empty means true" is ever decided on purpose, this fails and the sentence below is
+				// where the reader learns which side was chosen.
 				enabled = "&" + url.QueryEscape(name) + "=" + url.QueryEscape(value)
+				postedEnabled = value != ""
+				if value == "" {
+					if !strings.Contains(enabled+"=", "&"+url.QueryEscape(name)+"=") {
+						t.Fatalf("row %s: a ticked box with an empty value must still post its name: %s",
+							tc.username, tag)
+					}
+					emptyValue = true
+				}
 			}
 
 			post := httptest.NewRecorder()
@@ -409,8 +426,14 @@ func TestTheRenderedAssignmentFormPostsWhatTheHandlerAccepts(t *testing.T) {
 			// ada has no entry to start from and so dies on `enabled := true`. That is the same
 			// asymmetry the two-case table exists to cover, measured both ways at e129fe1.
 			if got.Enabled != postedEnabled {
-				t.Errorf("the form posted enabled=%q (from the rendered box) and the handler stored enabled=%v",
-					strings.TrimPrefix(enabled, "&enabled="), got.Enabled)
+				why := ""
+				if emptyValue {
+					// Not "the handler stored false" as a verdict about the handler: the browser could
+					// not have said otherwise, because the box's value is what carries the meaning.
+					why = " -- and the box's value was empty, so the browser posted no meaning to store"
+				}
+				t.Errorf("the form posted enabled=%q (from the rendered box) and the handler stored enabled=%v%s",
+					strings.TrimPrefix(enabled, "&enabled="), got.Enabled, why)
 			}
 		})
 	}
