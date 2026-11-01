@@ -55,9 +55,10 @@ chmod 600 "$CONFIG"
 
 capture_admin
 
-# An empty trail: this page renders no audit rows, and the one thing a seeded trail would buy is a
-# temptation to point the ordinary driver at this run directory. PLOCK_CAPTURE_MODE is what refuses
-# that, and a fixture with nothing in it is the version where the refusal is cheapest to see.
+# An empty trail: this page renders no audit rows, and a seeded one would only invite pointing the
+# ordinary driver at this run directory. What actually refuses that is the needle pair on the Page --
+# the ordinary accounts page does not say "There is no profile to assign yet" -- together with
+# select_pages(), which photographs nothing at all when no Page declares the fixture named.
 : > "$AUDIT"
 capture_env
 capture_done

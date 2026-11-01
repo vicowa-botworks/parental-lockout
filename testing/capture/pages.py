@@ -174,18 +174,22 @@ def require_unbreakable(got, what):
 # that hangs off a URL string stops running the day somebody edits the string -- and stops running
 # quietly, which is the exact failure #140 is about. Here the rule and the page that carries it are
 # one line of this table, and main() refuses to run at all if no line carries it.
+DEFAULT_FIXTURE = "pages"
+
+
 class Page:
     def __init__(self, url, artifact, has_rows, stress=False, refuse=None,
-                 fixture="pages", needles=()):
+                 fixture=DEFAULT_FIXTURE, needles=()):
         self.url, self.artifact = url, artifact
         self.has_rows, self.stress = has_rows, stress
         self.refuse = refuse
         # Which FIXTURE this artifact is evidence about. Most pages are photographed from the one
         # document `pages-setup.sh` builds; `pages-noprof` is a different daemon on a different
         # document, because its page is a property of the document and not of a POST (#198). The
-        # value is the run directory's name, which is also what `PLOCK_CAPTURE_MODE` in
-        # fixture.env says the daemon serving that port was built from -- so a driver that asks for
-        # one fixture and reaches another is refused rather than photographed.
+        # The value is the run directory's name, which is the only handle there is: `cdp.fixture`
+        # reads `<run dir>/fixture.env`, so asking for a fixture that was never set up is already a
+        # refusal. What it does NOT do is notice a page declared against the wrong fixture while both
+        # directories exist -- hence the check at the bottom of this constructor, and the needles.
         self.fixture = fixture
         # Strings the rendered page HAS to contain for this artifact to be what it is named for.
         # `Refusal.about` does this job for a refused write; this is the same idea for a page whose
@@ -193,6 +197,25 @@ class Page:
         # DOES have profiles produces a perfectly well-formed, 360-px-fitting, entirely wrong
         # `users-no-profiles.png`, and every other check in this file passes on it.
         self.needles = tuple(needles)
+        # The coupling between the two fields above, refused here rather than at capture time.
+        #
+        # A needle says "this artifact is evidence that the page said a particular thing". Only a
+        # fixture that withholds something can produce that sentence, and the default fixture is the
+        # one that has everything -- so a Page declaring needles and `fixture="pages"` is a page whose
+        # subject is a branch the document it names cannot render. It would be caught by the needle
+        # check at run time, as a refusal after a daemon has been started, a browser launched and four
+        # pages photographed; and in the self-test it would be caught by nothing at all, because the
+        # fake serves whatever body a rule hands it.
+        #
+        # Constructed pages are imported, so this raises at import: the mistake dies where it is made.
+        # (Not `__post_init__`: `Page` is a plain class with an `__init__`, and a hook by that name is
+        # a dataclass-only name that would never fire -- measured by declaring exactly such a page and
+        # watching this raise.)
+        if self.needles and fixture == DEFAULT_FIXTURE:
+            raise ValueError(
+                f"{artifact}: a page with needles must name the fixture that can withhold what they "
+                f"check for, not the default {DEFAULT_FIXTURE!r} -- the ordinary fixture renders the "
+                "populated branch, so the artifact could only ever be a photograph of the wrong state")
 
 
 class Refusal:
@@ -768,7 +791,7 @@ def main(shoot_fn=None, record_fn=None):
 # page refused to run gets reported, and the needle that makes the refused artifact mean the refusal
 # its filename names. The two canaries are registered like every other rule and deliberately not
 # counted: they exist to prove the helper is not hollow.
-EXPECTED_RULES = 33
+EXPECTED_RULES = 35
 
 
 class _FakeSession:
@@ -1704,6 +1727,55 @@ def self_test():
         if "pages-nosuch" not in str(rc):
             problems.append(f"the refusal does not name the fixture it refused: {str(rc)[:120]!r}")
 
+    def a_needle_page_naming_the_default_fixture_is_refused(problems):
+        """The invariant, asserted by constructing the page that breaks it.
+
+        Two reviews asked for this in the same words, and neither could know the mechanism: `Page` is
+        not a dataclass, so there is no `__post_init__` to hold the rule even if one were written. The
+        only place a plain class can refuse is its `__init__`, which is where it now lives -- and this
+        rule is the difference between that being a comment and being a guard, because a `raise` nobody
+        constructs is indistinguishable from no `raise` at all.
+        """
+        try:
+            Page("/audit", "audit-no-events", True, needles=("Nothing has been recorded yet",))
+        except ValueError as exc:
+            if "audit-no-events" not in str(exc) or DEFAULT_FIXTURE not in str(exc):
+                problems.append(f"the refusal does not name the artifact or the fixture: {exc}")
+            return
+        except Exception as exc:  # a different exception is a different bug, not a pass
+            problems.append(f"constructing the bad page raised {type(exc).__name__}, want ValueError")
+            return
+        problems.append("a needles-bearing Page declaring the default fixture was constructed: it "
+                        "would photograph the populated branch and refuse on its own needle only "
+                        "after a daemon and a browser are up, and nothing in this self-test would "
+                        "notice at all")
+
+    def a_page_is_recorded_where_it_is_photographed(problems):
+        """One name, one directory, for the file the manifest certifies.
+
+        The driver writes `op.join(out, spec.artifact + ".png")`; `manifest` reads the stem of every
+        `*.png` in the directory it is handed and looks the stem up in `pages_by_artifact()`. Both come
+        from `spec.artifact`, so the pair is single-sourced today -- and that is exactly the kind of
+        statement a later edit can make false without touching either side. The two probes below are
+        the difference.
+        """
+        declared = capture_manifest.pages_by_artifact()
+        for spec in PAGES:
+            written = f"{spec.artifact}.png"
+            if declared.get(spec.artifact) != spec.url:
+                problems.append(f"{written}: the driver writes that name but the manifest maps "
+                                f"{spec.artifact!r} to {declared.get(spec.artifact)!r}, so record "
+                                "either refuses the run or certifies a different page")
+        if len(declared) != len(PAGES):
+            problems.append(f"{len(declared)} artifacts are declared to the manifest and {len(PAGES)} "
+                            "to the driver: two artifacts share a stem, and one photograph would stand "
+                            "for two pages")
+        # What this rule does NOT pin, stated rather than implied: that `out` is the directory the
+        # manifest is later pointed at. `capture_out` realpath()s its target, so `out` is not a symlink
+        # standing for somewhere else, and `main` hands the same value to both write and record. A
+        # rule here could only re-derive what `main` already passes by one binding, so the binding is
+        # the pin and this comment is the reason there is no second one.
+
     def a_page_from_the_wrong_document_refuses(problems):
         """The needles, run through the real shoot().
 
@@ -1749,6 +1821,9 @@ def self_test():
     rule("a fixture mode selects only its own pages", a_fixture_mode_selects_its_own_pages)
     rule("an unknown fixture refuses before the browser starts", an_unknown_fixture_refuses)
     rule("a page from the wrong document refuses", a_page_from_the_wrong_document_refuses)
+    rule("a needle page must name a non-default fixture",
+         a_needle_page_naming_the_default_fixture_is_refused)
+    rule("a page is recorded where it is photographed", a_page_is_recorded_where_it_is_photographed)
     rule("one refusal names it and counts the rest", one_refuses)
     rule("a clean run publishes and exits 0", none_refuses)
     rule("a crash in shoot is a refusal, not an abort", crash_is_a_refusal)
