@@ -482,6 +482,15 @@ func TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled(t *testing.T) {
 		if tag == "" {
 			t.Fatalf("row %s renders no enabled checkbox at all", tc.username)
 		}
+		// A control is pinned by three things: the NAME it posts under, the TYPE it is, and whether it
+		// is ticked. Reading only the last two leaves the first unpinned -- renaming name="enabled"
+		// keeps a ticked checkbox that renders identically, posts enabledX=on, and is then read by
+		// users_write.go:63 as ABSENCE, so every save of any other field on the row silently switches
+		// the account off. That is W145's other direction arriving from the render side.
+		if !strings.Contains(tag, `name="enabled"`) {
+			t.Errorf("row %s: the enabled control does not post the field the handler reads: %s",
+				tc.username, tag)
+		}
 		// Both rows are managed, so both must OFFER the box; only one may show it ticked.
 		if !strings.Contains(tag, `type="checkbox"`) {
 			t.Errorf("row %s: the enabled control is not a checkbox: %s", tc.username, tag)
