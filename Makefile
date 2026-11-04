@@ -75,6 +75,12 @@ fmt:
 # --self-test`, so deleting a step here leaves `verify` green. That is why the shape is shared by
 # both steps rather than fixed in one of them -- two invocations of the same script must not be
 # asserted in two different strengths.
+# The decision-log gate (#216) is here for the same reason the two above it are: the delivery
+# supervisor runs sessions with nobody in the loop, and the whole licence for that is that every
+# judgement call it makes is written down with its alternatives and a checkpoint to roll back to.
+# A log that is not checked is a list of conclusions, and a list of conclusions is what is useless
+# six weeks later. It costs milliseconds -- it parses one markdown file -- and it pins its own
+# invocation, so the two lines below cannot be deleted without this target refusing.
 verify:
 	@set -e; \
 	echo "==> gofmt"; \
@@ -83,6 +89,8 @@ verify:
 	echo "==> script and set-file encoding guards"; python3 scripts/check-scripts.py; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
 	echo "==> mutation-gate self-test"; python3 scripts/check-mutations.py --self-test; \
+	echo "==> decision-log contract"; python3 scripts/check-decisions.py --self-test; \
+	echo "==> decision log"; python3 scripts/check-decisions.py; \
 	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \

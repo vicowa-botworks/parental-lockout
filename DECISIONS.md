@@ -156,5 +156,5 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   asserts its own invocation in `verify`, because the cheapest way to pass a gate is to delete the
   line that calls it: measured by removing both lines, and the self-test refuses with
   `a gate whose invocation has been deleted is a suggestion`.
-- Checkpoint: @CK8@
+- Checkpoint: 55b4a2041f70eee42bbc7282c59f8fbe94204bad
 - Effect: scripts/check-decisions.py, Makefile
