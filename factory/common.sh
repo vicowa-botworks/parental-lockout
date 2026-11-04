@@ -54,7 +54,28 @@ FACTORY_BUDGET=${FACTORY_BUDGET:-5400}
 
 # Where per-unit worktrees live. Deliberately outside /tmp: six abandoned trees were found in
 # /tmp/opencode on 4 Nov, and a tree that a reboot can delete can also delete unmerged work.
-FACTORY_TREES=${FACTORY_TREES:-$(dirname -- "$FACTORY_ROOT")/wt}
+# Derived from the *primary* checkout, not from FACTORY_ROOT. The two differ whenever the harness runs
+# from a worktree, and deriving it from FACTORY_ROOT nests the trees inside it --
+# `/home/rodney/prj/wt/wt`, which is what happened on the first timer pass and which nothing would
+# ever prune. `--absolute-git-dir` answers the shared `.git`, whose parent directory names the primary
+# checkout even when the caller is standing in a linked worktree.
+factory_trees_default() {
+	local gitdir primary
+	# `--git-common-dir`, not `--absolute-git-dir`: from a linked worktree the latter answers
+	# `…/.git/worktrees/<name>`, which does not end in `/.git`, so the case below fell through and the
+	# nesting this exists to prevent came back unchanged. The common directory is the primary checkout's
+	# `.git` no matter which worktree the caller is standing in.
+	gitdir=$(git -C "$FACTORY_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null ||
+		git -C "$FACTORY_ROOT" rev-parse --git-common-dir 2>/dev/null |
+			sed -e "s#^\.\./\.\.#${FACTORY_ROOT}#" || printf '')
+	case "$gitdir" in
+	*/.git) primary=${gitdir%/.git} ;;
+	*) primary=$FACTORY_ROOT ;;
+	esac
+	printf '%s\n' "$(dirname -- "$primary")/wt"
+}
+
+FACTORY_TREES=${FACTORY_TREES:-$(factory_trees_default)}
 
 # Cadences, seconds. A unit waiting on a reviewer is re-poked at most this often; the timer
 # itself may fire far more often, because a wait-state tick spends no model tokens.
@@ -317,9 +338,23 @@ factory_worktree() {
 		printf '%s\n' "$path"
 		return 0
 	fi
-	git -C "$main" worktree add --track -b "$branch" "$path" "origin/$branch" 2>/dev/null ||
-		git -C "$main" worktree add "$path" --branch "$branch" origin/main ||
-		die "could not create a worktree for $branch at $path"
+	# Options before the path, in both attempts. `git worktree add "$path" --branch "$branch"
+	# origin/main` -- which is what this line used to be -- is not a command line git accepts: options
+	# after the positional path are rejected, and the `2>/dev/null` on the first attempt threw away the
+	# usage dump that was the entire diagnosis. Measured on the first timer-driven pass: all three ticks
+	# died here in under two seconds, because a worktree is only *created* for the new-branch case, and
+	# every unit that needed one is an issue.
+	if ! git -C "$main" worktree add --track -b "$branch" "$path" "origin/$branch" \
+			>"$FACTORY_LOG/worktree.log" 2>&1; then
+		# No such branch on origin, which is the normal case for an issue: cut it from origin/main.
+		# Both attempts land in the log, because only the second message distinguishes "already checked
+		# out in another worktree" from "the repository is locked" -- and both need reading after the
+		# fact, when the tree is gone.
+		if ! git -C "$main" worktree add -b "$branch" "$path" origin/main \
+				>>"$FACTORY_LOG/worktree.log" 2>&1; then
+			die "could not create a worktree for $branch at $path; see $FACTORY_LOG/worktree.log"
+		fi
+	fi
 	printf '%s\n' "$path"
 }
 

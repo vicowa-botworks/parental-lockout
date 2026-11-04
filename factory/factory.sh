@@ -364,11 +364,11 @@ factory_tick() {
 
 	if [ -z "$branch" ]; then
 		log_event "TICK-SKIPPED $unit no branch to work on"
-		return 4
+		return 5
 	fi
 	if ! tree=$(factory_worktree "$branch"); then
 		log_event "TICK-SKIPPED $unit no worktree for $branch"
-		return 4
+		return 5
 	fi
 	if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
 		log_event "TICK-HALTED $unit $tree is dirty from an earlier run; refusing to work in it"
@@ -427,7 +427,7 @@ factory_body() {
 	# recorded in triage.sh -- a tab is IFS whitespace and `read` would collapse an empty field and
 	# slide every column after it one place left.
 	rows=$(printf '%s\n' "$rows" | tail -n +2)
-	log_event "PASS units=$(printf '%s\n' "$rows" | grep -c . || true) dry=$DRY_RUN budget=${FACTORY_BUDGET}s"
+	log_event "PASS units=$(printf '%s\n' "$rows" | grep -c . || true) dry=$DRY_RUN budget=${FACTORY_BUDGET}s root=$FACTORY_ROOT trees=$FACTORY_TREES"
 
 	local workable='' unit key class detail branch issue
 	while IFS=$'\037' read -r unit key class detail branch issue; do
@@ -500,12 +500,19 @@ factory_body() {
 			started=$((started + 1))
 			continue
 		fi
-		if factory_tick "$bclass" "$bkey" "$bdetail" "$bbranch" "$bissue"; then
+		# `started` counts ticks that actually ran, not attempts. A unit whose worktree could not be
+		# created did no work and must not eat one of the three slots -- otherwise one broken unit
+		# starves the whole queue for the pass while the journal claims three ticks ran, which is
+		# precisely what the first timer pass did before this was split out.
+		factory_tick "$bclass" "$bkey" "$bdetail" "$bbranch" "$bissue"
+		case $? in
+		0) started=$((started + 1)) ;;
+		5) log_event "NOT-STARTED $bclass:$bkey ran nothing, so the tick budget is unchanged" ;;
+		*)
 			started=$((started + 1))
-		else
 			rc=4
-			started=$((started + 1))
-		fi
+			;;
+		esac
 		now=$(date -u +%s)
 	done < <(printf '%s\n' "$ranked" | sort -t$'\037' -k1,1n -k2,2n -k3,3n)
 
