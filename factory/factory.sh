@@ -157,20 +157,29 @@ factory_request_review() {
 		factory_maybe_notice "pr:$pr" awaiting_review
 		return 0
 	fi
-	# GitHub answers 422 when that reviewer is already requested. That is the state wanted, not a
-	# failure to report, but it must not be counted as a fresh request either -- so the two are
-	# logged differently and the ledger is stamped in both cases, which is what keeps the throttle
-	# honest.
+	# `gh pr edit --add-reviewer` does not work on this account, and the failure is silent unless the
+	# exit code is watched: it exits 1 and its only stderr is
+	# `GraphQL: Projects (classic) is being deprecated … (repository.pullRequest.projectCards)`,
+	# because the CLI's pull-request update query still selects `projectCards`. Measured on #217 and
+	# three others on 4 Nov: every one exited 1 and left `/requested_reviewers` empty. So the request
+	# goes to the REST endpoint the docs give for it, which is also the endpoint this script reads back
+	# -- one route for writing and reading the same fact, so the two cannot disagree.
 	if [ "$DRY_RUN" = "1" ]; then
-		printf 'DRY-RUN  gh pr edit %s --add-reviewer %s\n' "$pr" "$FACTORY_REVIEWER"
+		printf 'DRY-RUN  gh api -X POST repos/%s/%s/pulls/%s/requested_reviewers -f reviewers[]=%s\n' \
+			"$FACTORY_OWNER" "$FACTORY_NAME" "$pr" "$FACTORY_REVIEWER"
 		log_event "WOULD-POKE pr:$pr request review from $FACTORY_REVIEWER"
 		return 0
 	fi
-	if run_action gh pr edit "$pr" --add-reviewer "$FACTORY_REVIEWER"; then
+	if run_action gh api -X POST "repos/$FACTORY_OWNER/$FACTORY_NAME/pulls/$pr/requested_reviewers" \
+		-f "reviewers[]=$FACTORY_REVIEWER" --silent; then
 		factory_ledger_now "pr:$pr" last-poke
 		log_event "POKED pr:$pr requested review from $FACTORY_REVIEWER"
 		return 0
 	fi
+	# GitHub answers 422 when that reviewer already holds a request, and 404 when the name resolves to
+	# nobody. The first is the state wanted and must not be reported as a failure -- but it must not be
+	# counted as a fresh request either, so the two are logged differently. Both stamp the ledger, which
+	# is what keeps the throttle honest and stops a bad username being retried every ten minutes.
 	if gh api "repos/$FACTORY_OWNER/$FACTORY_NAME/pulls/$pr/requested_reviewers" \
 		--jq '[.users[].login] | index($who) != null' --raw-field who="$FACTORY_REVIEWER" \
 		2>/dev/null | grep -q true; then
@@ -179,7 +188,8 @@ factory_request_review() {
 		factory_maybe_notice "pr:$pr" awaiting_review
 		return 0
 	fi
-	log_event "POKE-FAILED pr:$pr gh pr edit --add-reviewer failed"
+	factory_ledger_now "pr:$pr" last-poke
+	log_event "POKE-FAILED pr:$pr $FACTORY_REVIEWER could not be requested (404 means the username is wrong; FACTORY_REVIEWER is the override)"
 	return 1
 }
 

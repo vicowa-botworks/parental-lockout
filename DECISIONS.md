@@ -176,3 +176,20 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   already unblocked: four review requests and one merge need no tick and no merged skill file.
 - Checkpoint: c8da095c350d472dab540579538eb5d8bc85bdbe
 - Effect: factory/install-timer.sh
+
+## D-0010 · Request the review through REST, not `gh pr edit --add-reviewer`
+
+- Question: which command asks a human for a review?
+- Options: `gh pr edit --add-reviewer` | REST `POST /pulls/N/requested_reviewers` | leave it to the
+  reviewer's own notification rules
+- Chose: REST `POST /pulls/N/requested_reviewers`
+- Why: the CLI verb is broken on this account and fails *quietly in the log, loudly in the exit code*.
+  Measured on 4 Nov while opening #217: `gh pr edit 217 --add-reviewer hermesvicowa` exited 1 with
+  nothing but `GraphQL: Projects (classic) is being deprecated …
+  (repository.pullRequest.projectCards)` on stderr, and `/requested_reviewers` stayed empty; the REST
+  POST on #217, #214, #212 and #209 all returned the reviewer and read back as requested. The whole
+  reason `needs_reviewer` exists is that nothing had ever asked, so a poke path that silently does
+  nothing rebuilds the original bug with a log line claiming otherwise. Writing and reading the same
+  fact through one route is also what keeps the two from disagreeing.
+- Checkpoint: 6ac22d91504b0f4be7f2fb2f9c76c46da358972e
+- Effect: factory/factory.sh (`factory_request_review`)
