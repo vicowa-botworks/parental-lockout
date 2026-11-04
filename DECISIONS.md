@@ -52,3 +52,28 @@ kept; nothing here renumbers anything.
 - Checkpoint: 3b32af6e1d3424eb6f628575630de3b81f912e22
 - Effect: internal/web/static/app.css (the `input, select, textarea` typeface rule and the
   typed-control width model, replacing `input[type="text"]`), DECISIONS.md
+
+## D-0012 · The stylesheet reaches a tick box's words with `:has()`, not with a class
+
+- Question: the enforcement pair, the transport trio, the seven day boxes, the all-day box and the
+  enabled box all need their control kept with its own words. How does the stylesheet find them --
+  by what they contain, or by a hook added to the markup at every site?
+- Options: one `:has()` rule on a label that holds a radio or checkbox as its own child | a class on
+  every toggle group in the templates, selected by the class | restructure the markup so each option
+  is a block-level container of its own
+- Chose: one `:has()` rule on a label that holds a radio or checkbox as its own child
+- Why: the third is refused by what it does to the day picker -- seven day boxes want to flow and
+  wrap as a grid, and one option per line is a column of seven rows. The second is the shape D-0011
+  rejected for the type list, in a new place: a class is a list of sites somebody has to remember,
+  and this repository already has markup hooks that nothing styles (`class="opt"` on the account
+  row's labels appears in no rule at all), which is what a forgotten site looks like -- quiet. The
+  `:has()` rule touches one file rather than four, and the thing a class was bought for -- a hook a
+  browserless grep can pin -- is replaced by something stronger: the capture driver asks the browser
+  for the computed `display` of every wrapping label on every photographed page, so a selector the
+  engine drops is a refusal rather than an assumption. What the second option keeps that this one
+  gives up: it would render the same way on a browser with no `:has()`. That browser gets the layout
+  this file had before the rule either way, which is the same degradation the `overflow-wrap` pair
+  at the top of the file is designed for, and it is not a browser any measurement in this repository
+  can make.
+- Checkpoint: 6743b8eb5db5cfe1cce57f47706333b68034df13
+- Effect: internal/web/static/app.css (the `label:has(> input:is(…))` grouping rule), DECISIONS.md

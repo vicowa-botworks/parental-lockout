@@ -196,6 +196,40 @@ textarea {
 	box-sizing: border-box;
 }
 
+/* A tick box travels with its own words (#202).
+
+   Every radio and checkbox in this UI is written `<label><input> On — enforce the schedule</label>`
+   -- the control inside the label that names it, so the whole phrase is clickable. An inline-level
+   label breaks at any space, so at the artifact viewport the enforcement pair could wrap with the
+   box stranded at the end of a line and its sentence beginning the next, and nothing separated one
+   option from the next: `On — enforce the schedule` / `Off — stop locking everyone out` ran to the
+   right edge as one undifferentiated run of text. Making each label a single atomic inline-level
+   box means the box and the words belonging to it wrap together, in every group at once -- the
+   enforcement pair, the three transport positions, the seven day boxes on a rule form, the all-day
+   box, the enabled box on an account row.
+
+   `display: inline-flex` swallows the whitespace between the control and its text -- a
+   whitespace-only run generates no flex item -- so the gutter between them is `gap`, declared
+   rather than left to a space character that the next edit might not leave behind. The right margin
+   is what separates one option from the next, and the block-axis padding is what gives a wrapped
+   group any vertical rhythm: a block-axis *margin* on an inline-level box does not move the line it
+   sits on, while padding makes the box taller and the line box taller with it.
+
+   `:has()` is load-bearing here -- a label is only a choice group because of what is inside it, and
+   the templates carry no class that says so -- and it is measured rather than trusted. A selector a
+   browser has never heard of is dropped without a word and leaves the page exactly as it was, so
+   `require_choice_groups` in testing/capture/cdp.py asks the browser, on every photographed page,
+   what the computed `display` of every wrapping label actually is. A browser that drops the rule
+   gets the layout this file had before it, which is the same fallback the two-value `overflow-wrap`
+   pair near the top of this file relies on. */
+label:has(> input:is([type="radio"], [type="checkbox"])) {
+	display: inline-flex;
+	align-items: baseline;
+	gap: .4rem;
+	margin-right: 1.1rem;
+	padding-block: .15rem;
+}
+
 button {
 	font: inherit;
 	padding: .35rem .8rem;
