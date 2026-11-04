@@ -487,11 +487,11 @@ factory_body() {
 			continue
 		fi
 		if [ "$started" -ge "$FACTORY_MAX_TICKS" ]; then
-			log_event "DEFERRED $bclass:$bkey the pass already started $started tick(s) (max $FACTORY_MAX_TICKS)"
+			log_event "DEFERRED $bclass:$bkey tick cap: started=$started of max=$FACTORY_MAX_TICKS"
 			continue
 		fi
 		if [ "$started" -gt 0 ] && [ "$now" -ge "$end_at" ]; then
-			log_event "DEFERRED $bclass:$bkey the pass budget of ${FACTORY_BUDGET}s is spent; the next activation is earlier than it would otherwise be, which is the point of the timer"
+			log_event "DEFERRED $bclass:$bkey pass budget ${FACTORY_BUDGET}s spent at $((now - started_at))s; the next activation picks this up, which is the point of the timer"
 			continue
 		fi
 		log_event "NEXT $bclass $bkey age=${_age}s ($bdetail)"
@@ -509,7 +509,15 @@ factory_body() {
 		now=$(date -u +%s)
 	done < <(printf '%s\n' "$ranked" | sort -t$'\037' -k1,1n -k2,2n -k3,3n)
 
-	[ "$started" -gt 0 ] || log_event "IDLE no unit needs a model this pass"
+	# "IDLE" means the queue was empty, not that this pass declined to work: the two read the same in
+	# the journal and mean opposite things to whoever is diagnosing a stalled queue.
+	if [ -z "$workable" ]; then
+		log_event "IDLE no unit needs a model this pass"
+	else
+		local left
+		left=$(printf '%s\n' "$workable" | grep -c . || true)
+		log_event "QUEUED $left unit(s) remain after $started tick(s); nothing was idle"
+	fi
 
 	log_event "END rc=$rc ticks_started=$started"
 	printf '\nfactory: %s tick(s), rc=%s. Journal: %s\n' "$started" "$rc" "$FACTORY_LOG/supervisor.log"
