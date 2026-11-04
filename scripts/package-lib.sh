@@ -49,9 +49,12 @@ pkg_version() {
 # gets a placeholder rather than an error.
 #
 # A checkout between releases is NOT this arm, though this comment used to say it was. The tag
-# is reachable there, so is_tagged is true and the version is built on the release: main, ten
-# commits past v0.1.0, packages as 0.1.0+10.geecf24a and installs OVER v0.1.0, not under it.
-# docs/releases.md's version table carries all three states, pinned to this file.
+# is reachable there, so is_tagged is true and the version is built on the release: the tree at
+# eecf24a -- ten commits past v0.1.0, which is where this page's example was measured -- packages as
+# 0.1.0+10.geecf24a and installs OVER v0.1.0, not under it. The commit is named rather than "main",
+# because main is a moving count: it was nine commits at the time this sentence was first written,
+# and no guard can keep a present-tense number about a branch current. docs/releases.md's version
+# table carries all three states, pinned to this file.
 #
 # The obvious test, "does it start with a digit", is wrong: `git describe --always` falls
 # back to the short sha, and half of all shas start with a digit. So the question is asked

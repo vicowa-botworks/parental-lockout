@@ -45,12 +45,20 @@ the version:
 | `plock version` | `plock v0.1.0 (commit …, built …)` | `plock v0.1.0-10-geecf24a (commit …, built …)` | `plock sha-abc1234 (commit …, built …)` |
 
 Three states, not two. The middle one is where an ordinary checkout of this repository lives now that
-the first tag has landed: `main` is ten commits past `v0.1.0`, `git describe` says
-`v0.1.0-10-geecf24a`, and the tag is still reachable from HEAD, so `is_tagged` takes the *tagged* arm
-and the version is built on the release. The third column is what this table used to call "an untagged
-tree", which is the wrong name for it -- no tag is reachable in a shallow clone, a fork cloned without
-tags, or a hand-set `PKG_VERSION` that is not a version, and none of those is a checkout between
-releases. Every cell is read out of `scripts/package-lib.sh` by
+the first tag has landed: the tag is still reachable from HEAD, so `is_tagged` takes the *tagged* arm
+and the version is built on the release. How far past the tag a checkout sits is not stated here, on
+purpose: that count moves on every merge, this repository can only merge with a merge commit, and a
+page that carried a number of the kind would be false the first time anyone read it after a merge --
+which is the sentence this table used to contain. The instance in the table is attributed instead to
+the tree it was measured on: at `eecf24a`, ten commits past `v0.1.0`, `git describe` says
+`v0.1.0-10-geecf24a`, and that pairing is checked against git itself, not against this page's memory,
+by `TestReleaseDocAttributesItsVersionInstanceToACommit`. The third column is what this table used to
+call "an untagged tree", which is the wrong name for it -- no tag is reachable in a shallow clone, a
+fork cloned without tags, or a hand-set `PKG_VERSION` that is not a version, and none of those is a
+checkout between releases. What follows the `+` is whatever that tree was handed, with no `sha-`
+prefix added by the packaging: a real tagless checkout arrives holding git's fallback answer -- its own
+bare short sha -- and prints `0.0.0+` followed by that sha, while the `sha-abc1234` in the cell is the
+third cause, a hand-set `PKG_VERSION`. Every cell is read out of `scripts/package-lib.sh` by
 `TestReleaseDocQuotesTheVersionsThePackagingProduces`, the middle and third arms through the same
 `PKG_VERSION` door the helper itself uses, so nothing here is transcribed from behaviour. The `…` in
 the last row is the build stamp, not an ellipsis for missing text: `internal/version.String` appends
