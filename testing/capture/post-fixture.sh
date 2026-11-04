@@ -32,6 +32,22 @@
 
 capture_begin "$RUN_NAME" "$RUN_PORT" "$RUN_CDP"
 
+# Declared `off`, and measured rather than copied from the driver.
+#
+# #207 put `Emulation.setScriptExecutionDisabled` in the shared session (cdp.py), so these two
+# captures run with page scripts off like the other seven, and the question the first version of this
+# line answered — "were the COMMITTED frames taken before that change?" — turns out not to need
+# answering: what a manifest may assert about a frame is what the frame proves. Measured 4 Nov, from
+# four fresh fixtures on one head: all nine artifacts reproduced the committed digests byte for byte,
+# `lock.png` b59bb2be… and `testlock.png` acc5ba4d… among them. These pixels ARE the scripts-off
+# pixels, whichever driver happened to take them, so `on` was the declaration that asserted more than
+# the frame proves -- the mistake #211 exists to refuse, in the one field that was already here.
+#
+# What #213 still owns is the re-take itself and whatever else moves the pixels; it does not own this
+# value, and #211's manifest does not wait for it. Override with PLOCK_CAPTURE_SCRIPTS=on to test a
+# frame taken with scripts running; the declaration follows the override into the manifest.
+CAPTURE_SCRIPTS="${PLOCK_CAPTURE_SCRIPTS:-off}"
+
 cat > "$CONFIG" <<JSON
 {
   "version": 1,

@@ -34,13 +34,31 @@ import time
 sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
 
+
+# Which fixture this frame is evidence about, and what the manifest calls the file.
+#
+# `manifest.py` learns the pairing by importing these two names from the driver that takes the shot.
+# A second table of the same pairs somewhere else is the thing to avoid: the update someone forgets
+# is the one that attributes one fixture's clock to another fixture's pixels, which is the failure
+# #211 refuses rather than records. The name is the run directory's name -- the one `capture_begin`
+# is given in testlock-setup.sh, which is also what `cdp.fixture("testlock")` resolves to a
+# `fixture.env` from -- so there is exactly one place that says what this fixture is called.
+#
+# It is NOT the same fixture as the five GET pages. This one starts with an empty audit trail and
+# declares its scripts condition `on` in post-fixture.sh, because the committed frame was photographed
+# before the driver turned page scripts off (#213 re-takes it); the pages fixture seeds rows and
+# declares `off`. Binding these two artifacts to `pages` because the state looks similar would have
+# the manifest assert a condition these pixels have never been taken under.
+FIXTURE = "testlock"
+ARTIFACT = "testlock"
+
 # The one event this click is allowed to write. Everything the login and the daemon's own
 # startup write lands before the mark, so it is not part of this set.
 ALLOWED = {"lock.probed"}
 
 
 def capture(name):
-    with cdp.Capture("testlock") as cap:
+    with cdp.Capture(ARTIFACT) as cap:
         s = cap.session
         target = cap.env["PLOCK_CAPTURE_TARGET"]
         trail = op.join(cap.dir, "audit.jsonl")

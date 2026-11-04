@@ -32,10 +32,14 @@ the committed artifacts is an explicit `--out docs/screenshots/360`.
 """
 import contextlib
 import importlib
+import inspect
 import io
 import json
+import os
 import os.path as op
+import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
@@ -760,6 +764,33 @@ def select_pages(mode, pages=None):
     return chosen
 
 
+def fixture_envs(pages):
+    """`runs/<fixture>/fixture.env` for each fixture the given pages belong to, in page order.
+
+    This is the whole plumbing of #211: the conditions a frame was taken under are declared by a
+    setup script, written to the run directory by `capture_env`, and the recorder can only state them
+    if the driver hands over the files that hold them.
+
+    Only fixtures whose file EXISTS are returned. `capture_env` is what writes it, so a missing file
+    means that fixture's setup script never ran in this clone, and inventing conditions for it is the
+    defect #211 closes -- the recorder then writes a manifest that claims nothing (`capture-manifest/1`)
+    and says so out loud, which is a weaker claim rather than a false one.
+
+    One path per fixture, in first-appearance order: two identical `--fixture-env` arguments make
+    `manifest.record` refuse, because a file that states the same fixture twice is either a copy left
+    in the wrong run directory or a fixture renamed halfway through.
+    """
+    seen, paths = set(), []
+    for spec in pages:
+        if spec.fixture in seen:
+            continue
+        seen.add(spec.fixture)
+        path = op.join(cdp.RUNS, spec.fixture, "fixture.env")
+        if op.exists(path):
+            paths.append(path)
+    return paths
+
+
 def main(shoot_fn=None, record_fn=None):
     # Resolved at call time rather than as a default argument. `def main(shoot_fn=shoot)` binds
     # the function object when this module is imported, so a caller that patches `pages.shoot`
@@ -894,7 +925,13 @@ def main(shoot_fn=None, record_fn=None):
     # refuses to call a refused page a fit page -- cannot be stepped over by a manifest that
     # already landed. And never on the refusal path: a manifest over a run that wrote nothing
     # would certify photographs this run did not take.
-    record_fn(out)
+    # The envs of the fixtures this run actually photographed, so each entry is stamped from the
+    # conditions its own setup script declared and not from whichever fixture happened to be asked
+    # for last. Empty when no setup script has run, which records a manifest without conditions.
+    # `shot` is this run's own list, not the directory's: the frames it photographed are the frames
+    # whose conditions are true today, and a frame whose bytes happened not to move is still a frame
+    # taken under today's fixture (#211).
+    record_fn(out, envs=fixture_envs(selected), shot=[spec.artifact for spec in selected])
     print(f"-> {op.join(out, capture_manifest.MANIFEST)}", flush=True)
     print(f"-> {out}", flush=True)
     return 0
@@ -926,7 +963,7 @@ def main(shoot_fn=None, record_fn=None):
 # page refused to run gets reported, and the needle that makes the refused artifact mean the refusal
 # its filename names. The two canaries are registered like every other rule and deliberately not
 # counted: they exist to prove the helper is not hollow.
-EXPECTED_RULES = 38
+EXPECTED_RULES = 40
 
 
 class _FakeSession:
@@ -1053,7 +1090,11 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None,
                 # what it thinks, and a self-test must not inherit an answer from whatever
                 # repository happens to sit above the temp directory. `sink` hands the caller the
                 # log, so a rule can assert the step ran -- or did not.
-                rc = main(stub, lambda out: log.append("record"))
+                # The fake recorder takes `envs` because the driver hands it the fixture envs (#211).
+                # A recorder that refuses the kwarg would be a TypeError on the success path, which is
+                # loud; the silent failure is the other direction -- main dropping `envs=` -- and that
+                # is what the self-test rule about this call site reads the source for.
+                rc = main(stub, lambda out, envs=(), shot=(): log.append("record"))
         except SystemExit as exc:
             rc = f"raised:{exc.code}"
         finally:
@@ -2175,6 +2216,68 @@ def self_test():
          the_declared_state_is_the_thing_photographed)
     rule("the audit row count is the fixture's", the_audit_row_count_is_the_fixtures)
 
+    # #211's two: the conditions a frame was taken under only reach the manifest if this driver hands
+    # over the files that state them, and both ways of losing that are silent.
+
+    def the_driver_hands_over_the_envs_of_the_fixtures_it_photographed(problems):
+        """Per-fixture, in page order, existing files only -- the three properties #211 needs."""
+        box = tempfile.mkdtemp(prefix="capture-envs-")
+        saved = cdp.RUNS
+        try:
+            cdp.RUNS = box
+            both = [next(p for p in PAGES if p.fixture == "pages"),
+                    next(p for p in PAGES if p.fixture != "pages"),
+                    next(p for p in PAGES if p.fixture == "pages")]
+            # Nothing on disk yet: a fixture whose setup script never ran contributes no path, so the
+            # recorder writes a manifest that claims no conditions instead of asserting some.
+            if fixture_envs(both) != []:
+                problems.append("fixture_envs invented a path for a fixture that never ran its "
+                                "setup script -- the recorder would then state conditions nobody "
+                                "declared, which is #211's whole objection")
+            for fixture in ("pages-noprof", "pages"):
+                d = op.join(box, fixture)
+                os.makedirs(d, exist_ok=True)
+                with open(op.join(d, "fixture.env"), "w", encoding="utf-8") as fh:
+                    fh.write("PLOCK_CAPTURE_STAMP=2026-03-18T21:34:05\n")
+            got = fixture_envs(both)
+            # One path per fixture even though `pages` appears twice in the run, and the fixture that
+            # photographed the first page comes first.
+            if [op.basename(op.dirname(x)) for x in got] != ["pages", "pages-noprof"]:
+                problems.append(f"fixture_envs returned {got}; want one path per fixture, in the "
+                                f"order the pages were selected")
+            if len(set(got)) != len(got):
+                problems.append("the same fixture env was handed over twice, and manifest.record "
+                                "refuses that on purpose")
+        finally:
+            cdp.RUNS = saved
+            shutil.rmtree(box, ignore_errors=True)
+
+    rule("the driver hands the recorder the envs of the fixtures it photographed",
+         the_driver_hands_over_the_envs_of_the_fixtures_it_photographed)
+
+    def the_conditions_are_handed_over_at_the_manifest_step(problems):
+        """The kwarg is one line long and no other rule here would notice it being deleted.
+
+        Drop `envs=` from the call and every rule above still passes: the run photographs nine pages,
+        refuses what must be refused, writes a manifest, and that manifest silently stops saying what
+        any frame was taken under -- back to the state #211 was filed about, with a green self-test.
+        So the call site is read, in the same spirit as manifest.py's Makefile-clause rule: a clause
+        whose deletion is invisible to behaviour has to be pinned where it is written.
+        """
+        body = inspect.getsource(main)
+        if "record_fn(out, envs=fixture_envs(" not in body:
+            problems.append("main no longer passes fixture_envs(...) to record_fn, so the manifest "
+                            "records no conditions for the frames this driver took")
+        if "shot=[spec.artifact for spec in selected]" not in body:
+            problems.append("main no longer passes shot=..., so a frame this run re-took under moved "
+                            "conditions keeps the conditions in the file instead of the ones it was "
+                            "just taken under -- and a fixture change would refuse its own capture")
+        if "capture-manifest/1" in body and "envs=fixture_envs" not in body:
+            problems.append("main mentions the /1 schema without handing over envs")
+
+    rule("the conditions are handed over at the manifest step",
+         the_conditions_are_handed_over_at_the_manifest_step)
+
     # Canary pair, through the same `rule` helper against its own lists: without it,
     # `rule = lambda w, b, *a: ran.append((w, 0))` reports 11 rules holding while calling none
     # of them. Same hollowing the mutation self-test probes for, same reason it exists.
@@ -2210,8 +2313,9 @@ def self_test_verdict(ran, bad):
         print(f"capture self-test: {len([n for n, k in ran if k])} of {EXPECTED_RULES} "
               "rules failed", file=sys.stderr)
         return 1
-    print(f"capture self-test: {EXPECTED_RULES} refusal rules hold "
-          "(no browser, no fixture, nothing written)")
+    print(f"capture self-test: {EXPECTED_RULES} refusal rules hold (no browser, no fixture, "
+          f"nothing written outside a temp box -- #211's env rule needs a fixture.env on disk to "
+          f"recognise, and it is built in a directory under the system temp)")
     return 0
 
 

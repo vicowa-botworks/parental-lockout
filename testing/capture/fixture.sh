@@ -130,6 +130,26 @@ CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-}"
 # `-0400`, which the audit page's declared state then refuses. That is the right place to notice.
 CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-}"
 
+# Whether the PAGE's own scripts ran while the frame was taken (#211).
+#
+# Recorded here rather than read off the driver, because it is a property of the frame and not of the
+# code: what the driver does today is not evidence about pixels somebody took earlier, and a fixture
+# that stayed silent about it would let a reader fill the gap in from `cdp.py` -- which is the defect
+# #211 closes, one layer down.
+#
+# The first version of this note claimed the two POST artifacts predated #207 and had to be declared
+# `on` until #213 re-took them. Measured 4 Nov from four fresh fixtures on one head: all nine
+# artifacts reproduced the committed digests byte for byte, `lock.png` and `testlock.png` included, so
+# those frames are the scripts-off frames and `on` was the assertion that outran the evidence. The
+# lesson is the one that governs the whole field: the pixels decide, not the provenance someone
+# inferred from which branch landed first.
+#
+# A fixture that declares nothing about this gets no `scripts` key in its manifest entry. Absent means
+# "this fixture did not choose", exactly as it does for the four optional keys above; it never means
+# `off` by default, because the whole defect #211 closes is a reader filling in a condition nobody
+# stated.
+CAPTURE_SCRIPTS="${PLOCK_CAPTURE_SCRIPTS:-off}"
+
 # capture_env
 #
 # The fixture's own answers, in one file the driver reads. Keeping the port, the account and the
@@ -153,6 +173,7 @@ capture_env() {
     if [ -n "$CAPTURE_AUDIT_ROWS" ]; then echo "PLOCK_CAPTURE_AUDIT_ROWS=$CAPTURE_AUDIT_ROWS"; fi
     if [ -n "$CAPTURE_PATH_PREPEND" ]; then echo "PLOCK_CAPTURE_PATH_PREPEND=$CAPTURE_PATH_PREPEND"; fi
     if [ -n "$CAPTURE_TZ" ]; then echo "PLOCK_CAPTURE_TZ=$CAPTURE_TZ"; fi
+    if [ -n "$CAPTURE_SCRIPTS" ]; then echo "PLOCK_CAPTURE_SCRIPTS=$CAPTURE_SCRIPTS"; fi
   } > "$ENVFILE"
   # The last line is not decoration: every line above is a condition, and the setup scripts run
   # under `set -euo pipefail` (fixture.sh is sourced, so it inherits that). A `[ -n ] && echo` list
