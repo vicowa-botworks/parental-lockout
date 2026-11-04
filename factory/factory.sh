@@ -110,6 +110,38 @@ fi
 
 # --------------------------------------------------------------------------- handlers
 
+# Which kind of unit goes first, lowest first.
+#
+# Age is the tie-break, not the primary key, and that is a deliberate reversal of a queue's usual
+# "oldest thing in the room" rule. Work that is already a pull request is nearer to merged than work
+# that is only an issue, and an unreviewed pull request is the one state where this repository has
+# measured itself going green and staying still: four of them sat for three days with an empty
+# `/requested_reviewers` list. So a red check or a conflict is worth the model before a fresh issue,
+# and an orphaned branch is worth it last -- it is work already done, so its deadline is the day
+# somebody deletes the branch, not today.
+factory_class_rank() {
+	case "$1" in
+	checks_failing | conflict | address_review) printf '0\n' ;;
+	branch_without_pr) printf '2\n' ;;
+	*) printf '1\n' ;;
+	esac
+}
+
+# Refuse to open a pull request for a ref that is a backup by its own name.
+#
+# `git for-each-ref` does not know intent, and the first pass of triage over this repository found
+# five branches with no open pull request -- `backup/audit-page-pre-rebase`, `backup/pre-rebase-66`,
+# `local/e2e-rig`, `fix/nav-marks-the-current-page` and `chore/ignore-plock-binary`. Opening a pull
+# request for the first three would be a machine deciding that a safety copy somebody kept is a
+# contribution, and the fourth is where the real work is. So a backup-shaped name is reported and
+# not worked, and the decision to turn one into a branch is left where it belongs.
+factory_refuseto_work() {
+	case "$1" in
+	backup/* | local/* | integration/* | wip/* | tmp/*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
 # A review request, at most once per FACTORY_REVIEW_POKES per pull request.
 #
 # Why this exists: `reviewRequests` was empty on #209, #212, #214 and #215 three days after they
@@ -370,6 +402,13 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 
 factory_body() {
 	local rows rc=0 started=0
+	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
+	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
+	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before
+	# opening a tick, never during one.
+	local started_at end_at now
+	started_at=$(date -u +%s)
+	end_at=$((started_at + FACTORY_BUDGET))
 	if ! rows=$("$FACTORY_DIR/triage.sh"); then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"
 		return 3
@@ -412,36 +451,55 @@ factory_body() {
 		esac
 	done <<<"$rows"
 
-	# Oldest `first-seen` wins, so a stream of new arrivals cannot starve an old unit. A unit seen
-	# for the first time sorts last, which is right: the alternative puts an unmeasured unit at the
-	# front of every pass.
+	# Oldest `first-seen` wins, so a stream of new arrivals cannot starve an old unit, and ties are
+	# broken by the lowest number because they are always tied on the first pass: every unit is
+	# stamped in the same pass, so the age test alone lets the row order decide -- and `gh pr list`
+	# answers newest first, which had this pass working the newest thing in the queue.
 	workable=$(printf '%s' "$workable" | sed -e '/^[[:space:]]*$/d')
-	local best='' best_age='' best_key='' class2 key2 detail2 branch2 issue2
+	local ranked class2 key2 detail2 branch2 issue2 unit2 age2
+	ranked=''
 	while IFS=$'\037' read -r class2 key2 detail2 branch2 issue2 unit2; do
 		[ -n "${class2:-}" ] || continue
-		local age
-		age=$(factory_age "$unit2:$(factory_slug "$key2")" first-seen)
-		if [ -z "$best_age" ] || [ "$age" -lt "$best_age" ] ||
-			{ [ "$age" -eq "$best_age" ] && [ "$key2" -lt "$best_key" ] 2>/dev/null; }; then
-			best_age=$age
-			best_key=$key2
-			best=$(printf '%s\037%s\037%s\037%s\037%s' "$class2" "$key2" "$detail2" "$branch2" "$issue2")
-		fi
+		# The id is the unit's, not the class's. Stamping `pr:215` and ranking on `conflict:215`
+		# makes every age come back as "never seen", which silently turns oldest-first into
+		# first-row-first.
+		age2=$(factory_age "$unit2:$(factory_slug "$key2")" first-seen)
+		rank2=$(factory_class_rank "$class2")
+		row2=$(printf '%s\037%s\037%s\037%s\037%s\037%s\037%s' "$rank2" "$age2" "$key2" "$class2" "$detail2" "$branch2" "$issue2")
+		ranked+="$row2"$'\n'
 	done <<<"$workable"
 
-	if [ -n "$best" ]; then
-		local bclass bkey bdetail bbranch bissue
-		IFS=$'\037' read -r bclass bkey bdetail bbranch bissue <<<"$best"
-		log_event "NEXT $bclass $bkey age=${best_age}s ($bdetail)"
+	now=$(date -u +%s)
+	while IFS=$'\037' read -r _rank _age bkey bclass bdetail bbranch bissue; do
+		[ -n "${bclass:-}" ] || continue
+		if [ "$bclass" = "branch_without_pr" ] && factory_refuseto_work "$bkey"; then
+			log_event "REFUSED branch:$bkey the name says it is a backup, not a contribution -- reported, not worked"
+			continue
+		fi
+		if [ "$started" -ge "$FACTORY_MAX_TICKS" ]; then
+			log_event "DEFERRED $bclass:$bkey the pass already started $started tick(s) (max $FACTORY_MAX_TICKS)"
+			continue
+		fi
+		if [ "$started" -gt 0 ] && [ "$now" -ge "$end_at" ]; then
+			log_event "DEFERRED $bclass:$bkey the pass budget of ${FACTORY_BUDGET}s is spent; the next activation is earlier than it would otherwise be, which is the point of the timer"
+			continue
+		fi
+		log_event "NEXT $bclass $bkey age=${_age}s ($bdetail)"
 		if [ "$DRY_RUN" = "1" ]; then
 			printf 'DRY-RUN  tick unit=%s:%s detail=%s\n' "$bclass" "$bkey" "$bdetail"
-		elif [ "$started" -lt "$FACTORY_MAX_TICKS" ]; then
-			factory_tick "$bclass" "$bkey" "$bdetail" "$bbranch" "$bissue" || rc=4
+			started=$((started + 1))
+			continue
+		fi
+		if factory_tick "$bclass" "$bkey" "$bdetail" "$bbranch" "$bissue"; then
+			started=$((started + 1))
+		else
+			rc=4
 			started=$((started + 1))
 		fi
-	else
-		log_event "IDLE no unit needs a model this pass"
-	fi
+		now=$(date -u +%s)
+	done < <(printf '%s\n' "$ranked" | sort -t$'\037' -k1,1n -k2,2n -k3,3n)
+
+	[ "$started" -gt 0 ] || log_event "IDLE no unit needs a model this pass"
 
 	log_event "END rc=$rc ticks_started=$started"
 	printf '\nfactory: %s tick(s), rc=%s. Journal: %s\n' "$started" "$rc" "$FACTORY_LOG/supervisor.log"

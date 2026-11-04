@@ -42,7 +42,7 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   bought later by lifting the scripts once they have survived a real queue -- nothing in them may
   name this repository, which is why `FACTORY_REPO` is read from `origin` and `FACTORY_REVIEWER` is
   an override.
-- Checkpoint: @CKPT@
+- Checkpoint: 122a80ee2b4a324562e8de82a025a47a6e4dae07
 - Effect: factory/factory.sh, factory/triage.sh, factory/common.sh, .opencode/skills/factory/SKILL.md
 
 ## D-0002 · Mechanical GitHub actions are bash; a model is only for judgement
@@ -58,7 +58,7 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   in the path of an irreversible action for no reason: `factory_merge` re-reads `reviewDecision`,
   `mergeable`, `mergeStateStatus` and every check from the API immediately before merging and
   refuses unless all four still say yes.
-- Checkpoint: @CKPT@
+- Checkpoint: 122a80ee2b4a324562e8de82a025a47a6e4dae07
 - Effect: factory/factory.sh
 
 ## D-0003 · Never merge unapproved; poll forever, at a relaxed interval
@@ -73,7 +73,7 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   three days invisible when this was decided, and a parked unit is invisible with a label on it. So
   the wait is unbounded and loud instead: `FACTORY_REVIEW_POKES=1800`, `FACTORY_ESCALATE_AFTER=86400`
   posts one comment a day saying what is blocking and that nothing has been parked.
-- Checkpoint: @CKPT@
+- Checkpoint: 122a80ee2b4a324562e8de82a025a47a6e4dae07
 - Effect: factory/common.sh, factory/factory.sh
 
 ## D-0004 · `question` is denied to the agent; a question becomes a logged decision
@@ -90,7 +90,7 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   #873, then refuse-rather-than-proceed, then blast radius, then reversibility, then what the
   surrounding code already does) and the escalation list for the four classes of decision that are
   not the agent's: dependencies, security semantics, publishing, deleting data.
-- Checkpoint: @CKPT@
+- Checkpoint: 122a80ee2b4a324562e8de82a025a47a6e4dae07
 - Effect: .opencode/opencode.jsonc, .opencode/skills/factory/SKILL.md
 
 ## D-0005 · One decision is one commit, and rollback is `git revert`
@@ -105,5 +105,56 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   shaped. A checkpoint commit plus one effect commit carrying a `Decision:` trailer gives the same
   power as a rewrite, forward-only: `git log --grep 'Decision: D-0007'` finds the effect, `git
   revert` undoes it, and both are visible to whoever arrives next.
-- Checkpoint: @CKPT@
+- Checkpoint: 122a80ee2b4a324562e8de82a025a47a6e4dae07
 - Effect: .opencode/skills/factory/SKILL.md
+
+## D-0006 · A ref that is a backup by its name is reported, not worked
+
+- Question: the classifier finds branches with commits and no pull request; should the supervisor
+  open a pull request for every one?
+- Options: open one for each, and let review reject it | refuse the names that say backup and report
+  them | refuse every orphaned branch and report them all
+- Chose: refuse the names that say backup and report them
+- Why: measured on the first pass over this repository, five branches had no open pull request --
+  `backup/audit-page-pre-rebase`, `backup/pre-rebase-66`, `local/e2e-rig`, `fix/nav-marks-the-current-page`
+  and `chore/ignore-plock-binary`, one of them seven commits deep. The last two are unmerged work
+  worth adopting; the first three are safety copies somebody chose to keep, and a machine turning
+  one into a contribution is a machine deciding what a person meant. The third option was rejected
+  because the seventh-commits-deep branch is exactly the thing this class exists to catch: work
+  already paid for and invisible to every queue that reads issues and pull requests.
+- Checkpoint: 122a80ee2b4a324562e8de82a025a47a6e4dae07
+- Effect: factory/factory.sh (`factory_refuseto_work`)
+
+## D-0007 · Pull-request work outranks issue work, which outranks orphaned branches
+
+- Question: within one pass, what orders the units a model is offered?
+- Options: oldest `first-seen` first, regardless of kind | work nearest to merged first, age as the
+  tie-break | whatever triage happened to return
+- Chose: work nearest to merged first, age as the tie-break
+- Why: this is a deliberate reversal of a queue's usual oldest-first rule, and it is warranted by a
+  measurement rather than by taste. `red checks` and `conflict` mean a pull request that cannot be
+  merged; `unclaimed` means work that has not started. The state this repository has actually been
+  observed stuck in is a green pull request nobody is looking at, and a red one is one edit away from
+  that. An orphaned branch is last because its work is already written and its only deadline is the
+  day somebody prunes refs. Age still decides within a kind, so #199 cannot be starved by a stream of
+  new issues, and the lowest number breaks a tie because every unit is tied on the very first pass.
+- Checkpoint: 122a80ee2b4a324562e8de82a025a47a6e4dae07
+- Effect: factory/factory.sh (`factory_class_rank`)
+
+## D-0008 · The decision log is gated inside `make verify`, and the gate pins itself
+
+- Question: what makes an unattended session actually write the log -- the gate, CI, or a pre-commit
+  hook?
+- Options: check it in `make verify` | check it only in CI | a pre-commit hook | nothing, and trust
+  the skill's instructions
+- Chose: check it in `make verify`
+- Why: a pre-commit hook is per-clone and unversioned, so a fresh worktree -- which is every worktree
+  the supervisor creates -- has no hook at all; CI checks it after the push, which is the same rule
+  arriving late enough to require another commit; and the fourth option is what every previous session
+  in this repository already demonstrated it does, which is nothing at all. `verify` is the gate this
+  repository already treats as the deliverable, and the check costs milliseconds. The gate then
+  asserts its own invocation in `verify`, because the cheapest way to pass a gate is to delete the
+  line that calls it: measured by removing both lines, and the self-test refuses with
+  `a gate whose invocation has been deleted is a suggestion`.
+- Checkpoint: @CK8@
+- Effect: scripts/check-decisions.py, Makefile
