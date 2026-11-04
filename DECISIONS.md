@@ -158,3 +158,21 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   `a gate whose invocation has been deleted is a suggestion`.
 - Checkpoint: 55b4a2041f70eee42bbc7282c59f8fbe94204bad
 - Effect: scripts/check-decisions.py, Makefile
+
+## D-0009 · Install the timer against the harness checkout, not the primary one, until this merges
+
+- Question: which checkout does the supervisor's systemd unit point at, while the harness itself is
+  still an open pull request?
+- Options: wait for the merge, then install | point the unit at the harness worktree and reinstall
+  after the merge | point it at the primary checkout and let it fail until the merge lands
+- Chose: point the unit at the harness worktree and reinstall after the merge
+- Why: the third option is the one a person gets by accident and it is the worst of the three,
+  because it fails quietly: the timer fires, systemd finds no script at the `ExecStart` path, the unit
+  exits 127, and the journal is the only place that says so -- so `install-timer.sh` now refuses when
+  `factory/factory.sh` is not executable in the target tree, rather than installing a timer that
+  looks alive. The first option leaves the queue exactly as stuck as it is today, which is the state
+  this whole change exists to end, and the merge is the one step the factory is forbidden to perform
+  on its own pull request. The second is reversible in one command and unblocks the half that is
+  already unblocked: four review requests and one merge need no tick and no merged skill file.
+- Checkpoint: c8da095c350d472dab540579538eb5d8bc85bdbe
+- Effect: factory/install-timer.sh

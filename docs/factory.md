@@ -59,46 +59,65 @@ issues and pull requests; the first run of this script found five, one of them s
 
 ## Installing it
 
-The user's own systemd instance, so nothing needs root and nothing runs on someone else's machine:
+Generate the units; do not copy them out of a README. `factory/install-timer.sh` asks the machine
+where `gh` and `opencode` actually live, derives the unit's `TimeoutStopSec` from `FACTORY_BUDGET`,
+and refuses to install anything that would fail quietly:
+
+```bash
+factory/install-timer.sh --install --dry-run     # prints both units and the systemctl commands
+factory/install-timer.sh --install
+journalctl --user -u parental-lockout-factory.service -n 50
+factory/install-timer.sh --remove                # the whole thing, reversibly
+```
+
+It installs into `~/.config/systemd/user`, so nothing needs root. What it writes, and why each line
+is there:
 
 ```ini
-# ~/.config/systemd/user/plock-factory.service
+# ~/.config/systemd/user/parental-lockout-factory.service
 [Unit]
-Description=parental-lockout delivery supervisor (one pass)
+Description=parental-lockout-factory delivery supervisor (one pass)
+Documentation=file:/home/rodney/prj/parental-lockout/docs/factory.md
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/prj/parental-lockout
-ExecStart=%h/prj/parental-lockout/factory/factory.sh
-# gh, git and opencode must all be on PATH for the *service*, which does not read your shell
-# profile. If you install opencode with an installer script, name the directory here explicitly.
-Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/home/rodney/prj/parental-lockout
+ExecStart=/home/rodney/prj/parental-lockout/factory/factory.sh
+# The unit reads none of your shell profile: name the directories gh and opencode live in.
+Environment=PATH=/home/rodney/.opencode/bin:/usr/bin:/usr/local/bin:/usr/bin:/bin
 Environment=FACTORY_REVIEWER=hermesvicowa
-# A pass can spend its whole budget; give the unit more than FACTORY_BUDGET or systemd kills a
-# tick mid-commit and the next pass finds a dirty worktree and halts.
+# Longer than FACTORY_BUDGET so systemd never kills a tick mid-commit; a killed tick leaves a dirty
+# worktree, and the next pass halts on it rather than cleaning it up.
 TimeoutStopSec=5460
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
 ```
 
 ```ini
-# ~/.config/systemd/user/plock-factory.timer
+# ~/.config/systemd/user/parental-lockout-factory.timer
 [Unit]
-Description=parental-lockout delivery supervisor, every 10 minutes
+Description=parental-lockout-factory delivery supervisor, every 10m
 
 [Timer]
+# OnUnitInactiveSec, not OnBootSec/OnCalendar: the next pass starts an interval after the previous
+# one *finished*, so a long pass cannot stack a second supervisor behind it.
 OnUnitInactiveSec=10m
 RandomizedDelaySec=2m
 Persistent=true
+AccuracySec=1m
 
 [Install]
 WantedBy=timers.target
 ```
 
+Then:
+
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now plock-factory.timer
-systemctl --user list-timers 'plock-*'
-journalctl --user -u plock-factory.service -n 50
+systemctl --user list-timers 'parental-lockout-*'
+journalctl --user -u parental-lockout-factory.service -n 50
 ```
 
 Ten minutes is not the review cadence -- a unit waiting on a reviewer is re-poked every
@@ -109,6 +128,14 @@ pass costs no model tokens: it is `gh`, `jq` and a few ledger files.
 `Persistent=true` matters: it re-runs a pass missed while the machine was off. This box is a
 workstation, not a server, and a factory that only runs while you are looking at it is the status
 quo with extra steps.
+
+**A tick needs this branch merged; the mechanical half does not.** `opencode run --agent factory`
+resolves the agent, its `deny` rules and this skill from the tree the session works in, and a worktree
+cut from an unmerged `main` has none of them -- so the tick cannot start there at all. Review
+requests, merges and conflict resolution read only the API and git, so they work from any checkout.
+That is why the first install can point at the harness branch (`DECISIONS.md` D-0009) and why
+`install-timer.sh` refuses rather than installing a unit whose `ExecStart` path does not exist: a
+timer that fires into 127 looks identical, from the outside, to a timer that is working.
 
 ## Configuration
 
