@@ -429,7 +429,7 @@ factory_body() {
 	rows=$(printf '%s\n' "$rows" | tail -n +2)
 	log_event "PASS units=$(printf '%s\n' "$rows" | grep -c . || true) dry=$DRY_RUN budget=${FACTORY_BUDGET}s root=$FACTORY_ROOT trees=$FACTORY_TREES"
 
-	local workable='' unit key class detail branch issue
+	local workable='' unit key class detail branch issue rc_tick
 	while IFS=$'\037' read -r unit key class detail branch issue; do
 		[ -n "${unit:-}" ] || continue
 		[ -n "$(factory_ledger_get "$unit:$(factory_slug "$key")" first-seen)" ] ||
@@ -504,8 +504,12 @@ factory_body() {
 		# created did no work and must not eat one of the three slots -- otherwise one broken unit
 		# starves the whole queue for the pass while the journal claims three ticks ran, which is
 		# precisely what the first timer pass did before this was split out.
-		factory_tick "$bclass" "$bkey" "$bdetail" "$bbranch" "$bissue"
-		case $? in
+		# `|| rc_tick=$?` and not a bare call: under `set -e` a tick that refuses to start (5) ended the
+		# whole pass on the spot, so the units behind it were never reached and the supervisor exited 5
+		# with eight units still queued -- measured on the first pass after the worktree fixes.
+		rc_tick=0
+		factory_tick "$bclass" "$bkey" "$bdetail" "$bbranch" "$bissue" || rc_tick=$?
+		case $rc_tick in
 		0) started=$((started + 1)) ;;
 		5) log_event "NOT-STARTED $bclass:$bkey ran nothing, so the tick budget is unchanged" ;;
 		*)
