@@ -77,3 +77,35 @@ kept; nothing here renumbers anything.
   can make.
 - Checkpoint: 6743b8eb5db5cfe1cce57f47706333b68034df13
 - Effect: internal/web/static/app.css (the `label:has(> input:is(…))` grouping rule), DECISIONS.md
+
+## D-0013 · The control criterion is three refusals measured through Chrome, not a grep
+
+- Question: a stylesheet defect is invisible to every Go test in the repository -- `check-mutations.py`
+  carries no mutant in a `.css` file, and no `_test.go` renders a page. Where does the criterion for
+  "every control in the page's typeface, at one width, with its tick box beside its words" run, and
+  what does it refuse?
+- Options: three refusals in `testing/capture/cdp.py`, measured through Chrome on every photographed
+  page, wired into all four drivers | a grep in `internal/web` pinning the new selectors' presence | a
+  per-control second viewport in `pages.py`, comparing each control's box at 360 px against 1024 px
+- Chose: three refusals in `testing/capture/cdp.py`, measured through Chrome on every photographed
+  page, wired into all four drivers
+- Why: the grep was already tried by this repository and its limit is written down in the file that
+  holds it -- `TestTheStylesheetPrintsTheNarrowLabels` pins `overflow-wrap: anywhere` with the comment
+  that a grep "pins presence, not effect", because the value that carries the desktop half of #140 is
+  watched by nothing that measures it. Pinning three more selectors by grep would add three more
+  strings that pass on a rule the browser refuses to understand, which is exactly the failure mode of
+  the `:has()` selector D-0012 chose. The second viewport answers a question #202 does not ask: the
+  issue's measurements are a font mismatch and a width model, not an overflow above 360 px, and #149
+  already owns that axis. A computed-style read is the only thing that can see either half of what is
+  actually at risk here -- a `:has()` rule a browser drops without a word, or a type missing from a
+  selector list -- because it reads what the engine applied rather than what the file claims. The cost
+  is stated rather than hidden: a criterion that needs Chrome is not a criterion on a machine without
+  it, so the grep is kept as well, in the same commit as the rules it pins, as the net between a live
+  capture and a green build; and on the two pages only `lock.py` and `testlock.py` photograph, the
+  guards pass having found one control each -- the chrome's Sign out button -- which is why the census
+  counts print on every measurement line instead of a silence a reader has to trust.
+- Checkpoint: bf2928c0711710f668d22cdf1182f37b6c7f8fa1
+- Effect: testing/capture/cdp.py (`CONTROLS_JS`, `require_control_font`, `require_control_width`,
+  `require_choice_groups`, `census_line`), testing/capture/pages.py (the splice, the three calls, the
+  transcript, seven self-test rules), testing/capture/lock.py, testing/capture/testlock.py,
+  internal/web/narrow_width_test.go, DECISIONS.md
