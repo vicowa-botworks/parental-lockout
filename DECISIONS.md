@@ -109,3 +109,36 @@ kept; nothing here renumbers anything.
   `require_choice_groups`, `census_line`), testing/capture/pages.py (the splice, the three calls, the
   transcript, seven self-test rules), testing/capture/lock.py, testing/capture/testlock.py,
   internal/web/narrow_width_test.go, DECISIONS.md
+
+## D-0014 · The nine frames are re-photographed in the commit that changes what they show
+
+- Question: the stylesheet fix changes what six of the nine committed 360 px frames depict, and
+  `manifest.py check` -- a step of `make verify` -- now refuses the tree because every page's pinned
+  source revision moved. Does this branch ship the stylesheet with the old evidence under it, or
+  re-photograph the artifacts?
+- Options: re-record all nine here and commit the new bytes beside the rule that refuses the old ones
+  | ship the stylesheet alone and leave the frames for a later unit | re-record only the six whose
+  pixels moved and leave the other three pinned to their old sources
+- Chose: re-record all nine here and commit the new bytes beside the rule that refuses the old ones
+- Why: the third option is not a state the gate can hold -- `check` walks every entry and every
+  page's sources have moved, so a half-recorded manifest is a refusal, not a shortcut, and a manifest
+  that certifies two different stylesheets under one `captured_at` records nothing. The second is the
+  state this repository spent three issues escaping: D-0010 measured that the nine committed frames
+  did not reproduce, and the reason #202 stayed open for nine commits is that the only artifacts which
+  could show the wrong font were the ones nobody re-photographs. What the first option costs, stated
+  rather than glossed: nine committed bytes are invalidated as a side effect of a CSS change, and the
+  frames are the very evidence that failed to catch the defect -- so the same act that makes the
+  criterion's evidence agree with the fix is also the act that would have hidden a second defect in
+  the same commit, which is why the guard landed first (D-0013) and the frames were taken from a tree
+  that already refused the old look. Two more things the record owes: `head` in the new manifest names
+  the checkpoint commit rather than the commit carrying the frames, because a capture cannot pin its
+  own commit -- already true of every manifest on main; and three of the nine come back byte-identical
+  (`lock.png`, `testlock.png`, `users-no-profiles.png`). This entry does not explain, frame by frame,
+  why a given page's pixels moved: a font change re-metrics the page around a control as well as the
+  control, so the mapping from the census to the bytes is not one-to-one, and inventing a reason per
+  frame would be worse than leaving it open. What is on the record is the census, printed per page per
+  viewport, which is what a reader can check the manifest against.
+- Checkpoint: 8b33c5045f2af647d30b0c07f53a6f3d9d72ee1b
+- Effect: docs/screenshots/360/ (six PNGs re-taken, two unchanged, manifest.json),
+  testing/capture/README.md (the three refusals in the table, the census section, the rule count),
+  DECISIONS.md

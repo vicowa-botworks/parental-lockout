@@ -1,30 +1,30 @@
 {
-  "captured_at": "2026-11-01T05:43:26Z",
-  "head": "d9d7077277c70686e494106fa9721f776398e401",
+  "captured_at": "2026-11-04T15:44:03Z",
+  "head": "8b33c5045f2af647d30b0c07f53a6f3d9d72ee1b",
   "pages": [
     {
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "717ee09510d3cfc9777774ffeac48ecb8d5fd9ca48f233c273f572769bcec8b6",
+      "png_sha256": "31d836131b488915d12b3b66314cfc5f829e3664824c245043f949b742d71977",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "f8cabdc173ce45bbdba70d7064aece7cad1b944e"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
       "page": "/",
       "png": "dashboard.png",
-      "png_sha256": "b6b106b7ca5dde5b9308d93aae3e10e15fd39a9d803979f010be7a0df1f89f01",
+      "png_sha256": "881d425095cc057965b0579e8ffb4658bd9c4b378c00f1819ea86dde19e1cd9c",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "f8cabdc173ce45bbdba70d7064aece7cad1b944e"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
       "page": "/lock",
@@ -36,43 +36,43 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "a99a2edb7cda15e4be382bc38614dedd138726ab"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
       "page": "/profiles",
       "png": "profiles-refused.png",
-      "png_sha256": "2821b2fa016c047960c035c5b790ab6e833c0a1213becf31282bfe6367581283",
+      "png_sha256": "87c1c95d630fb35bd5e852458bb297d520c0ff2025523121da1e5b2a68ea6006",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "0a42139d1e35b49365bfda72ea7e48a7d3f9f53c"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
       "page": "/profiles",
       "png": "profiles.png",
-      "png_sha256": "1f711beacea06d8d39862045b9684d9b869baf670119c7537047b7c01d6ea450",
+      "png_sha256": "fa30b0feb814efc9f85a9bf7ec87a8f715444f0ae701cb53f0b5c9531fc62565",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "0a42139d1e35b49365bfda72ea7e48a7d3f9f53c"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
       "page": "/settings",
       "png": "settings.png",
-      "png_sha256": "12e669d84b08a7b70c76674033d27ede61172fc879304f5f3bdd8e6ae6bb6e0c",
+      "png_sha256": "111bcbe18ea05306b474816d9a41a69669ad44f8c796fa56d163fffb3ae13aa4",
       "sources": [
         "internal/web/templates/settings.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "b5dbe66bb3ead962e0352b23493f37f4ca0fadfe"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
       "page": "/testlock",
@@ -84,7 +84,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "a99a2edb7cda15e4be382bc38614dedd138726ab"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
       "page": "/users",
@@ -96,19 +96,19 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "a08f190a800fd77aa9df95396cb0ce85f61c10c5"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
       "page": "/users",
       "png": "users.png",
-      "png_sha256": "c68852bdff4ecc2c1a9400d4306ab0ce2663569b5a81ab842c18c8ffa69a7cfb",
+      "png_sha256": "78b5ca788dc100441180e518598b8e206a604c1425b9d14257afe92b89c885a7",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "a08f190a800fd77aa9df95396cb0ce85f61c10c5"
+      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     }
   ],
   "schema": "capture-manifest/1",
