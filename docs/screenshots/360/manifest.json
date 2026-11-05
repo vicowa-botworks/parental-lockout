@@ -1,11 +1,11 @@
 {
-  "captured_at": "2026-11-04T15:44:03Z",
-  "head": "8b33c5045f2af647d30b0c07f53a6f3d9d72ee1b",
+  "captured_at": "2026-11-05T22:44:58Z",
+  "head": "6c497cba8f8ea343cf5add0611d26f2b19a38efb",
   "pages": [
     {
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "31d836131b488915d12b3b66314cfc5f829e3664824c245043f949b742d71977",
+      "png_sha256": "c304336d06b27f7746f14e4b29ef4d82744cccab7e121291b8c08ab1c92b9317",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
@@ -17,7 +17,7 @@
     {
       "page": "/",
       "png": "dashboard.png",
-      "png_sha256": "881d425095cc057965b0579e8ffb4658bd9c4b378c00f1819ea86dde19e1cd9c",
+      "png_sha256": "b2c907822e49be15b5b57853054b7a8f5e69bf88e9853d8aee151c33c1222e8f",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",
@@ -41,7 +41,7 @@
     {
       "page": "/profiles",
       "png": "profiles-refused.png",
-      "png_sha256": "87c1c95d630fb35bd5e852458bb297d520c0ff2025523121da1e5b2a68ea6006",
+      "png_sha256": "17f76100340a86815129a813ba58935d07587981c1fcdc80ab5943df3c6150ec",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
@@ -53,7 +53,7 @@
     {
       "page": "/profiles",
       "png": "profiles.png",
-      "png_sha256": "fa30b0feb814efc9f85a9bf7ec87a8f715444f0ae701cb53f0b5c9531fc62565",
+      "png_sha256": "48e10e29d2ff2a389d2ce45ef5cc44043b001decd69e1395338a98560214178e",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
@@ -101,7 +101,7 @@
     {
       "page": "/users",
       "png": "users.png",
-      "png_sha256": "78b5ca788dc100441180e518598b8e206a604c1425b9d14257afe92b89c885a7",
+      "png_sha256": "55120c4347b6b6d428c6c7ed0df616cfec4bf3bd86f125a3131b20d12cacd38a",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",

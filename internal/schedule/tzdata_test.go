@@ -452,6 +452,20 @@ func TestFastPathNeverDisagreesWithTheExhaustivePath(t *testing.T) {
 									z, ay, amo, ad, min/60, min%60, last,
 									got.UTC().Format(time.RFC3339), want.UTC().Format(time.RFC3339))
 							}
+							// Agreeing about the instant is not agreeing. Equal ignores
+							// location, and every caller prints the location it is
+							// handed — wallClock in internal/dashboard is
+							// t.Format("15:04") — so the oracle has to compare the zone
+							// as well, or it stays blind to the one way the exhaustive
+							// path currently differs: it builds its candidates in UTC
+							// and used to hand that back as the answer's zone. The
+							// names are compared rather than the pointers, because two
+							// Loads of one zone are not the same object.
+							if gl, wl := got.Location().String(), want.Location().String(); gl != z || wl != z {
+								t.Fatalf("%s %04d-%02d-%02d %02d:%02d last=%v: fast path returns %s in %s, exhaustive returns %s in %s, both want %s",
+									z, ay, amo, ad, min/60, min%60, last,
+									got.Format(time.RFC3339), gl, want.Format(time.RFC3339), wl, z)
+							}
 						}
 					}
 				}

@@ -363,3 +363,63 @@ func TestBuildNeverInventsAFailedRead(t *testing.T) {
 		t.Error("an empty session list produced sessions")
 	}
 }
+
+// The number on the row is the one a parent acts on, and the value behind it used
+// to arrive in two different zones: the schedule resolver builds its candidates in
+// UTC, and wallClock prints the zone it is handed. On the fall-back day itself, and
+// the day before it, a window whose end sits within 27h of the change was therefore
+// announced as "until 05:00" for a rule that said midnight — in America/New_York, on
+// 2026-11-01. The instant underneath was right all along, which is why the row's
+// class, the enforcement loop, and every Equal and Before comparison in the engine
+// kept working while the sentence lied.
+//
+// The web layer's countdown is built from EndsAt.Unix() and so never showed this.
+// Nothing else renders the verdict's clock, so this is the assertion that stands
+// between the resolver's zone and a parent's evening.
+func TestTheClockShownIsTheClockInTheProfilesZone(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v — is the tzdata package installed?", err)
+	}
+	c := config.Default()
+	c.Profiles = []config.Profile{{
+		ID: "school", Name: "Every day", Timezone: "America/New_York",
+		Rules: []config.Rule{{ID: "r1", Name: "All day", Days: config.DayNames,
+			AllDay: true, Enabled: true}},
+	}}
+	c.Users = []config.User{casey(true)}
+
+	// 2026-11-01 is the US fall-back day. Both probes are days the fast path
+	// declines: the window's end is 24h and 48h from the clock change, inside the
+	// 27h either side of it the resolver needs to prove nothing moved.
+	for _, day := range []string{"2026-11-01", "2026-10-31"} {
+		now, err := time.Parse("2006-01-02 15:04", day+" 12:00")
+		if err != nil {
+			t.Fatal(err)
+		}
+		now = now.In(ny)
+		v := Build(c, nil, platform.SelfLocation{}, now)
+		r := row(t, v, "casey")
+		if !r.LockedOutNow {
+			t.Fatalf("%s: an all-day rule reports not held", day)
+		}
+		if r.EndsAtClock != "00:00" {
+			t.Errorf("%s: the cell renders %s for %s, want the midnight the rule was written",
+				day, r.EndsAtClock, r.EndsAt.Format(time.RFC3339))
+		}
+		if !strings.Contains(v.Banner, "until 00:00") {
+			t.Errorf("%s: the banner is %q, want it to name the midnight the rule was written",
+				day, v.Banner)
+		}
+		// The instant is the other half of the claim, so that a value rendered as
+		// midnight but pointing at the wrong hour cannot pass. Nov 2 2026 is a
+		// normal EST day: midnight there is 05:00 UTC.
+		wantEnd := time.Date(2026, 11, 2, 5, 0, 0, 0, time.UTC)
+		if day == "2026-10-31" {
+			wantEnd = time.Date(2026, 11, 1, 4, 0, 0, 0, time.UTC)
+		}
+		if !r.EndsAt.Equal(wantEnd) {
+			t.Errorf("%s: EndsAt = %s, want %s", day, r.EndsAt.Format(time.RFC3339), wantEnd)
+		}
+	}
+}

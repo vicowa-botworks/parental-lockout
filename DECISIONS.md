@@ -142,3 +142,59 @@ kept; nothing here renumbers anything.
 - Effect: docs/screenshots/360/ (six PNGs re-taken, two unchanged, manifest.json),
   testing/capture/README.md (the three refusals in the table, the census section, the rule count),
   DECISIONS.md
+
+## D-0015 · A conflicted frame is re-photographed under both drivers, not chosen between
+
+- Question: `origin/main` (3b2f594) and this branch each re-photographed the same five 360 px frames
+  and each spliced a new census into `shoot()` -- #202 the three control claims, #207 the declared
+  state and the audit row count. `git merge` reports CONFLICTING on six paths (`audit`, `dashboard`,
+  `profiles`, `profiles-refused`, `users`, `manifest.json`) plus a content conflict in
+  `EXPECTED_RULES`. Which side's bytes, and which side's checks?
+- Options: this branch's five frames with main's guards spliced in | main's five frames with this
+  branch's guards spliced in | one side taken wholesale, code and artifacts together | re-photograph
+  the set against the merged tree with both censuses wired in
+- Chose: re-photograph the set against the merged tree with both censuses wired in, and make
+  `EXPECTED_RULES` the union -- 36 + 7 (#202) + 2 (#207) = 45, one tally comment instead of two
+- Why: the first two options are the same mistake aimed at opposite ends of the criterion. Main's
+  five frames are the pre-#202 stylesheet -- controls in the browser's own Arial beside 16 px
+  system-ui, `/settings` sizing its fields three ways on one page -- so committing them re-files the
+  exact defect #202 was opened for under the filenames the criterion calls its evidence. This
+  branch's five are the pre-#207 fixture: a trail seeded at `datetime.now()`, a Sessions cell read
+  from this machine's `loginctl`, a row count that is whatever the file happened to hold -- the three
+  conditions `require_declared_state` and `require_declared_rows` now name and refuse. Either choice
+  commits bytes the driver in the same commit cannot reproduce, and "a screenshot with no driver
+  behind it is an assertion nobody can re-run" is this folder's founding sentence (#108, restated by
+  D-0010). The measurement settled it before the tie-break was needed: none of the five came back
+  from the merged driver matching either side -- all five moved to new bytes. What proves the re-take
+  faithful rather than merely new is the control it produced: `settings.png`, the one frame this
+  branch moved and main did not, came back byte-identical to this branch's committed file
+  (`111bcbe1…`), so the merged fixture's clock, census, reader zone and declared state did not move
+  that page, and each side's movement stays attributable to the change that caused it. The tie-break
+  order says the same thing from the other side: nothing separates on `go.mod` (neither side adds a
+  dependency) or on files touched (six conflicted paths either way); "refuses rather than proceeds"
+  picks the re-take, because it is the only option under which both new refusals are live over the
+  committed bytes; and the surrounding code already re-takes rather than re-labels -- #207 re-took six
+  frames for a fixture change, D-0014 for a stylesheet change.
+
+  What this costs, stated rather than glossed. The manifest re-records all nine entries, so
+  `lock.png` and `testlock.png` -- not re-taken here, because re-taking them locks the capturing
+  machine's session for real and that is #213's decision, not a step in this one -- come out with
+  `sources_rev` at this branch's stylesheet commit over bytes that are still pre-#202 and still taken
+  with page scripts running. `manifest.py check` is blind to exactly that: `record` writes the newest
+  commit over the sources into `sources_rev`, and `check` returns early when `recorded == current`
+  (`testing/capture/manifest.py:360`), so re-recording a manifest launders an untouched frame's date.
+  A green `screenshot manifest` step after this merge is therefore no evidence about those two, and
+  nobody should read it as such. Two more things belong on the record: the merged `shoot()` runs
+  main's state and row-count guards on the artifact pass and the three control claims at both
+  viewports, and both fired on the real run -- `trail: 1 appended row(s) re-stamped to
+  2026-03-18T21:34:05-04:00; 8 rows, the fixture's declared count`, `reader zone:
+  TZ=America/New_York for the daemon`, `/profiles … controls=42 typed=14 groups=16` -- so the union is
+  wired and not merely concatenated; and the README's re-capture recipe predates #207's
+  one-row-per-fixture rule, which is why this merge re-seeds before it takes (typed without its
+  `pages-setup.sh` the driver exited 1 on `this fixture declares 8 rows on the page and the trail
+  holds 9`).
+- Checkpoint: 6c497cba8f8ea343cf5add0611d26f2b19a38efb
+- Effect: docs/screenshots/360/ (the five conflicted frames re-taken against the merged tree, four
+  unchanged, `manifest.json` re-recorded), testing/capture/pages.py (`EXPECTED_RULES` 45 and the
+  merged tally comment), testing/capture/README.md (the rule count, the re-seed step in the
+  re-capture recipe), DECISIONS.md
