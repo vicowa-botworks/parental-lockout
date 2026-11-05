@@ -105,6 +105,85 @@ def require_stress_row(got, what):
             "capture would be evidence about this box, not about the stylesheet (#140).")
 
 
+# The row census, in the shape the state checks below read: one entry per `table.rows` body row,
+# each `[row-head, [cell text, ...]]`. `textContent`, not `innerText`, for the same reason the token
+# census above takes it — innerText is the rendered text, so a cell that wraps correctly is exactly
+# the thing that could hand back something the declaration does not match. Whitespace is collapsed
+# because the templates indent their markup: the dashboard's `<time>` element sits on its own line,
+# and the When cell is `\n 2026-03-18 21:34:05 EDT\n`, which is the same *text* and not the same
+# string. The head is empty for a table with no `<th>` per row, which is what the audit page is.
+ROWS_JS = ("rows:[...document.querySelectorAll('table.rows tbody tr')].map(tr=>["
+           "[...tr.querySelectorAll('th')].map(e=>e.textContent.trim())[0]||'',"
+           "[...tr.querySelectorAll('td')].map(e=>e.textContent.replace(/\\s+/g,' ').trim())])")
+
+
+def require_declared_state(got, spec, what):
+    """Every cell this artifact is a photograph *of* has to say what the fixture declares.
+
+    The dashboard's row text is a branch: `locked out until`, `scheduled, not enforced`, `not now;
+    next at`, `nothing scheduled` (internal/web/templates/dashboard.tmpl:36-55), chosen by
+    `schedule.Evaluate(p, now)`. Before #207 nothing said which branch had been taken, so the same
+    fixture photographed a different *page* on Sunday at 22:00 than on Wednesday at 14:00 and both
+    runs published a file named dashboard.png that was current and honest and different. That is not
+    a flaky test — it is a criterion that was never pinned to a state, and the frame was the thing
+    that quietly varied.
+
+    So the state is declared here, in the same table as the URL and the artifact name, and a page
+    that renders anything else is refused rather than committed. The refusal is the point: a capture
+    taken outside the state this fixture can hold has to report, because the alternative is a third
+    page arriving under a name that already means something else.
+
+    A pair is `("row to look at", "a cell in that row, exactly").` The first half is matched against
+    any cell or the row head, because the account name is a `<th>` on the dashboard and a `<td>`
+    nowhere; the second half has to equal a cell in the same row, which is what makes it a claim
+    about *that account's* clock rather than about the page containing both strings somewhere.
+    """
+    rows = got.get("rows")
+    if not rows:
+        raise SystemExit(
+            f"{what}: no row census came back, so nothing can be checked against the state this "
+            "artifact declares. An empty table fits at any width, which is exactly why a fit is not "
+            "the check being made here (#207).")
+    for needle, want in spec.state:
+        hit = next((r for r in rows if needle in r[0] or any(needle == c for c in r[1])), None)
+        if hit is None:
+            raise SystemExit(
+                f"{what}: no row mentions {needle!r}, so this page is not the page this artifact "
+                f"declares. Rendered rows: {[r[0] or r[1][:1] for r in rows]} (#207).")
+        if want not in hit[1]:
+            raise SystemExit(
+                f"{what}: the {needle!r} row says {hit[1]!r}, and this artifact is a photograph of "
+                f"the state where it says {want!r}. The fixture or the clock has moved; either way "
+                "the photograph would be of a state nothing declares (#207).")
+
+
+def require_declared_rows(got, spec, declared, what):
+    """The audit page shows the number of rows the fixture declared, and not one more.
+
+    The mechanism this closes is a run counter wearing a photograph's clothes. Signing in over HTTP
+    writes `auth.success` into the same trail the page photographs (internal/web/handlers.go:150), so
+    every capture appends a row, and a row is ~254 px: the committed audit.png had reached 360x15004
+    while a fixture built from nothing rendered 2936 px, which is 92% of Chromium's capture surface
+    and nothing to do with the stylesheet (#207 cause 2, and #144's height bound).
+
+    `cdp.pin_appended_rows` checks the file. This checks the *page*, which is the thing in the
+    photograph: a reader of the artifact is counting rows on paper, and the two can disagree when the
+    reader and the writer disagree about how many rows a trail holds — a Tail limit, a malformed line
+    the reader drops, a template that starts repeating a row. Checking only the file would let that
+    through with a caption about the trail.
+
+    `declared` comes from the fixture, not from this file: the number of rows is a property of the
+    document that was seeded, and a second home for it here would be a number that goes stale the day
+    somebody seeds a row.
+    """
+    shown = len(got.get("rows") or [])
+    if shown != declared:
+        raise SystemExit(
+            f"{what}: the page renders {shown} rows and the fixture declared {declared}. The height "
+            "of this artifact is that number, which is how it came to be a run counter in the first "
+            "place — so the mismatch is refused rather than photographed (#207).")
+
+
 def require_unbreakable(got, what):
     """#140's rule: the audit page is only evidence about width if it was handed something that
     cannot be wrapped.
@@ -179,10 +258,18 @@ DEFAULT_FIXTURE = "pages"
 
 class Page:
     def __init__(self, url, artifact, has_rows, stress=False, refuse=None,
-                 fixture=DEFAULT_FIXTURE, needles=()):
+                 fixture=DEFAULT_FIXTURE, needles=(), state=(), declares_rows=False):
         self.url, self.artifact = url, artifact
         self.has_rows, self.stress = has_rows, stress
         self.refuse = refuse
+        # The state this artifact is a photograph *of*, as `(row, exact cell text)` pairs, and whether
+        # the page's row count is checked against the fixture's declared count. Both exist because a
+        # page is a branch and not a constant: the same fixture, honestly built, renders a different
+        # document at another hour, and a driver with nothing to say about which one it took will
+        # commit either (#207 causes 1, 2, 5 and 6). `needles` above asks whether a page is the right
+        # *document*; these ask whether it is the right *reading* of it.
+        self.state = tuple(state)
+        self.declares_rows = declares_rows
         # Which FIXTURE this artifact is evidence about. Most pages are photographed from the one
         # document `pages-setup.sh` builds; `pages-noprof` is a different daemon on a different
         # document, because its page is a property of the document and not of a POST (#198). The
@@ -247,7 +334,28 @@ class Refusal:
 
 
 PAGES = [
-    Page("/", "dashboard", True),
+    # The state, declared in the same breath as the URL and the artifact name. Every cell below was
+    # read off a fresh fixture on this branch, and each is a branch that would otherwise be decided by
+    # the hour the capture happened to run:
+    #
+    #   casey   `locked out until 00:00`  -- the held branch, from an `allDay` rule on all seven days,
+    #                                       at the midnight the rule was written with (needs #209's
+    #                                       fix to say `00:00` rather than `05:00` on a day within 27h
+    #                                       of a clock change; on a tree without it this refuses)
+    #   casey   `no desktop session`      -- an enabled, held account with no session on purpose: a
+    #                                       session here would be locked by the next tick and the lock
+    #                                       would append a row to the trail the audit page photographs
+    #   alex    `nothing scheduled`       -- a profile with no enabled rule, so it says this at every
+    #                                       hour of every day; a live curfew would say `next at 21:00`
+    #                                       by day and `nothing scheduled` at 21:30 (#207 cause 5)
+    #   alex    `x11 · seat0 · locked`    -- the census from testing/capture/bin/loginctl, not from
+    #                                       this machine's logind (#207 cause 6)
+    Page("/", "dashboard", True, state=(
+        ("casey", "locked out until 00:00"),
+        ("casey", "no desktop session"),
+        ("alex", "nothing scheduled"),
+        ("alex", "x11 · seat0 · locked"),
+    )),
     Page("/users", "users", True),
     Page("/profiles", "profiles", True),
     # The refused profile form, as its own artifact. It is a different page from /profiles as of
@@ -266,7 +374,22 @@ PAGES = [
     # #198's second use of it).
     Page("/users", "users-no-profiles", True, fixture="pages-noprof",
          needles=("There is no profile to assign yet", "Create a profile")),
-    Page("/audit", "audit", True, stress=True),
+    # `declares_rows` makes the page's own row count a claim the fixture vouches for: eight rows, the
+    # seven seeded by pages-setup.sh plus the one this run's sign-in appends (cdp.pin_appended_rows
+    # checks the file, require_declared_rows checks the photograph). Without it the height of this
+    # artifact was a tally of how many times anyone had run a driver -- 360x15004 committed against
+    # 2936 px from a fixture built from nothing (#207 cause 2).
+    #
+    # The pair pins the newest row: the event the sign-in wrote, at the instant the fixture declares,
+    # in the zone the fixture declares the reader to be in. That last part is not decoration. The When
+    # column is formatted with `MST` (internal/web/templates/audit.tmpl:86) and Go's time.Parse hands
+    # a row whose offset matches the local zone that zone's abbreviation, so the same trail prints
+    # `... 21:34:05 EDT` on one host and `... 21:34:05 -0400` on another (measured under TZ= for
+    # America/New_York, UTC and Asia/Kolkata). Declaring the reader's zone is what makes the frame
+    # repeatable; that the label is the reader's rather than the row's is a finding of its own.
+    Page("/audit", "audit", True, stress=True, declares_rows=True, state=(
+        ("auth.success", "2026-03-18 21:34:05 EDT"),
+    )),
     Page("/settings", "settings", False),
 ]
 
@@ -330,6 +453,8 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         extra += refusal_extra(action, spec.refuse.keep)
     if spec.needles:
         extra += "," + NEEDLE_JS
+    if spec.state or spec.declares_rows:
+        extra += "," + ROWS_JS
     got = cdp.measure(session, extra)
     # The viewport is a claim this function has to earn, not one its caller gets to make. `width` is
     # what was asked for; `inner` is what the browser says it laid out at. Compared here, at the
@@ -391,6 +516,16 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         # Before the width refusal and before any write: a page from the wrong fixture has nothing
         # worth measuring, and withholding the photograph is the whole point.
         require_needles(got, spec, name if width != ARTIFACT_WIDTH else spec.artifact)
+    # The state and the row count, on the artifact pass only, for the reason the #140 guards two lines
+    # below give for theirs: both are claims about the document the fixture built, not about the
+    # viewport it is later rendered at, and running them on every pass prints one wrong fixture twice
+    # and reads as two findings. Before the width refusal because a page in the wrong state overflowing
+    # or not, it is the wrong state that has to be reported first; and before any write, because a
+    # photograph of a state nothing declares is the thing this whole section exists to withhold.
+    if spec.state and width == ARTIFACT_WIDTH:
+        require_declared_state(got, spec, page)
+    if spec.declares_rows and width == ARTIFACT_WIDTH:
+        require_declared_rows(got, spec, int(cap.declared_rows()), page)
     if spec.stress and width == ARTIFACT_WIDTH:
         # Retyped rather than raised directly: these two state their own sentences and this adds no
         # words to them, it only records that the sentence is about the fixture. The type is what
@@ -791,7 +926,7 @@ def main(shoot_fn=None, record_fn=None):
 # page refused to run gets reported, and the needle that makes the refused artifact mean the refusal
 # its filename names. The two canaries are registered like every other rule and deliberately not
 # counted: they exist to prove the helper is not hollow.
-EXPECTED_RULES = 36
+EXPECTED_RULES = 38
 
 
 class _FakeSession:
@@ -1809,6 +1944,88 @@ def self_test():
                         "after a daemon and a browser are up, and nothing in this self-test would "
                         "notice at all")
 
+    def the_declared_state_is_the_thing_photographed(problems):
+        """#207: a page in another state is refused, and the same check passes on the real one.
+
+        The discrimination is the whole rule. Both readings are handed to the same `spec` -- the
+        declared `locked out until 00:00` and the `until 05:00` that #209's absent fix produces from
+        the same fixture -- so this cannot be satisfied by a check that refuses everything or by one
+        that refuses nothing. The third case is the one that used to be silently fine: a row that has
+        moved or vanished, which is what an undeclared state looks like when the fixture changes
+        under the declaration.
+        """
+        spec = next(p for p in PAGES if p.url == "/" and p.state)
+        good = {"rows": [["casey", ["locked out until 00:00", "no desktop session"]],
+                         ["alex", ["nothing scheduled", "x11 · seat0 · locked"]]]}
+        try:
+            require_declared_state(good, spec, "/")
+        except SystemExit as exc:
+            problems.append(f"the declared state refused the page it declares: {exc}")
+        drifted = {"rows": [["casey", ["locked out until 05:00", "no desktop session"]],
+                            ["alex", ["nothing scheduled", "x11 · seat0 · locked"]]]}
+        try:
+            require_declared_state(drifted, spec, "/")
+            problems.append("a dashboard saying `until 05:00` for a rule that says midnight passed "
+                            "the declared state -- which is #208's defect arriving as an artifact")
+        except SystemExit as exc:
+            if "05:00" not in str(exc) or "00:00" not in str(exc):
+                problems.append(f"the state refusal names neither the cell it saw nor the one "
+                                f"declared: {exc}")
+        try:
+            require_declared_state({"rows": [["alex", ["nothing scheduled"]]]}, spec, "/")
+            problems.append("a dashboard with no casey row passed the declared state")
+        except SystemExit as exc:
+            if "casey" not in str(exc):
+                problems.append(f"the missing-row refusal does not name the row it wanted: {exc}")
+        try:
+            require_declared_state({"rows": []}, spec, "/")
+            problems.append("an empty row census passed the declared state; an empty table fits at "
+                            "any width, which is exactly the case that must not be quiet")
+        except SystemExit as exc:
+            if "no row census" not in str(exc):
+                problems.append(f"the empty-census refusal says something else: {exc}")
+        # And the declaration is not vacuous: every pair has to be a pair, or a typo in PAGES turns
+        # the check off for that page while the page still photographs.
+        for page in PAGES:
+            for pair in page.state:
+                if len(pair) != 2 or not all(isinstance(x, str) and x for x in pair):
+                    problems.append(f"{page.artifact}: a state pair must be two non-empty strings, "
+                                    f"got {pair!r}")
+
+    def the_audit_row_count_is_the_fixtures(problems):
+        """#207: the height of audit.png is a declared number, so it cannot be a run counter.
+
+        Seven plus the sign-in is what pages-setup.sh declares today; the rule does not restate that
+        number, it asks whether a page that disagrees is refused and by how much -- 7, 8 and 9 are the
+        three ways this has actually been wrong (a dropped seed row, the fixture's own count, a second
+        sign-in in one run). The committed artifact was the 92%-of-the-capture-surface end of that
+        sequence: 15 004 px from a fixture that renders 2 936.
+        """
+        spec = next(p for p in PAGES if p.declares_rows)
+        row = ["", ["2026-03-18 21:34:05 EDT", "auth.success", "nobody", "", "parent"]]
+        for want, count, should_refuse in ((8, 8, False), (8, 7, True), (8, 9, True)):
+            got = {"rows": [list(row) for _ in range(count)]}
+            try:
+                require_declared_rows(got, spec, want, "/audit")
+                if should_refuse:
+                    problems.append(f"a page rendering {count} rows passed against {want} declared")
+            except SystemExit as exc:
+                if not should_refuse:
+                    problems.append(f"the declared count refused its own number: {exc}")
+                elif str(count) not in str(exc) or str(want) not in str(exc):
+                    problems.append(f"the count refusal names neither number: {exc}")
+        # The wiring, because a check nobody splices in is a comment with a name. `declares_rows` is
+        # what makes shoot() ask the browser for the census; without it `rows` is absent and the
+        # refusal below is the difference between a red run and a green one that measured nothing.
+        if not spec.declares_rows:
+            problems.append("/audit no longer declares its row count")
+        try:
+            require_declared_rows({}, spec, 8, "/audit")
+            problems.append("a page with no row census at all passed the row-count check")
+        except SystemExit as exc:
+            if "renders 0 rows" not in str(exc):
+                problems.append(f"the missing-census case reports something odd: {exc}")
+
     def a_page_is_recorded_where_it_is_photographed(problems):
         """The manifest's stem->url map is a projection of THIS table, in the right orientation.
 
@@ -1951,6 +2168,12 @@ def self_test():
 
     rule("a published set of PNGs is recorded in the manifest", manifest_accompanies_the_artifacts)
     rule("a refused run records no manifest", manifest_never_over_a_refusal)
+    # #207's two. Both are cheap and both are the difference between a check that exists and a check
+    # that runs: each hands the same spec the declared reading and the drifted one, so a rule that
+    # refuses everything cannot pass either.
+    rule("the declared state is the thing photographed",
+         the_declared_state_is_the_thing_photographed)
+    rule("the audit row count is the fixture's", the_audit_row_count_is_the_fixtures)
 
     # Canary pair, through the same `rule` helper against its own lists: without it,
     # `rule = lambda w, b, *a: ran.append((w, 0))` reports 11 rules holding while calling none
