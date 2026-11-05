@@ -13,13 +13,13 @@ import (
 
 // #210: the audit row's stamp must belong to the row, not to whoever reads it.
 //
-// The trail stores an instant and an offset -- `internal/audit/audit.go:195` writes
-// `Format(time.RFC3339Nano)`, so `2026-03-18T21:33:05.000-04:00` -- and no zone name. The page used
-// to ask for a name anyway (`{{.At.Format "2006-01-02 15:04:05 MST"}}`), and what `MST` prints for a
-// parsed instant depends on the process's `time.Local`: `time.Parse` hands back a value carrying the
-// *local* zone when the parsed offset happens to match that zone's abbreviation at that instant, and
-// a zone whose name is the bare offset when it does not. Measured, one stored string, three values
-// of `TZ` on the same nine lines of Go:
+// The trail stores an instant and an offset -- `Writer.marshal` writes `Format(time.RFC3339Nano)`
+// (`internal/audit/audit.go:264`), so `2026-03-18T21:33:05.000-04:00` -- and no zone name. The page
+// used to ask for a name anyway (`{{.At.Format "2006-01-02 15:04:05 MST"}}`), and what `MST`
+// prints for a parsed instant depends on the process's `time.Local`: `time.Parse` hands back a value
+// carrying the *local* zone when the parsed offset happens to match that zone's abbreviation at that
+// instant, and a zone whose name is the bare offset when it does not. Measured, one stored string,
+// three values of `TZ` on the same nine lines of Go:
 //
 //	TZ=America/New_York  MST=2026-03-18 21:33:05 EDT    Z07=2026-03-18 21:33:05-04:00
 //	TZ=UTC               MST=2026-03-18 21:33:05 -0400  Z07=2026-03-18 21:33:05-04:00
@@ -32,9 +32,9 @@ import (
 
 // oneRowTrail is a trail file as the writer leaves it: an RFC3339Nano instant with a numeric offset
 // and no zone name anywhere. It is written to a real file and read by the real `audit.Reader` rather
-// than assembled as a `Record`, because the defect lives in the step between those two
-// (`internal/audit/reader.go:254`, `time.Parse`) and a hand-built `Record` with `time.UTC` renders
-// `UTC` on every host -- a fixture that cannot see the thing it claims to pin.
+// than assembled as a `Record`, because the defect lives in the step between those two -- the
+// `time.Parse` in `decodeRecord` (`internal/audit/reader.go:310`) -- and a hand-built `Record` with
+// `time.UTC` renders `UTC` on every host: a fixture that cannot see the thing it claims to pin.
 const oneRowTrail = `{"at":"2026-03-18T21:33:05.000-04:00","kind":"auth.success","username":"parent","actor":"parent"}` + "\n"
 
 // useZone moves the process's local zone for the duration of the test.
@@ -45,6 +45,13 @@ const oneRowTrail = `{"at":"2026-03-18T21:33:05.000-04:00","kind":"auth.success"
 // after `os.Setenv("TZ","Asia/Kolkata")` the render was still `EDT`; only assigning `time.Local`
 // moved it to `-0400`. Assigning it is what a host actually does at startup, so this is the same
 // mechanism, driven from inside the test instead of from a shell.
+//
+// What it assigns is a PROCESS GLOBAL, and that is only safe while this package has no
+// `t.Parallel()` anywhere -- measured, none at this head. Two tests in one process own one
+// `time.Local`, so the first parallel test added to `internal/web` turns this helper into a race
+// that `-race` will blame on whichever test lost the ordering, not on this file. If that day comes,
+// the zone has to stop being a global here: run the body in a subprocess with `TZ` set, or give the
+// renderer an injected location.
 func useZone(t *testing.T, name string) {
 	t.Helper()
 	loc, err := time.LoadLocation(name)
