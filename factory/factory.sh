@@ -383,8 +383,13 @@ factory_tick() {
 	# .opencode/opencode.jsonc are what bounds that, and the `factory` agent denies `question`, so a
 	# headless tick cannot stall on an answer nobody is there to give. See the skill for what it is
 	# required to do instead: log, checkpoint, choose the recommended option.
-	local status=0
+	local status=0 reason=
+	# `env PWD=` names the project for the CLI, which reads the agent, the `deny` rules and the skill
+	# from `$PWD` rather than from its working directory -- see FACTORY_HARNESS in common.sh. The
+	# systemd unit carries the same line for the same reason; this one is what makes the tick correct
+	# when a person starts a pass from a terminal, from cron, or from any other directory.
 	timeout --signal=TERM --kill-after=60 "$FACTORY_TICK_TIMEOUT" \
+		env PWD="$FACTORY_HARNESS" \
 		"$FACTORY_OPENCODE" run --auto --agent "$FACTORY_AGENT" \
 		--title "factory $unit" \
 		"$id_line
@@ -403,7 +408,13 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	fi
 	# 124 is the timeout's own code; anything else is the agent exiting non-zero. Both are a failed
 	# unit, and neither is retried with a doubled budget -- the next pass treats it as fresh work.
-	log_event "TICK-FAILED $unit exit=$status (124 means the ${FACTORY_TICK_TIMEOUT}s ceiling) see $(basename -- "$log")"
+	#
+	# The cause goes in the journal line, not only in the per-tick log. Measured on 4-5 Nov: 152
+	# passes died in under two seconds on `Error: Agent not found: "factory"`, every word of it inside
+	# a 47-byte log, while the supervisor's own entry said nothing more than `exit=1`. A timer failing
+	# for 29 hours has to say why in the one place anybody actually reads.
+	reason=$(tr -d '\033\r' <"$log" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160) || true
+	log_event "TICK-FAILED $unit exit=$status (124 means the ${FACTORY_TICK_TIMEOUT}s ceiling) see $(basename -- "$log") :: ${reason:-the tick wrote nothing}"
 	factory_ledger_now "$unit" last-tick
 	return 4
 }

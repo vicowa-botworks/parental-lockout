@@ -78,8 +78,10 @@ if [ ! -x "$FACTORY_ROOT/factory/factory.sh" ]; then
 	printf 'install-timer: %s has no executable factory/factory.sh.\n' "$FACTORY_ROOT" >&2
 	printf '  The timer runs from the primary checkout, so the harness must be merged there first --\n' >&2
 	printf '  or point the install at the tree that holds it: FACTORY_ROOT=<checkout> %s --install\n' "$0" >&2
-	printf '  A tick has the same requirement twice over: `--agent factory` and the skill it loads both\n' >&2
-	printf '  live in the tree the tick works in, so a tick on a branch cut from an unmerged main cannot\n' >&2
+	printf '  A tick needs that tree twice over as well: `--agent factory` and the skill the instruction\n' >&2
+	printf '  points at both resolve from the project the CLI works in, and that is the tree `$PWD` names\n' >&2
+	printf '  -- the `Environment=PWD` line in the generated unit -- not `WorkingDirectory`, and not the\n' >&2
+	printf '  tree the unit is asked to deliver into. A tick whose project holds no `.opencode/` cannot\n' >&2
 	printf '  start at all. The mechanical half -- review requests, merges, conflicts -- needs neither.\n' >&2
 	exit 1
 fi
@@ -128,7 +130,8 @@ render() {
 		-e "s#@PATHS@#$BIN_DIRS:/usr/local/bin:/usr/bin:/bin#g" \
 		-e "s#@INTERVAL@#$INTERVAL#g" \
 		-e "s#@STOP@#$STOP#g" \
-		-e "s#@REVIEWER@#$FACTORY_REVIEWER#g"
+		-e "s#@REVIEWER@#$FACTORY_REVIEWER#g" \
+		-e "s#@AGENT@#$FACTORY_AGENT#g"
 }
 
 service_unit=$(cat <<UNIT | render
@@ -149,6 +152,14 @@ ExecStart=$FACTORY_ROOT/factory/factory.sh
 # The unit reads none of your shell profile: name the directories gh and opencode live in.
 Environment=PATH=@PATHS@
 Environment=FACTORY_REVIEWER=@REVIEWER@
+# Not a convenience, and not the same thing as WorkingDirectory above. The CLI takes its project --
+# the agent, the agent's deny rules, and the skill the instruction points at -- from \$PWD, and
+# chdirs there; a unit chdirs and exports no PWD, so the CLI never moves and the session opens in
+# the background server's own directory instead. Measured 5 Nov: 152 passes in a row died inside two
+# seconds on Error: Agent not found: "@AGENT@", each one logged as a bare exit=1, because no agent is
+# defined out there. factory.sh sets the same variable at the call site too, so a pass started from a
+# terminal is correct as well; this line is the half a person can see in systemctl cat.
+Environment=PWD=@REPO@
 # Longer than FACTORY_BUDGET so systemd never kills a tick mid-commit; a killed tick leaves a dirty
 # worktree, and the next pass halts on it rather than cleaning it up.
 TimeoutStopSec=@STOP@

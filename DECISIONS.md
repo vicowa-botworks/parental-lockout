@@ -193,3 +193,40 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   fact through one route is also what keeps the two from disagreeing.
 - Checkpoint: 6ac22d91504b0f4be7f2fb2f9c76c46da358972e
 - Effect: factory/factory.sh (`factory_request_review`)
+
+## D-0011 · Name the tick's project with `$PWD`, because a unit's `WorkingDirectory` is not one
+
+- Question: how does a headless tick get told which project it is inside, when the project is what
+  defines the agent, its `deny` rules and the skill the instruction points at?
+- Options: export `PWD` for the CLI | hand the CLI a directory argument | define the `factory` agent
+  globally in `~/.config/opencode/opencode.json`
+- Chose: export `PWD` for the CLI
+- Why: in the generated unit (`Environment=PWD=@REPO@`) and again at the call site in `run_tick`
+  (`env PWD="$FACTORY_HARNESS"`), which is the half that fixes a pass started from anywhere else.
+  Measured on 5 Nov, on the unit itself. `opencode run` reads `$PWD` and chdir*s *there* -- a
+  `$PWD` naming a directory that does not exist fails with `Error: Failed to change directory to
+  <path>` -- and a real `$PWD` beats the process's own cwd (`PWD=<primary checkout>` with cwd=/tmp
+  resolved the primary's agents, not /tmp's). With no `$PWD` at all the CLI never moves and the
+  session opens in the background server's directory, here `/home/rodney` where
+  `opencode-cli serve --service` has run since 1 Nov. Nothing defines an agent there, so
+  `--agent factory` died in 90 ms on `Error: Agent not found: "factory"` for **152 passes running**,
+  4-5 Nov, while `supervisor.log` recorded only `exit=1` and systemd called the unit
+  `status=4/NOPERMISSION`; the CLI's own words appeared nowhere in the journal (0 hits for
+  `Agent not found` in `journalctl --user -u parental-lockout-factory.service` since 4 Nov), because
+  the tick's output is redirected into its per-tick log. The third option is the dangerous one, not
+  the safe one: it moves the tick's boundary out of the repository, where `make verify`, this log and
+  every review can see it, into a `$HOME` file no clone carries and nothing gates -- and the one rule
+  in the present config that the CLI resolves at all is `question: deny`, a tool name, so a copy made
+  there would inherit finding 1 of the `#217` review (why the eleven command-shaped rules bind nothing
+  yet) without inheriting the review.
+  The second option does not exist:
+  `opencode run [flags] [<message...>]` takes a message and no directory; only the top-level command
+  has the positional. So the fix is not a property of this one unit, and the unit half is the part a
+  person reading `systemctl cat` can see. Both point at the harness tree (`FACTORY_DIR/..`) and not
+  at `FACTORY_ROOT`, because `FACTORY_ROOT` is the *primary* checkout and that tree holds no
+  `.opencode/opencode.jsonc` until this branch merges (D-0009). A second change rides along because
+  the same outage was unreadable for 29 hours: `TICK-FAILED` now carries the last line of the tick's
+  own log, so the cause is in the journal rather than only in a 47-byte file nobody opens.
+- Checkpoint: 53a0850c4bc6ccb37a6004f4f2aab9cf57ed68f9
+- Effect: factory/common.sh (`FACTORY_HARNESS`), factory/factory.sh (`run_tick`),
+  factory/install-timer.sh (generated `[Service]` unit), docs/factory.md

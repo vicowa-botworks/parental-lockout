@@ -88,6 +88,10 @@ ExecStart=/home/rodney/prj/parental-lockout/factory/factory.sh
 # The unit reads none of your shell profile: name the directories gh and opencode live in.
 Environment=PATH=/home/rodney/.opencode/bin:/usr/bin:/usr/local/bin:/usr/bin:/bin
 Environment=FACTORY_REVIEWER=hermesvicowa
+# The project the CLI works in -- agent, deny rules, skills -- comes from $PWD, not from
+# WorkingDirectory. A unit exports a cwd and no PWD, so without this line every tick opens a session
+# in the background server's home directory and dies on `Agent not found: "factory"`.
+Environment=PWD=/home/rodney/prj/parental-lockout
 # Longer than FACTORY_BUDGET so systemd never kills a tick mid-commit; a killed tick leaves a dirty
 # worktree, and the next pass halts on it rather than cleaning it up.
 TimeoutStopSec=5460
@@ -130,9 +134,14 @@ workstation, not a server, and a factory that only runs while you are looking at
 quo with extra steps.
 
 **A tick needs this branch merged; the mechanical half does not.** `opencode run --agent factory`
-resolves the agent, its `deny` rules and this skill from the tree the session works in, and a worktree
-cut from an unmerged `main` has none of them -- so the tick cannot start there at all. Review
-requests, merges and conflict resolution read only the API and git, so they work from any checkout.
+resolves the agent, its `deny` rules and this skill from the project the CLI runs in -- which is the
+tree `$PWD` names, not the worktree the instruction tells the tick to deliver into -- and a worktree
+cut from an unmerged `main` has none of them, so a tick can only read them from the tree the harness
+was started in. Get `$PWD` wrong and the session opens in whatever directory the background server
+was started from, where nothing is defined at all: measured 5 Nov, 152 passes in a row died inside
+two seconds on `Error: Agent not found: "factory"`, each one recorded as a bare `exit=1`, because a
+systemd unit exports a working directory and no `PWD`. Review requests, merges and conflict
+resolution read only the API and git, so they work from any checkout.
 That is why the first install can point at the harness branch (`DECISIONS.md` D-0009) and why
 `install-timer.sh` refuses rather than installing a unit whose `ExecStart` path does not exist: a
 timer that fires into 127 looks identical, from the outside, to a timer that is working.

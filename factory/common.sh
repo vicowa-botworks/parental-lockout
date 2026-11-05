@@ -26,6 +26,25 @@ _factory_main() {
 FACTORY_ROOT=${FACTORY_ROOT:-$(_factory_main)}
 [ -n "$FACTORY_ROOT" ] || FACTORY_ROOT=$(cd -- "$FACTORY_DIR/.." && pwd)
 
+# The tree that holds the harness itself -- `factory/`, `.opencode/opencode.jsonc` (where the
+# `factory` agent and its `deny` rules are defined) and `.opencode/skills/factory/SKILL.md`. It is
+# NOT the same directory as FACTORY_ROOT whenever the harness runs from a linked worktree, which is
+# its entire life until this branch merges (D-0009).
+#
+# The distinction is what a tick starts or dies on. `opencode run` takes its project -- the agent,
+# the agent's permission list, and the skills -- from `$PWD`, and chdir*s *there*: measured 5 Nov, a
+# `$PWD` naming a directory that does not exist fails with `Error: Failed to change directory to
+# <path>`, and a real `$PWD` beats the process's own cwd (`PWD=<primary checkout>` with cwd=/tmp
+# resolved the primary checkout's agents, not /tmp's). With no `$PWD` in the environment the CLI
+# never chdirs and the session opens in the *background server's* directory -- here `/home/rodney`,
+# where `opencode-cli serve --service` was started -- which carries no `.opencode/` at all. A
+# systemd unit sets a working directory and exports no `PWD`, so every tick died in under a second
+# on `Error: Agent not found: "factory"`: 152 passes on 4-5 Nov, `exit=1`, nothing in the journal.
+# The worse half of the same bug is what would have run had anything resolved out there: an agent from
+# a directory outside the repository, with none of this project's config -- not `question: deny`, not
+# the skill grants -- in force.
+FACTORY_HARNESS=${FACTORY_HARNESS:-$(cd -- "$FACTORY_DIR/.." && pwd)}
+
 # The repository, read from gh rather than hardcoded: a hardcoded owner/name is the bug
 # watch-pr.sh refuses to carry -- guessing a repo means reporting somebody else's pull requests.
 FACTORY_REPO=${FACTORY_REPO:-}
