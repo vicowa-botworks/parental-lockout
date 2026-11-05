@@ -423,9 +423,13 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   at all, and while it holds `factory/run/lock` every later activation says "another supervisor holds
   the lock" and does nothing. The generator now writes `TimeoutStartSec` explicitly at the same value as
   `TimeoutStopSec`, because a default that depends on `Type` is a default that changes the day someone
-  changes `Type`. What is really load-bearing is `Linger`: `loginctl show-user rodney --property=Linger`
-  answers `no`, which means the user manager -- and therefore this timer -- does not run when nobody is
-  logged in, and no flag in a generated unit changes that. The third correction is the pair
+  changes `Type`. What is really load-bearing is `Linger`, and the honest statement of it is the check
+  rather than a reading: at 22:17Z on 5 Nov `loginctl show-user rodney --property=Linger` answered `no`
+  -- the user manager, and therefore this timer, does not run when nobody is logged in -- and at
+  22:32:51Z `/var/lib/systemd/linger/rodney` appeared, root-owned, so it had been switched on
+  underneath this work by something running as root, between the two times I measured it. A fact that
+  changes while the doc about it is being written is a fact a tool has to re-check, so `--install` now
+  runs that check and warns when it is off. No flag in a generated unit affects it either way. The third correction is the pair
   `After=network-online.target` / `Wants=` it orders: measured, `systemctl --user status
   network-online.target` answers `Unit network-online.target could not be found.` -- the target belongs
   to the system instance, where NetworkManager-wait-online.service pulls it in -- so the pass was

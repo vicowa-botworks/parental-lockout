@@ -160,6 +160,10 @@ loginctl show-user "$USER" --property=Linger    # `no` means the timer stops whe
 loginctl enable-linger "$USER"                  # the one command that makes an unattended timer real
 ```
 
+`install-timer.sh --install` runs that first command and prints the second when the answer is `no`,
+because the reading belongs to the machine rather than to this repository -- on the box this harness was
+written on it was `no` for a day and then `yes`, with no change to any file here in between.
+
 **A tick needs this branch merged; the mechanical half does not.** `opencode run --agent factory`
 resolves the agent, its `deny` rules and this skill from the project the CLI runs in -- which is the
 tree `$PWD` names, not the worktree the instruction tells the tick to deliver into -- and a worktree

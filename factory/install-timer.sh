@@ -245,9 +245,10 @@ AccuracySec=1m
 # effect on timers configured with OnCalendar=. Defaults to false." This unit has no OnCalendar=, so
 # the flag was inert, and the comment was load-bearing for nobody: the thing that actually decides
 # whether the factory runs while the machine is unattended is whether the *user manager* is running at
-# all, and `loginctl show-user $USER --property=Linger` answers `Linger=no` on this box until
-# `loginctl enable-linger` is run. docs/factory.md says so plainly now instead of leaving it to a flag
-# in a file nobody reads.
+# all. The check for that is `loginctl show-user $USER --property=Linger`, and `no` means the manager
+# -- this timer with it -- stops when you log out. `--install` runs that check and warns, because the
+# answer belongs to the machine and not to this repository; docs/factory.md names the command that
+# turns it on.
 
 [Install]
 WantedBy=timers.target
@@ -266,6 +267,21 @@ printf '%s\n' "$service_unit" >"$SERVICE"
 printf '%s\n' "$timer_unit" >"$TIMER"
 systemctl_user daemon-reload
 systemctl_user enable --now "$NAME.timer"
+
+# The one thing about an unattended timer that is not in a file this generator controls. A *user* timer
+# runs in the user manager, and the user manager exists only while something keeps it alive: without
+# linger it is stopped at logout and the timer with it, and nothing in `systemctl cat` says so. Checked
+# at install because that is the moment a person is looking, and phrased as a check rather than a value
+# because the answer is a property of the machine: on the box this harness was written on it was `no`
+# until somebody ran the command at 22:32:51Z on 5 Nov (the mtime of /var/lib/systemd/linger/rodney),
+# which is exactly why docs/factory.md names the check and not a reading.
+linger=$(loginctl show-user "$(id -un)" --property=Linger --value 2>/dev/null || printf 'unknown')
+if [ "$linger" = "no" ]; then
+	printf '\n  Linger is off for %s: the user manager -- and with it this timer -- stops at logout,\n' "$(id -un)"
+	printf '  so the factory will not run unattended. The command that changes it is:\n\n'
+	printf '      loginctl enable-linger %s\n\n' "$(id -un)"
+	log_event "LINGER-OFF user=$(id -un) timer=$NAME"
+fi
 
 log_event "TIMER-INSTALLED $NAME interval=$INTERVAL repo=$FACTORY_ROOT"
 printf '\nInstalled:\n  %s\n  %s\n\n' "$SERVICE" "$TIMER"
