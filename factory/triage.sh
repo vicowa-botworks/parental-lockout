@@ -143,11 +143,22 @@ claimed_issues=$(printf '%s' "$closing_json" | jq -c '[.[].c[]]' 2>/dev/null || 
 # the issue as untouched and opens a second PR for work already under review. Measured on this very
 # tree: #212 has no closing reference and is the fix for #207.
 #
-# So an issue counts as claimed if GitHub says a PR closes it OR any open PR body names it. The
-# body read is one extra list call, not one per PR.
+# So an issue counts as claimed if GitHub says a PR closes it OR any open PR body names it with a
+# VERB. "Names it" alone was the first version and it over-claims: measured on 5 Nov, the then-open
+# bodies mentioned #213 (PR #215: "**#213 stands and is unchanged**"), #212 (PR #214: "which #212
+# adds"), #202 and #149 (PR #218: "Not here: #149's per-control commit policy") and #206/#209/#214/#215
+# (PR #217's own review table), none of which is anybody claiming an issue. On the issue half those
+# rows are not cosmetic -- a mentioned issue is *dropped* from `unclaimed`, so every prose cross-reference
+# retires a ticket from the queue silently, and the queue shrinks fastest right where the discussion is
+# densest. A claim is a verb plus a number: closes/fixes/resolves (what GitHub would register), refs
+# and "part of" (what this repository writes for partial work, #1256), and nothing else.
+#
+# Still one body read, not one per PR.
 body_json=$(gh pr list --state open --limit 100 --json number,body 2>/dev/null || printf '[]')
 mentioned_issues=$(printf '%s' "$body_json" | jq -c '
-  [ .[] | (.body // "") | scan("#[1-9][0-9]*") | ltrimstr("#") | tonumber ] | unique' 2>/dev/null || printf '[]')
+  [ .[] | (.body // "")
+    | scan("(?i)\\b(?:clos(?:e|es|ed|ing)|fix(?:e[sd])?|resolv(?:e|es|ed|ing)|refs?|part of)\\b[^#\\n]{0,20}#[1-9][0-9]*")
+    | scan("#[1-9][0-9]*") | ltrimstr("#") | tonumber ] | unique' 2>/dev/null || printf '[]')
 claimed_issues=$(jq -cn --argjson a "$claimed_issues" --argjson b "$mentioned_issues" '($a + $b) | unique' 2>/dev/null || printf '%s' "$claimed_issues")
 
 rows=''

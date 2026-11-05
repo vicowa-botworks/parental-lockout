@@ -22,6 +22,41 @@ will not do that, and a merge commit cannot be taken back here: squash and rebas
 disabled on this repository, so a merge is permanent history. The `factory` agent denies
 `gh pr merge` and `gh pr review` outright; do not go looking for another way to do the same thing.
 
+## What you may not run
+
+`.opencode/opencode.jsonc` is the boundary, and only one of its two shapes is enforced. A tool's rule
+is either a bare word -- `allow` | `ask` | `deny`, keyed by the tool's own name -- or, for `bash`, a
+**table** of command patterns:
+
+```jsonc
+"permission": {
+  "question": "deny",                                  // the tool is `question`
+  "bash": { "gh pr merge*": "deny" }                   // `bash` is a pattern table
+}
+```
+
+A pattern written at the top level instead becomes an **action**, and no tool reports an action named
+after a shell command, so `--auto` approves the command anyway. Measured both ways on v2.2.5 with the
+same entry: flat, `gh pr merge 999999` ran; nested under `bash`, the same call came back
+`Permission denied: shell`. Check your own keying before you credit a deny rule with stopping
+anything -- `opencode debug agents` must show every rule as `"action": "shell"` with the pattern in
+`resource`, never as the pattern in `action`.
+
+Two things that table is not. It is not a prefix list: a pattern is matched against the whole parsed
+command line, which is why the push rules here read `* push --force*` and would miss
+`git -C /some/tree push --force` if they began with `git`. And it is not a sandbox -- it constrains a
+cooperative agent by the command shapes it can spell. The list: `question` (headless, so a question is
+a stall), `gh pr merge`, `gh pr review`, `gh api`, force-push, delete-push, any push to `main`,
+`go get`, `git tag`, `gh release`, `systemctl`, `rm -rf`, and `git worktree remove|move`.
+
+`gh api` is denied whole, which costs you two reads people expect a tick to have: who is currently
+requested to review, and what a pull-request body closed. Take the first from `gh pr view --json
+reviewRequests`, and do not attempt the second -- see Step 4. If a denied command is genuinely the
+only way to finish, that is a decision, not an obstacle: write the DECISIONS.md entry, say in the pull
+request what you could not do and why, and deliver the rest. Never wrap the denied call in `bash -c`,
+`env`, `xargs`, `sh -c`, or a script that shells out to it -- that is the one way to turn a harness
+gap into a trust problem.
+
 ## Step 0 — check you are allowed to be here
 
 ```bash
@@ -47,7 +82,7 @@ after the announcement.
 
 ```bash
 gh pr view "$PR" --json reviewDecision,mergeable,mergeStateStatus,headRefOid,statusCheckRollup
-gh api "repos/$OWNER/$NAME/pulls/$PR/requested_reviewers" --jq '[.users[].login]'
+gh pr view "$PR" --json reviewRequests --jq '[.users[].login]'
 ```
 
 `reviewDecision` is not evidence that feedback is outstanding: it stays `CHANGES_REQUESTED` after a
@@ -142,20 +177,29 @@ inflection of "close" next to an issue number unless the issue is really finishe
 matches `close|closes|closed|closing` immediately followed by an issue reference with no notion of
 negation: measured on this repository, `**This does not close #10.**` closed issue #10 the second
 the merge landed. For partial work write `Part of #10 only; the umbrella is not finished.` or
-`Refs #10`. Then read the linkage back:
+`Refs #10`.
 
-```bash
-gh api graphql -f query='…closingIssuesReferences(first:20)…'   # needs `first:` or it errors
-```
+Do not try to verify the linkage afterwards, and do not reach for `gh api` to do it: `gh api` is denied
+to this agent, and `gh pr view --json closingIssuesReferences` is not a field `gh` exposes (measured —
+it answers `Unknown JSON field` and lists the fields it does have). A GraphQL read is the only way to
+ask GitHub what a body closed, and that read belongs to the supervisor: `factory/triage.sh` reads
+closing references plus verb-phrases out of every open body and treats either as a claim, which is why
+writing the verb rule correctly the first time is the whole obligation. If you are unsure whether a
+phrase will register, do not write it: use `Refs #10`, and say in the pull-request body what is still
+unfinished.
 
-Then request the reviewer, unless the unit's instruction says otherwise:
+Requesting the review is **not yours to do**, and the reason is measured, not stylistic: D-0010 found
+`gh pr edit --add-reviewer` fails on this account with nothing but a `Projects (classic) is being
+deprecated` line on stderr while `/requested_reviewers` stays empty -- a verb that exits 1 and looks
+like it worked is how "nobody ever asked" came back after being fixed. The supervisor owns that path
+(`factory_request_review`: the REST call, then a read-back of the same list), the raw API is denied to
+this agent, and the supervisor pokes any open pull request whose reviewer list is empty whether or not
+you say anything. So do not spend your ceiling on it, and do not report it as done.
 
-```bash
-gh pr edit "$PR" --add-reviewer "${FACTORY_REVIEWER:-hermesvicowa}"
-```
-
-This is not a courtesy. Four pull requests sat in `REVIEW_REQUIRED` for three days with an empty
-`/requested_reviewers` list -- nobody had ever asked, and every check read green.
+What you owe the review is the rest of it: a body that says what changed and quotes the gate, and the
+instruction that made the work non-obvious. The four pull requests that once sat in `REVIEW_REQUIRED`
+for three days with an empty reviewer list are why the queue asks on its own now; a tick that
+rediscovers that fact is a tick spending its ceiling on a command that cannot succeed.
 
 ## Step 6 — hand off
 

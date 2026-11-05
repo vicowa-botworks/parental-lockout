@@ -30,10 +30,19 @@ factory/triage.sh --pr 206              # why this one is sitting there
 factory/factory.sh --status             # halt state and the ledger
 ```
 
-`--dry-run` is a property of the whole script, not of one call site: no GitHub write, no git write,
-no model. It is the mode to reach for first, and it is what found three of the bugs in this
+`--dry-run` is a property of the whole script, not of one call site: no GitHub write, no git write, no
+model, and no ledger. It is the mode to reach for first, and it is what found three of the bugs in this
 directory (`gh api` returning a `{"message":…}` 404 body as if it were data, a `.git` suffix leaking
 into the repository name, and a `case` arm eaten by an unbalanced quote).
+
+The ledger had to be added to that list because it was the exception: the two writers in `common.sh`
+checked nothing, so a dry run stamped `first-seen`, `stuck-since`, `last-notice` and `conflict-at`
+while printing `DRY-RUN` for everything else. A ledger file is not bookkeeping, it is a timestamp with
+consequences -- `first-seen` decides queue order, `stuck-since` starts the escalation clock,
+`last-notice` throttles comments at a maintainer -- so one rehearsed pass made the next real pass quote
+a wait that never happened and stay quiet at somebody who had never been contacted. `log_event` is
+deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry run nobody trusts
+(D-0017).
 
 ## What each class means
 
@@ -78,27 +87,39 @@ is there:
 [Unit]
 Description=parental-lockout-factory delivery supervisor (one pass)
 Documentation=file:/home/rodney/prj/parental-lockout/docs/factory.md
-After=network-online.target
-Wants=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=/home/rodney/prj/parental-lockout
 ExecStart=/home/rodney/prj/parental-lockout/factory/factory.sh
-# The unit reads none of your shell profile: name the directories gh and opencode live in.
-Environment=PATH=/home/rodney/.opencode/bin:/usr/bin:/usr/local/bin:/usr/bin:/bin
+# Every binary `make verify` shells out to, not just the two the installer needs. A unit reads no
+# shell profile, and here `go` and `gofmt` live in ~/.local/bin -- a tick whose PATH lacks them cannot
+# pass the one gate it is required to pass, and finds that out 40 minutes into a run.
+Environment=PATH=/home/rodney/.local/bin:/home/rodney/.opencode/bin:/usr/bin:/usr/local/bin:/usr/bin:/bin
 Environment=FACTORY_REVIEWER=hermesvicowa
 # The project the CLI works in -- agent, deny rules, skills -- comes from $PWD, not from
 # WorkingDirectory. A unit exports a cwd and no PWD, so without this line every tick opens a session
 # in the background server's home directory and dies on `Agent not found: "factory"`.
 Environment=PWD=/home/rodney/prj/parental-lockout
-# Longer than FACTORY_BUDGET so systemd never kills a tick mid-commit; a killed tick leaves a dirty
-# worktree, and the next pass halts on it rather than cleaning it up.
+# The same number twice, both wider than FACTORY_BUDGET. TimeoutStopSec keeps systemd from killing a
+# tick mid-commit (a killed tick leaves a dirty worktree, and the next pass halts on it).
+# TimeoutStartSec is here because a oneshot has NO start timeout at all: systemd.service(5) says the
+# default is "disabled by default" for that Type, measured as `TimeoutStartUSec=infinity` on a manager
+# whose DefaultTimeoutStartSec is 1min30s. With none, a wedged pass holds the run lock forever and
+# every later activation quietly does nothing.
 TimeoutStopSec=5460
+TimeoutStartSec=5460
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 ```
+
+No `After=`/`Wants=network-online.target`. That target does not exist in a user manager --
+`systemctl --user status network-online.target` answers `Unit network-online.target could not be
+found.`; it belongs to the system instance, where NetworkManager-wait-online.service pulls it in -- so
+the pair ordered the pass after a unit that can never load and implied a network wait the pass does not
+perform. It does not need one: `gh` unreachable is a visible `TRIAGE-FAILED` with rc=3 and nothing
+attempted, and the next activation is ten minutes away.
 
 ```ini
 # ~/.config/systemd/user/parental-lockout-factory.timer
@@ -110,7 +131,6 @@ Description=parental-lockout-factory delivery supervisor, every 10m
 # one *finished*, so a long pass cannot stack a second supervisor behind it.
 OnUnitInactiveSec=10m
 RandomizedDelaySec=2m
-Persistent=true
 AccuracySec=1m
 
 [Install]
@@ -129,9 +149,16 @@ Ten minutes is not the review cadence -- a unit waiting on a reviewer is re-poke
 makes a *newly* green pull request merge within minutes of its last check finishing. A wait-state
 pass costs no model tokens: it is `gh`, `jq` and a few ledger files.
 
-`Persistent=true` matters: it re-runs a pass missed while the machine was off. This box is a
-workstation, not a server, and a factory that only runs while you are looking at it is the status
-quo with extra steps.
+**What makes this run while you are not looking at the machine is linger, not `Persistent=`.** That
+flag used to be in the timer above, with a paragraph claiming it re-ran a pass missed while the box was
+off. systemd.timer(5): `Persistent=` "only has an effect on timers configured with `OnCalendar=`", and
+this unit has no `OnCalendar=` -- the flag was inert and the paragraph described nothing. What actually
+decides it is whether your *user manager* is running when nobody is logged in:
+
+```bash
+loginctl show-user "$USER" --property=Linger    # `no` means the timer stops when you log out
+loginctl enable-linger "$USER"                  # the one command that makes an unattended timer real
+```
 
 **A tick needs this branch merged; the mechanical half does not.** `opencode run --agent factory`
 resolves the agent, its `deny` rules and this skill from the project the CLI runs in -- which is the
@@ -190,6 +217,20 @@ at the moment of the merge. The agent denies itself `gh pr merge`, `gh pr review
 every delete, pushing `main`, `git tag`, `gh release`, `go get`, and `question`. Those denies are in
 `.opencode/opencode.jsonc`, and they are the real boundary: `--auto` approves anything not explicitly
 denied, so a permission left at `ask` in a headless run is a stall, not a guard.
+
+Those denies bind because of *where* they are written. A tool's rule is either a bare
+`allow`/`ask`/`deny` keyed by the tool's name, or -- for `bash` -- a table of command patterns. A
+pattern written at the top level is read as an **action**, and no tool reports an action named after a
+shell command, so `--auto` approves the command anyway: measured with the same entry both ways, flat
+`gh pr merge 999999` ran, nested under `bash` it returned `Permission denied: shell`. Check the keying
+of any copy of this harness with `opencode debug agents` -- every rule must come back as
+`"action": "shell"` with the pattern in `resource` (D-0013). It is also a wildcard match on the whole
+parsed command line rather than a prefix match, which is why the push rules read `* push --force*`:
+`git -C <tree> push --force` is the shape this harness actually uses.
+
+And it is a constraint on a cooperative agent, not a sandbox: it binds the command shapes it can
+spell. The boundary against irreversibility is that a tick cannot merge at all, and the supervisor
+re-reads all four gate fields from the API in the same call that merges.
 
 Merging cannot be undone here anyway: `allow_squash_merge=false` and `allow_rebase_merge=false`, so
 every merge is permanent history.

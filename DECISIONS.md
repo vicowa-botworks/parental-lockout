@@ -256,3 +256,206 @@ exists to prevent. From the first real tick onward, one decision is one commit.
   is only on origin still falls through to `--track -b` exactly as before.
 - Checkpoint: c07b9c5ca2496376454ebcc34507ed8ebc3235e6
 - Effect: factory/common.sh (`factory_worktree`)
+
+## D-0013 · Key the deny rules under `bash`, because a flat command pattern denies nothing
+
+- Question: a headless tick has `--auto` on, so the deny list in `.opencode/opencode.jsonc` is the
+  whole boundary. Why did the previous list not bind?
+- Options: leave the rules flat and trust the CLI to recognise a command pattern as a rule | nest the
+  command patterns under the `bash` tool key, where a pattern is a `resource` | drop the deny list and
+  keep only the rule that a tick cannot merge
+- Chose: nest the command patterns under the `bash` tool key, where a pattern is a `resource`
+- Why: measured on v2.2.5 in this tree, both ways, same entries. Flat, `opencode debug agents` reads
+  `"git push --force*": "deny"` as `{"action": "git push --force*", "resource": "*", "effect": "deny"}`
+  -- an ACTION, and no tool reports an action named after a shell command, so no check ever consults
+  it; the probe `gh pr merge 999999` under `--auto` ran and reached `gh`. Nested, the same entries read
+  as `{"action": "shell", "resource": "gh pr merge*", "effect": "deny"}` and the identical probe comes
+  back `Permission denied: shell` without starting `gh`. A `deny` that parses as a rule for a tool that
+  does not exist is not a weak rule, it is no rule, and the file read as a serious one for a week.
+  Two things follow that are recorded rather than fixed. The matcher is a wildcard over the whole
+  parsed command line, not a prefix matcher, so the push rules are written `* push --force*` --
+  `git -C <tree> push --force` is the form this harness actually uses, and a rule beginning `git push`
+  would have let it through even with the keying right. And it cannot spell "this API call is a read":
+  `-X` moves around in the arguments, so `gh api` is denied whole and the two reads a tick used to do
+  with it move to first-class commands (`gh pr view --json reviewRequests`) or to the supervisor. That
+  costs a read the skill previously instructed: `gh pr view --json` has no `closingIssuesReferences`
+  field (measured: `Unknown JSON field`), so only GraphQL can ask GitHub what a body closed, GraphQL is
+  `gh api`, and `factory/triage.sh` -- which is not an agent and is not gated by this file -- is now the
+  place that read happens. The skill says so instead of instructing a command that will be refused.
+- Checkpoint: a4c714c62abe7c8b00892a766ed4161ae7adc450
+- Effect: .opencode/opencode.jsonc, .opencode/skills/factory/SKILL.md
+
+## D-0014 · Run each tick against a private server, so the ceiling is a kill and not a hang-up
+
+- Question: the supervisor killed a tick at its 2700 s ceiling, recorded `TICK-FAILED exit=124`,
+  reported the tree as clean, and the tree kept changing for four more minutes. What is the ceiling
+  actually bounding?
+- Options: bound the wall clock and accept that the session keeps running | pass `--standalone` so the
+  tick's server is our child and TERM reaches it | have the supervisor kill sessions by id at the
+  ceiling, through the server's API
+- Chose: pass `--standalone` so the tick's server is our child and TERM reaches it
+- Why: measured on the first long tick, 5 Nov. `timeout` fires at 22:15:07Z and the supervisor logs the
+  failure; file mtimes in that tick's worktree are 22:17:34Z, 22:17:57Z and 22:19:18Z, and `git status`
+  keeps reporting a different set of paths -- `logind.go`, then `sessionbus.go`, then `command.go`,
+  then `profiles.go`, none of which is the issue's area -- while `opencode session list` in that
+  project still shows three `factory unclaimed:204` sessions from before the ceiling. The default
+  `opencode run` is a client of the shared background server, so the session and every process it
+  spawns live in another process tree: the ceiling detaches the supervisor from the work, it does not
+  stop the work. Nothing was merged, because a tick cannot merge (D-0006), but the supervisor's
+  statement that a unit failed and its tree is nobody's is false while that session is editing it, and
+  the model budget burns with nobody accounting for it. Killing by session id is refused: the operation
+  is not exposed to a shell caller (measured -- `POST /session/<id>/abort` answers 405 on every port
+  this CLI will talk to, and the `session.abort` operation id errors inside the CLI), so it is not
+  something the harness can rely on. `--standalone` costs a server startup per tick and moves the
+  conversation out of the shared session store; the per-tick log named by `TICK-START` was always the
+  record, so nothing that is read afterwards changes.
+- Checkpoint: a4c714c62abe7c8b00892a766ed4161ae7adc450
+- Effect: factory/factory.sh (`factory_tick`)
+
+## D-0015 · Put the gate's whole toolchain in the unit's PATH, and refuse to install without it
+
+- Question: a tick ran 45 minutes, never ran a build, and died at the ceiling. Where did the compiler
+  go?
+- Options: build the unit's PATH from the two binaries the installer itself needs (`gh`, `opencode`) |
+  name every binary `make verify` shells out to and refuse the install when one is absent | let the
+  tick discover it and log the failure
+- Chose: name every binary `make verify` shells out to and refuse the install when one is absent
+- Why: the third option is what was happening, and the log is the part nobody reads. Measured: that
+  tick's own capture step ends in `FileNotFoundError: [Errno 2] No such file or directory: 'go'`, and
+  the unit's PATH was `~/.opencode/bin:/usr/bin:/usr/local/bin:/usr/bin:/bin` -- `go` and `gofmt` are
+  in `~/.local/bin` on this machine, and a unit inherits no shell profile, so a compiler that works in
+  a terminal does not exist for the service. The failure also arrives in the wrong place: 230 KB into
+  a Python traceback inside a per-tick log, two levels of indirection from the `TICK-FAILED` line that
+  is the only thing the journal shows. A tick that cannot compile cannot satisfy the one condition it
+  is required to satisfy, so the installer now asks the machine for `make git python3 go gofmt` as well
+  and stops with the names when one is missing. It costs a person one sentence at install time instead
+  of 45 minutes of model budget and a queue that looked busy.
+- Checkpoint: a4c714c62abe7c8b00892a766ed4161ae7adc450
+- Effect: factory/install-timer.sh
+
+## D-0016 · `factory_resolve_conflict` answers three ways; only a real conflict opens a tick
+
+- Question: the function already logs `CONFLICT-SKIPPED pr:217 attempted 10s ago`, and the caller then
+  queued a tick for the same unit anyway. What was the second answer for?
+- Options: keep one non-zero status and let the caller treat every refusal as work for a model | give
+  the function three answers -- done, needs a reader, not now -- and make the caller act on the third
+  | throttle the caller instead of the function
+- Chose: give the function three answers -- done, needs a reader, not now -- and make the caller act on
+  the third
+- Why: a tick is the expensive thing here: 2700 s of ceiling, a model run, in a tree that cannot even
+  compile the language (D-0015). With one non-zero status, a conflict ten minutes old, a working tree
+  left dirty by a dead tick, a failed `fetch` and a failed `push` each meant "send it to a model", so
+  the log carried a self-explanation -- "we tried 10 seconds ago" -- that changed nothing about what
+  the pass did next. Two of those are worth naming separately. The dirty-tree branch also writes
+  `$FACTORY_HALT`, and queueing a tick behind it spends a model run on a unit the pass has just decided
+  to stop for; and a push that failed after a clean local merge is a permissions or network fault that
+  the next activation retries by itself, not a conflict anyone can read their way out of. So `0` merged,
+  `1` means origin/main genuinely does not merge in and only a reader can keep both intents, `2` means
+  try again on the next activation; the caller logs `CONFLICT-DEFERRED` for `2` and opens a tick only
+  for `1`. An unrecognised status is a supervisor bug and sets `rc=4` rather than being treated as
+  either answer.
+- Checkpoint: a4c714c62abe7c8b00892a766ed4161ae7adc450
+- Effect: factory/factory.sh (`factory_resolve_conflict`, `factory_body`)
+
+## D-0017 · A dry run writes no ledger
+
+- Question: `--dry-run` prints `DRY-RUN` for every action it does not take. It also stamped ledger
+  files. Does that matter, when a ledger file is just a timestamp?
+- Options: leave it -- the ledger is bookkeeping, not an action | suppress the ledger writers under
+  `--dry-run`, and keep the journal real | suppress the journal too, so a dry run leaves no trace
+- Chose: suppress the ledger writers under `--dry-run`, and keep the journal real
+- Why: a ledger file is a timestamp with consequences, and those consequences are the queue's
+  behaviour. `first-seen` is what makes a unit old enough to be picked first; `stuck-since` starts the
+  clock that produces an escalation comment; `last-notice` is the throttle that stops the supervisor
+  commenting at a maintainer every ten minutes; `conflict-at` is the ten-minute guard in D-0016. A dry
+  run that writes them has rehearsed a state change: after one, the next real pass quotes `after
+  86400s` for a wait that never happened, and a maintainer who was never contacted has already been
+  throttled. "Print, don't do" cannot be partial, because the half that is done is the half a later run
+  reads. The journal stays real for the opposite reason -- a dry run that records nothing is a dry run
+  nobody can audit afterwards, and `log_event` is the artefact a person reads to decide whether the
+  plan was right.
+- Checkpoint: a4c714c62abe7c8b00892a766ed4161ae7adc450
+- Effect: factory/common.sh (`factory_ledger_set`, `factory_ledger_clear`)
+
+## D-0018 · Quote the unit heredocs: an interpolated template executes its own comments
+
+- Question: adding a comment to the generated unit made the installer run `gh --help`, print
+  `Unit network-online.target could not be found.`, and report `Permission denied` on a path under
+  `factory/run/`. What was executing?
+- Options: escape the backticks in the new comment text and leave the heredoc interpolating | quote the
+  heredoc (`<<'UNIT'`) and pass every value through the `@TOKEN@` renderer instead | keep the
+  interpolation and add a guard that rejects backticks in `install-timer.sh`
+- Chose: quote the heredoc (`<<'UNIT'`) and pass every value through the `@TOKEN@` renderer instead
+- Why: both unit templates are `$(cat <<UNIT | render ...)` with an unquoted delimiter, so the shell
+  expands the body before `render` ever sees it -- every backtick pair inside the unit is a command
+  substitution executed by whoever runs `--install`, and every `$VAR` is taken from the installer's
+  environment. That is the second time this harness has shipped it: the first pass escaped `\$PWD` in
+  one comment, which is the signature of having found the bug and fixed the instance. The instance fix
+  cannot hold, because the comments in this file are the documentation and documentation names things in
+  backticks -- `Wants=`, `gh`, `loginctl show-user $USER --property=Linger` -- and each one is a
+  command. Measured after the change: the dry run renders with no subprocess noise, no `@TOKEN@` left
+  unsubstituted, and the comment text intact, including a literal `$USER` that would otherwise have
+  frozen this box's username into every other user's unit. The renderer gained `sed_replacement` in the
+  same pass for the matching hole on the other side: a value containing `&` used to paste the matched
+  text into the unit, and `FACTORY_REVIEWER=a#b` used to install `Environment=FACTORY_REVIEWER=a`.
+  Measured both, and a name with a `#` in it now survives whole.
+- Checkpoint: a4c714c62abe7c8b00892a766ed4161ae7adc450
+- Effect: factory/install-timer.sh (`sed_replacement`, `render`, both unit templates)
+
+## D-0019 · The timer's two load-bearing claims were both false, and the real condition is linger
+
+- Question: `docs/factory.md` says `Persistent=true` is what re-runs a pass missed while the machine
+  was off, and that systemd kills a long oneshot at the 90 s default regardless of the tick ceiling.
+  Are either of those true here?
+- Options: keep the prose and the flag as they are -- they are conventional settings | delete both
+  claims, cite the manual pages that refute them, and write down what actually decides whether an
+  unattended timer runs | add an explicit `TimeoutStartSec=90` to match the prose
+- Chose: delete both claims, cite the manual pages that refute them, and write down what actually
+  decides whether an unattended timer runs
+- Why: systemd.timer(5): `Persistent=` "only has an effect on timers configured with `OnCalendar=`",
+  and this unit has none -- so the flag was inert and the sentence about missed runs described nothing,
+  while `Persistent=yes` still shows in `systemctl --user show` and told a reader the opposite of the
+  truth. systemd.service(5): `TimeoutStartSec` "Defaults to `DefaultTimeoutStartSec=` set in the
+  manager, except when `Type=oneshot` is used, in which case the timeout is disabled by default" --
+  measured here (systemd 259): the live unit reported `TimeoutStartUSec=infinity` against a manager
+  default of 1 min 30 s, and a pass ran 45 minutes untouched, so the claim that a tick would be killed
+  at 90 s is not merely wrong but wrong in the direction that matters: nothing bounded the wedged pass
+  at all, and while it holds `factory/run/lock` every later activation says "another supervisor holds
+  the lock" and does nothing. The generator now writes `TimeoutStartSec` explicitly at the same value as
+  `TimeoutStopSec`, because a default that depends on `Type` is a default that changes the day someone
+  changes `Type`. What is really load-bearing is `Linger`: `loginctl show-user rodney --property=Linger`
+  answers `no`, which means the user manager -- and therefore this timer -- does not run when nobody is
+  logged in, and no flag in a generated unit changes that. The third correction is the pair
+  `After=network-online.target` / `Wants=` it orders: measured, `systemctl --user status
+  network-online.target` answers `Unit network-online.target could not be found.` -- the target belongs
+  to the system instance, where NetworkManager-wait-online.service pulls it in -- so the pass was
+  ordered after a unit that cannot load, and implied a network wait it does not perform. It does not
+  need one: `gh` failing is a visible `TRIAGE-FAILED` with rc=3 and nothing attempted, and the next
+  activation is ten minutes away.
+- Checkpoint: a4c714c62abe7c8b00892a766ed4161ae7adc450
+- Effect: factory/install-timer.sh (both unit templates), docs/factory.md
+
+## D-0020 · A claim on an issue needs a verb, not a mention
+
+- Question: `triage.sh` treats an issue as claimed when an open pull request already covers it, so it
+  does not open a second pull request for the same work. Which pull-request bodies count as covering
+  an issue?
+- Options: any open body that contains `#NNN` | only the closing references GitHub itself registers |
+  any body that names the number with a verb -- `closes`, `fixes`, `resolves`, `refs`, `part of`
+- Chose: any body that names the number with a verb -- `closes`, `fixes`, `resolves`, `refs`, `part of`
+- Why: measured against the live open bodies on 5 Nov, the mention rule reported fourteen numbers
+  claimed -- 144, 149, 199, 202, 206, 207, 209, 210, 211, 212, 213, 214, 215, 216 and 1048, the last
+  one a memory id inside a table cell -- while the verb rule reports five: 202, 207, 210, 211, 216,
+  which are precisely the ones the bodies claim. On the pull-request half a false claim is merely
+  untidy; on the issue half it is a withdrawal, because a claimed issue is dropped from `unclaimed` and
+  never offered to a tick. Two open issues were sitting there: #199, "Improve the design of the web UI",
+  and #213, whose own status was the subject of a sentence in another pull request ("#213 stands and is
+  unchanged") -- naming an issue to say it is *not* being finished is the exact sentence that reads as
+  a claim to a mention matcher. The second option is refused for the reason in #1256: this repository
+  writes `Part of #10 only` and `Refs #10` on purpose, because an adjacent inflection of "close" next
+  to an umbrella issue closes it at merge time, and GitHub registers neither of those forms -- a
+  classifier that reads only closing references reports finished work as untouched and opens a
+  duplicate pull request for it. The verb list is therefore the union of what GitHub registers and what
+  this repository writes, and nothing else.
+- Checkpoint: a4c714c62abe7c8b00892a766ed4161ae7adc450
+- Effect: factory/triage.sh (`mentioned_issues`)

@@ -172,25 +172,72 @@ def check(entries):
     return problems
 
 
+# The two `verify` recipe lines this file insists on, in the Makefile's own shape: `echo "..."` and
+# the command share a line, so the guard below reads command chunks rather than whole lines.
+RECIPE_GOOD = ('\t@set -e; \\\n'
+               '\techo "== decision-log contract"; python3 scripts/check-decisions.py --self-test; \\\n'
+               '\techo "== decision log"; python3 scripts/check-decisions.py; \\\n'
+               '\techo "== shellcheck"; $(MAKE) --no-print-directory check-shell; \\\n')
+
+# Three edits that all delete the gate. Each is a `make verify` that runs nothing and reports success,
+# and each keeps the string "check-decisions.py" somewhere in the file, which is what a substring
+# guard reads. Reported by review on #217 (5 Nov) as a guard satisfied by the text that removes it; the
+# shapes here are the ones a person reaches for -- comment a step out, rename the file it calls, or
+# replace the step with one that only mentions it.
+RECIPE_BAD = {
+    "commented": ('\t@set -e; \\\n'
+                  '\techo "== decision-log contract"; \n'
+                  '#\tpython3 scripts/check-decisions.py --self-test; \\\n'
+                  '#\tpython3 scripts/check-decisions.py; \\\n'),
+    "renamed": RECIPE_GOOD.replace("check-decisions.py", "check-decisions-OLD.py"),
+    "mentioned": ('\t@set -e; \\\n'
+                  '\techo "== decision log (check-decisions.py)"; $(MAKE) --no-print-directory quiet; \\\n'),
+}
+
+
+def invocation_problems(recipe):
+    """Given the text of a Makefile, say whether `verify` still runs this script and its self-test.
+
+    A filename substring is the wrong assertion: it is satisfied by a comment, by a commented-out
+    recipe line, and by an `echo` that names the script while running something else. So the anchor is
+    a *command chunk* -- the text between `;` on a recipe line -- that starts with the interpreter and
+    names `scripts/check-decisions.py` as one whole word. A chunk beginning with `#` is a comment and
+    cannot match, and the word boundary bars a longer filename that merely starts the same way. The
+    three shapes in `RECIPE_BAD` are asserted against this function in `--self-test`, so a later edit
+    that weakens the match has to delete those cases as well.
+    """
+    problems = []
+    tails = []
+    for raw in recipe.splitlines():
+        for chunk in raw.split(";"):
+            chunk = chunk.strip()
+            if chunk.startswith("#"):
+                continue
+            found = re.match(r"python3[ \t]+scripts/check-decisions\.py(?![^\s])(.*)$", chunk)
+            if found:
+                tails.append(found.group(1))
+    if not tails:
+        problems.append("Makefile: no recipe command runs `python3 scripts/check-decisions.py`; a gate "
+                        "whose invocation has been deleted, commented out, or renamed is a suggestion")
+        return problems
+    if not any("--self-test" in tail for tail in tails):
+        problems.append("Makefile: nothing runs `python3 scripts/check-decisions.py --self-test`; the "
+                        "assertions below then run only when someone remembers they exist")
+    return problems
+
+
 def verify_invocation():
     """That `make verify` still calls this script, and calls its self-test.
 
     Reading the Makefile rather than trusting memory: the failure this guards is the deleted line,
     and the deleted line is exactly what a later edit that "simplifies the gate" produces.
     """
-    problems = []
     try:
         with open(MAKEFILE, encoding="utf-8") as fh:
             recipe = fh.read()
     except OSError as exc:
-        return ["Makefile cannot be read (%s), so nothing can be claimed about the gate" % exc]
-    if "check-decisions.py" not in recipe:
-        problems.append("Makefile: nothing invokes scripts/check-decisions.py; a gate whose "
-                        "invocation has been deleted is a suggestion")
-    if "check-decisions.py --self-test" not in recipe:
-        problems.append("Makefile: nothing runs scripts/check-decisions.py --self-test; the "
-                        "assertions below then run only when someone remembers they exist")
-    return problems
+        return ["Makefile: cannot be read (%s), so nothing can be claimed about the gate" % exc]
+    return invocation_problems(recipe)
 
 
 def read(path):
@@ -306,20 +353,42 @@ def self_test():
     # asserts its own. Deleting either line from `verify` makes this run refuse.
     counts[1] += 2
     invocation = verify_invocation()
-    if any("nothing invokes" in p for p in invocation):
+    if any("no recipe command runs" in p for p in invocation):
         fails.append("verify-invocation: `make verify` no longer calls check-decisions.py -- %s"
                      % invocation)
     if any("nothing runs" in p for p in invocation):
         fails.append("verify-invocation: nothing runs `check-decisions.py --self-test` -- %s"
                      % invocation)
 
+    # And the guard on the guard. Asserting only against the live Makefile proves the Makefile is
+    # fine today; it says nothing about whether this function would notice it stop being fine, which
+    # is the whole job. Each case below is a Makefile in which `make verify` runs no decision gate at
+    # all while still containing the words "check-decisions.py", so a match weakened back to a
+    # substring turns one of these into a pass and this run refuses.
+    counts[1] += 1
+    if invocation_problems(RECIPE_GOOD):
+        fails.append("recipe-good: the Makefile's own shape is refused by the guard -- %s"
+                     % invocation_problems(RECIPE_GOOD))
+    for name, recipe in sorted(RECIPE_BAD.items()):
+        counts[0] += 1
+        found = invocation_problems(recipe)
+        if not found:
+            fails.append("recipe-%s: a Makefile that runs no decision gate passed the guard; a "
+                         "substring is not an invocation" % name)
+        elif not any("no recipe command runs" in p for p in found):
+            # The reason is asserted, not just the refusal. All three Makefiles lack the *command*,
+            # so "nothing runs --self-test" as the only complaint would mean the guard matched
+            # something in a file that runs nothing -- which is the substring behaviour this case
+            # exists to catch.
+            fails.append("recipe-%s: refused for the wrong reason -- %s" % (name, found))
+
     if fails:
         print("check-decisions --self-test FAILED:")
         for f in fails:
             print("  %s" % f)
         return 1
-    print("check-decisions --self-test: %d cases that must fail, %d that must pass, plus the "
-          "two invocations in `verify`" % (counts[0], counts[1]))
+    print("check-decisions --self-test: %d cases that must fail, %d that must pass, the two "
+          "invocations in `verify`, and three Makefiles that delete this gate" % (counts[0], counts[1]))
     return 0
 
 

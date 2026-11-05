@@ -255,30 +255,41 @@ factory_merge() {
 # not, leaving a conflicted index behind is the worst outcome -- every later command in that tree
 # inherits a half-merged state -- so the merge is aborted and the unit is handed to a tick that can
 # read both sides and decide.
+#
+# Three answers, not two, because a tick is the expensive thing in this design: 2700 s of ceiling and
+# a model run, spent by a process that cannot even compile the language. Reporting "not now" and
+# "git cannot do this" as the same failure made the caller queue a tick for both. Measured 5 Nov: a
+# conflict less than ten minutes old, a tree left dirty by a dead tick, and a failed `fetch` each
+# returned the one code that means "send it to a model", and a `CONFLICT-SKIPPED` line naming a
+# 10-second-old attempt had already explained everything except what the pass then did with it. So:
+#
+#   0  merged and pushed
+#   1  origin/main genuinely does not merge into the branch -- only a reader can resolve it
+#   2  something temporary is in the way; try again next activation, do not open a tick
 factory_resolve_conflict() {
 	local pr=$1 branch=$2 tree
 	local age
 	age=$(factory_age "pr:$pr" conflict-at)
 	if [ -n "$(factory_ledger_get "pr:$pr" conflict-at)" ] && [ "$age" -lt 600 ]; then
 		log_event "CONFLICT-SKIPPED pr:$pr attempted ${age}s ago"
-		return 1
+		return 2
 	fi
 	factory_ledger_now "pr:$pr" conflict-at
 
-	tree=$(factory_worktree "$branch") || return 1
+	tree=$(factory_worktree "$branch") || return 2
 	if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
 		log_event "CONFLICT-HALTED pr:$pr $tree is dirty -- a person or a dead tick owns it"
 		printf '%s\n' "a working tree was found dirty and the supervisor will not touch it: $tree" \
 			>"$FACTORY_HALT"
-		return 1
+		return 2
 	fi
 
 	if ! run_action git -C "$tree" fetch origin main; then
-		return 1
+		return 2
 	fi
 	if [ "$DRY_RUN" = "1" ]; then
 		printf 'DRY-RUN  git -C %s merge --no-edit origin/main\n' "$tree"
-		return 1
+		return 2
 	fi
 	if ! git -C "$tree" merge --no-edit origin/main >"$FACTORY_LOG/conflict-$pr.log" 2>&1; then
 		git -C "$tree" merge --abort >/dev/null 2>&1 || true
@@ -286,7 +297,12 @@ factory_resolve_conflict() {
 		return 1
 	fi
 	if ! run_action git -C "$tree" push origin "HEAD:refs/heads/$branch"; then
-		return 1
+		# The merge is in the local tree and the branch on origin has not moved. That is not a
+		# conflict a model can resolve -- it is a push that failed -- and leaving it as `1` would
+		# spend a tick on a permissions problem. The next pass re-merges (already up to date) and
+		# pushes again.
+		log_event "CONFLICT-UNPUSHED pr:$pr merged locally, the push failed -- retried next activation"
+		return 2
 	fi
 	log_event "CONFLICT-RESOLVED pr:$pr merged origin/main into $branch"
 	factory_ledger_clear "pr:$pr" stuck-since
@@ -366,8 +382,23 @@ factory_tick() {
 		log_event "TICK-SKIPPED $unit no branch to work on"
 		return 5
 	fi
-	if ! tree=$(factory_worktree "$branch"); then
-		log_event "TICK-SKIPPED $unit no worktree for $branch"
+	if ! tree=$(factory_worktree "$branch" 2>"$FACTORY_RUN/worktree-error.$$"); then
+		# The reason belongs in the journal line, not only in common.sh's stderr. `die` writes to
+		# stderr, and stderr here goes to the terminal when a person runs the script and to the unit's
+		# journal when systemd does -- so the two readers see different amounts, and the automated one
+		# is the one that has to act on it. Measured 5 Nov: `TICK-SKIPPED conflict:215 no worktree for
+		# feat/factory-harness` on its own cannot distinguish "another worktree already holds that
+		# branch" from "the repository is locked" or "origin/main is gone", and the queue sat on that
+		# ambiguity for hours while the answer was one line away on a stream nobody read.
+		#
+		# It is a separate file rather than a `2>&1` on the command substitution on purpose: the
+		# function prints the tree path on stdout, and folding the two together would splice an error
+		# sentence into the value assigned to `tree` and hand a later `git -C` a path with a period in
+		# it. The `$$` keeps two supervisors from writing the same file; the run directory is ours.
+		why=$(tr -d '\r' <"$FACTORY_RUN/worktree-error.$$" 2>/dev/null |
+			grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-200)
+		rm -f -- "$FACTORY_RUN/worktree-error.$$"
+		log_event "TICK-SKIPPED $unit no worktree for $branch :: ${why:-common.sh gave no reason}"
 		return 5
 	fi
 	if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
@@ -388,9 +419,25 @@ factory_tick() {
 	# from `$PWD` rather than from its working directory -- see FACTORY_HARNESS in common.sh. The
 	# systemd unit carries the same line for the same reason; this one is what makes the tick correct
 	# when a person starts a pass from a terminal, from cron, or from any other directory.
+	#
+	# `--standalone` is the wall-clock ceiling being honest. The default `opencode run` is a *client*
+	# of the shared background server: the session, and every process the session shells out to, live
+	# in that other process tree. `timeout` can only signal the client. Measured 5 Nov on the first
+	# long tick: the supervisor recorded `TICK-FAILED exit=124` at 22:15:07Z, and files in the tick's
+	# worktree kept changing at 22:17:34Z, 22:17:57Z and 22:19:18Z -- minutes after the pass had
+	# declared the unit failed, moved on, and reported the tree as clean. Nothing was merged, because
+	# a tick cannot merge; but a tick that outruns its ceiling edits a worktree that the next pass has
+	# already decided is nobody's, and it burns model budget with no supervisor attached to it. A
+	# private server is the difference between "the client stopped talking to it" and "it stopped": the
+	# server is our child, so TERM reaches it and `--kill-after` can actually finish the job.
+	#
+	# What it costs: the tick pays for its own server startup, and its sessions land in its own store
+	# instead of the shared one -- so `opencode session list` in the tree no longer shows a tick's
+	# conversation. The per-tick log is the durable record either way, which is what `TICK-START`
+	# already names.
 	timeout --signal=TERM --kill-after=60 "$FACTORY_TICK_TIMEOUT" \
 		env PWD="$FACTORY_HARNESS" \
-		"$FACTORY_OPENCODE" run --auto --agent "$FACTORY_AGENT" \
+		"$FACTORY_OPENCODE" --standalone run --auto --agent "$FACTORY_AGENT" \
 		--title "factory $unit" \
 		"$id_line
 
@@ -413,7 +460,20 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	# passes died in under two seconds on `Error: Agent not found: "factory"`, every word of it inside
 	# a 47-byte log, while the supervisor's own entry said nothing more than `exit=1`. A timer failing
 	# for 29 hours has to say why in the one place anybody actually reads.
-	reason=$(tr -d '\033\r' <"$log" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160) || true
+	#
+	# Last line was the first attempt and it is not the cause. Measured on the first long tick (5
+	# Nov): the file ended with the CLI's own banner (`> factory · <model>`), because the ceiling fires
+	# while the session is mid-message -- so the journal quoted the banner while the actual failure,
+	# `FileNotFoundError: [Errno 2] No such file or directory: 'go'`, sat 230 KB earlier. So look for
+	# the last line that reads like a failure, and fall back to the last line that is not the banner.
+	# A grep for "Error:" alone would miss `Permission denied:` and a bare Python exception line, hence
+	# the alternation; a grep for anything at all is the banner again. If nothing matches, the journal
+	# says the tick wrote nothing rather than inventing a cause.
+	reason=$(tr -d '\033\r' <"$log" 2>/dev/null |
+		grep -aiE '(^|[^[:alnum:]])(error|fatal|panic|denied|failed|refused|cannot|no such file|not found|traceback)([^[:alnum:]]|$)' |
+		grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
+	[ -n "$reason" ] || reason=$(tr -d '\033\r' <"$log" 2>/dev/null |
+		grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
 	log_event "TICK-FAILED $unit exit=$status (124 means the ${FACTORY_TICK_TIMEOUT}s ceiling) see $(basename -- "$log") :: ${reason:-the tick wrote nothing}"
 	factory_ledger_now "$unit" last-tick
 	return 4
@@ -440,7 +500,7 @@ factory_body() {
 	rows=$(printf '%s\n' "$rows" | tail -n +2)
 	log_event "PASS units=$(printf '%s\n' "$rows" | grep -c . || true) dry=$DRY_RUN budget=${FACTORY_BUDGET}s root=$FACTORY_ROOT trees=$FACTORY_TREES"
 
-	local workable='' unit key class detail branch issue rc_tick
+	local workable='' unit key class detail branch issue rc_tick rc_conflict
 	while IFS=$'\037' read -r unit key class detail branch issue; do
 		[ -n "${unit:-}" ] || continue
 		[ -n "$(factory_ledger_get "$unit:$(factory_slug "$key")" first-seen)" ] ||
@@ -450,11 +510,21 @@ factory_body() {
 			factory_merge "$key" "$branch" || rc=4
 			;;
 		conflict)
-			# Git may resolve it by itself. If it cannot, the same unit is queued for a tick, which
-			# is the only thing here that can read both sides of a conflict and keep both intents.
-			factory_resolve_conflict "$key" "$branch" ||
-				workable+="$(printf '%s\037%s\037%s\037%s\037%s\037%s' conflict "$key" "$detail" "$branch" "$issue" "$unit")"$'\n'
-
+			# Git may resolve it by itself. Only a genuine merge conflict is handed to a tick: the
+			# other reasons `factory_resolve_conflict` declines are temporary, and the tick they used
+			# to trigger is 2700 s of ceiling and a model run spent by something that cannot compile
+			# the language. See the return-code list on that function.
+			rc_conflict=0
+			factory_resolve_conflict "$key" "$branch" || rc_conflict=$?
+			case "$rc_conflict" in
+			0) : ;;
+			1) workable+="$(printf '%s\037%s\037%s\037%s\037%s\037%s' conflict "$key" "$detail" "$branch" "$issue" "$unit")"$'\n' ;;
+			2) log_event "CONFLICT-DEFERRED pr:$key not a merge a model can settle; the next activation retries" ;;
+			*)
+				log_event "CONFLICT-UNKNOWN pr:$key unexpected status $rc_conflict"
+				rc=4
+				;;
+			esac
 			;;
 		needs_reviewer)
 			factory_request_review "$key" || rc=4

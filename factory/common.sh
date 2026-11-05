@@ -153,6 +153,16 @@ factory_halt_reason() {
 # One file per (unit, fact), content is a single line. Not one JSON document, on purpose: two
 # writers appending to one JSON file is a corrupt file, and the supervisor and a tick are both
 # writers. `cat` and `date` are the whole interface, so nothing has to parse to be right.
+#
+# A ledger file is a timestamp with consequences: `first-seen` is what makes a unit old enough to be
+# picked first, `stuck-since` starts the clock on the escalation comment, `last-notice` is what stops
+# the supervisor commenting at a maintainer every ten minutes. So `--dry-run` may not write one. It
+# used to: the pass printed `DRY-RUN` for every real action and then stamped the ledger anyway, so a
+# dry run started the stuck-clock and refreshed the notice throttle, and the next real pass quoted
+# `after 86400s` for a wait that had only ever been rehearsed on paper. "Print, don't do" cannot be
+# partial, because the half that is done is the half that changes what a later run decides.
+# (Reported by review on #217, 5 Nov; `log_event` stays real -- a dry run that records nothing is a
+# dry run nobody can audit, and the journal is the one artefact worth reading afterwards.)
 
 factory_ledger_path() { printf '%s/%s.%s\n' "$FACTORY_LEDGER" "$1" "$2"; }
 
@@ -164,13 +174,17 @@ factory_ledger_get() {
 }
 
 factory_ledger_set() {
+	[ "$DRY_RUN" = "1" ] && return 0
 	factory_paths
 	printf '%s\n' "$3" >"$(factory_ledger_path "$1" "$2")"
 }
 
 factory_ledger_now() { factory_ledger_set "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 
-factory_ledger_clear() { rm -f -- "$(factory_ledger_path "$1" "$2")"; }
+factory_ledger_clear() {
+	[ "$DRY_RUN" = "1" ] && return 0
+	rm -f -- "$(factory_ledger_path "$1" "$2")"
+}
 
 factory_ledger_int() {
 	local v
