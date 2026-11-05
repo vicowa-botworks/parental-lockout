@@ -124,8 +124,19 @@ const uniqueProbe = 27 * time.Hour
 // wallInstant defers to it the moment it cannot prove there is only one reading.
 //
 // It is also the oracle the fast path is checked against: TestFastPathNeverDisagreesWithTheExhaustivePath
-// asserts the two agree everywhere, so the guard above can only ever be a
-// speed-up and never an answer of its own.
+// asserts the two agree everywhere — about the instant and about the zone — so the
+// guard above can only ever be a speed-up and never an answer of its own.
+//
+// The zone is part of the answer, not decoration on it. Every candidate below is
+// built in UTC, because converting a written wall time through an offset is only
+// arithmetic in UTC, so the instant this function lands on carries UTC unless it is
+// put back. Nothing in this package cares — Before, After and Equal all ignore the
+// location — but the callers print the value: wallClock in internal/dashboard is
+// t.Format("15:04"), which prints the zone the value arrives in, and
+// cmd/plock prints it as RFC3339. Leaving UTC on the road turns a rule written as
+// midnight into a screen that says 05:00, on exactly the days the fast path declines
+// because a clock change sits within 27h. Hence both returns put the answer back in
+// the zone it was asked for.
 func resolveReading(loc *time.Location, t time.Time, y int, mo time.Month, day, min int, last bool) time.Time {
 	h, mm := min/60, min%60
 
@@ -150,7 +161,7 @@ func resolveReading(loc *time.Location, t time.Time, y int, mo time.Month, day, 
 		}
 	}
 	if !best.IsZero() {
-		return best
+		return best.In(loc)
 	}
 
 	// Nothing reads as the written time, so the clock jumped over it. The
@@ -172,7 +183,7 @@ func resolveReading(loc *time.Location, t time.Time, y int, mo time.Month, day, 
 	// upper bound lands on the change exactly. Without this, two endpoints
 	// resolving to the same jump from different written times land a fraction
 	// apart, and a window that should be empty comes out a fraction wide.
-	return hi.Truncate(time.Second)
+	return hi.Truncate(time.Second).In(loc)
 }
 
 // readsAs reports whether the instant t shows the given calendar day and clock

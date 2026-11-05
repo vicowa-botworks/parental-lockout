@@ -482,3 +482,63 @@ func TestWallInstantAgreesWithTheCalendarOnAnOrdinaryMinute(t *testing.T) {
 		}
 	}
 }
+
+// The zone the answer arrives in is part of the answer, not a label on it.
+//
+// Every caller of this package prints what it gets: wallClock in internal/dashboard
+// is t.Format("15:04"), and cmd/plock prints RFC3339. The exhaustive half of
+// wallInstant builds its candidates in UTC — a written wall time plus an offset is
+// only an instant when the arithmetic is done in UTC — so on the days the fast path
+// declines, meaning a clock change inside the 27h it probes either side, the verdict
+// used to reach the page wearing UTC while carrying the right instant. An all-day
+// rule written to end at midnight was announced as "until 05:00" in
+// America/New_York on 2026-10-31 and 2026-11-01, on the two days a year a parent is
+// most likely to be reading it.
+//
+// Zones whose change lands on midnight itself are deliberately not in this list:
+// there the written midnight has two readings and the honest answer is the later
+// one, which is a different claim than the zone contract pinned here. Those are
+// pinned by TestWallAmbiguousEndHoldsToTheLastPass.
+func TestTheVerdictCarriesTheZoneTheRuleWasWrittenIn(t *testing.T) {
+	for _, z := range []string{
+		"America/New_York", "Europe/Berlin", "Australia/Sydney", "Europe/Lisbon", "Asia/Tehran",
+	} {
+		loc := zone(t, z)
+		p := profile(z, allDayRule("allday", allDays, "", ""))
+		var days []time.Time
+		if d, ok := fallBackDay(loc); ok {
+			days = append(days, d, d.AddDate(0, 0, -1))
+		}
+		if d, ok := springForwardDay(loc); ok {
+			days = append(days, d, d.AddDate(0, 0, -1))
+		}
+		if len(days) == 0 {
+			t.Skipf("%s has no clock change in 2026", z)
+		}
+		for _, day := range days {
+			// Noon: midnight is the thing that can go missing, and this is the
+			// same reason anchor walks the day from noon.
+			now := time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, loc)
+			v := Evaluate(p, now)
+			if !v.Active {
+				t.Fatalf("%s %s 12:00: an all-day rule reports not held", z, day.Format("2006-01-02"))
+			}
+			// The rule wrote midnight, so midnight is what the clock has to read.
+			// The instant underneath is not the claim: it was already right.
+			for _, end := range []struct {
+				label string
+				at    time.Time
+			}{{"EndsAt", v.EndsAt}, {"NextStart", v.NextStart}} {
+				if end.at.Format("15:04") != "00:00" {
+					t.Errorf("%s %s 12:00: %s renders %s (%s), want the midnight the rule wrote",
+						z, day.Format("2006-01-02"), end.label, end.at.Format("15:04"),
+						end.at.Format(time.RFC3339))
+				}
+				if got := end.at.Location().String(); got != z {
+					t.Errorf("%s %s 12:00: %s carries %s, want the profile's own %s",
+						z, day.Format("2006-01-02"), end.label, got, z)
+				}
+			}
+		}
+	}
+}

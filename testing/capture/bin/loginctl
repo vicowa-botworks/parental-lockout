@@ -1,0 +1,115 @@
+#!/bin/sh
+# The fixture's own loginctl, so a photograph is a photograph of the fixture.
+#
+# Why this exists (issue #207, cause 6). The dashboard's Sessions cell is not a property of the
+# config: `GET /` asks the platform layer, the command backend delegates listing to logind
+# (internal/platform/command.go:133, and its own type comment says why it may not come back empty
+# on its own), and `loginctl` is resolved from PATH (internal/platform/exec.go:74-79 — bare name,
+# `exec.LookPath`, no absolute fallback). So the daemon asked *this machine*'s logind, and the cell
+# reported whatever the machine running the capture happened to be: the committed frame said
+# `session list unavailable`, three fresh runs on the same box said `no desktop session`. Two
+# honest captures of one fixture, two different pages, and both of them current by every check
+# `manifest.py check` has — it compares the page's *product* sources, and nothing it can see moved.
+#
+# This program is put on the daemon's PATH by the fixture (see `capture_census` in fixture.sh), so
+# the census in the frame is the fixture's. The verbs and the byte shapes are what
+# internal/platform/logind.go actually runs and parses:
+#
+#   loginctl --no-ask-password list-sessions --json=short      (logind.go:334)
+#   loginctl --no-ask-password list-sessions                   (the table fallback, :364)
+#   loginctl --no-ask-password show-session <id> -p Name -p Type -p State -p Remote -p LockedHint
+#                                                              (one per desktop entry, :409)
+#
+# Both listing forms are answered, because the code tries the JSON form first and re-reads the SAME
+# bytes as a table if they are not a JSON array; a stub that answered only one would be testing the
+# fallback by accident. The table form is the real 259's shape — `--output=json` is silently
+# ignored by it, which is the whole reason the fallback exists — and its header here is the one in
+# internal/platform/testdata/list-sessions.table.
+#
+# Anything it is not written to answer is a loud failure, not an empty success: a backend that
+# answers `[]` to a verb it does not know is how a capture ends up photographing a page that says
+# `no desktop session` for a reason nobody chose.
+set -u
+
+verb=""
+for arg in "$@"; do
+  case "$arg" in
+    -*) ;;
+    *) verb="$arg"; break ;;
+  esac
+done
+
+# Two sessions, and which accounts they belong to is a decision with a reason behind it.
+#
+# `alex` holds one. It is DISABLED in the fixture's config, and the engine never reaches a lockout
+# for a disabled account, so this session is safe to hand out: the dashboard renders a real cell for
+# it (`x11 · seat0 · locked`) while the enforcement loop has nothing to do with it.
+#
+# `casey` holds none, and that is deliberate rather than an oversight. Casey is enabled and held by
+# an all-day rule, so a session for casey is a session the enforcement loop would lock on its next
+# tick — through the command backend, whose lock is /bin/true, successfully — and a successful lock
+# appends a row to the same audit trail the audit page photographs. That is issue #207's cause 2
+# arriving through a different door, and the declared row count in pages-setup.sh is what would
+# refuse it. A fixture that adds rows to the trail it is about to photograph has stopped being a
+# fixture.
+#
+# `visitor` is in neither config nor passwd. It is here to keep the filter honest: a listed session
+# whose username matches no managed account has to be invisible on this page
+# (internal/dashboard/dashboard.go keys sessions onto rows by username string), and if that ever
+# changed, the row would show up in the frame and the declared-state check in pages.py would refuse
+# the capture rather than commit a third page.
+#
+# Nothing else about these rows reaches the PNG: the session id, uid, tty, class, idle, leader and
+# since are not rendered by dashboard.tmpl, and `since` is pinned to null on purpose — a garbage or
+# absent `since` turns the read into a PARTIAL listing (logind.go:520-542), which flips every row on
+# the page to `session list unavailable` while still returning the good rows. That is a real
+# behaviour worth a test, and it is not what this frame is evidence about.
+LISTING='[{"session":"2","uid":2001,"user":"alex","seat":"seat0","leader":4002,"class":"user","tty":"tty3","idle":false,"since":null},{"session":"7","uid":5500,"user":"visitor","seat":"seat1","leader":7007,"class":"user","tty":"tty4","idle":true,"since":null}]'
+
+TABLE='SESSION  UID USER     SEAT  LEADER CLASS TTY  IDLE SINCE
+      2 2001 alex     seat0 4002   user  tty3 no   -
+      7 5500 visitor  seat1 7007   user  tty4 yes  -
+
+2 sessions listed.'
+
+props() {
+  case "$1" in
+    # Type has to be answered: isLockable (internal/platform/platform.go:241) drops a session whose
+    # Type is empty or `unspecified`, so a stub that omitted it would make the row vanish from the
+    # page — silently, because a missing property is never an error here (logind.go:180-182 only
+    # falls back to the listing's user for Name).
+    2) printf 'Name=alex\nType=x11\nState=active\nRemote=no\nLockedHint=yes\n' ;;
+    7) printf 'Name=visitor\nType=wayland\nState=active\nRemote=no\nLockedHint=no\n' ;;
+    *) printf 'Name=\n' ;;
+  esac
+}
+
+case "$verb" in
+  list-sessions)
+    for arg in "$@"; do
+      case "$arg" in
+        --json=short) printf '%s\n' "$LISTING"; exit 0 ;;
+      esac
+    done
+    printf '%s\n' "$TABLE"
+    exit 0
+    ;;
+  show-session|show)
+    # The id is the second non-flag argument; the -p list after it is a request this stub answers in
+    # full, in the order real logind prints these five.
+    seen=""
+    id=""
+    for arg in "$@"; do
+      case "$arg" in
+        -*) continue ;;
+      esac
+      if [ -z "$seen" ]; then seen="$arg"; continue; fi
+      id="$arg"; break
+    done
+    props "$id"
+    exit 0
+    ;;
+esac
+
+printf 'fixture loginctl: %s is not a verb this stub was written to answer, and answering it with an empty success would put a sentence on the photographed page for a reason nobody chose. Add it to testing/capture/bin/loginctl with the bytes real loginctl prints, or stop the daemon from asking.\n' "$verb" >&2
+exit 1

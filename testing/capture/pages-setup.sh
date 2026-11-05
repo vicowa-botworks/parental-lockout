@@ -18,10 +18,64 @@ set -euo pipefail
 
 capture_begin pages 8501 9333
 
+# What this fixture declares about itself, before the config is written. These are the CAPTURE_*
+# names, not the PLOCK_CAPTURE_* ones: fixture.sh is sourced at the top of this file and has already
+# folded any operator override into them, and capture_env reads these at the end of the run. The
+# ${VAR:-} shape keeps that override working for the one pair of values a driver might legitimately
+# want to move — see the stamp in fixture.sh.
+#
+# Seven seeded rows plus the one the sign-in appends. `capture_done` refuses if the heredoc below
+# stops producing that number, and pages.py refuses if the rendered page does not show it.
+CAPTURE_AUDIT_ROWS="${PLOCK_CAPTURE_AUDIT_ROWS:-8}"
+# The census comes from bin/loginctl in this folder rather than from the machine's logind, so the
+# Sessions cell is the fixture's and not a report on whoever ran the capture (#207 cause 6). The two
+# POST fixtures deliberately do not set this: their whole subject is a real lock on a real session.
+CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-$CAPTURE_DIR/bin}"
+# The reader's zone, declared because the audit page's When column is formatted with `MST` and Go's
+# time.Parse hands a row whose offset matches the local zone that zone's abbreviation (see
+# fixture.sh). America/New_York is the zone the fixture's own wall times are written in, so the label
+# and the clock agree, and they agree on every host.
+CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-America/New_York}"
+
 # The heredoc is unquoted for one line: the listen address has to carry $RUN_PORT, so the port
 # is named once, in capture_begin. A quoted heredoc here meant the port appeared twice, and
 # the obvious edit -- changing the capture_begin line -- left the daemon on the old port and
 # the driver probing the new one, which reads as "the daemon never answered".
+#
+# The first rule is `allDay` on all seven days, and that is a decision about the photograph rather
+# than about parenting. `dashboard.tmpl` chooses between *locked out*, *not now; next at* and
+# *nothing scheduled* from `schedule.Evaluate(p, now)`, so a fixture whose account is only held on
+# the weekend photographs a different page on Monday at 14:00 than on Sunday at 22:00 -- same
+# fixture, same binary, two documents, and nothing in this folder said which of the three had been
+# taken (#207 cause 5). Held every hour of every day, the row is the held branch whatever the host's
+# clock says, and the cell's clock is the midnight the rule was written with.
+#
+# Which is only true on a tree that carries #208's fix. `resolveReading` built its candidates in UTC
+# and handed that back as the answer's zone, so on the two days a year a window's end sits within 27h
+# of a clock change, this same page says `until 05:00` for a rule that says midnight. The declared
+# state check in pages.py is what notices: run this capture on a tree without that fix and it refuses
+# rather than committing a frame whose sentence is wrong. That is the honest coupling between the two
+# issues -- the fixture does not paper over the defect, it declines to photograph it.
+#
+# The curfew rule stays for the audit page's sake: its rows quote `Weeknight curfew including the
+# weekend`, and that name is part of what makes the Rule column wide.
+#
+# alex is on a profile of its own, with one rule that is switched off, and the reason is the same
+# cause. The cell's branches are `locked out until`, `scheduled, not enforced`, `not now; next at`
+# and `nothing scheduled` (internal/web/templates/dashboard.tmpl:36-55), and the second of the two
+# time-telling ones is a property of the hour: verdictRule (internal/dashboard/dashboard.go:310-319)
+# hands back NextStart while nothing is running and EndsAt once it is, so an account with a live
+# curfew says `not now; next at 21:00` at noon and `nothing scheduled` at ten to ten. Two fixtures of
+# one document at two times of day -- the acceptance criterion in #207 -- cannot both be photographed
+# by a row like that; it would be a third page, which is precisely what the driver now refuses to
+# commit. A profile with no enabled rule is `nothing scheduled` at every hour of every weekday, so
+# the frame says the same thing on Sunday at 22:00 as on Wednesday at 14:00.
+#
+# What that costs is worth naming rather than burying: the `next at` branch is no longer in any
+# photograph, and it cannot be, because there is no rule that is never running and still has a next
+# start. Its home is now TestOutsideTheWindowTheRowShowsTheNextOpening in
+# internal/dashboard/dashboard_test.go, which pins the sentence and the clock without depending on
+# when it ran. A branch that a byte-stable artifact cannot hold is a branch a test holds instead.
 cat > "$CONFIG" <<JSON
 {
   "version": 1,
@@ -40,17 +94,26 @@ cat > "$CONFIG" <<JSON
       "name": "School nights and weekends",
       "timezone": "America/New_York",
       "rules": [
-        {"id": "r-allday", "name": "All weekend, every hour", "days": ["sat", "sun"],
+        {"id": "r-allday", "name": "Every day, every hour", "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
          "allDay": true, "enabled": true},
         {"id": "r-curfew", "name": "Weeknight curfew including the weekend",
          "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
          "start": "21:00", "end": "06:30", "enabled": true}
       ]
+    },
+    {
+      "id": "quiet",
+      "name": "Rules switched off",
+      "timezone": "America/New_York",
+      "rules": [
+        {"id": "r-quiet", "name": "Weekend, until somebody turns it back on", "days": ["sat", "sun"],
+         "allDay": true, "enabled": false}
+      ]
     }
   ],
   "users": [
     {"username": "casey", "profileID": "school", "enabled": true},
-    {"username": "alex", "profileID": "school", "enabled": false}
+    {"username": "alex", "profileID": "quiet", "enabled": false}
   ]
 }
 JSON
@@ -73,11 +136,13 @@ capture_admin
 #     four hours in its future on a page that says "newest first". Seeded rows now carry the
 #     emitter's offset, so the column shows one zone and reads in the order it claims to.
 #
-# The timestamps are relative to now and signing in appends an auth.success row of its own, so
-# audit.png is one of the artifacts in docs/screenshots/360/ that a second run cannot reproduce
-# byte for byte -- README.md names each and says why.
+# What is left of #207's cause 2 is the row the sign-in appends, and the driver owns that one: it
+# re-stamps it to the declared instant and refuses if the appended row is not the `auth.success` the
+# web layer was writing when this fixture was written. `capture_done`, which this file calls last,
+# refuses if the rows seeded here and the number declared at the top disagree.
 : > "$AUDIT"
-kinds=$(python3 - "$AUDIT" "$CAPTURE_REPO/internal/platform/testdata/list-sessions.json" <<'PY'
+kinds=$(python3 - "$AUDIT" "$CAPTURE_REPO/internal/platform/testdata/list-sessions.json" \
+  "$CAPTURE_STAMP" "$CAPTURE_ZONE" <<'PY'
 import json, sys, datetime
 
 # The payload the platform backend quotes when session enumeration comes back in a shape it cannot
@@ -99,7 +164,7 @@ with open(sys.argv[2]) as fh:
 # internal/web/handlers.go. Only casey is enabled in the config above, so only casey has engine
 # rows: a lockout line for a disabled account is a state the engine never reaches.
 rows = [
-    ("lock.asserted", "casey", "2", "r-allday", "All weekend, every hour",
+    ("lock.asserted", "casey", "2", "r-allday", "Every day, every hour",
      "re-asserted although the session reported itself locked; that report is not evidence the screen is locked", ""),
     # #177: the row a parent most needs to recognise, and the longest sentence the engine
     # writes. Seeded with the counted arm rather than the first-release arm because the two
@@ -108,7 +173,7 @@ rows = [
      "the screen has come back unlocked 2 times since this lockout began, each time after a confirmed lock; locked again now. Only the session user can write the signal this is inferred from, so this is either someone dismissing the lock or someone writing the hint, and neither happens on a machine nobody is touching", ""),
     ("lock.unconfirmed", "casey", "2", "r-curfew", "Weeknight curfew including the weekend",
      "a backend accepted the lock; nothing confirmed the screen locked", ""),
-    ("lockout.entered", "casey", "2", "r-allday", "All weekend, every hour", "", ""),
+    ("lockout.entered", "casey", "2", "r-allday", "Every day, every hour", "", ""),
     ("override.granted", "", "", "", "",
      "casey until 2026-10-20T02:00:00Z by parent: dentist appointment, travelling home afterwards", "admin"),
     ("auth.failure", "", "", "", "", "127.0.0.1", "admin"),
@@ -141,15 +206,23 @@ rows = [
     ("platform.error", "", "", "", "", LOGINCTL, ""),
 ]
 
-# astimezone() with no argument is the machine's local zone, which is what the daemon's own
-# writer stamps. "Z" here would put a second zone in the page's When column.
+# The declared instant (argv 3 and 4, from fixture.sh), not the host's clock. The line this replaces
+# was `datetime.datetime.now().astimezone()`: `now()` put the wall clock into every row's `at`, and
+# `astimezone()` with no argument put the HOST's zone there too, so the When column was a function of
+# when the photograph was taken and of whose machine took it -- #207's cause 1, and half of why
+# audit.png had never been re-taken.
 #
+# An offset is written rather than a zone name because that is what the daemon's writer stamps: the
+# trail on disk holds an instant with an offset, never a name, and the page prints each row in the
+# zone the row itself carries. "Z" here would have put a second zone in the column beside the seeded
+# rows' -04:00 -- the README's own note about a UTC clock sitting four hours ahead of the local one
+# and putting the newest event below events in its future.
 # Rows go in the file OLDEST first, because that is what a writer that only ever appends
 # produces -- and audit.Reader.Tail does not sort, it reads the tail and returns it reversed on
 # that assumption. A fixture that seeds newest-first therefore renders oldest-first: the first
 # version of this trail did exactly that, and the page labelled "newest first" showed the login
 # at the top and then five rows climbing.
-now = datetime.datetime.now().astimezone()
+now = datetime.datetime.fromisoformat(sys.argv[3] + sys.argv[4])
 with open(sys.argv[1], "w") as f:
     for i, (kind, user, sid, rid, rname, detail, actor) in enumerate(reversed(rows)):
         at = (now - datetime.timedelta(minutes=len(rows) - i)).isoformat(timespec="milliseconds")
