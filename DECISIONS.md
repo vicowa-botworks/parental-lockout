@@ -72,3 +72,36 @@ Two consequences, both deliberate:
   was minted in the first place.
 - Checkpoint: 230d7f6a8340986e6f655e4fcc47691c060fd0ee
 - Effect: docs/screenshots/360/manifest.json (`head`, and `/audit`'s `sources_rev`)
+
+## D-0022 · The When cell gets two mutants, one per assertion
+
+- Question: #214's review measured that `scripts/mutations/web.json` has three mutants on
+  `audit.tmpl` (W157, W158, W159) and none of them touches the When cell, so this branch's decision is
+  pinned by exactly one file, `internal/web/audit_row_zone_test.go`. Does a decision whose only pin is
+  a test file need a mutant?
+- Options: nothing -- the review calls the mutant optional and the test is the pin | one arm, putting
+  `MST` back on the human-readable cell | two arms, that one and one putting a zone name in the
+  `datetime` attribute
+- Chose: two arms, that one and one putting a zone name in the `datetime` attribute
+- Why: the first option is the one this repository has already been burned by. A mutant set proves
+  which bugs the suite catches; it cannot notice a decision that has no mutant, and
+  `scripts/check-mutations.py` runs every day on exactly that blind spot (memory #1048: a renamed or
+  deleted anchor retires a pattern silently and the suite stays green). Deleting the new test file
+  retires #210 the same way and nothing in `make verify` says so; a row in the set is the only place
+  that claim survives the file it was written next to. The middle option was the review's suggestion
+  and my first draft of the row, and it lost on measurement: that draft's note asserted the attribute
+  "is killed by the same `want` in the same subtests, so a second row would add a count, not a
+  killer", and probing it showed the assertion is a different one -- `attr !=
+  "2026-03-18T21:33:05-04:00"` -- which fires with the cell text untouched. So the second arm has its
+  own killer and the first arm's rationale was false as written; declaring both also matches the set's
+  own practice for a two-sided condition, where W285 and W295 are declared as the two halves of one
+  `&&` rather than inferred from each other. Both measured before being declared: `mutate.py --only
+  W298,W299` returns `CAUGHT` for each, and the same layout edit applied by hand fails
+  `TestTheAuditRowIsStampedTheSameWhoeverReadsIt` and all four of its zone subtests. What this costs:
+  the set's tally moves 287 -> 289, so any branch quoting 287 is now wrong -- #215 is stacked on this
+  branch and its body does -- and both rows are anchored inside the When cell, which is the region
+  #1048 calls fragile: pull that expression into a template variable and both patterns match zero
+  times, reported as NOT APPLIED, which is a build-shaped complaint rather than the lost decision it
+  would be.
+- Checkpoint: 39b60988ad0cb2361e98c6ff64a45089860b8475
+- Effect: scripts/mutations/web.json (`W298`, `W299`, `expected_mutants`)
