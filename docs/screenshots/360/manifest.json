@@ -1,6 +1,6 @@
 {
   "captured_at": "2026-11-01T23:03:53Z",
-  "head": "2d60366489feb277a95af5bea8a8fb5320c204e6",
+  "head": "c82baa6e9318427f7d1023416edc1a36542419c4",
   "pages": [
     {
       "page": "/audit",
@@ -12,7 +12,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2d60366489feb277a95af5bea8a8fb5320c204e6"
+      "sources_rev": "c82baa6e9318427f7d1023416edc1a36542419c4"
     },
     {
       "page": "/",
