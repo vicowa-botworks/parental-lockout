@@ -330,6 +330,8 @@ ranks the residual risk. The four that change how you should think about the pro
   control, every defense with the test behind it, and an explicit list of what is *not* defended.
 - [docs/platforms.md](docs/platforms.md) — what was measured on real hardware, and where the
   design's platform claims came from.
+- [docs/releases.md](docs/releases.md) — how a release comes to exist: a tag push and nothing
+  else, what each job guards against, and which parts are measured rather than reasoned.
 - Target platform is KDE Plasma on Ubuntu, with GNOME measured on real hardware as well; the
   locking mechanism sits behind an interface, and the difference between the two — whether a
   confirmation rests on something the controlled user cannot write — is measured, not assumed.
