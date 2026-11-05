@@ -230,3 +230,29 @@ exists to prevent. From the first real tick onward, one decision is one commit.
 - Checkpoint: 53a0850c4bc6ccb37a6004f4f2aab9cf57ed68f9
 - Effect: factory/common.sh (`FACTORY_HARNESS`), factory/factory.sh (`run_tick`),
   factory/install-timer.sh (generated `[Service]` unit), docs/factory.md
+
+## D-0012 · Cut the worktree from the branch when the branch is already committed, and name the tree that owns it
+
+- Question: what builds a tick's worktree when the unit's branch already exists locally but nothing
+  is checked out at `$FACTORY_TREES/<slug>`?
+- Options: try the checked-out form (`worktree add "$path" "$branch"`) ahead of the two creating
+  forms and stop with the other tree's path when one holds it | keep the two `-b` attempts and let the
+  unit fail | move whatever worktree git reports as holding the branch, into place
+- Chose: try the checked-out form (`worktree add "$path" "$branch"`) ahead of the two creating
+  forms and stop with the other tree's path when one holds it
+- Why: measured 5 Nov on this repository, not inferred. Both creating attempts answer
+  `fatal: a branch named 'fix/audit-row-label' already exists` -- `worktree add -b` cannot be used for
+  a branch that exists, and it is the `-b` form in both attempts -- so every unit that is already a
+  pull request was unworkable: `pr:209`, `pr:214`, `pr:215` and `pr:217` produced 285
+  `could not create a worktree` lines in the journal on 5 Nov alone, and `git worktree list` shows the
+  branches were checked out, clean, the whole time -- six trees under `/tmp/opencode`, left there by
+  interactive sessions, which is the location `common.sh` already rules out for unmerged work because
+  a reboot deletes it. The third option is refused rather than deferred: a tree this supervisor did
+  not create may hold a person's uncommitted work, and one of those six does (`/tmp/opencode/wt-204`,
+  four dirty paths, copied out to `~/prj/at-risk` on 4 Nov precisely because it was not safe to
+  touch). So the message names the other tree and the one command that relocates it, which turns a
+  silent queue jam into an instruction, and touches nothing. The checked-out form costs nothing in the
+  cases that used to work: it is guarded by `show-ref --verify refs/heads/$branch`, and a branch that
+  is only on origin still falls through to `--track -b` exactly as before.
+- Checkpoint: c07b9c5ca2496376454ebcc34507ed8ebc3235e6
+- Effect: factory/common.sh (`factory_worktree`)

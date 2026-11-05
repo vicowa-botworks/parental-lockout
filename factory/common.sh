@@ -342,9 +342,12 @@ factory_main_checkout() { _factory_main; }
 # component below one, and the repo's own convention (fix/…, feat/…) guarantees it shows up.
 factory_slug() { printf '%s' "$1" | tr '/' '-'; }
 
-# The tree for a branch, creating it from origin/main when absent. Prints the path.
+# The tree for a branch, making one when it is absent: from origin/<branch> if the branch is only on
+# the remote, from origin/main if it is nowhere yet, and from the branch itself if it is already
+# committed here. A branch already checked out somewhere else is the one case that stops here, with
+# the path of that other tree in the message. Prints the path.
 factory_worktree() {
-	local branch=$1 slug path main
+	local branch=$1 slug path main other
 	slug=$(factory_slug "$branch")
 	path="$FACTORY_TREES/$slug"
 	if [ -d "$path" ]; then
@@ -363,6 +366,29 @@ factory_worktree() {
 	# usage dump that was the entire diagnosis. Measured on the first timer-driven pass: all three ticks
 	# died here in under two seconds, because a worktree is only *created* for the new-branch case, and
 	# every unit that needed one is an issue.
+	# Three shapes of branch, not two. Every unit that is already a pull request -- and every stranded
+	# branch -- names a branch that ALREADY EXISTS locally, and neither attempt below can build a tree
+	# for one: `worktree add -b` answers `fatal: a branch named 'fix/audit-row-label' already exists`,
+	# both attempts, every time. Measured 5 Nov: that is what wedged pr:209, pr:214, pr:215 and pr:217
+	# for 29 hours once their trees turned out to live under /tmp/opencode instead of FACTORY_TREES --
+	# four `could not create a worktree` lines a pass, and a queue that could not be emptied from it.
+	# So take the checked-out form when the branch is already here. When some other worktree owns it,
+	# name that worktree: moving a tree this supervisor did not create is a person's call, but saying
+	# where it is has no cost and is the whole difference between a blocker and a mystery.
+	if git -C "$main" show-ref --verify --quiet "refs/heads/$branch"; then
+		other=$(git -C "$main" worktree list --porcelain 2>/dev/null |
+			awk -v b="refs/heads/$branch" '
+				/^worktree /{w=substr($0,10)}
+				/^branch /{if (substr($0,8)==b) {print w; exit}}')
+		if [ -n "$other" ]; then
+			die "branch $branch is checked out in $other; bring it to $path with \`git worktree move $other $path\` when that tree is spent"
+		fi
+		if git -C "$main" worktree add "$path" "$branch" >>"$FACTORY_LOG/worktree.log" 2>&1; then
+			printf '%s\n' "$path"
+			return 0
+		fi
+		die "branch $branch exists locally but no worktree could be created at $path; see $FACTORY_LOG/worktree.log"
+	fi
 	if ! git -C "$main" worktree add --track -b "$branch" "$path" "origin/$branch" \
 			>"$FACTORY_LOG/worktree.log" 2>&1; then
 		# No such branch on origin, which is the normal case for an issue: cut it from origin/main.
