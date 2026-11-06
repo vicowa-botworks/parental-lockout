@@ -198,15 +198,19 @@ CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-}"
 # a value — and the lesson that governs the whole field is the narrower one: a digest can show a frame
 # is *consistent with* a condition, which is not the same as its witnessing it.
 #
-# A fixture that declares nothing about this gets no `scripts` key in its manifest entry. Absent means
-# "this fixture did not choose", exactly as it does for the four optional keys above; it never means
-# `off` by default, because the whole defect #211 closes is a reader filling in a condition nobody
-# stated. Say the half that asymmetry hides, because this is the one field where the two halves are
-# reached by different routes: a fixture that names nothing still gets an `off` *frame*, because
-# `${PLOCK_CAPTURE_SCRIPTS:-off}` below defaults it and `cdp.scripts_disabled` reads an absent
-# declaration as the criterion's own condition — so `pages-noprof`'s frame was taken with the scripts
-# off while its entry says nothing about it. `rows` and `tz` are absent there because nobody chose;
-# `scripts` is absent because nobody wrote it down, not because anything was left running.
+# Three of the six optional keys `capture_env` writes carry a non-empty default — `STAMP`, `ZONE` and
+# this one — so every fixture that sources this file states all three, and all nine committed rows
+# read `scripts: "off"`, `users-no-profiles.png` included. Absence is where #211's rule lives, and it
+# operates on the other three keys (`AUDIT_ROWS`, `PATH_PREPEND`, `TZ`), which are written only when a
+# setup script declares them: `pages-noprof` is the example for `rows` and `tz`, and there is no
+# shipped example for this key.
+#
+# Say what the default does hide, because it is the half a reader can get wrong in the dangerous
+# direction: `PLOCK_CAPTURE_SCRIPTS=` set empty is the only way to make an entry that states nothing,
+# and such a fixture would still be *photographed* with the scripts off, because
+# `cdp.scripts_disabled` reads an absent declaration as the criterion's own condition. So an absent
+# `scripts` is never evidence that the page's scripts ran, and a present one is only ever what the run
+# that wrote it said — which is why D-0026 took the two POST frames again instead of choosing a value.
 CAPTURE_SCRIPTS="${PLOCK_CAPTURE_SCRIPTS:-off}"
 
 # capture_env

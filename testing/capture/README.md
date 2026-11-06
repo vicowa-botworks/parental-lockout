@@ -397,8 +397,20 @@ go build -o plock ./cmd/plock        # first, every time — see the binary note
 ./pages-noprof-setup.sh && ./pages.py --fixture pages-noprof --out docs/screenshots/360 --overwrite
 ./lock-setup.sh        && ./lock.py --out docs/screenshots/360 --overwrite
 ./testlock-setup.sh    && ./testlock.py --out docs/screenshots/360 --overwrite
-python3 manifest.py record            # last, after every frame in the set is re-taken
+cd "$(git rev-parse --show-toplevel)"   # `--dir` and `--fixture-env` are shell-relative, `--out` is not
+python3 testing/capture/manifest.py record --dir docs/screenshots/360 \
+  --fixture-env testing/capture/runs/pages/fixture.env \
+  --fixture-env testing/capture/runs/pages-noprof/fixture.env \
+  --fixture-env testing/capture/runs/lock/fixture.env \
+  --fixture-env testing/capture/runs/testlock/fixture.env \
+  --shot audit --shot dashboard --shot users --shot profiles --shot profiles-refused \
+  --shot settings --shot users-no-profiles --shot lock --shot testlock
+       # last, after every frame in the set is re-taken, and *named*: see the note below
 ```
+
+`pages.py` records itself and knows what it photographed, so the flags above are for the set as a
+whole: they are what keeps `lock.png` and `testlock.png` — whose drivers write no manifest — stamped
+from the runs that took them instead of keeping October's block on the strength of unchanged bytes.
 
 **Build first, and mean it.** The fixtures test that `$PLOCK_BIN` exists (`fixture.sh`), not that it
 is newer than the sources compiled into it, and the templates are `go:embed`
@@ -412,7 +424,8 @@ for a page nobody photographed. `fixture.sh` now refuses a binary older than the
 it and names them; the build line above is the fix it asks for.
 
 **Record last, and only over a complete set.** `record()` walks the PNGs sitting in its target
-directory (`manifest.py:219`) and stamps each with the newest commit over its sources — it does not
+directory (`pngs_in`, and `record`'s loop over it) and stamps each with the newest commit over its
+sources — it does not
 know, and cannot tell, which of them this run took. Pointed at the committed directory, a partial
 re-capture therefore advances `sources_rev` for the frames it left alone, and `check` calls those
 stale photographs current: measured 5 Nov after the two `pages.py` lines above, the check reported
@@ -421,6 +434,18 @@ The identity check cannot see it, because the recorded hash matches the stale fi
 from. The sentence further up this file — that a fixture records its manifest in its own `runs/`
 directory "so a one-page re-capture cannot certify another run's PNGs as just-taken" — is true of the
 default target and false of `--out`.
+
+The stronger form of the same hole, measured 6 Nov on the merge of #221: substitution, not staleness.
+In a scratch copy of the committed directory with `main`'s `audit.png` — a photograph of the `MST`
+cell the branch had just deleted — sitting in place of the current one, `check` refuses on identity
+(`ac49f291a5cd… on disk, 0cfe9973711b… recorded`, rc 1); one bare `manifest.py record` over those same
+bytes answers **`9 photographs current`, rc 0**. `record` writes `sources_rev = newest_commit(sources)`
+from the commit and the clock and never asks the pixels what page they show, and `check`'s drift arm
+opens `if recorded == current: continue` — so the equality the recorder mints is the same equality the
+gate reads, and a re-dated frame cannot be seen to be wrong. That is what the `--shot` names are for:
+they are the only input that says which frames this run photographed, and a frame named without an env
+that states its fixture is a refusal rather than a guess. The bare command is still right for a set
+this folder took whole and honest; it is the *only* command that will not tell you it was wrong.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver
@@ -652,12 +677,16 @@ Three sentences are the whole content of the field:
   never tested this folder's criterion, *usable at 360 px with JavaScript off*, so `check` refuses an
   entry that records `on`, and such a PNG belongs in `testing/capture/runs/`, not in
   `docs/screenshots/360`.
-- **Absent still means "not stated", never "off"** — but this is the field where the asymmetry is
-  easiest to lose, because the two halves arrive by different routes: a fixture that names nothing
-  inherits an `off` *frame* (`${PLOCK_CAPTURE_SCRIPTS:-off}` in `fixture.sh`, and
-  `cdp.scripts_disabled` reading an absent declaration as the criterion's own condition) while its
-  manifest entry gets no key at all. `users-no-profiles.png` is that artifact today: taken with the
-  scripts off, recorded as saying nothing about it.
+- **Absent still means "not stated", never "off"** — and no shipped frame is absent, which is the
+  easier half to believe because the example this bullet used to give was false. Three of the six
+  optional keys `capture_env` writes carry a non-empty default (`STAMP`, `ZONE`, `SCRIPTS`), so every
+  fixture that sources `fixture.sh` states them and all nine rows read `scripts: "off"` —
+  `users-no-profiles.png` included. Absence does the work on the other three (`AUDIT_ROWS`,
+  `PATH_PREPEND`, `TZ`), and that is where `pages-noprof` is the real example: no `rows`, no `tz`,
+  nobody chose. `PLOCK_CAPTURE_SCRIPTS=` set empty is the only entry that states nothing, and even
+  that frame is taken with the scripts off, because `cdp.scripts_disabled` reads an absent
+  declaration as the criterion's own condition — so absence is never evidence that the page's scripts
+  ran.
 
 ## Two viewports, because one was never a criterion (#149)
 

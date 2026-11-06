@@ -806,3 +806,50 @@ Two consequences, both deliberate:
   docs/screenshots/360/manifest.json (schema `/2`, `head`, `captured_at`, nine `capture` blocks,
   `/audit`'s `png_sha256` and `sources_rev`), DECISIONS.md (this entry and the three D-0024
   amendments above)
+
+## D-0029 · The capture notes' example of an unstated condition is a frame that states it
+
+- Question: `fixture.sh` and `testing/capture/README.md` both hold up `pages-noprof` /
+  `users-no-profiles.png` as the artifact whose manifest entry "says nothing about" page scripts, and
+  the README's re-capture recipe ends on a bare `manifest.py record`. #215's review measured all nine
+  committed rows reading `scripts: "off"`, and D-0028 measured the bare record dating a substituted
+  frame as current. Correct the prose, change the code until the claims are true, or delete them?
+- Options: correct the three sentences to what the artifacts show | default `CAPTURE_SCRIPTS` to empty
+  so a fixture can genuinely state nothing | delete the sentences and the recipe's last line
+- Chose: correct the three sentences to what the artifacts show
+- Why: the claim is checkable in one command and it fails. `CAPTURE_SCRIPTS="${PLOCK_CAPTURE_SCRIPTS:-off}"`
+  is never empty, `capture_env` writes the line whenever it is not, and all four setup scripts source
+  `fixture.sh` -- so nine of nine rows read `off`, `users-no-profiles.png` included, and its entry
+  carries `rows`/`tz`/`census` absent with `scripts` present. It is in good company: three of the six
+  optional keys (`STAMP`, `ZONE`, `SCRIPTS`) carry non-empty defaults, and the notes had generalised
+  from the other three (`AUDIT_ROWS`, `PATH_PREPEND`, `TZ`), where absence really does mean nobody
+  chose. So the paragraph is not wrong about the rule -- `manifest.py`'s absent-is-not-a-default rule
+  is real and self-tested -- it is wrong about which keys it operates on and it points a reader at a
+  frame that disproves it, in a folder whose whole argument is that you can go and check the example.
+  Option 2 buys a true sentence by deleting the only statement two of the nine frames have: with an
+  empty default every entry loses its `scripts` key, `check`'s scripts rule loses its subject, and the
+  manifest falls back to `capture-manifest/1` -- the exact flattening D-0028 measured, chosen on
+  purpose so that a paragraph can keep its illustration. Option 3 is worse than the false sentence it
+  removes, because the asymmetry it records (a frame can be *taken* under a condition the entry leaves
+  unstated) is the one a future re-take has to get right.
+  The recipe line is the same defect with a sharper edge, so it went in the same commit: the bare
+  `manifest.py record` the file tells a reader to run last is measured (D-0028) to stamp whatever PNG
+  is in the directory with `sources_rev = newest_commit(sources)` past a gate whose first arm compares
+  that field for equality, and to drop the block of the frame whose bytes moved -- `9 photographs
+  current`, rc 0, over a substituted frame that shows the deleted `MST` cell. A recipe that destroys
+  the artifact is worse than no recipe, so the line now names all four fixtures' envs and all nine
+  shots, and was run exactly as printed before it was committed: it changes `captured_at` and `head`
+  and nothing else. The paragraph beside it says which command is safe when, and the stale
+  `manifest.py:219` citation it carried -- now a docstring about rules that call functions -- is
+  replaced by the function names, the convention this file already uses for citations that must not
+  rot.
+- What this costs, stated rather than glossed. The notes now carry no worked example of an absent
+  `scripts`, because none exists; a reader who wants one has to set `PLOCK_CAPTURE_SCRIPTS=` and take
+  a frame, and the corrected paragraph says so instead of pointing at a PNG that would contradict
+  them. And the recipe is six lines instead of one: the short form is left standing as the command for
+  a whole honest set, which is the case it was written for, with the substitution measurement next to
+  it so nobody finds the other case by accident.
+- Checkpoint: 45977d6817cb71cb3e798e0dc0c6fec6ae5eb624
+- Effect: testing/capture/fixture.sh (the `PLOCK_CAPTURE_SCRIPTS` note), testing/capture/README.md
+  (the re-capture recipe, the record-and-substitution paragraph, the `scripts` bullet),
+  docs/screenshots/360/manifest.json (`head`, `captured_at`), DECISIONS.md
