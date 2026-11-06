@@ -778,3 +778,108 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: 46d74ccb9dfdc35238fa9caeb92de2735d3106a1
 - Effect: .opencode/opencode.jsonc, scripts/check-denies.py, Makefile (`agent deny list` step),
   docs/factory.md, .opencode/skills/factory/SKILL.md
+
+## H-0034 · A check that needs the CLI checks nothing where the CLI is not, and a reader that cannot parse must never be allowed to hand back a verdict on the thing it reads
+
+- Question: `scripts/check-denies.py` reads the ruleset `opencode` resolves, and a second release
+  answers under different keys -- `permission` singular, `{"permission","pattern","action"}`, the tool
+  named `bash` -- so the reader saw zero rules and reported the config as inert. Fix the reader, and
+  what is done about the two things that made that survivable: CI has no CLI at all, and a false verdict
+  here aborts `set -e` before the gates behind it?
+- Options: normalise both vocabularies, turn "the reader parsed no shell denial" into its own loud skip
+  naming the binary and version, and add `--self-test` -- synthetic rulesets in both shapes plus the two
+  one-shaped regressions -- so the matcher is gated where no CLI exists | pin the harness to one opencode
+  version and let the check skip everywhere else | make the check `CHECK_DENIES_REQUIRED=1`-only in CI so
+  a missing CLI is at least visible | leave the reader as it is and document that the step is one box
+- Chose: normalise both vocabularies, turn "the reader parsed no shell denial" into its own loud skip
+  naming the binary and version, and add `--self-test` -- synthetic rulesets in both shapes plus the two
+  one-shaped regressions -- so the matcher is gated where no CLI exists
+- Why: the failure was not a wrong answer about a CLI, it was 51 imperative sentences about a correct
+  file, in the voice of the rule that exists to catch mis-keying, and `docs/factory.md` tells a reader to
+  confirm keying by looking for `"action": "shell"` -- which on 1.18.5 is how a good file gets "repaired".
+  `make -n verify` starts `set -e;` with this step ninth, so a false verdict also silences the attack
+  suite and both capture contracts behind it. Reproduced exactly rather than argued: a CLI written to
+  1.18.5's behaviour against this tree's real config through the pre-fix reader printed
+  `51 problem(s) ... (0 shell deny rules ...)`, 23 mis-keying accusations, 27 ALLOW-where-DENY, one
+  missing `question` rule, and not one allow row failing, because a ruleset of nothing cannot fail an
+  allow-list. The self-test exists because every live path here skips in CI: the patterns are a property
+  of the patterns, so the table is assertable without a CLI, and only keying stays a live-only claim.
+- Checkpoint: 509aaea2b7317e587f13332be50f0e397f0253f8
+- Effect: `check-denies --self-test` gates 23 patterns in both shapes and nine synthetic cases in CI;
+  the live pass line names binary and version; a third shape skips as a reader fault, and as a failure
+  under `CHECK_DENIES_REQUIRED=1`.
+
+## H-0035 · A merge is what the API says it is, not what `gh`'s exit status says, because `--delete-branch` fails after the merge succeeds
+
+- Question: three pulls the journal recorded as `MERGE-FAILED` had in fact merged. Where does the
+  supervisor's verdict come from, and what does it say when the two sources disagree?
+- Options: read `.merged`/`.state` back from the API before deciding, and log gh's own last stderr line
+  as the reason, naming a post-merge step when that is what failed | drop `--delete-branch` so gh has
+  nothing left to fail at | trust gh and let a person notice the ledger disagrees | keep gh's verdict and
+  re-run the merge until it exits 0
+- Chose: read `.merged`/`.state` back from the API before deciding, and log gh's own last stderr line
+  as the reason, naming a post-merge step when that is what failed
+- Why: `gh pr merge --merge --delete-branch` returns 1 when the merge worked and the branch deletion did
+  not, and a local branch held by a worktree always fails that deletion -- #221, #215 and #214 are
+  `merged=true mergedBy=virtualcodewarrior` on the API against journal lines at 03:37:31Z, 05:35:30Z and
+  10:41:31Z saying `gh pr merge failed`. Dropping `--delete-branch` fixes this instance and leaves the
+  class: any post-merge step can fail, and an exit status is not a verdict about someone else's database.
+  The class is worse than a wrong log line, because everything after the merge in that block -- the
+  ledger entry, the worktree cleanup -- is skipped on a merge that happened. Three arms measured against
+  the real tail: gh 1 with the API merged logs `MERGED pr:215 ... gh_exit=1 is a post-merge step, not
+  the merge :: failed to delete local branch fix/audit-row-label ...` and returns 0; gh 1 with nothing
+  merged returns 1 carrying gh's sentence; gh 0 is clean.
+- Checkpoint: 509aaea2b7317e587f13332be50f0e397f0253f8
+- Effect: a merge that succeeded is recorded as succeeded and the cleanup runs; a merge that failed
+  names gh's own words instead of `gh pr merge failed`.
+
+## H-0036 · A halt is a decision the supervisor made, so the unit reports success and the reason stays in the log
+
+- Question: the first pass after `factory/HALT` was written left `Failed with result 'exit-code'` and
+  `Failed to start` in the journal two lines under its own `HALTED` sentence. Does an intentional stop
+  get a failing unit?
+- Options: name the halt code `FACTORY_EXIT_HALT` in `common.sh` and list it in the unit's
+  `SuccessExitStatus=`, so the exit code survives for anything that reads it and the unit stops claiming
+  a crash | exit 0 from the halt arm and lose the distinct code | leave the unit failing so a stopped
+  queue is loud in `systemctl --user status` | move the halt check into the unit as
+  `ConditionPathExists=!/…/factory/HALT` so the pass is skipped rather than run
+- Chose: name the halt code `FACTORY_EXIT_HALT` in `common.sh` and list it in the unit's
+  `SuccessExitStatus=`, so the exit code survives for anything that reads it and the unit stops claiming
+  a crash
+- Why: this is the third instance of one defect in this harness -- `status=4/NOPERMISSION` stood in for
+  `Agent not found` across 152 activations, and the ceiling printed an exit code while the session kept
+  running -- and in each the unit's verdict was the only thing a reader outside the repository saw, and
+  it pointed away from the cause. Red is not "loud" when it is wrong: a stop requested on purpose and a
+  crash look identical, so the reader learns to ignore both. `ConditionPathExists=` was rejected because
+  the halt carries a reason and a resume command, and a skipped unit runs nothing that could print them.
+  Measured after the change: the same pass logs `HALTED a session is working address_review lanes ...`,
+  exits 8, and the unit finishes `Finished parental-lockout-factory.service` with `Result=success`.
+- Checkpoint: 509aaea2b7317e587f13332be50f0e397f0253f8
+- Effect: `journalctl` shows a halt as a finished pass with its reason; the exit code is one constant in
+  `common.sh`, named by both the script and the generated unit.
+
+## H-0037 · `OnUnitInactiveSec` alone never arms after a boot, and an install that finds the timer running must restart it
+
+- Question: nothing ran for 3h13m after the 15:58:48Z boot while the timer reported `active`. How is the
+  first pass of a boot scheduled without letting a long pass stack a second supervisor behind it -- and
+  what makes the reinstall actually take effect?
+- Options: write both `OnStartupSec=` and `OnUnitInactiveSec=`, restart the timer in `--install` when it
+  is already active, and say in the unit why each anchor exists | add `OnBootSec=` | add
+  `Persistent=` back with an `OnCalendar=` | leave it and rely on a person noticing the queue is quiet
+- Chose: write both `OnStartupSec=` and `OnUnitInactiveSec=`, restart the timer in `--install` when it
+  is already active, and say in the unit why each anchor exists
+- Why: a monotonic timer relative to a unit's *inactivation* needs that unit to have become inactive, so
+  a service that has not run since the manager started has no such timestamp and the timer loads holding
+  no elapse at all -- measured without a reboot on a purpose-built pair: `OnUnitInactiveSec=20s` bound to
+  a never-run service sat `SubState=elapsed NextElapseUSecMonotonic=infinity`, unchanged after 30s, its
+  `ExecStart` never touching its file. This systemd accepts both settings and the elapses are the union:
+  adding `OnStartupSec=20s` turned `SubState` to `waiting`, gave the elapse a value, fired, and re-armed
+  21s after that pass finished. `OnStartupSec` rather than `OnBootSec` because systemd.timer(5)
+  recommends it for the per-user manager, which starts at first login -- anchored to the boot, a machine
+  left up overnight would fire the factory the instant somebody logged in. The second half was found one
+  step later: the reinstall that added the anchor wrote both lines and changed nothing, because
+  `enable --now` is a no-op on a running timer and a running timer keeps the settings it was started
+  with, so a fix can be true in the repository and absent from the machine.
+- Checkpoint: 509aaea2b7317e587f13332be50f0e397f0253f8
+- Effect: the installed timer is `SubState=waiting` with a finite elapse after a reinstall and after a
+  boot, and a long pass still cannot stack; measured on this box at the reinstall that shipped this.
