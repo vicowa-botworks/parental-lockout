@@ -65,12 +65,12 @@ one page needs live in `cdp.py`.
 
 | driver | refuses when |
 |---|---|
-| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows its viewport** — measured at every width in `WIDTHS`, refused per page per viewport, and before the PNG is written; **the audit page** carries no seeded `platform.error` row, or its hardest unbreakable token is under 60 characters (#140: a page that could not have overflowed is not width evidence, and a page whose pressure came from the machine rather than the fixture is not evidence about the stylesheet) |
-| `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows |
-| `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows |
+| `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows its viewport** — measured at every width in `WIDTHS`, refused per page per viewport, and before the PNG is written; **the audit page** carries no seeded `platform.error` row, or its hardest unbreakable token is under 60 characters (#140: a page that could not have overflowed is not width evidence, and a page whose pressure came from the machine rather than the fixture is not evidence about the stylesheet); **a control disagrees with the page it sits on** — set in the browser's own typeface rather than the page's, sized by no `max-width` at all or by a different one from the other fields on that page, or a radio or checkbox whose label the stylesheet left inline so the box can wrap away from the words that name it (#202; every page, both viewports, before the PNG is written) |
+| `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows; the three control claims (#202), which on this page are shown exactly one control — the chrome's Sign-out button — and report it as `controls=1 typed=0 groups=0` on the transcript rather than passing in silence |
+| `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows; the three control claims (#202), vacuous here for the same reason — the transport radios those rules are about are on `/settings`, a `pages.py` frame |
 | all three | the daemon the fixture started is not the process still serving its port; something already answers the DevTools endpoint before the browser is launched; `--out` resolves outside the repository, names a file, or names a directory holding PNGs without `--overwrite`; an unrecognised flag |
 
-Three of those deserve explaining, because each was a hole found by attacking this code rather
+Four of those deserve explaining, because each was a hole found by attacking this code rather
 than by writing it.
 
 **The trail is an allowlist, and it counts only this run's lines.** The probe page's second claim
@@ -84,6 +84,28 @@ twice and a membership test against the whole file passes on the previous run's 
 **The overflow verdict is computed before the write.** A photograph of an overflowing page is the
 artifact the criterion refuses; writing it and then exiting 1 leaves wrong evidence on disk under
 the right filename.
+
+**The control census reads what the browser computed, because #202 was invisible to everything
+else.** Every control on every page was rendering in Arial 13.33 px beside the page's own 16 px
+system-ui, and `/settings` was sizing its fields three ways at once -- 65 px, 163 px, 185 px. No Go
+test can see that: the mutants target `.go` and `.tmpl`, and no `_test.go` renders a page. So
+`CONTROLS_JS` rides on the one measurement every driver already takes and three refusals read the
+computed style -- each visible control's font against `document.body`'s, the `max-width` of
+everything you can type into, and the `display` of every label wrapping a toggle.
+
+The last of those is the reason a grep would not have done. The stylesheet reaches a choice group
+with `:has()`, and a selector an engine has never heard of is discarded without a word: the page
+renders exactly as it did before the rule existed and every string in the file is still there to be
+found. Computed `display` is the only thing in the browser that says whether the rule applied. The
+`max-width` read has the same shape in the other direction: a field reporting `none` is sitting at
+the user-agent's own twenty characters, so a page where every field agrees on nothing is refused as
+well as a page where they disagree -- deleting the width rule entirely makes all the values match.
+
+The read passes vacuously where there is nothing to read, and says so: the verdict page and the
+probe page each carry one control, the chrome's Sign-out button, so their lines print
+`controls=1 typed=0 groups=0`. That census on the transcript is the point -- a guard that examined
+nothing must not report success silently, which is the same rule the #108 check follows when it
+prints how many Detail cells carried the note.
 
 **The daemon and the browser must be the ones the fixture started.** A port answering is not
 evidence about who is answering it. With a second `plock serve` already holding the fixture's
@@ -351,9 +373,17 @@ mechanism beside it and its own needle, not a static document. It stays pinned b
 ## Re-capturing the committed artifacts
 
 ```sh
-./pages.py --out docs/screenshots/360 --overwrite
-./pages.py --fixture pages-noprof --out docs/screenshots/360 --overwrite
+./pages-setup.sh       && ./pages.py --out docs/screenshots/360 --overwrite
+./pages-noprof-setup.sh && ./pages.py --fixture pages-noprof --out docs/screenshots/360 --overwrite
 ```
+
+The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
+because the sign-in appends the one row whose count the artifact's height is: re-running the driver
+against a fixture it has already signed into is refused --
+`this fixture declares 8 rows on the page and the trail holds 9` -- measured 5 Nov on the merge of
+#202 and #207, where the recipe above was typed without its setup and exited 1. That refusal is the
+check doing its job, not an obstacle to work around: a second sign-in really would make the height of
+`audit.png` a run counter again. Re-seed, then take.
 
 Each fixture writes its own `runs/<fixture>/` scratch directory and records its manifest there, so a
 one-page re-capture cannot certify another run's PNGs as just-taken. Both invocations above land in
@@ -623,8 +653,8 @@ with a fake that reports `innerWidth=360` at a 1024 px request.
 
 ## The self-test, because nothing else in this repository can read these files
 
-`./pages.py --self-test` runs 29 rules about what a refusal does. It starts no browser, spawns no
-daemon, writes no file, and costs **0.036 s** for its twenty-nine rules, so `make verify` runs it
+`./pages.py --self-test` runs 45 rules about what a refusal does. It starts no browser, spawns no
+daemon, writes no file, and costs **0.03 s** for all of them, so `make verify` runs it
 beside the two mutation
 self-tests. What it cannot do is reach below its own fakes — see the two body guttings above, which
 only a real capture sees.

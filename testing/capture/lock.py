@@ -113,7 +113,8 @@ def capture(name):
 
         g = cdp.measure(s, extra="'banner':(document.querySelector('p.banner')||{}).innerText||'',"
                                  "'flag':(document.querySelector('p.flag')||{}).innerText||'',"
-                                 "'rows':document.querySelectorAll('table.rows tbody tr').length")
+                                 "'rows':document.querySelectorAll('table.rows tbody tr').length"
+                                 "," + cdp.CONTROLS_JS)
         # The page has to be the verdict page, not an error page wearing its URL: the banner is
         # the sentence the feature exists to render, and an empty one means nothing was captured
         # no matter what scrollWidth says.
@@ -123,6 +124,15 @@ def capture(name):
             raise SystemExit("the result page has no session rows; the account holds no session "
                              "here, so the capture would show the empty case")
         cdp.require_labelled_cells(g, "the result page")
+        # #202, on one of the two pages pages.py does not photograph. What either of them carries
+        # today is the chrome's own Sign out button -- not typed into, not a choice -- so all three
+        # guards pass having found nothing, and the `controls=1 typed=0 groups=0` on the line below
+        # is what says so out loud. They are here anyway because a verdict page is exactly where a
+        # note box or a tick box gets added next, and then the claim has to be measured rather than
+        # assumed from the day this line was written.
+        cdp.require_control_font(g, "the lock result page")
+        cdp.require_control_width(g, "the lock result page")
+        cdp.require_choice_groups(g, "the lock result page")
 
         rows = cdp.session_rows(s)
         for r in rows:
@@ -168,7 +178,8 @@ def capture(name):
         print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
               flush=True)
-        print(f"  rows={g['rows']} cells={g['cells']} unlabelled={g['unlabelled']}", flush=True)
+        print(f"  rows={g['rows']} cells={g['cells']} unlabelled={g['unlabelled']} "
+              f"{cdp.census_line(g)}", flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         if g["flag"]:
             print(f"  flag:   {g['flag'].strip()[:110]}...", flush=True)

@@ -108,7 +108,7 @@ def capture(name):
         g = cdp.measure(s, extra="'banner':(document.querySelector('p.banner')||{}).innerText||'',"
                                  "'muted':(document.querySelector('p.muted')||{}).innerText||'',"
                                  "'backendRows':document.querySelectorAll('table.rows')[0]"
-                                 ".querySelectorAll('tbody tr').length")
+                                 ".querySelectorAll('tbody tr').length" + "," + cdp.CONTROLS_JS)
         # The page has to be the probe result, not an error page wearing its URL. The banner
         # counts the backends, so an empty one means nothing was measured whatever scrollWidth
         # says; two tables is the page's own shape, backend table then sessions.
@@ -121,6 +121,15 @@ def capture(name):
             raise SystemExit(f"the result page has {g['tables']} tables and {g['backendRows']} "
                              "backend rows; the capture would show an empty diagnostic")
         cdp.require_labelled_cells(g, "the result page")
+        # #202, on the other page pages.py does not photograph. The transport radios its name
+        # suggests live on /settings -- a pages.py frame, where the choice-group guard has real work
+        # to do -- so this page too carries only the chrome's Sign out button, and the zeros on the
+        # line below are the record of that. The guard belongs here anyway: a diagnostic page is
+        # where a "use this backend" tick box gets added next, and on the day it does, a `:has()`
+        # rule the browser dropped would leave this frame looking exactly as it did before it.
+        cdp.require_control_font(g, "the probe result page")
+        cdp.require_control_width(g, "the probe result page")
+        cdp.require_choice_groups(g, "the probe result page")
         # The probe page copies the lock page's Detail cell, so it inherits the #108 rule. A
         # check that exists on one of two pages sharing a cell is the check that misses the
         # regression on the other one. The count matters for the same reason it does on lock.py:
@@ -155,7 +164,7 @@ def capture(name):
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
               flush=True)
         print(f"  tables={g['tables']} backendRows={g['backendRows']} cells={g['cells']} "
-              f"unlabelled={g['unlabelled']}", flush=True)
+              f"unlabelled={g['unlabelled']} {cdp.census_line(g)}", flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
         return 0
