@@ -284,3 +284,54 @@ Two consequences, both deliberate:
   would be.
 - Checkpoint: 39b60988ad0cb2361e98c6ff64a45089860b8475
 - Effect: scripts/mutations/web.json (`W298`, `W299`, `expected_mutants`)
+## D-0023 · The `/audit` frame that belongs to no branch is photographed, not chosen between
+
+- Question: #215 is opened against `fix/audit-row-label`, not `main`, and both of those moved the
+  same artifact. `origin/main` re-photographed `audit.png` against the fixed stylesheet on the
+  template that still prints the reader's zone *name* (`c304336d…`); `fix/audit-row-label`
+  re-recorded it against the template that prints the row's own *offset* on the pre-#202 stylesheet
+  (`a1f19fca…`). Merging both leaves a tree whose `/audit` prints `2026-03-18 21:34:05 -04:00`
+  inside the #218 stylesheet, and no committed PNG of it. Which bytes does the merged branch commit?
+- Options: main's frame | the base branch's frame | either frame with `manifest.py record`
+  re-pointed at it | re-photograph `/audit` against the merged tree and record that run's conditions
+- Chose: re-photograph `/audit` against the merged tree and record that run's conditions
+- Why: the gate answered before the tie-break was reached. `manifest.py check` on the merge commit
+  (`1c5a109`) returned two problems, the first of which quotes the mismatch and names the repair --
+  `audit.png records the state [['auth.success', '2026-03-18 21:34:05 EDT']] and the driver now
+  declares [['auth.success', '2026-03-18 21:34:05 -04:00']] for /audit … re-take the frame rather
+  than editing this entry to match` -- and the second is #144's drift sentence for the same frame.
+  The two committed candidates are the same mistake aimed at opposite sides of the page: main's
+  predates #214's template, so committing it certifies a When cell the merged template cannot
+  render; the base branch's predates #218's stylesheet, so committing it re-files under an evidence
+  filename the exact control rendering #202 was opened for. Re-recording either is worse than wrong,
+  it is silently green: `record` recomputes `sources_rev` and `check` returns early when
+  `recorded == current`, which is the laundering D-0015 already put on the record.
+  The measurement then settled what the refusals implied. `./pages-setup.sh && ./pages.py` on the
+  merged tree came back `6/6 pages fit at 360 px` and `6/6 … at 1024 px`, and `audit.png` arrived as
+  `a113c5e4…` -- `360x3086`, the same canvas as main's frame and different pixels -- matching
+  neither candidate, so the page this merge renders had genuinely never been photographed. What
+  proves the re-take faithful rather than merely new is the other five: `dashboard`, `users`,
+  `profiles`, `profiles-refused` and `settings` came back **byte-identical** to main's committed
+  files (`b2c90782…`, `55120c43…`, `48e10e29…`, `17f76100…`, `111bcbe1…`), so the merged fixture's
+  clock, census, reader zone and declared state moved none of them and only the template moved the
+  sixth. The tie-break order agrees: nothing separates on `go.mod` (neither side adds a dependency)
+  or on breadth (one PNG either way); "refuses rather than proceeds" picks the re-take, because it
+  is the only option under which the driver's declared-state refusal is live over the committed
+  bytes; and the surrounding code already re-takes rather than re-labels -- D-0014 for a stylesheet
+  change, D-0015 for exactly this conflicted-frame shape, `ac20479` for the re-take itself.
+
+  What this costs, stated rather than glossed. One frame is re-committed, so the other five
+  page-fixture frames keep main's bytes *and* the `capture` block #215 recorded for the bytes they
+  already had -- acceptable only because the fixture's own declaration did not move between the two
+  runs (`fixture.sh` and `pages-setup.sh` changed in comments on both branches, and `record` said
+  nothing on stderr about the eight it did not photograph), and it is the kind of carry-over that
+  went wrong once before on this very file. `lock.png` and `testlock.png` keep their blocks and stay
+  #213's: not re-taken here, because re-taking them locks the capturing machine's session for real.
+  `sources_rev` for `/audit` now names the merge commit `1c5a109`, because that is the newest commit
+  `git log` will show for `audit.tmpl` -- a merge, not the commit that wrote the template, and a
+  reader looking for the offset change still wants `c82baa6`. The header's `head` is the checkpoint
+  below, which is what `record` can see at the moment it writes.
+- Checkpoint: cfad6e5cae88bfb2ffe96ec8191775926008aeed
+- Effect: docs/screenshots/360/audit.png (re-photographed against the merged tree),
+  docs/screenshots/360/manifest.json (that entry's `png_sha256`, its declared-state cell `EDT` →
+  `-04:00`, its `sources_rev`, and the file header), DECISIONS.md

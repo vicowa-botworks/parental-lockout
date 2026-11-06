@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-05T22:44:58Z",
-  "head": "6c497cba8f8ea343cf5add0611d26f2b19a38efb",
+  "captured_at": "2026-11-06T00:08:13Z",
+  "head": "cfad6e5cae88bfb2ffe96ec8191775926008aeed",
   "pages": [
     {
       "capture": {
@@ -12,7 +12,7 @@
         "state": [
           [
             "auth.success",
-            "2026-03-18 21:34:05 EDT"
+            "2026-03-18 21:34:05 -04:00"
           ]
         ],
         "tz": "America/New_York",
@@ -20,14 +20,14 @@
       },
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "a1f19fcaf6753916dc92788c21585e9581aef55e99555820f4d76d74bb1ea62d",
+      "png_sha256": "a113c5e4edee5c1907f9f8ba3ed80083017403c80ce86abaac3c45738df8e846",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "c82baa6e9318427f7d1023416edc1a36542419c4"
+      "sources_rev": "1c5a1094ca04e5f6d8b28dd128c7c1ff83b58661"
     },
     {
       "capture": {
