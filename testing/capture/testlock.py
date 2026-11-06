@@ -34,13 +34,50 @@ import time
 sys.path.insert(0, op.dirname(op.abspath(__file__)))
 import cdp  # noqa: E402
 
+
+# Which fixture this frame is evidence about, and what the manifest calls the file.
+#
+# `manifest.py` learns the pairing by importing these two names from the driver that takes the shot.
+# A second table of the same pairs somewhere else is the thing to avoid: the update someone forgets
+# is the one that attributes one fixture's clock to another fixture's pixels, which is the failure
+# #211 refuses rather than records. The name is the run directory's name -- the one `capture_begin`
+# is given in testlock-setup.sh, which is also what `cdp.fixture("testlock")` resolves to a
+# `fixture.env` from -- so there is exactly one place that says what this fixture is called.
+#
+# It is NOT the same fixture as the five GET pages. This one starts with an empty audit trail and
+# declares neither audit rows nor a reader zone, so its manifest block carries no `rows` and no `tz`;
+# the pages fixture seeds 8 rows and declares both. Binding these two artifacts to `pages` because
+# the state looks similar would have the manifest assert a condition these pixels never saw.
+#
+# What this frame was taken under, and how to check it. The scripts condition is `off`, and the frame
+# that carries it was photographed by THIS driver on this branch, at the commit the manifest's `head`
+# names -- not inferred from an older one. The discriminating test, both arms:
+#
+#   PLOCK_CAPTURE_SCRIPTS=on ./testlock-setup.sh && \
+#     ./testlock.py --out testing/capture/runs/testlock-on --overwrite     # -> acc5ba4d…
+#   ./testlock-setup.sh && \
+#     ./testlock.py --out testing/capture/runs/testlock-off --overwrite    # -> acc5ba4d…, the same file
+#
+# Measured 6 Nov: one PNG from both arms, equal to the committed frame. That is what this page's
+# pixels can witness, which is nothing -- the probe page renders no `time[data-unix]`, and rewriting
+# those nodes is the only thing `static/app.js` does on load, so there is no element for the page's
+# scripts to change. The control is `/dashboard`, where the same switch moves the casey row from the
+# server's `locked out until 00:00` to the browser's `locked out until 7h 46m` and `pages.py` refuses
+# the frame. So `scripts: "off"` in this frame's block is a statement about the run that produced
+# these bytes, which is all the field can mean on a page the pixels cannot tell apart;
+# `cdp.scripts_disabled` is what makes the declaration above true rather than decorative, and
+# `manifest.py check` refuses to commit an entry that says `on`, because such a frame has never
+# tested this folder's criterion.
+FIXTURE = "testlock"
+ARTIFACT = "testlock"
+
 # The one event this click is allowed to write. Everything the login and the daemon's own
 # startup write lands before the mark, so it is not part of this set.
 ALLOWED = {"lock.probed"}
 
 
 def capture(name):
-    with cdp.Capture("testlock") as cap:
+    with cdp.Capture(ARTIFACT) as cap:
         s = cap.session
         target = cap.env["PLOCK_CAPTURE_TARGET"]
         trail = op.join(cap.dir, "audit.jsonl")

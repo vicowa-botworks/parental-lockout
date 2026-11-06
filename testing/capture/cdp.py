@@ -91,6 +91,43 @@ def fixture(name):
     return d, env
 
 
+# The conditions a frame can be taken under, as a fixture declares one. One table, here, because
+# this is the file that acts on it: `manifest.py` reads it out of here the same way it reads the
+# page list out of `pages.py`, so a renamed or added spelling cannot survive in the recorder as a
+# condition no driver is able to produce.
+SCRIPT_VALUES = ("on", "off")
+
+
+def scripts_disabled(env, where):
+    """Does this fixture ask for the PAGE's own scripts to be switched off while it is photographed?
+
+    The answer used to be a constant — `Emulation.setScriptExecutionDisabled` was called with
+    `value=True` whatever the fixture declared — which made `PLOCK_CAPTURE_SCRIPTS` a declaration
+    nothing read. The manifest then recorded a fact about this file rather than about the frame, and
+    the knob `post-fixture.sh` advertised (`PLOCK_CAPTURE_SCRIPTS=on` to test a frame taken with
+    scripts running) took exactly the same pixels as the default. That is how #213's finding survived
+    four gates: an assertion resting on a control with no power cannot be checked by anyone told to
+    go and check it.
+
+    Absent means `off`, and that is the strict direction: this folder's criterion is "usable at 360 px
+    with JavaScript off", so a fixture that names nothing gets the frame the criterion names. The
+    recorder still writes no `scripts` key for a fixture that declared none (#211's
+    absent-is-not-a-default rule is the recorder's business, not the driver's).
+
+    Anything outside the two values is refused rather than guessed, for the reason the Chrome flag
+    below is refused: a capture that looks configured is worse than one that fails.
+    """
+    raw = env.get("PLOCK_CAPTURE_SCRIPTS")
+    value = (raw or "off").strip().lower()
+    if value not in SCRIPT_VALUES:
+        raise SystemExit(
+            f"{where} declares PLOCK_CAPTURE_SCRIPTS={raw!r}, which is not one of "
+            f"{' or '.join(repr(v) for v in SCRIPT_VALUES)}. Refusing rather than defaulting: the "
+            "manifest would record the typo as written and the browser would photograph the default, "
+            "so one run would produce a file and a frame that disagree.")
+    return value != "on"
+
+
 def binary():
     """The daemon to serve: an explicit $PLOCK_BIN, else the repo's own build."""
     b = os.environ.get("PLOCK_BIN")
@@ -965,14 +1002,21 @@ class Capture:
             daemon_env["PATH"] = prepend + os.pathsep + os.environ.get("PATH", "")
             print(f"census: the daemon's PATH starts at {prepend}", flush=True)
         if zone:
-            # The reader's zone, because the audit page labels each row with `MST` and Go hands a
-            # parsed instant the local zone's abbreviation when its offset matches (measured: one
-            # trail, three TZ values, `EDT` / `-0400` / `-0400`). Set it on the daemon rather than on
-            # the browser because the daemon is the reader -- it renders the row.
+            # The reader's zone. It was load-bearing for the When column: the template asked for
+            # `MST`, and Go hands a parsed instant the local zone's abbreviation when its offset
+            # matches (measured: one trail, three TZ values, `EDT` / `-0400` / `-0400`). #210 changed
+            # the column to the stored offset, so nothing on a page reads the host's zone any more:
+            # every dashboard clock comes from the profile's own declared zone and `wallClock`
+            # (`internal/dashboard/banner.go`) renders the instant in the location it was computed
+            # in. It stays set so a frame cannot inherit a zone by accident -- the canary for a
+            # host-dependent clock coming back, not the cause of one. Set on the daemon, not the
+            # browser, because the daemon is what renders the page.
             #
-            # Not validated here. Go falls back to UTC for a zone it cannot load, which prints
-            # `-0400`, which the audit page's declared state then refuses with the row it saw: the
-            # right place to notice is where the label would have been photographed.
+            # Not validated here, and now nothing downstream would notice either: Go falls back to
+            # UTC for a zone it cannot load, and a column printing the value's own offset renders the
+            # same `-04:00` under the fallback as under a zone that loaded. The declared state used to
+            # be where a bad zone surfaced -- the `MST` layout printed `-0400` against an `EDT` needle
+            # -- and that trip wire left with #210.
             daemon_env["TZ"] = zone
             print(f"reader zone: TZ={zone} for the daemon, not {os.environ.get('TZ') or 'the host default'}",
                   flush=True)
@@ -1113,29 +1157,40 @@ class Capture:
                                   self.declared_stamp(), int(self.declared_rows()),
                                   f"{op.basename(self.dir)} fixture")
 
-            # Page scripts off, from here to the last photograph, and the login happened above so
-            # the session cookie is already in the jar.
+            # The page's own scripts, off or on, from here to the last photograph. The login happened
+            # above, so the session cookie is already in the jar whatever this decides.
             #
-            # Two reasons, and the second is the one that decides it. The first: static/app.js:76-104
-            # selects every `time[data-unix]` and rewrites its textContent from Date.now(), on load
-            # and then every second, so the "until" in a frame taken with scripts running is a live
-            # countdown reading `58m 12s` rather than the `EndsAtClock` the server put there —
-            # unrepeatable pixels, #207's cause 4, and the reason pinning the Go clock alone would
-            # not have pinned the image. The second: this folder's own criterion is "usable at 360 px
-            # with JavaScript off", and a photograph taken with the scripts on has never tested that
-            # sentence. The committed frames are therefore re-taken under the condition the criterion
-            # actually names, which is the honest direction to move in even though it changes pixels
-            # that are currently in the docs tree.
+            # Two reasons the default is `off`, and the second is the one that decides it. The first:
+            # static/app.js:76-104 selects every `time[data-unix]` and rewrites its textContent from
+            # Date.now(), on load and then every second, so the "until" in a frame taken with scripts
+            # running is a live countdown reading `58m 12s` rather than the `EndsAtClock` the server
+            # put there — unrepeatable pixels, #207's cause 4, and the reason pinning the Go clock
+            # alone would not have pinned the image. The second: this folder's own criterion is
+            # "usable at 360 px with JavaScript off", and a photograph taken with the scripts on has
+            # never tested that sentence. `manifest.py check` refuses to commit a frame recorded
+            # `scripts: "on"` for that reason.
+            #
+            # Off is the default and not the rule, because `on` is the only way to measure what this
+            # switch is worth: the page's scripts have to be switchable to show which pages they can
+            # move. `dashboard.png` proves the switch has power, and a page with no `time[data-unix]`
+            # in it proves the pixels are insensitive there — see the `scripts` section of README.md
+            # for both measurements.
             #
             # Emulation.setScriptExecutionDisabled rather than a Chrome launch flag, and that choice
             # is measured, not stylistic. `--disable-javascript` is still *accepted* by this machine's
             # Chrome (156.0.8078.79 starts it without a word of complaint) and does nothing: a page
             # whose script sets document.title to "JS RAN" came back with that title at the flag and
             # with `orig` under the CDP call. A flag that is accepted and ignored is the worst shape
-            # of refusal to build a criterion on, because the capture looks configured. The driver's
-            # own Runtime.evaluate calls are unaffected — measured, `1+1` still came back 2 with the
+            # of refusal to build a criterion on, because the capture looks configured — and it is
+            # also what the declaration in `fixture.env` was until this line read it. The driver's own
+            # Runtime.evaluate calls are unaffected — measured, `1+1` still came back 2 with the
             # page's scripts disabled — because this switches off the page's world, not this client's.
-            self.session.call("Emulation.setScriptExecutionDisabled", value=True)
+            scripts_off = scripts_disabled(self.env, f"{op.basename(self.dir)} fixture")
+            self.session.call("Emulation.setScriptExecutionDisabled", value=scripts_off)
+            # Said out loud, in the transcript next to the census line, because a frame's conditions
+            # are the thing a reader of the artifact cannot recover from the pixels afterwards.
+            print(f"page scripts: {'off' if scripts_off else 'ON'} for this frame "
+                  f"(PLOCK_CAPTURE_SCRIPTS in {op.basename(self.dir)}/fixture.env)", flush=True)
         except BaseException:
             self.close()
             raise

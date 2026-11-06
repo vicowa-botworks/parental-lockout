@@ -198,12 +198,19 @@ func (s *Server) throttleKey(r *http.Request) string {
 // either: there is no session yet to bind a token to, which is why /login sits outside
 // the CSRF gate. It stays a template rather than a string constant so that a future
 // change is a template edit rather than a concatenation.
+//
+// The heading names the page, as it does in the shell (#219): <h1>Sign in</h1>, with the
+// product's name as a label above it. This document links no stylesheet -- it is the page you
+// reach before the daemon has agreed to anything -- so .masthead__name is a name here and not a
+// style. It is the shell's class anyway, so "which element is the brand line" has one answer in
+// both documents.
 var loginPageTmpl = template.Must(template.New("login").Parse(`<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Sign in &middot; plock</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body>
-<h1>Parental lockout</h1>
+<p class="masthead__name">Parental lockout</p>
+<h1>Sign in</h1>
 <form method="post" action="/login">
   <p><label>Username <input name="username" autocomplete="username" required></label></p>
   <p><label>Password <input name="password" type="password" autocomplete="current-password" required></label></p>

@@ -1,116 +1,216 @@
 {
-  "captured_at": "2026-11-06T01:28:39Z",
-  "head": "8db322a53f1e8f772c441276f54c669da4e0a216",
+  "captured_at": "2026-11-06T09:12:46Z",
+  "head": "45977d6817cb71cb3e798e0dc0c6fec6ae5eb624",
   "pages": [
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "state": [
+          [
+            "auth.success",
+            "2026-03-18 21:34:05 -04:00"
+          ]
+        ],
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "33db3ee932deeb5002f9e4ae9fe6c4fad9706c069440110adf3066c62bab0ebd",
+      "png_sha256": "0cfe9973711b38fe627f1db6c310a2c39e29858e047a653bfc7223a9b1720671",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "d1ee983743fdd427bd17f1d9200c16baae4e89dc"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "state": [
+          [
+            "casey",
+            "locked out until 00:00"
+          ],
+          [
+            "casey",
+            "Every day, every hour"
+          ],
+          [
+            "casey",
+            "no desktop session"
+          ],
+          [
+            "alex",
+            "nothing scheduled"
+          ],
+          [
+            "alex",
+            "x11 \u00b7 seat0 \u00b7 locked"
+          ]
+        ],
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/",
       "png": "dashboard.png",
-      "png_sha256": "bdd26cbe8a973c00c356bc262359314a4948f374c8de1acd56ac7b459837c237",
+      "png_sha256": "1ec41100f43b8abc96a37b004c36088799aa477d36d862e8c2ebdace79003b8d",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "fixture": "lock",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/lock",
       "png": "lock.png",
-      "png_sha256": "4ad6d2b0487e490d1cbd64a92754e1d9b4f4250a17c690357868a990894c5010",
+      "png_sha256": "7ec1a6642e111ad267316f857ca8fa0c83326b16bde7fe13f5a325e3adb4551b",
       "sources": [
         "internal/web/templates/lock.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/profiles",
       "png": "profiles-refused.png",
-      "png_sha256": "42118e0593b88b1c8b74b6ca5fd23c759021ad2bc3889763a4a7e93323b04318",
+      "png_sha256": "5206d9078d88365ef50fb57b7983c20343e7988a0978a2aa355c57c467351209",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/profiles",
       "png": "profiles.png",
-      "png_sha256": "501a620e4b30ae452b312d7897756dacaba523d92a8994d3c735d141f653291c",
+      "png_sha256": "8eae33ea34b27e0a6627e80cc138a751681fa9867c5059aebda36a509559ee89",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/settings",
       "png": "settings.png",
-      "png_sha256": "aa2ce3baa20ac197ccccf4d5faf5658787ba22ae0f4d072153bdd51e5e0ba60c",
+      "png_sha256": "7bfacb6fe5dcc8afe608bfd08949ddb9deeac11d279a1bb198ddc678299b2216",
       "sources": [
         "internal/web/templates/settings.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "fixture": "testlock",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/testlock",
       "png": "testlock.png",
-      "png_sha256": "2c87c1b7624749e6c9b0ba7333f6898387bf63c6afa2a135b2afe184d00e5f8d",
+      "png_sha256": "d008fdf9d3901c73c22928de1e835fc21a17657748a88f24c88575d31620551a",
       "sources": [
         "internal/web/templates/testlock.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "fixture": "pages-noprof",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/users",
       "png": "users-no-profiles.png",
-      "png_sha256": "de8ced3aa44788793a2996c38b118054b67135d910800982a361b484bea31bf2",
+      "png_sha256": "dac864f4cc1405c65a84fabd652ecda199fe756e1b0f751b2596bbed076ec76f",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/users",
       "png": "users.png",
-      "png_sha256": "c05232394148f0d8946126f3302fd50a1d904f49fde662c5d5cc9378a5f43634",
+      "png_sha256": "81f976b79f5b327fe343bbe3678e31c0583cf7d6f9f97a75177629f77ab5c89e",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "2e919aa70822b6c3ac23134d9819fd5ba1740485"
+      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     }
   ],
-  "schema": "capture-manifest/1",
+  "schema": "capture-manifest/2",
   "viewport": 360
 }

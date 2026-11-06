@@ -15,6 +15,11 @@ rather than {{.Data.Banner}}. Note that these are `template` invocations, not
 `block`: `block` defines and invokes in one form, so a default in the shell would
 collide with every page's own definition and the set would not parse.
 
+"title" is rendered twice, into <title> and into the masthead's one <h1>, and that single
+definition is the point (#219): a page cannot then carry a tab strip that says one thing and a
+heading that says another. "pagename" is the body's class and nothing more -- the slug is not
+the name anybody reads.
+
 The one thing in the head that looks dynamic is the asset URL, and it is not: it is a
 content hash computed at startup from the embedded bytes, so the response can be
 cached as immutable for a year.
@@ -33,15 +38,29 @@ cached as immutable for a year.
 </head>
 <body class="page-{{template "pagename" .}}">
 <header class="masthead">
-  {{/* The site's name, and not a link. #204 measured two anchors in this header with the same
-      `href="/"` on the page the root renders, differing only in weight -- "One of them is not a
-      navigation target, and nothing says which." The one that is a navigation target is the entry
-      below it, which is now also the entry that says so; this one was the same route a second time
-      in the tab order, on the one page where the row already begins with its own destination.
+  {{/* Two findings, one pair of elements.
 
-      No dashes on this action either: the whitespace either side of it is the space between `</h1>`
-      and `<nav>`, and this file has already shipped two elements welded together that way. */}}
-  <h1>parental lockout</h1>
+      #219: the site's one heading names the PAGE, and it takes the words from this page's own
+      "title" block -- the same block <title> is built from, so the tab strip and the heading
+      cannot disagree. It used to hold the product's name, so the first heading of every page in
+      the site said the same two words and a reader moving heading to heading never learned which
+      page they were on. (There is no skip link in this shell yet -- #204 -- so the heading list
+      is the only such navigation today; it is still the one that was broken.)
+      TestEveryPageNamesItselfInTheHeading is that guard.
+
+      #204 measured two anchors in this header with the same `href="/"` on the page the root
+      renders, differing only in weight -- "One of them is not a navigation target, and nothing
+      says which." The product's name is therefore a label: not a heading, because it is not what
+      this page is, and not a link, because the nav below already holds the only anchor to "/"
+      worth having -- and the entry for the page the reader is on now says so, in the row
+      underneath. TestTheHeaderRoutesToTheRootExactlyOnce keeps the anchor from coming back as a
+      well-meaning wordmark.
+
+      No trimming dashes anywhere in this block: the whitespace between the label, the heading and
+      `<nav>` is the only thing separating inline elements, and this file has already shipped two
+      of them welded together that way. */}}
+  <p class="masthead__name">parental lockout</p>
+  <h1>{{template "title" .}}</h1>
   <nav>
     {{/* Every entry asks the shell whether it is the reader's own section, and says so in the
         markup rather than in a style: `aria-current="page"` is what a screen reader announces as

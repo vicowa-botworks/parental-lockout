@@ -257,14 +257,33 @@ func TestTheHeaderRoutesToTheRootExactlyOnce(t *testing.T) {
 				"A second one is a second tab stop on the way to a page the row already names: %s",
 				path, n, strings.Join(strings.Fields(header), " "))
 		}
-		// The site's name is still a heading, which is what makes it the header's name rather
-		// than a caption. Unlinking it must not turn it into a <div> or a <p class="brand">, so
-		// this asks for the text inside an <h1> element, not for the text anywhere in the header:
-		// a <p class="brand"> would satisfy the looser form while leaving the page no heading.
-		name, ok := between(header, "<h1", "</h1>")
-		if !ok || !strings.Contains(name, "parental lockout") {
-			t.Errorf("%s: the header has no <h1> carrying the site's name (found %q): %s", path,
-				name, strings.Join(strings.Fields(header), " "))
+		// The site's name is still in the header, and it is still not a route. What element holds
+		// it changed after this guard was written: #219 (D-0016) moved the <h1> to the page's own
+		// name and demoted the product's to a labelled line, which is
+		// TestEveryPageNamesItselfInTheHeading's business and not this one. So this asks where the
+		// words are rather than what element they sit in: once, in the header, and not inside the
+		// anchor above.
+		if n := strings.Count(header, "parental lockout"); n != 1 {
+			t.Errorf("%s: the header says the site's name %d times, want 1 -- the header still has "+
+				"to say what this software is, and it has one line to do it in: %s", path, n,
+				strings.Join(strings.Fields(header), " "))
+		}
+		// And the surviving route to the root is the navigation's own entry, not a wordmark that
+		// picked its href back up: the anchor has to close before the product's name begins.
+		at := strings.Index(header, `href="/"`)
+		if at < 0 {
+			t.Fatalf("%s: the header has no link to the root at all, so the count above proves "+
+				"nothing: %s", path, strings.Join(strings.Fields(header), " "))
+		}
+		end := strings.Index(header[at:], "</a>")
+		if end < 0 {
+			t.Fatalf("%s: the link to the root is never closed, so this guard cannot say what is "+
+				"inside it: %s", path, strings.Join(strings.Fields(header), " "))
+		}
+		if strings.Contains(header[at:at+end], "parental lockout") {
+			t.Errorf("%s: the header's only link to the root carries the site's name, so the "+
+				"wordmark is a second tab stop on the way to a page the row already names: %s", path,
+				strings.Join(strings.Fields(header), " "))
 		}
 	}
 }

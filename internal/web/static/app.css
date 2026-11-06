@@ -41,6 +41,18 @@ h1 {
 	margin: 0 0 1rem;
 }
 
+/* The product's name, in the header, above the heading that names the page (#219). Quieter
+   than the h1 on purpose: the whole point of moving it out of the heading is that the loudest
+   words at the top of a page answer "which page am I", and a demoted brand line that renders
+   bigger than the h1 would undo the change with pixels while the markup said the right thing.
+   `margin-bottom` is small because the h1's own 1rem below it already separates the header
+   from the navigation. */
+.masthead__name {
+	margin: 0 0 .1rem;
+	color: var(--muted);
+	font-size: .8rem;
+}
+
 table {
 	border-collapse: collapse;
 	width: 100%;
@@ -228,14 +240,6 @@ nav {
 	flex-wrap: wrap;
 	align-items: baseline;
 	gap: .15rem .9rem;
-}
-
-/* The site's name is prose in the palette's own ink. It stopped being an anchor in the same
-   change -- #204 found two anchors with `href="/"` on the root -- and this is the other half of
-   that: the words are `--ink` now instead of the browser's link blue, whether or not the reader
-   has been to the root before. */
-.masthead h1 {
-	color: var(--ink);
 }
 
 nav a {
