@@ -265,7 +265,7 @@ kept; nothing here renumbers anything.
   A refused page withholds the whole `pages` publish, so the five GET frames wait for that window
   with the dashboard, and the set cannot be re-taken before 05:00 UTC -- midnight in the zone the
   fixture names. The fixture's own declared instant, `CAPTURE_STAMP=2026-03-18T21:34:05` at
-  `-04:00` (`fixture.sh:99`), is 21:34 local: a moment at which the state it declares cannot be
+  `-04:00` (`fixture.sh`, the `CAPTURE_STAMP` default), is 21:34 local: a moment at which the state it declares cannot be
   photographed. The finding is filed on its own issue; #207 declared the fixture's
   instant, zone, row count and census and left the hour the capture runs at undeclared, which is
   what `dashboard.png`'s churn row in the capture README has been reporting.
@@ -284,7 +284,7 @@ kept; nothing here renumbers anything.
   hours 21:00 ≤ t < 24:00, while `Page("/").state` declares `locked out until 00:00` -- so
   `require_declared_state` refuses the dashboard for a quarter of every day, a refused page publishes
   none of the fixture's frames, and the fixture's own declared stamp (`2026-03-18T21:34:05 -04:00`,
-  `testing/capture/fixture.sh:99-100`) sits inside the refused window: the document could not
+  `testing/capture/fixture.sh`, the `CAPTURE_STAMP` default) sits inside the refused window: the document could not
   photograph the instant it names. Three answers were on the table -- move the rule's end, teach the
   driver that the state is a function of the hour, or take the second rule out. And one the fix
   forced: #219's masthead move (#221) makes all nine committed frames stale, the two POST frames with

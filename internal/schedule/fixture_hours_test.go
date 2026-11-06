@@ -99,9 +99,9 @@ func TestThePagesFixtureHoldsOneDashboardVerdictForAWWholeDay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the fixture names a zone this host cannot read: %v", err)
 	}
-	// The fixture's own declared day (fixture.sh:99, `2026-03-18T21:34:05 -04:00`), walked from its
-	// first minute so the sweep is the calendar day and not a 24-hour span that starts at noon. The
-	// noon anchor belongs to the evaluator's own day-walk (#1747), not to the caller.
+	// The fixture's own declared day (`fixture.sh`, the `CAPTURE_STAMP` default: 21:34:05 at -04:00),
+	// walked from its first minute so the sweep is the calendar day and not a 24-hour span that starts
+	// at noon. The noon anchor belongs to the evaluator's own day-walk (#1747), not to the caller.
 	day := time.Date(2026, 3, 18, 0, 0, 0, 0, loc)
 
 	t.Run("every minute of the declared day", func(t *testing.T) {

@@ -67,14 +67,16 @@ CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-America/New_York}"
 # `locked out until 00:00` -- measured on #219 at 21:05 EST: `EndsAt` is 00:00 at 00:01, 06:29 and
 # 20:59 and 06:30 at 21:00, 21:01 and 23:59. The declared state refused the frame, and a refused page
 # publishes nothing, so the README's own recipe took **zero** of the five GET frames for a quarter of
-# every day -- on a fixture whose declared stamp is `2026-03-18T21:34:05 -04:00` (fixture.sh:99-100),
+# every day -- on a fixture whose declared stamp is `2026-03-18T21:34:05 -04:00` (`fixture.sh`, the
+# `CAPTURE_STAMP` default),
 # a moment at which the state the fixture declares cannot be photographed at all.
 #
 # `00:00` is not a dodge, and it is worth seeing why before reading it as a second rule that happens
 # to miss: an end earlier than its start crosses midnight onto the day after (`windowOn`,
 # internal/schedule/schedule.go:478-483), so `21:00`→`00:00` resolves its end through
-# `wallInstant(loc, y, mo, d+1, 0, true)` -- the identical expression the `allDay` arm two lines above
-# uses. The two rules therefore release at one instant on every date in every zone, including where
+# `wallInstant(loc, y, mo, d+1, 0, true)` -- the identical expression the `allDay` arm resolves its end
+# through (`schedule.go:469`, against the timed window's `schedule.go:483`). The two rules therefore
+# release at one instant on every date in every zone, including where
 # midnight is itself a repeated wall time, and a tie names the first rule in the profile
 # (`TestEvaluateOverlappingRules/a_tie_names_the_first_rule_in_the_profile`, schedule_test.go:294).
 # So both hour-decided cells on the dashboard row -- the clock and the rule it names -- are the
