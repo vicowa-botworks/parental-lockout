@@ -35,10 +35,21 @@ cached as immutable for a year.
 <header class="masthead">
   <h1><a href="/">parental lockout</a></h1>
   <nav>
-    <a href="/">Status</a>
-    <a href="/users">Accounts</a>
-    <a href="/audit">Audit</a>
-    <a href="/profiles">Profiles</a>
+    {{/* Every entry asks the shell whether it is the reader's own section, and says so in the
+        markup rather than in a style: `aria-current="page"` is what a screen reader announces as
+        "current item", and it is the attribute the stylesheet in app.css marks the same link
+        with. #204 measured the two halves of the same absence -- no attribute for a rule to hook
+        onto, so no link differed from any other on any property, on any page.
+
+        The test lives in Go (pageData.IsCurrent) and not in five conditionals here, because the
+        answer is one rule about the URL. Every action in this block is dash-free on purpose: a
+        trimming action deletes the whitespace it points at, and this file has already shipped
+        "ProfilesSettings" that way. The guard is
+        TestTheMastheadLinksAreSeparatedInTheRenderedBytes. */}}
+    <a {{if .IsCurrent "/"}}aria-current="page" {{end}}href="/">Status</a>
+    <a {{if .IsCurrent "/users"}}aria-current="page" {{end}}href="/users">Accounts</a>
+    <a {{if .IsCurrent "/audit"}}aria-current="page" {{end}}href="/audit">Audit</a>
+    <a {{if .IsCurrent "/profiles"}}aria-current="page" {{end}}href="/profiles">Profiles</a>
     {{/* Settings is a link, not a form, even though the page it opens ends in a write: the
         navigation itself changes nothing, and a GET that mutates is the thing this repo's
         POST-only rule exists to stop.
@@ -48,7 +59,7 @@ cached as immutable for a year.
         elements with {{- -}} removes the space that separated them: this line shipped as
         "ProfilesSettings" in the masthead and the 360 px photograph is what showed it.
         TestTheMastheadLinksAreSeparatedInTheRenderedBytes is the guard. */}}
-    <a href="/settings">Settings</a>
+    <a {{if .IsCurrent "/settings"}}aria-current="page" {{end}}href="/settings">Settings</a>
     {{- /* A plain POST form, so the token has to travel in the body: csrfMiddleware
          reads the `csrf` field (or the header, which a form cannot set). */ -}}
     <form method="post" action="/logout" class="inline-form">

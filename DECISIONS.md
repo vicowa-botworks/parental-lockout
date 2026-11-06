@@ -21,6 +21,14 @@ the decision-log gate and the `make verify` hook for it (`feat/factory-harness`,
 was still open when the first entry below was written. When the two files meet, both halves are
 kept; nothing here renumbers anything.
 
+**D-0016 through D-0024 are not in this file and they are not free.** They are claimed by branches
+still open: `fix/manifest-records-conditions` (#215) reaches D-0023, `fix/audit-row-label` reaches
+D-0024, and `feat/factory-harness` (#217) reaches D-0020, each read off
+`git show <branch>:DECISIONS.md` on 5 Nov. D-0025 is the next id none of them has used. The gate
+refuses a reused id and an out-of-order one; a gap is neither. Merging one of those branches into
+this one will produce a log with holes in it, and the holes stay: renumbering an entry would break
+the `Decision:` trailer on the commit that already carries its id.
+
 ## D-0011 · One typeface and one width model for the controls you type into
 
 - Question: #202 measured every form control on `/settings` in Arial 13.33 px beside 16 px
@@ -198,3 +206,52 @@ kept; nothing here renumbers anything.
   unchanged, `manifest.json` re-recorded), testing/capture/pages.py (`EXPECTED_RULES` 45 and the
   merged tally comment), testing/capture/README.md (the rule count, the re-seed step in the
   re-capture recipe), DECISIONS.md
+
+## D-0025 · The shell is told the path, and one segment decides which entry is current
+
+- Question: #204 measured the same computed style on every navigation link on every photographed
+  page -- the link for the page the reader is on included -- and named the markup half of the cause:
+  `page.tmpl` emits the five links with no class and no `aria-current`, so there is no attribute for
+  a rule to hook onto and nothing for a screen reader to announce. How does the shell find out which
+  page it is rendering, and what does it write?
+- Options: `pageData.Path` filled from `r.URL.Path`, plus one method on the shell that answers "is
+  this href the reader's section" | the page's own `pagename` definition, compared against each href
+  in the shell | the navigation moved into Go as a slice of entries carrying a `Current` bool |
+  `body.page-<pagename>` and a stylesheet selector, with no DOM attribute | `app.js` setting
+  `aria-current` when the page loads
+- Chose: `pageData.Path` filled from `r.URL.Path`, plus one method on the shell that answers "is
+  this href the reader's section"
+- Why: the last option dies on a measurement before any tie-break is reached. #212 made every
+  capture run with `Emulation.setScriptExecutionDisabled`, so an attribute that exists only after a
+  script has run is absent from all nine committed frames, from every reader who blocks scripts, and
+  from #204's own criterion 3, which asks for `aria-current="page"` "asserted on the DOM rather than
+  inferred from CSS". The fourth is the fewest files and has this repository's own precedent --
+  `page.tmpl` already writes `class="page-{{template "pagename"}}` on the body -- and it loses on
+  that same criterion: no selector reaches a DOM attribute, so a stylesheet-only answer marks the
+  page for the parent who can see it and nothing for the one who cannot. What it keeps, and keeps,
+  is that it needs no template edit at all; the stylesheet gets its hook from the attribute instead,
+  which is why the rule written later reads `nav a[aria-current="page"]` rather than a class. The
+  second loses because `pagename` names a template, not a location: the two POST result pages render
+  from a template named for the action that produced them, at a URL that is a child of an account
+  row, so a per-template answer marks nothing on `lock.png` and `testlock.png` and has no way to
+  learn that `/users/casey/lock-now` is standing in the accounts section. The third loses on the
+  shape D-0011 and D-0012 both refuse -- a table of hrefs somebody has to add an entry to, in the
+  file that is not the one writing the markup -- and it does not even remove the markup: the
+  masthead's byte-separation guard and the comment that explains why the Settings link has no
+  trimming dashes stay in `page.tmpl` either way. What it keeps is labels readable from Go, and
+  `TestEveryNavigationEntryIsALiveGETRoute` answers that from the rendered page instead, so it also
+  catches an entry whose href is not a route at all. Inside the chosen option, "refuses rather than
+  proceeds" decided the empty case: no path marks nothing, because a shell that was never told where
+  it is has no answer, and that is `readAccounts` refusing a nil listing as "answered nothing at
+  all" one layer up. The match is a segment split rather than a prefix test for a reason the code
+  repeats: a prefix test makes `/` a prefix of every path, which marks two entries at once, and
+  makes `/users` a prefix of `/usersfoo`, which marks an account page on a path nobody registered.
+  The cost is stated rather than hidden: the rule now lives in Go, where whoever edits the five links
+  in `page.tmpl` will not be looking at it, and the capture driver separately counts how many
+  entries carry the attribute on nine pages. That is a count and deliberately not a second
+  derivation of the segment rule in JavaScript -- two implementations of one rule drift, and the
+  list D-0011 refused is the cautionary example eleven entries above this one.
+- Checkpoint: 64c2751a5d8abd4c449a46833da5842f2fb43173
+- Effect: internal/web/sources.go (`pageData.Path`, `IsCurrent`, `firstSegment`; `render` fills the
+  path), internal/web/templates/page.tmpl (`aria-current="page"` on the current entry),
+  internal/web/nav_test.go, DECISIONS.md
