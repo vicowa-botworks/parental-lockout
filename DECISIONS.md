@@ -1159,3 +1159,80 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `EXPECTED_RULES` 58), testing/capture/{cdp,lock,manifest}.py and the fixtures (main's versions with
   this branch's navigation guards beside them), docs/screenshots/360/ (main's nine staged, re-taken in
   the next commit)
+
+## D-0037 · The set is re-taken rather than re-dated, because a re-dated frame cannot be seen to be wrong
+
+- Question: D-0036 committed `main`'s nine frames with `manifest.py check` refusing on all nine and
+  promised a re-take against the merged tree. The run happened, and then the merge commit was amended
+  to add one sentence to this file's preamble about the ids those commits cite -- so the commit the
+  frames had just been stamped against, `f033291`, stopped existing and `HEAD` became `cf26e50`. Does
+  the set go in recorded against a commit that is gone, with the gate red, or does something else
+  happen?
+- Options: keep the first record and ship the red gate | reset the branch to `f033291` so the
+  recording names a commit that exists again | re-run `record` over the bytes the first run
+  photographed, on the strength of a `git diff` showing the two merge commits differ in prose only |
+  re-take all nine from the fixture setups onward and record once | re-take only the frames whose
+  bytes moved
+- Chose: re-take all nine from the fixture setups onward and record once
+- Why: option one is refused on measurement, not on tidiness. `Makefile:90` runs `manifest.py check`
+  inside `verify`, and at the merge commit the check printed nine problems and exit 1 -- `audit.png
+  predates the newest change to /audit's sources ... the manifest was taken at d1ee983743fd...,
+  internal/web/templates/audit.tmpl (or the shared shell) has moved to f0332913b315...`. D-0036 accepted
+  that
+  red for the merge commit on the ground that a merge is a merge and its tree is not a render of
+  anything; the red was always meant to end in the next commit, and shipping it would hand the
+  supervisor a branch it reads as not-green. Option two buys a true `sources_rev` by deleting the
+  caveat the amendment added -- that sentence is the only place in the tree mapping the ids those
+  commits cite -- and it buys it with a rewrite of a branch `origin` already carries part of, which
+  this repository answers with revert, never rewrite.
+  Option three is the one with a real argument, and it is the one refused. The argument is honest:
+  `git diff --name-only f033291 cf26e50` was run and returned `DECISIONS.md` alone, so nothing the
+  browser could have drawn moved between the two commits, and D-0024's provenance paragraph is exactly
+  this kind of reasoning. It loses because it asks the reader to trust a diff in place of the artifact.
+  `record` writes `sources_rev = newest_commit(sources)` from the commit and the clock and never asks
+  the pixels what page they show, and `check`'s drift arm opens `if recorded == current: continue` --
+  so the equality the recorder mints is the same equality the gate reads, and a re-dated frame cannot
+  be seen to be wrong. That is not a hypothetical here: on 6 Nov, in a scratch copy of the committed
+  directory holding `main`'s `audit.png` -- a photograph of an `MST` cell the branch had just deleted
+  -- one bare `record` answered `9 photographs current`, rc 0 (D-0030). A re-record justified by a
+  command the reader has to re-run is the weaker claim when the honest one costs twenty-one seconds:
+  the whole nine-fixture run below ran 16:33:49 to 16:34:09.
+  Option five is refused by this branch's own history. `record()` walks the PNGs sitting in its target
+  directory and cannot know which ones this run took, so a partial re-take stamps the frames it never
+  touched as just-taken -- measured 5 Nov, reported as 9 current while `lock.png` and `testlock.png`
+  were byte-for-byte the previous files (D-0017's finding (1), #222). The nine `--shot` names are the
+  only input that says what a run photographed, and they are worth nothing unless the run really took
+  the set it names. The tie-break order agrees with the rest of this file: nothing separates on
+  `go.mod` (no option adds a dependency), on breadth four beats three beats five, and "refuses rather
+  than proceeds" picks four for the same reason D-0015 and D-0024 picked the re-take -- a screenshot
+  the driver in the same commit cannot reproduce is not evidence.
+  The measurement then confirmed the choice instead of decorating it. Every one of the nine frames from
+  this run is byte-identical to the frame the 16:17 run wrote -- `cmp` over all nine, all nine
+  identical, four fixtures re-seeded and two separate Chrome rounds in between. That is the property the
+  refused re-record could only argue for: two shutters, one digest set, so the pixels are a property of
+  `cf26e506`'s tree and not of either run that happened to take them.
+- What this costs, stated rather than glossed. (1) The manifest on this branch is rewritten twice
+  inside twenty minutes and the history shows the churn with nothing in the log to explain it until
+  this entry; an intermediate `captured_at` of `16:32:35Z` existed for a few minutes and appears in no
+  commit. (2) `head` in the manifest now reads `21c1ecf1`, the checkpoint below, because `record()`
+  stamps `git rev-parse HEAD` -- an empty commit that rendered nothing. Its tree is identical to the
+  merge's (`git diff --name-only cf26e50 21c1ecf1` prints nothing), and every page's `sources_rev`
+  names `cf26e506`, the commit whose bytes the browser actually drew, so the field the gate compares
+  and the field a human audits are both right and it is `head`, which nobody reads as provenance, that
+  is loose. D-0021's shape one notch milder. (3) `captured_at` is still one field for nine frames, the
+  wart D-0015 put on the record and this entry widens again: `16:34:09Z` against shutters at
+  16:33:57Z to 16:34:07Z. Twelve seconds of slop where the re-record would have shipped fifteen
+  minutes. (4) Two Chrome rounds and four fixture re-seeds to prove a point one `git diff` already
+  proved, paid for in wall clock and in the small risk that the second run disagrees with the first --
+  which is the point of paying it, and it did not.
+  One consequence worth naming before someone else finds it: all nine rows now carry
+  `capture.scripts: off`, including `lock.png` and `testlock.png`, which `main` committed with page
+  scripts running. That is #213's standing objection to the committed set, satisfied here as a
+  side-effect of re-taking everything; #213 stays open, because what the other branches' artifacts
+  show is still that issue's to audit.
+- Checkpoint: 21c1ecf1990fa5b431a769ae4a089141b34f0405
+- Effect: docs/screenshots/360/audit.png, dashboard.png, users.png, users-no-profiles.png,
+  profiles.png, profiles-refused.png, settings.png, lock.png, testlock.png (all nine re-photographed
+  against `cf26e506` at 360 px), docs/screenshots/360/manifest.json (`head`, `captured_at`, nine
+  `png_sha256`, nine `sources_rev` at `cf26e506`, nine `capture` blocks with `scripts: off` and their
+  own fixture envs), DECISIONS.md
