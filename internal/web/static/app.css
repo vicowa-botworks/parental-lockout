@@ -41,6 +41,18 @@ h1 {
 	margin: 0 0 1rem;
 }
 
+/* The product's name, in the header, above the heading that names the page (#219). Quieter
+   than the h1 on purpose: the whole point of moving it out of the heading is that the loudest
+   words at the top of a page answer "which page am I", and a demoted brand line that renders
+   bigger than the h1 would undo the change with pixels while the markup said the right thing.
+   `margin-bottom` is small because the h1's own 1rem below it already separates the header
+   from the navigation. */
+.masthead__name {
+	margin: 0 0 .1rem;
+	color: var(--muted);
+	font-size: .8rem;
+}
+
 table {
 	border-collapse: collapse;
 	width: 100%;

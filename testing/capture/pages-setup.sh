@@ -31,10 +31,10 @@ CAPTURE_AUDIT_ROWS="${PLOCK_CAPTURE_AUDIT_ROWS:-8}"
 # Sessions cell is the fixture's and not a report on whoever ran the capture (#207 cause 6). The two
 # POST fixtures deliberately do not set this: their whole subject is a real lock on a real session.
 CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-$CAPTURE_DIR/bin}"
-# The reader's zone, declared because the audit page's When column is formatted with `MST` and Go's
-# time.Parse hands a row whose offset matches the local zone that zone's abbreviation (see
-# fixture.sh). America/New_York is the zone the fixture's own wall times are written in, so the label
-# and the clock agree, and they agree on every host.
+# The reader's zone, declared because the audit page used to print a zone NAME chosen by the host
+# (see fixture.sh: the `MST` layout, #207's seventh cause, #210's fix). America/New_York is the zone
+# the fixture's own wall times are written in, so the clock and any label the page might grow agree,
+# on every host.
 CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-America/New_York}"
 
 # The heredoc is unquoted for one line: the listen address has to carry $RUN_PORT, so the port
@@ -58,7 +58,35 @@ CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-America/New_York}"
 # issues -- the fixture does not paper over the defect, it declines to photograph it.
 #
 # The curfew rule stays for the audit page's sake: its rows quote `Weeknight curfew including the
-# weekend`, and that name is part of what makes the Rule column wide.
+# weekend`, and that name is part of what makes the Rule column wide. Its window is `21:00`→`00:00`
+# rather than the `21:00`→`06:30` it has carried since `14bc3f5`, and that one value is #220.
+#
+# Two rules open at once make `EndsAt` the later end ("EndsAt has to be when the last one lets go",
+# internal/schedule/schedule.go:171-178), so an end at 06:30 put `06:30` on the dashboard for the
+# three hours 21:00 ≤ t < 24:00 in the zone this fixture names, while `Page("/").state` declares
+# `locked out until 00:00` -- measured on #219 at 21:05 EST: `EndsAt` is 00:00 at 00:01, 06:29 and
+# 20:59 and 06:30 at 21:00, 21:01 and 23:59. The declared state refused the frame, and a refused page
+# publishes nothing, so the README's own recipe took **zero** of the five GET frames for a quarter of
+# every day -- on a fixture whose declared stamp is `2026-03-18T21:34:05 -04:00` (`fixture.sh`, the
+# `CAPTURE_STAMP` default),
+# a moment at which the state the fixture declares cannot be photographed at all.
+#
+# `00:00` is not a dodge, and it is worth seeing why before reading it as a second rule that happens
+# to miss: an end earlier than its start crosses midnight onto the day after (`windowOn`,
+# internal/schedule/schedule.go:478-483), so `21:00`→`00:00` resolves its end through
+# `wallInstant(loc, y, mo, d+1, 0, true)` -- the identical expression the `allDay` arm resolves its end
+# through (`schedule.go:469`, against the timed window's `schedule.go:483`). The two rules therefore
+# release at one instant on every date in every zone, including where
+# midnight is itself a repeated wall time, and a tie names the first rule in the profile
+# (`TestEvaluateOverlappingRules/a_tie_names_the_first_rule_in_the_profile`, schedule_test.go:294).
+# So both hour-decided cells on the dashboard row -- the clock and the rule it names -- are the
+# all-day rule's at every hour, which is what the declared state below can promise.
+#
+# What this keeps, and what it gives. It keeps an enabled timed rule with a window to render, which is
+# what `/profiles` photographs, and the long name in the audit table's Rule column (those rows are
+# seeded, not evaluated, so they would have carried the name even with the rule switched off -- checked
+# before assuming the curfew was load-bearing for the photograph). It gives up `06:30` as a value in
+# this config; nothing on these five pages was quoting it except through `EndsAt`, which is the defect.
 #
 # alex is on a profile of its own, with one rule that is switched off, and the reason is the same
 # cause. The cell's branches are `locked out until`, `scheduled, not enforced`, `not now; next at`
@@ -98,7 +126,7 @@ cat > "$CONFIG" <<JSON
          "allDay": true, "enabled": true},
         {"id": "r-curfew", "name": "Weeknight curfew including the weekend",
          "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-         "start": "21:00", "end": "06:30", "enabled": true}
+         "start": "21:00", "end": "00:00", "enabled": true}
       ]
     },
     {
