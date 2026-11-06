@@ -198,3 +198,80 @@ kept; nothing here renumbers anything.
   unchanged, `manifest.json` re-recorded), testing/capture/pages.py (`EXPECTED_RULES` 45 and the
   merged tally comment), testing/capture/README.md (the rule count, the re-seed step in the
   re-capture recipe), DECISIONS.md
+
+## D-0016 · The page's own name is the heading, and the product's name is a label above it
+
+- Question: `internal/web/templates/page.tmpl` renders the site's one `<h1>` and it held the
+  product's name, so no heading anywhere in the site answers "which page am I" (#219). The issue
+  offers two defensible answers and calls the present state neither of them: make the `<h1>` the
+  page's own name and demote the product's name to a non-heading, or leave the product's name in the
+  `<h1>` and record that "which page am I" belongs to `aria-current` plus `<title>`. Under the first,
+  where do the heading's words come from -- the page's existing `title` block, a new `heading` block
+  per page, or the `pagename` slug?
+- Options: page name in the `<h1>`, brand demoted in the header | product name stays the `<h1>` and
+  the answer is documented as belonging to `aria-current` and `<title>` | under the first: `title`,
+  a new `heading` block, or `pagename`
+- Chose: the page's own name in the `<h1>`, rendered from the same `title` block `<title>` is built
+  from -- one definition, two places. The brand line stays in the header as
+  `<p class="masthead__name">`, not a heading and not a link. `pagename` stays what it was: the
+  body's class.
+- Why: the second option is a documentation change wearing this issue's clothes. It leaves the one
+  heading every page shares answering the wrong question and adds a sentence saying that was meant;
+  #219's consequence 2 is the reason that does not close, because it is about `<title>` being
+  unreachable once the page has loaded, which is a property of the markup and not of the record.
+  Consequence 1 is the same fact from the keyboard: the first heading of five pages is the same two
+  words.
+
+  The sub-question was settled by the templates before any tie-break was reached. `title` is already
+  each page's name on all seven of them -- the shell writes
+  `<title>{{template "title" .}} · parental lockout</title>` and the pages define "Status",
+  "Accounts", "Audit trail", "Lockout profiles", "Settings", "Lock an account", "Check the lock
+  backends" -- so a heading drawn from that block cannot drift from the tab strip, and drawing it
+  from anything else creates a second definition of a page's name whose only failure mode is that
+  the two disagree in exactly the places nobody re-reads. A new `heading` block is that second
+  definition. `pagename` is a slug, not a name: it says `profiles` where the page says "Lockout
+  profiles". The guard asserts the heading against the `<title>` rather than against a list of
+  strings, so what is pinned is the relationship and not seven strings somebody could re-name in one
+  of the two places.
+
+  Tie-breaks: nothing separates them on `go.mod` (neither adds a dependency). Files touched favours
+  the chosen side -- one line of shell markup and the login page's `<h1>`, against a `docs/` naming
+  discussion and an `aria-current` story that is #204's scope. "Refuses rather than proceeds" picks
+  the same side, because under the first option the decision comes with a check that can fail and
+  under the second it comes with a paragraph.
+
+  What lost, stated rather than buried. The brand stops being a link: it was
+  `<h1><a href="/">parental lockout</a></h1>`, so the header carried two anchors with `href="/"` and
+  now carries one. That is the half of #204 whose text says "the site's name is no longer a link,
+  which is what made the duplicate visible as a duplicate", and it is undone here as a by-product of
+  the demotion; #204 has no pull request as this is written and its own answer is the same demotion,
+  so whichever of the two lands second resolves one hunk of `page.tmpl` rather than a disagreement,
+  and a home link goes on the `<p>` if #204 wants one back. The `<caption>`s do not move: a caption
+  names a table, and this issue is about the page. The root page's name settles on `Status` only in
+  the sense that the heading, the nav entry and the tab strip now read the same word; calling that
+  page the dashboard is a rename in three places and belongs to the issue that owns the navigation.
+  All nine committed 360 px frames move, because the masthead is in every one of them -- D-0014 paid
+  the same cost for the stylesheet and for the same reason, and `manifest.py check` refuses the set
+  on an uncommitted `app.css` before anything else does.
+
+  What this branch could not finish, measured at 21:05 EST rather than assumed. `pages.py` refuses
+  the dashboard: `REFUSED: /: the 'casey' row says ['locked out until 06:30', …], and this artifact
+  is a photograph of the state where it says 'locked out until 00:00'`. That is not this change. The
+  fixture carries a second rule, `r-curfew` (21:00→06:30, all seven days), which the fixture has
+  held since `14bc3f5`, and `schedule.Evaluate` takes the latest end across the rules that are open
+  (`schedule.go:171-179`) -- so the state `Page("/").state` declares holds only between 00:00 and
+  20:59 in the profile's zone. Measured by handing the fixture's own profile to `Evaluate`: `EndsAt`
+  is `03-19 00:00 EDT` at 00:01, 06:29 and 20:59, and `03-19 06:30 EDT` at 21:00, 21:01 and 23:59.
+  A refused page withholds the whole `pages` publish, so the five GET frames wait for that window
+  with the dashboard, and the set cannot be re-taken before 05:00 UTC -- midnight in the zone the
+  fixture names. The fixture's own declared instant, `CAPTURE_STAMP=2026-03-18T21:34:05` at
+  `-04:00` (`fixture.sh:99`), is 21:34 local: a moment at which the state it declares cannot be
+  photographed. The finding is filed on its own issue; #207 declared the fixture's
+  instant, zone, row count and census and left the hour the capture runs at undeclared, which is
+  what `dashboard.png`'s churn row in the capture README has been reporting.
+- Checkpoint: 2d1355402e899b1462dbff222750a866128c4d76
+- Effect: internal/web/templates/page.tmpl (the `<h1>` and the brand line), internal/web/static/app.css
+  (`.masthead__name`), internal/web/handlers.go (the login page's `<h1>Sign in</h1>` and its doc
+  block), internal/web/page_heading_test.go (new: the two tests and `headingComplaints`),
+  scripts/mutations/web.json (`expected_mutants` 287 → 290; W298 the product name back in the
+  heading, W299 the brand line deleted, W300 the heading pinned to a literal), DECISIONS.md
