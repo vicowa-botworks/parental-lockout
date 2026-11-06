@@ -908,3 +908,61 @@ Two consequences, both deliberate:
   `head` and nothing else" is true of the bytes and silent about what the new value now means.
 - Checkpoint: c8b1e5a6648cb8fdbca270e9310f76c094ad6026
 - Effect: DECISIONS.md (D-0023's `sources_rev` sentence, D-0028's `head` sentence, this entry)
+
+## D-0031 · A frame this run did not take keeps the `sources_rev` its bytes were rendered from
+
+- Question: #222 was closed at 13:17Z as satisfied on `main` by #215 and D-0028, row by row, the
+  negative case included -- three frames in one directory, one page re-taken, the untouched frame must
+  not acquire conditions. Every one of those rows is about `capture`. The field the drift gate reads
+  first is `sources_rev`, and `record` still wrote `newest_commit(sources)` for every PNG in its
+  directory (`manifest.py:480`) whatever `shot` said, while `check`'s drift arm opens
+  `if recorded == current: continue` (`:757`). Does the recorder get to move a rev for pixels it did
+  not photograph?
+- Options: leave it, since `--shot` exists and the notes have said to pass it since D-0028 | carry the
+  prior entry's `sources_rev` for a frame outside `shot` whose digest is unchanged, and mark it
+  `carried_from` | additionally refuse any frame whose bytes moved and nobody named in `--shot` |
+  settle it in the issue and change nothing here
+- Chose: carry the prior rev and mark it; reopen #222; stop short of the third option
+- Why: measured before anything was written, against `origin/main` at `e74b42f` with this file's own
+  code and a fake git that knows each path's newest commit -- five frames recorded at `a...`, the page
+  then moved to `b...`, one frame re-taken in that commit, one `record`: **`check` answers 0 problems
+  and four entries name a commit their bytes were not rendered from**. Carrying the prior rev instead
+  turns that into **4 refusals and 0 lying entries**, and the refusals are the sentence #144 was filed
+  for. The equality is not a description of the frame, it is the switch: a wrong `sources_rev` that
+  *differs* falls through to the ancestry arm and behaves, which is exactly why D-0030's probe found
+  nothing, and a re-dated one *equals* `current` and is never read again. Option 1 is a recipe, not a
+  check: the driver has passed the declaration since `pages.py:965` and a bare `manifest.py record` --
+  the command the notes still call right for an honest whole-set capture -- launders four frames with
+  it. Option 3 is the substitution case, and the digest rule cannot see it by construction: swapped
+  bytes are a *changed* frame, so the only guard left there is `check` before `record` plus `--shot`.
+  Refusing an undeclared change also refuses the documented path for `lock.png` and `testlock.png`,
+  which no driver records, and that path has not been measured -- shipping an unmeasured refusal into
+  the gate over the acceptance evidence is how #144's "the workflow that does the right thing, made
+  red" happens. Tie-break: nothing separates on `go.mod` (no dependency either way) or on breadth (two
+  files either way); "refuses rather than proceeds" picks the carry, because it is the only option
+  under which a stale frame produces a refusal rather than a sentence; and `git revert` restores the
+  old stamping with nothing to re-photograph, because no artifact moves in this commit.
+- What this costs, stated rather than glossed. A frame re-taken under moved conditions and not
+  declared now keeps the old rev, so if its page has also moved it is refused -- the escape is `--shot`,
+  the flag the recipe already passes, and the alternative was the laundering. `carried_from` is added
+  to the per-entry vocabulary with no schema bump: it is additive and `check` ignores unknown keys, so
+  a `/1` file and a `/2` file both read, and nothing has to be re-recorded. It also inherits `head`'s
+  wart (D-0028) -- it names the manifest these pixels were certified in, not the commit that rendered
+  them -- and now every carried row carries that indirection. `_fake_git` no longer answers
+  `rev-parse HEAD` with the shallow verdict, so a box's `head` is finally a commit; the field was
+  storing `"false"` as provenance, which is why the new rule asserts it rather than trusting it. The
+  substitution half stays open, and the notes now say so in the imperative instead of as history.
+- Correction, in the same commit as the measurement that forced it. D-0030's "Nothing in the gate
+  moves -- `check` still refuses a frame that did not travel with its page, because that verdict comes
+  from the photograph's history, which is the half that is not self-reported" is false of a partial
+  re-record, and it is the sentence that let #222 read as settled. Its probe replaced `/audit`'s rev
+  with forty zeros -- a value that *differs*, so control passed the short-circuit and the ancestry arm
+  did its job. The value a re-record mints is not a differing value; it is the equal one, and equality
+  is the arm's first condition. The field is read a second time, as the switch. What survives of
+  D-0030 is the audit claim, and this entry is what makes it true again after a partial capture.
+- Checkpoint: 2e1136e8814dfbb5435ba73a023fb24578da6e36
+- Effect: testing/capture/manifest.py (the carry in `record`, `carried_from`, `summary()` and the
+  sentence naming carried frames, `_fake_git`'s `rev-parse HEAD`, two rules, `EXPECTED` 40 -> 42),
+  testing/capture/README.md (the record-last section, the ancestry sentence, the 48-rule count),
+  DECISIONS.md (this entry). No artifact moves: `docs/screenshots/360/` and its manifest are untouched
+  and `make verify` passes with the nine frames as `main` left them.
