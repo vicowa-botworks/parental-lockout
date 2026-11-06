@@ -40,13 +40,17 @@ Two consequences, both deliberate:
 
 - **The numbering continues past the highest id on any open branch.** #217's log ends at `D-0020`
   and the half above ran `D-0011`..`D-0015`, so ids were already colliding across branches; the
-  entries below resume at `D-0021` rather than adding a third `D-0013`.
+  entries below resume at `D-0021` rather than adding a third `D-0013`. That rule has paid for itself
+  once already: `main` minted `D-0016`..`D-0018` independently while this branch was writing, so a
+  branch that had numbered from its own highest id would have opened a third set of those three.
+  This file took `main`'s at the 6 Nov merge and renumbered nothing.
 - **The field contract is #217's, unchanged** -- `## D-NNNN · title` followed by `Question`,
   `Options`, `Chose`, `Why`, `Checkpoint` (plus `Effect`), with `Chose` repeating one option
   verbatim. So when #217 lands, `make verify` starts checking these entries instead of rejecting
-  them for shape. What it finds first is the collision this section describes: `D-0011`..`D-0015`
-  will name two decisions apiece once #217's own log lands beside them, and renumbering them is that
-  branch's call, not this file's.
+  them for shape. What it finds first is the collision this section describes: `D-0011`..`D-0018`
+  will name two decisions apiece once #217's own log lands beside them -- the last three arrived
+  from `main` with #221, which answers #219 and #220 -- and renumbering them is that branch's call,
+  not this file's.
 
 ## D-0011 · One typeface and one width model for the controls you type into
 
@@ -227,6 +231,221 @@ Two consequences, both deliberate:
   merged tally comment), testing/capture/README.md (the rule count, the re-seed step in the
   re-capture recipe), DECISIONS.md
 
+## D-0016 · The page's own name is the heading, and the product's name is a label above it
+
+- Question: `internal/web/templates/page.tmpl` renders the site's one `<h1>` and it held the
+  product's name, so no heading anywhere in the site answers "which page am I" (#219). The issue
+  offers two defensible answers and calls the present state neither of them: make the `<h1>` the
+  page's own name and demote the product's name to a non-heading, or leave the product's name in the
+  `<h1>` and record that "which page am I" belongs to `aria-current` plus `<title>`. Under the first,
+  where do the heading's words come from -- the page's existing `title` block, a new `heading` block
+  per page, or the `pagename` slug?
+- Options: page name in the `<h1>`, brand demoted in the header | product name stays the `<h1>` and
+  the answer is documented as belonging to `aria-current` and `<title>` | under the first: `title`,
+  a new `heading` block, or `pagename`
+- Chose: the page's own name in the `<h1>`, rendered from the same `title` block `<title>` is built
+  from -- one definition, two places. The brand line stays in the header as
+  `<p class="masthead__name">`, not a heading and not a link. `pagename` stays what it was: the
+  body's class.
+- Why: the second option is a documentation change wearing this issue's clothes. It leaves the one
+  heading every page shares answering the wrong question and adds a sentence saying that was meant;
+  #219's consequence 2 is the reason that does not close, because it is about `<title>` being
+  unreachable once the page has loaded, which is a property of the markup and not of the record.
+  Consequence 1 is the same fact from the keyboard: the first heading of five pages is the same two
+  words.
+
+  The sub-question was settled by the templates before any tie-break was reached. `title` is already
+  each page's name on all seven of them -- the shell writes
+  `<title>{{template "title" .}} · parental lockout</title>` and the pages define "Status",
+  "Accounts", "Audit trail", "Lockout profiles", "Settings", "Lock an account", "Check the lock
+  backends" -- so a heading drawn from that block cannot drift from the tab strip, and drawing it
+  from anything else creates a second definition of a page's name whose only failure mode is that
+  the two disagree in exactly the places nobody re-reads. A new `heading` block is that second
+  definition. `pagename` is a slug, not a name: it says `profiles` where the page says "Lockout
+  profiles". The guard asserts the heading against the `<title>` rather than against a list of
+  strings, so what is pinned is the relationship and not seven strings somebody could re-name in one
+  of the two places.
+
+  Tie-breaks: nothing separates them on `go.mod` (neither adds a dependency). Files touched favours
+  the chosen side -- one line of shell markup and the login page's `<h1>`, against a `docs/` naming
+  discussion and an `aria-current` story that is #204's scope. "Refuses rather than proceeds" picks
+  the same side, because under the first option the decision comes with a check that can fail and
+  under the second it comes with a paragraph.
+
+  What lost, stated rather than buried. The brand stops being a link: it was
+  `<h1><a href="/">parental lockout</a></h1>`, so the header carried two anchors with `href="/"` and
+  now carries one. That is the half of #204 whose text says "the site's name is no longer a link,
+  which is what made the duplicate visible as a duplicate", and it is undone here as a by-product of
+  the demotion; #204 has no pull request as this is written and its own answer is the same demotion,
+  so whichever of the two lands second resolves one hunk of `page.tmpl` rather than a disagreement,
+  and a home link goes on the `<p>` if #204 wants one back. The `<caption>`s do not move: a caption
+  names a table, and this issue is about the page. The root page's name settles on `Status` only in
+  the sense that the heading, the nav entry and the tab strip now read the same word; calling that
+  page the dashboard is a rename in three places and belongs to the issue that owns the navigation.
+  All nine committed 360 px frames move, because the masthead is in every one of them -- D-0014 paid
+  the same cost for the stylesheet and for the same reason, and `manifest.py check` refuses the set
+  on an uncommitted `app.css` before anything else does.
+
+  What this branch could not finish, measured at 21:05 EST rather than assumed. `pages.py` refuses
+  the dashboard: `REFUSED: /: the 'casey' row says ['locked out until 06:30', …], and this artifact
+  is a photograph of the state where it says 'locked out until 00:00'`. That is not this change. The
+  fixture carries a second rule, `r-curfew` (21:00→06:30, all seven days), which the fixture has
+  held since `14bc3f5`, and `schedule.Evaluate` takes the latest end across the rules that are open
+  (`schedule.go:171-179`) -- so the state `Page("/").state` declares holds only between 00:00 and
+  20:59 in the profile's zone. Measured by handing the fixture's own profile to `Evaluate`: `EndsAt`
+  is `03-19 00:00 EDT` at 00:01, 06:29 and 20:59, and `03-19 06:30 EDT` at 21:00, 21:01 and 23:59.
+  A refused page withholds the whole `pages` publish, so the five GET frames wait for that window
+  with the dashboard, and the set cannot be re-taken before 05:00 UTC -- midnight in the zone the
+  fixture names. The fixture's own declared instant, `CAPTURE_STAMP=2026-03-18T21:34:05` at
+  `-04:00` (`fixture.sh`, the `CAPTURE_STAMP` default), is 21:34 local: a moment at which the state it declares cannot be
+  photographed. The finding is filed on its own issue; #207 declared the fixture's
+  instant, zone, row count and census and left the hour the capture runs at undeclared, which is
+  what `dashboard.png`'s churn row in the capture README has been reporting.
+- Checkpoint: 2d1355402e899b1462dbff222750a866128c4d76
+- Effect: internal/web/templates/page.tmpl (the `<h1>` and the brand line), internal/web/static/app.css
+  (`.masthead__name`), internal/web/handlers.go (the login page's `<h1>Sign in</h1>` and its doc
+  block), internal/web/page_heading_test.go (new: the two tests and `headingComplaints`),
+  scripts/mutations/web.json (`expected_mutants` 287 → 290; W298 the product name back in the
+  heading, W299 the brand line deleted, W300 the heading pinned to a literal), DECISIONS.md
+
+## D-0017 · The pages fixture releases both of its rules at one instant, so the dashboard frame is takable at any hour
+
+- Question: #220. `pages-setup.sh` gives casey's profile two enabled rules, and `Evaluate` releases
+  at the *latest* end of the rules that are open (`internal/schedule/schedule.go:171-178`). With
+  `r-curfew` written `21:00`→`06:30` the row therefore says `locked out until 06:30` for the three
+  hours 21:00 ≤ t < 24:00, while `Page("/").state` declares `locked out until 00:00` -- so
+  `require_declared_state` refuses the dashboard for a quarter of every day, a refused page publishes
+  none of the fixture's frames, and the fixture's own declared stamp (`2026-03-18T21:34:05 -04:00`,
+  `testing/capture/fixture.sh`, the `CAPTURE_STAMP` default) sits inside the refused window: the document could not
+  photograph the instant it names. Three answers were on the table -- move the rule's end, teach the
+  driver that the state is a function of the hour, or take the second rule out. And one the fix
+  forced: #219's masthead move (#221) makes all nine committed frames stale, the two POST frames with
+  the rest, and those two belong to #213 -- re-take them here, or ship eight current frames beside one
+  that is not.
+- Options: curfew end → `00:00` | curfew end → anything the all-day rule does not outrank | keep
+  `06:30` and declare a per-hour state | delete `r-curfew` | re-take the POST frames here | leave them
+  to #213 and re-take seven
+- Chose: `r-curfew` ends at `00:00` (`pages-setup.sh:127`), the dashboard's declared state gains the
+  rule's *name* as a second needle (`pages.py:368`), hour-independence is measured rather than
+  asserted (`internal/schedule/fixture_hours_test.go`), and all nine frames were re-taken here.
+- Why: a per-hour state is #207's refusal inverted: the driver would photograph whichever page the
+  clock happened to be on and certify it, which is the thing that file exists to prevent --
+  `Page.state` is the declaration that the artifact is a photograph *of*, and a declaration with a
+  table of hours in it declares nothing. Deleting the rule would have been the cheap edit and would
+  have cost the fixture its only enabled timed rule, which is what `/profiles` is a photograph of:
+  `ruleWindow` prints the written pair verbatim (`internal/web/profiles.go:244-256`), so the Window
+  cell is that rule or it is nothing.
+
+  `00:00` is not a value that happens to work, which is what makes it a fix rather than a truce. An
+  end earlier than its start crosses midnight onto the next day, so the curfew resolves its end
+  through `wallInstant(loc, y, mo, d+1, 0, true)` -- the identical expression the `allDay` arm eight
+  lines above it uses (`schedule.go:466-483`). Two rules that resolve an end through one expression
+  cannot disagree in any zone on any date, including the twelve zone-days where midnight is itself a
+  repeated wall time; a tie names the first rule in the profile, which `Evaluate` already pins
+  (`schedule_test.go:294`). What is new is measuring it over the fixture instead of a synthetic pair:
+  1440 minutes of the fixture's declared day give one verdict, and 1464 instants -- every day of 2026
+  at 20:59, 21:00, 21:01 and 23:59 -- give the same one. The same sweep with the committed value
+  rewritten back to `06:30` reproduces #220 exactly, 180 minutes of `06:30 / Weeknight curfew
+  including the weekend` beside 1260 of `00:00 / Every day, every hour`, and that arm is what stops
+  the first test from being a program that prints one line and passes.
+
+  The name needle is there because the clock alone would have missed the defect. #220 moved *both*
+  cells of the row -- `EndsAt` and the rule `EndsAt` came from -- and a guard on the clock only would
+  have let a frame that re-blamed the row at 21:00 through as an artifact of the state the fixture
+  says it holds. It is tested in both directions: `pages.py --self-test` refuses a casey row that
+  names the curfew while the clock still reads `00:00`, and refuses the row it declares if the
+  declaration is the thing that broke.
+
+  The POST frames were re-taken because the alternative was not a smaller change, it was a false
+  check: with the masthead moved, `manifest.py check` can only pass for `lock.png` and `testlock.png`
+  if their recorded `sources_rev` advances, and an advancing `sources_rev` over bytes that predate the
+  page is the exact sentence #144 was filed to make impossible. Both ran green on the first try, and
+  the sentence #213 gives for why re-taking them was a decision rather than a step -- that a re-take
+  locks the capturing machine's session for real -- does not hold on this tree and did not when it was
+  written: the POST fixtures run `"enforcement": false`, `"lockBackends": ["command"]`,
+  `"lockCommandPath": "/bin/true"` (the config block in `testing/capture/post-fixture.sh`, whose
+  line numbers this merge moved by dropping #215's header comment above it), so the click is answered
+  by `/bin/true` and the page's banner is the unconfirmed sentence, which is the sentence the template
+  exists to render. What that cost is in the capture README's own rows, not here: these two are
+  photographs of one account holding one session on one machine, and always were.
+- What lost: `06:30` is gone from the fixture, so the document no longer depicts a curfew that runs
+  past midnight -- `/profiles` now publishes `21:00 - 00:00` for it, and `profiles.png` and
+  `profiles-refused.png` moved on this change as well as on the masthead, which is two causes in one
+  re-take and is stated because a reviewer comparing that frame to #219's description would otherwise
+  attribute the whole difference to the heading. Nothing on the five GET frames was quoting `06:30`
+  except through `EndsAt`, and that is the defect. The audit trail's `Weeknight curfew including the
+  weekend` rows are seeded text, not evaluated rules, so they would have kept the name even with the
+  rule deleted; they keep it, and they keep being what makes the Rule column wide. Re-taking the two
+  POST frames spends #213's assigned work without its author, and leaves that issue its README rows
+  to re-record rather than the capture.
+- Findings this turn measured and did not fix, filed rather than buried. (1) `record()` certifies
+  every PNG it finds in its target directory (`manifest.py:219`), not the ones its run took, so the
+  documented one-fixture re-capture advances `sources_rev` for frames it never touched. Measured here:
+  after the two `pages.py --out docs/screenshots/360` runs the check reported *9 photographs current*
+  while `lock.png` and `testlock.png` were byte-for-byte the committed files and their `sources_rev`
+  had moved `125b1a49…` → `9ccbe466…`. The identity check cannot see it, because the recorded hash
+  matches the stale file it was recorded from. That is why this commit re-took all nine before
+  recording, and why the capture README's claim that "a one-page re-capture cannot certify another
+  run's PNGs as just-taken" is true of the default and false of `--out`. (2) The fixtures check that
+  `$PLOCK_BIN` exists, not that it is newer than what goes into it, and the templates are `go:embed`
+  (`internal/web/sources.go:21`) -- a binary built before a template change photographs a page the
+  tree does not contain and every check downstream agrees with it. Measured here: a binary built at
+  21:03, nineteen minutes before the masthead commit landed at 21:22, left five of the seven
+  page-fixture frames byte-identical to the committed pre-masthead files and moved only the two whose
+  *fixture* content had changed -- which is the set a reader would have called "the two #220 moved"
+  and committed. The guard is D-0018.
+- Checkpoint: 1af2a76be2d7564305677b36ecce99a52355daf3
+- Effect: testing/capture/pages-setup.sh (`r-curfew`'s end, and the reason beside it),
+  testing/capture/pages.py (the `Every day, every hour` needle, its self-test arms),
+  internal/schedule/fixture_hours_test.go (new: the day sweep, the year sweep, the discrimination),
+  the nine frames in docs/screenshots/360 and their manifest, testing/capture/README.md (the
+  homogeneous-set paragraph, the two POST rows, the re-capture recipe), DECISIONS.md
+
+## D-0018 · A capture refuses a binary that predates the sources compiled into it
+
+- Question: `capture_begin` asked whether `$PLOCK_BIN` was executable and nothing more, while the
+  templates and the stylesheet are compiled into it (`internal/web/sources.go:21`, `go:embed`). A
+  leftover binary therefore serves the page it was built from, the browser faithfully photographs
+  that page, and `manifest.py record` certifies the result against the sources on disk -- which name
+  the new template. What may a capture claim about the binary behind its frames, and how is the
+  wrong one refused without the refusal becoming the bug? Options: refuse when a compiled source is
+  newer than the binary | refuse on a dirty working tree | record the binary's digest in the manifest
+  and check it later | leave it to the README, which already says to build first.
+- Options: source-newer-than-binary mtime | dirty-tree check | binary digest in the manifest | docs only
+- Chose: the mtime relation. `capture_begin` now refuses when any non-`_test.go` file under `cmd/` or
+  `internal/`, plus `go.mod`/`go.sum` where they exist, is newer than `$PLOCK_BIN`, and its message
+  names the offending paths and the build line.
+- Why: mtime is the cheapest predicate over the question a capture is actually answering -- is the
+  thing being served the thing in this tree. A dirty tree is not that question and gets both answers
+  wrong: the measured case below was a *clean* tree with a stale binary (built 21:03, the masthead
+  commit landed 21:22), and a freshly rebuilt binary on a dirty tree is exactly what a capture wants
+  and would have been refused. A digest in the manifest is a record made after the fact, and the
+  failure mode is a frame nobody took -- no downstream record catches that; it only names the lie
+  later. Docs-only is what this file has said since #213, and this morning a stale binary still
+  produced seven plausible frames: five of the seven page-fixture artifacts came out byte-identical
+  to the pre-change files and the two that moved were precisely the two whose *fixture* content had
+  changed, so the set a reviewer would have read as "the two this branch moved."
+  `*_test.go` is excluded because it is not compiled into `plock`; `go.mod` is included because a
+  dependency change moves a byte of the binary. Both `go` files are asked about only `if [ -f ... ]`,
+  and that guard is not tidiness: this repository has no third-party dependency and so no `go.sum`,
+  `find` exits 1 on a path that does not exist, and the setup scripts run `set -euo pipefail` -- so
+  the first version of this arm died at the assignment with nothing on stderr, exit 1, indistinguishable
+  from a fixture that had simply stopped. Probing every branch of a scriptlet is what found that, and
+  the three arms are probed: a touched template refuses and names `page.tmpl`, a fresh binary passes,
+  and a touched `*_test.go` does not fire.
+- What lost: mtimes, with everything that implies. `touch`ing a source forces a rebuild even when the
+  content is unchanged -- the probe does exactly this -- and the rebuilt binary from identical sources
+  is the same program, so the price is a two-second build rather than a wrong verdict. Any file under
+  `internal/` fires it, including ones no `go:embed` pattern reads, and narrowing that means keeping a
+  bash copy of the embed list, which is a second definition whose failure mode is a silent miss. A
+  `PLOCK_BIN` aimed at an installed binary now has to be newer than the checkout, which is what the
+  negative control does anyway (it builds a clause-removed binary after the sources). And the check
+  lives in `capture_begin`, so a driver run against a fixture set up before this commit still passes:
+  it protects the setup, not the frame, and a frame's real provenance stays `manifest.py`'s job.
+- Checkpoint: 9e07dde673b8741aa47d7215b661c7bcbdc368f5
+- Effect: testing/capture/fixture.sh (the freshness arm in `capture_begin`, and the reason beside it),
+  testing/capture/README.md (the build-first paragraph of the re-capture recipe), DECISIONS.md
+
 ## D-0021 · The manifest's provenance is regenerated through the tool's own seam
 
 - Question: `docs/screenshots/360/manifest.json` records `"head": 2d60366489…` and the `/audit` row's
@@ -285,15 +504,27 @@ Two consequences, both deliberate:
   own killer and the first arm's rationale was false as written; declaring both also matches the set's
   own practice for a two-sided condition, where W285 and W295 are declared as the two halves of one
   `&&` rather than inferred from each other. Both measured before being declared: `mutate.py --only
-  W298,W299` returns `CAUGHT` for each, and the same layout edit applied by hand fails
+  W301,W302` (numbered `W298`/`W299` when measured, see the renumbering below) returns `CAUGHT` for
+  each, and the same layout edit applied by hand fails
   `TestTheAuditRowIsStampedTheSameWhoeverReadsIt` and all four of its zone subtests. What this costs:
   the set's tally moves 287 -> 289, so any branch quoting 287 is now wrong -- #215 is stacked on this
   branch and its body does -- and both rows are anchored inside the When cell, which is the region
   #1048 calls fragile: pull that expression into a template variable and both patterns match zero
   times, reported as NOT APPLIED, which is a build-shaped complaint rather than the lost decision it
   would be.
+
+  Renumbered at the 6 Nov merge, and the direction of that renumbering is a decision worth its two
+  lines. `main` arrived with three rows of its own on `page.tmpl` numbered `W298`..`W300` (#219's
+  heading), so the two sets collided on both ids; only one pair could keep the number. `main`'s kept
+  them, for two reasons the tie-break does not reach: those ids are already published history, and
+  `main`'s D-0016 entry cites `W298`/`W299`/`W300` by name in its own `Effect:` line -- renumbering
+  the mutants would have made a merged entry describe different rows than the ones it names, in the
+  same file that says a reused id is refused. This branch's two moved to `W301`/`W302`, in the commit
+  that rewrites their citations in this log, so nothing here cites a row that does not exist. The
+  merged tally is therefore 292, and `main`'s D-0016 already tells the 287 → 290 half of the move.
 - Checkpoint: 39b60988ad0cb2361e98c6ff64a45089860b8475
-- Effect: scripts/mutations/web.json (`W298`, `W299`, `expected_mutants`)
+- Effect: scripts/mutations/web.json (`W301`, `W302` -- written `W298`/`W299` before the 6 Nov merge,
+  `expected_mutants`)
 ## D-0023 · The `/audit` frame that belongs to no branch is photographed, not chosen between
 
 - Question: #215 is opened against `fix/audit-row-label`, not `main`, and both of those moved the
@@ -425,8 +656,9 @@ Two consequences, both deliberate:
   writing that sentence: does `PLOCK_CAPTURE_SCRIPTS` reach the browser at all? `grep -n SCRIPTS
   testing/capture/cdp.py` answers it -- the file names the env key nowhere, and the session is
   configured with `Emulation.setScriptExecutionDisabled, value=True`. So the override
-  `post-fixture.sh:47-48` advertises ("Override with `PLOCK_CAPTURE_SCRIPTS=on` to test a frame taken
-  with scripts running; the declaration follows the override into the manifest") took the same pixels
+  `post-fixture.sh` advertised then ("Override with `PLOCK_CAPTURE_SCRIPTS=on` to test a frame taken
+  with scripts running; the declaration follows the override into the manifest" -- line 47 of that
+  revision, and D-0026 has since rewritten the header it sat in) took the same pixels
   as the default, and the manifest's `scripts` field recorded what `cdp.py` does rather than what the
   frame was taken under.
 - Options: write the test into the notes as advertised | retract the override in prose and point the

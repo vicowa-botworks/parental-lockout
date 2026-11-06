@@ -277,9 +277,9 @@ reproduce and leaves the two that churn -- the same choice #161 made for the sam
 | `profiles.png` | **yes** | re-taken by #147, which is the change that moved it. The `740200cc…` this row quoted had already stopped matching the committed file before that PR landed, and nothing noticed -- which is #144. Moved again by #138, whose refusal page is the artifact below |
 | `profiles-refused.png` | **yes** | new with #138: the same URL photographed AFTER a refused write, so one page carries two artifacts and the manifest has to answer "which template does `profiles-refused` belong to" -- a *state* of a page is not a file named after it, so `template_for` asks the driver which `Page` declared the artifact and falls back to the stem only for the ones that declare nothing (`lock`, `testlock`). Reproduced byte-identical on the run that recorded the manifest |
 | `settings.png` | **yes** | new with the settings page. It is the only page in the set refused on a *form* rather than on rows (`cdp.require_form`), because a page with no table would otherwise have been refused as an empty fixture -- and the lazy repair, dropping the check, would have let a /settings that rendered nothing but its navigation be committed as evidence that it fits. Re-taken by the transport form (#161), which took the page from `forms=3 fields=9` at 2069 px to `forms=4 fields=15` at 3511 px; the previous hash `42d47d9b…` is what the file was before that form, and the row is the only place that claim lives |
-| `testlock.png` | **yes, on an account with one session** | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image. **The page photographs the account's session census**, so the image is good for the machine it was taken on: measured 27 Oct on an account holding four lockable sessions, the driver ran green (`tables=2 backendRows=1 cells=14`, `FITS`, `note in 4 Detail cell(s), 0 with a sentence in front of it`) and produced `a8617a2b…`. That is a faithful capture of a different page, not a broken driver |
-| `lock.png` | **yes, on an account with one session** | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no". Same census caveat: on the four-session account above it ran green (`rows=4 cells=12`, banner `rodney was not locked.`, flag `4 of 4 sessions were asked to lock`) and produced `4fc93d11…` |
-| `dashboard.png` | **yes, in the declared state** | was **no** on two counts, both closed. (1) *Time of day*: the row text is a branch of `schedule.Evaluate(p, now)` — `locked out until` / `scheduled, not enforced` / `not now; next at` / `nothing scheduled` — so the same fixture honestly built rendered a different document at another hour. Casey is now held by an `allDay` rule on all seven days and alex's profile has no enabled rule, and `Page("/").state` names the four cells (`locked out until 00:00`, `no desktop session`, `nothing scheduled`, `x11 · seat0 · locked`); `require_declared_state` refuses any other reading, so a frame taken outside the state reports instead of committing. What that costs is stated rather than buried: the `next at` branch is in no photograph and cannot be, because no rule is both never-running and still scheduled, so its home is `TestOutsideTheWindowTheRowShowsTheNextOpening`. (2) *The host*: the Sessions cell came from this machine's `loginctl` (`internal/platform/command.go:133`, resolved through `PATH` at `internal/platform/exec.go:74-79`), which is why the committed frame said `session list unavailable` while three fresh captures said `no desktop session` and `manifest.py check` called both current. `testing/capture/bin/loginctl` answers instead, and it gives the disabled account a session and the held one none — a session for a held, enabled account would be locked on the next tick and that lock would append a row to the trail `audit.png` photographs. **Coupled to #209:** on a tree without that fix this page says `until 05:00` for the midnight the rule was written with, and the declared state refuses the frame rather than committing a page whose sentence is wrong |
+| `testlock.png` | **yes, on an account with one session** | the probe page's session Detail cell is the self-session note alone when the account's sessions are lockable, so there is no seam and the #108 rule has nothing to terminate; on a machine whose sessions are not lockable the cell carries a reason and the rule applies — which on `main` means a refusal, not a different image. **The page photographs the account's session census**, so the image is good for the machine it was taken on: measured 27 Oct on an account holding four lockable sessions, the driver ran green (`tables=2 backendRows=1 cells=14`, `FITS`, `note in 4 Detail cell(s), 0 with a sentence in front of it`) and produced `a8617a2b…`. That is a faithful capture of a different page, not a broken driver. **Re-taken 5 Nov under the condition the driver now enforces** (page scripts off from the login onward, which the previously committed frame was not) and it ran green on this machine's one-session census: `tables=2 backendRows=1 cells=5`, height 1013 px, banner `All 1 configured lock backends answer on this machine.` |
+| `lock.png` | **yes, on an account with one session** | only since #113 merged. On the branch that added these drivers, before that merge, the committed file was the pre-fix image and the driver *refused* to produce it — which is the same fact pointing the other way, and the reason this row used to read "no". Same census caveat: on the four-session account above it ran green (`rows=4 cells=12`, banner `rodney was not locked.`, flag `4 of 4 sessions were asked to lock`) and produced `4fc93d11…`. **Re-taken 5 Nov** under the condition the driver now enforces and it ran green on this machine's one-session census: `rows=1 cells=3`, height 1142 px, banner `rodney was not locked.`, flag `1 of 1 session was asked to lock and nothing could prove the screen went down.` |
+| `dashboard.png` | **yes, in the declared state** | was **no** on two counts, both closed. (1) *Time of day*: the row text is a branch of `schedule.Evaluate(p, now)` — `locked out until` / `scheduled, not enforced` / `not now; next at` / `nothing scheduled` — so the same fixture honestly built rendered a different document at another hour. Casey is now held by an `allDay` rule on all seven days and alex's profile has no enabled rule, and `Page("/").state` names the four cells (`locked out until 00:00`, `no desktop session`, `nothing scheduled`, `x11 · seat0 · locked`); `require_declared_state` refuses any other reading, so a frame taken outside the state reports instead of committing. What that costs is stated rather than buried: the `next at` branch is in no photograph and cannot be, because no rule is both never-running and still scheduled, so its home is `TestOutsideTheWindowTheRowShowsTheNextOpening`. (2) *The host*: the Sessions cell came from this machine's `loginctl` (`internal/platform/command.go:133`, resolved through `PATH` at `internal/platform/exec.go:74-79`), which is why the committed frame said `session list unavailable` while three fresh captures said `no desktop session` and `manifest.py check` called both current. `testing/capture/bin/loginctl` answers instead, and it gives the disabled account a session and the held one none — a session for a held, enabled account would be locked on the next tick and that lock would append a row to the trail `audit.png` photographs. **Coupled to #209:** on a tree without that fix this page says `until 05:00` for the midnight the rule was written with, and the declared state refuses the frame rather than committing a page whose sentence is wrong. **#220 closed the other way, at the fixture (5 Nov):** the fixture's second enabled rule now releases at the all-day rule's own instant (`pages-setup.sh:127`), so the row reads these words at every hour instead of only between 00:00 and 20:59, and the declared state gained the rule's *name* as a second needle because #220 moved both cells and a clock-only guard would have passed a frame that re-blamed the row at 21:00. Measured by `internal/schedule/fixture_hours_test.go`: 1440 minutes of the declared day and 1464 instants across 2026 give one verdict, and the same sweep with the old `06:30` written back gives two — 180 minutes of them, which is the disagreement #220 reported |
 | `users-no-profiles.png` | **yes, measured** | new with #198: the `/users` page from a **second fixture** (`pages-noprof-setup.sh`), photographed because #192 changed what this page says when there is nothing to assign and no artifact showed it. Two fresh fixtures two runs apart gave `8bbb8293e0c0…` both times and both equal the committed file; re-measured on #207's head under two host timezones, `ce38334c39ad…` both times and equal to the file this branch re-recorded. It is the only artifact here whose *fixture* differs rather than its *state* -- see "A second state, or a second fixture" |
 | `audit.png` | **yes, by construction** | was **no**, and the mechanism was worth the issue: signing in over HTTP writes `auth.success` into the trail the page photographs (`internal/web/handlers.go:150`), so every capture appended a row and the height was a **run counter** — `360x15004` committed against `2936 px` from a fixture built from nothing, ~254 px per run, already ~92% of Chromium's 16 384 px capture surface (#144 has the bound). Three things now hold it: the fixture seeds its trail at a declared instant instead of `datetime.now().astimezone()`; `cdp.pin_appended_rows` re-stamps the sign-in's row to that instant and refuses if the count or the kind is anything but the eight declared `auth.success` rows — so an enforcement row cannot arrive with a plausible timestamp on it; and `require_declared_rows` refuses a *page* that renders a number other than the fixture's. A third cause surfaced while this was being written and is measured, not reasoned about: the When cell was formatted with `MST`, and Go's `time.Parse` adopts the local Location when a row's offset matches it, so one trail rendered `2026-03-18 21:33:05 EDT` under `TZ=America/New_York` and `2026-03-18 21:33:05 -0400` under `TZ=UTC` and under `TZ=Asia/Kolkata` (three runs of a nine-line program). `PLOCK_CAPTURE_TZ` pinned the reader's zone so the frame repeated; **#210 removed the dependency at its root** -- the column now prints the offset the trail stores, so no host zone can move it and the declared state for this page is `2026-03-18 21:34:05 -04:00` on every machine. The zone stays declared as a canary rather than a cause: the clocks on the other pages come from each profile's own declared zone (`wallClock`, `internal/dashboard/banner.go`), so a frame that disagrees with its declared state *while* the zone is set is the sign that a host-dependent label has come back. Say the other half too, because #210 removed a trip wire: this row used to claim the declared state would refuse an unloadable `TZ`, and under an offset layout it cannot -- Go's UTC fallback prints the same `-04:00` a loaded zone does |
 
@@ -288,23 +288,31 @@ So seven of the nine reproduce on any machine — the six from the `pages` fixtu
 account holding the number of sessions the capture had, because those two pages photograph the real
 session census on purpose: their subject *is* a lock on a real session, so they are the two fixtures
 that must not be handed `bin/loginctl`.
-Re-taking those two was **#213**, and this branch closes it: both frames in `docs/screenshots/360` were
-photographed here, at the commit the manifest's `head` names. What the re-take cost, and what it did not
-prove, are both in the open: the two PNGs came back **byte-identical** to the files already committed
-(`b59bb2be…`, `acc5ba4d…`), because the only thing the page's own scripts could have changed on those two
-pages is a countdown neither page renders. What moved is the *provenance* — those digests are now the
-output of a run whose session really did disable the page's scripts, which is the thing the manifest
-asserts and the October frames could not witness. "What the scripts condition can and cannot witness"
-below has the measurement, including the arm that produces the same file.
+Re-taking those two was **#213**, and it is closed twice over, by two runs that disagree about
+nothing. #221 took both frames on 5 Nov as part of re-photographing the whole set for the masthead,
+and that ended the split: those two were the last frames taken with page scripts running, and the
+nine committed files became one set again — every one photographed with scripts off from the login
+onward. This branch took them again on 6 Nov, at the commit its manifest `head` names, and both came
+back **byte-identical** to what was committed at that moment (`b59bb2be…`, `acc5ba4d…`) — the arm of
+the scripts switch that produces the same file, because the only thing a page's own scripts could
+change on those two pages is a countdown neither page renders. So the re-take moved the *provenance*,
+not the pixels: those digests became the output of a run whose session really did disable the page's
+scripts, which is what the manifest asserts and what the October frames could not witness. "What the
+scripts condition can and cannot witness" below has the measurement, including that arm and the
+control where the same switch does move a frame.
 
 One hazard this folder used to state wrongly, and it is the reason #213 sat unclaimed for a week: the
-notes here said a re-take "locks the capturing machine's session for real". It does not, and the thing
-that would is `enforcement: true`. `post-fixture.sh` sets `"enforcement": false` and points the lock
-backends at `/bin/true`, so the daemon asks a command that exits 0 and can prove nothing. Measured 6
-Nov, around the run that took both frames: the capturing account's own logind session went `active` →
-`active` and `LockedHint` `no` → `no`, while the fixture's `audit.jsonl` filled with `lock.requested`
-and `lockbackend.probed` lines aimed at uid 1000. Re-take them when they go stale; the operator's screen
-is not the price.
+notes here said a re-take "locks the capturing machine's session for real". It does not, and the
+thing that would is `enforcement: true`. The POST fixtures set `"enforcement": false`,
+`"lockBackends": ["command"]` and `"lockCommandPath": "/bin/true"` (the config block in
+`post-fixture.sh`, not the header comment above it), so the click is answered by `/bin/true`, the
+sentence the page renders is the *unconfirmed* one — which is the sentence the template exists to
+render — and the operator's screen is never asked. Measured 6 Nov, around the run that took both
+frames: the capturing account's own logind session went `active` → `active` and `LockedHint`
+`no` → `no`, while the fixture's `audit.jsonl` filled with `lock.requested` and `lockbackend.probed`
+lines aimed at uid 1000. Re-take them when they go stale; the operator's screen is not the price.
+What that leaves untouched is the census caveat above: those two frames describe one account holding
+one session on one machine.
 
 ## What the audit fixture is not allowed to contain
 
@@ -384,9 +392,35 @@ mechanism beside it and its own needle, not a static document. It stays pinned b
 ## Re-capturing the committed artifacts
 
 ```sh
+go build -o plock ./cmd/plock        # first, every time — see the binary note below
 ./pages-setup.sh       && ./pages.py --out docs/screenshots/360 --overwrite
 ./pages-noprof-setup.sh && ./pages.py --fixture pages-noprof --out docs/screenshots/360 --overwrite
+./lock-setup.sh        && ./lock.py --out docs/screenshots/360 --overwrite
+./testlock-setup.sh    && ./testlock.py --out docs/screenshots/360 --overwrite
+python3 manifest.py record            # last, after every frame in the set is re-taken
 ```
+
+**Build first, and mean it.** The fixtures test that `$PLOCK_BIN` exists (`fixture.sh`), not that it
+is newer than the sources compiled into it, and the templates are `go:embed`
+(`internal/web/sources.go:21`) — so a binary left over from before a template edit serves the page
+that binary was built from, and every measurement downstream agrees with it because the browser
+faithfully photographed what the daemon actually said. Measured 5 Nov: a binary built nineteen minutes
+before the commit that changed the masthead re-took the set and left five of the seven page-fixture
+frames byte-identical to the pre-change files, moving only the two whose *fixture* content had changed
+— a set that looks exactly like "the two this branch moved" and would have been committed as evidence
+for a page nobody photographed. `fixture.sh` now refuses a binary older than the sources compiled into
+it and names them; the build line above is the fix it asks for.
+
+**Record last, and only over a complete set.** `record()` walks the PNGs sitting in its target
+directory (`manifest.py:219`) and stamps each with the newest commit over its sources — it does not
+know, and cannot tell, which of them this run took. Pointed at the committed directory, a partial
+re-capture therefore advances `sources_rev` for the frames it left alone, and `check` calls those
+stale photographs current: measured 5 Nov after the two `pages.py` lines above, the check reported
+*9 photographs current* while `lock.png` and `testlock.png` were byte-for-byte the previous files.
+The identity check cannot see it, because the recorded hash matches the stale file it was recorded
+from. The sentence further up this file — that a fixture records its manifest in its own `runs/`
+directory "so a one-page re-capture cannot certify another run's PNGs as just-taken" — is true of the
+default target and false of `--out`.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver

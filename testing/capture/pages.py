@@ -349,6 +349,19 @@ PAGES = [
     #   casey   `no desktop session`      -- an enabled, held account with no session on purpose: a
     #                                       session here would be locked by the next tick and the lock
     #                                       would append a row to the trail the audit page photographs
+    #   casey   `Every day, every hour`   -- the same row's Why cell: the rule the verdict *names*. It is
+    #                                       declared beside the clock because `EndsAt` is a max over the
+    #                                       open rules and the named rule is whichever one produced that
+    #                                       max (internal/schedule/schedule.go:171-178), so a second
+    #                                       enabled rule can move the row's words at one hour of the day
+    #                                       and not another -- #220, three hours a day, measured. The
+    #                                       fixture's curfew now releases at the all-day rule's own
+    #                                       instant and a tie names the first rule in the profile
+    #                                       (schedule_test.go:294). That test pins the tie on a synthetic
+    #                                       two-rule profile; this cell is the only place that checks it
+    #                                       on the document the photographs are made from. A guard that
+    #                                       read the clock alone would have passed a frame whose row
+    #                                       changed which rule it blamed at 21:00.
     #   alex    `nothing scheduled`       -- a profile with no enabled rule, so it says this at every
     #                                       hour of every day; a live curfew would say `next at 21:00`
     #                                       by day and `nothing scheduled` at 21:30 (#207 cause 5)
@@ -356,6 +369,7 @@ PAGES = [
     #                                       this machine's logind (#207 cause 6)
     Page("/", "dashboard", True, state=(
         ("casey", "locked out until 00:00"),
+        ("casey", "Every day, every hour"),
         ("casey", "no desktop session"),
         ("alex", "nothing scheduled"),
         ("alex", "x11 · seat0 · locked"),
@@ -2074,13 +2088,15 @@ def self_test():
         under the declaration.
         """
         spec = next(p for p in PAGES if p.url == "/" and p.state)
-        good = {"rows": [["casey", ["locked out until 00:00", "no desktop session"]],
+        good = {"rows": [["casey", ["locked out until 00:00", "Every day, every hour",
+                                    "no desktop session"]],
                          ["alex", ["nothing scheduled", "x11 · seat0 · locked"]]]}
         try:
             require_declared_state(good, spec, "/")
         except SystemExit as exc:
             problems.append(f"the declared state refused the page it declares: {exc}")
-        drifted = {"rows": [["casey", ["locked out until 05:00", "no desktop session"]],
+        drifted = {"rows": [["casey", ["locked out until 05:00", "Every day, every hour",
+                                       "no desktop session"]],
                             ["alex", ["nothing scheduled", "x11 · seat0 · locked"]]]}
         try:
             require_declared_state(drifted, spec, "/")
@@ -2089,6 +2105,25 @@ def self_test():
         except SystemExit as exc:
             if "05:00" not in str(exc) or "00:00" not in str(exc):
                 problems.append(f"the state refusal names neither the cell it saw nor the one "
+                                f"declared: {exc}")
+        # #220's arm: the clock stays right and the *rule* moves. `EndsAt` is a max over the open
+        # rules and the named rule is the one that produced that max, so a second enabled rule that
+        # releases later than the all-day one re-decides the Why cell at one hour of the day and not
+        # another -- three hours a day, on the very fixture this file photographs. A declaration that
+        # reads the clock alone passes on this row, and the artifact would blame a rule that the frame
+        # taken at 18:44 does not mention.
+        renamed = {"rows": [["casey", ["locked out until 00:00",
+                                       "Weeknight curfew including the weekend",
+                                       "no desktop session"]],
+                            ["alex", ["nothing scheduled", "x11 · seat0 · locked"]]]}
+        try:
+            require_declared_state(renamed, spec, "/")
+            problems.append("a casey row that names the curfew while the clock still says 00:00 "
+                            "passed the declared state, which is #220's three hours arriving as an "
+                            "artifact nothing refuses")
+        except SystemExit as exc:
+            if "Weeknight curfew" not in str(exc) or "Every day" not in str(exc):
+                problems.append(f"the named-rule refusal names neither the rule it saw nor the one "
                                 f"declared: {exc}")
         try:
             require_declared_state({"rows": [["alex", ["nothing scheduled"]]]}, spec, "/")
