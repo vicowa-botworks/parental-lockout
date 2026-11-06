@@ -1,7 +1,7 @@
 {
   "package": "./internal/web/",
   "_about": "Each entry puts one known bug back into internal/web and the suite must fail. The set is weighted toward the security decisions rather than the plumbing: a mutant that survives on the CSRF layer or the certificate store means the test suite does not actually pin the control it claims to. Run: python3 scripts/mutate.py scripts/mutations/web.json",
-  "expected_mutants": 287,
+  "expected_mutants": 290,
   "mutants": [
     {
       "id": "W1",
@@ -2176,6 +2176,27 @@
       "old": "<input id=\"enabled-{{$row.Username}}\" type=\"checkbox\" name=\"enabled\" value=\"on\"{{if and $row.Configured $row.Configured.Enabled}} checked{{end}}>",
       "new": "<input id=\"enabled-{{$row.Username}}\" type=\"checkbox\" name=\"enabled\" value=\"on\" checked>",
       "note": "the enabled box ticks itself on for EVERY row, including an entry that is switched off. The operator sees enabled, saves anything else on that row, and the write sets enabled=on -- an account left free on purpose comes back locked out from an edit that never touched the checkbox. This is W145's outcome reached from the render side, where W145 cannot see it. The inverse mutant (delete the conditional, so the box never ticks) is not declared separately: the `new` here already covers the dangerous direction, and both are killed by the same attribute-scoped read. TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled. (#200) Killed once, by that test alone -- the whole package fails exactly one test under this mutant. If TestTheEnabledBoxIsTickOnlyForAnEntryThatIsEnabled is ever edited, W297 has no second killer."
+    },
+    {
+      "id": "W298",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "  <h1>{{template \"title\" .}}</h1>",
+      "new": "  <h1>parental lockout</h1>",
+      "note": "the product's name back in the one heading every page shares -- #219's defect itself rather than a paraphrase of it. Every page in the site opens with the same two words again, while <title> goes on telling the truth, so the document now disagrees with itself about which page it is and only the tab strip knows. Killed by the product-name clause of headingComplaints: TestEveryPageNamesItselfInTheHeading on the four GET pages, /audit on its own fixture, /login unauthenticated, and TestTheResultPagesNameThemselvesInTheHeading on the two pages a POST alone renders -- which is the half a loop over GET-able paths cannot reach."
+    },
+    {
+      "id": "W299",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "  <p class=\"masthead__name\">parental lockout</p>\n",
+      "new": "",
+      "note": "the brand line deleted instead of demoted. This is how #219 gets undone by somebody tidying the header: the visible document stops saying what software it is, and every whole-body assertion in the package still passes, because <title> carries the words and `body` still contains them. It is why headingComplaints looks for the product's name with <title> and every heading element taken out of the document rather than searching the body. Same killers as W298, on the visible-brand clause."
+    },
+    {
+      "id": "W300",
+      "file": "internal/web/templates/page.tmpl",
+      "old": "  <h1>{{template \"title\" .}}</h1>",
+      "new": "  <h1>Dashboard</h1>",
+      "note": "the shell's heading becomes a literal page name. This is the drift the relationship is there to catch, and the reason the guard compares the heading with the page's own <title> instead of holding a list of acceptable strings: 'Dashboard' is a legitimate page name of this product, so any check that only asks whether the heading names the PRODUCT passes, on all five pages -- four of which now claim to be the dashboard while their tab strips say Accounts, Audit trail, Lockout profiles and Settings. Only 'same words, two places' calls it. Killed on the mismatch clause by the same two tests."
     }
   ]
 }
