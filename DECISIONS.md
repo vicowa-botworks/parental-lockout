@@ -593,11 +593,10 @@ Two consequences, both deliberate:
   so committing it certifies a When cell that no longer exists in the tree beside it; this branch's
   (`a1f19fca…`) is the offset template over the pre-#202 stylesheet, so committing it files the exact
   control rendering #202 was opened for under the filename that rendering's own evidence is supposed
-  to disprove. Re-recording either is worse than wrong -- `manifest.py check` on this schema is
-  *blind* to the swap, and the reason is worth having written down: the drift rule is an ancestry
-  test, main's `audit.png` was taken at `ac20479`, and `ac20479` is a descendant of every commit that
-  touches the page's declared sources, including this branch's `c82baa6`. So main's frame passes the
-  gate at the merge while depicting a page the merge cannot render. The refusal that would have
+  to disprove. Re-recording either is worse than wrong, though three sentences written here about
+  *why* were wrong too and D-0028 corrects them against the artifacts on `origin/main`; the claim
+  that survives is the one the correction leaves standing: `record` will date a frame that shows the
+  wrong page, and `check` then agrees. The refusal that would have
   caught it -- the manifest comparing the recorded declared state against the driver's -- is what #215
   adds; it is not on `main`, so the gate could not be the tie-breaker here and the re-take had to be
   chosen for the reason D-0015 gives: a screenshot the driver in the same commit cannot reproduce is
@@ -634,8 +633,14 @@ Two consequences, both deliberate:
   committed bytes; and the surrounding code already re-takes rather than re-labels -- `ac20479` for a
   stylesheet, D-0014 for the commit that ships one, D-0015 for exactly this conflicted-frame shape.
 - What this costs, stated rather than glossed. (1) The merge commit `5c63fb9` on its own carries
-  main's frame over the offset template, and `make verify` says nothing about it -- that is the
-  blindness described above, not a pass, and the sentence belongs to whoever reads that commit. (2)
+  main's frame over the offset template. This entry said `make verify` "says nothing about" that --
+  it does not, and D-0028 measured it twice: `Makefile:90` runs `manifest.py check` inside `verify`,
+  and the check refused at `5c63fb9` and again at `d1ee983` with `audit.png predates the newest
+  change to /audit's sources`. The blind step is one earlier, not the gate: `record` stamps whatever
+  PNG is in its directory with `sources_rev = newest_commit(sources)`, and `check`'s first arm is
+  `if recorded == current: continue`, so a frame that has just been re-dated cannot be seen to be
+  wrong. That is the seam D-0028's option 2 refuses on, and the sentence belongs to whoever reads
+  that commit. (2)
   `captured_at` is one field for the whole manifest: it now reads `2026-11-06T00:52:33Z`, which is
   true of the six pages the `pages` fixture photographed and false of `lock.png`, `testlock.png` and
   `users-no-profiles.png`, whose bytes this run neither took nor changed. That is the same
@@ -643,7 +648,8 @@ Two consequences, both deliberate:
   slightly wider. (3) `/audit`'s `sources_rev` now names a merge, not `c82baa6`, so a reader hunting
   the offset change still wants `git log -- internal/web/templates/audit.tmpl`. What did *not* happen
   this time is worth saying next to D-0015's confession: the re-record left the other eight entries'
-  `sources_rev` at `125b1a4`, so no untouched frame had its date laundered.
+  `sources_rev` at `125b1a4` -- #221 moved them to `9ccbe466` with its own set -- so no untouched
+  frame had its date laundered.
 - Checkpoint: 2a730aaf2a64d502e27d3bf61e8c4ac33a231e37
 - Effect: docs/screenshots/360/audit.png (re-photographed against `5c63fb9`),
   docs/screenshots/360/manifest.json (`head`, `captured_at`, `/audit`'s `png_sha256` and
@@ -731,3 +737,72 @@ Two consequences, both deliberate:
   fixture's `audit.jsonl` filled with `lock.requested`. That sentence is the reason #213 sat unclaimed,
   which is worth more than the comfort of leaving it in.
 - Checkpoint: 80295c5138207c54ec19a3694c0849749d4855ca
+
+## D-0028 · The nine frames are taken against the merge, and each is stamped from the run that took it
+
+- Question: the merge at `d1ee983` staged `main`'s nine frames and grafted this branch's `capture`
+  blocks into its manifest, and `make verify` refuses that tree twice -- `audit.png predates the
+  newest change to /audit's sources`, and `dashboard.png records the state [four cells] and the
+  driver now declares [five cells] for /`, because #221's fixture added casey's `Every day, every
+  hour` row. CI run `42180788535` failed `verify` on exactly those two sentences (reproduced locally,
+  `VERIFY_EXIT=2`). Which frames does the branch re-take, and what does `record` get handed?
+- Options: re-take `audit.png` only | re-take all nine and `manifest.py record` with its defaults, as
+  `testing/capture/README.md`'s recipe says | re-take all nine and record them from all four fixtures'
+  `fixture.env` with all nine `--shot` names | keep `main`'s manifest and re-take nothing
+- Chose: re-take all nine and record them from all four fixtures' `fixture.env` with all nine
+  `--shot` names
+- Why: the second refusal settles the first half on its own -- `dashboard.png` is not the frame the
+  template change moved, it is a frame whose *conditions* went stale -- so a one-frame re-take would
+  have left the gate red and #222's finding unsatisfied: `record()` walks every PNG in its directory
+  and advances `sources_rev` for the ones this run never touched. The run was the four drivers on a
+  binary built for this tree (`fixture.sh` refuses one that predates its sources, D-0018), and the
+  control is the interesting part: **eight of the nine came back byte-identical to `main`'s committed
+  files** -- `dashboard` `1ec41100…`, `users` `81f976b7…`, `profiles` `8eae33ea…`, `profiles-refused`
+  `5206d907…`, `settings` `7bfacb6f…`, `users-no-profiles` `dac864f4…`, `lock` `7ec1a664…`,
+  `testlock` `d008fdf9…` -- and `audit.png` is the only mover, `ac49f291…` to `0cfe9973…`,
+  `360x3107`, `6/6 pages fit at 360 px` and `6/6 … at 1024 px` with the offset needle live: the
+  declared state at `pages.py:412` is `("auth.success", "2026-03-18 21:34:05 -04:00")` and
+  `require_declared_state` accepted the page rather than refusing it.
+  Option 2 is the one this file's own recipe tells a reader to run, and it was measured rather than
+  argued with. In a scratch copy of the artifact directory (`testing/capture/runs/probe/`, gitignored)
+  with `main`'s `audit.png` substituted -- a photograph of the `MST` cell this branch deletes --
+  `check` refuses first on identity (`ac49f291a5cd… on disk, 0cfe9973711b… recorded`, rc 1), and one
+  bare `manifest.py record` over those same bytes answers `9 photographs current`, rc 0, having
+  dropped that frame's `capture` block to nothing and the manifest to `capture-manifest/1`. The
+  mechanism is two lines: `record` writes `sources_rev = newest_commit(sources)` (`manifest.py:480`)
+  from the commit and the clock, never from the pixels, and `check`'s drift arm opens
+  `if recorded == current: continue` (`manifest.py:749`). So `record` does not merely tolerate a
+  swapped frame, it mints the certificate -- "green and wrong" is the honest description, and it is
+  why D-0024's refusal of *that* option has to stand even though three of its sentences did not.
+  Handing over the four envs and the nine names is the only option under which every entry states
+  conditions a run actually ran under: the two POST rows stop carrying October's block on the strength
+  of unchanged bytes, and the schema stays `/2` because nine of nine say what they were taken under.
+  Option 4 is what `main`'s manifest is -- `/1`, no blocks at all -- and it would have deleted #215.
+  The tie-break agrees: nothing separates on `go.mod` or breadth (the working tree moves two files
+  either way), "refuses rather than proceeds" picks the option whose every recorded condition has a
+  witness, and `git revert` of this commit restores `main`'s frames and manifest untouched.
+- What this costs, stated rather than glossed. `head` is `8d8be5854`, the checkpoint, because
+  `record` ran there; that commit is empty, so its tree is `d1ee983`'s and the render is that tree's,
+  but a reader who wants the commit that *contains* these PNGs wants the effect commit below.
+  `captured_at` is still one field for nine frames (D-0015's confession, unchanged); this time it is
+  true of all nine, which is the widest the wart has ever been and the first time it has been a
+  statement rather than a guess. The eight untouched rows keep `sources_rev` `9ccbe466` -- the same
+  commit `main` recorded -- so nothing was re-dated here; only `/audit` moved, to `d1ee983`. And
+  because the eight bytes are `main`'s, "eight are identical and `audit.png` is the only mover" is
+  true of this tree in a way it could not be of `cc3a14d`, which is the sentence this PR kept having
+  to re-quote.
+- Correction, in the same commit as the measurement that forced it. Three sentences of D-0024 are
+  false and were amended here rather than left for a reader to trip over. (a) "main's `audit.png` was
+  taken at `ac20479`": `main`'s manifest records `/audit` at `sources_rev` `9ccbe466`, and the newest
+  commit touching the PNG is `9e07dde`; `ac20479` is a real masthead re-take that no field reads.
+  (b) "`ac20479` is a descendant of every commit that touches the page's declared sources, including
+  this branch's `c82baa6`": `git merge-base --is-ancestor c82baa6 ac20479` exits 1 -- it predates this
+  branch and does not contain it. (c) "`make verify` says nothing about" a merge commit carrying
+  `main`'s frame: `Makefile:90` runs `manifest.py check` inside `verify`, and that check is what
+  printed the two refusals this entry exists to clear. What survives is narrower and worse -- the gate
+  is not blind at the merge, it is blind *after any `record`*, which is the arm option 2 walks into.
+- Checkpoint: 8d8be58540e53721e726ab08a67879c502ac754b
+- Effect: docs/screenshots/360/audit.png (re-photographed against `d1ee983`),
+  docs/screenshots/360/manifest.json (schema `/2`, `head`, `captured_at`, nine `capture` blocks,
+  `/audit`'s `png_sha256` and `sources_rev`), DECISIONS.md (this entry and the three D-0024
+  amendments above)

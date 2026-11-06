@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-06T02:49:31Z",
-  "head": "1af2a76be2d7564305677b36ecce99a52355daf3",
+  "captured_at": "2026-11-06T09:10:21Z",
+  "head": "8d8be58540e53721e726ab08a67879c502ac754b",
   "pages": [
     {
       "capture": {
@@ -20,14 +20,14 @@
       },
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "ac49f291a5cdafcb9f15725ca911ff4bb42aa0d7f9615f1207859d2adab48e9d",
+      "png_sha256": "0cfe9973711b38fe627f1db6c310a2c39e29858e047a653bfc7223a9b1720671",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "d1ee983743fdd427bd17f1d9200c16baae4e89dc"
     },
     {
       "capture": {
@@ -40,6 +40,10 @@
           [
             "casey",
             "locked out until 00:00"
+          ],
+          [
+            "casey",
+            "Every day, every hour"
           ],
           [
             "casey",
@@ -207,6 +211,6 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     }
   ],
-  "schema": "capture-manifest/1",
+  "schema": "capture-manifest/2",
   "viewport": 360
 }
