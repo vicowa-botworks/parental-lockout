@@ -108,6 +108,14 @@ if factory_halted; then
 	exit 8
 fi
 
+# `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name, and the
+# reader deletes it. A tick killed by the wall-clock ceiling dies between the write and the delete, so
+# the run directory collected eight zero-byte `worktree-error.<pid>` files in a day. Sweep the old ones:
+# anything younger than three hours could belong to a supervisor running right now.
+if ! "$DRY_RUN"; then
+	find "$FACTORY_RUN" -maxdepth 1 -name 'worktree-error.*' -mmin +180 -delete 2>/dev/null || true
+fi
+
 # --------------------------------------------------------------------------- handlers
 
 # Which kind of unit goes first, lowest first.
@@ -442,7 +450,11 @@ factory_tick() {
 	fi
 	if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
 		log_event "TICK-HALTED $unit $tree is dirty from an earlier run; refusing to work in it"
-		printf '%s\n' "a worktree was left dirty by a previous tick: $tree" >"$FACTORY_HALT"
+		# The reason is read by whoever finds the queue halted -- `factory.sh --status` prints this file
+		# verbatim -- so it has to carry the resume step as well as the cause. Without it the operator
+		# learns the queue is stopped and which tree, and has to find `rm factory/HALT` in
+		# docs/factory.md unaided; the halt is deliberately sticky, so the sentence has to be too.
+		printf '%s\n' "a worktree was left dirty by a previous tick: $tree -- resolve the tree (commit it to its branch, or discard it on purpose), then \`rm $FACTORY_HALT\` to resume" >"$FACTORY_HALT"
 		return 4
 	fi
 

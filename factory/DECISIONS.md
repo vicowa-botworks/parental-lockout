@@ -696,3 +696,46 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   requires the pull request and says plainly to put a "drop this" argument in its body.
 - Checkpoint: 869564a7ef19fb8349afe57c6596ca74cad8343b
 - Effect: scripts/check-decisions.py, factory/factory.sh
+
+## H-0029 · Resolve the issue before closing the superseding pull request, because triage's exclusion is an open PR
+
+- Question: review of #223 said the right answer was to close it. What breaks first?
+- Options: close the PR, then deal with #211 | close #211 first, then the PR | leave both open until a
+  maintainer acts
+- Chose: close #211 first, then the PR
+- Why: `factory/triage.sh` keeps an issue out of the unclaimed queue by scanning **open** pull-request
+  bodies for a close/refs/part-of mention (`:157-160`), and #223's body was the only thing holding #211
+  out. Closing the PR first would have put #211 in front of a fresh lane within one activation -- a third
+  implementation of a feature main has carried since 05:35Z, from a base 42 commits older, at roughly 45
+  minutes of ceiling each. The order is not cosmetic and nothing in the repository says so: the same
+  mechanism means a PR that *legitimately* parts of an issue is the only reason that issue is not queued,
+  so any close has to look at what its body was shielding. Recorded here rather than only in the two
+  close comments because it is a property of the supervisor, not of those issues.
+- Checkpoint: aa9c1841a949ecd2ac4805ce28b6e0f97a658307
+- Effect: none in code; the ordering is a rule for whoever closes next, and the remaining cases are in
+  #224
+
+## H-0030 · A sticky halt stays sticky, but its reason has to carry the resume command
+
+- Question: the queue halted at 10:41Z on a dirty worktree and stayed halted through four activations,
+  including one after the tree had been made clean. The reason line names the tree and nothing else.
+  Self-heal, or make the stop readable?
+- Options: clear `factory/HALT` automatically once the named tree is clean again | keep the halt sticky
+  and write the resume step into the reason text | add `factory.sh --resume` and tell people to use it
+  instead of `rm`
+- Chose: keep the halt sticky and write the resume step into the reason text
+- Why: a dirty worktree means a tick died in the middle of editing files, and the only thing standing
+  between the next tick and a half-written file is this flag -- auto-clearing on `status --porcelain`
+  empty would let a tick into a tree where a person may still be deciding what to keep, and the failure
+  would look like the harness corrupting a branch. The measurable problem was legibility: from 12:37Z to
+  13:11Z the journal said `HALTED a worktree was left dirty by a previous tick:
+  /home/rodney/prj/wt/issue-222` and nothing more, while `rm factory/HALT` existed only in
+  docs/factory.md:200, and `factory.sh --status` prints the same file verbatim (`common.sh:144`). The
+  reason string now ends `-- resolve the tree (commit it to its branch, or discard it on purpose), then
+  `rm <path>` to resume`, so whoever finds a stopped queue learns from the stop itself that the fix is a
+  decision about the tree, not a flag to hunt for. Same commit sweeps the eight zero-byte
+  `worktree-error.<pid>` files a day had accumulated in `factory/run/`: a tick killed by the ceiling dies
+  between the write and the reader's `rm`, so the pass now deletes any older than three hours at startup
+  -- young ones could belong to a supervisor running right now.
+- Checkpoint: aa9c1841a949ecd2ac4805ce28b6e0f97a658307
+- Effect: factory/factory.sh (`factory_tick`'s halt emit, the startup sweep)
