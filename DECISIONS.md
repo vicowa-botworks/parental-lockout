@@ -160,7 +160,8 @@ the `Decision:` trailer on the commit that already carries its id.
   `EXPECTED_RULES`. Which side's bytes, and which side's checks?
 - Options: this branch's five frames with main's guards spliced in | main's five frames with this
   branch's guards spliced in | one side taken wholesale, code and artifacts together | re-photograph
-  the set against the merged tree with both censuses wired in
+  the set against the merged tree with both censuses wired in, and make `EXPECTED_RULES` the union
+  -- 36 + 7 (#202) + 2 (#207) = 45, one tally comment instead of two
 - Chose: re-photograph the set against the merged tree with both censuses wired in, and make
   `EXPECTED_RULES` the union -- 36 + 7 (#202) + 2 (#207) = 45, one tally comment instead of two
 - Why: the first two options are the same mistake aimed at opposite ends of the criterion. Main's
