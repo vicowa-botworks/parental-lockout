@@ -300,16 +300,29 @@ factory_resolve_conflict() {
 		return 2
 	fi
 
-	if ! run_action git -C "$tree" fetch origin main; then
+	# The base is not always `main`. Pull request #215 is based on `fix/audit-row-label` -- another open
+	# pull request, because its capture work needs the audit-row change -- and this function merged
+	# `origin/main` into it unconditionally and then logged `CONFLICT-RESOLVED`. Every word of that line was
+	# true and none of it was the point: `main` was already an ancestor of the head (measured 6 Nov,
+	# `git merge-base --is-ancestor origin/main 73a65fc` answers yes), so GitHub kept reporting
+	# `CONFLICTING` while the supervisor reported the conflict resolved -- twice, because the conflict is
+	# against the branch the pull request actually names. Stacked pull requests are a shape this harness
+	# produces on purpose, so the pull request itself is the only source that can be right about its base.
+	local base
+	if ! base=$(gh pr view "$pr" --json baseRefName --jq .baseRefName 2>/dev/null) || [ -z "$base" ]; then
+		log_event "CONFLICT-BLOCKED pr:$pr its base branch could not be read; nothing was merged"
+		return 2
+	fi
+	if ! run_action git -C "$tree" fetch origin "$base"; then
 		return 2
 	fi
 	if [ "$DRY_RUN" = "1" ]; then
-		printf 'DRY-RUN  git -C %s merge --no-edit origin/main\n' "$tree"
+		printf 'DRY-RUN  git -C %s merge --no-edit origin/%s\n' "$tree" "$base"
 		return 2
 	fi
-	if ! git -C "$tree" merge --no-edit origin/main >"$FACTORY_LOG/conflict-$pr.log" 2>&1; then
+	if ! git -C "$tree" merge --no-edit "origin/$base" >"$FACTORY_LOG/conflict-$pr.log" 2>&1; then
 		git -C "$tree" merge --abort >/dev/null 2>&1 || true
-		log_event "CONFLICT-UNRESOLVED pr:$pr origin/main does not merge cleanly into $branch -- queued for a tick"
+		log_event "CONFLICT-UNRESOLVED pr:$pr origin/$base does not merge cleanly into $branch -- queued for a tick"
 		return 1
 	fi
 	if ! run_action git -C "$tree" push origin "HEAD:refs/heads/$branch"; then
@@ -320,7 +333,7 @@ factory_resolve_conflict() {
 		log_event "CONFLICT-UNPUSHED pr:$pr merged locally, the push failed -- retried next activation"
 		return 2
 	fi
-	log_event "CONFLICT-RESOLVED pr:$pr merged origin/main into $branch"
+	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch"
 	factory_ledger_clear "pr:$pr" stuck-since
 	return 0
 }
@@ -378,7 +391,8 @@ factory_tick() {
 		;;
 	conflict)
 		branch=${branch:-$(api_get "pulls/$key" '.head.ref' '')}
-		id_line="Pull request #$key does not merge with main: $detail. The supervisor already tried \`git merge origin/main\` and it conflicted; resolve it deliberately, keeping both intents."
+		base=$(api_get "pulls/$key" '.base.ref' 'main')
+		id_line="Pull request #$key does not merge with its base branch \`$base\`: $detail. The supervisor already tried \`git merge origin/$base\` in the worktree and it conflicted; resolve it deliberately, keeping both intents. $([ "$base" = main ] && printf 'The base is main.' || printf 'The base is another open pull request, so it may land before yours -- keep both intents rather than dropping yours to make the conflict disappear.')"
 		;;
 	checks_failing)
 		branch=${branch:-$(api_get "pulls/$key" '.head.ref' '')}

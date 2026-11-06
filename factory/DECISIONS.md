@@ -577,3 +577,30 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   shell quote. The skill's own examples already have that shape; this tick had invented a worse one.
 - Checkpoint: 26d4b5f8948cf19c30d5cb762651e095ab84059a
 - Effect: .opencode/skills/factory/SKILL.md (Step 1)
+
+## H-0025 · A conflict is resolved against the base the pull request names, not against `main`
+
+- Question: `CONFLICT-RESOLVED pr:215 merged origin/main into fix/manifest-records-conditions` printed
+  twice, the pull request stayed `CONFLICTING` both times, and nothing was wrong with the sentence. Which
+  part is the harness getting at?
+- Options: keep merging `main` and let a tick sort out the real base | merge the branch named by
+  `baseRefName`, refusing rather than guessing when it cannot be read | refuse to touch any pull request
+  whose base is not `main` and call it out of scope
+- Chose: merge the branch named by `baseRefName`, refusing rather than guessing when it cannot be read
+- Why: #215 is based on `fix/audit-row-label` -- another open pull request, deliberately, because the
+  capture work needs the audit-row change that #214 makes, and the tick that stacked them said so in its
+  own merge message ("this is the PR's base"). Measured 6 Nov: `git merge-base --is-ancestor origin/main
+  73a65fc` answers yes -- `main` was already in the head -- so the mechanical resolver's merge was a no-op
+  dressed as a fix, and the API still reported `CONFLICTING` because the conflict is against the base. The
+  log line was therefore the most expensive kind of wrong: a supervisor that reports a problem closed while
+  the queue hands the same unit to the next pass, which is the failure mode H-0011 and H-0022 were written
+  about, arriving from a direction nobody had pointed a test at. Refusing rather than falling back to
+  `main` when the base cannot be read is the same rule as H-0023: a refusal with a reason in the log beats
+  a confident action on a guessed branch. The third option was rejected because stacked pull requests are
+  what this harness produces on purpose -- one issue's fix waiting on another's -- and declaring them out
+  of scope would leave the queue's most common shape permanently jammed. The tick's prompt moves with the
+  resolver: it used to read "does not merge with main" and "the supervisor already tried `git merge
+  origin/main`", which sent a model to re-verify a merge that had never been attempted, and it now names
+  the base and says plainly when that base is another open pull request that may land first.
+- Checkpoint: c4d7e083ff8f6a9c9d6ae70bf3a15f7b7c65eb91
+- Effect: factory/factory.sh (`factory_resolve_conflict`, the `conflict)` arm of `factory_tick`)
