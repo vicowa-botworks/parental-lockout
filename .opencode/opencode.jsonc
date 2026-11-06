@@ -67,6 +67,22 @@
 					// mergeStateStatus and every check from the API immediately before merging, and
 					// refuses unless all four still say yes. A tick does none of that reliably.
 					"* pr merge*": "deny",
+					// Approving is denied for the same reason as merging, and by the same reader: a
+					// tick that reviews its own pull request makes the four-way re-read above a
+					// formality. The method-scoped allow (`gh api -X POST .../requested_reviewers`) that
+					// this denial also blocks was weighed at round five and is deliberately NOT added: no
+					// released gh has a --reviewer flag -- `pr edit` has only --add-assignee/--remove-
+					// assignee, `pr reopen` has --unready, `pr review` has --request-changes, `search prs`
+					// has --review-required -- so api is the only transport, and a whole-line allow for one
+					// POST method is blind to the method: `* api -X POST*` would also admit
+					// -X POST .../merge, the exact call "* pr merge*" exists to stop, since --admin
+					// overrides a non-passing status check. It stays withheld because the one actor who
+					// needs it is a tick that has already been told not to run gh api and is refused at
+					// parse time, while the actor who actually asks is `factory_request_review` in
+					// factory.sh, which is ungated and uses the same endpoint -- measured: a POST to
+					// .../pulls/217/requested_reviewers returns 201, so the ask is on the record without
+					// weakening the boundary. Recorded here, not just in the thread, so round six does
+					// not re-open it.
 					"* pr review*": "deny",
 					// A push of a branch is expected and is how a tick's work survives it. These are
 					// the push shapes that destroy other people's work. Each one is written with a
