@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify check-scripts check-shell check-mutations mutate package package-verify clean install uninstall run-dev
+.PHONY: build fmt vet test verify check-scripts check-shell check-denies check-mutations mutate package package-verify clean install uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -75,6 +75,12 @@ fmt:
 # --self-test`, so deleting a step here leaves `verify` green. That is why the shape is shared by
 # both steps rather than fixed in one of them -- two invocations of the same script must not be
 # asserted in two different strengths.
+# The decision-log gate (#216) is here for the same reason the two above it are: the delivery
+# supervisor runs sessions with nobody in the loop, and the whole licence for that is that every
+# judgement call it makes is written down with its alternatives and a checkpoint to roll back to.
+# A log that is not checked is a list of conclusions, and a list of conclusions is what is useless
+# six weeks later. It costs milliseconds -- it parses one markdown file -- and it pins its own
+# invocation, so the two lines below cannot be deleted without this target refusing.
 verify:
 	@set -e; \
 	echo "==> gofmt"; \
@@ -83,7 +89,10 @@ verify:
 	echo "==> script and set-file encoding guards"; python3 scripts/check-scripts.py; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
 	echo "==> mutation-gate self-test"; python3 scripts/check-mutations.py --self-test; \
+	echo "==> decision-log contract"; python3 scripts/check-decisions.py --self-test; \
+	echo "==> decision log"; python3 scripts/check-decisions.py; \
 	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
+	echo "==> agent deny list"; python3 scripts/check-denies.py; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
 	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \
@@ -157,6 +166,12 @@ check-scripts:
 
 check-shell:
 	@SHELLCHECK="$${SHELLCHECK:-shellcheck}" ./scripts/check-shell.sh
+
+# The same skip-when-absent contract as check-shell, and the same reason: CI has no opencode, and a
+# gate that fails on a fresh clone is a gate people route around. `CHECK_DENIES_REQUIRED=1` is how a
+# box that does have it says the skip is not acceptable there.
+check-denies:
+	@FACTORY_OPENCODE="$${FACTORY_OPENCODE:-opencode}" python3 scripts/check-denies.py
 
 # mutate puts each known bug back into the source one at a time and insists the suite
 # notices. A green `go test` says the code passes the tests; it does not say the tests

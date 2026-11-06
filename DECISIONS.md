@@ -240,9 +240,13 @@ Two consequences, both deliberate:
   `<h1>` and record that "which page am I" belongs to `aria-current` plus `<title>`. Under the first,
   where do the heading's words come from -- the page's existing `title` block, a new `heading` block
   per page, or the `pagename` slug?
-- Options: page name in the `<h1>`, brand demoted in the header | product name stays the `<h1>` and
-  the answer is documented as belonging to `aria-current` and `<title>` | under the first: `title`,
-  a new `heading` block, or `pagename`
+- Options: page name in the `<h1>`, brand demoted in the header | product name stays the `<h1>`
+  and the answer is documented as belonging to `aria-current` and `<title>` | under the
+  first: `title`, a new `heading` block, or `pagename` | the page's own name in the
+  `<h1>`, rendered from the same `title` block `<title>` is built from -- one
+  definition, two places. The brand line stays in the header as `<p
+  class="masthead__name">`, not a heading and not a link. `pagename` stays what it was:
+  the body's class.
 - Chose: the page's own name in the `<h1>`, rendered from the same `title` block `<title>` is built
   from -- one definition, two places. The brand line stays in the header as
   `<p class="masthead__name">`, not a heading and not a link. `pagename` stays what it was: the
@@ -323,8 +327,11 @@ Two consequences, both deliberate:
   the rest, and those two belong to #213 -- re-take them here, or ship eight current frames beside one
   that is not.
 - Options: curfew end → `00:00` | curfew end → anything the all-day rule does not outrank | keep
-  `06:30` and declare a per-hour state | delete `r-curfew` | re-take the POST frames here | leave them
-  to #213 and re-take seven
+  `06:30` and declare a per-hour state | delete `r-curfew` | re-take the POST frames
+  here | leave them to #213 and re-take seven | `r-curfew` ends at `00:00`
+  (`pages-setup.sh:127`), the dashboard's declared state gains the rule's *name* as a
+  second needle (`pages.py:368`), hour-independence is measured rather than asserted
+  (`internal/schedule/fixture_hours_test.go`), and all nine frames were re-taken here.
 - Chose: `r-curfew` ends at `00:00` (`pages-setup.sh:127`), the dashboard's declared state gains the
   rule's *name* as a second needle (`pages.py:368`), hour-independence is measured rather than
   asserted (`internal/schedule/fixture_hours_test.go`), and all nine frames were re-taken here.
@@ -411,7 +418,10 @@ Two consequences, both deliberate:
   wrong one refused without the refusal becoming the bug? Options: refuse when a compiled source is
   newer than the binary | refuse on a dirty working tree | record the binary's digest in the manifest
   and check it later | leave it to the README, which already says to build first.
-- Options: source-newer-than-binary mtime | dirty-tree check | binary digest in the manifest | docs only
+- Options: source-newer-than-binary mtime | dirty-tree check | binary digest in the manifest |
+  docs only | the mtime relation. `capture_begin` now refuses when any non-`_test.go`
+  file under `cmd/` or `internal/`, plus `go.mod`/`go.sum` where they exist, is newer
+  than `$PLOCK_BIN`, and its message names the offending paths and the build line.
 - Chose: the mtime relation. `capture_begin` now refuses when any non-`_test.go` file under `cmd/` or
   `internal/`, plus `go.mod`/`go.sum` where they exist, is newer than `$PLOCK_BIN`, and its message
   names the offending paths and the build line.
@@ -908,3 +918,39 @@ Two consequences, both deliberate:
   `head` and nothing else" is true of the bytes and silent about what the new value now means.
 - Checkpoint: c8b1e5a6648cb8fdbca270e9310f76c094ad6026
 - Effect: DECISIONS.md (D-0023's `sources_rev` sentence, D-0028's `head` sentence, this entry)
+
+## D-0031 · Three issues closed as satisfied by `main`, with the correspondence written row by row
+
+- Question: #211 and #222 are open, `main` implements both, and a third implementation of each is either
+  merged (`issue-211-take-2`, PR #223) or sitting in a worktree that halted the whole queue
+  (`issue-222`). Re-verify each on its own tick, close them, or rebase and reduce?
+- Options: leave them open and let the next lane re-derive the answer from a stale base | close each with
+  a row-by-row correspondence from the issue's own list to main's code, and file a separate issue for the
+  rest of the open set | rebase each onto `e74b42f` and reduce the diff to whatever survives | file one
+  reconciliation issue and let a lane work the whole set, touching nothing
+- Chose: close each with a row-by-row correspondence from the issue's own list to main's code, and file a
+  separate issue for the rest of the open set
+- Why: both issues were written as checkable lists, so closing them is measurement rather than judgement.
+  #211 asked for `--fixture-env` repeatable and per-fixture, a `capture` object carrying only what the
+  fixture declared, `scripts` recorded rather than inferred, `check` refusing an entry that declares
+  nothing while `/1` stays readable, and the `capture-manifest/2` bump: main has them at
+  `manifest.py:69`/`:74`/`:408`, `SCHEMA` at `:98`, the refusal at `:1468`, and the committed artifact
+  carries `{"fixture": "pages", "rows": 8, "scripts": "off", "tz": "America/New_York", "zone": "-04:00",
+  "census": "testing/capture/bin"}`. #222 asked for `record()` not to stamp frames its run did not take,
+  merge-or-refuse instead of overwrite, `check()` naming the class of lie, and a negative test with two
+  runs into one directory: main has the rules *a frame nobody re-took was re-stamped by the run that
+  re-took another page* and *a re-take of one page demands nothing of the frames it never touched*, plus a
+  self-test case that re-takes one of three frames and asserts `lock.png` did **not** acquire a `capture`
+  block, and a `check` that asks history (`sources_rev` against `newest_commit`) instead of the manifest's
+  memory -- its comment at `:760` records that the naive version refused the one commit where both are
+  true, "with a sentence that was false about it". Rebase-and-reduce was what review of #223 recommended
+  and it was measured to leave one thing: the inline-offset `stamp`, which is worse than main's separate
+  `zone` because `zone` is what lets `audit.png`'s declared state cell be checked against the row the page
+  showed. Leaving them open was the status quo and the status quo produced two near-identical
+  implementations of #211 in one week from bases 34 commits apart. The set is deliberately limited to the
+  three where every row was checked by hand tonight: `main`'s log also names #204, #207, #213, #219 and
+  #220, and those five have not been walked line by line, so they go to a lane with the evidence rather
+  than into this entry. Reversible by reopening -- every claim above is one `git show
+  origin/main:testing/capture/manifest.py` away from being re-checked, and each close comment says so.
+- Checkpoint: aa9c1841a949ecd2ac4805ce28b6e0f97a658307
+- Effect: issues #211, #222, pull request #223 (all closed, nothing deleted)
