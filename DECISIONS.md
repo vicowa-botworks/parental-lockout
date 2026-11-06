@@ -180,9 +180,10 @@ Two consequences, both deliberate:
 - Options: this branch's five frames with main's guards spliced in | main's five frames with this
   branch's guards spliced in | one side taken wholesale, code and artifacts together | re-photograph
   the set against the merged tree with both censuses wired in
-- Chose: re-photograph the set against the merged tree with both censuses wired in, and make
-  `EXPECTED_RULES` the union -- 36 + 7 (#202) + 2 (#207) = 45, one tally comment instead of two
-- Why: the first two options are the same mistake aimed at opposite ends of the criterion. Main's
+- Chose: re-photograph the set against the merged tree with both censuses wired in
+- Why: the tally moves with the choice -- `EXPECTED_RULES` becomes the union, 36 + 7 (#202) +
+  2 (#207) = 45, one tally comment instead of two, which is the half of this option that has no side to
+  splice. The first two options are the same mistake aimed at opposite ends of the criterion. Main's
   five frames are the pre-#202 stylesheet -- controls in the browser's own Arial beside 16 px
   system-ui, `/settings` sizing its fields three ways on one page -- so committing them re-files the
   exact defect #202 was opened for under the filenames the criterion calls its evidence. This
@@ -293,6 +294,57 @@ Two consequences, both deliberate:
   would be.
 - Checkpoint: 39b60988ad0cb2361e98c6ff64a45089860b8475
 - Effect: scripts/mutations/web.json (`W298`, `W299`, `expected_mutants`)
+## D-0023 · The `/audit` frame that belongs to no branch is photographed, not chosen between
+
+- Question: #215 is opened against `fix/audit-row-label`, not `main`, and both of those moved the
+  same artifact. `origin/main` re-photographed `audit.png` against the fixed stylesheet on the
+  template that still prints the reader's zone *name* (`c304336d…`); `fix/audit-row-label`
+  re-recorded it against the template that prints the row's own *offset* on the pre-#202 stylesheet
+  (`a1f19fca…`). Merging both leaves a tree whose `/audit` prints `2026-03-18 21:34:05 -04:00`
+  inside the #218 stylesheet, and no committed PNG of it. Which bytes does the merged branch commit?
+- Options: main's frame | the base branch's frame | either frame with `manifest.py record`
+  re-pointed at it | re-photograph `/audit` against the merged tree and record that run's conditions
+- Chose: re-photograph `/audit` against the merged tree and record that run's conditions
+- Why: the gate answered before the tie-break was reached. `manifest.py check` on the merge commit
+  (`1c5a109`) returned two problems, the first of which quotes the mismatch and names the repair --
+  `audit.png records the state [['auth.success', '2026-03-18 21:34:05 EDT']] and the driver now
+  declares [['auth.success', '2026-03-18 21:34:05 -04:00']] for /audit … re-take the frame rather
+  than editing this entry to match` -- and the second is #144's drift sentence for the same frame.
+  The two committed candidates are the same mistake aimed at opposite sides of the page: main's
+  predates #214's template, so committing it certifies a When cell the merged template cannot
+  render; the base branch's predates #218's stylesheet, so committing it re-files under an evidence
+  filename the exact control rendering #202 was opened for. Re-recording either is worse than wrong,
+  it is silently green: `record` recomputes `sources_rev` and `check` returns early when
+  `recorded == current`, which is the laundering D-0015 already put on the record.
+  The measurement then settled what the refusals implied. `./pages-setup.sh && ./pages.py` on the
+  merged tree came back `6/6 pages fit at 360 px` and `6/6 … at 1024 px`, and `audit.png` arrived as
+  `a113c5e4…` -- `360x3086`, the same canvas as main's frame and different pixels -- matching
+  neither candidate, so the page this merge renders had genuinely never been photographed. What
+  proves the re-take faithful rather than merely new is the other five: `dashboard`, `users`,
+  `profiles`, `profiles-refused` and `settings` came back **byte-identical** to main's committed
+  files (`b2c90782…`, `55120c43…`, `48e10e29…`, `17f76100…`, `111bcbe1…`), so the merged fixture's
+  clock, census, reader zone and declared state moved none of them and only the template moved the
+  sixth. The tie-break order agrees: nothing separates on `go.mod` (neither side adds a dependency)
+  or on breadth (one PNG either way); "refuses rather than proceeds" picks the re-take, because it
+  is the only option under which the driver's declared-state refusal is live over the committed
+  bytes; and the surrounding code already re-takes rather than re-labels -- D-0014 for a stylesheet
+  change, D-0015 for exactly this conflicted-frame shape, `ac20479` for the re-take itself.
+
+  What this costs, stated rather than glossed. One frame is re-committed, so the other five
+  page-fixture frames keep main's bytes *and* the `capture` block #215 recorded for the bytes they
+  already had -- acceptable only because the fixture's own declaration did not move between the two
+  runs (`fixture.sh` and `pages-setup.sh` changed in comments on both branches, and `record` said
+  nothing on stderr about the eight it did not photograph), and it is the kind of carry-over that
+  went wrong once before on this very file. `lock.png` and `testlock.png` keep their blocks and stay
+  #213's: not re-taken here, because re-taking them locks the capturing machine's session for real.
+  `sources_rev` for `/audit` now names the merge commit `1c5a109`, because that is the newest commit
+  `git log` will show for `audit.tmpl` -- a merge, not the commit that wrote the template, and a
+  reader looking for the offset change still wants `c82baa6`. The header's `head` is the checkpoint
+  below, which is what `record` can see at the moment it writes.
+- Checkpoint: cfad6e5cae88bfb2ffe96ec8191775926008aeed
+- Effect: docs/screenshots/360/audit.png (re-photographed against the merged tree),
+  docs/screenshots/360/manifest.json (that entry's `png_sha256`, its declared-state cell `EDT` →
+  `-04:00`, its `sources_rev`, and the file header), DECISIONS.md
 
 ## D-0024 · The conflicted audit frame is re-photographed against the merge, and the merge commit is its provenance
 
@@ -365,3 +417,85 @@ Two consequences, both deliberate:
 - Effect: docs/screenshots/360/audit.png (re-photographed against `5c63fb9`),
   docs/screenshots/360/manifest.json (`head`, `captured_at`, `/audit`'s `png_sha256` and
   `sources_rev`), DECISIONS.md
+
+## D-0025 · The scripts condition reaches the browser, and a frame it moves cannot be committed
+
+- Question: #215's review asks for the discriminating test to be written into the two POST drivers'
+  notes, because as written they "teach the next reader to trust a control that has no power". Before
+  writing that sentence: does `PLOCK_CAPTURE_SCRIPTS` reach the browser at all? `grep -n SCRIPTS
+  testing/capture/cdp.py` answers it -- the file names the env key nowhere, and the session is
+  configured with `Emulation.setScriptExecutionDisabled, value=True`. So the override
+  `post-fixture.sh:47-48` advertises ("Override with `PLOCK_CAPTURE_SCRIPTS=on` to test a frame taken
+  with scripts running; the declaration follows the override into the manifest") took the same pixels
+  as the default, and the manifest's `scripts` field recorded what `cdp.py` does rather than what the
+  frame was taken under.
+- Options: write the test into the notes as advertised | retract the override in prose and point the
+  reader at a hand edit to `cdp.py` | make `cdp.py` honour the declaration, refuse a value outside the
+  two, and refuse to *commit* a frame recorded `scripts: "on"`
+- Chose: make `cdp.py` honour the declaration, refuse a value outside the two, and refuse to *commit* a
+  frame recorded `scripts: "on"`
+- Why: the first option is refused by the measurement above. A test that cannot produce a second
+  outcome is not a discriminating test, and writing it into two notes would have re-planted #213's
+  defect one layer down -- a field nobody can check by going and checking it. The second leaves the
+  fixture declaring something the driver ignores, which is exactly how the field became a restatement
+  of a constant. The tie-break order does not separate the second from the third on `go.mod` or on
+  breadth (three files either way); "refuses rather than proceeds" picks the third, because it is the
+  only option under which a typo'd condition stops the run instead of being recorded as written and
+  photographed as the default; and the surrounding code already treats `fixture.env` that way --
+  `_start` refuses a relative `PLOCK_CAPTURE_PATH_PREPEND` and `declared_stamp()` validates the
+  instant rather than pasting it.
+  What this costs, stated rather than glossed. A frame taken with the scripts running now exists, so
+  the knob had to arrive with a guard: `check` refuses a committed entry recording `scripts: "on"`,
+  because this folder's criterion is "usable at 360 px with JavaScript off" and such a frame has never
+  tested it. That guard and the driver both needed pins in files no compiler ever opens:
+  `pages.py --self-test` 47 -> 48 (reads `cdp.scripts_disabled` and `cdp.Capture`, and refuses the
+  switch going back to a literal) and `manifest.py --self-test` 39 -> 40 (refuses a scripts-on frame
+  green, and refuses the same block with `off` green too, so the guard cannot be a ban on the field).
+  Both were hollowed and re-run before being declared: `value=scripts_off` -> `value=True` names the
+  pages rule, deleting the `elif scripts == "on":` arm names the manifest rule, and `raw = None` in
+  the helper names it as well -- the last of those is why the needle is `env.get("PLOCK_CAPTURE_SCRIPTS")`
+  and not the bare key name, which survives in prose. One vocabulary now crosses a module boundary:
+  `manifest.py script_values()` reads `cdp.SCRIPT_VALUES` instead of restating the pair, so a `check`
+  that cannot import `cdp` refuses instead of answering, which is the same trade `driver_pages()`
+  already makes. `README.md`'s scripts section is rewritten by D-0026 with the measurements this knob
+  makes possible, because until this commit the claim it makes was not checkable.
+- Checkpoint: d4d9c044b6cbeac8621ebd0c9e93999d01b527bb
+
+## D-0026 · The two POST frames are taken on this branch, and the byte-identity claim is withdrawn
+
+- Question: #215's review says `lock.png` and `testlock.png` carry an `off` those pixels cannot
+  witness, because the driver that produced them in October ran the page's scripts and `cdp.py` never
+  read the declaration. Its option 1 is to write the discriminating test into the two notes and leave
+  the frames; its option 2 is to take the frames here, "digests move or don't", so that the field
+  becomes a statement about pixels rather than about the driver's present. Which, now that D-0025 has
+  made the test runnable in both directions?
+- Options: state the test in the notes, frames untouched | take the two frames here and record what
+  both arms return | drop `scripts` from those two blocks as undeclarable
+- Chose: take the two frames here and record what both arms return
+- Why: the measurement came first, on four runs of the two fixtures with the knob live. `on` and `off`
+  produce **one PNG apiece** -- `lock.png` `b59bb2be…`, `testlock.png` `acc5ba4d…`, both equal to the
+  committed files -- because neither page renders a `time[data-unix]` element and `renderCountdowns` is
+  `static/app.js`'s only load-time DOM write, so there is nothing on those renders for the page's
+  scripts to change. The control is `/dashboard`, where the same switch moves casey's row from the
+  server's `until 00:00` to the browser's `until 7h 46m` and `require_declared_state` refuses the frame:
+  the switch has power, just not where these two artifacts live. Option 1 is what the review asked for
+  literally and it is refused by that measurement rather than by preference -- after D-0025 the two arms
+  return the same file, so writing the sentence would document a test that cannot discriminate while the
+  manifest went on asserting `off` of frames whose driver has just been shown not to be the one the value
+  describes. Option 3 throws away a statement that can be made true in order to avoid one that cannot,
+  and it would cost `check` its `scripts` rule and `/2` its "every frame states what it was taken under".
+  So the frames were taken here, at `80295c513`, by the driver that honours the declaration: the PNGs
+  moved no bytes, the manifest header moved, and every entry was re-checked against all four fixtures'
+  current declarations -- nine blocks, no disagreement printed. What they certify about "usable at 360 px
+  with JavaScript off" is certified by the session's setting, which is the most a page with no countdown
+  can say, and the notes now say it that way instead of claiming the pixels prove it.
+  Two claims are withdrawn in the same commit rather than softened. The 4 Nov sentence "these pixels ARE
+  the scripts-off pixels" inferred a condition from a digest comparison that cannot see the difference on
+  these two pages, and it is the same error as the `on` it replaced -- provenance dressed as measurement,
+  one layer down from #211. And this folder's stated reason for treating a re-take as a decision, that it
+  "locks the capturing machine's session for real", is simply false: `post-fixture.sh` sets
+  `"enforcement": false` and `/bin/true`, and measured 6 Nov around the run that took both frames the
+  capturing account's own session went `active` -> `active` with `LockedHint` `no` -> `no` while the
+  fixture's `audit.jsonl` filled with `lock.requested`. That sentence is the reason #213 sat unclaimed,
+  which is worth more than the comfort of leaving it in.
+- Checkpoint: 80295c5138207c54ec19a3694c0849749d4855ca

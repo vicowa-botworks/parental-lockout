@@ -287,13 +287,24 @@ So seven of the nine reproduce on any machine — the six from the `pages` fixtu
 `pages-noprof` — and the two POST artifacts, `lock.png` and `testlock.png`, reproduce only on an
 account holding the number of sessions the capture had, because those two pages photograph the real
 session census on purpose: their subject *is* a lock on a real session, so they are the two fixtures
-that must not be handed `bin/loginctl`. They are also the two whose committed frames were taken with
-page scripts running, which is the condition this branch stopped capturing in; re-taking them is
-**#213**, which also records why that is a decision rather than a step — a re-take locks the capturing
-machine's session for real.
-That is worth saying out loud: **the nine committed files are no longer one homogeneous set** — seven
-are taken with scripts off and a declared clock, two are not, and the difference is a condition of
-the capture rather than a property of the pages.
+that must not be handed `bin/loginctl`.
+Re-taking those two was **#213**, and this branch closes it: both frames in `docs/screenshots/360` were
+photographed here, at the commit the manifest's `head` names. What the re-take cost, and what it did not
+prove, are both in the open: the two PNGs came back **byte-identical** to the files already committed
+(`b59bb2be…`, `acc5ba4d…`), because the only thing the page's own scripts could have changed on those two
+pages is a countdown neither page renders. What moved is the *provenance* — those digests are now the
+output of a run whose session really did disable the page's scripts, which is the thing the manifest
+asserts and the October frames could not witness. "What the scripts condition can and cannot witness"
+below has the measurement, including the arm that produces the same file.
+
+One hazard this folder used to state wrongly, and it is the reason #213 sat unclaimed for a week: the
+notes here said a re-take "locks the capturing machine's session for real". It does not, and the thing
+that would is `enforcement: true`. `post-fixture.sh` sets `"enforcement": false` and points the lock
+backends at `/bin/true`, so the daemon asks a command that exits 0 and can prove nothing. Measured 6
+Nov, around the run that took both frames: the capturing account's own logind session went `active` →
+`active` and `LockedHint` `no` → `no`, while the fixture's `audit.jsonl` filled with `lock.requested`
+and `lockbackend.probed` lines aimed at uid 1000. Re-take them when they go stale; the operator's screen
+is not the price.
 
 ## What the audit fixture is not allowed to contain
 
@@ -405,7 +416,11 @@ now, so an unrecognised flag is an error.
 A page change and its re-take may be committed together, or in either order, and the gate accepts
 both — what it refuses is a photograph *older* than its page. So the workflow is: edit the page,
 re-take with the command above, `git add` both, commit. `manifest.py record` runs as the last step of
-a successful capture, which is why the manifest and the PNGs land in the same commit as each other.
+a successful capture — the driver hands over the `fixture.env` of every fixture it photographed and
+the artifacts it just took — which is why the manifest and the PNGs land in the same commit as each
+other. Recording a frame a driver does not record (`lock.py` and `testlock.py` write no manifest) is
+the one case that takes the flags by hand: `record --dir … --fixture-env runs/lock/fixture.env
+--shot lock`.
 
 `--overwrite` is a second flag on purpose. Writing this README and then testing its own
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the
@@ -423,14 +438,23 @@ before that, the newest commit touching it predated #141.
 `testing/capture/manifest.py` closes it. A successful run writes `manifest.json` beside the PNGs:
 
 ```json
-{"schema": "capture-manifest/1", "viewport": 360, "head": "a889d0d8b…",
+{"schema": "capture-manifest/2", "viewport": 360, "head": "a889d0d8b…",
  "captured_at": "2026-10-28T01:55:37Z",
  "pages": [{"page": "/profiles", "png": "profiles.png", "png_sha256": "1f711bea…",
             "sources": ["internal/web/templates/profiles.tmpl",
              "internal/web/templates/page.tmpl", "internal/web/static/app.css",
              "internal/web/static/app.js"],
-            "sources_rev": "0a42139d…"}]}
+            "sources_rev": "0a42139d…",
+            "capture": {"fixture": "pages", "stamp": "2026-03-18T21:34:05", "zone": "-04:00",
+             "tz": "America/New_York", "rows": 8, "census": "testing/capture/bin",
+             "scripts": "off", "state": [["casey", "locked out until 00:00"], …]}}]}
 ```
+
+The `capture` block is #211 and the section below it is why. A manifest whose every entry carries one
+is `/2`; one where some frames still state nothing — which is what a partial re-record produces, since
+only `pages.py` records and nine artifacts come from three drivers — stays `capture-manifest/1`, keeps
+whatever blocks it has, and `check` reports how many of the entries state their conditions. `/2` is
+claimed only when the promise holds for every entry, because `check` holds every entry to it.
 
 and `make verify` runs `manifest.py check`, which refuses when:
 
@@ -454,6 +478,11 @@ self-test caught it; the drift rule stopped firing.)
 - the manifest was recorded at a viewport other than 360;
 - an entry names no PNG — refused as an entry, not as a traceback from hashing the artifact
   directory;
+- a manifest that declares `/2` and has an entry with no `capture` block — the schema promises
+  conditions, so an entry without one is a hole in the promise rather than an old manifest;
+- a block whose `fixture` is not the fixture the driver photographs for that page, a `scripts` value
+  that is neither `on` nor `off`, or a `state` the driver no longer declares — the three ways a
+  recorded condition becomes a confident wrong answer instead of an absent one;
 - **the checkout has no history to date anything against.** A shallow clone, or a source no visible
   commit touches, produces `screenshot manifest was not checked` and nothing else — never a count of
   stale photographs. `actions/checkout@v4` defaults to `fetch-depth: 1`, and the verify job therefore
@@ -465,6 +494,53 @@ fixed by plumbing the measurement through: `record()` is called once, by `pages.
 measured `lock.png` or `testlock.png` — two of the seven entries would still have been assertions. A
 width belongs in the capture transcript, where it is measured and refused on every run, not copied
 into a file that can only ever be older than the measurement it claims to record.
+
+### What a frame was taken under (#211)
+
+Two frames of the same page can be different evidence. The same template renders a different
+photograph under a different clock, a different reader zone, a different number of seeded audit rows,
+a different session census, or with page scripts running — and #207 proved that a manifest which
+names none of those can be read as "current" by someone with no way to know the frame was taken on
+the capturing machine's clock, from a census of whatever `loginctl` said that day. So the recorder
+copies the conditions out of the run's `fixture.env` and `check` refuses when they stop agreeing with
+the drivers:
+
+- **the binding is the driver's, never a guess from the file name.** `pages.py` declares
+  `Page.fixture`; `lock.py` and `testlock.py` declare `FIXTURE` beside the code that uses it.
+  `manifest.py` imports both, because a second table of the same pairs is a second thing to forget to
+  update, and the forgotten update attributes one fixture's clock to another fixture's pixels.
+- **an absent condition is never filled in.** `pages-noprof` seeds no audit rows and declares no
+  reader zone, so its entry has no `rows` and no `tz`. A `scripts: "off"` written because the driver
+  disables scripts *today* would be #211 one layer down.
+- **the driver's words, not a transcription.** `state` cells are read out of `PAGES`, so the manifest
+  cannot keep certifying a reading of the page that the fixture no longer builds.
+- **provenance is what this run photographed, not what changed.** A frame the driver re-took is
+  stamped from this run's env even when its bytes are identical — move the fixture's clock and
+  `settings.png` comes back unchanged, because nothing on it prints a time. Frames this run did not
+  touch keep the block the manifest had, because that block is the only remaining evidence about
+  those bytes; if the fixture's declaration has moved since, `record` says so on stderr rather than
+  quietly overwriting or quietly keeping.
+- **a path is recorded as the repository's.** `census` is an entry on the daemon's `PATH`, absolute in
+  the env, and repo-relative in the manifest: a committed file that says
+  `/home/rodney/prj/…/testing/capture/bin` describes one checkout on one machine and publishes a
+  local path. A path genuinely outside the repository is passed through, not rewritten with `..`.
+
+Measured 6 Nov, from four fresh fixtures on one head: all nine artifacts reproduce the committed digests
+byte for byte — `lock.png` `b59bb2be…`, `testlock.png` `acc5ba4d…` — and `manifest.py check` passes
+against the directory with nine entries and nine blocks, the two POST entries now stamped from the runs
+that took them. The same nine digests were quoted on 4 Nov in support of a claim this branch has since
+withdrawn: that because the files reproduced, the frames *were* the scripts-off frames. Both values of
+`scripts` produce those files, on those two pages, so the digests could not have settled it — see "What
+the scripts condition can and cannot witness" below for the measurement in both directions and for what
+the field is entitled to say instead.
+
+One lesson from building the guard, because it cost three attempts: **a CLI cannot be pinned by
+reading its own text.** Grepping `main`'s source for `--fixture-env` survived the flag being renamed —
+main's closing sentence contains the string. Grepping the rendered `--help` survived the flag being
+deleted — the help of the flag next to it says "its conditions are taken from `--fixture-env`". The
+rule passes the tokens to the parser and checks they arrive at `record`, which no sentence in the file
+can satisfy. `--help` is deliberately not one of the tokens: argparse acts on it the moment it sees it
+and never validates the rest, which is how the second fix stayed green.
 
 What the source set is *not* is the Go code. It is the presentation layer -- templates and static
 -- because that is what a photograph is evidence about at the pixel level, and a change that alters
@@ -503,6 +579,51 @@ first version of this file printed `nternal/web/static/app.css`: `git()` called 
 which took the leading space off ` M path`, and the parser counted three characters. A sentence
 with a broken path in it is worse than no sentence, and nothing but a rule that looks at the
 string could tell.
+
+### What the scripts condition can and cannot witness
+
+`scripts` is the one recorded condition a reader cannot check by looking at the frame, and it is the one
+that was easiest to assert from the wrong thing. It changed value twice on this branch and both changes
+were inferences: first `on`, because the two POST frames predated #207 putting
+`Emulation.setScriptExecutionDisabled` in the shared session; then `off`, because nine digests
+reproduced. Measured 6 Nov, neither had a discriminating test behind it — and until today there was no
+such test to run, because `cdp.py` called the method with `value=True` and never read
+`PLOCK_CAPTURE_SCRIPTS`. The override `post-fixture.sh` advertised ("to test a frame taken with scripts
+running, run `PLOCK_CAPTURE_SCRIPTS=on ./lock-setup.sh && ./lock.py`") was accepted, written into
+`fixture.env`, recorded in the manifest, and ignored by the browser: the two arms were the same command.
+A claim that could only be checked by a test which cannot produce a second outcome is how #213's finding
+walked through four gates.
+
+With the declaration wired through to the session (`cdp.scripts_disabled`, which now refuses a value
+outside the two), both arms exist and both were run:
+
+| fixture | default (`off`) | `PLOCK_CAPTURE_SCRIPTS=on` | what the pair shows |
+|---|---|---|---|
+| `lock` | `b59bb2be…`, published | `b59bb2be…`, published | one PNG from both arms — no `time[data-unix]` on the page, so nothing the page's scripts could change |
+| `testlock` | `acc5ba4d…`, published | `acc5ba4d…`, published | the same, on the probe page |
+| `pages` | publishes; casey's row reads `locked out until 00:00` | **refused** — the row reads `locked out until 7h 46m` | the switch has power exactly where the page carries a countdown, and `require_declared_state` is what notices |
+
+Three sentences are the whole content of the field:
+
+- **Byte identity cannot discriminate on these two pages.** One file from both arms says the render
+  holds nothing the page's scripts can touch; it says nothing about which way the switch was set. So the
+  field is a statement about the *run* that produced the frame, and the only way to record it honestly is
+  to take the frame in a run whose session you can describe. That is why #213's re-take had to land
+  before `off` could be written down at all, and why a re-take that moves no pixels is not evidence that
+  the value was already right.
+- **`on` is how you measure the switch; it is not committable evidence.** `static/app.js`'s only
+  load-time DOM write is `renderCountdowns`, so the dashboard is where the condition has witness —
+  enough to move a state cell past what the fixture declares, which is the strongest form of "the
+  browser's clock is in these pixels" this folder has. A frame taken with the page's scripts running has
+  never tested this folder's criterion, *usable at 360 px with JavaScript off*, so `check` refuses an
+  entry that records `on`, and such a PNG belongs in `testing/capture/runs/`, not in
+  `docs/screenshots/360`.
+- **Absent still means "not stated", never "off"** — but this is the field where the asymmetry is
+  easiest to lose, because the two halves arrive by different routes: a fixture that names nothing
+  inherits an `off` *frame* (`${PLOCK_CAPTURE_SCRIPTS:-off}` in `fixture.sh`, and
+  `cdp.scripts_disabled` reading an absent declaration as the criterion's own condition) while its
+  manifest entry gets no key at all. `users-no-profiles.png` is that artifact today: taken with the
+  scripts off, recorded as saying nothing about it.
 
 ## Two viewports, because one was never a criterion (#149)
 

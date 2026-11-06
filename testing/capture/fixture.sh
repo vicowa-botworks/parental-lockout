@@ -144,6 +144,35 @@ CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-}"
 # refuses any other count or kind.
 CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-}"
 
+# Whether the PAGE's own scripts ran while the frame was taken (#211).
+#
+# Recorded here rather than read off the driver, because it is a property of the frame and not of the
+# code: what the driver does today is not evidence about pixels somebody took earlier, and a fixture
+# that stayed silent about it would let a reader fill the gap in from `cdp.py` -- which is the defect
+# #211 closes, one layer down.
+#
+# The first version of this note claimed the two POST artifacts predated #207 and had to be declared
+# `on` until #213 re-took them. The second version claimed the opposite from nine reproduced digests.
+# Both outran their evidence, in opposite directions: the pixels in question cannot distinguish the two
+# values, because neither POST result page renders a `time[data-unix]` element and rewriting those is
+# the only load-time write in `static/app.js`. Measured 6 Nov with the declaration wired through to the
+# browser (`cdp.scripts_disabled`, D-0025 — it was `value=True` before that, whatever a fixture
+# declared): `on` and `off` give one PNG apiece for both frames. What decides which condition a frame
+# was taken under is the run that took it, so the fix was to take the frames again rather than to pick
+# a value — and the lesson that governs the whole field is the narrower one: a digest can show a frame
+# is *consistent with* a condition, which is not the same as its witnessing it.
+#
+# A fixture that declares nothing about this gets no `scripts` key in its manifest entry. Absent means
+# "this fixture did not choose", exactly as it does for the four optional keys above; it never means
+# `off` by default, because the whole defect #211 closes is a reader filling in a condition nobody
+# stated. Say the half that asymmetry hides, because this is the one field where the two halves are
+# reached by different routes: a fixture that names nothing still gets an `off` *frame*, because
+# `${PLOCK_CAPTURE_SCRIPTS:-off}` below defaults it and `cdp.scripts_disabled` reads an absent
+# declaration as the criterion's own condition — so `pages-noprof`'s frame was taken with the scripts
+# off while its entry says nothing about it. `rows` and `tz` are absent there because nobody chose;
+# `scripts` is absent because nobody wrote it down, not because anything was left running.
+CAPTURE_SCRIPTS="${PLOCK_CAPTURE_SCRIPTS:-off}"
+
 # capture_env
 #
 # The fixture's own answers, in one file the driver reads. Keeping the port, the account and the
@@ -167,6 +196,7 @@ capture_env() {
     if [ -n "$CAPTURE_AUDIT_ROWS" ]; then echo "PLOCK_CAPTURE_AUDIT_ROWS=$CAPTURE_AUDIT_ROWS"; fi
     if [ -n "$CAPTURE_PATH_PREPEND" ]; then echo "PLOCK_CAPTURE_PATH_PREPEND=$CAPTURE_PATH_PREPEND"; fi
     if [ -n "$CAPTURE_TZ" ]; then echo "PLOCK_CAPTURE_TZ=$CAPTURE_TZ"; fi
+    if [ -n "$CAPTURE_SCRIPTS" ]; then echo "PLOCK_CAPTURE_SCRIPTS=$CAPTURE_SCRIPTS"; fi
   } > "$ENVFILE"
   # The last line is not decoration: every line above is a condition, and the setup scripts run
   # under `set -euo pipefail` (fixture.sh is sourced, so it inherits that). A `[ -n ] && echo` list

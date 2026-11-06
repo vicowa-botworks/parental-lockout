@@ -1,8 +1,23 @@
 {
-  "captured_at": "2026-11-06T00:52:33Z",
-  "head": "5c63fb9f4d3c72992d8dc8184c52e30ed4dd13af",
+  "captured_at": "2026-11-06T03:44:15Z",
+  "head": "80295c5138207c54ec19a3694c0849749d4855ca",
   "pages": [
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "state": [
+          [
+            "auth.success",
+            "2026-03-18 21:34:05 -04:00"
+          ]
+        ],
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/audit",
       "png": "audit.png",
       "png_sha256": "a113c5e4edee5c1907f9f8ba3ed80083017403c80ce86abaac3c45738df8e846",
@@ -12,9 +27,36 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "5c63fb9f4d3c72992d8dc8184c52e30ed4dd13af"
+      "sources_rev": "1c5a1094ca04e5f6d8b28dd128c7c1ff83b58661"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "state": [
+          [
+            "casey",
+            "locked out until 00:00"
+          ],
+          [
+            "casey",
+            "no desktop session"
+          ],
+          [
+            "alex",
+            "nothing scheduled"
+          ],
+          [
+            "alex",
+            "x11 \u00b7 seat0 \u00b7 locked"
+          ]
+        ],
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/",
       "png": "dashboard.png",
       "png_sha256": "b2c907822e49be15b5b57853054b7a8f5e69bf88e9853d8aee151c33c1222e8f",
@@ -27,6 +69,12 @@
       "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
+      "capture": {
+        "fixture": "lock",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/lock",
       "png": "lock.png",
       "png_sha256": "b59bb2bef7fc4738d7cc45c05e80ab56d27550003ab4a5c15445acf5b94b5b4c",
@@ -39,6 +87,15 @@
       "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/profiles",
       "png": "profiles-refused.png",
       "png_sha256": "17f76100340a86815129a813ba58935d07587981c1fcdc80ab5943df3c6150ec",
@@ -51,6 +108,15 @@
       "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/profiles",
       "png": "profiles.png",
       "png_sha256": "48e10e29d2ff2a389d2ce45ef5cc44043b001decd69e1395338a98560214178e",
@@ -63,6 +129,15 @@
       "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/settings",
       "png": "settings.png",
       "png_sha256": "111bcbe18ea05306b474816d9a41a69669ad44f8c796fa56d163fffb3ae13aa4",
@@ -75,6 +150,12 @@
       "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
+      "capture": {
+        "fixture": "testlock",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/testlock",
       "png": "testlock.png",
       "png_sha256": "acc5ba4d5cfe5aff6e10fc2532a29ed9a8feffa81b49120cf78597b8c20346a5",
@@ -87,6 +168,12 @@
       "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
+      "capture": {
+        "fixture": "pages-noprof",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/users",
       "png": "users-no-profiles.png",
       "png_sha256": "8bbb8293e0c0266208f0f4596ba9d9cad0bb51e49749495d2f6cd5e56ac1baed",
@@ -99,6 +186,15 @@
       "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/users",
       "png": "users.png",
       "png_sha256": "55120c4347b6b6d428c6c7ed0df616cfec4bf3bd86f125a3131b20d12cacd38a",
@@ -111,6 +207,6 @@
       "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
     }
   ],
-  "schema": "capture-manifest/1",
+  "schema": "capture-manifest/2",
   "viewport": 360
 }
