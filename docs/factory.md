@@ -218,19 +218,34 @@ neither is a machine's to clean up. To stop it hard: `systemctl --user stop ploc
 
 `factory/factory.sh` merges only what the API *still* says is approved, mergeable, clean and green,
 at the moment of the merge. The agent denies itself `gh pr merge`, `gh pr review`, every force push,
-every delete, pushing `main`, `git tag`, `gh release`, `go get`, and `question`. Those denies are in
+every recursive delete, pushing `main`, `git tag` with an argument, `gh release create`/`delete`/`edit`,
+`gh api`, `go get`, `systemctl`, `git worktree remove`/`move`, and the `question` tool. Those denies are in
 `.opencode/opencode.jsonc`, and they are the real boundary: `--auto` approves anything not explicitly
 denied, so a permission left at `ask` in a headless run is a stall, not a guard.
 
-Those denies bind because of *where* they are written. A tool's rule is either a bare
-`allow`/`ask`/`deny` keyed by the tool's name, or -- for `bash` -- a table of command patterns. A
-pattern written at the top level is read as an **action**, and no tool reports an action named after a
-shell command, so `--auto` approves the command anyway: measured with the same entry both ways, flat
-`gh pr merge 999999` ran, nested under `bash` it returned `Permission denied: shell`. Check the keying
-of any copy of this harness with `opencode debug agents` -- every rule must come back as
-`"action": "shell"` with the pattern in `resource` (H-0013). It is also a wildcard match on the whole
-parsed command line rather than a prefix match, which is why the push rules read `* push --force*`:
-`git -C <tree> push --force` is the shape this harness actually uses.
+Those denies bind because of *where* they are written and *how* they are spelled. A tool's rule is
+either a bare `allow`/`ask`/`deny` keyed by the tool's name, or -- for `bash` -- a table of command
+patterns. A pattern written at the top level is read as an **action**, and no tool reports an action
+named after a shell command, so `--auto` approves the command anyway: measured with the same entry both
+ways, flat `gh pr merge 999999` ran, nested under `bash` it returned `Permission denied: shell`. Check
+the keying of any copy of this harness with `opencode debug agents` -- every rule must come back as
+`"action": "shell"` with the pattern in `resource` (H-0013).
+
+Spelling matters the same way, and getting it wrong is quieter. The matcher globs the **whole** parsed
+command line, so a pattern that opens on a literal only matches a command that opens on that literal.
+Measured on v2.2.5 at `869564a`: 17 bash rules, **7 of them inert** for exactly that reason --
+`gh pr merge*` allowed `gh -R vicowa-botworks/parental-lockout pr merge 218`, which is the form `gh`'s
+own `--repo` flag produces. So every pattern here opens with `* `, and where a flag can sit between the
+program and the subcommand the wildcard starts at the subcommand: `* pr merge*`, not
+`* gh pr merge*`. `* push --force*` covers `git -C <tree> push --force`, the shape this harness uses
+constantly. Two families are deliberately narrower than their broad form: `* tag *` needs the argument
+so `git tag` can still list, and `* release create*`/`delete*`/`edit*` leave `gh release list` readable
+-- a deny that breaks a legitimate read teaches the next tick to route around denies.
+
+Keying these patterns under `bash` has a second consequence: the CLI's command scanner now parses every
+command the agent types, so a command shape the scanner cannot analyse is refused outright rather than
+passing unmatched. That is the price of a deny list that actually evaluates, and the skill states the
+command shapes that keep a tick on the right side of it.
 
 And it is a constraint on a cooperative agent, not a sandbox: it binds the command shapes it can
 spell. The boundary against irreversibility is that a tick cannot merge at all, and the supervisor

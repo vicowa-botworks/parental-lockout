@@ -240,9 +240,13 @@ Two consequences, both deliberate:
   `<h1>` and record that "which page am I" belongs to `aria-current` plus `<title>`. Under the first,
   where do the heading's words come from -- the page's existing `title` block, a new `heading` block
   per page, or the `pagename` slug?
-- Options: page name in the `<h1>`, brand demoted in the header | product name stays the `<h1>` and
-  the answer is documented as belonging to `aria-current` and `<title>` | under the first: `title`,
-  a new `heading` block, or `pagename`
+- Options: page name in the `<h1>`, brand demoted in the header | product name stays the `<h1>`
+  and the answer is documented as belonging to `aria-current` and `<title>` | under the
+  first: `title`, a new `heading` block, or `pagename` | the page's own name in the
+  `<h1>`, rendered from the same `title` block `<title>` is built from -- one
+  definition, two places. The brand line stays in the header as `<p
+  class="masthead__name">`, not a heading and not a link. `pagename` stays what it was:
+  the body's class.
 - Chose: the page's own name in the `<h1>`, rendered from the same `title` block `<title>` is built
   from -- one definition, two places. The brand line stays in the header as
   `<p class="masthead__name">`, not a heading and not a link. `pagename` stays what it was: the
@@ -323,8 +327,11 @@ Two consequences, both deliberate:
   the rest, and those two belong to #213 -- re-take them here, or ship eight current frames beside one
   that is not.
 - Options: curfew end → `00:00` | curfew end → anything the all-day rule does not outrank | keep
-  `06:30` and declare a per-hour state | delete `r-curfew` | re-take the POST frames here | leave them
-  to #213 and re-take seven
+  `06:30` and declare a per-hour state | delete `r-curfew` | re-take the POST frames
+  here | leave them to #213 and re-take seven | `r-curfew` ends at `00:00`
+  (`pages-setup.sh:127`), the dashboard's declared state gains the rule's *name* as a
+  second needle (`pages.py:368`), hour-independence is measured rather than asserted
+  (`internal/schedule/fixture_hours_test.go`), and all nine frames were re-taken here.
 - Chose: `r-curfew` ends at `00:00` (`pages-setup.sh:127`), the dashboard's declared state gains the
   rule's *name* as a second needle (`pages.py:368`), hour-independence is measured rather than
   asserted (`internal/schedule/fixture_hours_test.go`), and all nine frames were re-taken here.
@@ -411,7 +418,10 @@ Two consequences, both deliberate:
   wrong one refused without the refusal becoming the bug? Options: refuse when a compiled source is
   newer than the binary | refuse on a dirty working tree | record the binary's digest in the manifest
   and check it later | leave it to the README, which already says to build first.
-- Options: source-newer-than-binary mtime | dirty-tree check | binary digest in the manifest | docs only
+- Options: source-newer-than-binary mtime | dirty-tree check | binary digest in the manifest |
+  docs only | the mtime relation. `capture_begin` now refuses when any non-`_test.go`
+  file under `cmd/` or `internal/`, plus `go.mod`/`go.sum` where they exist, is newer
+  than `$PLOCK_BIN`, and its message names the offending paths and the build line.
 - Chose: the mtime relation. `capture_begin` now refuses when any non-`_test.go` file under `cmd/` or
   `internal/`, plus `go.mod`/`go.sum` where they exist, is newer than `$PLOCK_BIN`, and its message
   names the offending paths and the build line.

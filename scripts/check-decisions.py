@@ -193,6 +193,13 @@ RECIPE_BAD = {
     "renamed": RECIPE_GOOD.replace("check-decisions.py", "check-decisions-OLD.py"),
     "mentioned": ('\t@set -e; \\\n'
                   '\techo "== decision log (check-decisions.py)"; $(MAKE) --no-print-directory quiet; \\\n'),
+    # The one that survived the guard until 6 Nov: the whole step commented out at column 0, with the
+    # invocation sitting after a `;` on the same line. `make verify` here runs nothing, and the file
+    # still contains the command as plain text for any guard that reads lines instead of chunks.
+    "commented-line": ('\t@set -e; \\\n'
+                       '#\techo "== decision log"; python3 scripts/check-decisions.py --self-test; \\\n'
+                       '#\techo "== decision log again"; python3 scripts/check-decisions.py; \\\n'
+                       '\techo "== shellcheck"; $(MAKE) --no-print-directory check-shell; \\\n'),
 }
 
 
@@ -202,14 +209,24 @@ def invocation_problems(recipe):
     A filename substring is the wrong assertion: it is satisfied by a comment, by a commented-out
     recipe line, and by an `echo` that names the script while running something else. So the anchor is
     a *command chunk* -- the text between `;` on a recipe line -- that starts with the interpreter and
-    names `scripts/check-decisions.py` as one whole word. A chunk beginning with `#` is a comment and
-    cannot match, and the word boundary bars a longer filename that merely starts the same way. The
-    three shapes in `RECIPE_BAD` are asserted against this function in `--self-test`, so a later edit
-    that weakens the match has to delete those cases as well.
+    names `scripts/check-decisions.py` as one whole word, and the word boundary bars a longer filename
+    that merely starts the same way. The shapes in `RECIPE_BAD` are asserted against this function in
+    `--self-test`, so a later edit that weakens the match has to delete those cases as well.
+
+    A comment is tested at the *line*, before the split, not at the chunk. Reported by review on #217
+    at 869564a: with the step commented as `#\techo "== decision log"; python3
+    scripts/check-decisions.py; ` followed by a line-continuation backslash, make hands that line
+    to no shell at all, but splitting on `;` first
+    put the invocation in chunk two where a `chunk.startswith("#")` test could not see it -- so both
+    this gate and its own self-test returned 0 while `make verify` ran neither command. The premise the
+    docstring used to carry, that a chunk beginning with `#` cannot match, is what the shell refuted.
     """
     problems = []
     tails = []
     for raw in recipe.splitlines():
+        if raw.lstrip().startswith("#"):
+            # make never hands this line to a shell; nothing on it runs, including whatever follows a `;`.
+            continue
         for chunk in raw.split(";"):
             chunk = chunk.strip()
             if chunk.startswith("#"):
@@ -304,6 +321,75 @@ BAD = {
 }
 
 
+def git_checkpoint_resolver(shas):
+    """Which of these objects exist in this repository, and are commits. One batch call, not one per entry.
+
+    The gate used to stop at "is this 7-40 hex characters", which is a shape test, not an existence test:
+    written minutes after H-0021..H-0023 were committed, this session typed an invented 40-hex checkpoint
+    into three entries and the checker reported 45 entries clean. A checkpoint is the one field whose whole
+    job is to be typed into `git revert`, so a plausible one that resolves to nothing is worse than a
+    missing one -- it reads like a rollback exists.
+    """
+    if not shas:
+        return {}
+    import subprocess
+    try:
+        out = subprocess.run(["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                             input="\n".join(shas) + "\n", capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", cwd=ROOT, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    # One line per input, in order: `<sha> commit` for a commit, `<obj> missing` for anything else.
+    lines = out.stdout.splitlines()
+    return {s: (i < len(lines) and lines[i].endswith(" commit")) for i, s in enumerate(shas)}
+
+
+def checkpoint_problems(entries, resolve):
+    """That every named checkpoint is a commit the resolver can see.
+
+    `resolve` is injected so `--self-test` can assert both answers: the same sample must refuse when told
+    the object is absent and pass when told it is present. It may be a mapping or a one-argument callable. Without that the rule would be a git call
+    nobody can prove still fires -- the failure mode this script keeps being written about.
+    """
+    problems = []
+    for e in entries:
+        cp = e["fields"].get("Checkpoint", "").strip()
+        if not cp or cp == "n/a" or not SHA.match(cp):
+            continue
+        known = resolve(cp) if callable(resolve) else resolve.get(cp, True)
+        if not known:
+            problems.append("%s: %s names checkpoint %s, which is not a commit in this repository -- "
+                            "`git revert` cannot be pointed at it, so the entry is not reversible the way "
+                            "it claims" % (label_of(e), e["id"], cp))
+    return problems
+
+
+def label_of(e):
+    return "%s:%d" % (e["label"], e["line"])
+
+
+def cross_log_problems(where_seen):
+    """That no decision id is claimed by two logs.
+
+    The rule H-0021 leaves behind: product decisions are `D-` in `DECISIONS.md`, harness decisions are
+    `H-` in `factory/DECISIONS.md`, and a citation is only worth anything while it resolves to one entry.
+    `where_seen` maps an id to the logs that carry it, so this is testable without touching either file --
+    which matters, because a rule that lives inline in `main` has no case, and review on #217 measured
+    that deleting the loop entirely left `--self-test` green.
+
+    The clean case is asserted too, and it is the whole point of the prefix split: `D-0012` and `H-0012`
+    are two different decisions in two different logs and must not be reported as a collision.
+    """
+    problems = []
+    for ident in sorted(where_seen):
+        if len(where_seen[ident]) > 1:
+            problems.append(
+                "%s is used in %s -- one id, %d decisions; a citation to it does not resolve. "
+                "Renumber the later entry in its own log." %
+                (ident, " and ".join(sorted(where_seen[ident])), len(where_seen[ident])))
+    return problems
+
+
 def self_test():
     """Every rule above has a case that trips it, and the good sample trips none of them.
 
@@ -383,13 +469,39 @@ def self_test():
             # exists to catch.
             fails.append("recipe-%s: refused for the wrong reason -- %s" % (name, found))
 
+    # The cross-log id rule, asserted both ways. A collision must be named, and the D-/H- pair that the
+    # split exists to allow must not be. Deleting `cross_log_problems`' loop would otherwise leave this
+    # script advertising a check in SKILL.md that nothing runs.
+    counts[0] += 1
+    collided = cross_log_problems({"D-0012": ["DECISIONS.md", "factory/DECISIONS.md"],
+                                   "H-0001": ["factory/DECISIONS.md"]})
+    if not any("one id, 2 decisions" in p for p in collided):
+        fails.append("cross-log-collision: an id used in both logs passed the rule -- %s" % collided)
+    # A checkpoint that is well-shaped and does not exist. The shape test alone let an invented sha
+    # through in this very session, so both answers are asserted against the injected resolver.
+    counts[0] += 1
+    absent = checkpoint_problems(parse(GOOD, "sample"), resolve=lambda s: False)
+    if not any("not a commit in this repository" in p for p in absent):
+        fails.append("checkpoint-absent: a checkpoint the repository does not have passed the rule -- %s" % absent)
+    counts[1] += 1
+    present = checkpoint_problems(parse(GOOD, "sample"), resolve=lambda s: True)
+    if present:
+        fails.append("checkpoint-present: a checkpoint the resolver vouches for was refused -- %s" % present)
+
+    counts[1] += 1
+    separated = cross_log_problems({"D-0012": ["DECISIONS.md"], "H-0012": ["factory/DECISIONS.md"]})
+    if separated:
+        fails.append("cross-log-clean: `D-0012` and `H-0012` are different decisions in different logs "
+                     "and the rule refused them -- %s" % separated)
+
     if fails:
         print("check-decisions --self-test FAILED:")
         for f in fails:
             print("  %s" % f)
         return 1
     print("check-decisions --self-test: %d cases that must fail, %d that must pass, the two "
-          "invocations in `verify`, and three Makefiles that delete this gate" % (counts[0], counts[1]))
+          "invocations in `verify`, four Makefiles that delete this gate, the cross-log id rule and "
+          "checkpoint existence, each asserted both ways" % (counts[0], counts[1]))
     return 0
 
 
@@ -427,6 +539,9 @@ def main(argv):
         if path == LOG:
             for e in entries:
                 where_seen.setdefault(e["id"], []).append(label)
+            shas = sorted({e["fields"].get("Checkpoint", "").strip() for e in entries
+                           if SHA.match(e["fields"].get("Checkpoint", "").strip())})
+            problems += checkpoint_problems(entries, git_checkpoint_resolver(shas))
 
     if path == LOG:
         problems += verify_invocation()
@@ -437,12 +552,7 @@ def main(argv):
         # worktree cut, the deny keying), because a tick numbers from the highest id it can *see*, and
         # a tree cut before this file existed sees none of it. Both files now have their own id space,
         # so the only thing left to enforce is that they do not meet.
-        for ident in sorted(where_seen):
-            if len(where_seen[ident]) > 1:
-                problems.append(
-                    "%s is used in %s -- one id, %d decisions; a citation to it does not resolve. "
-                    "Renumber the later entry in its own log." %
-                    (ident, " and ".join(sorted(where_seen[ident])), len(where_seen[ident])))
+        problems += cross_log_problems(where_seen)
 
     if problems:
         print("\n%d decision-log problem(s):" % len(problems))

@@ -316,6 +316,15 @@ factory_resolve_conflict() {
 	if ! run_action git -C "$tree" fetch origin "$base"; then
 		return 2
 	fi
+	if ! git -C "$tree" rev-parse --verify "refs/remotes/origin/$base" >/dev/null 2>&1; then
+		# `git fetch origin <branch>` exits 0 and creates nothing when the clone has a single-branch
+		# refspec or is shallow: the merge would then die `not something we can merge` and be logged
+		# `CONFLICT-UNRESOLVED ... does not merge cleanly`, sending a model to resolve a conflict that
+		# does not exist. This is the exact misdiagnosis 869564a exists to end, arriving from the clone's
+		# shape instead of from the merge source.
+		log_event "CONFLICT-BLOCKED pr:$pr origin/$base is not visible in $tree -- a single-branch or shallow clone, not a conflict"
+		return 2
+	fi
 	if [ "$DRY_RUN" = "1" ]; then
 		printf 'DRY-RUN  git -C %s merge --no-edit origin/%s\n' "$tree" "$base"
 		return 2
@@ -387,7 +396,7 @@ factory_tick() {
 		;;
 	branch_without_pr)
 		branch=$key
-		id_line="Stranded branch \`$key\`: $detail. The work is already written. Assess it against the gate, then open its pull request or record in DECISIONS.md why it should be dropped."
+		id_line="Stranded branch \`$key\`: $detail. The work is already written. Assess it against the gate, then open its pull request. If the work should be dropped instead, open the pull request anyway and say so in its body -- a branch that is dropped only in a local log is indistinguishable from one that was never attempted, and the supervisor counts no pull request as nothing delivered."
 		;;
 	conflict)
 		branch=${branch:-$(api_get "pulls/$key" '.head.ref' '')}
@@ -487,9 +496,14 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 		# ends at an open or updated pull request (#1823), so a pull request on that branch is the only
 		# evidence that the unit moved forward, and the cheapest thing to ask for.
 		local pr_now pr_read=0
+		# `checks_failing` is deliberately absent: a failing check is not a unit that was expected
+		# to produce a pull request, and the branch it sits on may already have one whose checks are red.
 		case "$class" in
 		unclaimed | branch_without_pr | address_review | conflict)
-			pr_now=$(gh pr list --head "$branch" --json number --jq '.[0].number // ""' 2>/dev/null) || pr_read=$?
+			# `--head ""` is not a filter -- measured, it answers with an unrelated open pull
+			# request -- so an empty branch would have this check certify delivery off someone else's work.
+			[ -n "$branch" ] || { log_event "TICK-UNCHECKED $unit no branch to check a pull request against"; pr_read=1; }
+			[ "$pr_read" -eq 0 ] && pr_now=$(gh pr list --head "$branch" --json number --jq '.[0].number // ""' 2>/dev/null) || pr_read=$?
 			if [ "$pr_read" -ne 0 ]; then
 				# A read that failed is not a delivery that failed: say which of the two happened.
 				log_event "TICK-UNCHECKED $unit delivery could not be confirmed (gh exit=$pr_read)"

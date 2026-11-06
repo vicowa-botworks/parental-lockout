@@ -89,7 +89,9 @@ Spell those reads as two calls, in this shape. A command the permission scanner 
 outright, and the refusal looks like a tool bug rather than a denial: measured 5 Nov, a tick composed one
 `gh pr view` with a `-q` program containing `\n` escapes and several nested quotes, and every attempt came
 back `Error: Portable shell scanner cannot analyze command: unterminated-quote` -- 45 minutes of ceiling
-gone, `TICK-FAILED exit=124`, nothing answered. Now that the deny rules are keyed under `bash` and
+gone, `TICK-FAILED exit=124`, nothing answered. That measurement is from the binary the ticks on this box
+run, `opencode` v2.2.5 (`~/.opencode/bin/opencode --version`); the string is not present in 1.18.5, so
+re-measure before repeating the claim on another version, and name the version when you do. Now that the deny rules are keyed under `bash` and
 therefore actually evaluated, the scanner parses every command this agent runs, and a shape it cannot
 analyze is fatal instead of merely unmatched. One statement per call, `--json` plus a short `--jq`, and
 never a program with escaped newlines inside a shell quote.

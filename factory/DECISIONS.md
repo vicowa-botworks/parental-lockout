@@ -602,5 +602,97 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   resolver: it used to read "does not merge with main" and "the supervisor already tried `git merge
   origin/main`", which sent a model to re-verify a merge that had never been attempted, and it now names
   the base and says plainly when that base is another open pull request that may land first.
-- Checkpoint: c4d7e083ff8f6a9c9d6ae70bf3a15f7b7c65eb91
+- Checkpoint: c4d7e08d7eef44445e67ea1ce79cb1d434358e24
 - Effect: factory/factory.sh (`factory_resolve_conflict`, the `conflict)` arm of `factory_tick`)
+
+## H-0026 · Repair the three entries that disagree with the gate, rather than relax the gate
+
+- Question: `origin/main` is 42 commits ahead of this branch, and merging it turns `make verify` red --
+  `D-0016`, `D-0017`, `D-0018` each have a `Chose:` that is string-equal to none of its recorded
+  `Options`. Which side changes?
+- Options: relax the predicate so `Chose:` may elaborate an option (with a `--self-test` case for the new
+  rule) | rewrite each entry's `Chose:` down to the terse option it chose | name the chosen wording in
+  each `Options:` line, keeping the elaboration where the evidence is | leave the entries and let whoever
+  merges next discover it
+- Chose: name the chosen wording in each `Options:` line, keeping the elaboration where the evidence is
+- Why: the reviewer measured the weakenings and none of them works -- exact, substring and prefix are all
+  `False` for at least one of the three -- so this is not a choice between a strict gate and a lenient
+  one, it is a choice about what the record should say. Relaxing the predicate would have been a rule
+  invented to fit three entries that were written before the rule existed, and every weakening is a hole
+  an unlucky future entry falls into. Trimming `Chose:` would have deleted evidence: what those entries
+  actually chose was a *combination* -- `D-0017` is `curfew end → 00:00` *and* `re-take the POST frames
+  here`, two of the six options at once, which the terse list could not express at all. Naming the
+  compound choice as a selectable option says what was really on the table and keeps the entry's claim
+  that the losing options were written down. Fourth option rejected outright: the tick that inherits a red
+  gate has been told to leave the tree green, so a gate that disagrees with the body of entries it
+  inherits will be "fixed" by whoever is least able to judge it. Two things this exposed are worth
+  keeping: the gate only ever reads its own tree, so it can be green while the tree it is about to
+  inherit is red -- measurable before the merge with `git merge-tree --write-tree origin/main <branch>`
+  piped into `git archive` and the checker -- and one consequence of my own was in the same measurement:
+  my previous round's `D-0015` field repair auto-merged with main's own edit of that entry into one entry
+  carrying two `Why:` fields, which the gate reports as "the last one wins and the first one is silently
+  the one nobody reads". The merge takes main's log wholesale; the harness's own entries are already
+  separate (H-0021).
+- Checkpoint: 869564a7ef19fb8349afe57c6596ca74cad8343b
+- Effect: DECISIONS.md (the merged log plus `D-0016`, `D-0017`, `D-0018`)
+
+## H-0027 · Every deny pattern opens with a wildcard, because the matcher globs the whole command line
+
+- Question: seven of the seventeen `bash` denies in `.opencode/opencode.jsonc` match nothing. Fix the
+  seven, or fix the reason?
+- Options: prefix only the seven measured patterns | make the whole table wildcard-led and re-derive each
+  family's shape from the flags that can precede the subcommand | keep literal patterns and add a
+  supervisor-side guard that greps the tick log for the commands it meant to block
+- Chose: make the whole table wildcard-led and re-derive each family's shape from the flags that can
+  precede the subcommand
+- Why: the second time in this harness's life that a deny list was shipped without measuring what it
+  resolves to, and the reason is now understood rather than patched: the matcher globs the *whole* parsed
+  command line, so a pattern opening on a literal matches only a command opening on that literal.
+  Measured on v2.2.5 at `869564a` with `opencode debug agent factory`: `gh pr merge*` allowed
+  `gh -R vicowa-botworks/parental-lockout pr merge 218`, because `gh`'s own `--repo` flag sits between the
+  program and the subcommand. That is why the fix is the *shape rule* and not the seven names -- any
+  literal-led pattern added next week is the same bug -- and why the wildcard has to start at the
+  subcommand (`* pr merge*`) rather than at the program. Prefixing seven and leaving the rule untaught was
+  rejected for the same reason `docs/factory.md` was wrong in the last round: the paragraph describing the
+  whole-line match was re-read, the patterns were not. Broadening everything to the widest glob was
+  rejected too: `* tag*` also denies `git describe --tags`, which the packaging gate runs, and a deny that
+  breaks a legitimate read teaches the next tick to route around denies -- so `* tag *` keeps the argument
+  requirement that separates creating a tag from listing them, `* release create|delete|edit*` leave
+  `gh release list` readable, and `* rm -r*`/`* rm --recursive*` replace two patterns that covered exactly
+  one of `-rf`, `-fr`, `-r -f`, `--recursive --force`. `gh api` widens from a literal to `* api *` plus
+  `* api`, which is what its own comment already claimed ("denied whole rather than filtered by method").
+  The scanner is now named as the reason this is load-bearing rather than cosmetic: keying these patterns
+  under `bash` means every command the agent types is parsed, so an inert pattern is invisible in exactly
+  the way an unevaluated one was.
+- Checkpoint: 869564a7ef19fb8349afe57c6596ca74cad8343b
+- Effect: .opencode/opencode.jsonc, docs/factory.md, .opencode/skills/factory/SKILL.md
+
+## H-0028 · A guard is only as real as the case that disables it, so point a case at every shape that mutes one
+
+- Question: `check-decisions.py --self-test` returns 0 against a Makefile whose gate line is commented
+  out, and the cross-log rule added in H-0021 has no case at all. What is the repair?
+- Options: fix the commented-line bug and leave the cross-log rule inline and untested | fix the bug, add
+  the fourth Makefile case, and extract the cross-log rule into a function so `--self-test` can assert it
+  both ways | trust both rules because they are simple
+- Chose: fix the bug, add the fourth Makefile case, and extract the cross-log rule into a function so
+  `--self-test` can assert it both ways
+- Why: `invocation_problems` split each recipe line on `;` and *then* discarded chunks beginning with `#`,
+  so `#\techo "== decision log"; python3 scripts/check-decisions.py; \` put the invocation in chunk two,
+  out of reach of the comment test -- the gate and its own self-test both answered 0 while `make verify`
+  handed that line to no shell at all. The docstring asserted the refuted premise ("a chunk beginning with
+  `#` is a comment and cannot match"), which is how a wrong belief survives: the code says one thing, the
+  sentence above it says another, and only a shell disagrees. Commenting is now tested at the line, before
+  the split. The cross-log rule is extracted for the same reason as the Makefile cases: review measured
+  that replacing its loop with `for ident in []` left the self-test green at 12 fail / 6 pass, so
+  `SKILL.md` was advertising a check nothing runs; it now has one case that must refuse (`D-0012` in both
+  logs) and one that must pass (`D-0012` and `H-0012` are different decisions in different logs, which is
+  the whole point of the prefix split). Three smaller guards go in on the same principle: `gh pr list
+  --head ""` is not a filter and answers with somebody else's open pull request, so an empty branch would
+  let the delivery check certify delivery off unrelated work; `git fetch origin <base>` exits 0 and creates
+  nothing in a single-branch or shallow clone, so the base fix would die as `not something we can merge`
+  and be logged as a conflict that does not exist -- exactly the misdiagnosis H-0025 was written to end,
+  arriving from the clone's shape; and the stranded-branch prompt told a tick it could drop the work in a
+  local log while the new delivery check charged that same tick as undelivered forever, so the prompt now
+  requires the pull request and says plainly to put a "drop this" argument in its body.
+- Checkpoint: 869564a7ef19fb8349afe57c6596ca74cad8343b
+- Effect: scripts/check-decisions.py, factory/factory.sh
