@@ -275,3 +275,95 @@ kept; nothing here renumbers anything.
   block), internal/web/page_heading_test.go (new: the two tests and `headingComplaints`),
   scripts/mutations/web.json (`expected_mutants` 287 → 290; W298 the product name back in the
   heading, W299 the brand line deleted, W300 the heading pinned to a literal), DECISIONS.md
+
+## D-0017 · The pages fixture releases both of its rules at one instant, so the dashboard frame is takable at any hour
+
+- Question: #220. `pages-setup.sh` gives casey's profile two enabled rules, and `Evaluate` releases
+  at the *latest* end of the rules that are open (`internal/schedule/schedule.go:171-178`). With
+  `r-curfew` written `21:00`→`06:30` the row therefore says `locked out until 06:30` for the three
+  hours 21:00 ≤ t < 24:00, while `Page("/").state` declares `locked out until 00:00` -- so
+  `require_declared_state` refuses the dashboard for a quarter of every day, a refused page publishes
+  none of the fixture's frames, and the fixture's own declared stamp (`2026-03-18T21:34:05 -04:00`,
+  `testing/capture/fixture.sh:99-100`) sits inside the refused window: the document could not
+  photograph the instant it names. Three answers were on the table -- move the rule's end, teach the
+  driver that the state is a function of the hour, or take the second rule out. And one the fix
+  forced: #219's masthead move (#221) makes all nine committed frames stale, the two POST frames with
+  the rest, and those two belong to #213 -- re-take them here, or ship eight current frames beside one
+  that is not.
+- Options: curfew end → `00:00` | curfew end → anything the all-day rule does not outrank | keep
+  `06:30` and declare a per-hour state | delete `r-curfew` | re-take the POST frames here | leave them
+  to #213 and re-take seven
+- Chose: `r-curfew` ends at `00:00` (`pages-setup.sh:127`), the dashboard's declared state gains the
+  rule's *name* as a second needle (`pages.py:368`), hour-independence is measured rather than
+  asserted (`internal/schedule/fixture_hours_test.go`), and all nine frames were re-taken here.
+- Why: a per-hour state is #207's refusal inverted: the driver would photograph whichever page the
+  clock happened to be on and certify it, which is the thing that file exists to prevent --
+  `Page.state` is the declaration that the artifact is a photograph *of*, and a declaration with a
+  table of hours in it declares nothing. Deleting the rule would have been the cheap edit and would
+  have cost the fixture its only enabled timed rule, which is what `/profiles` is a photograph of:
+  `ruleWindow` prints the written pair verbatim (`internal/web/profiles.go:244-256`), so the Window
+  cell is that rule or it is nothing.
+
+  `00:00` is not a value that happens to work, which is what makes it a fix rather than a truce. An
+  end earlier than its start crosses midnight onto the next day, so the curfew resolves its end
+  through `wallInstant(loc, y, mo, d+1, 0, true)` -- the identical expression the `allDay` arm eight
+  lines above it uses (`schedule.go:466-483`). Two rules that resolve an end through one expression
+  cannot disagree in any zone on any date, including the twelve zone-days where midnight is itself a
+  repeated wall time; a tie names the first rule in the profile, which `Evaluate` already pins
+  (`schedule_test.go:294`). What is new is measuring it over the fixture instead of a synthetic pair:
+  1440 minutes of the fixture's declared day give one verdict, and 1464 instants -- every day of 2026
+  at 20:59, 21:00, 21:01 and 23:59 -- give the same one. The same sweep with the committed value
+  rewritten back to `06:30` reproduces #220 exactly, 180 minutes of `06:30 / Weeknight curfew
+  including the weekend` beside 1260 of `00:00 / Every day, every hour`, and that arm is what stops
+  the first test from being a program that prints one line and passes.
+
+  The name needle is there because the clock alone would have missed the defect. #220 moved *both*
+  cells of the row -- `EndsAt` and the rule `EndsAt` came from -- and a guard on the clock only would
+  have let a frame that re-blamed the row at 21:00 through as an artifact of the state the fixture
+  says it holds. It is tested in both directions: `pages.py --self-test` refuses a casey row that
+  names the curfew while the clock still reads `00:00`, and refuses the row it declares if the
+  declaration is the thing that broke.
+
+  The POST frames were re-taken because the alternative was not a smaller change, it was a false
+  check: with the masthead moved, `manifest.py check` can only pass for `lock.png` and `testlock.png`
+  if their recorded `sources_rev` advances, and an advancing `sources_rev` over bytes that predate the
+  page is the exact sentence #144 was filed to make impossible. Both ran green on the first try, and
+  the sentence #213 gives for why re-taking them was a decision rather than a step -- that a re-take
+  locks the capturing machine's session for real -- does not hold on this tree and did not when it was
+  written: the POST fixtures run `"enforcement": false`, `"lockBackends": ["command"]`,
+  `"lockCommandPath": "/bin/true"` (`testing/capture/post-fixture.sh:43-45`), so the click is answered
+  by `/bin/true` and the page's banner is the unconfirmed sentence, which is the sentence the template
+  exists to render. What that cost is in the capture README's own rows, not here: these two are
+  photographs of one account holding one session on one machine, and always were.
+- What lost: `06:30` is gone from the fixture, so the document no longer depicts a curfew that runs
+  past midnight -- `/profiles` now publishes `21:00 - 00:00` for it, and `profiles.png` and
+  `profiles-refused.png` moved on this change as well as on the masthead, which is two causes in one
+  re-take and is stated because a reviewer comparing that frame to #219's description would otherwise
+  attribute the whole difference to the heading. Nothing on the five GET frames was quoting `06:30`
+  except through `EndsAt`, and that is the defect. The audit trail's `Weeknight curfew including the
+  weekend` rows are seeded text, not evaluated rules, so they would have kept the name even with the
+  rule deleted; they keep it, and they keep being what makes the Rule column wide. Re-taking the two
+  POST frames spends #213's assigned work without its author, and leaves that issue its README rows
+  to re-record rather than the capture.
+- Findings this turn measured and did not fix, filed rather than buried. (1) `record()` certifies
+  every PNG it finds in its target directory (`manifest.py:219`), not the ones its run took, so the
+  documented one-fixture re-capture advances `sources_rev` for frames it never touched. Measured here:
+  after the two `pages.py --out docs/screenshots/360` runs the check reported *9 photographs current*
+  while `lock.png` and `testlock.png` were byte-for-byte the committed files and their `sources_rev`
+  had moved `125b1a49…` → `9ccbe466…`. The identity check cannot see it, because the recorded hash
+  matches the stale file it was recorded from. That is why this commit re-took all nine before
+  recording, and why the capture README's claim that "a one-page re-capture cannot certify another
+  run's PNGs as just-taken" is true of the default and false of `--out`. (2) The fixtures check that
+  `$PLOCK_BIN` exists, not that it is newer than what goes into it, and the templates are `go:embed`
+  (`internal/web/sources.go:21`) -- a binary built before a template change photographs a page the
+  tree does not contain and every check downstream agrees with it. Measured here: a binary built at
+  21:03, nineteen minutes before the masthead commit landed at 21:22, left five of the seven
+  page-fixture frames byte-identical to the committed pre-masthead files and moved only the two whose
+  *fixture* content had changed -- which is the set a reader would have called "the two #220 moved"
+  and committed. The guard is D-0018.
+- Checkpoint: 1af2a76be2d7564305677b36ecce99a52355daf3
+- Effect: testing/capture/pages-setup.sh (`r-curfew`'s end, and the reason beside it),
+  testing/capture/pages.py (the `Every day, every hour` needle, its self-test arms),
+  internal/schedule/fixture_hours_test.go (new: the day sweep, the year sweep, the discrimination),
+  the nine frames in docs/screenshots/360 and their manifest, testing/capture/README.md (the
+  homogeneous-set paragraph, the two POST rows, the re-capture recipe), DECISIONS.md
