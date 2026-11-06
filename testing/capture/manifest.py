@@ -114,9 +114,18 @@ CONDITION_KEYS = (
     ("PLOCK_CAPTURE_PATH_PREPEND", "census"),
     ("PLOCK_CAPTURE_SCRIPTS", "scripts"),
 )
-# Values a manifest is allowed to assert. A typo here is a lie with a plausible shape, which is the
-# class of thing this file refuses rather than records.
-SCRIPT_VALUES = ("on", "off")
+# Values a manifest is allowed to assert about the page's own scripts, read out of the driver that
+# acts on them. Written here as well until 6 Nov, and the failure that buys is #211 in miniature: the
+# driver renames or adds a spelling, the recorder goes on certifying the old one, and a manifest full
+# of a condition nothing can produce stays green. Read the same lazy way as `driver_pages()`, for the
+# same reason -- `check` still answers when the browser half cannot be imported.
+
+
+def script_values():
+    """`("on", "off")`, from `cdp.SCRIPT_VALUES` -- the one table of the two spellings."""
+    sys.path.insert(0, HERE)
+    import cdp
+    return cdp.SCRIPT_VALUES
 
 # Every page is rendered from its own template plus the shared shell and the stylesheet. The
 # shared files are in every page's set on purpose: a rule in `app.css` or a change to `page.tmpl`
@@ -683,12 +692,25 @@ def check(directory, run=git, pages=None):
                 problems.append(f"{name}'s capture block names no fixture, so its conditions belong "
                                 f"to no setup script and cannot be re-declared by anyone")
             scripts = cap.get("scripts")
-            if scripts is not None and scripts not in SCRIPT_VALUES:
+            if scripts is not None and scripts not in script_values():
                 problems.append(f"{name} records scripts={scripts!r}, which is not one of "
-                                f"{' or '.join(repr(v) for v in SCRIPT_VALUES)}. A condition with a "
+                                f"{' or '.join(repr(v) for v in script_values())}. A condition with a "
                                 f"typo in it is a lie with a plausible shape, and the two POST frames "
                                 f"are the reason this one is worth refusing: they were taken with "
                                 f"scripts on, under a driver that now turns them off (#213)")
+            elif scripts == "on":
+                # Legal, and not committable. `cdp.scripts_disabled` honours the declaration, so
+                # taking a frame with the page's scripts running is one environment variable away --
+                # which is how you measure what the switch is worth. What it buys is a measurement,
+                # not evidence: this folder's criterion is "usable at 360 px with JavaScript off", and
+                # a frame whose own entry says the scripts were running has never tested that
+                # sentence, so it must not land in docs/screenshots/360 next to the frames that did.
+                problems.append(f"{name} records scripts='on': the page's own scripts were running "
+                                f"when this frame was taken, so it has never tested this folder's "
+                                f"criterion -- usable at 360 px with JavaScript off "
+                                f"(testing/capture/README.md). Keep that run's PNG as a measurement; "
+                                f"what is committed here is the frame taken with the declaration at "
+                                f"its default")
             spec = specs.get(name[:-len(".png")])
             if spec is not None:
                 want_fixture = getattr(spec, "fixture", None)
@@ -1523,6 +1545,49 @@ def self_test():
     rule("a condition that cannot be true is refused, in each shape it takes",
          in_box(a_condition_that_cannot_be_true_is_refused))
 
+    def a_frame_taken_with_the_scripts_running_is_refused(box):
+        """A legal condition can still disqualify the artifact.
+
+        `cdp.scripts_disabled` honours `PLOCK_CAPTURE_SCRIPTS`, so a frame taken with the page's
+        scripts running is one environment variable away -- that knob is what makes the condition
+        measurable at all. What it buys is a measurement, not evidence for this folder's criterion,
+        and the guard here is what keeps the two apart: without it the cheapest way to satisfy
+        `scripts` is to commit whichever frame the last run happened to leave in the directory.
+        Built as a pair, because a guard that refuses both values is a ban on the field and would
+        pass for the wrong reason.
+        """
+        _png(box, "users-no-profiles.png")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        spec = _Page("/users", "users-no-profiles", fixture="pages-noprof",
+                     state=(("casey", "no profile"),))
+        cap = {"fixture": "pages-noprof", "stamp": "2026-03-18T21:34:05", "scripts": "on",
+               "state": [["casey", "no profile"]]}
+        entry = {"page": "/users", "png": "users-no-profiles.png",
+                 "png_sha256": sha256(os.path.join(d, "users-no-profiles.png")),
+                 "sources": sources_for("users-no-profiles", "/users"), "sources_rev": RECORDED,
+                 "capture": cap}
+        doc = {"schema": SCHEMA, "viewport": ARTIFACT_WIDTH, "head": RECORDED,
+               "captured_at": "2026-01-01T00:00:00Z", "pages": [entry]}
+
+        def write_and_check(capture):
+            entry["capture"] = capture
+            with open(os.path.join(d, MANIFEST), "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+            return check(d, run=_fake_git(), pages=[spec])
+
+        problems = write_and_check(dict(cap))
+        if not any("JavaScript off" in p for p in problems):
+            return ("a frame whose entry says the page's scripts were running committed green, so "
+                    f"the artifact certifies a criterion it never tested: {problems[:1]}")
+        off = write_and_check(dict(cap, scripts="off"))
+        if off:
+            return ("the same block with scripts='off' was refused too, so this is a ban on naming "
+                    f"the condition rather than a guard on the criterion: {off[:1]}")
+        return None
+
+    rule("a frame taken with the page's scripts running is not evidence for the criterion",
+         in_box(a_frame_taken_with_the_scripts_running_is_refused))
+
     def a_fixture_env_path_that_names_nothing_is_refused(box):
         """The directory name IS the binding, so a path that cannot say it is not a conditions file."""
         def go(path):
@@ -1790,7 +1855,7 @@ def self_test():
     rule("a run cannot report photographing a frame that is not there",
          in_box(a_shot_with_no_png_is_refused))
 
-    EXPECTED = 39
+    EXPECTED = 40
     if len(ran) != EXPECTED:
         bad.append(f"expected {EXPECTED} rules, ran {len(ran)} -- one was deleted, or never "
                    f"reached (a `return` in self_test() skips everything below it)")

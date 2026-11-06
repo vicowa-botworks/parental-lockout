@@ -416,3 +416,46 @@ Two consequences, both deliberate:
 - Effect: docs/screenshots/360/audit.png (re-photographed against `5c63fb9`),
   docs/screenshots/360/manifest.json (`head`, `captured_at`, `/audit`'s `png_sha256` and
   `sources_rev`), DECISIONS.md
+
+## D-0025 · The scripts condition reaches the browser, and a frame it moves cannot be committed
+
+- Question: #215's review asks for the discriminating test to be written into the two POST drivers'
+  notes, because as written they "teach the next reader to trust a control that has no power". Before
+  writing that sentence: does `PLOCK_CAPTURE_SCRIPTS` reach the browser at all? `grep -n SCRIPTS
+  testing/capture/cdp.py` answers it -- the file names the env key nowhere, and the session is
+  configured with `Emulation.setScriptExecutionDisabled, value=True`. So the override
+  `post-fixture.sh:47-48` advertises ("Override with `PLOCK_CAPTURE_SCRIPTS=on` to test a frame taken
+  with scripts running; the declaration follows the override into the manifest") took the same pixels
+  as the default, and the manifest's `scripts` field recorded what `cdp.py` does rather than what the
+  frame was taken under.
+- Options: write the test into the notes as advertised | retract the override in prose and point the
+  reader at a hand edit to `cdp.py` | make `cdp.py` honour the declaration, refuse a value outside the
+  two, and refuse to *commit* a frame recorded `scripts: "on"`
+- Chose: make `cdp.py` honour the declaration, refuse a value outside the two, and refuse to commit a
+  frame recorded `scripts: "on"`
+- Why: the first option is refused by the measurement above. A test that cannot produce a second
+  outcome is not a discriminating test, and writing it into two notes would have re-planted #213's
+  defect one layer down -- a field nobody can check by going and checking it. The second leaves the
+  fixture declaring something the driver ignores, which is exactly how the field became a restatement
+  of a constant. The tie-break order does not separate the second from the third on `go.mod` or on
+  breadth (three files either way); "refuses rather than proceeds" picks the third, because it is the
+  only option under which a typo'd condition stops the run instead of being recorded as written and
+  photographed as the default; and the surrounding code already treats `fixture.env` that way --
+  `_start` refuses a relative `PLOCK_CAPTURE_PATH_PREPEND` and `declared_stamp()` validates the
+  instant rather than pasting it.
+  What this costs, stated rather than glossed. A frame taken with the scripts running now exists, so
+  the knob had to arrive with a guard: `check` refuses a committed entry recording `scripts: "on"`,
+  because this folder's criterion is "usable at 360 px with JavaScript off" and such a frame has never
+  tested it. That guard and the driver both needed pins in files no compiler ever opens:
+  `pages.py --self-test` 47 -> 48 (reads `cdp.scripts_disabled` and `cdp.Capture`, and refuses the
+  switch going back to a literal) and `manifest.py --self-test` 39 -> 40 (refuses a scripts-on frame
+  green, and refuses the same block with `off` green too, so the guard cannot be a ban on the field).
+  Both were hollowed and re-run before being declared: `value=scripts_off` -> `value=True` names the
+  pages rule, deleting the `elif scripts == "on":` arm names the manifest rule, and `raw = None` in
+  the helper names it as well -- the last of those is why the needle is `env.get("PLOCK_CAPTURE_SCRIPTS")`
+  and not the bare key name, which survives in prose. One vocabulary now crosses a module boundary:
+  `manifest.py script_values()` reads `cdp.SCRIPT_VALUES` instead of restating the pair, so a `check`
+  that cannot import `cdp` refuses instead of answering, which is the same trade `driver_pages()`
+  already makes. `README.md`'s scripts section is rewritten by D-0026 with the measurements this knob
+  makes possible, because until this commit the claim it makes was not checkable.
+- Checkpoint: d4d9c044b6cbeac8621ebd0c9e93999d01b527bb

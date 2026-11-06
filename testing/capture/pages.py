@@ -983,10 +983,13 @@ def main(shoot_fn=None, record_fn=None):
 # controls on the page: the census being asked for at both viewports, each of the three guards
 # refusing the one defect it names and accepting the fixed page, the zeros in the transcript, and the
 # measurement that was never taken. Plus two from #207 for the state behind the page: the declared
-# reading of the dashboard, and the audit row count that is the fixture's. The two canaries are
-# registered like every other rule and deliberately not counted: they exist to prove the helper is
-# not hollow.
-EXPECTED_RULES = 47
+# reading of the dashboard, and the audit row count that is the fixture's. Plus one for the scripts
+# condition arriving in the browser rather than only in the record -- the #213 finding was that a
+# declared condition and an unconditional driver agree with each other in the file and disagree with
+# the frame, and nothing that drives `pages.py` can see that.
+# The two canaries are registered like every other rule and deliberately not counted: they exist to
+# prove the helper is not hollow.
+EXPECTED_RULES = 48
 
 
 class _FakeSession:
@@ -2525,6 +2528,50 @@ def self_test():
 
     rule("the conditions are handed over at the manifest step",
          the_conditions_are_handed_over_at_the_manifest_step)
+
+    def the_scripts_condition_reaches_the_browser(problems):
+        """What the fixture declares has to be what the browser is told, not a comment about it.
+
+        #213's finding was only half in the manifest. `fixture.sh` declares `PLOCK_CAPTURE_SCRIPTS`,
+        `manifest.py` records it, and `cdp.py` called `Emulation.setScriptExecutionDisabled` with
+        `value=True` whatever the fixture said -- so the recorded value described this file rather
+        than the frame, and the discriminating run the notes told a reader to perform
+        (`PLOCK_CAPTURE_SCRIPTS=on ./lock-setup.sh && ./lock.py`) could only produce the pixels it
+        already had. No rule above could see that, because every one of them drives `pages.py`.
+
+        So this rule reads the sibling module, in the same spirit as manifest.py's Makefile-clause
+        rule: a control whose removal is invisible to every rule in its own file has to be pinned
+        where it is exercised. Two shapes are refused: the helper going away, and the switch going
+        back to a literal.
+        """
+        try:
+            helper = inspect.getsource(cdp.scripts_disabled)
+        except (AttributeError, OSError, TypeError):
+            problems.append("cdp.py has no scripts_disabled(), so nothing turns the fixture's "
+                            "PLOCK_CAPTURE_SCRIPTS into a browser setting and the manifest is "
+                            "recording a constant again (#213)")
+            return
+        if 'env.get("PLOCK_CAPTURE_SCRIPTS")' not in helper:
+            problems.append("cdp.scripts_disabled no longer reads PLOCK_CAPTURE_SCRIPTS out of the "
+                            "fixture env, so the condition a fixture declares decides nothing about "
+                            "its frames (the name surviving in this file's prose is not the read)")
+        try:
+            call = inspect.getsource(cdp.Capture)
+        except (AttributeError, OSError, TypeError):
+            problems.append("cdp.Capture could not be read, so nothing pins the scripts condition "
+                            "being applied to the session that takes the frame")
+            return
+        if "scripts_disabled(self.env" not in call:
+            problems.append("cdp.Capture no longer asks the fixture's env about page scripts, so "
+                            "PLOCK_CAPTURE_SCRIPTS is prose again and the manifest's `scripts` field "
+                            "describes cdp.py, not the frame")
+        if ('setScriptExecutionDisabled", value=True' in call
+                or 'setScriptExecutionDisabled", value=False' in call):
+            problems.append("the scripts switch is driven by a literal again, so every frame is "
+                            "taken under one condition whatever the fixture declares")
+
+    rule("the scripts condition reaches the browser, not just the manifest",
+         the_scripts_condition_reaches_the_browser)
 
     # Canary pair, through the same `rule` helper against its own lists: without it,
     # `rule = lambda w, b, *a: ran.append((w, 0))` reports 11 rules holding while calling none
