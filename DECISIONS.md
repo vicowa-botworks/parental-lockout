@@ -568,10 +568,14 @@ Two consequences, both deliberate:
   nothing on stderr about the eight it did not photograph), and it is the kind of carry-over that
   went wrong once before on this very file. `lock.png` and `testlock.png` keep their blocks and stay
   #213's: not re-taken here, because re-taking them locks the capturing machine's session for real.
-  `sources_rev` for `/audit` now names the merge commit `1c5a109`, because that is the newest commit
-  `git log` will show for `audit.tmpl` -- a merge, not the commit that wrote the template, and a
-  reader looking for the offset change still wants `c82baa6`. The header's `head` is the checkpoint
-  below, which is what `record` can see at the moment it writes.
+  `sources_rev` for `/audit` names a merge, not the commit that wrote the template: the field is
+  `git log -1 --format=%H` over the row's *declared sources* -- `newest_commit(sources)`, whose rule
+  `manifest.py:31` states and `manifest.py:314` implements; `record` writes the field at `:480` and
+  `check` recomputes it at `:749` -- and a conflict-resolving merge touches all four of them, so the
+  command answers the merge. D-0030 corrects how this sentence was written: it derived the value from
+  `audit.tmpl` alone, which answers `c82baa6` and still does at this head, and it quoted a sha
+  (`1c5a109`) that the next merge falsified the same day. The command travels; the sha does not. The
+  header's `head` is whichever checkpoint `record` was run from, not the one below (D-0030).
 - Checkpoint: cfad6e5cae88bfb2ffe96ec8191775926008aeed
 - Effect: docs/screenshots/360/audit.png (re-photographed against the merged tree),
   docs/screenshots/360/manifest.json (that entry's `png_sha256`, its declared-state cell `EDT` →
@@ -781,9 +785,12 @@ Two consequences, both deliberate:
   The tie-break agrees: nothing separates on `go.mod` or breadth (the working tree moves two files
   either way), "refuses rather than proceeds" picks the option whose every recorded condition has a
   witness, and `git revert` of this commit restores `main`'s frames and manifest untouched.
-- What this costs, stated rather than glossed. `head` is `8d8be5854`, the checkpoint, because
+- What this costs, stated rather than glossed. `head` was `8d8be5854`, the checkpoint, because
   `record` ran there; that commit is empty, so its tree is `d1ee983`'s and the render is that tree's,
-  but a reader who wants the commit that *contains* these PNGs wants the effect commit below.
+  but a reader who wants the commit that *contains* these PNGs wants the effect commit below. D-0029
+  ran `record` a second time, from its own checkpoint, so the committed header now reads `45977d6`
+  over these same bytes (D-0030 corrects the sentence above): `head` names where `record` stood,
+  never what holds the frames.
   `captured_at` is still one field for nine frames (D-0015's confession, unchanged); this time it is
   true of all nine, which is the widest the wart has ever been and the first time it has been a
   statement rather than a guess. The eight untouched rows keep `sources_rev` `9ccbe466` -- the same
@@ -853,3 +860,51 @@ Two consequences, both deliberate:
 - Effect: testing/capture/fixture.sh (the `PLOCK_CAPTURE_SCRIPTS` note), testing/capture/README.md
   (the re-capture recipe, the record-and-substitution paragraph, the `scripts` bullet),
   docs/screenshots/360/manifest.json (`head`, `captured_at`), DECISIONS.md
+
+## D-0030 · `sources_rev` is provenance, not a gate input, and two sentences say so now
+
+- Question: #214's round-6 review read `/audit`'s recorded `sources_rev` as `1c5a109` while `git log
+  -1` over that row's four declared sources answered `5c63fb9`, and asked for D-0023's explanation to
+  be rewritten to "name the command and the tree so the next merge does not falsify it again". The
+  same pass makes D-0028's `head` sentence stale on arrival, because D-0029 ran `record` again. Amend
+  the two sentences in place, leave them beside a correct artifact, or delete the claims?
+- Options: amend both in place and put what the field is worth on the record here | leave them, since
+  D-0029's `Effect:` line already says it moved `head` | drop the provenance sentences and let
+  `manifest.json` be the only record of itself
+- Chose: amend both in place and put what the field is worth on the record here
+- Why: nothing on the tie-break list separates these -- no dependency, nothing a page renders -- so it
+  falls to "refuses rather than proceeds" and to this file's own argument. A sentence that names the
+  command which produced a field survives the next merge; a sentence that quotes the value does not.
+  This branch has quoted `/audit`'s `sources_rev` three times -- `c82baa6` in the pull-request body,
+  `1c5a109` here, `d1ee983` now -- and the review supplied a fourth, `5c63fb9`, from `main`'s side of
+  the same four files; each was true when written and each is now a dead end for a reader. Option 2
+  loses because D-0029's `Effect:` line names the fields it moved, not the values it replaced, so
+  anyone who reads D-0028 alone is still told `head` is `8d8be5854`. Option 3 throws away the true
+  half -- the field names a merge, not the commit that wrote the template, which is exactly what a
+  reader diffing `audit.png` against `git log -- audit.tmpl` gets wrong -- to remove the false half.
+  The precedent is this file's: D-0028 amended three false D-0024 sentences in the commit that
+  measured them.
+  What the field is worth was measured before it was written down, and it is less than the schema
+  implies. `/audit`'s `sources_rev` replaced by forty zeros at this head, `manifest.py check` answers
+  `9 photographs current`, rc 0. The reason is the arm order: `:757` is `if recorded == current:
+  continue`, and once they differ the verdict is built from `current` and the photograph's own newest
+  commit (`:772`), so the recorded value is never read a second time -- a value that is merely wrong
+  reads exactly like a correct one. The artifact went back byte-for-byte (`sha256
+  94681166ad11229ae4325a6558c0b9143a5846931f4d6227a919bfcc66aee537`, `git status --porcelain` empty),
+  and the probe had to be made in place for a reason worth its own sentence: a copy of the directory
+  under `testing/capture/runs/` cannot exercise the drift arm at all, because `check` takes the PNG
+  path from `--dir` and answers an untracked frame with "no commit this checkout can see touches the
+  photograph". That bounds D-0028's scratch-copy method to the identity refusal it used it for.
+- What this costs, stated rather than glossed. Two more entries carry a correction marker, so the log
+  reads as a record of being wrong rather than as a clean ledger; D-0024 and D-0028 already look like
+  that, and the branch has `#1044`-class scar tissue from letting a plausible provenance sentence
+  stand. The finding also trims #215's own claim: `sources_rev` is provenance a human can audit, not
+  something the gate reads. Nothing in the gate moves -- `check` still refuses a frame that did not
+  travel with its page, because that verdict comes from the photograph's history, which is the half
+  that is not self-reported. One field the review did not reach says the same thing about itself:
+  `captured_at` is `2026-11-06T09:12:46Z`, forty-three seconds *after* `774a270` (09:12:03Z), the
+  commit holding the nine frames it dates, because D-0029 re-ran `record` after committing them. It
+  is the recording's timestamp, not the photographs', and D-0029's "it changes `captured_at` and
+  `head` and nothing else" is true of the bytes and silent about what the new value now means.
+- Checkpoint: c8b1e5a6648cb8fdbca270e9310f76c094ad6026
+- Effect: DECISIONS.md (D-0023's `sources_rev` sentence, D-0028's `head` sentence, this entry)
