@@ -35,6 +35,18 @@ type pageData struct {
 	// page -- and every logout test written by hand-building a `csrf=<token>` body
 	// stays green while it does.
 	CSRF string
+	// Page is the template name this response was rendered from -- the same string
+	// `render` was handed, so no page has to declare it and none can disagree with the
+	// route that served it.
+	//
+	// It exists for one line of markup: the shell's nav has to put `aria-current="page"`
+	// on the link that IS this page (#204), and the alternative was a per-page "which am
+	// I" field that twelve view models would have to remember to set -- a second table of
+	// what a page is called, and the forgotten row renders a page whose own navigation
+	// lies about it. Note this is the *route* vocabulary ("dashboard"), which is not the
+	// template's own `pagename` ("status"); the two are pinned against each other by
+	// TestEachPageMarksExactlyOneNavLinkAsCurrent rather than assumed to match.
+	Page string
 	// Data is the view model. The templates reach it as ".", because the alternative
 	// -- writing "{{.Data.Banner}}" in twelve places -- makes the markup unreadable
 	// and hides what the page actually shows.
@@ -162,6 +174,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, vie
 		CSS:  s.assetURL("app.css"),
 		JS:   s.assetURL("app.js"),
 		CSRF: csrf,
+		Page: name,
 		Data: view,
 	}); err != nil {
 		s.logf("web: %s %s could not render: %v", requestID(r), name, err)

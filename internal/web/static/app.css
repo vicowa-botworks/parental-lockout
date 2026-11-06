@@ -123,13 +123,102 @@ form.inline {
 	display: inline;
 }
 
-/* The override reason field lives inside a table cell. Left at the browser default it
-   is about 185 px wide on its own, which is more than a phone has to spare, and a cell
-   cannot shrink below the preferred width of its controls. */
-input[type="text"] {
+/* Every control, in the page's own typeface, at one width model (#202).
+   Until this rule the file matched exactly one input type -- `input[type="text"]` -- and
+   `font: inherit` appeared on `button` and on no `input`, so four of the five types the
+   templates use arrived in the user-agent stylesheet in full. Measured through Chrome at a
+   360 px viewport on /settings: text 163 px, password 185 px, number 65 px, every one of
+   them Arial 13.3333 px, beside buttons at system-ui 16 px. That is the report -- "input
+   boxes are not aligned properly in some places" -- and it is every control on the page,
+   with one selector behind it.
+
+   The two halves are one commit on purpose. `ch` resolves against the element's own font,
+   so `max-width: 22ch` on an Arial 13.33 px box was 163 px while the prose it is meant to
+   line up with is 16 px: the moment `font: inherit` lands, that same untouched declaration
+   changes the rendered width. Landing either half alone would have moved the other half's
+   number without measuring it.
+
+   `number` is in the field group rather than given its own narrower box, because the claim
+   being kept is "one width model", and `testing/capture` refuses a page whose visible
+   fields compute different widths -- a rule that reads the stylesheet's intent would have
+   to encode this exception and would then be free to encode the next one silently. A
+   seconds-between-checks box the width of a password box is the cost, and it is a phone:
+   the field is already wider than it needs to be at 360 px either way.
+
+   The override reason field lives inside a table cell. Left at the browser default it is
+   about 185 px wide on its own, which is more than a phone has to spare, and a cell cannot
+   shrink below the preferred width of its controls -- that is where `width: 100%` came
+   from, and every type inherits that shape now. */
+input,
+select,
+textarea {
+	font: inherit;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="search"],
+input[type="email"] {
 	width: 100%;
 	max-width: 22ch;
 	box-sizing: border-box;
+}
+
+/* Radio pairs and checkbox rows had no space between them: the enforcement pair ran
+   together out to the edge of the viewport because nothing separated one label from the
+   next (#202). `white-space` keeps a control welded to its own caption when the group
+   wraps, which is what makes the wrap read as two choices rather than four fragments.
+   `:has` is the only selector that reaches a label by what it contains, and where it is
+   not supported the whole rule is dropped: the group loses its spacing, which is the
+   state the page was already in, instead of losing its labels. */
+fieldset label:has(input[type="radio"]),
+fieldset label:has(input[type="checkbox"]) {
+	margin-right: .9rem;
+	white-space: nowrap;
+}
+
+/* The navigation (#204).
+
+   There was no rule here at all -- not a weak one, none: the only anchor in the file was
+   `a:focus-visible` -- so the primary navigation rendered in browser link blue, underlined,
+   weight 400, on every page including the one you are looking at. The palette two lines up
+   (`--ink`, `--muted`, `--line`) was used by everything except the row a parent uses to
+   move between pages.
+
+   Three properties mark the current page -- colour, weight, and a rule under it -- rather
+   than one, because the driver now refuses a page where the current link computes
+   identically to every sibling, and a marker that survives only while one declaration is
+   load-bearing is a marker one careless cleanup removes. The transparent border is on every
+   link so marking the current page cannot shift the baseline by 2 px.
+
+   The `aria-current="page"` this hangs off is emitted by page.tmpl from the route, not
+   inferred here: an attribute a screen reader can announce is the part that was missing for
+   somebody who cannot see the difference, and a body-class selector would have fixed the
+   photograph only. */
+nav {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	column-gap: .9rem;
+	row-gap: .15rem;
+}
+
+nav a {
+	color: var(--muted);
+	text-decoration: none;
+	border-bottom: 2px solid transparent;
+	padding-bottom: .1rem;
+}
+
+nav a:hover {
+	color: var(--ink);
+}
+
+nav a[aria-current="page"] {
+	color: var(--ink);
+	font-weight: 600;
+	border-bottom-color: var(--ink);
 }
 
 button {
