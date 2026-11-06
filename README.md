@@ -337,6 +337,9 @@ ranks the residual risk. The four that change how you should think about the pro
   decision log that makes an unattended judgement call reversible.
 - [DECISIONS.md](DECISIONS.md) — every judgement an unattended session made, with the options it
   was given and the commit to roll back to.
+- [factory/DECISIONS.md](factory/DECISIONS.md) — the same, for the delivery harness itself
+  (`factory/`, the timer, the agent's permissions). Its ids are `H-`, so a citation cannot land on a
+  page-design decision with the same number.
 - Target platform is KDE Plasma on Ubuntu, with GNOME measured on real hardware as well; the
   locking mechanism sits behind an interface, and the difference between the two — whether a
   confirmation rests on something the controlled user cannot write — is measured, not assumed.

@@ -4,7 +4,7 @@ How this repository's issues get to a merged pull request without anyone remembe
 
 Read this if you have ever found an open pull request with green checks that nobody had looked at,
 or an issue that a closed-over branch had already fixed. Both happened here on 4 November 2026; the
-numbers are in `DECISIONS.md`.
+numbers are in `factory/DECISIONS.md` (this log's own ids are `H-`; the repository's are `D-`).
 
 ## The one idea
 
@@ -42,7 +42,7 @@ consequences -- `first-seen` decides queue order, `stuck-since` starts the escal
 `last-notice` throttles comments at a maintainer -- so one rehearsed pass made the next real pass quote
 a wait that never happened and stay quiet at somebody who had never been contacted. `log_event` is
 deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry run nobody trusts
-(D-0017).
+(H-0017).
 
 ## What each class means
 
@@ -173,7 +173,7 @@ was started from, where nothing is defined at all: measured 5 Nov, 152 passes in
 two seconds on `Error: Agent not found: "factory"`, each one recorded as a bare `exit=1`, because a
 systemd unit exports a working directory and no `PWD`. Review requests, merges and conflict
 resolution read only the API and git, so they work from any checkout.
-That is why the first install can point at the harness branch (`DECISIONS.md` D-0009) and why
+That is why the first install can point at the harness branch (`factory/DECISIONS.md` H-0009) and why
 `install-timer.sh` refuses rather than installing a unit whose `ExecStart` path does not exist: a
 timer that fires into 127 looks identical, from the outside, to a timer that is working.
 
@@ -228,7 +228,7 @@ pattern written at the top level is read as an **action**, and no tool reports a
 shell command, so `--auto` approves the command anyway: measured with the same entry both ways, flat
 `gh pr merge 999999` ran, nested under `bash` it returned `Permission denied: shell`. Check the keying
 of any copy of this harness with `opencode debug agents` -- every rule must come back as
-`"action": "shell"` with the pattern in `resource` (D-0013). It is also a wildcard match on the whole
+`"action": "shell"` with the pattern in `resource` (H-0013). It is also a wildcard match on the whole
 parsed command line rather than a prefix match, which is why the push rules read `* push --force*`:
 `git -C <tree> push --force` is the shape this harness actually uses.
 

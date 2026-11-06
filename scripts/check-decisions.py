@@ -35,7 +35,8 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOG = os.path.join(ROOT, "DECISIONS.md")
+LOGS = (os.path.join(ROOT, "DECISIONS.md"), os.path.join(ROOT, "factory/DECISIONS.md"))
+LOG = LOGS[0]
 MAKEFILE = os.path.join(ROOT, "Makefile")
 
 USAGE = """usage: check-decisions.py [--self-test] [--log PATH]
@@ -45,10 +46,10 @@ still being invoked by `make verify`. Takes no positional arguments: a filename 
 that expanded to nothing is a silent change of subject, which is what `--log` is for."""
 
 FIELDS = ("Question", "Options", "Chose", "Why", "Checkpoint")
-ENTRY = re.compile(r"^## (D-(\d{4}))\s*(?:·|\||-)\s*(.+?)\s*$")
+ENTRY = re.compile(r"^## ([DH]-(\d{4}))\s*(?:·|\||-)\s*(.+?)\s*$")
 FIELD = re.compile(r"^\s*[-*]\s*([A-Za-z][A-Za-z ]*):\s*(.*)$")
 SHA = re.compile(r"^[0-9a-f]{7,40}$")
-ID_NUM = re.compile(r"D-(\d{4})$")
+ID_NUM = re.compile(r"[DH]-(\d{4})$")
 
 
 def parse(text, label="<log>"):
@@ -410,14 +411,38 @@ def main(argv):
         print("check-decisions: unknown argument %r\n%s" % (argv[1], USAGE), file=sys.stderr)
         return 2
 
-    text, problem = read(path)
-    if problem:
-        print(problem, file=sys.stderr)
-        return 1
+    paths = [path] if path != LOG else list(LOGS)
+    problems = []
+    total = 0
+    where_seen = {}
+    for p in paths:
+        text, problem = read(p)
+        if problem:
+            print(problem, file=sys.stderr)
+            return 1
+        label = os.path.relpath(p, ROOT)
+        entries = parse(text, label)
+        total += len(entries)
+        problems += check(entries)
+        if path == LOG:
+            for e in entries:
+                where_seen.setdefault(e["id"], []).append(label)
 
-    problems = check(parse(text, os.path.relpath(path, ROOT)))
     if path == LOG:
         problems += verify_invocation()
+        # One id in two logs is not a duplicate to dedupe: it is a citation that points at two
+        # decisions. Measured 6 Nov, when merging origin/main into the harness branch: `main` carried
+        # D-0011..D-0015 as product decisions (a control's typeface, `:has()` reaching a tick box's
+        # words) while the harness log had D-0011..D-0015 as harness decisions (the tick's `$PWD`, the
+        # worktree cut, the deny keying), because a tick numbers from the highest id it can *see*, and
+        # a tree cut before this file existed sees none of it. Both files now have their own id space,
+        # so the only thing left to enforce is that they do not meet.
+        for ident in sorted(where_seen):
+            if len(where_seen[ident]) > 1:
+                problems.append(
+                    "%s is used in %s -- one id, %d decisions; a citation to it does not resolve. "
+                    "Renumber the later entry in its own log." %
+                    (ident, " and ".join(sorted(where_seen[ident])), len(where_seen[ident])))
 
     if problems:
         print("\n%d decision-log problem(s):" % len(problems))
@@ -425,8 +450,8 @@ def main(argv):
             print("  %s" % p)
         return 1
 
-    print("check-decisions: %d entries, every one with its question, options, choice, reason and "
-          "checkpoint" % len(parse(text, path)))
+    print("check-decisions: %d entries across %d log(s), every one with its question, options, "
+          "choice, reason and checkpoint" % (total, len(paths)))
     return 0
 
 

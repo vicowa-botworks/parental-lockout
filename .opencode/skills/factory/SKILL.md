@@ -85,6 +85,16 @@ gh pr view "$PR" --json reviewDecision,mergeable,mergeStateStatus,headRefOid,sta
 gh pr view "$PR" --json reviewRequests --jq '[.users[].login]'
 ```
 
+Spell those reads as two calls, in this shape. A command the permission scanner cannot parse is refused
+outright, and the refusal looks like a tool bug rather than a denial: measured 5 Nov, a tick composed one
+`gh pr view` with a `-q` program containing `\n` escapes and several nested quotes, and every attempt came
+back `Error: Portable shell scanner cannot analyze command: unterminated-quote` -- 45 minutes of ceiling
+gone, `TICK-FAILED exit=124`, nothing answered. Now that the deny rules are keyed under `bash` and
+therefore actually evaluated, the scanner parses every command this agent runs, and a shape it cannot
+analyze is fatal instead of merely unmatched. One statement per call, `--json` plus a short `--jq`, and
+never a program with escaped newlines inside a shell quote.
+
+
 `reviewDecision` is not evidence that feedback is outstanding: it stays `CHANGES_REQUESTED` after a
 fix push until the reviewer re-reviews. Compare the review's `submitted_at` with the head commit's
 `committer.date`; whichever is newer decides whether there is anything to answer.
@@ -120,8 +130,16 @@ When you reach a decision point, do this instead, in this order:
    4. the option that touches the fewest files and packages;
    5. the option that is reversible by `git revert` alone;
    6. the option the surrounding code already takes -- read two call sites before inventing a rule.
-3. **Write the entry into `DECISIONS.md`** in the same commit as what it decides: question, every
-   option you considered, the one you took, why the tie-break selected it, and the checkpoint sha.
+ 3. **Write the entry into the log of the tree you are delivering into**, in the same commit as what it
+   decides: question, every option you considered, the one you took, why the tie-break selected it, and
+   the checkpoint sha. Product work -- the daemon, the web UI, the capture driver, a test -- goes in
+   `DECISIONS.md` with a `D-` id. Work on the delivery harness itself -- `factory/`, `.opencode/`,
+   `scripts/check-*`, the timer -- goes in `factory/DECISIONS.md` with an `H-` id. The prefixes are not
+   decoration: two loops once opened the same file at `D-0011` and each cited the other's numbers, so
+   `main` carries `D-0011`..`D-0015` as page-design decisions while the harness decisions with those same
+   numbers live in `factory/DECISIONS.md`. Number from the highest id in the file you are writing to,
+   never from one you read elsewhere; `scripts/check-decisions.py` refuses an id that appears in both
+   logs.
 4. **Carry on.** Do not mark a todo, do not wait, do not restate the decision as a question.
 
 `scripts/check-decisions.py` runs in `make verify` and refuses an entry that is missing a field, so
@@ -200,6 +218,17 @@ What you owe the review is the rest of it: a body that says what changed and quo
 instruction that made the work non-obvious. The four pull requests that once sat in `REVIEW_REQUIRED`
 for three days with an empty reviewer list are why the queue asks on its own now; a tick that
 rediscovers that fact is a tick spending its ceiling on a command that cannot succeed.
+
+## Before the ceiling: push, even if you are not finished
+
+A tick's last act is a pull request, so never end with commits that live only in a worktree. If the
+evidence you wanted has not landed and your time is nearly out, push the branch and open the pull request
+anyway, with a body that says plainly which claims are still unmeasured and what would close them. The
+alternative is the failure this harness was written to end: `TICK-DONE`, exit 0, and nine commits sitting
+in one directory on a branch nothing references, while the queue hands the same issue to the next pass.
+`factory.sh` checks for the pull request after every tick and logs `TICK-UNDELIVERED` when there is none,
+and the unit stays where it was -- so an honest draft is strictly better than a tidy silence. Pushing a
+branch and opening a pull request are inside your authority (#1823); merging is not.
 
 ## Step 6 — hand off
 

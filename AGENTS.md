@@ -23,6 +23,8 @@ rule that exists because of a measured failure, and the measurement is cited.
 ## Decisions
 
 `DECISIONS.md` is the record that makes an unattended judgement call reversible, and
+`factory/DECISIONS.md` is the same record for the delivery harness itself, with `H-` ids so a
+`D-0013` in a page-design context and an `H-0013` in a permissions context cannot collide, and
 `scripts/check-decisions.py` enforces its shape inside `make verify`.
 
 - Checkpoint **before** a judgement call (`chore(checkpoint): pre-D-NNNN`), then one effect commit

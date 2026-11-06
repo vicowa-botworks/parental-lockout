@@ -274,9 +274,25 @@ factory_resolve_conflict() {
 		log_event "CONFLICT-SKIPPED pr:$pr attempted ${age}s ago"
 		return 2
 	fi
-	factory_ledger_now "pr:$pr" conflict-at
 
-	tree=$(factory_worktree "$branch") || return 2
+	# The stamp is the throttle, so it belongs on the attempt, not on the wish to attempt. It used to
+	# sit above the worktree call, which meant a branch this supervisor cannot even reach still started
+	# the 600 s clock -- and the next four passes then logged `CONFLICT-SKIPPED attempted Ns ago` over
+	# the one line that explained why, turning a hard block into a wait.
+	local worktree_err
+	worktree_err=$(mktemp)
+	if ! tree=$(factory_worktree "$branch" 2>"$worktree_err"); then
+		# `factory_worktree` refuses with `die`, and a `die` inside a command substitution dies the
+		# subshell: the status reaches here, the sentence does not reach the journal (measured 6 Nov --
+		# no `checked out in` line anywhere in the journal for the 01:05 pass), and the caller printed
+		# "not a merge a model can settle" over a block that had nothing to do with a model. Keep the
+		# reason where a person reads the queue.
+		log_event "CONFLICT-BLOCKED pr:$pr $(tr '\n' ' ' <"$worktree_err" | cut -c1-220)"
+		rm -f -- "$worktree_err"
+		return 2
+	fi
+	rm -f -- "$worktree_err"
+	factory_ledger_now "pr:$pr" conflict-at
 	if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
 		log_event "CONFLICT-HALTED pr:$pr $tree is dirty -- a person or a dead tick owns it"
 		printf '%s\n' "a working tree was found dirty and the supervisor will not touch it: $tree" \
@@ -448,6 +464,28 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 		>"$log" 2>&1 || status=$?
 
 	if [ "$status" -eq 0 ]; then
+		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two
+		# came apart on the first unclaimed unit this harness worked properly: issue #199, started
+		# 01:05:27Z, `TICK-DONE` 01:30:43Z, and the tree still held nine commits on branch `issue-199`
+		# with no pull request and nothing pushed -- the session's own last line was "I'm holding the
+		# push until those logs land". The unit then fell straight back into `unclaimed`, so every later
+		# pass re-offers the same issue while the work sits invisible in one worktree. A tick's authority
+		# ends at an open or updated pull request (#1823), so a pull request on that branch is the only
+		# evidence that the unit moved forward, and the cheapest thing to ask for.
+		local pr_now pr_read=0
+		case "$class" in
+		unclaimed | branch_without_pr | address_review | conflict)
+			pr_now=$(gh pr list --head "$branch" --json number --jq '.[0].number // ""' 2>/dev/null) || pr_read=$?
+			if [ "$pr_read" -ne 0 ]; then
+				# A read that failed is not a delivery that failed: say which of the two happened.
+				log_event "TICK-UNCHECKED $unit delivery could not be confirmed (gh exit=$pr_read)"
+			elif [ -z "$pr_now" ]; then
+				log_event "TICK-UNDELIVERED $unit exit=0 with no pull request on $branch -- it stays where it was"
+				factory_ledger_now "$unit" last-tick
+				return 4
+			fi
+			;;
+		esac
 		log_event "TICK-DONE $unit see $(basename -- "$log")"
 		factory_ledger_clear "$unit" stuck-since
 		factory_ledger_now "$unit" last-tick
@@ -519,7 +557,7 @@ factory_body() {
 			case "$rc_conflict" in
 			0) : ;;
 			1) workable+="$(printf '%s\037%s\037%s\037%s\037%s\037%s' conflict "$key" "$detail" "$branch" "$issue" "$unit")"$'\n' ;;
-			2) log_event "CONFLICT-DEFERRED pr:$key not a merge a model can settle; the next activation retries" ;;
+			2) log_event "CONFLICT-DEFERRED pr:$key nothing to attempt this activation; the reason is the line above" ;;
 			*)
 				log_event "CONFLICT-UNKNOWN pr:$key unexpected status $rc_conflict"
 				rc=4
