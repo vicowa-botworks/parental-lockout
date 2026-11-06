@@ -47,8 +47,12 @@ entry carries a block. The nine committed artifacts come from three drivers and 
 records, so a re-take of one page cannot say what `lock.png` was taken under; that directory stays
 /1, keeps the blocks it really has, and `check` says how many of the frames state their conditions.
 An absent condition is never filled in with a default -- `scripts: "off"` recorded because the driver
-disables scripts today would be #211 repeated one layer down, and is exactly what the two POST frames
-would have said about frames taken with their scripts on (#213 re-takes them).
+disables scripts today would be #211 repeated one layer down. The two POST artifacts are the case study
+in doing it twice: their value was inferred first from commit dates and then from nine reproduced
+digests, and neither inference could have been checked, because the driver did not read the declaration
+until D-0025 and neither page renders anything the page's own scripts could change. Their `off` is true
+now because the frames were re-taken (#213) by a driver that honours it -- which is a statement about the
+run, the most the field can mean; see the scripts section of testing/capture/README.md.
 
 Two things the check refuses that a "compare the dates" design would miss:
 
@@ -103,9 +107,9 @@ ARTIFACT_WIDTH = 360
 #
 # A key the fixture did not write produces no field. Absent means "this fixture declared nothing about
 # it" and NEVER a default: the whole defect #211 closes is a reader filling in a condition nobody
-# stated, and a `scripts: "off"` written by the recorder because the driver disables scripts today
-# would be the same mistake one layer down -- it is what the two POST frames in docs/screenshots/360
-# would have said about frames taken with their scripts running.
+# stated, and a `scripts: "off"` written by the recorder because the driver disables scripts today would
+# be the same mistake one layer down. `cdp.scripts_disabled` is what makes the difference visible: the
+# declaration decides the browser now, so an `off` in a block reports a run, not this file's preference.
 CONDITION_KEYS = (
     ("PLOCK_CAPTURE_STAMP", "stamp"),
     ("PLOCK_CAPTURE_ZONE", "zone"),

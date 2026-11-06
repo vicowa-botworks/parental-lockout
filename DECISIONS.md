@@ -180,9 +180,10 @@ Two consequences, both deliberate:
 - Options: this branch's five frames with main's guards spliced in | main's five frames with this
   branch's guards spliced in | one side taken wholesale, code and artifacts together | re-photograph
   the set against the merged tree with both censuses wired in
-- Chose: re-photograph the set against the merged tree with both censuses wired in, and make
-  `EXPECTED_RULES` the union -- 36 + 7 (#202) + 2 (#207) = 45, one tally comment instead of two
-- Why: the first two options are the same mistake aimed at opposite ends of the criterion. Main's
+- Chose: re-photograph the set against the merged tree with both censuses wired in
+- Why: the tally moves with the choice -- `EXPECTED_RULES` becomes the union, 36 + 7 (#202) +
+  2 (#207) = 45, one tally comment instead of two, which is the half of this option that has no side to
+  splice. The first two options are the same mistake aimed at opposite ends of the criterion. Main's
   five frames are the pre-#202 stylesheet -- controls in the browser's own Arial beside 16 px
   system-ui, `/settings` sizing its fields three ways on one page -- so committing them re-files the
   exact defect #202 was opened for under the filenames the criterion calls its evidence. This
@@ -431,7 +432,7 @@ Two consequences, both deliberate:
 - Options: write the test into the notes as advertised | retract the override in prose and point the
   reader at a hand edit to `cdp.py` | make `cdp.py` honour the declaration, refuse a value outside the
   two, and refuse to *commit* a frame recorded `scripts: "on"`
-- Chose: make `cdp.py` honour the declaration, refuse a value outside the two, and refuse to commit a
+- Chose: make `cdp.py` honour the declaration, refuse a value outside the two, and refuse to *commit* a
   frame recorded `scripts: "on"`
 - Why: the first option is refused by the measurement above. A test that cannot produce a second
   outcome is not a discriminating test, and writing it into two notes would have re-planted #213's
@@ -459,3 +460,42 @@ Two consequences, both deliberate:
   already makes. `README.md`'s scripts section is rewritten by D-0026 with the measurements this knob
   makes possible, because until this commit the claim it makes was not checkable.
 - Checkpoint: d4d9c044b6cbeac8621ebd0c9e93999d01b527bb
+
+## D-0026 · The two POST frames are taken on this branch, and the byte-identity claim is withdrawn
+
+- Question: #215's review says `lock.png` and `testlock.png` carry an `off` those pixels cannot
+  witness, because the driver that produced them in October ran the page's scripts and `cdp.py` never
+  read the declaration. Its option 1 is to write the discriminating test into the two notes and leave
+  the frames; its option 2 is to take the frames here, "digests move or don't", so that the field
+  becomes a statement about pixels rather than about the driver's present. Which, now that D-0025 has
+  made the test runnable in both directions?
+- Options: state the test in the notes, frames untouched | take the two frames here and record what
+  both arms return | drop `scripts` from those two blocks as undeclarable
+- Chose: take the two frames here and record what both arms return
+- Why: the measurement came first, on four runs of the two fixtures with the knob live. `on` and `off`
+  produce **one PNG apiece** -- `lock.png` `b59bb2be…`, `testlock.png` `acc5ba4d…`, both equal to the
+  committed files -- because neither page renders a `time[data-unix]` element and `renderCountdowns` is
+  `static/app.js`'s only load-time DOM write, so there is nothing on those renders for the page's
+  scripts to change. The control is `/dashboard`, where the same switch moves casey's row from the
+  server's `until 00:00` to the browser's `until 7h 46m` and `require_declared_state` refuses the frame:
+  the switch has power, just not where these two artifacts live. Option 1 is what the review asked for
+  literally and it is refused by that measurement rather than by preference -- after D-0025 the two arms
+  return the same file, so writing the sentence would document a test that cannot discriminate while the
+  manifest went on asserting `off` of frames whose driver has just been shown not to be the one the value
+  describes. Option 3 throws away a statement that can be made true in order to avoid one that cannot,
+  and it would cost `check` its `scripts` rule and `/2` its "every frame states what it was taken under".
+  So the frames were taken here, at `80295c513`, by the driver that honours the declaration: the PNGs
+  moved no bytes, the manifest header moved, and every entry was re-checked against all four fixtures'
+  current declarations -- nine blocks, no disagreement printed. What they certify about "usable at 360 px
+  with JavaScript off" is certified by the session's setting, which is the most a page with no countdown
+  can say, and the notes now say it that way instead of claiming the pixels prove it.
+  Two claims are withdrawn in the same commit rather than softened. The 4 Nov sentence "these pixels ARE
+  the scripts-off pixels" inferred a condition from a digest comparison that cannot see the difference on
+  these two pages, and it is the same error as the `on` it replaced -- provenance dressed as measurement,
+  one layer down from #211. And this folder's stated reason for treating a re-take as a decision, that it
+  "locks the capturing machine's session for real", is simply false: `post-fixture.sh` sets
+  `"enforcement": false` and `/bin/true`, and measured 6 Nov around the run that took both frames the
+  capturing account's own session went `active` -> `active` with `LockedHint` `no` -> `no` while the
+  fixture's `audit.jsonl` filled with `lock.requested`. That sentence is the reason #213 sat unclaimed,
+  which is worth more than the comfort of leaving it in.
+- Checkpoint: 80295c5138207c54ec19a3694c0849749d4855ca
