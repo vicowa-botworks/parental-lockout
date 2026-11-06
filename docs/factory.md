@@ -228,19 +228,48 @@ either a bare `allow`/`ask`/`deny` keyed by the tool's name, or -- for `bash` --
 patterns. A pattern written at the top level is read as an **action**, and no tool reports an action
 named after a shell command, so `--auto` approves the command anyway: measured with the same entry both
 ways, flat `gh pr merge 999999` ran, nested under `bash` it returned `Permission denied: shell`. Check
-the keying of any copy of this harness with `opencode debug agents` -- every rule must come back as
-`"action": "shell"` with the pattern in `resource` (H-0013).
+the keying of any copy of this harness with `opencode debug agents --standalone` -- every rule must
+come back as `"action": "shell"` with the pattern in `resource` (H-0013). Without `--standalone` the
+CLI answers from a running server's startup config, which is a different question.
 
 Spelling matters the same way, and getting it wrong is quieter. The matcher globs the **whole** parsed
 command line, so a pattern that opens on a literal only matches a command that opens on that literal.
 Measured on v2.2.5 at `869564a`: 17 bash rules, **7 of them inert** for exactly that reason --
 `gh pr merge*` allowed `gh -R vicowa-botworks/parental-lockout pr merge 218`, which is the form `gh`'s
-own `--repo` flag produces. So every pattern here opens with `* `, and where a flag can sit between the
-program and the subcommand the wildcard starts at the subcommand: `* pr merge*`, not
-`* gh pr merge*`. `* push --force*` covers `git -C <tree> push --force`, the shape this harness uses
-constantly. Two families are deliberately narrower than their broad form: `* tag *` needs the argument
-so `git tag` can still list, and `* release create*`/`delete*`/`edit*` leave `gh release list` readable
--- a deny that breaks a legitimate read teaches the next tick to route around denies.
+own `--repo` flag produces. So a denial whose program can *open* a command needs **both** shapes: the
+`* ` form reaches the flag-inserted command and the literal form reaches the bare one, and neither
+covers the other. Deleting the literals to fix round three is what re-opened the bare ones -- at
+`37120a8`, `rm -rf`, `systemctl --user stop <the timer>` and `go get` went from denied to allowed in
+the commit written to repair the list. Where a flag can sit between the program and the subcommand the
+wildcard starts at the subcommand: `* pr merge*`, not `* gh pr merge*`; that is also why the `git` and
+`gh` rules need no literal twin, since their patterns key on a subcommand and a command always has
+something before it. Two families are deliberately narrower than their broad form: `* tag *` needs the
+argument so `git tag` can still list, and `* release create*`/`delete*`/`edit*` leave `gh release list`
+readable -- a deny that breaks a legitimate read teaches the next tick to route around denies.
+
+`python3 scripts/check-denies.py`, which `make verify` runs as *agent deny list*, is what stops this
+from being a matter of reading carefully. It resolves the agent's rules through the CLI, matches whole
+commands against them, and asserts both directions: every denial refused in both spellings, and a
+short allow-list (`git describe --tags --always`, `git tag`, `gh release list`, `git push origin feat`)
+still allowed, because an over-reaching list shuts the harness down and a check that only asserts
+denials passes a config that forbids `git commit`. It also refuses a config pattern that no command
+here witnesses, and a resolved pattern the config does not contain. It asks the CLI with
+`--standalone`, and that is not a detail: without it the CLI answers from a *running server's* startup
+config, and measured on 6 Nov, replacing the file with the broken list and running the check in the
+same breath still returned the good one -- 23 rules, green. A check that reads yesterday's ruleset is
+worse than no check, because it prints a number. It skips, loudly, where opencode is not installed
+(CI), and `CHECK_DENIES_REQUIRED=1` makes a skip a failure.
+
+Two limits stay on the record, because both are the kind that gets forgotten. First, this reads the
+resolved ruleset, not a decision: `opencode run --auto --agent factory` has never executed a command
+inside these rules on either machine involved in #217 -- it dies with `UnknownError` on the reviewing
+box -- so the matcher's semantics remain an assumption shared by the probe and the fix, and one landed
+live tick would settle more than another round of pattern-shaping. Second, a whole-line glob cannot
+tell a command from a quote, so these patterns match **inside arguments**: `git rm -r --cached legacy`
+is denied, and so is `git commit -m "explain why * rm -r* is denied"`. That is expected behaviour, not
+a bug to route around -- the response is to reword the message, or to write the note in a file with
+`write` rather than in a `-m` string. Narrowing the patterns further is not available: `* rm -r ` with
+a trailing space matches the quoted form just as well.
 
 Keying these patterns under `bash` has a second consequence: the CLI's command scanner now parses every
 command the agent types, so a command shape the scanner cannot analyse is refused outright rather than

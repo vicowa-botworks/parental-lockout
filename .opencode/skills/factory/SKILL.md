@@ -31,7 +31,7 @@ is either a bare word -- `allow` | `ask` | `deny`, keyed by the tool's own name 
 ```jsonc
 "permission": {
   "question": "deny",                                  // the tool is `question`
-  "bash": { "gh pr merge*": "deny" }                   // `bash` is a pattern table
+  "bash": { "* pr merge*": "deny" }                    // `bash` is a pattern table
 }
 ```
 
@@ -39,13 +39,21 @@ A pattern written at the top level instead becomes an **action**, and no tool re
 after a shell command, so `--auto` approves the command anyway. Measured both ways on v2.2.5 with the
 same entry: flat, `gh pr merge 999999` ran; nested under `bash`, the same call came back
 `Permission denied: shell`. Check your own keying before you credit a deny rule with stopping
-anything -- `opencode debug agents` must show every rule as `"action": "shell"` with the pattern in
-`resource`, never as the pattern in `action`.
+anything -- `opencode debug agents --standalone` must show every rule as `"action": "shell"` with the
+pattern in `resource`, never as the pattern in `action`. `--standalone` is not decoration: without it
+the CLI answers from a running server's startup config, so a rule you just wrote, and a rule you just
+broke, both read as whatever was true when that server started. Here that is checked for you --
+`scripts/check-denies.py`, run by `make verify`, asserts both spellings of every denial and a short
+allow-list against what the CLI resolves, and refuses a pattern nothing witnesses.
 
 Two things that table is not. It is not a prefix list: a pattern is matched against the whole parsed
-command line, which is why the push rules here read `* push --force*` and would miss
-`git -C /some/tree push --force` if they began with `git`. And it is not a sandbox -- it constrains a
-cooperative agent by the command shapes it can spell. The list: `question` (headless, so a question is
+command line, anchored at both ends, which is why the push rules here read `* push --force*` and would
+miss `git -C /some/tree push --force` if they began with `git` -- and equally why a program that can
+*open* a command needs its literal twin as well: `* rm -r*` does not reach `rm -rf /tmp/x`, and the
+bare form is what you type first. Both shapes, or the denial has a hole in it. And it is not a sandbox
+-- it constrains a cooperative agent by the command shapes it can spell, and a whole-line glob matches
+inside quoted arguments too, so `git commit -m "why * rm -r* is denied"` is refused and that is the
+design, not a bug to route around. The list: `question` (headless, so a question is
 a stall), `gh pr merge`, `gh pr review`, `gh api`, force-push, delete-push, any push to `main`,
 `go get`, `git tag`, `gh release`, `systemctl`, `rm -rf`, and `git worktree remove|move`.
 
@@ -89,12 +97,17 @@ Spell those reads as two calls, in this shape. A command the permission scanner 
 outright, and the refusal looks like a tool bug rather than a denial: measured 5 Nov, a tick composed one
 `gh pr view` with a `-q` program containing `\n` escapes and several nested quotes, and every attempt came
 back `Error: Portable shell scanner cannot analyze command: unterminated-quote` -- 45 minutes of ceiling
-gone, `TICK-FAILED exit=124`, nothing answered. That measurement is from the binary the ticks on this box
-run, `opencode` v2.2.5 (`~/.opencode/bin/opencode --version`); the string is not present in 1.18.5, so
-re-measure before repeating the claim on another version, and name the version when you do. Now that the deny rules are keyed under `bash` and
-therefore actually evaluated, the scanner parses every command this agent runs, and a shape it cannot
-analyze is fatal instead of merely unmatched. One statement per call, `--json` plus a short `--jq`, and
-never a program with escaped newlines inside a shell quote.
+gone, `TICK-FAILED exit=124`, nothing answered. Cite the binary as well as the version when you repeat
+this: `command -v opencode && opencode --version`, both together. The measurement above is v2.2.5 at
+`~/.opencode/bin/opencode` on the box that took it, which is the binary a tick meets because
+`factory/common.sh`'s `FACTORY_OPENCODE` resolves `opencode` through `PATH` and `install-timer.sh`
+bakes that `PATH` into the unit. On another box the same path reported 1.17.13 while the `opencode` on
+`PATH` there reported 1.18.5, and the quoted string is not present in 1.18.5 -- so a version with no
+path attached is a claim nobody can re-run, which is the objection `D-0015` makes about digests.
+Re-measure before repeating it on another version, and name the version when you do. Now that the deny
+rules are keyed under `bash` and therefore actually evaluated, the scanner parses every command this
+agent runs, and a shape it cannot analyze is fatal instead of merely unmatched. One statement per call,
+`--json` plus a short `--jq`, and never a program with escaped newlines inside a shell quote.
 
 
 `reviewDecision` is not evidence that feedback is outstanding: it stays `CHANGES_REQUESTED` after a

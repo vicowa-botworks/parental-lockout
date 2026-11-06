@@ -16,15 +16,22 @@
 // otherwise. The boundary against irreversibility is that a tick cannot merge at all (H-0006) and the
 // supervisor re-reads every gate from the API before it does.
 //
-// Because that glob is anchored at both ends, every pattern below begins with `* `. That is not style:
-// a pattern opening on a literal can only match a command opening on that literal, so `gh pr merge*`
-// left `gh -R vicowa-botworks/parental-lockout pr merge 218` allowed -- the form `gh`'s own `--repo`
-// flag produces. Measured at 869564a with `opencode debug agent factory` on v2.2.5: 17 bash rules, 7 of
-// them opening on a literal, therefore inert. Where a flag can sit between the program and the
-// subcommand the wildcard has to start at the subcommand (`* pr merge*`, not `* gh pr merge*`). The
-// scanner rule in the skill is the other half of why this matters: keying these patterns under `bash`
-// means the scanner parses every command this agent types, so a pattern nobody parses is invisible in
-// exactly the same way a pattern nobody evaluates was.
+// Because that glob is anchored at both ends, a deny on a program a command can OPEN with needs two
+// patterns: `* rm -r*` to catch the flag-inserted form (`cd /tmp && rm -rf …`) and `rm -r*` to catch the
+// bare form (`rm -rf …`), which is the one a model types first. Neither covers the other, and the list
+// has now been wrong in both directions. Measured at 869564a with `opencode debug agent factory` on
+// v2.2.5: 17 bash rules, 7 of them opening on a literal, therefore inert -- `gh pr merge*` left
+// `gh -R vicowa-botworks/parental-lockout pr merge 218` allowed, the form `gh`'s own `--repo` flag
+// produces. Deleting those literals and keeping only the `* ` forms then allowed `rm -rf`, `systemctl`
+// and `go get` again, measured at 37120a8 on 6 Nov. Where a flag can sit between the program and the
+// subcommand the wildcard has to start at the subcommand (`* pr merge*`, not `* gh pr merge*`), which is
+// why the `git`/`gh` rules need no literal twin: their patterns key on a subcommand, so a command always
+// has something before them. `scripts/check-denies.py` asserts both spellings of every denial, and a
+// short allow-list, against the resolved ruleset -- four rounds of pattern-shaping had nothing
+// re-checking it, which is why the same file kept being wrong in a new way. The scanner rule in the
+// skill is the other half of why this matters: keying these patterns under `bash` means the scanner
+// parses every command this agent types, so a pattern nobody parses is invisible in exactly the same way
+// a pattern nobody evaluates was.
 //
 // The agent is `factory`, named by `factory/factory.sh` through FACTORY_AGENT.
 {
@@ -72,7 +79,10 @@
 					"* push origin main*": "deny",
 					"* push origin master*": "deny",
 					// The dependency rule (#856): a `require` line is the user's decision, full stop.
+					// Both spellings, because `go get x` opens with the program and `GOTOOLCHAIN=… go
+					// get x` does not.
 					"* go get*": "deny",
+					"go get*": "deny",
 					// A release is a public act, and this repository publishes from a tag. `git tag` with any argument
 					// is a create, move or delete; `git tag` alone only lists, so the pattern wants the
 					// space. The broad form `* tag*` was rejected deliberately: it also denies
@@ -94,12 +104,19 @@
 					"* api *": "deny",
 					"* api": "deny",
 					// A stopped machine is a bigger incident than a stalled ticket, and a recursive
-					// force-delete is the one thing a wrong directory turns into an outage.
+					// force-delete is the one thing a wrong directory turns into an outage. Both
+					// spellings for each: the `* ` form reaches `sudo systemctl stop …` and
+					// `cd /tmp && rm -rf …`, the literal form is the only thing that reaches
+					// `systemctl --user stop …` and `rm -rf …`, and those bare forms are what a model
+					// types first. They were allowed at 37120a8 for exactly one round.
 					"* systemctl*": "deny",
+					"systemctl*": "deny",
 					// Any recursive delete, in whichever order the flags are spelled: `-rf`, `-fr`,
 					// `-r -f`, `--recursive --force`. The two patterns this file carried covered one of them.
 					"* rm -r*": "deny",
+					"rm -r*": "deny",
 					"* rm --recursive*": "deny",
+					"rm --recursive*": "deny",
 					// Worktrees are the supervisor's to create and remove: one removal on a branch
 					// another session holds, or on a tree with uncommitted work, destroys a person's
 					// afternoon. Measured the same week this line was added.

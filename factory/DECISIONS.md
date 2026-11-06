@@ -739,3 +739,42 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   -- young ones could belong to a supervisor running right now.
 - Checkpoint: aa9c1841a949ecd2ac4805ce28b6e0f97a658307
 - Effect: factory/factory.sh (`factory_tick`'s halt emit, the startup sweep)
+
+## H-0033 · A deny list is re-checked by matching commands against it, not by reading it; and a whole-line glob matches inside a quote, which is documented rather than narrowed
+
+- Question: `.opencode/opencode.jsonc` is the only thing standing between `opencode run --auto` and an
+  irreversible command, and four rounds of review read it instead of testing it. How is it kept honest,
+  and what is done about the fact that these patterns also match inside quoted arguments?
+- Options: add `scripts/check-denies.py`, asserting every denial in both the bare and the
+  flag-inserted spelling plus a short allow-list against the ruleset the CLI resolves, and write the
+  quoted-argument collision into `docs/factory.md` as expected behaviour | narrow the patterns so they
+  cannot match inside a quote | refuse to merge until one live tick has executed a refused command
+  inside the rules | keep reviewing the list by reading it
+- Chose: add `scripts/check-denies.py`, asserting every denial in both the bare and the
+  flag-inserted spelling plus a short allow-list against the ruleset the CLI resolves, and write the
+  quoted-argument collision into `docs/factory.md` as expected behaviour
+- Why: reading the list is what produced the defect twice in opposite directions -- at `869564a` seven
+  of seventeen patterns opened on a literal and could never match the flag-inserted form, and deleting
+  those literals to repair it left `rm -rf`, `systemctl --user stop <the timer>` and `go get` allowed
+  at `37120a8` in the bare form a model types first, which is what round four measured. Both are one
+  command away now: against HEAD's own file the new check refuses exactly those six commands, and
+  against the repaired file it passes 34. Narrowing is not available, because the matcher globs the
+  whole parsed line and has no notion of quoting -- `git rm -r --cached legacy/dir` and
+  `git commit -m "why * rm -r* is denied"` are the same bytes to it as the commands being denied, and a
+  trailing space (`* rm -r `) reaches a quoted argument identically. So the collision is written down
+  where the next tick will meet it, in the file whose job is to stop it routing around a denial: a
+  refusal on a quoted argument is the design, and the repair is to reword the message. Two limits stay
+  on the record rather than being argued away. The check models the matcher and does not exercise it --
+  `opencode run --auto --agent factory` still dies `UnknownError` on the reviewing box, so no command
+  has ever been executed inside these rules on either machine, and the third option remains the one
+  thing that would settle the semantics; it is blocked behind this pull request, because the timer
+  that starts the first tick is installed by merging it. And the ruleset has to be read from disk:
+  `opencode debug agents` without `--standalone` answers from a running server's startup config,
+  measured 6 Nov by replacing the file with the broken list and getting the good ruleset back -- so
+  the check asks with `--standalone` and refuses any resolved pattern the file does not contain. That
+  guard paid for itself at the new script's own first run, where a character class typed as `[ \t]`
+  instead of `[ \t]*` matched no config pattern at all and would otherwise have made every config-side
+  assertion vacuously true; it now names a broken reader as a broken reader.
+- Checkpoint: 46d74ccb9dfdc35238fa9caeb92de2735d3106a1
+- Effect: .opencode/opencode.jsonc, scripts/check-denies.py, Makefile (`agent deny list` step),
+  docs/factory.md, .opencode/skills/factory/SKILL.md

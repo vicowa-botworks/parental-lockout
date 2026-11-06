@@ -43,7 +43,12 @@ USAGE = """usage: check-decisions.py [--self-test] [--log PATH]
 
 Checks every entry in DECISIONS.md has the fields that make it arguable later, and that the log is
 still being invoked by `make verify`. Takes no positional arguments: a filename in a shell variable
-that expanded to nothing is a silent change of subject, which is what `--log` is for."""
+that expanded to nothing is a silent change of subject, which is what `--log` is for.
+
+--log PATH checks that one file, and only the rules that live inside an entry: checkpoint existence,
+cross-log id collisions and the `make verify` invocation are each asked against the repository's own
+logs, so pointing the flag at one file leaves those three unasked and the summary still reads as a
+pass of what it did consult."""
 
 FIELDS = ("Question", "Options", "Chose", "Why", "Checkpoint")
 ENTRY = re.compile(r"^## ([DH]-(\d{4}))\s*(?:·|\||-)\s*(.+?)\s*$")
@@ -338,7 +343,14 @@ def git_checkpoint_resolver(shas):
                              input="\n".join(shas) + "\n", capture_output=True, text=True,
                              encoding="utf-8", errors="replace", cwd=ROOT, timeout=30)
     except (OSError, subprocess.SubprocessError):
-        return {}
+        # None means "could not ask", and it has to be distinguishable from {}. This used to return
+        # an empty mapping, which `checkpoint_problems` read with `resolve.get(cp, True)` -- so no
+        # git on PATH, or a wedged `cat-file` past its timeout, produced a clean gate in which the
+        # existence rule was never asked. Found on #217 round four by the same reflex that found the
+        # rest of them: ask what the checker does when it cannot do it. A refusal is already correct
+        # when git is present and the tree is not a repository (a `.git`-less copy produced 49
+        # refusals), so the only hole left was the one where nothing answered at all.
+        return None
     # One line per input, in order: `<sha> commit` for a commit, `<obj> missing` for anything else.
     lines = out.stdout.splitlines()
     return {s: (i < len(lines) and lines[i].endswith(" commit")) for i, s in enumerate(shas)}
@@ -352,11 +364,31 @@ def checkpoint_problems(entries, resolve):
     nobody can prove still fires -- the failure mode this script keeps being written about.
     """
     problems = []
+    named = [e for e in entries
+             if e["fields"].get("Checkpoint", "").strip() not in ("", "n/a")
+             and SHA.match(e["fields"].get("Checkpoint", "").strip())]
+    if not named:
+        # Nothing to ask, so nothing to claim either way. `main` only builds a resolver when some
+        # entry names a checkpoint, so this is the self-test's artificial case -- and it is the
+        # boundary of the rule below: a log with no checkpoints must not be refused for a git
+        # problem it does not have.
+        return []
+    if resolve is None:
+        # The resolver could not ask git. Worded like `verify_invocation`'s unreadable-Makefile case,
+        # because it is the same claim being withheld: an unevaluated rule is not a passed rule.
+        return ["%s: git could not be asked whether the named checkpoints exist, so nothing can be "
+                "claimed about them -- the existence rule did not run. (A missing git, a wedged "
+                "`git cat-file`, or a tree this is not a repository of: fix that before trusting a "
+                "clean run of this gate.)" % label_of(entries[0])]
     for e in entries:
         cp = e["fields"].get("Checkpoint", "").strip()
         if not cp or cp == "n/a" or not SHA.match(cp):
             continue
-        known = resolve(cp) if callable(resolve) else resolve.get(cp, True)
+        # The default used to be True -- "the resolver did not mention it, so it must exist" -- which
+        # is the same fail-open one level down: a mapping that does not cover a sha is an unanswered
+        # question, not a voucher. `main` builds the mapping over every checkpoint it found, so an
+        # uncovered one means the entry appeared after the batch, and the honest answer is no.
+        known = resolve(cp) if callable(resolve) else resolve.get(cp, False)
         if not known:
             problems.append("%s: %s names checkpoint %s, which is not a commit in this repository -- "
                             "`git revert` cannot be pointed at it, so the entry is not reversible the way "
@@ -487,6 +519,21 @@ def self_test():
     present = checkpoint_problems(parse(GOOD, "sample"), resolve=lambda s: True)
     if present:
         fails.append("checkpoint-present: a checkpoint the resolver vouches for was refused -- %s" % present)
+    # And the third answer: nobody answered. `git_checkpoint_resolver` returns None when the call
+    # raised or timed out, and the rule used to read that as "present" via `resolve.get(cp, True)` --
+    # a clean gate in which the existence rule had never run. Asserted as its own case so deleting
+    # the arm turns this self-test red rather than quietly returning the count to what it was.
+    counts[0] += 1
+    unknown = checkpoint_problems(parse(GOOD, "sample"), resolve=None)
+    if not any("could not be asked" in p for p in unknown):
+        fails.append("checkpoint-unknown: a resolver that could not ask produced no refusal, so the "
+                     "rule passes when it has not run -- %s" % unknown)
+    counts[1] += 1
+    no_checkpoints = checkpoint_problems(parse("## D-0001 · Title\n\n- Question: q\n- Checkpoint: n/a\n",
+                                              "sample"), resolve=None)
+    if no_checkpoints:
+        fails.append("checkpoint-unknown-nothing-to-ask: a log with no named checkpoints was refused "
+                     "for a git problem it does not have -- %s" % no_checkpoints)
 
     counts[1] += 1
     separated = cross_log_problems({"D-0012": ["DECISIONS.md"], "H-0012": ["factory/DECISIONS.md"]})
