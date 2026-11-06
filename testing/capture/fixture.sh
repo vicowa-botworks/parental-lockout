@@ -62,6 +62,42 @@ capture_begin() {
     exit 1
   }
 
+  # The binary is a photograph of the tree it was built from, and the templates and stylesheet are
+  # compiled into it (`internal/web/sources.go:21`, `go:embed`), so a binary that predates a markup
+  # edit serves the page that binary was built from. The browser then measures what the daemon
+  # actually said, `scrollWidth` agrees, the needles agree because the needles are about other cells,
+  # and `manifest.py record` certifies the result against the sources on disk — which name the NEW
+  # template. Every check downstream of the browser is downstream of the wrong page.
+  #
+  # Measured 5 Nov on #219: a binary built nineteen minutes before the commit that changed the
+  # masthead re-took the committed set and left five of the seven page-fixture frames byte-identical
+  # to the pre-change files, moving only the two whose fixture CONTENT had changed. That is a set
+  # which reads as "the two this branch moved" and would have been committed as evidence about a page
+  # nobody photographed. Existence was the check here; it is not the check that matters.
+  #
+  # `*_test.go` is excluded because it is not compiled into plock — a guard that fires on a test
+  # edit demands a rebuild that changes nothing, and a check that cries wolf gets edited out inside a
+  # week. `go.mod` is asked for because a dependency change moves a byte of the binary.
+  local -a built_from=("$CAPTURE_REPO/cmd" "$CAPTURE_REPO/internal")
+  # Both halves of that condition are load-bearing. This repository has no third-party dependency, so
+  # there is no `go.sum` to ask about, and `find` exits 1 on a path that does not exist: under the
+  # setup scripts' `set -euo pipefail` that ends the run AT THE ASSIGNMENT, one line before the
+  # message that would have explained it. Measured on the first version of this guard, which exited 1
+  # with nothing on stderr and looked, from the outside, like a fixture that had simply stopped.
+  if [ -f "$CAPTURE_REPO/go.mod" ]; then built_from+=("$CAPTURE_REPO/go.mod"); fi
+  if [ -f "$CAPTURE_REPO/go.sum" ]; then built_from+=("$CAPTURE_REPO/go.sum"); fi
+  local stale
+  stale="$(find "${built_from[@]}" -type f ! -name '*_test.go' -newer "$PLOCK_BIN" \
+              -printf '  %p\n')"
+  if [ -n "$stale" ]; then
+    echo "REFUSED: the binary at $PLOCK_BIN predates the sources compiled into it:" >&2
+    printf '%s\n' "$stale" | sed -n '1,4p' >&2
+    echo "and the pages are embedded in it, so a capture taken against it photographs a page this" >&2
+    echo "tree does not contain -- and manifest.py record would then certify the new sources for it." >&2
+    echo "run: go build -o plock ./cmd/plock   (in $CAPTURE_REPO)" >&2
+    exit 1
+  fi
+
   # Tight before creating anything. The daemon refuses to work in a state directory whose own
   # directory or parent is group-writable — a directory somebody else can reach is a directory
   # somebody else can swap out from under a root daemon — and this machine's default umask creates

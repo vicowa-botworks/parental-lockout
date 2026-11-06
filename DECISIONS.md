@@ -367,3 +367,48 @@ kept; nothing here renumbers anything.
   internal/schedule/fixture_hours_test.go (new: the day sweep, the year sweep, the discrimination),
   the nine frames in docs/screenshots/360 and their manifest, testing/capture/README.md (the
   homogeneous-set paragraph, the two POST rows, the re-capture recipe), DECISIONS.md
+
+## D-0018 · A capture refuses a binary that predates the sources compiled into it
+
+- Question: `capture_begin` asked whether `$PLOCK_BIN` was executable and nothing more, while the
+  templates and the stylesheet are compiled into it (`internal/web/sources.go:21`, `go:embed`). A
+  leftover binary therefore serves the page it was built from, the browser faithfully photographs
+  that page, and `manifest.py record` certifies the result against the sources on disk -- which name
+  the new template. What may a capture claim about the binary behind its frames, and how is the
+  wrong one refused without the refusal becoming the bug? Options: refuse when a compiled source is
+  newer than the binary | refuse on a dirty working tree | record the binary's digest in the manifest
+  and check it later | leave it to the README, which already says to build first.
+- Options: source-newer-than-binary mtime | dirty-tree check | binary digest in the manifest | docs only
+- Chose: the mtime relation. `capture_begin` now refuses when any non-`_test.go` file under `cmd/` or
+  `internal/`, plus `go.mod`/`go.sum` where they exist, is newer than `$PLOCK_BIN`, and its message
+  names the offending paths and the build line.
+- Why: mtime is the cheapest predicate over the question a capture is actually answering -- is the
+  thing being served the thing in this tree. A dirty tree is not that question and gets both answers
+  wrong: the measured case below was a *clean* tree with a stale binary (built 21:03, the masthead
+  commit landed 21:22), and a freshly rebuilt binary on a dirty tree is exactly what a capture wants
+  and would have been refused. A digest in the manifest is a record made after the fact, and the
+  failure mode is a frame nobody took -- no downstream record catches that; it only names the lie
+  later. Docs-only is what this file has said since #213, and this morning a stale binary still
+  produced seven plausible frames: five of the seven page-fixture artifacts came out byte-identical
+  to the pre-change files and the two that moved were precisely the two whose *fixture* content had
+  changed, so the set a reviewer would have read as "the two this branch moved."
+  `*_test.go` is excluded because it is not compiled into `plock`; `go.mod` is included because a
+  dependency change moves a byte of the binary. Both `go` files are asked about only `if [ -f ... ]`,
+  and that guard is not tidiness: this repository has no third-party dependency and so no `go.sum`,
+  `find` exits 1 on a path that does not exist, and the setup scripts run `set -euo pipefail` -- so
+  the first version of this arm died at the assignment with nothing on stderr, exit 1, indistinguishable
+  from a fixture that had simply stopped. Probing every branch of a scriptlet is what found that, and
+  the three arms are probed: a touched template refuses and names `page.tmpl`, a fresh binary passes,
+  and a touched `*_test.go` does not fire.
+- What lost: mtimes, with everything that implies. `touch`ing a source forces a rebuild even when the
+  content is unchanged -- the probe does exactly this -- and the rebuilt binary from identical sources
+  is the same program, so the price is a two-second build rather than a wrong verdict. Any file under
+  `internal/` fires it, including ones no `go:embed` pattern reads, and narrowing that means keeping a
+  bash copy of the embed list, which is a second definition whose failure mode is a silent miss. A
+  `PLOCK_BIN` aimed at an installed binary now has to be newer than the checkout, which is what the
+  negative control does anyway (it builds a clause-removed binary after the sources). And the check
+  lives in `capture_begin`, so a driver run against a fixture set up before this commit still passes:
+  it protects the setup, not the frame, and a frame's real provenance stays `manifest.py`'s job.
+- Checkpoint: 9e07dde673b8741aa47d7215b661c7bcbdc368f5
+- Effect: testing/capture/fixture.sh (the freshness arm in `capture_begin`, and the reason beside it),
+  testing/capture/README.md (the build-first paragraph of the re-capture recipe), DECISIONS.md

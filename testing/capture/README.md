@@ -394,7 +394,8 @@ faithfully photographed what the daemon actually said. Measured 5 Nov: a binary 
 before the commit that changed the masthead re-took the set and left five of the seven page-fixture
 frames byte-identical to the pre-change files, moving only the two whose *fixture* content had changed
 — a set that looks exactly like "the two this branch moved" and would have been committed as evidence
-for a page nobody photographed.
+for a page nobody photographed. `fixture.sh` now refuses a binary older than the sources compiled into
+it and names them; the build line above is the fix it asks for.
 
 **Record last, and only over a complete set.** `record()` walks the PNGs sitting in its target
 directory (`manifest.py:219`) and stamps each with the newest commit over its sources — it does not
