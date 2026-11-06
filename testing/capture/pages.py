@@ -445,6 +445,9 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     # needs are spliced into the same object, so the number printed in the transcript, the number
     # the width refusal quotes and the number the stress guards compare are all from one render.
     extra = cdp.FORMS_JS
+    # On every page and at every viewport, with no condition on it: the control census is a claim
+    # about the stylesheet, and the stylesheet is the same file on /audit as on /settings (#202).
+    extra += "," + cdp.CONTROLS_JS
     if spec.has_rows:
         extra += "," + LONGEST_JS
     if spec.stress:
@@ -535,6 +538,17 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
             require_unbreakable(got, page)
         except SystemExit as exc:
             raise FixtureRefusal(str(exc)) from None
+    # Every control on the page has to agree with the page: the page's own typeface, one width
+    # model, and a tick box that cannot be laid out away from the words that name it (#202).
+    #
+    # After the width refusal, like the fixture guards: a page that overflows should report the
+    # overflow first, because that is the alarming fact and the width number is the one that stops
+    # existing once the run refuses. Before the write, like every other check, because a photograph
+    # of a page whose controls are in three fonts is the wrong evidence under a committed filename.
+    # At both viewports, because none of the three claims is about a phone.
+    cdp.require_control_font(got, page)
+    cdp.require_control_width(got, page)
+    cdp.require_choice_groups(got, page)
     # Hoisted above the split instead of repeated in both arms: each arm needs a browser that is
     # still up, and one call cannot drift from its twin when someone moves the split.
     cap.require_running()
@@ -544,7 +558,7 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         # evidence. Counting it as fitting is what the reviewer drove and named.
         print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
               f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-              f"{proof_of(got, spec)}{hard} UNTESTED (fixture)", flush=True)
+              f"{proof_of(got, spec)} {cdp.census_line(got)}{hard} UNTESTED (fixture)", flush=True)
         return "untested"
     if width != ARTIFACT_WIDTH:
         # Measured, refused, printed -- and no bytes. The committed set belongs to the artifact
@@ -552,12 +566,12 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         # viewport happened to run last.
         print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
               f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-              f"{proof_of(got, spec)}{hard} FITS", flush=True)
+              f"{proof_of(got, spec)} {cdp.census_line(got)}{hard} FITS", flush=True)
         return
     session.write_png(name)
     print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
           f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-          f"{proof_of(got, spec)}{hard} FITS  {name}", flush=True)
+          f"{proof_of(got, spec)} {cdp.census_line(got)}{hard} FITS  {name}", flush=True)
 
 
 # Read after a refused write. Both keys are the photograph's proof that the refusal happened in
@@ -924,9 +938,13 @@ def main(shoot_fn=None, record_fn=None):
 # page that has to be photographed refused (the refusal itself, the click that produces it, and the
 # two measurements that read the refused page back), plus two on the review round: how a script the
 # page refused to run gets reported, and the needle that makes the refused artifact mean the refusal
-# its filename names. The two canaries are registered like every other rule and deliberately not
-# counted: they exist to prove the helper is not hollow.
-EXPECTED_RULES = 38
+# its filename names. Plus seven from #202 for the controls on the page: the census being asked for
+# at both viewports, each of the three guards refusing the one defect it names and accepting the fixed
+# page, the zeros in the transcript, and the measurement that was never taken. Plus two from #207 for
+# the state behind the page: the declared reading of the dashboard, and the audit row count that is
+# the fixture's. The two canaries are registered like every other rule and deliberately not counted:
+# they exist to prove the helper is not hollow.
+EXPECTED_RULES = 45
 
 
 class _FakeSession:
@@ -1065,6 +1083,50 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None,
 
 _LAST_EXTRA = []
 
+# The census values a page has to report for the #202 guards to pass, transcribed from a real run of
+# this driver against the stylesheet being fixed (`/settings` at 360 px: page font `system-ui,
+# sans-serif` at 16px, a 22ch field computing 196.062px, a wrapping label at `inline-flex`). They are
+# the browser's numbers rather than this file's guesses, so a rule that passes on them is a rule that
+# passes on what Chrome says.
+PAGE_FONT = "system-ui, sans-serif"
+PAGE_SIZE = "16px"
+FIELD_MAX = "196.062px"
+
+# The types the census marks as "not typed into", repeated from cdp.CONTROLS_JS's NOVALUE list. A
+# rule below compares the two so this transcription cannot drift from the one in the browser.
+NOVALUE = ("hidden", "radio", "checkbox", "submit", "button", "reset", "image", "range", "color",
+           "select-one", "select-multiple")
+
+
+def _control(name="reason", kind="text", **over):
+    """One census row, defaulted to a control that satisfies every #202 guard.
+
+    A rule that wants a defect overrides the one field it is about, so each rule states its own
+    drift and nothing else. `tag` follows `kind` because a census row is identified by both.
+    """
+    item = {"tag": "button" if kind in ("submit", "button", "reset") else "input",
+            "type": kind, "name": name, "family": PAGE_FONT, "size": PAGE_SIZE, "max": FIELD_MAX,
+            "typed": kind not in NOVALUE, "toggle": kind in ("radio", "checkbox"), "label": ""}
+    if item["toggle"]:
+        item["label"] = "inline-flex"
+    elif kind == "select-one":
+        item["tag"] = "select"
+    item.update(over)
+    return item
+
+
+_CLEAN_ITEMS = [_control("reason"), _control("pollSeconds", kind="number"),
+                _control("profile", kind="select-one"), _control("enabled", kind="checkbox"),
+                _control("", kind="submit")]
+
+CLEAN_CENSUS = {"family": PAGE_FONT, "size": PAGE_SIZE, "count": len(_CLEAN_ITEMS),
+                "items": _CLEAN_ITEMS}
+
+# A page that passes every other guard in shoot() at the artifact viewport, so a rule about the
+# census can only be refused BY the census.
+_BASE_PAGE = {"scroll": 360, "inner": 360, "height": 700, "tables": 1, "cells": 12,
+              "forms": 2, "fields": 4, "longest": 14}
+
 
 @contextlib.contextmanager
 def _fake_browser(got):
@@ -1077,7 +1139,15 @@ def _fake_browser(got):
     saved = (cdp.measure, cdp.require_records, cdp.require_labelled_cells, cdp.require_form)
     # The `extra` string is recorded because a guard that reads a census key the measurement never
     # asked for is a guard that always fails, and from outside this fake the two are identical.
-    cdp.measure = lambda session, extra="": (_LAST_EXTRA.append(extra), dict(got))[1]
+    #
+    # The control census is DEFAULTED here, not added to every rule's canned `got`, for one reason:
+    # the three #202 guards are deliberately left unstubbed -- stubbing a guard is how a guard stops
+    # existing -- so they run for real against whatever this hands back. A rule that wants a defect
+    # passes its own "controls" key and wins; a rule about something else gets a census that passes,
+    # transcribed from a measured page rather than invented. `the_control_census_is_asked_for` is
+    # what pins that the real shoot() actually asks the browser for it.
+    cdp.measure = lambda session, extra="": (
+        _LAST_EXTRA.append(extra), dict({"controls": CLEAN_CENSUS}, **got))[1]
     cdp.require_records = lambda g, w: None
     cdp.require_labelled_cells = lambda g, w: None
     cdp.require_form = lambda g, w: None
@@ -2101,6 +2171,172 @@ def self_test():
         finally:
             _LAST_EXTRA.clear()
 
+    # --- The controls on the page, not only the page's tables (#202) -------------------------
+
+    def _census(*items, **over):
+        """A measurement whose only content is the controls one rule is talking about.
+
+        Every other key is the ordinary passing one, so a refusal produced by these rules can only
+        have been refused BY the census: the width and cell guards are fed the same numbers they
+        accept in every rule above. `inner` is the exception -- a rule that walks `WIDTHS` has to set
+        it, or the viewport guard (which compares the page's reported layout against what was asked)
+        refuses first and the rule reports its own guard as absent.
+        """
+        base = dict(_BASE_PAGE, controls={"family": PAGE_FONT, "size": PAGE_SIZE,
+                                          "count": len(items), "items": list(items)})
+        base.update(over)
+        return base
+
+    def the_control_census_is_asked_for(problems):
+        """shoot() splices cdp.CONTROLS_JS in, at both viewports, whatever kind of page it is.
+
+        Pinned by identity, the way NEEDLE_JS is: a substring like "controls" is already true of the
+        other fragments, so a substring test would stay green with the splice deleted.
+        """
+        for width in WIDTHS:
+            _LAST_EXTRA.clear()
+            try:
+                _run_shoot(_census(_control("reason")), width)
+                if not any(cdp.CONTROLS_JS in e for e in _LAST_EXTRA):
+                    problems.append(f"at {width} px shoot() never asked the browser for the control "
+                                    "census, so the #202 guards compare a key nobody measured")
+            finally:
+                _LAST_EXTRA.clear()
+        # This file marks typed/not-typed off its own copy of the browser's NOVALUE list, so the two
+        # transcriptions have to agree or a rule builds a census the page would never return.
+        marker = "NOVALUE=["
+        if marker not in cdp.CONTROLS_JS:
+            problems.append("cdp.CONTROLS_JS no longer declares a NOVALUE list, so this file's copy "
+                            "of it cannot be checked against the one the browser runs")
+        else:
+            head = cdp.CONTROLS_JS.split(marker, 1)[1].split("]", 1)[0]
+            want = tuple(s.strip().strip("'\"") for s in head.split(","))
+            if want != NOVALUE:
+                problems.append(f"this file marks {NOVALUE} as not-typed and the census in the "
+                                f"browser marks {want}; `_control` derives typed/toggle from the "
+                                "first, so the two would disagree about the same control")
+
+    def a_control_in_the_browsers_own_font_refuses(problems):
+        """The census Chrome reported before the fix, refused at both viewports, and no bytes."""
+        drifted = _control("currentPassword", kind="password", family="Arial", size="13.3333px")
+        for width in WIDTHS:
+            _log, refusal = _run_shoot(_census(_control("reason"), drifted, inner=width), width)
+            if refusal is None or "font of the browser's choosing" not in refusal:
+                problems.append(f"an input still in Arial was accepted at {width} px: {refusal!r}")
+            elif "currentPassword" not in refusal:
+                problems.append(f"the font refusal does not name the control that drifted: "
+                                f"{refusal!r}")
+        _log, _refusal = _run_shoot(_census(_control("reason"), drifted), ARTIFACT_WIDTH)
+        if any(k[0] == "png" for k in _log):
+            problems.append("a page with a control in the browser's font still staged a photograph")
+        # The same page with the rule on it passes, or the loop above could be satisfied by a guard
+        # that refuses every page in existence.
+        _log, refusal = _run_shoot(_census(_control("reason"),
+                                           _control("currentPassword", kind="password")),
+                                   ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the fixed stylesheet was refused: {refusal!r}")
+
+    def two_field_widths_on_one_page_refuse(problems):
+        """Two typed controls sized from two places is what #202 was filed about.
+
+        The pair is the /settings page: the two path boxes at 22ch from the file's only input rule,
+        the password boxes at the browser's default. Measured before the fix, 163 px and 185 px.
+        """
+        for width in WIDTHS:
+            _log, refusal = _run_shoot(_census(_control("certPath"),
+                                               _control("pollSeconds", kind="number",
+                                                        max="none"), inner=width), width)
+            if refusal is None or "source" not in refusal:
+                problems.append(f"two field widths on one page were accepted at {width} px: "
+                                f"{refusal!r}")
+        # A `select` is outside the width model deliberately -- its longest option is what sizes it,
+        # and 22ch would cut a profile's name in half -- so its `max-width: none` must not be read
+        # as a second source. This is the arm that pins the exclusion.
+        _log, refusal = _run_shoot(_census(_control("certPath"),
+                                           _control("profile", kind="select-one")),
+                                   ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"a select's intrinsic width was counted as a second field width: "
+                            f"{refusal!r}")
+
+    def a_field_sized_by_nothing_refuses(problems):
+        """All the values agreeing is not the same as a rule having decided one.
+
+        The arm a guard that only counted DISTINCT `max-width` values would never fire on. Delete
+        the width rule whole and every field agrees with every other: they all report `none`, which
+        is the user-agent's twenty characters and the same defect, not a shared model.
+        """
+        _log, refusal = _run_shoot(_census(_control("name", max="none"),
+                                           _control("start", max="none")), ARTIFACT_WIDTH)
+        if refusal is None or "user-agent" not in refusal:
+            problems.append(f"a page whose fields are sized by nothing was accepted: {refusal!r}")
+
+    def a_tick_box_outside_its_words_refuses(problems):
+        """`:has()` applied, or it did not -- read off the browser, not off the stylesheet.
+
+        A rule that greps `app.css` for `label:has(` passes the day a browser stops understanding
+        `:has()` and drops the selector without a word. Computed `display` is the only thing in the
+        page that says whether a choice group became one box.
+        """
+        loose = _control("enforcement", kind="radio", label="inline")
+        for width in WIDTHS:
+            _log, refusal = _run_shoot(_census(_control("reason"), loose, inner=width), width)
+            if refusal is None or "not one box with the words" not in refusal:
+                problems.append(f"a radio that can wrap away from its label was accepted at "
+                                f"{width} px: {refusal!r}")
+        # A page with no choice group is not this refusal, or the loop above would be satisfied by a
+        # guard that refuses every page.
+        _log, refusal = _run_shoot(_census(_control("reason")), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"a page with no choice group was refused: {refusal!r}")
+        # A toggle with no wrapping label at all is refused too: nothing holds that box to its words.
+        _log, refusal = _run_shoot(_census(_control("enabled", kind="checkbox", label="")),
+                                   ARTIFACT_WIDTH)
+        if refusal is None or "no wrapping label" not in refusal:
+            problems.append(f"a checkbox outside any label was accepted: {refusal!r}")
+
+    def a_census_is_printed_for_every_page(problems):
+        """The transcript says what the #202 guards were shown.
+
+        The house rule this folder learned from #108: a rule that examined nothing must not report
+        success silently. /users has nothing typed into it, so `require_control_width` returns
+        without saying anything, and the line has to show `typed=0` rather than leave a reader to
+        work out afterwards which guards had work to do.
+        """
+        out = io.StringIO()
+        _run_shoot(_census(_control("reason")), ARTIFACT_WIDTH, out=out)
+        if "controls=1 typed=1 groups=0" not in out.getvalue():
+            problems.append(f"the artifact line does not print the census it checked: "
+                            f"{out.getvalue()!r}")
+        out = io.StringIO()
+        _run_shoot(_census(_control("enabled", kind="checkbox")), ARTIFACT_WIDTH, out=out)
+        if "controls=1 typed=0 groups=1" not in out.getvalue():
+            problems.append(f"a page with nothing to type into prints no zeros: "
+                            f"{out.getvalue()!r}")
+
+    def a_census_that_was_never_taken_refuses(problems):
+        """A missing measurement is a refusal, at all three guards, naming its own absence.
+
+        Driven straight rather than through shoot(), because the fake browser supplies a census so
+        the rules above can be about something else: the only way to hand a guard the nothing it has
+        to refuse on is to call it with nothing. `{}` with a `scroll` key is exactly the shape a
+        deleted splice produces.
+        """
+        for guard, name in ((cdp.require_control_font, "font"),
+                            (cdp.require_control_width, "width"),
+                            (cdp.require_choice_groups, "group")):
+            try:
+                guard({"scroll": 360}, "/users")
+                problems.append(f"the {name} guard passed a page with no census at all")
+            except SystemExit as exc:
+                if "census" not in str(exc):
+                    problems.append(f"the {name} guard refused for a reason that does not name the "
+                                    f"missing census: {exc}")
+            except Exception as exc:
+                problems.append(f"the {name} guard raised {type(exc).__name__} instead of refusing; "
+                                "a traceback is not an answer")
+
     rule("a refusal on every page still measures every page", all_refuse)
     rule("the literal census matches the page declaration", census_matches_the_declaration)
     rule("a fixture mode selects only its own pages", a_fixture_mode_selects_its_own_pages)
@@ -2140,6 +2376,13 @@ def self_test():
          a_script_that_never_parsed_is_not_a_vanished_form)
     rule("the refused artifact is refused about its own refusal",
          the_refused_artifact_is_refused_about_its_own_refusal)
+    rule("the control census is asked for, at both viewports", the_control_census_is_asked_for)
+    rule("a control in the browser's own font refuses", a_control_in_the_browsers_own_font_refuses)
+    rule("two field widths on one page refuse", two_field_widths_on_one_page_refuse)
+    rule("a field sized by nothing refuses", a_field_sized_by_nothing_refuses)
+    rule("a tick box outside its words refuses", a_tick_box_outside_its_words_refuses)
+    rule("the census a page was shown is printed", a_census_is_printed_for_every_page)
+    rule("a census that was never taken refuses", a_census_that_was_never_taken_refuses)
 
     def manifest_accompanies_the_artifacts(problems):
         # The manifest is the only thing that ties a committed PNG to the page it depicts (#144).
