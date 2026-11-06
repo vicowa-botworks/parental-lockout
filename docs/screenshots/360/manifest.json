@@ -1,18 +1,18 @@
 {
-  "captured_at": "2026-11-05T22:44:58Z",
-  "head": "6c497cba8f8ea343cf5add0611d26f2b19a38efb",
+  "captured_at": "2026-11-06T00:52:33Z",
+  "head": "5c63fb9f4d3c72992d8dc8184c52e30ed4dd13af",
   "pages": [
     {
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "c304336d06b27f7746f14e4b29ef4d82744cccab7e121291b8c08ab1c92b9317",
+      "png_sha256": "a113c5e4edee5c1907f9f8ba3ed80083017403c80ce86abaac3c45738df8e846",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "125b1a49fb769c0dfa9324a3148ca90888be3105"
+      "sources_rev": "5c63fb9f4d3c72992d8dc8184c52e30ed4dd13af"
     },
     {
       "page": "/",
