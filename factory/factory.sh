@@ -105,7 +105,9 @@ factory_preflight
 
 if factory_halted; then
 	log_event "HALTED $(factory_halt_reason)"
-	exit 8
+	# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
+	# something that broke. See H-0036 for why the difference is not cosmetic.
+	exit "$FACTORY_EXIT_HALT"
 fi
 
 # `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name, and the
@@ -237,13 +239,34 @@ factory_merge() {
 		log_event "WOULD-MERGE pr:$pr decision=$decision mergeable=$mergeable state=$merge_state checks=$checks"
 		return 0
 	fi
-	if ! run_action gh pr merge "$pr" --merge --delete-branch; then
-		log_event "MERGE-FAILED pr:$pr gh pr merge failed"
+	# Judge the merge by what the API says the pull request became, not by gh's exit status.
+	#
+	# `--delete-branch` does one thing after the merge that this harness guarantees to break: it
+	# deletes the *local* branch, and that fails with `cannot delete branch ... used by worktree at
+	# ...` because the branch is exactly what the worktree has checked out. Measured on this box: #221
+	# merged 03:37:29Z, #215 05:35:28Z, #214 10:41:30Z, each `mergedBy=virtualcodewarrior`, each
+	# reported here as `MERGE-FAILED` with gh's stderr in the journal saying
+	# `failed to delete local branch fix/audit-row-label ...`. `return 1` on that status then skipped
+	# every line below -- no `MERGED`, no `merged-at`, no `stuck-since` clear, and no worktree
+	# removal -- which is where the abandoned trees came from, and `factory_worktree`'s
+	# `a branch named X already exists` is what bit the next tick that needed one. The remote branch
+	# really is gone in all three cases, so the deletion that failed is one we do not need.
+	local merge_rc=0 gh_err="$FACTORY_RUN/merge-error.$$"
+	run_action gh pr merge "$pr" --merge --delete-branch 2>"$gh_err" || merge_rc=$?
+	local gh_reason merged state_now
+	gh_reason=$(tr -d '\r' <"$gh_err" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-180)
+	rm -f -- "$gh_err"
+	merged=$(api_get "pulls/$pr" '.merged | tostring' 'unknown')
+	state_now=$(api_get "pulls/$pr" '.state' 'UNKNOWN')
+	if [ "$merged" != "true" ] && [ "$state_now" != "MERGED" ]; then
+		log_event "MERGE-FAILED pr:$pr gh_exit=$merge_rc state=$state_now :: ${gh_reason:-gh printed nothing on stderr}"
 		return 1
 	fi
-	local merged
-	merged=$(api_get "pulls/$pr" '.merged | tostring' 'unknown')
-	log_event "MERGED pr:$pr merged_field=$merged"
+	if [ "$merge_rc" -ne 0 ]; then
+		log_event "MERGED pr:$pr merged_field=$merged gh_exit=$merge_rc is a post-merge step, not the merge :: ${gh_reason:-gh printed nothing on stderr}"
+	else
+		log_event "MERGED pr:$pr merged_field=$merged"
+	fi
 	factory_ledger_clear "pr:$pr" stuck-since
 	factory_ledger_clear "pr:$pr" last-notice
 	factory_ledger_now "pr:$pr" merged-at
@@ -253,6 +276,16 @@ factory_merge() {
 		git -C "$(factory_main_checkout)" worktree remove --force \
 			"$FACTORY_TREES/$(factory_slug "$branch")" 2>/dev/null ||
 			log_event "WORKTREE-STALE $FACTORY_TREES/$(factory_slug "$branch") could not be removed"
+	fi
+	# The local branch is the thing `gh pr merge --delete-branch` could not delete while a worktree
+	# held it -- so delete it now that nothing does, with `-d` and not `-D`: git refuses a branch whose
+	# commits are not in an upstream, which is the only check worth having on a branch this script is
+	# about to forget. Refusing is a fine answer and gets logged; forcing is not.
+	if [ -n "$branch" ]; then
+		local gone
+		gone=$(git -C "$(factory_main_checkout)" branch -d "$branch" 2>&1) &&
+			log_event "BRANCH-CLEANED $branch merged and its worktree is gone" ||
+			log_event "BRANCH-KEPT $branch $(printf '%s' "$gone" | tr -d '\r\n' | cut -c1-120)"
 	fi
 	return 0
 }

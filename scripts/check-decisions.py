@@ -528,6 +528,19 @@ def self_test():
     if not any("could not be asked" in p for p in unknown):
         fails.append("checkpoint-unknown: a resolver that could not ask produced no refusal, so the "
                      "rule passes when it has not run -- %s" % unknown)
+    # The default, not just the sentinel. `checkpoint_problems` asks `resolve.get(cp, False)`, and
+    # `None` and `{}` are different failures with opposite consequences: `None` is "git did not answer",
+    # `{}` is "git answered that this object is nothing" -- and a resolver that built its mapping over
+    # the shas it *validated*, rather than the shas it *found*, hands back exactly that `{}`. With the
+    # default flipped to True the entry above still refuses (a callable returning False answers) and this
+    # case is the only thing left that notices, so it is asserted here rather than reasoned about.
+    # Measured on #217 round five: flipping the default left the self-test green at rc 0 until this row
+    # was added, at which point it named `names checkpoint 2f4c1ab9, which is not a commit`.
+    counts[0] += 1
+    empty = checkpoint_problems(parse(GOOD, "sample"), resolve={})
+    if not any("not a commit in this repository" in p for p in empty):
+        fails.append("checkpoint-empty-map: an empty resolver answered the existence rule with a pass "
+                     "-- %s" % empty)
     counts[1] += 1
     no_checkpoints = checkpoint_problems(parse("## D-0001 · Title\n\n- Question: q\n- Checkpoint: n/a\n",
                                               "sample"), resolve=None)

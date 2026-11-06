@@ -108,6 +108,10 @@ FACTORY_LEDGER=${FACTORY_LEDGER:-$FACTORY_DIR/ledger}
 FACTORY_RUN=${FACTORY_RUN:-$FACTORY_DIR/run}
 FACTORY_HALT=${FACTORY_HALT:-$FACTORY_DIR/HALT}
 
+
+# The exit code a halted supervisor leaves behind. It is a code the *machine* reads: the generated unit
+# names it in `SuccessExitStatus=`, so the two files have to agree and one of them has to own it.
+FACTORY_EXIT_HALT=8
 DRY_RUN=${DRY_RUN:-0}
 
 # --------------------------------------------------------------------------- directories
@@ -428,8 +432,13 @@ run_action() {
 		return 0
 	fi
 	log_event "ACTION $*"
-	if ! "$@"; then
-		log_event "FAILED ($?) $*"
+	# `$?` inside `if ! "$@"; then` is the status of the *negated test*, which is 0 whenever the
+	# command failed -- so every failure this file has ever logged read `FAILED (0)`, including three
+	# `gh pr merge` calls that had in fact merged. Capture the status before anything can overwrite it.
+	local rc=0
+	"$@" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		log_event "FAILED ($rc) $*"
 		return 1
 	fi
 }

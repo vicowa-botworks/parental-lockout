@@ -92,7 +92,7 @@ verify:
 	echo "==> decision-log contract"; python3 scripts/check-decisions.py --self-test; \
 	echo "==> decision log"; python3 scripts/check-decisions.py; \
 	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
-	echo "==> agent deny list"; python3 scripts/check-denies.py; \
+	echo "==> agent deny list"; python3 scripts/check-denies.py --self-test && python3 scripts/check-denies.py; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
 	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \
@@ -171,6 +171,7 @@ check-shell:
 # gate that fails on a fresh clone is a gate people route around. `CHECK_DENIES_REQUIRED=1` is how a
 # box that does have it says the skip is not acceptable there.
 check-denies:
+	@python3 scripts/check-denies.py --self-test
 	@FACTORY_OPENCODE="$${FACTORY_OPENCODE:-opencode}" python3 scripts/check-denies.py
 
 # mutate puts each known bug back into the source one at a time and insists the suite

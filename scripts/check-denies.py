@@ -51,7 +51,14 @@ MAKEFILE = os.path.join(ROOT, "Makefile")
 AGENT = os.environ.get("FACTORY_AGENT", "factory")
 BINARY = os.environ.get("FACTORY_OPENCODE", "opencode")
 REQUIRED = os.environ.get("CHECK_DENIES_REQUIRED", "")
-TOOL = "shell"
+# The shell tool has two names across releases -- v2.2.5 resolves it as `shell`, 1.18.5 as `bash`, the
+# same word the config writes -- so a reader keyed on one of them reads the other release's ruleset as
+# empty. Both are accepted, and an unrecognised tool name is reported, never skipped.
+TOOLS = ("shell", "bash")
+# What this reader knows how to parse, quoted in the fault message so a third shape says so out loud.
+_VERSION = None
+SHAPES = ('{"action": <tool>, "resource": <glob>, "effect": <verdict>} and '
+          '{"permission": <tool>, "pattern": <glob>, "action": <verdict>}')
 
 # (command, expected effect, why this spelling is on the list). `deny` rows are the commands the
 # comments in the config claim are refused; `allow` rows are the ones a deny that over-reached would
@@ -99,6 +106,93 @@ COMMANDS = [
 DENY_KEY = re.compile(r'^[ \t]*"((?:[^"\\]|\\.)*)"[ \t]*:[ \t]*"deny"[ \t]*,?[ \t]*$', re.M)
 
 
+def cli_version():
+    """What `--version` calls the binary, or None. Asked once, and never fatal.
+
+    The pass line and every skip line name it. Pattern semantics are the one thing about this check
+    that plausibly moves between releases, and the reader has now been wrong about two of them, so a
+    verdict without the version underneath it is the citation D-0015 refuses.
+    """
+    global _VERSION
+    if _VERSION is None:
+        try:
+            proc = subprocess.run([BINARY, "--version"], capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", timeout=30)
+            _VERSION = (proc.stdout or proc.stderr).strip().splitlines()[0] if (
+                proc.stdout or proc.stderr).strip() else None
+        except (OSError, subprocess.SubprocessError, IndexError):
+            _VERSION = None
+    return _VERSION
+
+
+def normalise_rule(entry):
+    """One resolved rule from either release, as `{"tool", "pattern", "effect"}`, or None.
+
+    Two vocabularies, one meaning. v2.2.5 answers
+    `{"action": "shell", "resource": "rm -r*", "effect": "deny"}`; 1.18.5 answers
+    `{"permission": "bash", "pattern": "rm -r*", "action": "deny"}`. The word `action` is the *tool* in
+    one and the *verdict* in the other, which is why the branch is on which verdict key is present and
+    not on the key's name: reading `action` as the tool on 1.18.5 yields a ruleset of zero bash rules,
+    and reading `effect` as the verdict yields `None` for every one of them. Measured on the reviewer's
+    box (1.18.5) against this tree: 23 config patterns each reported "does not appear in the resolved
+    ruleset", 27 commands each reported ALLOW, and the `question` tool reported "no rule for it" -- 51
+    problems about a config that was correct, from a reader that understood neither shape.
+    """
+    if not isinstance(entry, dict):
+        return None
+    if entry.get("effect") is not None:
+        tool, effect = entry.get("action"), entry.get("effect")
+    else:
+        tool, effect = entry.get("permission"), entry.get("action")
+    pattern = entry.get("resource")
+    if pattern is None:
+        pattern = entry.get("pattern", "*")
+    if not isinstance(tool, str) or not isinstance(effect, str) or not isinstance(pattern, str):
+        return None
+    return {"tool": tool, "pattern": pattern, "effect": effect}
+
+
+def rules_from(container):
+    """The rule list inside an agent entry, whichever shape the entry holds it in.
+
+    A list of rule objects is what both releases print today. The dict forms are what the config itself
+    uses (`{"bash": {"rm -r*": "deny"}}`, or `{"question": "deny"}` for a whole tool) and cost four
+    lines; a release that echoes the config back is a shape worth parsing rather than a surprise.
+    """
+    found = []
+    if isinstance(container, list):
+        found = [r for r in (normalise_rule(item) for item in container) if r]
+    elif isinstance(container, dict):
+        for tool, value in container.items():
+            if isinstance(value, str):
+                found.append({"tool": tool, "pattern": "*", "effect": value})
+            elif isinstance(value, dict):
+                for pattern, effect in value.items():
+                    if isinstance(effect, str):
+                        found.append({"tool": tool, "pattern": pattern, "effect": effect})
+                    elif isinstance(effect, dict):
+                        probe = normalise_rule(dict(effect, **{"resource": effect.get("resource", pattern)}))
+                        if probe:
+                            found.append(dict(probe, tool=probe["tool"] or tool))
+            elif isinstance(value, list):
+                found += [r for r in (normalise_rule(item) for item in value) if r]
+    return found
+
+
+def agent_entry(data):
+    """The `factory` entry inside whatever `debug agent`/`debug agents` printed, or None."""
+    for entry in data if isinstance(data, list) else [data]:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("id") not in (None, AGENT) or entry.get("name") not in (None, AGENT):
+            if entry.get("id") != AGENT and entry.get("name") != AGENT:
+                continue
+        for key in ("permissions", "permission"):
+            if key in entry:
+                return rules_from(entry[key])
+    return None
+
+
 def resolved_rules():
     """The agent's rules as the CLI resolves them, or None if the CLI would not say.
 
@@ -119,22 +213,23 @@ def resolved_rules():
     for extra in (["--standalone"], []):
         attempts.append([BINARY, "debug", "agent", AGENT] + extra)
         attempts.append([BINARY, "debug", "agents"] + extra)
+    answered = False
     for argv in attempts:
         try:
             proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8",
                                   errors="replace", timeout=90, cwd=ROOT)
         except (OSError, subprocess.SubprocessError):
             continue
+        if proc.stdout.strip().startswith("{") or proc.stdout.strip().startswith("["):
+            answered = True
         try:
             data = json.loads(proc.stdout)
         except (json.JSONDecodeError, ValueError):
             continue
-        for entry in data if isinstance(data, list) else [data]:
-            if not isinstance(entry, dict):
-                continue
-            if entry.get("id") == AGENT or entry.get("name") == AGENT:
-                return entry.get("permissions") or [], "--standalone" in argv
-    return None, False
+        rules = agent_entry(data)
+        if rules is not None:
+            return rules, "--standalone" in argv, True
+    return None, False, answered
 
 
 def config_denials():
@@ -167,13 +262,17 @@ def config_denials():
 
 
 def verdict(rules, tool, command):
-    """Every rule in order, last match wins -- which is why `* allow` is written first in the config."""
+    """Every rule in order, last match wins -- which is why `* allow` is written first in the config.
+
+    Takes normalised rules (see `normalise_rule`) and accepts either name of the shell tool, because a
+    verdict computed against the wrong tool name is a silent ALLOW for every command in the table.
+    """
     effect = None
     for rule in rules:
-        if rule.get("action") not in (tool, "*"):
+        if rule["tool"] not in (tool, "*") and not (tool in TOOLS and rule["tool"] in TOOLS):
             continue
-        if fnmatch.fnmatchcase(command, rule.get("resource", "")):
-            effect = rule.get("effect")
+        if fnmatch.fnmatchcase(command, rule["pattern"]):
+            effect = rule["effect"]
     return effect or "allow"
 
 
@@ -203,7 +302,153 @@ def invocation_problems(recipe):
             "rules and three re-opened commands survived four reviews"]
 
 
+def config_tool_rule(tool):
+    """The effect the config writes for a whole tool, or None if it writes no rule for it.
+
+    `question` is denied as a tool, not as a command pattern, so it is invisible to every command row in
+    this file -- and it is the denial the harness needs most, because a `question` in a headless run
+    holds a worktree until the ceiling kills it with no reason recorded. Read from the file so the
+    self-test can assert it on a box with no CLI at all.
+    """
+    with open(CONFIG, encoding="utf-8") as handle:
+        text = handle.read()
+    found = re.findall(r'"%s"[ \t]*:[ \t]*"(deny|allow|ask)"' % re.escape(tool), text)
+    return found[-1] if found else None
+
+
+def synthetic_rulesets():
+    """The checked-in patterns as each release's resolved shape, so the table is testable without one.
+
+    This is the part of the check CI can actually run: opencode is not installed in CI, so every live
+    path here prints SKIPPED and the deny table -- the boundary every tick runs inside -- goes unexamined
+    on the machine that does most of the gating. Patterns matched against commands is a property of the
+    patterns, not of the CLI; keying (H-0013) still needs a CLI, and that stays a live-only claim.
+    """
+    denies = config_denials()
+    shape_a = [{"action": "shell", "resource": p, "effect": "deny"} for p in denies]
+    shape_b = [{"permission": "bash", "pattern": p, "action": "deny"} for p in denies]
+    return denies, shape_a, shape_b
+
+
+def table_problems(rules, label):
+    """Every declared row of COMMANDS against `rules`, as one list of sentences."""
+    out = []
+    for command, want, why in COMMANDS:
+        got = verdict(rules, "shell", command)
+        if got != want:
+            out.append("%s: %s resolves %s, wanted %s (%s)" % (label, command, got.upper(),
+                                                               want.upper(), why))
+    return out
+
+
+def self_test():
+    """The matcher, both releases' vocabularies, and the two ways this list has actually been wrong.
+
+    Every case is a made-up ruleset, so the assertions hold on a box with no CLI and on a box whose CLI
+    speaks a third shape. Each is written to fail if the code it protects is removed -- the same
+    discipline `check-decisions.py --self-test` applies to itself, for the same reason: a check nobody
+    can turn off is a check nobody can trust was ever on.
+    """
+    fails = []
+    denies, shape_a, shape_b = synthetic_rulesets()
+
+    # 1 and 2: the checked-in patterns, in both shapes, must give the declared verdict for every row.
+    for label, raw in (("shape A (v2.2.5)", shape_a), ("shape B (1.18.5)", shape_b)):
+        parsed = rules_from(raw)
+        if len(parsed) != len(raw):
+            fails.append("%s: %d of %d rules could not be normalised" % (label, len(raw) - len(parsed),
+                                                                        len(raw)))
+        fails += table_problems(parsed, label)
+
+    # 3: the `37120a8` regression, in one line -- a table whose denies all open with `* ` re-allowed
+    # `rm -rf`, `systemctl` and `go get` in the commit that was sent to fix something else.
+    wildcard_only = [r for r in shape_a if r["resource"].startswith("* ")]
+    missed = [c for c, want, _ in COMMANDS
+              if want == "deny" and not any(fnmatch.fnmatchcase(c, r["resource"]) for r in wildcard_only)]
+    if "rm -rf /tmp/plock-scratch" not in missed:
+        fails.append("wildcard-only: dropping every literal-first pattern still refused the bare "
+                     "`rm -rf`, so this table cannot see the regression that happened")
+
+    # 4: the `869564a` half -- literal-first only, which is what seven inert rules looked like.
+    literal_only = [r for r in shape_a if not r["resource"].startswith("* ")]
+    if any(fnmatch.fnmatchcase("gh -R vicowa-botworks/parental-lockout pr merge 218", r["resource"])
+           for r in literal_only):
+        fails.append("literal-only: a first-pattern-literal rule reached the `--repo` form, so this "
+                     "case no longer describes the bug it was written for")
+
+    # 5: a denial widened past its subcommand must be caught by an allow row, not celebrated as extra
+    # coverage. The shipped rules are `* tag *` and `git tag *`, and the spaces are load-bearing: drop
+    # them and the same rule swallows `git describe --tags --always`, which the packaging gate runs, and
+    # `git tag` with no argument, which is how a tick reads the version it just built. Both halves are
+    # asserted, because a check that only tests the widened form proves nothing about the shipped one.
+    widened = shape_a + [{"action": "shell", "resource": "*tag*", "effect": "deny"}]
+    swallowed = [c for c, want, _ in COMMANDS if want == "allow" and fnmatch.fnmatchcase(c, "*tag*")]
+    if not swallowed:
+        fails.append("widened-tag: no allow row is matched by `*tag*`, so widening the tag rule would "
+                     "not be noticed by the allow-list")
+    if verdict(rules_from(widened), "shell", "git describe --tags --always") != "deny":
+        fails.append("widened-tag: `*tag*` did not refuse `git describe --tags --always`, so the "
+                     "allow-list is not the thing keeping that command alive")
+    for probe in ("git describe --tags --always", "git tag", "gh release list"):
+        if verdict(rules_from(shape_a), "shell", probe) != "allow":
+            fails.append("shaped-tag: the shipped tag rules refuse %r, so a legitimate read is denied "
+                         "and the allow-list did not catch it because the row is not in this file" % probe)
+
+    # 6: a reader that parses nothing is a reader fault. Asserted here as the parse, because the message
+    # is asserted by the arm in `main` and the arm cannot run without a CLI to answer in the bad shape.
+    junk = agent_entry([{"name": "factory",
+                         "permission": [{"tool": "exec", "glob": "rm *", "verdict": "block"}]}])
+    if junk:
+        fails.append("reader-fault: a third shape parsed as %d rule(s), so an unreadable CLI is "
+                     "reporting a verdict on the config again" % len(junk))
+    if agent_entry([{"name": "factory", "permissions": []}]) is None:
+        fails.append("reader-fault: an empty ruleset answered None, which is the same answer as no CLI "
+                     "at all and loses the distinction between the two")
+    # The dict form the config itself uses has to parse, or a release that echoes the config back reads
+    # as a fault.
+    if not rules_from({"bash": {"rm -r*": "deny"}, "question": "deny"}):
+        fails.append("dict form: a config-shaped `permission` object parsed as no rules")
+
+    # 7: the config's one tool-level denial.
+    if config_tool_rule("question") != "deny":
+        fails.append("the config does not deny the `question` tool (it reads %r), so a tick can stall "
+                     "on an answer nobody will give" % config_tool_rule("question"))
+
+    # 8: the Makefile guard, both ways -- a commented step with an intact continuation is the shape that
+    # passed round three.
+    real = open(MAKEFILE, encoding="utf-8").read()
+    if invocation_problems(real):
+        fails.append("verify-invocation: this repository's own Makefile no longer satisfies the guard "
+                     "that checks it does -- %s" % invocation_problems(real))
+    commented = "\n".join(("#\t" + line if "scripts/check-denies.py" in line and not
+                            line.lstrip().startswith("#") else line) for line in real.splitlines())
+    if not invocation_problems(commented):
+        fails.append("verify-invocation: commenting out the step left the guard green, so the step that "
+                     "catches this step being deleted is not real")
+    if "--self-test" not in real:
+        fails.append("verify-invocation: `verify` does not run `--self-test`, so CI -- where there is no "
+                     "CLI and every live path skips -- checks nothing about the deny list")
+
+    # 9: the list must not be silently shrunk to the point of meaninglessness.
+    if len(denies) < 10 or not any(want == "allow" for _, want, _ in COMMANDS):
+        fails.append("the tables are too small to assert anything: %d config patterns, %d allow rows"
+                     % (len(denies), sum(1 for _, w, _ in COMMANDS if w == "allow")))
+
+    if fails:
+        print("check-denies --self-test FAILED:")
+        for f in fails:
+            print("  " + f)
+        return 1
+    print("check-denies --self-test: %d patterns resolved in both releases' shapes, %d commands refused "
+          "or allowed as declared, both one-shaped regressions refused, one widened pattern refused, the "
+          "unreadable-CLI case reported as a reader fault, and this step's own Makefile invocation"
+          % (len(denies), len(COMMANDS)))
+    return 0
+
+
 def main():
+    if "--self-test" in sys.argv[1:]:
+        return self_test()
     problems = []
     try:
         with open(MAKEFILE, encoding="utf-8") as handle:
@@ -216,7 +461,7 @@ def main():
             print("  " + problem, file=sys.stderr)
         return 1
 
-    rules, standalone = resolved_rules()
+    rules, standalone, answered = resolved_rules()
     if rules is None:
         # The binary is absent (CI, a fresh clone) or answers neither debug verb. Say which step did
         # not run rather than printing a tick with a smaller number under it.
@@ -226,29 +471,49 @@ def main():
                            encoding="utf-8", errors="replace", timeout=30)
         except (OSError, subprocess.SubprocessError):
             why = "is not on PATH"
-        line = ("check-denies: SKIPPED -- %s %s. The deny list was not checked; it is the boundary "
-                "every tick runs inside, and nothing else here can see it. CHECK_DENIES_REQUIRED=1 "
-                "makes a skipped run a failure." % (BINARY, why))
+        line = ("check-denies: SKIPPED -- %s (%s) %s. The deny list was not checked; it is the "
+                "boundary every tick runs inside, and nothing else here can see it. "
+                "CHECK_DENIES_REQUIRED=1 makes a skipped run a failure."
+                % (BINARY, cli_version() or "version unknown", why))
         print(line, file=sys.stderr if REQUIRED else sys.stdout)
         return 1 if REQUIRED else 0
 
     denies = config_denials()
-    shell_rules = [r for r in rules if r.get("action") == TOOL and r.get("effect") == "deny"]
+    shell_rules = [r for r in rules if r["tool"] in TOOLS and r["effect"] == "deny"]
+
+    # A reader that parsed nothing is a reader fault, and it must never be reported as the config's
+    # verdict. `if shell_rules and not denies` below cannot cover this case: it needs a non-empty
+    # ruleset, so on a box whose CLI answers in a shape this file does not know, every config pattern
+    # becomes an accusation ("does not appear in the resolved ruleset"), every command becomes ALLOW,
+    # and the `question` tool becomes "no rule for it" -- 51 problems naming a correct file, in the
+    # imperative voice of the rule that exists to catch mis-keying. That is the mirror image of the
+    # `[ \t]` bug this script caught on its own first run, and it points at the wrong artefact. It is
+    # also not free: `make -n verify` starts `set -e;` and this step is ninth, so a false verdict here
+    # silences every gate behind it. Loud skip, like a missing binary; failure only when required.
+    if not shell_rules:
+        line = ("check-denies: SKIPPED (reader fault) -- %s (%s) answered for agent %r but %d of its "
+                "%d rule(s) were a shell/bash denial this reader could parse (%s). %s lists %d deny "
+                "pattern(s), so the rules exist and this file is the thing that cannot read them. This "
+                "is not a verdict on the config. CHECK_DENIES_REQUIRED=1 makes it a failure."
+                % (BINARY, cli_version() or "version unknown", AGENT, len(shell_rules), len(rules),
+                   SHAPES, os.path.relpath(CONFIG, ROOT), len(denies)))
+        print(line, file=sys.stderr if REQUIRED else sys.stdout)
+        return 1 if REQUIRED else 0
 
     # The ruleset has to be the one this file writes. In one direction that is H-0013's mis-keying
     # (a pattern the matcher never sees); in the other it is a stale answer, which is what happens
     # without --standalone when a server is running: it reports the config it loaded at startup, and
     # every row below then passes against rules that are not in the tree.
-    resolved = {r.get("resource") for r in shell_rules}
-    if shell_rules and not denies:
-        # Without this line the two loops below still fail loudly, but as N messages about N
-        # patterns, which reads as a broken config rather than as a reader that matched nothing --
-        # the exact failure this script was written to catch, and the one it made on its own first
-        # run: a character class typed as `[ \t]` instead of `[ \t]*` matched no pattern at all, and
-        # every config-side assertion became vacuously true.
-        problems.append("%s yielded no deny patterns to this reader while %s resolves %d, so the "
+    resolved = {r["pattern"] for r in shell_rules}
+    if not denies:
+        # The other direction of the same fault: the CLI answered with rules, and the config reader
+        # matched none of them, so every assertion below would be vacuously true. This is what the
+        # first run of this script did to itself -- a character class typed as `[ \t]` instead of
+        # `[ \t]*` matched no pattern at all, and 0 patterns meant 0 problems meant a green gate.
+        problems.append("%s yielded no deny patterns to this reader while %s (%s) resolves %d, so the "
                         "reader is broken, not the config"
-                        % (os.path.relpath(CONFIG, ROOT), BINARY, len(shell_rules)))
+                        % (os.path.relpath(CONFIG, ROOT), BINARY, cli_version() or "?",
+                           len(shell_rules)))
     for pattern in denies:
         if pattern not in resolved:
             problems.append('config pattern "%s" does not appear in the resolved ruleset, so the '
@@ -263,7 +528,7 @@ def main():
                            "" if standalone else "; %s answered without --standalone" % BINARY))
 
     for command, want, why in COMMANDS:
-        got = verdict(rules, TOOL, command)
+        got = verdict(rules, "shell", command)
         if got != want:
             problems.append("%s resolves %s, wanted %s  (%s)\n      %s"
                             % (command, got.upper(), want.upper(), why,
@@ -282,23 +547,27 @@ def main():
     # depends on most -- a `question` in a headless run holds a worktree until the ceiling kills it,
     # with no reason recorded -- and it is invisible to everything above, because it never matches a
     # command string.
-    question = [r for r in rules if r.get("action") == "question"]
+    question = [r for r in rules if r["tool"] == "question"]
     if not any(r.get("effect") == "deny" for r in question):
         problems.append('the `question` tool is not denied (%s), so a tick can still stall on an '
                         'answer nobody will give' % (question or "no rule for it"))
 
     if problems:
-        print("check-denies: %d problem(s) against the ruleset %s resolves for agent %r "
+        print("check-denies: %d problem(s) against the ruleset %s (%s) resolves for agent %r "
               "(%d shell deny rules, %d commands, %d config patterns):"
-              % (len(problems), BINARY, AGENT, len(shell_rules), len(COMMANDS), len(denies)),
-              file=sys.stderr)
+              % (len(problems), BINARY, cli_version() or "version unknown", AGENT, len(shell_rules),
+                 len(COMMANDS), len(denies)), file=sys.stderr)
         for p in problems:
             print("  " + p, file=sys.stderr)
         return 1
-    print("check-denies: %d deny rules resolved%s for agent %r, %d commands refused or allowed as "
-          "declared, every pattern witnessed"
-          % (len(shell_rules), " from disk (--standalone)" if standalone else " WITHOUT --standalone",
-             AGENT, len(COMMANDS)))
+    # Binary and version on the line that says it passed. `23 deny rules resolved` is green on one box
+    # and 51 problems on another; this push's own argument is that a citation without the binary and the
+    # version is a claim nobody else can re-run, and a pass line is a citation of the thing it read.
+    print("check-denies: %d deny rules resolved by %s (%s)%s for agent %r, %d commands refused or "
+          "allowed as declared, every pattern witnessed"
+          % (len(shell_rules), BINARY, cli_version() or "version unknown",
+             " from disk (--standalone)" if standalone else " WITHOUT --standalone (a server may be "
+             "answering from the config it loaded at startup)", AGENT, len(COMMANDS)))
     return 0
 
 

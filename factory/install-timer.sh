@@ -167,7 +167,8 @@ render() {
 		-e "s#@INTERVAL@#$(sed_replacement "$INTERVAL")#g" \
 		-e "s#@STOP@#$(sed_replacement "$STOP")#g" \
 		-e "s#@REVIEWER@#$(sed_replacement "$FACTORY_REVIEWER")#g" \
-		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g"
+		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
+		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g"
 }
 
 service_unit=$(cat <<'UNIT' | render
@@ -223,6 +224,22 @@ Environment=PWD=@REPO@
 # someone changes `Type`.
 TimeoutStopSec=@STOP@
 TimeoutStartSec=@STOP@
+# A halt is not a failure, and saying so is not decoration. `factory/factory.sh` exits
+# FACTORY_EXIT_HALT when factory/HALT exists, and until this line existed the very first halted pass
+# after the queue was stopped on purpose read, in the journal:
+#
+#	19:21:07 factory.sh[753597]: HALTED a session is working address_review lanes by hand ...
+#	19:21:07 systemd[4485]: parental-lockout-factory.service: Main process exited, code=exited, status=8/n/a
+#	19:21:07 systemd[4485]: Failed with result 'exit-code'.
+#	19:21:07 systemd[4485]: Failed to start parental-lockout-factory.service - ... (one pass)
+#
+# Four lines, of which the two that stand out describe a crash that did not happen, next to the one line
+# that says a person asked for this. That is the same defect as the status=4/NOPERMISSION pass that hid
+# `Agent not found` for 152 activations: the unit's verdict is the thing a reader who is not in this
+# repository sees, and when it is wrong it does not merely fail to help, it points away from the cause.
+# The reason and the resume command stay in the log line, which is where the halt's content belongs; the
+# unit's job is only to say whether the pass did what it was told.
+SuccessExitStatus=@HALT_EXIT@
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
@@ -235,12 +252,36 @@ timer_unit=$(cat <<'UNIT' | render
 Description=@NAME@ delivery supervisor, every @INTERVAL@
 
 [Timer]
-# OnUnitInactiveSec, not OnBootSec/OnCalendar: the next pass starts an interval after the previous
-# one *finished*, so a long pass cannot stack a second supervisor behind it.
+# Two starting points, because one of them cannot arm at all on the machine this harness runs on.
+#
+# OnUnitInactiveSec is the one that keeps passes from stacking: the next pass starts an interval after
+# the previous one *finished*, so a 45-minute pass is not joined by a second supervisor at minute 10.
+#
+# On its own it also never runs again after a reboot, and for 29 hours on 6 Nov nothing said so. A
+# monotonic timer relative to a unit's inactivation needs that unit to have become inactive; a service
+# that has not run since the manager started has no such timestamp, so the timer loads, reports
+# success, and holds no elapse at all. Measured on this box, with a purpose-built pair and no reboot
+# needed -- a fresh `probe-t.timer` carrying only `OnUnitInactiveSec=20s`, bound to a service that had
+# never run in this boot: `ActiveState=active SubState=elapsed Result=success
+# NextElapseUSecMonotonic=infinity`, unchanged after 30s, `ExecStart` never touched its file. That is
+# exactly what `systemctl --user show parental-lockout-factory.timer` said for 3h13m after the 15:58:48Z
+# boot, with `LastTriggerUSec` empty and the last journal line from 14:12Z: the queue was not slow, it
+# was unreachable, and a timer that is `active` is the least suspicious thing a supervisor can look like.
+#
+# Both settings together are accepted by this systemd (259) and the elapses are the union of the two
+# anchors -- measured with the same probe pair: adding `OnStartupSec=20s` turned `SubState` from
+# `elapsed` to `waiting`, gave `NextElapseUSecMonotonic` a value, fired at once, and the next elapse
+# then came from the inactivity anchor 21s later. `OnStartupSec`, not `OnBootSec`, because
+# systemd.timer(5) recommends it for the per-user manager precisely because that manager starts at
+# first login rather than at boot: anchored to the boot, a machine left up overnight would fire the
+# factory the instant a user logged in, mid-pass or not.
+OnStartupSec=@INTERVAL@
 OnUnitInactiveSec=@INTERVAL@
 RandomizedDelaySec=2m
 AccuracySec=1m
-# No Persistent=. It used to be here, next to a comment claiming it was what caught this machine up
+# No Persistent=, and that is now a real decision rather than an accident: OnStartupSec covers the one
+# case Persistent= was cited for (the machine was off and the queue is behind), and systemd.timer(5),
+# Persistent= is inert without OnCalendar= anyway. It used to be here, next to a comment claiming it was what caught this machine up
 # after being off, and it was doing nothing. systemd.timer(5), Persistent=: "this setting only has an
 # effect on timers configured with OnCalendar=. Defaults to false." This unit has no OnCalendar=, so
 # the flag was inert, and the comment was load-bearing for nobody: the thing that actually decides
@@ -259,6 +300,7 @@ if [ "$DRY_RUN" = "1" ]; then
 	printf 'DRY-RUN  write %s\n%s\n' "$SERVICE" "$service_unit"
 	printf 'DRY-RUN  write %s\n%s\n' "$TIMER" "$timer_unit"
 	printf 'DRY-RUN  systemctl --user daemon-reload && systemctl --user enable --now %s.timer\n' "$NAME"
+	printf 'DRY-RUN  (or, if the timer is already active) systemctl --user daemon-reload && systemctl --user restart %s.timer\n' "$NAME"
 	exit 0
 fi
 
@@ -266,7 +308,21 @@ mkdir -p -- "$UNITS"
 printf '%s\n' "$service_unit" >"$SERVICE"
 printf '%s\n' "$timer_unit" >"$TIMER"
 systemctl_user daemon-reload
-systemctl_user enable --now "$NAME.timer"
+# `enable --now` is a no-op on a timer that is already running, and a running timer keeps the settings
+# it was started with -- daemon-reload re-reads the files, it does not re-arm a timer that is holding no
+# elapse at all. Measured on 6 Nov: the reinstall that added `OnStartupSec=` wrote both anchors into
+# ~/.config/systemd/user/parental-lockout-factory.timer, and `systemctl --user show` still reported
+# `SubState=elapsed NextElapseUSecMonotonic=infinity` until the timer was restarted by hand. So an
+# install that follows an install -- the normal case after any change to these templates -- would have
+# "installed" a unit that was not the one systemd was running, which is how a fix can be true in the
+# repository and absent from the machine for hours.
+if [ "$(systemctl_user is-active "$NAME.timer" 2>/dev/null || true)" = "active" ]; then
+	printf 'DRY-RUN  systemctl --user restart %s.timer\n' "$NAME" | grep -q . || true
+	"$DRY_RUN" || systemctl_user restart "$NAME.timer"
+	systemctl_user enable "$NAME.timer" >/dev/null 2>&1 || true
+else
+	systemctl_user enable --now "$NAME.timer"
+fi
 
 # The one thing about an unattended timer that is not in a file this generator controls. A *user* timer
 # runs in the user manager, and the user manager exists only while something keeps it alive: without
