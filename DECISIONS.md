@@ -1236,3 +1236,4 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   against `cf26e506` at 360 px), docs/screenshots/360/manifest.json (`head`, `captured_at`, nine
   `png_sha256`, nine `sources_rev` at `cf26e506`, nine `capture` blocks with `scripts: off` and their
   own fixture envs), DECISIONS.md
+  The re-take proved the palette marker reaches the browser. The current-page mark's browser coverage arrived later on this branch, in cdp.py's three checks and the frames' failure report, so this entry's evidence covers the marker it re-took and not the whole review thread's claims.

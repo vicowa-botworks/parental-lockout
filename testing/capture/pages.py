@@ -1041,10 +1041,12 @@ def main(shoot_fn=None, record_fn=None):
 # in the palette and marked: the census asked for on every page, the mark present and tied to the
 # page's own href, a link still on the user-agent's blue or underline, the marked entry differing
 # from its siblings on a computed property, the mark inside the header's box, and the five that
-# refuse the defect each one names rather than photographing it.
+# refuse the defect each one names rather than photographing it. Plus two from #229's review of those
+# same guards, both about the box instead of the ink: a mark on an entry 26 px tall, and a mark painted
+# on a border the browser is not drawing.
 # The two canaries are registered like every other rule and deliberately not counted: they exist to
 # prove the helper is not hollow.
-EXPECTED_RULES = 58
+EXPECTED_RULES = 60
 
 
 class _FakeSession:
@@ -1247,6 +1249,9 @@ NAV_MARK = "rgb(216, 219, 226)"    # app.css --line, the rule under the current 
 NAV_CLEAR = "rgba(0, 0, 0, 0)"
 CUR = "page"                     # the only value aria-current takes that means "this page"
 NAV_HEIGHT = 40                    # 23.6 px of text, 14.4 px of padding, 2 px of reserved border
+#                                   # -- and no longer only a transcription: `cdp.NAV_MIN_TARGET` is
+#                                   # the floor `require_nav_marked` refuses under (#229), so this
+#                                   # number is what the page measures AND what it has to be
 
 
 def _nav_link(text, href, **over):
@@ -2735,6 +2740,60 @@ def self_test():
         if refusal is not None:
             problems.append(f"a mark drawn only in the reserved border was refused: {refusal!r}")
 
+    def a_mark_on_an_unhittable_target_refuses(problems):
+        """The right mark, at the right colour, on a box a thumb cannot hit (#199's other half).
+
+        Both rows are the marked navigation on the entry the page declares; only the box's height
+        moves. The defect arm is the measured 26 px, not an invented 10: that is what this stylesheet
+        answers with `nav a`'s padding deleted, and a fixture written from what a defect "would" look
+        like is how a guard ends up refusing a page no browser can render. The canary is the same row
+        with the OTHER entries small, because the guard is about the box the reader is aiming at and a
+        rule that refused the whole row would be enforcing a claim #199 never made. #229's review
+        measured the padding line as deletable with everything green, in Go and in a full capture run.
+        """
+        small = _nav_users()
+        small["nav"][0]["items"][0]["h"] = 26
+        _log, refusal = _run_shoot(small, ARTIFACT_WIDTH)
+        if refusal is None or "26 px" not in refusal:
+            problems.append(f"a mark on a 26 px target was accepted: {refusal!r}")
+        elif "Accounts" not in refusal:
+            problems.append(f"the height refusal does not name the entry it measured: {refusal!r}")
+        hittable = _nav_users()
+        for item in hittable["nav"][0]["items"][1:]:
+            item["h"] = 26
+        _log, refusal = _run_shoot(hittable, ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"a page was refused for the height of entries nobody marks: {refusal!r}")
+
+    def a_mark_the_browser_never_draws_refuses(problems):
+        """The reserved border the mark is painted on, measured rather than assumed (#204's fifth).
+
+        Three arms, and the third is the one that keeps this guard honest about the shipped
+        stylesheet. First: every entry computes `0px`, so the current page's `border-bottom-color` is
+        a colour on a border Chrome never draws -- and the five-property comparison above still passes
+        it, which is exactly what #229's review found by deleting `border-bottom: 2px solid
+        transparent`. Second: the widths differ between siblings, which is the row-moving design
+        D-0035 refused and this is the only place that refusal is measurable. Third: the transcribed
+        row -- 2 px everywhere, the current one merely coloured -- passes, or the guard below is
+        refusing the fix instead of the defect.
+        """
+        undrawn = _nav_users()
+        for item in undrawn["nav"][0]["items"]:
+            item["bw"] = "0px"
+        _log, refusal = _run_shoot(undrawn, ARTIFACT_WIDTH)
+        if refusal is None or "draws no border" not in refusal:
+            problems.append(f"a mark on a border of zero width was accepted: {refusal!r}")
+        elif "border-bottom-width" not in refusal:
+            problems.append(f"the border refusal does not name the property it read: {refusal!r}")
+        moved = _nav_users()
+        moved["nav"][0]["items"][0]["bw"] = "4px"
+        _log, refusal = _run_shoot(moved, ARTIFACT_WIDTH)
+        if refusal is None or "do not compute it the same" not in refusal:
+            problems.append(f"entries with unequal reserved borders were accepted: {refusal!r}")
+        _log, refusal = _run_shoot(_nav_users(), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the measured row's reserved border was refused: {refusal!r}")
+
     def a_mark_outside_the_header_refuses(problems):
         """Criterion 4: the mark is the header's current-page mark, not one from anywhere.
 
@@ -2778,11 +2837,11 @@ def self_test():
         so the rules above can be about something else -- the only way to hand a guard the nothing
         it has to refuse on is to call it with nothing.
         """
-        # Arity is part of the contract here: the palette guard is page-independent -- it refuses
-        # any link on the page the stylesheet never claimed, wherever it sits -- and the other two
-        # take the declared section because they compare the current entry against its siblings.
-        # Passing three arguments to a two-argument guard would be a TypeError, which the arm below
-        # reports as exactly that rather than as a pass.
+        # Arity is part of the contract here: the palette guard is section-independent -- it refuses
+        # any navigation link the stylesheet never claimed, wherever it sits in the row -- and the
+        # other two take the declared section because they compare the current entry against its
+        # siblings. Passing three arguments to a two-argument guard would be a TypeError, which the
+        # arm below reports as exactly that rather than as a pass.
         for guard, what, args in ((cdp.require_nav_marked, "marked", ("/users",)),
                                   (cdp.require_nav_in_palette, "palette", ()),
                                   (cdp.require_nav_distinguishable, "distinguishable",
@@ -2868,6 +2927,10 @@ def self_test():
     rule("two entries marked current refuse", a_navigation_marking_two_entries_refuses)
     rule("a mark on the wrong entry refuses", a_navigation_marking_the_wrong_entry_refuses)
     rule("a mark no property can see refuses", a_mark_no_property_can_see_refuses)
+    # #229's two, both about the box rather than the ink: what a thumb can hit, and whether the
+    # border the mark is painted on is drawn at all.
+    rule("a mark on a target nobody can hit refuses", a_mark_on_an_unhittable_target_refuses)
+    rule("a mark the browser never draws refuses", a_mark_the_browser_never_draws_refuses)
     rule("a mark outside the header refuses", a_mark_outside_the_header_refuses)
     rule("a navigation row of one link refuses", a_navigation_row_of_one_link_refuses)
     rule("a navigation census that was never taken refuses",

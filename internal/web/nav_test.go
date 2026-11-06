@@ -100,6 +100,12 @@ func markedHrefs(path string, entries []string) []string {
 // not the other fails it too. A guard that instead read the entries out of the page and checked
 // each against itself could only ever agree with the page, which is the failure
 // route_coverage_test.go names in its own header.
+//
+// The promise was written before the guard kept it. What the guard compared until #229's review
+// measured it was `shellNav ⊆ seen`, never the count, so the sixth entry this comment says fails
+// left the whole package green -- `/login` "Help" is a live GET route, so even the route guard
+// approves it. The equality is asserted on both sides and on the count now; the sentence above is
+// the claim, and that arm is the check.
 var shellNav = []string{"/", "/users", "/audit", "/profiles", "/settings"}
 
 // Exactly one entry is marked, it is the entry for the page that rendered, and that is true on
@@ -131,15 +137,42 @@ func TestTheNavigationMarksTheEntryForThePageItIsOn(t *testing.T) {
 		if marked[0] != want {
 			t.Errorf("%s: the marked entry is %q, want %q", want, marked[0], want)
 		}
-		// The whole row has to be there for the one mark to mean "this one, not the others".
-		// Without this a nav that rendered a single link would pass every assertion above.
+		// The whole row has to be there for the one mark to mean "this one, not the others", and
+		// NOTHING else may be there. A nav that rendered a single link passes both assertions above,
+		// and so does a sixth entry: measured for #229's review, `<a href="/login">Help</a>` added to
+		// the row is a live GET route (so TestEveryNavigationEntryIsALiveGETRoute approves it), the
+		// one mark is still on the right href, and the whole package stayed green. A row that grows in
+		// one place while its guards keep approving the old shape is the failure this file's own
+		// header names, so the comparison below is an equality -- which is what shellNav promises.
+		var missing, extra []string
 		for _, href := range shellNav {
 			if !seen[href] {
-				t.Errorf("%s: the navigation never links to %s, so marking one entry is not the "+
-					"same claim as marking one entry out of the whole row", want, href)
+				missing = append(missing, href)
 			}
 		}
+		for _, e := range entries {
+			if !shellOffers(e.href) {
+				extra = append(extra, e.href)
+			}
+		}
+		if len(missing) > 0 || len(extra) > 0 || len(entries) != len(shellNav) {
+			t.Errorf("%s: the navigation is not the row the shell declares -- %d entries rendered "+
+				"against %d declared, missing %v, not in the declaration %v. Marking one entry is the "+
+				"claim \"this one, not the others\" only while the row is the one these guards were "+
+				"written against", want, len(entries), len(shellNav), missing, extra)
+		}
 	}
+}
+
+// shellOffers is the declaration read as a question: is this href one of the entries the shell is
+// written to emit? Read off `shellNav` rather than a second map so the two cannot drift.
+func shellOffers(href string) bool {
+	for _, e := range shellNav {
+		if e == href {
+			return true
+		}
+	}
+	return false
 }
 
 // The rule behind the attribute, including the two shapes a rendered page cannot produce.
@@ -245,9 +278,19 @@ func registeredGETPaths(t *testing.T) map[string]bool {
 //
 // Asserted on the header's bytes rather than on the navigation's: the duplicate lived outside the
 // <nav> block, so a guard that only reads the entries cannot see it.
+//
+// All five shell pages, including `/audit`. It was the one the list skipped, which reads as
+// deliberate even though it is not -- the page 503s without an audit trail, and a page that never
+// rendered has a header this guard never asks about. So the seam the navigation guard above already
+// carries is set here too, and the fifth page costs one line rather than a question in every review
+// after this one.
 func TestTheHeaderRoutesToTheRootExactlyOnce(t *testing.T) {
-	for _, path := range []string{"/", "/users", "/profiles", "/settings"} {
-		body := authGet(t, pageServer(t, pageConfig(), nil, nil, nil, nil), path).Body.String()
+	s := pageServer(t, pageConfig(), nil, nil, nil, nil)
+	// Without a trail /audit answers 503 and renders no header at all, which the arm below refuses
+	// on rather than skipping -- the same fourth seam route_coverage_test.go adds for the same reason.
+	s.Trail = &fakeTrail{tail: audit.Tail{Records: trailFixture(), FilesRead: 1}}
+	for _, path := range []string{"/", "/users", "/audit", "/profiles", "/settings"} {
+		body := authGet(t, s, path).Body.String()
 		header, ok := between(body, "<header", "</header>")
 		if !ok {
 			t.Fatalf("%s renders no <header>, so this guard is checking nothing", path)
@@ -298,35 +341,65 @@ func TestTheHeaderRoutesToTheRootExactlyOnce(t *testing.T) {
 // least one of the properties a reader can see and whether any link is still the browser's own
 // blue.
 //
-// The third assertion is the one a reformat would break. `nav a:hover` has to come BEFORE the
+// The ordering assertion is the one a reformat would break. `nav a:hover` has to come BEFORE the
 // current-page rule: both name `text-decoration`, they have the same specificity once the
 // attribute selector is counted, and the later rule wins -- which is why hovering the page you are
 // on does not underline it while hovering a page you are not on still says it is a link. Someone
 // who moves the block into alphabetical order, or lets a formatter sort it, quietly puts the
 // underline back on the entry that is supposed to read as a location.
+//
+// Which is why each needle below carries its opening brace, and why each is counted before an offset
+// is taken on it. See the comment in the body for what the two needles used to be and what that cost.
 func TestTheStylesheetMarksTheCurrentEntryLast(t *testing.T) {
 	css, err := fs.ReadFile(Assets(), "app.css")
 	if err != nil {
 		t.Fatalf("app.css is not embedded: %v", err)
 	}
 	text := string(css)
-	hoverAt := strings.Index(text, "nav a:hover")
-	currentAt := strings.Index(text, `nav a[aria-current="page"]`)
-	rowAt := strings.Index(text, "nav a {")
+	// Each needle carries the opening brace, and each is counted before any offset is trusted.
+	//
+	// The brace is what makes a needle name a RULE rather than a mention of one: until #229's review
+	// measured it, these two needles were `"nav a:hover"` and `` `nav a[aria-current="page"]` ``, each
+	// of which occurs twice in this file -- once in the sentence above the block that names it (at 233
+	// and 236) and once as the rule (at 263 and 282). `Index` answers with the first, so both offsets
+	// the guard compared were positions in prose, ordered as the prose was written and not as the file
+	// was: deleting either rule left its mention behind, moving the current-page rule above the hover
+	// rule left the comment's order intact, and all three arms measured green against all three
+	// mutations. (`rowAt` was already brace-anchored, and that asymmetry was the tell.)
+	//
+	// The count is the general half of the lesson, and it is asserted for all three needles: a brace is
+	// only the reason THIS file's prose happens to be distinguishable from its rules, and a comment
+	// that ever spells a selector out with its brace would mute the ordering guard again in exactly the
+	// way the prose did. An offset is only evidence when the thing it points at is unique.
 	for _, want := range []struct {
-		what string
-		at   int
+		what   string
+		needle string
 	}{
-		{"the `nav a` rule that takes the row out of the user-agent stylesheet", rowAt},
-		{"the `nav a:hover` rule", hoverAt},
-		{"the rule for the current page's entry", currentAt},
+		{"the `nav a` rule that takes the row out of the user-agent stylesheet", "nav a {"},
+		{"the `nav a:hover` rule", "nav a:hover {"},
+		{"the rule for the current page's entry", `nav a[aria-current="page"] {`},
 	} {
-		if want.at < 0 {
+		switch c := strings.Count(text, want.needle); c {
+		case 0:
 			t.Errorf("app.css has no %s: #204 measured every link at the browser's own "+
 				"rgb(0, 0, 238) with an underline, on all five photographed pages, because the "+
 				"file had no selector for `nav`, `nav a` or `a` at all", want.what)
+		case 1:
+			// The only count an `Index` below can be trusted on.
+		default:
+			t.Errorf("app.css names %s %d times, want exactly 1: the ordering comparison reads the "+
+				"byte offset of the FIRST mention, so with two of them it compares two mentions and "+
+				"never reads the rules -- which is how this guard passed on a stylesheet whose "+
+				"current-page rule was deleted, whose hover rule was deleted, and whose two rules "+
+				"were swapped (#229). Either name the selector in prose without its brace, or teach "+
+				"the guard to compare every occurrence: %q", want.what, c, want.needle)
 		}
 	}
+	// Only the two rules the cascade orders are indexed. `nav a` is the least specific of the three
+	// -- two elements, against an attribute or pseudo-class on each of the others -- so its position
+	// in the file decides nothing, and an offset nobody compares is an offset nobody should trust.
+	hoverAt := strings.Index(text, "nav a:hover {")
+	currentAt := strings.Index(text, `nav a[aria-current="page"] {`)
 	if hoverAt >= 0 && currentAt >= 0 && hoverAt > currentAt {
 		t.Errorf("app.css puts `nav a:hover` at byte %d, after the current-page rule at %d: the "+
 			"two rules both name text-decoration at the same specificity, so the hover rule now "+

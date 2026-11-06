@@ -629,6 +629,35 @@ NAV_JS = (
 UA_LINK_BLUE = "rgb(0, 0, 238)"
 UA_UNDERLINE = "underline"
 
+# The smallest box that is a target rather than a glyph, in pixels.
+#
+# #199 is a complaint about a hand as much as about a colour: "when accessing from a phone ... the
+# text is so small ... it is difficult to navigate". Measured on this stylesheet, a navigation entry
+# is 26 px tall with `nav a`'s padding gone and 40 px with it -- 23.6 px of line box, 14.4 px of
+# `.45rem` padding, 2 px of reserved border. `pages.py` transcribes the same 40 as its fixture's
+# `NAV_HEIGHT`; this is the floor the guard refuses under, and the two agree on the number while
+# doing different jobs, one a measurement of what the page renders and one a claim about what a thumb
+# can hit. #229's review is why it is a number at all: deleting the padding line was green in every
+# Go guard, every other capture guard, and a full nine-page capture run.
+NAV_MIN_TARGET = 40
+
+
+def _border_px(value):
+    """The pixel width a computed `border-bottom-width` reports, or None when it is not a length.
+
+    Chrome answers `2px`. A census from anything else could answer `2 px`, or a keyword like
+    `medium`, and a parser that read those as 0 would turn "the browser is not drawing this border"
+    into "it is drawing it at zero width" -- two different refusals collapsed into one wrong number.
+    So a value this cannot read comes back as None and the caller says it could not read it.
+    """
+    text = str(value or "").strip().lower()
+    if not text.endswith("px"):
+        return None
+    try:
+        return float(text[:-2])
+    except ValueError:
+        return None
+
 
 def _nav_rows(got, what):
     """The navigation rows, or a refusal naming the census that was never taken.
@@ -651,8 +680,16 @@ def nav_census_line(got):
 
     `nav=5 links marked=Status overflow=0` -- the marked entry named by its own text rather than by
     an index, because the text is the only thing a reader of the transcript can check against the
-    photograph below it. A page whose navigation was empty prints `nav=0 links marked=none`, which
-    is the case this folder refuses to let pass silently (see `census_line`).
+    photograph below it.
+
+    Where there is not exactly one mark the field is a COUNT, not a name: an empty navigation prints
+    `nav=0 links marked=0` and a doubly-marked one prints `marked=2`. It said `marked=none` for the
+    first of those until #229's review read the line the code actually writes, and the difference is
+    not cosmetic -- `none` is a word this file uses for a state it did not measure, and a transcript
+    reading `marked=none` on a page that measured zero marks would be the one place in the run where
+    a reader could not tell an absence from a gap. Zero is the case this folder refuses to let pass
+    silently (see `census_line`), and the refusal is the guard's job; this line's job is to report
+    what the census saw, in the units it counted in.
     """
     rows = (got or {}).get("nav") or []
     items = [i for row in rows for i in row["items"]]
@@ -701,6 +738,15 @@ def require_nav_marked(got, what, nav):
     header -- into a footer, or into a `<div>` after `</header>` -- would keep marking the right
     entry and would satisfy every property check in this file while photographing something the
     report did not ask for.
+
+    Then the box's own height, because #199's first sentence is about a thumb and not only about an
+    eye. `NAV_JS` has always recorded `h` per entry and the header check has always read `y`, and
+    until #229's review nothing in the repository read `h`: deleting `nav a`'s padding left every Go
+    guard green, left `require_nav_in_palette` and `require_nav_distinguishable` green (padding moves
+    no colour, weight, decoration or border), and let a full nine-page capture exit 0 while the
+    profiles frame genuinely moved 17 px. A census that measures a box and refuses nothing about it
+    is a census that was never asked the question. The floor is the marked entry's own -- the one a
+    reader is aiming at -- and `NAV_MIN_TARGET` says why 40.
 
     What this does NOT ask is whether the marked entry's *name* is the page's name. The row's first
     entry reads "Status", its `<title>` reads "Status", and no heading on the page says either word
@@ -760,10 +806,30 @@ def require_nav_marked(got, what, nav):
                 f"the header spans y={header['y']}..{header['y'] + header['h']}, so the mark is not "
                 "the header's. A navigation moved out of the header keeps marking the right entry "
                 "and photographs a different page than the one #204 asked about.")
+        # The target, measured on the one entry the reader is aiming at. The comparison is on the
+        # rounded number NAV_JS records -- the same one the census prints -- because a floor is a
+        # claim about a thumb, and a thumb does not care about the tenth of a pixel the browser
+        # rounded away.
+        if marked["h"] < NAV_MIN_TARGET:
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current in a box {marked['h']} px tall, under the "
+                f"{NAV_MIN_TARGET} px this row is required to offer. #199 is a complaint about "
+                "navigating a phone with a thumb: the mark being on the right link, in the right "
+                "colour, at the right weight, says nothing about the link being hittable. That is "
+                "`nav a`'s padding -- 26 px without it, 40 with it, measured on this stylesheet -- "
+                "and no other guard in this repository reads a box's height, which is how deleting "
+                "it stayed green through nine photographs (#229).")
 
 
 def require_nav_in_palette(got, what):
-    """No link on the page is still the browser's own link (#204's first sentence).
+    """No link in the navigation is still the browser's own link (#204's first sentence).
+
+    The scope is the navigation, and it is worth saying because the sentence above it does not carry
+    it: #204's table is the five links in `<nav>` on five pages, so the loop below walks the rows
+    `NAV_JS` censused and nothing else. A link in the page's own body that still computes to the
+    user-agent's blue is outside this census -- `NAV_JS` selects `nav`, and a guard can only refuse
+    what it was shown. Widening it would mean widening the census to every anchor on nine pages,
+    which is a different claim about a different set of links than the one the report measured.
 
     #199 opens with "it doesn't match the color palette of the system" and #204 measured why: the
     stylesheet's only rule for `a` was `:focus-visible`, so every anchor kept Chrome's user-agent
@@ -829,6 +895,22 @@ def require_nav_distinguishable(got, what, nav):
     rule here: a rule saying "the mark must not be an underline" is a rule about one design, and
     the next designer argues with it and wins. It is written as the comment on the stylesheet rule
     instead, where the person editing that rule reads it.
+
+    The reservation itself is the exception to that paragraph, and it is measured here rather than
+    left to the comment, because #229's review showed what leaving it costs: deleting
+    `border-bottom: 2px solid transparent` from `nav a` was green in the whole `internal/web`
+    package AND green through a full capture run. With the reservation gone every link computes
+    `0px`, the current-page rule's `border-bottom-color` is a colour on a border the browser never
+    draws, and the comparison above still passes on colour and weight alone -- so the third visible
+    part of the mark silently stops existing while every property named in the issue's own list
+    still differs. That is not a sixth property added to the comparison, it is the fifth one made
+    honest: `bc` only means anything on a border that is drawn.
+
+    So two things are asserted about the width, on the whole row rather than on the marked entry
+    alone. It is non-zero -- otherwise nothing is drawn -- and every entry computes the same value,
+    because "marking the current entry cannot move the row's baseline" is a claim about the row: a
+    width that differs between siblings is the design D-0035 refused, and it would have put 2 px of
+    vertical jump on every page the shell renders.
     """
     rows = _nav_rows(got, what)
     for row in rows:
@@ -853,6 +935,33 @@ def require_nav_distinguishable(got, what, nav):
                 "the DOM and nothing in the stylesheet turns it into something a parent can see, "
                 "which is the half of #204 a grep of `app.css` cannot tell apart from a rule that "
                 "works.")
+        # The reservation the mark is drawn on, asserted on every entry rather than on the marked one.
+        # `reserved` is None when the census reports a width this parser cannot read at all, and that
+        # is said as itself -- a comparison that read `medium` as 0 would refuse with a sentence about
+        # a border nobody drew.
+        reserved = _border_px(marked["bw"])
+        others = sorted({i["bw"] for i in items if i is not marked and i["bw"] != marked["bw"]})
+        if reserved is None:
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current with a border-bottom-width the capture "
+                f"driver cannot read ({marked['bw']!r}). The mark in this repository is drawn as the "
+                "COLOUR of a reserved border, so an unreadable width is not a harmless extra digit: "
+                "it means the census stopped reporting the number this guard compares.")
+        if reserved <= 0 or others:
+            why = (f"its border-bottom-width computes {marked['bw']!r}, so the browser draws no "
+                   "border at all and the current page's `border-bottom-color` is a colour on "
+                   "nothing" if reserved <= 0 else
+                   f"the entries do not compute it the same: {marked['bw']!r} on "
+                   f"{marked['text']!r} against "
+                   f"{', '.join(repr(w) for w in others)} on its siblings")
+            raise SystemExit(
+                f"{what} marks the current entry on a border that is not the row's reservation: "
+                f"{why}. `nav a` reserves one border on every link precisely so that marking "
+                "the current entry cannot move the row's baseline, and this is the only place that "
+                "reservation is measured: deleting `border-bottom: 2px solid transparent` was green "
+                "package-wide and green through nine photographs, and a future rule that marks by "
+                "width would put a vertical jump in the header of every page the shell renders "
+                "(#229, D-0035).")
 
 
 def session_rows(session):

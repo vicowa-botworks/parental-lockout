@@ -82,15 +82,20 @@ func (d pageData) IsCurrent(href string) bool {
 // firstSegment is the section of the site a path is in: "/users/row/test-lock" and "/users/" and
 // "/users" are all "users", and "/" -- and nothing else -- is "".
 //
-// Trailing slashes are not a second answer, so they come off before the split. The split is then
-// the whole rule, and it is deliberately a split rather than a prefix test: a prefix test makes
-// "/" a prefix of every path, which would mark two entries on any page under a section, and it
-// makes "/users" a prefix of "/usersfoo", which would mark an account page on a path nobody
-// registered.
+// One split is the whole rule, and it is deliberately a split rather than a prefix test: a prefix
+// test makes "/" a prefix of every path, which would mark two entries on any page under a section,
+// and it makes "/users" a prefix of "/usersfoo", which would mark an account page on a path nobody
+// registered. It also handles the trailing slash without being told to: "/users/" splits at the slash
+// the empty second segment leaves behind, so it answers "users" exactly as "/users/casey/lock-now"
+// does, and "/" is empty before the split ever runs. There is therefore no `TrimSuffix` here -- the
+// one that was here until #229's review measured it was unreachable, and unpinable in the same
+// breath: deleting it changed no output, no test, and not even the `{"/users/", …}` case written to
+// cover it. A line no input reaches is not a guard, and a comment that credits one with doing work
+// is how the next reader keeps it.
 //
 // A path with no leading slash ("") is "" too, which IsCurrent refuses before it gets here.
 func firstSegment(p string) string {
-	p = strings.TrimPrefix(strings.TrimSuffix(p, "/"), "/")
+	p = strings.TrimPrefix(p, "/")
 	if i := strings.IndexByte(p, '/'); i >= 0 {
 		return p[:i]
 	}
