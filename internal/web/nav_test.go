@@ -233,6 +233,41 @@ func registeredGETPaths(t *testing.T) map[string]bool {
 	return out
 }
 
+// The header offers the root exactly once.
+//
+// #204 found two anchors with `href="/"` in the header of the page the root renders -- the site
+// name and the entry for the page -- differing only in weight, and wrote: "One of them is not a
+// navigation target, and nothing says which." The fix was to stop the site name being a route;
+// this is the guard that keeps it from becoming one again, because the way it comes back is a
+// well-meaning `<h1><a href="/">` that looks like a wordmark convention and quietly doubles the
+// tab order on one page out of five.
+//
+// Asserted on the header's bytes rather than on the navigation's: the duplicate lived outside the
+// <nav> block, so a guard that only reads the entries cannot see it.
+func TestTheHeaderRoutesToTheRootExactlyOnce(t *testing.T) {
+	for _, path := range []string{"/", "/users", "/profiles", "/settings"} {
+		body := authGet(t, pageServer(t, pageConfig(), nil, nil, nil, nil), path).Body.String()
+		header, ok := between(body, "<header", "</header>")
+		if !ok {
+			t.Fatalf("%s renders no <header>, so this guard is checking nothing", path)
+		}
+		if n := strings.Count(header, `href="/"`); n != 1 {
+			t.Errorf("%s: the header has %d links to the root, want 1 -- the navigation's own. "+
+				"A second one is a second tab stop on the way to a page the row already names: %s",
+				path, n, strings.Join(strings.Fields(header), " "))
+		}
+		// The site's name is still a heading, which is what makes it the header's name rather
+		// than a caption. Unlinking it must not turn it into a <div> or a <p class="brand">, so
+		// this asks for the text inside an <h1> element, not for the text anywhere in the header:
+		// a <p class="brand"> would satisfy the looser form while leaving the page no heading.
+		name, ok := between(header, "<h1", "</h1>")
+		if !ok || !strings.Contains(name, "parental lockout") {
+			t.Errorf("%s: the header has no <h1> carrying the site's name (found %q): %s", path,
+				name, strings.Join(strings.Fields(header), " "))
+		}
+	}
+}
+
 // The stylesheet half of #204 is pinned in TestTheStylesheetMarksTheCurrentEntry, which arrives
 // with the `nav a` rule it greps -- a pin that lands before the rule it reads would only be a red
 // build. It belongs in this file beside the guards that read the rendered page because the two

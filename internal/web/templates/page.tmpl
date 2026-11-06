@@ -33,7 +33,15 @@ cached as immutable for a year.
 </head>
 <body class="page-{{template "pagename" .}}">
 <header class="masthead">
-  <h1><a href="/">parental lockout</a></h1>
+  {{/* The site's name, and not a link. #204 measured two anchors in this header with the same
+      `href="/"` on the page the root renders, differing only in weight -- "One of them is not a
+      navigation target, and nothing says which." The one that is a navigation target is the entry
+      below it, which is now also the entry that says so; this one was the same route a second time
+      in the tab order, on the one page where the row already begins with its own destination.
+
+      No dashes on this action either: the whitespace either side of it is the space between `</h1>`
+      and `<nav>`, and this file has already shipped two elements welded together that way. */}}
+  <h1>parental lockout</h1>
   <nav>
     {{/* Every entry asks the shell whether it is the reader's own section, and says so in the
         markup rather than in a style: `aria-current="page"` is what a screen reader announces as

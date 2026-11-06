@@ -255,3 +255,42 @@ the `Decision:` trailer on the commit that already carries its id.
 - Effect: internal/web/sources.go (`pageData.Path`, `IsCurrent`, `firstSegment`; `render` fills the
   path), internal/web/templates/page.tmpl (`aria-current="page"` on the current entry),
   internal/web/nav_test.go, DECISIONS.md
+
+## D-0026 · The site's name is a heading, not a second route to the root
+
+- Question: #204 measured two anchors in the header with the same `href="/"`, on the page the root
+  renders, differing only in weight -- "One of them is not a navigation target, and nothing says
+  which." Which of the two is the navigation?
+- Options: the site's name stops being a link and the row's own entry becomes the only route to the
+  root | the name keeps its href and gets `aria-hidden="true"` with `tabindex="-1"` | the name stays
+  a link and the `Status` entry is deleted, so the row carries one route to the dashboard | both
+  stay and both are marked current on the root | nothing: the report is about the stylesheet, not
+  the header
+- Chose: the site's name stops being a link and the row's own entry becomes the only route to the
+  root
+- Why: the fourth inverts what the attribute means. `aria-current="page"` is a fact about which
+  page the reader is on, and a page that marks two elements current teaches them the mark is
+  decoration -- which is the belief #204 was filed against. The second keeps the worst two
+  properties of the pair: the mouse affordance survives, the keyboard stop and the announcement go,
+  so whether the element exists depends on which input device the parent picked up; and it hides
+  the duplication instead of ending it, when the complaint was that the duplication is not legible,
+  not that it is invisible to software. The third is the one that leaves the header honest about
+  its routes, and it decides a content question by default: with `Status` gone the row's first entry
+  is the product's name, so the row no longer says what the root page is *for*, and #204's own
+  finding -- the link reads `Status`, the page is the dashboard, `docs/` uses neither word
+  consistently -- gets settled by whichever element happened to survive. The fifth is refused by
+  the report being a measurement: two anchors, one href, one page in five, and a tab order that
+  pays for it there. "Refuses rather than proceeds" is the tie-break and it points one way: this
+  removes a route rather than adding an attribute, and the route it removes is the one offered by
+  the element beside it, now marked. The costs are kept in the open. A wordmark that does nothing
+  breaks the convention a parent's finger expects, and `TestTheHeaderRoutesToTheRootExactlyOnce` is
+  the guard that keeps the anchor from coming back as a well-meaning wordmark. The larger one is
+  what the `<h1>` now *is*: the product's name, on a page whose own name reaches a reader only
+  through `<title>` and whose visible heading is a table caption, so skip-to-heading lands on the
+  same two words on all five pages. Fixing that means deciding which element carries a page's
+  identity, across five templates' `title` and `pagename` blocks, and it is #219 -- filed with the
+  measurements and the two candidate answers, because a deferred half that lives only in a decision
+  log entry is a deferred half nobody is queued to finish.
+- Checkpoint: e2dbd46e9de2f8be69e0f6db2d1a54f76d94577f
+- Effect: internal/web/templates/page.tmpl (the `<h1>` is no longer an anchor),
+  internal/web/nav_test.go (`TestTheHeaderRoutesToTheRootExactlyOnce`), DECISIONS.md
