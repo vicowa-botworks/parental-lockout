@@ -1,20 +1,66 @@
 {
-  "captured_at": "2026-11-06T02:49:31Z",
-  "head": "1af2a76be2d7564305677b36ecce99a52355daf3",
+  "captured_at": "2026-11-06T09:12:46Z",
+  "head": "45977d6817cb71cb3e798e0dc0c6fec6ae5eb624",
   "pages": [
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "state": [
+          [
+            "auth.success",
+            "2026-03-18 21:34:05 -04:00"
+          ]
+        ],
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "ac49f291a5cdafcb9f15725ca911ff4bb42aa0d7f9615f1207859d2adab48e9d",
+      "png_sha256": "0cfe9973711b38fe627f1db6c310a2c39e29858e047a653bfc7223a9b1720671",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "d1ee983743fdd427bd17f1d9200c16baae4e89dc"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "state": [
+          [
+            "casey",
+            "locked out until 00:00"
+          ],
+          [
+            "casey",
+            "Every day, every hour"
+          ],
+          [
+            "casey",
+            "no desktop session"
+          ],
+          [
+            "alex",
+            "nothing scheduled"
+          ],
+          [
+            "alex",
+            "x11 \u00b7 seat0 \u00b7 locked"
+          ]
+        ],
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/",
       "png": "dashboard.png",
       "png_sha256": "1ec41100f43b8abc96a37b004c36088799aa477d36d862e8c2ebdace79003b8d",
@@ -27,6 +73,12 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "fixture": "lock",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/lock",
       "png": "lock.png",
       "png_sha256": "7ec1a6642e111ad267316f857ca8fa0c83326b16bde7fe13f5a325e3adb4551b",
@@ -39,6 +91,15 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/profiles",
       "png": "profiles-refused.png",
       "png_sha256": "5206d9078d88365ef50fb57b7983c20343e7988a0978a2aa355c57c467351209",
@@ -51,6 +112,15 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/profiles",
       "png": "profiles.png",
       "png_sha256": "8eae33ea34b27e0a6627e80cc138a751681fa9867c5059aebda36a509559ee89",
@@ -63,6 +133,15 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/settings",
       "png": "settings.png",
       "png_sha256": "7bfacb6fe5dcc8afe608bfd08949ddb9deeac11d279a1bb198ddc678299b2216",
@@ -75,6 +154,12 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "fixture": "testlock",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/testlock",
       "png": "testlock.png",
       "png_sha256": "d008fdf9d3901c73c22928de1e835fc21a17657748a88f24c88575d31620551a",
@@ -87,6 +172,12 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "fixture": "pages-noprof",
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "zone": "-04:00"
+      },
       "page": "/users",
       "png": "users-no-profiles.png",
       "png_sha256": "dac864f4cc1405c65a84fabd652ecda199fe756e1b0f751b2596bbed076ec76f",
@@ -99,6 +190,15 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     },
     {
+      "capture": {
+        "census": "testing/capture/bin",
+        "fixture": "pages",
+        "rows": 8,
+        "scripts": "off",
+        "stamp": "2026-03-18T21:34:05",
+        "tz": "America/New_York",
+        "zone": "-04:00"
+      },
       "page": "/users",
       "png": "users.png",
       "png_sha256": "81f976b79f5b327fe343bbe3678e31c0583cf7d6f9f97a75177629f77ab5c89e",
@@ -111,6 +211,6 @@
       "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
     }
   ],
-  "schema": "capture-manifest/1",
+  "schema": "capture-manifest/2",
   "viewport": 360
 }

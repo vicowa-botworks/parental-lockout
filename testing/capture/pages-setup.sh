@@ -31,10 +31,10 @@ CAPTURE_AUDIT_ROWS="${PLOCK_CAPTURE_AUDIT_ROWS:-8}"
 # Sessions cell is the fixture's and not a report on whoever ran the capture (#207 cause 6). The two
 # POST fixtures deliberately do not set this: their whole subject is a real lock on a real session.
 CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-$CAPTURE_DIR/bin}"
-# The reader's zone, declared because the audit page's When column is formatted with `MST` and Go's
-# time.Parse hands a row whose offset matches the local zone that zone's abbreviation (see
-# fixture.sh). America/New_York is the zone the fixture's own wall times are written in, so the label
-# and the clock agree, and they agree on every host.
+# The reader's zone, declared because the audit page used to print a zone NAME chosen by the host
+# (see fixture.sh: the `MST` layout, #207's seventh cause, #210's fix). America/New_York is the zone
+# the fixture's own wall times are written in, so the clock and any label the page might grow agree,
+# on every host.
 CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-America/New_York}"
 
 # The heredoc is unquoted for one line: the listen address has to carry $RUN_PORT, so the port
