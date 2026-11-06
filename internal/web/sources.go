@@ -35,10 +35,66 @@ type pageData struct {
 	// page -- and every logout test written by hand-building a `csrf=<token>` body
 	// stays green while it does.
 	CSRF string
+	// Path is the request's own path, and it is the only thing in the shell that says which
+	// page the shell is drawing a frame around (#204).
+	//
+	// It is here rather than derived from the page's template name because the two are not the
+	// same question. `pagename` names a template, so it answers "which file rendered this" --
+	// and the two POST result pages are rendered by a template named for the action that
+	// produced them, at a URL that is a child of an account row. The navigation does not care
+	// which file ran; it cares which section of the site the reader is standing in, and only
+	// the URL knows that.
+	//
+	// It is filled by `render` for the same reason CSRF is: a page cannot be allowed to forget
+	// it, and a shell that renders it as the empty string marks nothing (see IsCurrent).
+	Path string
 	// Data is the view model. The templates reach it as ".", because the alternative
 	// -- writing "{{.Data.Banner}}" in twelve places -- makes the markup unreadable
 	// and hides what the page actually shows.
 	Data any
+}
+
+// IsCurrent is the shell's navigation asking, once per entry, whether that entry is where the
+// reader already is (#204).
+//
+// One method rather than a conditional written at each of the five links, because the answer is
+// one rule and five copies of a rule is the shape #202 was filed about: this file's own history
+// is a stylesheet with one selector naming one input type, where the shared rule should have
+// been. Written here it is also testable without a browser -- internal/web/nav_test.go drives it
+// through the real handlers -- and `aria-current` and the stylesheet hook can never disagree,
+// because there is only one of them.
+//
+// An empty Path marks nothing. That is the refusal, not an oversight: the shell asking "which
+// page is this" about a request with no path has no answer, and marking the site's own root as
+// current on the strength of a missing value would be the same class of mistake as a nil listing
+// rendering "no accounts" (see readAccounts).
+func (d pageData) IsCurrent(href string) bool {
+	if d.Path == "" {
+		return false
+	}
+	// A navigation entry names exactly one section -- "/" the root, "/users" the accounts --
+	// and no two entries in the shell name the same one. So comparing one segment is enough to
+	// make the answer true for one entry and false for the rest, with no list of the nav's
+	// hrefs anywhere for a future entry to be forgotten by.
+	return firstSegment(href) == firstSegment(d.Path)
+}
+
+// firstSegment is the section of the site a path is in: "/users/row/test-lock" and "/users/" and
+// "/users" are all "users", and "/" -- and nothing else -- is "".
+//
+// Trailing slashes are not a second answer, so they come off before the split. The split is then
+// the whole rule, and it is deliberately a split rather than a prefix test: a prefix test makes
+// "/" a prefix of every path, which would mark two entries on any page under a section, and it
+// makes "/users" a prefix of "/usersfoo", which would mark an account page on a path nobody
+// registered.
+//
+// A path with no leading slash ("") is "" too, which IsCurrent refuses before it gets here.
+func firstSegment(p string) string {
+	p = strings.TrimPrefix(strings.TrimSuffix(p, "/"), "/")
+	if i := strings.IndexByte(p, '/'); i >= 0 {
+		return p[:i]
+	}
+	return p
 }
 
 // pageTemplates holds the parsed pages, keyed by name.
@@ -162,6 +218,11 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, vie
 		CSS:  s.assetURL("app.css"),
 		JS:   s.assetURL("app.js"),
 		CSRF: csrf,
+		// The path the request came in on, not the name of the template about to render it:
+		// the navigation marks the section the reader is in, and a POST result page is a child
+		// of the URL it was posted to. Raw path, no query -- a query is not part of a location,
+		// and a filter on /audit must not stop the Audit link from marking itself.
+		Path: r.URL.Path,
 		Data: view,
 	}); err != nil {
 		s.logf("web: %s %s could not render: %v", requestID(r), name, err)
