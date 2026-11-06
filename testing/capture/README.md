@@ -316,11 +316,16 @@ one session on one machine.
 
 ## What the audit fixture is not allowed to contain
 
-`audit.png` is the one artifact here that a run cannot reproduce, so it is also the one where a
-fabricated row would survive review: nobody can regenerate it and compare. It has therefore been
-wrong twice, both times in the same way — a kind the fixture author assumed the product emits.
-`auth.login` was caught in review; `config.changed` was caught later, and by then the picture had
-already been committed.
+`audit.png` used to be the one artifact here that a run could not reproduce, and that is exactly why a
+fabricated row survived review twice: nobody could regenerate it and compare. #212 took the run counter
+out from under it — the `rows` declaration, `cdp.pin_appended_rows`, `require_declared_rows` — so the
+comparison this section assumed impossible is now a command, and it was run on 6 Nov: two fresh
+fixtures, taken under two host timezones, came back with the committed bytes for all nine artifacts.
+What has not changed is *why* the three rules below exist, and it is worth stating now the old premise
+is gone: reproducing the pixels proves the frame comes back, it does not prove the rows are ones the
+product writes. The mistake was made twice, both times in the same way — a kind the fixture author
+assumed the product emits. `auth.login` was caught in review; `config.changed` was caught later, and by
+then the picture had already been committed.
 
 Three rules keep the trail honest, all of them in `pages-setup.sh`:
 
@@ -350,9 +355,13 @@ Three rules keep the trail honest, all of them in `pages-setup.sh`:
   login at the top followed by rows climbing. That one was found by looking at the capture, not by
   reading the fixture.
 
-The timestamps carry the machine's own UTC offset for the same reason the daemon's do: the page
-prints each row's zone, so a trail stamped `Z` renders `15:48:17 UTC` beside `11:52:18 EDT` in one
-column.
+The timestamps carry the fixture's **declared** offset (`CAPTURE_ZONE` in `fixture.sh`, `-04:00`) and
+not the machine's own, which is #207's cause 1 and the reason `pages-setup.sh` writes an offset rather
+than a zone name. The hazard the pinned offset answers is the one this sentence used to assert as a fact
+about the host: the page prints each row's own zone, so a trail stamped `Z` renders `15:48:17 UTC`
+beside `11:52:18 EDT` in one column, and a column holding two zones cannot be read top-to-bottom under a
+"newest first" label. An offset chosen by the host made that a property of who ran the capture; #210
+removed the last host dependency on the reading side by printing the offset each row stores.
 
 ## A second state, or a second fixture
 
