@@ -1,7 +1,13 @@
 # Decision log
 
-Every judgement call made unattended in this repository, with the options it was given and the
-commit to roll back to. Written by the `factory` agent (`.opencode/skills/factory/SKILL.md`).
+Every judgement call an unattended session made in this repository, with the options it was given
+and the commit to roll back to. Written by the `factory` agent (`.opencode/skills/factory/SKILL.md`)
+to the contract `scripts/check-decisions.py` enforces -- an entry that is missing a field, lists one
+option, or names a checkpoint that `git revert` cannot be pointed at.
+
+The format exists because of how an autonomous loop fails. Not by choosing badly -- by choosing and
+not saying so, so that six weeks later the only trace of a real decision is code that nobody can
+explain and an issue that says nothing. An entry is therefore only useful if it records what lost.
 
 Rolling one back:
 
@@ -20,6 +26,27 @@ branch, because `git log --grep 'Decision: D-0011'` has to name exactly one comm
 the decision-log gate and the `make verify` hook for it (`feat/factory-harness`, PR #217), which
 was still open when the first entry below was written. When the two files meet, both halves are
 kept; nothing here renumbers anything.
+
+## Writing to this file before the gate exists
+
+`scripts/check-decisions.py` is not in this tree yet -- the gate and the first twenty entries live on
+`feat/factory-harness` (#217), still in review. This branch opened a log anyway, because a tick that
+makes a judgement call and has nowhere to write it is the failure the log exists to prevent, and the
+alternative -- waiting for #217 to merge -- silently exempts every branch in flight from the rule.
+`issue-202` did the same thing on its own branch, which is why this file is two logs and the merge
+that joined them kept both halves.
+
+Two consequences, both deliberate:
+
+- **The numbering continues past the highest id on any open branch.** #217's log ends at `D-0020`
+  and the half above ran `D-0011`..`D-0015`, so ids were already colliding across branches; the
+  entries below resume at `D-0021` rather than adding a third `D-0013`.
+- **The field contract is #217's, unchanged** -- `## D-NNNN · title` followed by `Question`,
+  `Options`, `Chose`, `Why`, `Checkpoint` (plus `Effect`), with `Chose` repeating one option
+  verbatim. So when #217 lands, `make verify` starts checking these entries instead of rejecting
+  them for shape. What it finds first is the collision this section describes: `D-0011`..`D-0015`
+  will name two decisions apiece once #217's own log lands beside them, and renumbering them is that
+  branch's call, not this file's.
 
 ## D-0011 · One typeface and one width model for the controls you type into
 
@@ -199,24 +226,6 @@ kept; nothing here renumbers anything.
   merged tally comment), testing/capture/README.md (the rule count, the re-seed step in the
   re-capture recipe), DECISIONS.md
 
-## Writing to this file before the gate exists
-
-`scripts/check-decisions.py` is not in this tree yet -- the gate and the first twenty entries live on
-`feat/factory-harness` (#217), still in review. This branch opens a log anyway, because a tick that
-makes a judgement call and has nowhere to write it is the failure the log exists to prevent, and the
-alternative -- waiting for #217 to merge -- silently exempts every branch in flight from the rule.
-
-Two consequences, both deliberate:
-
-- **The numbering continues past the highest id on any open branch.** #217's log ends at `D-0020`
-  and `issue-202` has opened its own log at `D-0011`..`D-0015` for unrelated decisions, so ids are
-  already colliding across branches; new ones start above every number in flight rather than adding
-  a third `D-0013`.
-- **The field contract is #217's, unchanged** -- `## D-NNNN · title` followed by `Question`,
-  `Options`, `Chose`, `Why`, `Checkpoint` (plus `Effect`), with `Chose` repeating one option
-  verbatim. So when #217 lands, `make verify` starts checking these entries instead of rejecting
-  them for shape.
-
 ## D-0021 · The manifest's provenance is regenerated through the tool's own seam
 
 - Question: `docs/screenshots/360/manifest.json` records `"head": 2d60366489…` and the `/audit` row's
@@ -335,3 +344,75 @@ Two consequences, both deliberate:
 - Effect: docs/screenshots/360/audit.png (re-photographed against the merged tree),
   docs/screenshots/360/manifest.json (that entry's `png_sha256`, its declared-state cell `EDT` →
   `-04:00`, its `sources_rev`, and the file header), DECISIONS.md
+
+## D-0024 · The conflicted audit frame is re-photographed against the merge, and the merge commit is its provenance
+
+- Question: `origin/main` (through #218, the #202 stylesheet) and this branch (#214, the offset
+  template) each re-photographed `docs/screenshots/360/audit.png` and each rewrote that page's
+  `manifest.json` entry, so `git merge origin/main` comes back CONFLICTING on those two paths plus an
+  add/add in this file. Which bytes does the merged branch commit, and what does the manifest say
+  about them?
+- Options: main's frame | this branch's frame | either frame with `manifest.py record` run over it so
+  the manifest stops refusing | re-photograph `/audit` against the merged tree and record that run |
+  re-photograph the whole nine-frame set, as D-0015 did
+- Chose: re-photograph `/audit` against the merged tree and record that run
+- Why: neither committed candidate is a photograph of the tree this merge produces. Main's
+  (`c304336d…`) is the #218 stylesheet over the template that still prints the reader's zone *name*,
+  so committing it certifies a When cell that no longer exists in the tree beside it; this branch's
+  (`a1f19fca…`) is the offset template over the pre-#202 stylesheet, so committing it files the exact
+  control rendering #202 was opened for under the filename that rendering's own evidence is supposed
+  to disprove. Re-recording either is worse than wrong -- `manifest.py check` on this schema is
+  *blind* to the swap, and the reason is worth having written down: the drift rule is an ancestry
+  test, main's `audit.png` was taken at `ac20479`, and `ac20479` is a descendant of every commit that
+  touches the page's declared sources, including this branch's `c82baa6`. So main's frame passes the
+  gate at the merge while depicting a page the merge cannot render. The refusal that would have
+  caught it -- the manifest comparing the recorded declared state against the driver's -- is what #215
+  adds; it is not on `main`, so the gate could not be the tie-breaker here and the re-take had to be
+  chosen for the reason D-0015 gives: a screenshot the driver in the same commit cannot reproduce is
+  not evidence.
+  The measurement then confirmed the choice rather than decorating it. `./pages-setup.sh && ./pages.py
+  --out docs/screenshots/360 --overwrite` on the merge commit `5c63fb9` printed `6/6 pages fit at 360
+  px` and `6/6 … at 1024 px`, with both sides' guards live in the one transcript -- `trail: 1 appended
+  row(s) re-stamped to 2026-03-18T21:34:05-04:00; 8 rows, the fixture's declared count` (this branch's
+  declared state, whose needle is the offset) and `/profiles … controls=42 typed=14 groups=16`
+  (#202's control census) -- and `/audit` arrived as `a113c5e4…`, `360x3086`, matching neither
+  candidate. What proves the re-take faithful rather than merely new is the other five: `dashboard`,
+  `users`, `profiles`, `profiles-refused` and `settings` came back **byte-identical** to main's
+  committed files (`b2c90782…`, `55120c43…`, `48e10e29…`, `17f76100…`, `111bcbe1…`), so the merged
+  fixture's clock, census, reader zone and declared state moved none of them and only the template
+  moved the sixth. Then an independent check from the other direction: #215, which is stacked on this
+  branch, merged `fix/audit-row-label` into itself at `1c5a109` and measured the same page at
+  `a113c5e4…`. Two different merge orders, one digest -- the frame is a property of the two changes
+  together, not of either run that took it.
+  The fifth option is what D-0015 did to the same shape and it is refused here on measurement, not on
+  economy: the five frames `main` moved are byte-reproducible under the merged driver *exactly as
+  committed*, which is what the run just demonstrated, so re-committing them would move their
+  `sources_rev` to say something nobody learned. `lock.png` and `testlock.png` stay #213's -- re-taking
+  them locks this machine's session for real.
+  Provenance was the part with a trap in it, so it is stated twice. `record()` takes `head` from
+  `git rev-parse HEAD`, and a capture run *during* the merge would stamp `2a730aa` -- the checkpoint
+  below, whose tree is this branch's old stylesheet. That is the unusable-by-construction case D-0021
+  exists for, and the fix was ordering rather than a hand-typed field: the merge was committed first,
+  so `head` and `/audit`'s `sources_rev` both name `5c63fb9`, a real commit on this branch whose tree
+  is the tree the driver actually rendered. #215 could not do that and recorded its pre-render
+  checkpoint instead; it says so in its own entry.
+  The tie-break order agrees with the measurement: nothing separates on `go.mod` (neither side adds a
+  dependency) or on breadth (one PNG either way); "refuses rather than proceeds" picks the re-take,
+  because it is the only option under which `require_declared_state`'s `-04:00` needle is live over
+  committed bytes; and the surrounding code already re-takes rather than re-labels -- `ac20479` for a
+  stylesheet, D-0014 for the commit that ships one, D-0015 for exactly this conflicted-frame shape.
+- What this costs, stated rather than glossed. (1) The merge commit `5c63fb9` on its own carries
+  main's frame over the offset template, and `make verify` says nothing about it -- that is the
+  blindness described above, not a pass, and the sentence belongs to whoever reads that commit. (2)
+  `captured_at` is one field for the whole manifest: it now reads `2026-11-06T00:52:33Z`, which is
+  true of the six pages the `pages` fixture photographed and false of `lock.png`, `testlock.png` and
+  `users-no-profiles.png`, whose bytes this run neither took nor changed. That is the same
+  single-timestamp-for-nine wart D-0015 put on the record, and this commit is on the side that made it
+  slightly wider. (3) `/audit`'s `sources_rev` now names a merge, not `c82baa6`, so a reader hunting
+  the offset change still wants `git log -- internal/web/templates/audit.tmpl`. What did *not* happen
+  this time is worth saying next to D-0015's confession: the re-record left the other eight entries'
+  `sources_rev` at `125b1a4`, so no untouched frame had its date laundered.
+- Checkpoint: 2a730aaf2a64d502e27d3bf61e8c4ac33a231e37
+- Effect: docs/screenshots/360/audit.png (re-photographed against `5c63fb9`),
+  docs/screenshots/360/manifest.json (`head`, `captured_at`, `/audit`'s `png_sha256` and
+  `sources_rev`), DECISIONS.md
