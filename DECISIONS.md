@@ -295,3 +295,52 @@ the `Decision:` trailer on the commit that already carries its id.
 - Checkpoint: e2dbd46e9de2f8be69e0f6db2d1a54f76d94577f
 - Effect: internal/web/templates/page.tmpl (the `<h1>` is no longer an anchor),
   internal/web/nav_test.go (`TestTheHeaderRoutesToTheRootExactlyOnce`), DECISIONS.md
+
+## D-0027 · The current entry is marked by ink, weight and a rule it already reserved
+
+- Question: #204 asks three things of the stylesheet -- that no navigation link computes to the
+  browser's `rgb(0, 0, 238)`, that the current entry differ from *every* sibling in at least one of
+  `color`, `font-weight`, `text-decoration-line`, `border-bottom-width`, and that the mark hang off
+  a DOM attribute rather than a class only the stylesheet knows. What does the row actually get
+  drawn, and what is refused even though it would pass the criterion?
+- Options: `text-decoration: underline` on the current entry alone | ink and weight on the current
+  entry, over a 2 px bottom rule reserved transparent on every link | a filled background chip
+  behind the current entry | `::after { content: " (current)" }` on the current entry | the
+  attribute only, with nothing drawn, leaving the mark to assistive technology
+- Chose: ink and weight on the current entry, over a 2 px bottom rule reserved transparent on every
+  link
+- Why: the first option satisfies criterion 1 exactly and is the worst thing that could ship, and
+  that is why the entry records a refusal rather than a preference. The row's links only just
+  stopped being underlined -- the underline was the user-agent's, and `nav a` is what took it away
+  -- so making the current entry the one underlined link puts back the property the parent has just
+  learned to read as "a destination", and the mark says *this is a link* on the one entry where the
+  fact is not the point. It is also one rule away from vanishing: a later `nav a:hover` placed
+  below it, or a reset that clears decoration, leaves the row as #204 found it, and criterion 1's
+  own reasoning says a single-pinned property is the mistake repeated through #196 and #201. The
+  chip is refused on the palette it would have to invent: this file has `--bg: #fff` and
+  `--line: #d8dbe2` and no fill token, so a chip means a sixth variable added for a navigation
+  mark, which is a larger change to the palette than the mark is worth, and a chip on a 360 px row
+  that already wraps onto a second line eats the room the entries need. The `::after` string is
+  honest about being for the reader who can see it, and it says in text what `aria-current` already
+  says in the DOM -- so it announces twice to a screen reader and costs horizontal room at the
+  width the row is tightest. The last is refused by the sentence of the report it would fail: the
+  parent who reads the row with their eyes gets nothing, and #204 was filed by one.
+  Inside the chosen option the load-bearing part is the reservation, not the colour. Every link
+  carries `border-bottom: 2px solid transparent` and only the current one colours it, because a
+  border introduced by the current-page rule alone grows that one link's box and moves the baseline
+  of every page the shell renders -- measured on the dashboard, a link is 40 px tall with its
+  padding and 26 px without, and the row wraps at 360 px, so a 2 px shift is a shift of a whole
+  second line. Three properties then differ while nothing moves: `--ink` against `--muted`, 600
+  against 500, `--line` against transparent -- all three from tokens the file already declares,
+  which is what criterion 2 is really asking for, since the complaint was not that blue is ugly but
+  that the navigation was the one part of the page not using this palette. Costs, kept in the open:
+  the rule works only because `nav a:hover` is written *above* it, so hovering the page you are on
+  does not underline it -- an order a formatter or an alphabetical tidy could silently invert,
+  which is why `TestTheStylesheetMarksTheCurrentEntryLast` reads byte offsets rather than trusting
+  the file to stay as written. And because `nav a` now sets `color`, the user-agent's visited blue
+  is outranked for these links; the capture browser has a fresh profile and no history, so nothing
+  in a photograph can show that, and the comment says so instead of the test claiming it.
+- Checkpoint: 05f6aab3991f52f5051bd85d9642aa4a13c686b2
+- Effect: internal/web/static/app.css (the navigation block -- `nav`, `.masthead h1`, `nav a`,
+  `nav a:hover`, `nav a:active`, `nav a[aria-current="page"]`), internal/web/nav_test.go
+  (`TestTheStylesheetMarksTheCurrentEntryLast`), DECISIONS.md

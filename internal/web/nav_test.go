@@ -1,6 +1,7 @@
 package web
 
 import (
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -268,7 +269,49 @@ func TestTheHeaderRoutesToTheRootExactlyOnce(t *testing.T) {
 	}
 }
 
-// The stylesheet half of #204 is pinned in TestTheStylesheetMarksTheCurrentEntry, which arrives
-// with the `nav a` rule it greps -- a pin that lands before the rule it reads would only be a red
-// build. It belongs in this file beside the guards that read the rendered page because the two
-// halves are one defect seen from two layers.
+// The stylesheet reaches the marked entry, and reaches it last.
+//
+// A grep pins presence, not effect -- the same caveat the #202 pins in narrow_width_test.go carry,
+// and stated here because the strings below would survive being moved into a selector that never
+// matches, or losing a semicolon. The effect is measured in the browser: `cdp.require_nav_marked`,
+// `cdp.require_nav_in_palette` and `cdp.require_nav_distinguishable` ask Chrome, on every
+// photographed page at both viewports, whether the marked link differs from every sibling on at
+// least one of the properties a reader can see and whether any link is still the browser's own
+// blue.
+//
+// The third assertion is the one a reformat would break. `nav a:hover` has to come BEFORE the
+// current-page rule: both name `text-decoration`, they have the same specificity once the
+// attribute selector is counted, and the later rule wins -- which is why hovering the page you are
+// on does not underline it while hovering a page you are not on still says it is a link. Someone
+// who moves the block into alphabetical order, or lets a formatter sort it, quietly puts the
+// underline back on the entry that is supposed to read as a location.
+func TestTheStylesheetMarksTheCurrentEntryLast(t *testing.T) {
+	css, err := fs.ReadFile(Assets(), "app.css")
+	if err != nil {
+		t.Fatalf("app.css is not embedded: %v", err)
+	}
+	text := string(css)
+	hoverAt := strings.Index(text, "nav a:hover")
+	currentAt := strings.Index(text, `nav a[aria-current="page"]`)
+	rowAt := strings.Index(text, "nav a {")
+	for _, want := range []struct {
+		what string
+		at   int
+	}{
+		{"the `nav a` rule that takes the row out of the user-agent stylesheet", rowAt},
+		{"the `nav a:hover` rule", hoverAt},
+		{"the rule for the current page's entry", currentAt},
+	} {
+		if want.at < 0 {
+			t.Errorf("app.css has no %s: #204 measured every link at the browser's own "+
+				"rgb(0, 0, 238) with an underline, on all five photographed pages, because the "+
+				"file had no selector for `nav`, `nav a` or `a` at all", want.what)
+		}
+	}
+	if hoverAt >= 0 && currentAt >= 0 && hoverAt > currentAt {
+		t.Errorf("app.css puts `nav a:hover` at byte %d, after the current-page rule at %d: the "+
+			"two rules both name text-decoration at the same specificity, so the hover rule now "+
+			"wins and hovering the page you are on underlines it like any destination",
+			hoverAt, currentAt)
+	}
+}
