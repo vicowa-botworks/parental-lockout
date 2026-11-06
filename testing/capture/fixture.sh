@@ -114,20 +114,34 @@ CAPTURE_AUDIT_ROWS="${PLOCK_CAPTURE_AUDIT_ROWS:-}"
 # why one account holds a session and the other holds none.
 CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-}"
 
-# The zone the *reader* is in, which the audit page's When column depends on (#207's seventh cause,
-# measured here rather than assumed). internal/web/templates/audit.tmpl:86 formats each row with
-# `MST`, and Go's `time.Parse` adopts the process's local Location when a row's offset matches it --
-# so one and the same trail rendered `2026-03-18 21:33:05 EDT` on a machine in America/New_York and
-# `2026-03-18 21:33:05 -0400` on one in UTC or Asia/Kolkata. Three runs of a nine-line program under
-# `TZ=` each, output verbatim in the issue. The instant and the offset survive all three; it is the
-# label that belongs to whoever is reading.
+# The zone the *reader* is in (#207's seventh cause, measured here rather than assumed).
+# internal/web/templates/audit.tmpl used to format each row with `MST`, and Go's `time.Parse` adopts
+# the process's local Location when a row's offset matches it -- so one and the same trail rendered
+# `2026-03-18 21:33:05 EDT` on a machine in America/New_York and `2026-03-18 21:33:05 -0400` on one
+# in UTC or Asia/Kolkata. Three runs of a nine-line program under `TZ=` each, output verbatim in the
+# issue. The instant and the offset survived all three; only the label moved, and #210 replaced the
+# label with the offset the row itself carries. This variable therefore decides no text on the page
+# any more -- the two paragraphs below are what survives of the reason it was introduced, and both
+# were rewritten on #210 for claiming more than that.
 #
-# Declaring it here is what makes the frame the same bytes on every host. It does not make the label
-# correct: a trail row's zone abbreviation is the reader's, not the row's, and that is filed as its
-# own finding rather than fixed by a fixture, because the fix belongs in the template and the
-# decision about what a parent should see (an offset, or a name the writer chose) is not this
-# folder's to make. An unparseable TZ is not diagnosed here -- Go falls back to UTC, which prints
-# `-0400`, which the audit page's declared state then refuses. That is the right place to notice.
+# It stays declared, as a canary, and the reason is narrower than the one this block gave until #210.
+# Nothing in the render path asks the host anything now: the audit page's When cell prints the
+# value's own offset, every clock on the dashboard comes from the profile's own zone -- which both
+# fixture profiles name in `pages-setup.sh` -- and `wallClock` in `internal/dashboard/banner.go`
+# renders the instant in the location it was computed in. The one place that still falls back to
+# `time.Local` is `schedule.Location`, for a profile whose zone is absent or unloadable, and that is
+# a property of the rule data rather than of the machine running the driver. What a declared zone
+# buys is therefore one thing: if a host-dependent clock ever comes back, this is the knob that makes
+# the frame disagree with the manifest's declared state instead of quietly agreeing with whatever
+# host happened to run it.
+#
+# It is still not validated, and now nothing downstream would notice either. Go falls back to UTC for
+# a zone it cannot load, and a column that prints the value's own offset renders `-04:00` under that
+# fallback exactly as it does under a zone that loaded -- that equality is what the UTC case of
+# `TestTheAuditRowIsStampedTheSameWhoeverReadsIt` holds. So a misspelt `PLOCK_CAPTURE_TZ` is silent
+# here, and no longer something the audit page's declared state can catch. What still refuses is the
+# *instant*: `cdp.pin_appended_rows` re-stamps the sign-in's row to the fixture's declared time and
+# refuses any other count or kind.
 CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-}"
 
 # Whether the PAGE's own scripts ran while the frame was taken (#211).

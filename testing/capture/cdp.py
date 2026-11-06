@@ -697,14 +697,21 @@ class Capture:
             daemon_env["PATH"] = prepend + os.pathsep + os.environ.get("PATH", "")
             print(f"census: the daemon's PATH starts at {prepend}", flush=True)
         if zone:
-            # The reader's zone, because the audit page labels each row with `MST` and Go hands a
-            # parsed instant the local zone's abbreviation when its offset matches (measured: one
-            # trail, three TZ values, `EDT` / `-0400` / `-0400`). Set it on the daemon rather than on
-            # the browser because the daemon is the reader -- it renders the row.
+            # The reader's zone. It was load-bearing for the When column: the template asked for
+            # `MST`, and Go hands a parsed instant the local zone's abbreviation when its offset
+            # matches (measured: one trail, three TZ values, `EDT` / `-0400` / `-0400`). #210 changed
+            # the column to the stored offset, so nothing on a page reads the host's zone any more:
+            # every dashboard clock comes from the profile's own declared zone and `wallClock`
+            # (`internal/dashboard/banner.go`) renders the instant in the location it was computed
+            # in. It stays set so a frame cannot inherit a zone by accident -- the canary for a
+            # host-dependent clock coming back, not the cause of one. Set on the daemon, not the
+            # browser, because the daemon is what renders the page.
             #
-            # Not validated here. Go falls back to UTC for a zone it cannot load, which prints
-            # `-0400`, which the audit page's declared state then refuses with the row it saw: the
-            # right place to notice is where the label would have been photographed.
+            # Not validated here, and now nothing downstream would notice either: Go falls back to
+            # UTC for a zone it cannot load, and a column printing the value's own offset renders the
+            # same `-04:00` under the fallback as under a zone that loaded. The declared state used to
+            # be where a bad zone surfaced -- the `MST` layout printed `-0400` against an `EDT` needle
+            # -- and that trip wire left with #210.
             daemon_env["TZ"] = zone
             print(f"reader zone: TZ={zone} for the daemon, not {os.environ.get('TZ') or 'the host default'}",
                   flush=True)
