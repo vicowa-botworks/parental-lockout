@@ -68,6 +68,24 @@ def discard_stage():
         os.rmdir(stage)
 
 
+def fixture_env_at(path):
+    """One `fixture.env`, as a dict. The parser `fixture()` reads through, and the only one.
+
+    `manifest.py record --fixture-env` asks that file the same question the driver asks it (#211),
+    and two parsers over one file are two answers: the manifest would record a condition the driver
+    never saw, or copy out something the driver was refusing on. The quoting and the comment rule
+    therefore live here alone.
+    """
+    env = {}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                env[k] = v.strip().strip('"')
+    return env
+
+
 def fixture(name):
     """The run directory for one capture, and the fixture's own answers."""
     d = op.join(RUNS, name)
@@ -77,13 +95,7 @@ def fixture(name):
             f"{envfile} is missing; run {name}-setup.sh first\n"
             f"(it builds the throwaway config, the state directory and the admin account "
             f"this capture signs in to)")
-    env = {}
-    with open(envfile) as fh:
-        for line in fh:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                env[k] = v.strip().strip('"')
+    env = fixture_env_at(envfile)
     for key in ("PLOCK_CAPTURE_USER", "PLOCK_CAPTURE_PASS", "PLOCK_CAPTURE_TARGET",
                 "PLOCK_CAPTURE_PORT", "PLOCK_CAPTURE_CDP"):
         if key not in env:
@@ -867,6 +879,23 @@ class Capture:
             # of refusal to build a criterion on, because the capture looks configured. The driver's
             # own Runtime.evaluate calls are unaffected — measured, `1+1` still came back 2 with the
             # page's scripts disabled — because this switches off the page's world, not this client's.
+            #
+            # The fixture declares this condition (`PLOCK_CAPTURE_SCRIPTS`, written by `capture_env`)
+            # and the driver refuses a declaration it does not honour, rather than photographing under
+            # it. #211 is why the word travels: `manifest.py record` copies it into the committed
+            # frame's `capture` block, so from now on it is a claim about a piece of evidence. A value
+            # the driver ignored would be a lie with a hash under it, and a fixture that wants its
+            # frames taken with the scripts running needs a driver that does that, not a manifest that
+            # says it.
+            declared_scripts = self.env.get("PLOCK_CAPTURE_SCRIPTS", "")
+            if declared_scripts and declared_scripts != "off":
+                raise SystemExit(
+                    f"{op.basename(self.dir)} declares PLOCK_CAPTURE_SCRIPTS={declared_scripts!r}, "
+                    "and this driver photographs every frame with the page's scripts DISABLED "
+                    "(Emulation.setScriptExecutionDisabled). Nothing was written. The fixture either "
+                    "means what the driver does -- `off` -- or it wants a capture path that does not "
+                    "exist yet; the manifest records this word as a condition of the committed frame, "
+                    "so it is not a word to declare loosely.")
             self.session.call("Emulation.setScriptExecutionDisabled", value=True)
         except BaseException:
             self.close()

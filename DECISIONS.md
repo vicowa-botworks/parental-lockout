@@ -412,3 +412,81 @@ kept; nothing here renumbers anything.
 - Checkpoint: 9e07dde673b8741aa47d7215b661c7bcbdc368f5
 - Effect: testing/capture/fixture.sh (the freshness arm in `capture_begin`, and the reason beside it),
   testing/capture/README.md (the build-first paragraph of the re-capture recipe), DECISIONS.md
+
+## D-0019 · A photograph's manifest records the conditions it was taken under, scoped by fixture
+
+- Question: `manifest.json` recorded which commit each PNG depicted (`sources_rev`) and its bytes, and
+  nothing about how the frame was taken -- no clock, no row census, no statement about the page's own
+  JavaScript. Measured: every artifact committed before #221's re-take was photographed with `app.js`
+  live in the browser, so each `time[data-unix]` cell in those nine PNGs was a countdown computed from
+  `Date.now()` rather than the sentence the daemon rendered, while `manifest.py check` reported the set
+  current. The check was never wrong; it was asked a narrower question than anyone heard (#207). What
+  may a committed manifest claim about a frame, where do the claims come from, and what happens to the
+  nine entries recorded before the field existed? Options: record the conditions once per directory,
+  from the one fixture the recorder can guess | record them per entry, scoped by the fixture that
+  photographed it, read from `fixture.env` | refuse `/1` manifests until the set is re-taken | docs
+  only, telling a reader to inspect the setup scripts.
+- Options: one block per directory | a per-entry `capture` block scoped by fixture | hard schema bump
+  with no `/1` read path | docs only
+- Chose: the per-entry `capture` block. `capture_env` writes the fixture's declared words into
+  `runs/<name>/fixture.env` (new: `PLOCK_CAPTURE_SCRIPTS=off`); `manifest.py record --fixture-env` takes
+  one path per fixture, names each fixture after its run directory, and stamps only the entries that
+  fixture photographs; `state` is projected from `Page.state` rather than typed into `manifest.py`;
+  `check` refuses a `capture-manifest/2` entry with no block and a block naming a fixture that does not
+  photograph that frame, while still reading `/1`; and a `record` that names no fixture keeps the schema
+  of the file it replaces, so the capture drivers -- each of which knows its own fixture and not the
+  other three -- cannot quietly retire a manifest that has conditions.
+- Why: per-directory is the shape that would have hidden the defect rather than fixing it. The nine
+  frames come from four fixtures: `pages` declares eight audit rows, the stub census on
+  `runs/pages/bin` and `America/New_York`, and none of those is a true thing to say about `lock.png`,
+  which photographs this machine's real sessions off a fixture that declares no trail at all. A block
+  per directory could therefore only be one fixture's conditions applied to seven frames that fixture
+  never touched -- a narrower claim would be an absent field, and this one is a false one. Absent is
+  what the whole design uses for silence: a condition the fixture did not declare stays out of the
+  entry, because `rows: 0` for a page with no table is a number nobody declared, which is the
+  `scroll_width` mistake this file already refuses one field earlier. Reading `fixture.env` rather than
+  the driver's live objects keeps one parser (extracted as `cdp.fixture_env_at`) between the manifest's
+  claim and the driver's behaviour, so the two cannot disagree about what a fixture said. Reading an
+  allowlist rather than the file is not tidiness: `fixture.env` holds `PLOCK_CAPTURE_PASS` in cleartext,
+  because a throwaway config needs an admin credential the way a real one does, and the manifest is
+  committed -- a recorder that copied the env through would put this repository's evidence and someone's
+  password in one JSON, and a merged password is in every clone forever, so a self-test rule plants a
+  password in a fixture env and refuses the recorder if it reaches the file. A declared directory is
+  recorded by its path inside the repository when it is inside the repository, for the same instinct in
+  the other direction: the first recorded set put `/home/whoever/prj/wt/<worktree>/testing/capture/bin`
+  into six committed entries -- a fact about the capture box's home directory and worktree name, not
+  about any frame -- and a relative declaration is left exactly as written, because resolving it here
+  would mean guessing which directory the daemon was started from. Docs-only is what this
+  folder has said about every one of these conditions, and it is what let nine frames be read as current
+  for years. Applying it was verified rather than asserted: the nine frames were re-taken into their
+  scratch directories on 6 Nov and came out byte-identical to the committed set (all nine `SAME`, not one
+  hash line in the diff), so the committed manifest could be annotated with real conditions without
+  re-photographing anyone's evidence.
+- What lost: three things, and the first is the biggest. `capture` records what a fixture *declared*,
+  not what the browser did -- it is provenance, not a measurement -- and the only thing keeping the two
+  together is that `cdp.py` refuses a declaration it does not honour (`scripts` other than `off`) and
+  both halves are pinned by their text in the self-test, because neither is reachable from here without
+  a browser and a daemon. A driver that starts honouring a new condition has to teach the fixture, the
+  recorder and the pin at once. Second, `/1` stays readable, so the nine frames' conditions are only as
+  good as the record that just added them: the alternative was refusing a format, which sends a reader
+  to re-take photographs that are current. Third, `record` still walks the PNGs on disk and cannot tell
+  which of them this run took -- naming every fixture says whose conditions apply, not which frames were
+  re-shot -- so a partial `--out` re-capture still advances `sources_rev` over frames it left alone,
+  unchanged from before this entry, and that limit is written into the README rather than fixed here. A
+  `capture` block also costs every future re-record four `--fixture-env` flags, and forgetting one is now
+  a refusal about the frames it failed to explain rather than a quiet file. Making `rule` run a callable
+  -- which is what lets twelve of the new rules survive a refusal in an earlier one -- added a way to lose
+  a complaint, so the harness got a canary that hands it all three shapes and refuses if one goes missing.
+  It cannot catch a `rule` that reports nothing at all: that is the floor the attack suite already names
+  for every self-test (`the verdict's final decision is unguarded` -- a check cannot police its own
+  deletion), and it is listed here rather than papered over.
+- Checkpoint: d359a89657c2a614d94b734eb201345788f3760c
+- Effect: testing/capture/manifest.py (the `capture` block, `fixture_env`/`conditions`/
+  `fixtures_from_specs`/`states_by_artifact`, the two new `check` rules, the schema pair, `--fixture-env`,
+  twelve rules, the cross-file pin with its control and a harness canary in the self-test, and `rule`
+  learning to run
+  a callable so one dying rule can no longer end the report), testing/capture/cdp.py (`fixture_env_at`,
+  and the refusal of a `scripts` declaration the driver does not honour), testing/capture/fixture.sh
+  (`PLOCK_CAPTURE_SCRIPTS`, declared by every fixture), testing/capture/README.md (the shape, the two
+  refusals, and the recipe's record line), docs/screenshots/360/manifest.json (nine entries annotated
+  from the four fixtures that photographed them, bytes unchanged), DECISIONS.md

@@ -383,7 +383,11 @@ go build -o plock ./cmd/plock        # first, every time — see the binary note
 ./pages-noprof-setup.sh && ./pages.py --fixture pages-noprof --out docs/screenshots/360 --overwrite
 ./lock-setup.sh        && ./lock.py --out docs/screenshots/360 --overwrite
 ./testlock-setup.sh    && ./testlock.py --out docs/screenshots/360 --overwrite
-python3 manifest.py record            # last, after every frame in the set is re-taken
+python3 manifest.py record \
+    --fixture-env testing/capture/runs/pages/fixture-env \
+    --fixture-env testing/capture/runs/pages-noprof/fixture-env \
+    --fixture-env testing/capture/runs/lock/fixture-env \
+    --fixture-env testing/capture/runs/testlock/fixture-env   # last, after every frame is re-taken
 ```
 
 **Build first, and mean it.** The fixtures test that `$PLOCK_BIN` exists (`fixture.sh`), not that it
@@ -407,6 +411,17 @@ The identity check cannot see it, because the recorded hash matches the stale fi
 from. The sentence further up this file — that a fixture records its manifest in its own `runs/`
 directory "so a one-page re-capture cannot certify another run's PNGs as just-taken" — is true of the
 default target and false of `--out`.
+
+#211 changes what that file can *say*, not what `record` can see. The record line above now names every
+fixture that contributed a frame, and every entry it writes carries that fixture's conditions — so the
+manifest at least states the clock, the row census and the script setting each frame claims, and
+`check` refuses an entry that claims nothing or claims the wrong fixture's run. Which frames this run
+re-took is still not something `record` knows, so the honest habit is the one in the sentence above:
+re-take the set, then record once, over all of it. One consequence to expect: the drivers call `record`
+themselves at the end of a successful run, and a driver knows its own fixture and not the other three,
+so that call writes no conditions. Against the committed directory that is a red gate — nine entries
+under `/2` with nothing to say about how they were taken — until the whole-set record above has run. It
+is meant to be loud: the alternative was a record step that could drop the conditions on its way past.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver
@@ -454,13 +469,17 @@ before that, the newest commit touching it predated #141.
 `testing/capture/manifest.py` closes it. A successful run writes `manifest.json` beside the PNGs:
 
 ```json
-{"schema": "capture-manifest/1", "viewport": 360, "head": "a889d0d8b…",
+{"schema": "capture-manifest/2", "viewport": 360, "head": "a889d0d8b…",
  "captured_at": "2026-10-28T01:55:37Z",
  "pages": [{"page": "/profiles", "png": "profiles.png", "png_sha256": "1f711bea…",
             "sources": ["internal/web/templates/profiles.tmpl",
              "internal/web/templates/page.tmpl", "internal/web/static/app.css",
              "internal/web/static/app.js"],
-            "sources_rev": "0a42139d…"}]}
+            "sources_rev": "0a42139d…",
+            "capture": {"fixture": "pages", "stamp": "2026-03-18T21:34:05-04:00",
+                        "tz": "America/New_York", "rows": 8, "scripts": "off",
+                        "census": "testing/capture/runs/pages/bin",
+                        "state": [["<row needle>", "<exact cell text>"]]}}]}
 ```
 
 and `make verify` runs `manifest.py check`, which refuses when:
@@ -483,6 +502,13 @@ self-test caught it; the drift rule stopped firing.)
 - the driver photographs a page the manifest has no entry for — a fifth page added to `PAGES` and
   never photographed;
 - the manifest was recorded at a viewport other than 360;
+- under `capture-manifest/2`, an entry carries no `capture` block — the file says which commit the
+  page was rendered from and nothing about how the frame was taken, which is the omission #211 was
+  filed for. A `capture-manifest/1` file is read and left alone: the frames committed before the field
+  existed predate it, and refusing those would be a refusal about a format that sends a reader to
+  re-take photographs that are current;
+- a `capture` block names a fixture that does not photograph that frame — conditions stamped from
+  another run's clock, row count and census, over a page that was rendered from none of them;
 - an entry names no PNG — refused as an entry, not as a traceback from hashing the artifact
   directory;
 - **the checkout has no history to date anything against.** A shallow clone, or a source no visible
@@ -496,6 +522,66 @@ fixed by plumbing the measurement through: `record()` is called once, by `pages.
 measured `lock.png` or `testlock.png` — two of the seven entries would still have been assertions. A
 width belongs in the capture transcript, where it is measured and refused on every run, not copied
 into a file that can only ever be older than the measurement it claims to record.
+
+## What `capture` records, and why the fixture's name is on it
+
+`sources_rev` answers *which commit does this PNG depict*. It never answered *how was the frame taken*
+— with what clock, which row census, whether the page's own JavaScript was running — so a reader
+holding the manifest could not tell a frame taken at the fixture's declared instant from one taken off
+the host's clock. That gap is #211, and it was measured before it was named: every artifact committed
+before #221's re-take was photographed with `app.js` live in the browser, so each
+`time[data-unix]` cell in those nine PNGs was a countdown computed from `Date.now()` rather than the
+sentence the daemon rendered. `manifest.py check` was never wrong about them. It was asked a narrower
+question than anyone heard, and nine frames were read as current for years.
+
+Each entry therefore carries the conditions its fixture declared:
+
+- `fixture` — which run directory photographed this frame. The nine come from four fixtures, so this
+  is what lets the recorder say *whose* clock and *whose* census a set of conditions belongs to; the
+  name is the run directory's (`runs/lock` → `lock`), never something the recorder inferred from a
+  page name.
+- `stamp` — the instant `PLOCK_CAPTURE_STAMP` and `PLOCK_CAPTURE_ZONE` together declare, joined and
+  parsed before it is written. A pair the driver would refuse to boot on cannot become a recorded
+  condition, and the manifest carries one instant rather than two fragments a reader has to assemble.
+- `rows`, `tz`, `census`, `scripts` — the declared audit-row count, the `TZ` handed to the daemon, the
+  census directory prepended to its `PATH`, and whether the page's scripts were running. A declared
+  directory is written by its path **inside the repository** when it is inside the repository: the
+  census lives on the machine that took the photographs, and an absolute path there is a fact about the
+  capture box — a worktree name, a home directory — committed as evidence about a frame. A census
+  genuinely outside the repository is recorded exactly as declared, because that is the condition.
+- `state` — the `(row, exact cell text)` pairs the driver checks the rendered page against, read out of
+  `Page.state`. Typed once, in the table that already owns it; #211's acceptance names the reason, and
+  a self-test rule refuses any cell text appearing in `manifest.py`'s own source, so "impossible to
+  retype" is a checked property and not an intention.
+
+Two rules make the block mean something. An entry under `capture-manifest/2` with no `capture` block is
+refused — that is the shape #207 was, and a freshly recorded manifest may not contain one — and a block
+naming a fixture that does not photograph that frame is refused, because those conditions were stamped
+from a run that did not render this page. `record` refuses in the two directions that produce a
+half-true file: a PNG whose fixture was not named (`--fixture-env` is a claim about the whole
+directory), and a named fixture whose frames are all absent from it (the wrong env, or an `--out` that
+sent a capture somewhere else).
+
+What it records is what the fixture **declared**, which is a different thing from what the browser did,
+and the two are kept honest from both ends: `capture_env` writes the words into `fixture.env`,
+`cdp.py` refuses a declaration it does not honour (`scripts` other than `off` — the driver disables page
+scripts, so a fixture asserting otherwise would be photographed under a condition it denied), and a
+self-test rule pins both halves by their text because neither is reachable from here without a browser.
+A condition the fixture does not declare stays **absent** from the entry: `pages-noprof` has no audit
+table, and `rows: 0` there would be a number nobody declared — the `scroll_width` mistake again, one
+field earlier.
+
+`--fixture-env` reads an allowlist, never the file. `fixture.env` also holds `PLOCK_CAPTURE_PASS`, in
+cleartext, because a throwaway config needs an admin credential the way a real one does, and the
+manifest is **committed**: a recorder that copied the env through would put this repository's evidence
+and someone's password in one JSON, and the password is the part that never comes out. The self-test
+writes a password into a fixture env in a temp box and refuses the recorder if it reaches the file.
+
+The schema rule is there to stop the loss being quiet. A run that names its fixtures writes `/2`; a run
+that names none writes what it always wrote, and keeps the schema of the file it replaces. That matters
+because the capture drivers call `record` themselves, each knowing its own fixture and not the other
+three: without that rule a single-page run could retire a `/2` manifest down to a file that asserts
+nothing about conditions and passes. Keeping `/2` makes the loss refuse loudly instead.
 
 What the source set is *not* is the Go code. It is the presentation layer -- templates and static
 -- because that is what a photograph is evidence about at the pixel level, and a change that alters

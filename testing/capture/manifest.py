@@ -16,18 +16,34 @@ the old picture where the new one belongs.
 So the manifest records what a photograph was taken OF, and `check` refuses when that has moved:
 
     {
-      "schema": "capture-manifest/1",
+      "schema": "capture-manifest/2",
       "viewport": 360,
       "head": "<HEAD at capture>",
       "captured_at": "<UTC>",
       "pages": [{"page": "/profiles", "png": "profiles.png", "png_sha256": "...",
-                 "scroll_width": 360, "sources": [...], "sources_rev": "<commit>"}]
+                 "sources": [...], "sources_rev": "<commit>",
+                 "capture": {"fixture": "pages", "stamp": "2026-03-18T21:34:05-04:00",
+                             "tz": "America/New_York", "rows": 8, "scripts": "off",
+                             "census": "testing/capture/bin",
+                             "state": [[row, cell], ...]}}]
     }
 
 `sources_rev` is `git log -1 --format=%H` over the files that page is rendered from, and the check
 recomputes it. A commit that touches a template or the stylesheet therefore retires the
 photographs of every page that reads them -- which is the truth, and the reason the shared layout
 and `app.css` are in every page's source set rather than in none.
+
+The `capture` block (#211) is the other half of the claim. `sources_rev` answers "which commit does
+this PNG depict" and nothing about **how the frame was taken**, so a reader with the manifest in
+front of them cannot tell a frame taken at the fixture's declared instant, with page scripts off and
+the fixture's own census, from one taken off a host clock with the scripts running. #207 was exactly
+that inference: `manifest.py check` was never wrong, it was asked a narrower question than anyone
+heard. Each entry therefore carries what the fixture that photographed it *declared* --
+`record --fixture-env runs/<name>/fixture.env`, repeatable, one call per fixture, each scoped to the
+pages that fixture photographs -- and a key that is absent means "this fixture declared nothing about
+it", never a guessed default. `state` is read out of the driver's `Page.state` rather than typed here,
+for the same reason `pages_by_artifact()` is a projection: a second copy of a claim is a second thing
+to forget to update.
 
 Two things the check refuses that a "compare the dates" design would miss:
 
@@ -40,9 +56,20 @@ Two things the check refuses that a "compare the dates" design would miss:
 
 Run it two ways:
 
-    python3 testing/capture/manifest.py record --dir docs/screenshots/360   # after a capture
+    python3 testing/capture/manifest.py record --dir docs/screenshots/360 \
+        --fixture-env testing/capture/runs/pages/fixture.env \
+        --fixture-env testing/capture/runs/pages-noprof/fixture.env \
+        --fixture-env testing/capture/runs/lock/fixture.env \
+        --fixture-env testing/capture/runs/testlock/fixture.env       # after a capture
     python3 testing/capture/manifest.py check                               # in `make verify`
     python3 testing/capture/manifest.py --self-test                         # the contract
+
+Without `--fixture-env` a `record` still writes what it always wrote -- a manifest with no `capture`
+blocks, and schema `capture-manifest/1` unless the manifest it is replacing already declared `2`. It
+keeps the schema of what it replaces on purpose: a capture run's own record step (pages.py, which
+knows its fixture and not the other three) must not be able to retire a `/2` manifest down to a `/1`
+one and have `check` go quiet about conditions it used to insist on. The schema is what says whether
+this file carries conditions, so nothing but a `--fixture-env` run may widen or narrow that claim.
 """
 
 import argparse
@@ -55,8 +82,29 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 MANIFEST = "manifest.json"
-SCHEMA = "capture-manifest/1"
+# `/2` is the shape that carries a `capture` block (#211). `/1` is still READ -- nine frames on
+# `main` were recorded before this field existed, and refusing them would be a refusal about a
+# format, not about a photograph. It is never WRITTEN by a run that names its fixture: an entry that
+# declares nothing is what #207 was, and a freshly recorded manifest must not be allowed to say
+# nothing. Hence two names rather than one, and `check` accepting both while only insisting on the
+# block for the schema that knows about it.
+SCHEMA = "capture-manifest/2"
+SCHEMA_V1 = "capture-manifest/1"
+SCHEMAS = (SCHEMA, SCHEMA_V1)
 ARTIFACT_WIDTH = 360
+
+# The fixture's declared conditions, and the key each one is recorded under. This is an ALLOWLIST
+# read from `fixture.env`, not a copy of it: that file also holds `PLOCK_CAPTURE_PASS`, in cleartext,
+# because a throwaway config needs an admin credential the same way a real one does (#see the
+# security note in testing/capture/README.md). The manifest is COMMITTED. A recorder that copied the
+# env through would put this repository's evidence and someone's password in the same file, and the
+# password would be the part that never came out.
+#   env key            -> capture key   how it is read
+CAPTURE_KEYS = (("PLOCK_CAPTURE_STAMP", "stamp", "instant"),
+                ("PLOCK_CAPTURE_TZ", "tz", "text"),
+                ("PLOCK_CAPTURE_AUDIT_ROWS", "rows", "int"),
+                ("PLOCK_CAPTURE_SCRIPTS", "scripts", "text"),
+                ("PLOCK_CAPTURE_PATH_PREPEND", "census", "path"))
 
 # Every page is rendered from its own template plus the shared shell and the stylesheet. The
 # shared files are in every page's set on purpose: a rule in `app.css` or a change to `page.tmpl`
@@ -89,6 +137,17 @@ def sources_for(artifact, page=None):
     return [f"internal/web/templates/{template_for(artifact, page)}.tmpl"] + list(SHARED_SOURCES)
 
 
+def fixtures_from_specs(specs):
+    """`{artifact: fixture}` for a list of driver page specs, with the stem rule folded in.
+
+    A spec carrying no `fixture` attribute answers with its own stem. That is not a default invented
+    to keep a test green: `lock` and `testlock` are photographed by the run directory of the same
+    name, so the stem IS the answer for every artifact the table does not scope, and a driver that
+    has not adopted `Page.fixture` yet therefore still gets the truth rather than a guess.
+    """
+    return {s.artifact: getattr(s, "fixture", None) or s.artifact for s in specs}
+
+
 def pages_by_artifact():
     """`{png stem: url}` for every artifact the capture driver says it takes.
 
@@ -98,6 +157,146 @@ def pages_by_artifact():
     exactly one list of pages in this repository.
     """
     return {spec.artifact: spec.url for spec in driver_pages()}
+
+
+def fixtures_by_artifact():
+    """`{png stem: fixture}` for every artifact the driver declares (#211).
+
+    The third projection out of `PAGES`, beside `pages_by_artifact()`, and with the same reason for
+    existing: the nine committed frames come from four fixtures (`pages`, `pages-noprof`, `lock`,
+    `testlock`), and a recorder that could not say which fixture photographed which frame could only
+    have stamped every entry with one fixture's conditions. That is not a narrower claim, it is a
+    false one -- the `pages` fixture declares eight audit rows and a stubbed census, and neither is
+    true of `lock.png`.
+
+    Artifacts the driver does not declare keep the stem rule, exactly as `template_for` does: the
+    POST drivers name their run directory after the page they photograph (`lock-setup.sh` writes
+    `runs/lock/`, `lock.py` writes `lock.png`), which is the only statement anywhere that ties the
+    two together.
+    """
+    return fixtures_from_specs(driver_pages())
+
+
+def states_by_artifact():
+    """`{png stem: [(row, cell), ...]}` -- the state each artifact is a photograph OF.
+
+    Read out of `Page.state` rather than typed into this file. #211's acceptance names the reason:
+    a manifest that quoted the cell text would be a second copy of a claim the driver already owns,
+    and the second copy is the one that silently stops agreeing. The self-test refuses any state
+    string appearing in this file's own text, which is what makes "impossible to retype" a checked
+    property rather than an intention.
+    """
+    return {spec.artifact: list(spec.state) for spec in driver_pages()}
+
+
+def fixture_env(path):
+    """One fixture's declared conditions, read through the driver's own seam.
+
+    Returns `(fixture name, env)`. The name is the run directory's name, because that is the handle
+    the driver uses (`cdp.fixture(name)` reads `<runs dir>/name/fixture.env`) and the value
+    `Page.fixture` carries; the file is parsed by the same function the driver parses it with, so the
+    manifest and the driver cannot come to disagree about what `fixture.env` says.
+
+    A path that is not `<runs>/<name>/fixture.env` is refused rather than read. The fixture name is
+    taken from the directory, so an operator aiming this at `runs/pages/config.json`, or at a copy
+    they tidied into `fixture.env.bak`, would otherwise get a `capture` block naming a fixture that
+    no setup script ever wrote -- a conditions record with a made-up provenance is worse than none.
+    """
+    sys.path.insert(0, HERE)
+    import cdp
+    full = os.path.abspath(path if os.path.isabs(path) else os.path.join(ROOT, path))
+    name = os.path.basename(os.path.dirname(full))
+    if os.path.basename(full) != "fixture.env" or not name or name in (".", ".."):
+        raise SystemExit(
+            f"{path} is not a fixture env. Name the file the driver reads, "
+            f"<runs>/<fixture>/fixture.env, so the recorded fixture name is the run directory's and "
+            f"not something this command invented.")
+    try:
+        env = cdp.fixture_env_at(full)
+    except FileNotFoundError:
+        raise SystemExit(f"{full} does not exist; run {name}-setup.sh first -- the manifest records "
+                         f"the conditions a fixture declared, and a fixture that was never set up "
+                         f"declared nothing.")
+    return name, env
+
+
+def repo_relative(value):
+    """An absolute declared path, by its location inside the repository when it is inside it.
+
+    `PLOCK_CAPTURE_PATH_PREPEND` names a directory on the machine that took the photographs, and the
+    manifest is committed. Recorded verbatim it puts `/home/whoever/prj/wt/<worktree>/...` into the
+    evidence -- a fact about the capture box's home directory and worktree name, not about any frame,
+    which is the same over-trust #211 is about. A path outside the repository is kept exactly as
+    declared, because that is the condition and there is nothing truer to say about it.
+
+    A *relative* declaration is returned untouched, and that is not laziness: a relative path is
+    relative to the daemon's working directory, which is not this file's working directory and not
+    necessarily the repository's. Resolving it here would be a guess about where the daemon was
+    started, and the guess would be written into committed evidence. As it happens `pages-setup.sh`
+    declares this key as `testing/capture/bin`, which is already the answer.
+    """
+    if not os.path.isabs(value):
+        return value
+    here = os.path.realpath(ROOT)
+    there = os.path.realpath(value)
+    if there == here or there.startswith(here + os.sep):
+        return os.path.relpath(there, here)
+    return value
+
+
+def conditions(name, env):
+    """The fixture half of one artifact's `capture` block: only what this fixture declared.
+
+    An absent env key means an absent capture key. That is the whole design: `pages-noprof` says
+    nothing about row counts because its page has no table, and recording `rows: 0` for it would be a
+    number nobody declared -- the same mistake as the `scroll_width` this file already refuses, one
+    field wearing a measurement's name.
+
+    `stamp` is the instant the fixture says its trail was stamped at -- the pair
+    `PLOCK_CAPTURE_STAMP` and `PLOCK_CAPTURE_ZONE`, the same two halves `cdp.declared_stamp`
+    concatenates and validates. It is what the fixture *declared*, not a measurement of what the
+    browser did, and a fixture with no trail still declares the clock it handed the daemon: `rows` is
+    absent for those, and the two keys together are what tells a reader which case an entry is. A pair
+    the driver would refuse to boot on is refused here rather than committed as evidence.
+
+    The page half -- `state` -- is added by the caller, because it belongs to the artifact and not to
+    the fixture: one fixture photographs six pages and each declares its own cells.
+    """
+    import datetime
+    block = {"fixture": name}
+    stamp, zone = env.get("PLOCK_CAPTURE_STAMP", ""), env.get("PLOCK_CAPTURE_ZONE", "")
+    for env_key, key, kind in CAPTURE_KEYS:
+        value = env.get(env_key, "")
+        if not value:
+            continue
+        if key == "stamp":
+            if not zone:
+                raise SystemExit(
+                    f"fixture {name!r} declares PLOCK_CAPTURE_STAMP={stamp!r} with no "
+                    f"PLOCK_CAPTURE_ZONE, so there is no instant to record. Name both, as the driver "
+                    f"insists on, or neither.")
+            try:
+                datetime.datetime.fromisoformat(stamp + zone)
+            except ValueError as exc:
+                raise SystemExit(
+                    f"fixture {name!r} declares {stamp!r} with {zone!r}, which is not an instant "
+                    f"({exc}). The driver refuses to photograph that fixture; if the driver has "
+                    f"changed, this manifest would be recording an unreadable clock.")
+            block["stamp"] = stamp + zone
+            continue
+        if kind == "int":
+            try:
+                block[key] = int(value)
+            except ValueError:
+                raise SystemExit(f"fixture {name!r} declares {env_key}={value!r}, which is not a "
+                                 f"number of rows. The manifest records it as a count; the driver "
+                                 f"refuses a page that renders any other.")
+            continue
+        if kind == "path":
+            block[key] = repo_relative(value)
+            continue
+        block[key] = value
+    return block
 
 
 def git(args, cwd=None):
@@ -207,15 +406,36 @@ def pngs_in(directory):
     return sorted(f for f in os.listdir(directory) if f.endswith(".png"))
 
 
-def record(directory, head=None, run=git, now=None):
+def record(directory, head=None, run=git, now=None, envs=None):
     """Write the manifest for the PNGs sitting in `directory`, then return it.
 
     Called by `pages.py` on the path that has already published its staged files. It is not
     called on the refusal path, and it must not be: a manifest written over a run that refused
     would certify photographs this run did not take.
+
+    `envs` is the list of fixtures that photographed this directory, as `(name, env)` pairs from
+    `fixture_env()`, and it is what turns "current" into "current, and taken like this" (#211).
+    Passing it is a claim about the WHOLE directory, so both directions refuse:
+
+      * a PNG none of the passed fixtures photographs -- its `capture` block would be missing, and a
+        newly recorded entry that declares nothing is the shape #207 was;
+      * a passed fixture that photographs nothing in this directory -- the wrong env, or the wrong
+        directory. A silent no-match is how a manifest acquires another run's provenance, and the
+        operator would never be told which of the two was wrong.
+
+    With no `envs` this writes what it always wrote and no `capture` block appears anywhere. The
+    schema then follows the file it replaces instead of the newest shape this program can write: a
+    `/2` manifest whose conditions have gone must stay visibly `/2`, so `check` keeps refusing it,
+    rather than being quietly retired into a `/1` file that asserts nothing and passes. The capture
+    drivers call this with no `envs` -- each knows its own fixture and not the other three -- so that
+    downgrade is a run anyone can type.
     """
     entries = []
     declared = pages_by_artifact()
+    fixtures = fixtures_by_artifact()
+    states = states_by_artifact()
+    blocks = {name: conditions(name, env) for name, env in (envs or [])}
+    used = set()
     for name in pngs_in(directory):
         artifact = name[:-len(".png")]
         page = declared.get(artifact)
@@ -225,15 +445,49 @@ def record(directory, head=None, run=git, now=None):
             raise SystemExit(f"{name}: its manifest cannot be written, because {missing[0]} "
                              f"does not exist. A PNG named after a page with no template is not "
                              f"evidence about anything.")
-        entries.append({
+        entry = {
             "page": page if page is not None
             else ("/" if artifact == "dashboard" else "/" + artifact),
             "png": name,
             "png_sha256": sha256(os.path.join(directory, name)),
             "sources": sources,
             "sources_rev": newest_commit(sources, run=run),
-        })
-    doc = {"schema": SCHEMA, "viewport": ARTIFACT_WIDTH,
+        }
+        # The stem rule for the two POST artifacts, beside the driver's table for the seven it
+        # declares: `runs/lock/fixture.env` is what `lock.py` read, and nothing else says so.
+        fixture = fixtures.get(artifact, artifact)
+        if fixture in blocks:
+            used.add(fixture)
+            block = dict(blocks[fixture])
+            if states.get(artifact):
+                block["state"] = [list(pair) for pair in states[artifact]]
+            entry["capture"] = block
+        entries.append(entry)
+
+    if blocks:
+        silent = [e["png"] for e in entries if "capture" not in e]
+        if silent:
+            raise SystemExit(
+                f"{len(silent)} PNG(s) here belong to a fixture you did not name: "
+                f"{', '.join(silent)}. --fixture-env was passed, so every entry in this directory "
+                f"must record the conditions it was taken under, and these would record nothing -- "
+                f"which is what #207 was. The driver's table names "
+                f"{', '.join(sorted(set(fixtures.values())))}; a frame it does not declare is "
+                f"photographed by the run directory of the same name (runs/lock takes lock.png). "
+                f"Pass one env per fixture that contributed a frame.")
+        spare = sorted(set(blocks) - used)
+        if spare:
+            raise SystemExit(
+                f"fixture(s) {', '.join(repr(n) for n in spare)} photographed no PNG in "
+                f"{directory}, so their conditions would be recorded against nothing. Either the env "
+                f"belongs to a different directory or --out sent a capture somewhere else; a fixture "
+                f"whose pages are all absent is not a spare flag.")
+
+    previous = read_manifest(directory)
+    schema = SCHEMA
+    if not blocks and (not previous or previous.get("schema") != SCHEMA):
+        schema = SCHEMA_V1
+    doc = {"schema": schema, "viewport": ARTIFACT_WIDTH,
            # Through the same seam as everything else that asks git a question: a record path
            # that reached for the real git could not be driven, and an undrivable path is one
            # the self-test cannot promise anything about.
@@ -276,6 +530,55 @@ except OSError:  # reported as a problem by the rule below, never as a crash
     _MAKEFILE = ""
 
 
+# The other two files the `capture` block depends on, read the same way (#211). Neither is this
+# file's code, so neither can be driven from here: `capture_env` is bash and the driver's refusal is
+# inside `cdp.Capture.__enter__`, which needs a browser and a daemon. They are pinned by their text
+# because the failure worth catching is one half of the contract being deleted, and the shape of
+# that failure is a green gate over a condition nobody honours -- the same reason the Makefile clause
+# below is pinned rather than trusted.
+try:
+    with open(os.path.join(HERE, "fixture.sh"), encoding="utf-8") as _fh:
+        _FIXTURE_SH = _fh.read()
+except OSError:
+    _FIXTURE_SH = ""
+try:
+    with open(os.path.join(HERE, "cdp.py"), encoding="utf-8") as _fh:
+        _CDP = _fh.read()
+except OSError:
+    _CDP = ""
+
+
+def condition_contract_errors(fixture_sh=None, cdp_py=None):
+    """Is the `scripts` condition still written by the fixture AND honoured by the driver?
+
+    `capture` records what a fixture declared. That is only evidence while the thing that declared it
+    and the thing that photographs it agree about the word: `capture_env` must put it in `fixture.env`
+    (or every future frame records nothing about the one condition that changed the pixels), and the
+    driver must refuse a fixture that declares a condition it does not apply (or the manifest records
+    a condition nobody honoured, which is a claim with a hash under it and no measurement).
+    """
+    sh = _FIXTURE_SH if fixture_sh is None else fixture_sh
+    cdp = _CDP if cdp_py is None else cdp_py
+    problems = []
+    for name, text in (("fixture.sh", sh), ("cdp.py", cdp)):
+        if not text:
+            problems.append(f"{name} could not be read, so nothing here can promise the `scripts` "
+                            f"condition is still declared and honoured (#211)")
+    if problems:
+        return problems
+    if 'echo "PLOCK_CAPTURE_SCRIPTS=$CAPTURE_SCRIPTS"' not in sh:
+        problems.append("`capture_env` no longer writes PLOCK_CAPTURE_SCRIPTS into fixture.env, so "
+                        "every frame recorded from now on declares nothing about the page's scripts "
+                        "-- the one condition a reader cannot recover from the code, because the "
+                        "committed frames and the code that takes them now disagree about it")
+    if "PLOCK_CAPTURE_SCRIPTS" not in cdp or '!= "off"' not in cdp:
+        problems.append("cdp.py no longer refuses a fixture that declares PLOCK_CAPTURE_SCRIPTS "
+                        "other than `off`, so the manifest would record a condition the driver does "
+                        "not apply -- a fixture could assert scripts=on, be photographed with them "
+                        "off, and the entry would testify to the run that did not happen")
+    return problems
+
+
 def _utc_now():
     import datetime
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -293,8 +596,15 @@ def check(directory, run=git, pages=None):
                     f"none of them is evidence about the page it claims (#144)."]
         return [f"{directory} holds no screenshots and no manifest."]
 
-    if doc.get("schema") != SCHEMA:
-        problems.append(f"{MANIFEST} declares schema {doc.get('schema')!r}, want {SCHEMA!r}")
+    # Both schemas are readable; only `/2` is insisted on. The nine frames on `main` predate the
+    # `capture` field, and a refusal that is really about a format would send a reader to re-take
+    # photographs that are current. What `check` will not do is treat a `/2` entry with no conditions
+    # as if it were a `/1` one: `/2` is the schema that says "this file records how the frame was
+    # taken", so an entry under it that says nothing is the omission #211 was filed for.
+    declares_conditions = doc.get("schema") == SCHEMA
+    if doc.get("schema") not in SCHEMAS:
+        problems.append(f"{MANIFEST} declares schema {doc.get('schema')!r}, want one of "
+                        f"{', '.join(SCHEMAS)}")
     if doc.get("viewport") != ARTIFACT_WIDTH:
         problems.append(f"{MANIFEST} was recorded at viewport {doc.get('viewport')!r}, not "
                         f"{ARTIFACT_WIDTH} -- the acceptance width. A manifest taken at another "
@@ -310,6 +620,11 @@ def check(directory, run=git, pages=None):
                 f"`fetch-depth: 0` on the job that runs `make verify`) and run it again."]
 
     entries = doc.get("pages", [])
+    # Which fixture photographed which frame, from the driver's table -- or from the list the caller
+    # was already going to hand the completeness loop below, so the two rules cannot disagree about
+    # what this directory is supposed to hold.
+    specs = pages if pages is not None else driver_pages()
+    fixtures = fixtures_from_specs(specs)
     seen = set()
     for e in entries:
         name = e.get("png", "")
@@ -324,6 +639,28 @@ def check(directory, run=git, pages=None):
             continue
         seen.add(name)
         page = e.get("page", "?")
+        artifact = name[:-len(".png")]
+        # The two #211 rules, before anything is said about the file's bytes: a frame can be perfectly
+        # current against its sources and still be an undocumented frame, and "which commit" was never
+        # the question that went wrong.
+        block = e.get("capture")
+        if declares_conditions and not (isinstance(block, dict) and block.get("fixture")):
+            problems.append(
+                f"{name} is recorded under {SCHEMA} with no capture block: the manifest says which "
+                f"commit {page} was rendered from and nothing about how the frame was taken -- no "
+                f"fixture, no declared instant, no row count, no statement about the page's scripts. "
+                f"An undeclared capture is what made #207 possible, so a newly recorded manifest may "
+                f"not contain one. Re-record it: python3 testing/capture/manifest.py record "
+                f"--fixture-env testing/capture/runs/<fixture>/fixture.env, one flag per fixture "
+                f"that photographed this directory.")
+        elif isinstance(block, dict) and block.get("fixture"):
+            want = fixtures.get(artifact, artifact)
+            if block["fixture"] != want:
+                problems.append(
+                    f"{name} records the conditions of fixture {block['fixture']!r}, which is not the "
+                    f"fixture that photographs it: the driver's table says {want!r}. Those conditions "
+                    f"were stamped from the wrong run directory -- its clock, its row count and its "
+                    f"census describe a document this page was not rendered from.")
         path = os.path.join(directory, name)
         if not os.path.exists(path):
             problems.append(f"{MANIFEST} describes {name} for {page} and no such file is "
@@ -396,7 +733,7 @@ def check(directory, run=git, pages=None):
 
     # The other direction: a page added to the driver with no re-capture leaves four current
     # photographs and one page nobody has ever photographed, and every check above passes.
-    for spec in (pages if pages is not None else driver_pages()):
+    for spec in specs:
         if spec.artifact + ".png" not in seen:
             problems.append(f"the capture driver photographs {spec.url} but {MANIFEST} has no "
                             f"entry for it: that page has never been committed as evidence")
@@ -419,14 +756,31 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="manifest.py", description=__doc__.splitlines()[0])
     ap.add_argument("verb", nargs="?", default="check", choices=("check", "record"))
     ap.add_argument("--dir", default=os.path.join(ROOT, "docs", "screenshots", "360"))
+    # Repeated once per fixture, because the committed set is photographed by four of them and a
+    # single flag would either apply one fixture's clock to all nine frames or be a lie about seven.
+    # A relative path resolves against the repository, the same rule `--out` follows in cdp.py: an
+    # operator typing this from testing/capture and one typing it from the root must aim at the same
+    # file, and the last time that was left to the shell's directory a whole set of PNGs landed
+    # somewhere the ignore rule did not cover.
+    ap.add_argument("--fixture-env", action="append", default=[], metavar="PATH",
+                    help="runs/<fixture>/fixture.env, one flag per fixture that photographed --dir; "
+                         "each entry is stamped with the conditions that fixture declared (#211)")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args(argv)
     if a.self_test:
         return self_test()
     if a.verb == "record":
-        doc = record(a.dir)
+        envs = [fixture_env(p) for p in a.fixture_env]
+        doc = record(a.dir, envs=envs)
         print(f"recorded {len(doc['pages'])} page(s) at {doc['viewport']} px into "
               f"{manifest_path(a.dir)}")
+        if envs:
+            print(f"  {sum(1 for e in doc['pages'] if 'capture' in e)} of them under the conditions "
+                  f"{doc['schema']} means: {', '.join(sorted(n for n, _ in envs))}")
+        else:
+            print(f"  no capture conditions recorded ({doc['schema']}), so this file answers \"which "
+                  f"commit does each PNG depict\" and not \"how was it taken\". Pass --fixture-env "
+                  f"once per fixture and it answers both (#211).")
         return 0
     problems = check(a.dir)
     if problems:
@@ -435,8 +789,17 @@ def main(argv=None):
             print(f"  {p}")
         return 1
     doc = read_manifest(a.dir)
-    print(f"screenshot manifest: {len(doc['pages'])} photographs current against their sources "
-          f"(each pinned to {doc['viewport']} px and to the commit its page was rendered from)")
+    # The sentence a green gate prints is itself a claim, so it has to carry what is missing from the
+    # file as well as what the check proved. Nine frames on `main` were recorded before the `capture`
+    # field existed and `check` is deliberately silent about that; a summary that read "9 photographs
+    # current" over them would be #211's complaint, printed by the gate that noticed it.
+    plain = sum(1 for e in doc.get("pages", []) if not e.get("capture"))
+    line = (f"screenshot manifest: {len(doc['pages'])} photographs current against their sources "
+            f"(each pinned to {doc['viewport']} px and to the commit its page was rendered from")
+    if plain:
+        line += (f"; {plain} of them record no capture conditions, so nothing in this file says under "
+                 f"what clock, census or script setting they were taken (#211)")
+    print(line + ")")
     return 0
 
 
@@ -543,9 +906,55 @@ def self_test():
     ran, bad = [], []
 
     def rule(name, complaint):
+        """Record one rule's verdict.
+
+        A rule may hand in a CALLABLE instead of a complaint, and it is run here. That exists because
+        a refusal is how this file says "no", and when one escapes a rule's own `try` the whole report
+        ended at that line: the other thirty-five verdicts were never named. Measured 6 Nov, mutating
+        ten of #211's rules one at a time -- three of the ten came back as a traceback or an early
+        refusal and stopped there, so the report could not tell a one-rule defect from a broken
+        harness. The refusal is still reported in full; what changed is that the rest of the report
+        survives it. (The older rules pass their complaint directly and are unchanged.)
+        """
         ran.append(name)
+        if callable(complaint):
+            try:
+                complaint = complaint()
+            except AssertionError as exc:
+                complaint = str(exc)
+            except SystemExit as exc:
+                complaint = f"the rule died refusing something: {exc}"
         if complaint:
             bad.append(f"{name}: {complaint}")
+
+    # The harness's own canary, run before any rule is recorded and then rolled back. `rule` is the
+    # only thing standing between a complaint and the report, and #211 gave it a new job -- running a
+    # callable, and turning a `SystemExit` into a verdict -- so a `rule` that quietly dropped what it
+    # was handed would now be able to silence twelve rules from one line. That is the same floor #138
+    # was about (a guard that stops calling what it guards), arriving from the harness rather than from
+    # a check, so it gets the same answer: a probe that fails if the reporting is broken, and prints
+    # nothing when it is not.
+    def harness_reports_what_it_is_handed():
+        """Each of the three shapes a complaint arrives in must reach the report."""
+        def dies():
+            raise SystemExit("a condition it could not read")
+        saved = len(ran), len(bad)
+        rule("canary: a complaint handed in is reported", "a direct complaint")
+        rule("canary: a callable's complaint is reported", lambda: "a late complaint")
+        rule("canary: a rule that dies is reported", dies)
+        added = bad[saved[1]:]
+        del ran[saved[0]:], bad[saved[1]:]
+        if len(added) != 3:
+            return (f"the harness reported {len(added)} of 3 problems; `rule` is the only path from a "
+                    "complaint to the report, so a rule that drops one turns the tally into a number "
+                    "nobody earned")
+        for needle in ("a direct complaint", "a late complaint", "a condition it could not read"):
+            if not any(needle in b for b in added):
+                return f"the harness lost the complaint {needle!r} on its way to the report"
+        return None
+
+    rule("canary: the harness reports every complaint it is handed",
+         harness_reports_what_it_is_handed())
 
     def in_box(fn):
         """Run `fn(box)` with ROOT pointed at a fresh box, and hand back its complaint."""
@@ -856,7 +1265,418 @@ def self_test():
 
     rule("the manifest claims nothing it did not measure", in_box(no_unmeasured_claims))
 
-    EXPECTED = 25
+    # ----------------------------------------------------------------------------------------
+    # The `capture` block (#211). Everything above asks WHICH COMMIT a frame depicts; these ask HOW
+    # it was taken, which is the question #207 was asked only after nine PNGs had been read as
+    # current for years. The rules are written against the driver's real `PAGES` table wherever the
+    # claim is about the table -- `fixture`, `state` -- because a fake that carries neither would
+    # let a projection that stopped reading the table pass as a projection.
+    # ----------------------------------------------------------------------------------------
+
+    def runs_env(box, name, **over):
+        """`runs/<name>/fixture.env` in the box, as `capture_env` writes it. Returns the path.
+
+        The five keys the driver insists on are here because the recorder reads the same file, and
+        `hunter2-hunter2` is here because that file really does hold a cleartext admin credential --
+        one rule below is about it never reaching the committed manifest.
+        """
+        env = {"PLOCK_CAPTURE_USER": "parent", "PLOCK_CAPTURE_PASS": "hunter2-hunter2",
+               "PLOCK_CAPTURE_TARGET": "operator", "PLOCK_CAPTURE_PORT": "8501",
+               "PLOCK_CAPTURE_CDP": "9333", "PLOCK_CAPTURE_SCRIPTS": "off"}
+        env.update(over)
+        d = os.path.join(box, "testing", "capture", "runs", name)
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, "fixture.env")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("# written by a self-test rule; the recorder reads this and refuses without it\n")
+            for k, v in sorted(env.items()):
+                if v is None:
+                    continue
+                fh.write(f"{k}={v}\n")
+        return path
+
+    # Everything the `pages` fixture declares. A fixture that declares nothing is a different rule.
+    FULL = {"PLOCK_CAPTURE_STAMP": "2026-03-18T21:34:05", "PLOCK_CAPTURE_ZONE": "-04:00",
+            "PLOCK_CAPTURE_AUDIT_ROWS": "8", "PLOCK_CAPTURE_PATH_PREPEND": "testing/capture/bin",
+            "PLOCK_CAPTURE_TZ": "America/New_York"}
+
+    def shots(box, *stems):
+        for s in stems:
+            _png(box, s + ".png")
+
+    def art(doc, stem):
+        return next(e for e in doc["pages"] if e["png"] == stem + ".png")
+
+    def joined(problems):
+        return "; ".join(problems) or None
+
+    def conditions_follow_the_fixture():
+        """One env per fixture, and each frame carries only its own fixture's word (#211).
+
+        The failure this refuses is the one the issue names: nine entries, four fixtures, and a
+        recorder that could only apply one fixture's conditions to all of them. `pages` declares
+        eight audit rows and the stubbed census; neither is a true thing to say about `lock.png`,
+        which photographs this machine's real sessions off a fixture that declares no trail at all.
+        """
+        def go(box):
+            shots(box, "dashboard", "users-no-profiles", "lock")
+            envs = [fixture_env(runs_env(box, "pages", **FULL)),
+                    fixture_env(runs_env(box, "pages-noprof")),
+                    fixture_env(runs_env(box, "lock", PLOCK_CAPTURE_STAMP="2026-04-02T09:00:00",
+                                         PLOCK_CAPTURE_ZONE="-04:00"))]
+            doc = record(os.path.join(box, "docs", "screenshots", "360"), run=_fake_git(),
+                         now="2026-01-01T00:00:00Z", envs=envs)
+            problems = []
+            d = art(doc, "dashboard")["capture"]
+            if d.get("fixture") != "pages":
+                problems.append(f"dashboard.png was stamped {d.get('fixture')!r}")
+            if d.get("rows") != 8 or d.get("scripts") != "off":
+                problems.append(f"the pages conditions never reached dashboard.png: {d}")
+            if d.get("stamp") != "2026-03-18T21:34:05-04:00":
+                problems.append(f"the declared pair was not recorded as the instant it is: "
+                                f"{d.get('stamp')!r}")
+            n = art(doc, "users-no-profiles")["capture"]
+            if n.get("fixture") != "pages-noprof":
+                problems.append(f"users-no-profiles.png was stamped {n.get('fixture')!r}")
+            if "rows" in n or "census" in n or "tz" in n:
+                problems.append(f"another fixture's conditions were stamped onto "
+                                f"users-no-profiles.png: {n}")
+            k = art(doc, "lock")["capture"]
+            if k.get("fixture") != "lock":
+                problems.append(f"lock.png is not scoped by the run directory that took it: {k}")
+            if k.get("stamp") != "2026-04-02T09:00:00-04:00":
+                problems.append(f"lock.png carries the pages clock instead of its own: "
+                                f"{k.get('stamp')!r}")
+            if "rows" in k:
+                problems.append(f"the POST fixture declares no trail and recorded a row count: {k}")
+            return joined(problems)
+        return in_box(go)
+
+    rule("each frame is stamped with its own fixture's conditions, and no other's",
+         conditions_follow_the_fixture)
+
+    def half_the_directory_unexplained():
+        """`--fixture-env` is a claim about every frame in the directory, or it is nothing."""
+        def go(box):
+            shots(box, "users", "users-no-profiles")
+            d = os.path.join(box, "docs", "screenshots", "360")
+            envs = [fixture_env(runs_env(box, "pages", **FULL))]
+            try:
+                record(d, run=_fake_git(), now="2026-01-01T00:00:00Z", envs=envs)
+            except SystemExit as exc:
+                if "users-no-profiles.png" not in str(exc):
+                    return f"it refused without naming the frame it could not explain: {exc}"
+                if os.path.exists(manifest_path(d)):
+                    return "it refused and wrote the manifest anyway"
+                return None
+            return "a record that could not account for every frame wrote a manifest"
+        return in_box(go)
+
+    rule("a frame whose fixture was not named cannot be recorded as if it were",
+         half_the_directory_unexplained)
+
+    def a_fixture_that_photographed_nothing():
+        """The other direction: a spare `--fixture-env` means the wrong env or the wrong --dir."""
+        def go(box):
+            shots(box, "users")
+            envs = [fixture_env(runs_env(box, "pages", **FULL)),
+                    fixture_env(runs_env(box, "testlock"))]
+            try:
+                record(os.path.join(box, "docs", "screenshots", "360"), run=_fake_git(),
+                       now="2026-01-01T00:00:00Z", envs=envs)
+            except SystemExit as exc:
+                return (None if "testlock" in str(exc)
+                        else f"it refused without naming the fixture that matched nothing: {exc}")
+            return "a fixture that photographed nothing here was accepted silently"
+        return in_box(go)
+
+    rule("a fixture env that matches no frame here is refused", a_fixture_that_photographed_nothing)
+
+    def conditions_are_required_by_the_schema_that_promises_them():
+        """`/2` says this file records conditions, so an entry under it that says nothing refuses.
+
+        `/1` stays quiet. The nine frames on `main` were recorded before the field existed, and a
+        refusal about a FORMAT would send a reader to re-take photographs that are current -- which is
+        why the two schema names exist rather than one with an optional field.
+        """
+        def go(box):
+            shots(box, "users")
+            d = os.path.join(box, "docs", "screenshots", "360")
+            record(d, run=_fake_git(), now="2026-01-01T00:00:00Z",
+                   envs=[fixture_env(runs_env(box, "pages", **FULL))])
+            p = manifest_path(d)
+            doc = json.load(open(p, encoding="utf-8"))
+            if doc["schema"] != SCHEMA:
+                return f"a recorded manifest declares {doc['schema']!r}, not {SCHEMA!r}"
+            stripped = json.loads(json.dumps(doc))
+            stripped["pages"][0].pop("capture")
+            json.dump(stripped, open(p, "w", encoding="utf-8"))
+            problems = check(d, run=_fake_git(), pages=driver_pages())
+            if not any("no capture block" in x for x in problems):
+                return f"a /2 entry that declares nothing passed: {problems[:1]}"
+            old = json.loads(json.dumps(stripped))
+            old["schema"] = SCHEMA_V1
+            json.dump(old, open(p, "w", encoding="utf-8"))
+            if any("no capture block" in x for x in check(d, run=_fake_git(), pages=driver_pages())):
+                return "a frame recorded before this field existed was refused for its format"
+            return None
+        return in_box(go)
+
+    rule("a newly recorded entry that declares nothing is refused, an old one is not",
+         conditions_are_required_by_the_schema_that_promises_them)
+
+    def conditions_from_the_wrong_run():
+        """A block naming a fixture that does not photograph this frame is a stamped-in lie."""
+        def go(box):
+            shots(box, "users")
+            d = os.path.join(box, "docs", "screenshots", "360")
+            record(d, run=_fake_git(), now="2026-01-01T00:00:00Z",
+                   envs=[fixture_env(runs_env(box, "pages", **FULL))])
+            p = manifest_path(d)
+            doc = json.load(open(p, encoding="utf-8"))
+            if any("not the fixture that photographs it" in x
+                   for x in check(d, run=_fake_git(), pages=driver_pages())):
+                return "the honest attribution was refused"
+            doc["pages"][0]["capture"]["fixture"] = "testlock"
+            json.dump(doc, open(p, "w", encoding="utf-8"))
+            problems = check(d, run=_fake_git(), pages=driver_pages())
+            if not any("not the fixture that photographs it" in x for x in problems):
+                return f"conditions stamped from another fixture's run passed: {problems[:1]}"
+            return None
+        return in_box(go)
+
+    rule("conditions stamped from another fixture's run directory are refused",
+         conditions_from_the_wrong_run)
+
+    def a_credential_never_reaches_the_committed_manifest():
+        """`fixture.env` holds a cleartext admin password; the manifest is committed.
+
+        This is why `record` reads an allowlist of keys rather than the env. A recorder that copied
+        the file through would put this repository's evidence and somebody's credential in the same
+        JSON, and the credential is the part that never comes out -- `docs/` is where the merge
+        goes, and a password in a merged commit is in every clone forever.
+        """
+        def go(box):
+            path = runs_env(box, "pages", **FULL)
+            if "hunter2-hunter2" not in open(path, encoding="utf-8").read():
+                return "the control is gone: the fixture env no longer holds the credential"
+            shots(box, "users")
+            record(os.path.join(box, "docs", "screenshots", "360"), run=_fake_git(),
+                   now="2026-01-01T00:00:00Z", envs=[fixture_env(path)])
+            text = open(manifest_path(os.path.join(box, "docs", "screenshots", "360")),
+                        encoding="utf-8").read()
+            if "hunter2" in text:
+                return "the manifest was written with the fixture's password in it"
+            if "PLOCK_CAPTURE_PASS" in text:
+                return f"the manifest carries the credential's key name: {text[:200]}"
+            return None
+        return in_box(go)
+
+    rule("the recorder copies conditions out of fixture.env, never the credential",
+         a_credential_never_reaches_the_committed_manifest)
+
+    def the_state_is_a_projection_not_a_transcription():
+        """`state` comes from `Page.state`. The cells a frame proves are therefore typed once."""
+
+        table = {s.artifact: [list(x) for x in s.state] for s in driver_pages()}
+
+        def go(box):
+            shots(box, "dashboard", "audit")
+            doc = record(os.path.join(box, "docs", "screenshots", "360"), run=_fake_git(),
+                         now="2026-01-01T00:00:00Z",
+                         envs=[fixture_env(runs_env(box, "pages", **FULL))])
+            problems = []
+            for stem in ("dashboard", "audit"):
+                got = art(doc, stem)["capture"].get("state")
+                if got != table[stem]:
+                    problems.append(f"{stem}: recorded {got}, the driver declares {table[stem]}")
+            # The half a projection cannot show by itself: if the cell text were also typed in this
+            # file, the copy above could be a copy of the copy. #207's whole family of defects is a
+            # second statement of one claim that stopped agreeing with the first.
+            here = open(os.path.join(HERE, "manifest.py"), encoding="utf-8").read()
+            quoted = sorted({cell for pairs in table.values() for _, cell in pairs
+                             if len(cell) > 8 and cell in here})
+            if quoted:
+                problems.append(f"this file types the cell text it should read from the driver: "
+                                f"{quoted}")
+            return joined(problems)
+        return in_box(go)
+
+    rule("a page's declared state is read from the driver, never retyped here",
+         the_state_is_a_projection_not_a_transcription)
+
+    def an_undeclared_condition_stays_absent():
+        """No `rows`, no `rows: 0`. The `scroll_width` mistake, refused one field earlier.
+
+        `pages-noprof` declares no trail because its page has no table, and `pages-noprof`-style
+        silence about the census is the honest answer for a fixture that never chose one. A default
+        here would be a number nobody declared, which is what this file already refuses once.
+        """
+        def go(box):
+            shots(box, "users")
+            d = os.path.join(box, "docs", "screenshots", "360")
+            record(d, run=_fake_git(), now="2026-01-01T00:00:00Z",
+                   envs=[fixture_env(runs_env(box, "pages", PLOCK_CAPTURE_SCRIPTS=None))])
+            bare = art(read_manifest(d), "users")["capture"]
+            if bare != {"fixture": "pages"}:
+                return (f"a fixture that declared nothing but its name recorded {bare}. An absent "
+                        "condition has to stay absent, or the manifest is inventing defaults")
+            record(d, run=_fake_git(), now="2026-01-02T00:00:00Z",
+                   envs=[fixture_env(runs_env(box, "pages"))])
+            now_block = art(read_manifest(d), "users")["capture"]
+            if now_block != {"fixture": "pages", "scripts": "off"}:
+                return f"a declared condition did not reach the entry: {now_block}"
+            return None
+        return in_box(go)
+
+    rule("a condition the fixture did not declare stays out of the entry",
+         an_undeclared_condition_stays_absent)
+
+    def an_unreadable_condition_is_refused():
+        """A clock the driver would not boot on cannot become a recorded condition."""
+        cases = (({"PLOCK_CAPTURE_STAMP": "2026-13-40", "PLOCK_CAPTURE_ZONE": "-04:00"},
+                  "not an instant"),
+                 ({"PLOCK_CAPTURE_STAMP": "2026-03-18T21:34:05"}, "PLOCK_CAPTURE_ZONE"),
+                 ({"PLOCK_CAPTURE_AUDIT_ROWS": "eight"}, "not a number of rows"))
+
+        def go(box):
+            shots(box, "users")
+            d = os.path.join(box, "docs", "screenshots", "360")
+            problems = []
+            for over, needle in cases:
+                path = runs_env(box, "pages", **over)
+                try:
+                    record(d, run=_fake_git(), now="2026-01-01T00:00:00Z",
+                           envs=[fixture_env(path)])
+                    problems.append(f"{over} was recorded as a condition")
+                except SystemExit as exc:
+                    if needle not in str(exc):
+                        problems.append(f"{over} refused for the wrong reason: {exc}")
+            return joined(problems)
+        return in_box(go)
+
+    rule("a condition that is not readable is a refusal, not a field",
+         an_unreadable_condition_is_refused)
+
+    def a_record_without_conditions_keeps_the_schema_it_found():
+        """The capture drivers record with no env, and must not be able to retire a `/2` file.
+
+        Each driver knows its own fixture and not the other three, so `pages.py` still calls `record`
+        empty-handed; if that call wrote the newest schema, the file would go on claiming it carries
+        conditions while `check` fell silent about entries that no longer have them. Keeping `/2` is
+        what makes the loss LOUD: the gate refuses the manifest until a run names its fixtures again.
+        """
+        def go(box):
+            shots(box, "users")
+            d = os.path.join(box, "docs", "screenshots", "360")
+            record(d, run=_fake_git(), now="2026-01-01T00:00:00Z")
+            doc = read_manifest(d)
+            problems = []
+            if doc["schema"] != SCHEMA_V1:
+                problems.append(f"a fresh record declares {doc['schema']!r}, not {SCHEMA_V1!r}")
+            if any("capture" in e for e in doc["pages"]):
+                problems.append("a record with no fixture env wrote conditions it was not given")
+            p = manifest_path(d)
+            up = json.loads(json.dumps(doc))
+            up["schema"] = SCHEMA
+            json.dump(up, open(p, "w", encoding="utf-8"))
+            record(d, run=_fake_git(), now="2026-01-02T00:00:00Z")
+            after = read_manifest(d)
+            if after["schema"] != SCHEMA:
+                return (f"the drivers' record step retired {SCHEMA} to {after['schema']!r}: the file "
+                        "no longer claims it carries conditions, so the gate went quiet about the "
+                        "conditions it lost")
+            if not any("no capture block" in x
+                       for x in check(d, run=_fake_git(), pages=driver_pages())):
+                problems.append("the lost conditions passed the gate anyway")
+            return joined(problems)
+        return in_box(go)
+
+    rule("a record with no fixture env cannot downgrade a manifest that has conditions",
+         a_record_without_conditions_keeps_the_schema_it_found)
+
+    def the_recorder_reads_the_file_the_driver_reads():
+        """One parser for `fixture.env`, and the fixture's name is its run directory's."""
+
+        def go(box):
+            path = runs_env(box, "pages", **FULL)
+            name, env = fixture_env(path)
+            problems = []
+            if name != "pages":
+                problems.append(f"the fixture was named {name!r}, not after its run directory")
+            if env.get("PLOCK_CAPTURE_PORT") != "8501":
+                problems.append(f"the env was not read as the driver reads it: {sorted(env)}")
+            try:
+                fixture_env(os.path.join(os.path.dirname(path), "config.json"))
+                problems.append("a config.json was accepted as a fixture env, and named a fixture "
+                                "no setup script ever wrote")
+            except SystemExit as exc:
+                if "not a fixture env" not in str(exc):
+                    problems.append(f"refused for the wrong reason: {exc}")
+            try:
+                fixture_env(os.path.join(box, "testing", "capture", "runs", "ghost", "fixture.env"))
+                problems.append("a fixture env that is not there was accepted")
+            except SystemExit as exc:
+                if "setup.sh" not in str(exc):
+                    problems.append(f"a missing env should name the setup to run: {exc}")
+            sys.path.insert(0, HERE)
+            import cdp
+            if fixture_env(path)[1] != cdp.fixture_env_at(path):
+                problems.append("the recorder and the driver parsed one file to two different dicts")
+            return joined(problems)
+        return in_box(go)
+
+    rule("the manifest reads fixture.env through the driver's own parser",
+         the_recorder_reads_the_file_the_driver_reads)
+
+    def a_path_is_recorded_by_where_it_is_in_the_repository():
+        """The census directory is on the capture machine; the manifest is committed (#211).
+
+        Three cases, because the key has three shapes and only one of them is a machine's path. Every
+        rule here runs with `ROOT` at a temp box, so a census under the box is a census inside the
+        repository and the answer has to be the box-relative one -- which is what the committed file
+        has to carry. A census outside it is a real condition of the run and stays as declared, and a
+        relative one is left alone because resolving it would mean guessing the daemon's directory.
+        """
+        def go(box):
+            shots(box, "users")
+            d = os.path.join(box, "docs", "screenshots", "360")
+            cases = [(os.path.join(box, "testing", "capture", "bin"),
+                      os.path.join("testing", "capture", "bin"),
+                      "a census inside the repository was recorded as {} -- the committed manifest "
+                      "names the capture machine's directory and worktree instead of the repository's"),
+                     ("/opt/other/census", "/opt/other/census",
+                      "a census outside the repository was rewritten to {} instead of being recorded "
+                      "as the condition the fixture declared"),
+                     ("testing/capture/bin", "testing/capture/bin",
+                      "a relative census was resolved against somewhere other than where it was "
+                      "written: {}")]
+            problems = []
+            for declared, want, complaint in cases:
+                record(d, run=_fake_git(), now="2026-01-01T00:00:00Z",
+                       envs=[fixture_env(runs_env(box, "pages",
+                                                  PLOCK_CAPTURE_PATH_PREPEND=declared))])
+                got = art(read_manifest(d), "users")["capture"]["census"]
+                if got != want:
+                    problems.append(complaint.format(got))
+            return joined(problems)
+        return in_box(go)
+
+    rule("a declared census directory is recorded by its path in the repository",
+         a_path_is_recorded_by_where_it_is_in_the_repository)
+
+    # The two halves of the `scripts` condition that live in other files, pinned by their text: an
+    # undrivable contract is still a contract, and the way it breaks is one side being edited away
+    # while every runnable check downstream keeps passing.
+    rule("the fixture still declares the scripts condition and the driver still honours it",
+         None if not condition_contract_errors() else "; ".join(condition_contract_errors()))
+    rule("control: either half deleted is caught by the pin",
+         None if (condition_contract_errors(fixture_sh="") and condition_contract_errors(cdp_py=""))
+         and "no longer writes" in "; ".join(condition_contract_errors(fixture_sh="x\n"))
+         and "no longer refuses" in "; ".join(condition_contract_errors(cdp_py="x\n"))
+         else "the pin does not notice one half being deleted")
+
+    EXPECTED = 40
     if len(ran) != EXPECTED:
         bad.append(f"expected {EXPECTED} rules, ran {len(ran)} -- one was deleted, or never "
                    f"reached (a `return` in self_test() skips everything below it)")

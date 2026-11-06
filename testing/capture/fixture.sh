@@ -166,6 +166,24 @@ CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-}"
 # `-0400`, which the audit page's declared state then refuses. That is the right place to notice.
 CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-}"
 
+# Whether the page's own JavaScript was running when the frame was taken (#211).
+#
+# `off` is not a preference being recorded here, it is what the driver does: cdp.py disables page
+# scripts (`Emulation.setScriptExecutionDisabled`) after the sign-in and before the first measurement,
+# because `static/app.js` rewrites every `time[data-unix]` cell from `Date.now()` — so a frame taken
+# with the scripts running carries a live countdown rather than the server's sentence — and because
+# this folder's criterion is "usable at 360 px with JavaScript off", which a frame taken with them on
+# has never tested.
+#
+# So why write it down at all, when the driver allows only one answer? Because the manifest is now a
+# committed claim about a frame rather than about a commit, and the one condition a reader cannot
+# recover from the code is the one that has to travel with the bytes: the frames committed before
+# #221's re-take were taken with the scripts RUNNING, and every check in this repository called them
+# current. The driver refuses a fixture that declares anything else, which is what keeps this word
+# from becoming a value the fixture asserts and the driver ignores. A run whose env predates the key
+# declares nothing, and the manifest leaves `scripts` out rather than guessing.
+CAPTURE_SCRIPTS="${PLOCK_CAPTURE_SCRIPTS:-off}"
+
 # capture_env
 #
 # The fixture's own answers, in one file the driver reads. Keeping the port, the account and the
@@ -173,7 +191,7 @@ CAPTURE_TZ="${PLOCK_CAPTURE_TZ:-}"
 # which daemon the browser should be pointed at — and a browser aimed at a daemon that is not the
 # one just started photographs a different machine's admin UI.
 #
-# The four optional keys below are written only when declared. A driver reads a missing one as "this
+# The five optional keys below are written only when declared. A driver reads a missing one as "this
 # fixture did not choose", never as zero or as the empty string: a fixture that says nothing about
 # its clock must not be silently re-stamped to a date somebody else chose.
 capture_env() {
@@ -189,6 +207,7 @@ capture_env() {
     if [ -n "$CAPTURE_AUDIT_ROWS" ]; then echo "PLOCK_CAPTURE_AUDIT_ROWS=$CAPTURE_AUDIT_ROWS"; fi
     if [ -n "$CAPTURE_PATH_PREPEND" ]; then echo "PLOCK_CAPTURE_PATH_PREPEND=$CAPTURE_PATH_PREPEND"; fi
     if [ -n "$CAPTURE_TZ" ]; then echo "PLOCK_CAPTURE_TZ=$CAPTURE_TZ"; fi
+    echo "PLOCK_CAPTURE_SCRIPTS=$CAPTURE_SCRIPTS"
   } > "$ENVFILE"
   # The last line is not decoration: every line above is a condition, and the setup scripts run
   # under `set -euo pipefail` (fixture.sh is sourced, so it inherits that). A `[ -n ] && echo` list
