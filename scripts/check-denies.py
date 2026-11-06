@@ -222,7 +222,8 @@ def main():
         # not run rather than printing a tick with a smaller number under it.
         why = "did not resolve the %r agent, so its debug surface changed" % AGENT
         try:
-            subprocess.run([BINARY, "--version"], capture_output=True, text=True, timeout=30)
+            subprocess.run([BINARY, "--version"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=30)
         except (OSError, subprocess.SubprocessError):
             why = "is not on PATH"
         line = ("check-denies: SKIPPED -- %s %s. The deny list was not checked; it is the boundary "
