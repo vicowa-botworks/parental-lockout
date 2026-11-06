@@ -123,13 +123,111 @@ form.inline {
 	display: inline;
 }
 
-/* The override reason field lives inside a table cell. Left at the browser default it
-   is about 185 px wide on its own, which is more than a phone has to spare, and a cell
-   cannot shrink below the preferred width of its controls. */
-input[type="text"] {
+/* Every control on the page in the page's own typeface (#202).
+
+   `font: inherit` was on `button` and on no `input`, so four of the five input types the
+   templates render took the user-agent stylesheet whole. Measured through Chrome at a 360 px
+   viewport on every photographed page: `input[type=text]`, `[type=password]` and `[type=number]`
+   all computed `Arial 13.3333px`, while the button beside each of them computed
+   `system-ui 16px`. A form's labels, its boxes and its buttons were therefore set in two faces
+   at two sizes on the same line, and the boxes were the smaller ones.
+
+   One rule for all of them rather than one per `type`, because the defect *was* a list of types
+   -- this file had exactly one selector matching an input and it named one type, `text`.
+   `select` is here for the same reason (its font is the user-agent's too, which the rule below
+   cannot fix by sizing it), and `textarea` although no template renders one today, so that the
+   first one to appear does not appear in Arial.
+
+   The typeface and the width model under it are one change and not two, and #202 names the
+   reason: `ch` resolves against the element's own font, so `max-width: 22ch` is a different
+   number of pixels on either side of `font: inherit` -- measured 163 px in Arial 13.33 px,
+   196 px in the page's 16 px. Landing the font on its own would have resized every field on
+   every page without one edit to the rule that sizes it, and the two effects could not have
+   been told apart afterwards. Both are measured together in testing/capture. */
+input,
+select,
+textarea {
+	font: inherit;
+}
+
+/* One width model for every control you type into (#202).
+
+   The rule this replaces matched `input[type="text"]` and nothing else, so /settings rendered
+   three field widths on one page -- measured at 360 px: 65 px for `Seconds between checks`,
+   163 px for the two certificate path boxes, 185 px for the three password boxes, the last two
+   both being nothing but the user-agent's default of about twenty characters. #199 reported
+   that as fields being misaligned "in some places". It is every control, and one selector
+   explains it, so the fix is a shared model rather than a per-page nudge.
+
+   The model is the one this file already used for `text`, because the reason it exists still
+   holds -- the override reason box lives inside a table cell, and a cell cannot shrink below
+   the preferred width of the controls in it. It now covers password and number boxes as well,
+   and `22ch` now measures twenty-two characters of the page's own typeface for the reason given
+   above.
+
+   Two controls are outside it deliberately, and both exclusions are measured rather than tidy.
+   A `select` takes its intrinsic width from its longest option, so capping one at 22ch would
+   cut a profile called "Long weekend during the school holidays" in half; the phone block below
+   already clamps it to the width of the page, which protects the axis that actually needs
+   protecting. A radio or a checkbox at `width: 100%` is a 312 px tick box, so those keep their
+   own size and the grouping rule that follows gives them their spacing.
+
+   The list is the types that are *typed into*, not the complement of the ones that are not. A
+   type added to a template that is missing from this list then fails the capture, which is a
+   loud failure; the complement list fails the other way -- a future `[type=range]` would
+   silently inherit `width: 100%` and nobody would be told. */
+input:where(:not([type]),
+             [type="text"],
+             [type="password"],
+             [type="number"],
+             [type="search"],
+             [type="email"],
+             [type="tel"],
+             [type="url"],
+             [type="date"],
+             [type="time"],
+             [type="datetime-local"],
+             [type="month"],
+             [type="week"],
+             [type="file"]),
+textarea {
 	width: 100%;
 	max-width: 22ch;
 	box-sizing: border-box;
+}
+
+/* A tick box travels with its own words (#202).
+
+   Every radio and checkbox in this UI is written `<label><input> On — enforce the schedule</label>`
+   -- the control inside the label that names it, so the whole phrase is clickable. An inline-level
+   label breaks at any space, so at the artifact viewport the enforcement pair could wrap with the
+   box stranded at the end of a line and its sentence beginning the next, and nothing separated one
+   option from the next: `On — enforce the schedule` / `Off — stop locking everyone out` ran to the
+   right edge as one undifferentiated run of text. Making each label a single atomic inline-level
+   box means the box and the words belonging to it wrap together, in every group at once -- the
+   enforcement pair, the three transport positions, the seven day boxes on a rule form, the all-day
+   box, the enabled box on an account row.
+
+   `display: inline-flex` swallows the whitespace between the control and its text -- a
+   whitespace-only run generates no flex item -- so the gutter between them is `gap`, declared
+   rather than left to a space character that the next edit might not leave behind. The right margin
+   is what separates one option from the next, and the block-axis padding is what gives a wrapped
+   group any vertical rhythm: a block-axis *margin* on an inline-level box does not move the line it
+   sits on, while padding makes the box taller and the line box taller with it.
+
+   `:has()` is load-bearing here -- a label is only a choice group because of what is inside it, and
+   the templates carry no class that says so -- and it is measured rather than trusted. A selector a
+   browser has never heard of is dropped without a word and leaves the page exactly as it was, so
+   `require_choice_groups` in testing/capture/cdp.py asks the browser, on every photographed page,
+   what the computed `display` of every wrapping label actually is. A browser that drops the rule
+   gets the layout this file had before it, which is the same fallback the two-value `overflow-wrap`
+   pair near the top of this file relies on. */
+label:has(> input:is([type="radio"], [type="checkbox"])) {
+	display: inline-flex;
+	align-items: baseline;
+	gap: .4rem;
+	margin-right: 1.1rem;
+	padding-block: .15rem;
 }
 
 button {

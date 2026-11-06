@@ -351,6 +351,205 @@ def require_form(got, what):
                          "there is nothing to submit here, so a fit would prove nothing")
 
 
+# The control census, spliced into the same measurement as the cell and form censuses so a page is
+# read once and the readings cannot come from different renders (#202).
+#
+# It reports the page's own font beside every control's, because the claim being checked is
+# agreement, and agreement needs both sides: `#202` measured every typed control at
+# `Arial 13.3333px` while the prose around it was `system-ui 16px`, and a rule that compared each
+# control against a font this file hardcoded would keep passing the day the page's font changed.
+#
+# `typed` is decided by *excluding* the controls that draw no value (`radio`, `range`, a
+# `select-one`...), which is the opposite of how `app.css` lists them -- the stylesheet lists the
+# types you type into, positively, so that a type added to a template and missing from the rule
+# fails loudly instead of silently inheriting `width: 100%`. The two lists are deliberately
+# asymmetric: the place they agree is measured, and the place they drift apart is a refusal.
+#
+# `label` carries the computed `display` of the label wrapping a toggle, or "" when there is none.
+# It is how `:has()` gets measured rather than trusted: a selector the engine has never heard of is
+# dropped without a word and leaves the page exactly as it was, and `display` is the only thing in
+# the browser that says whether the rule applied.
+#
+# Hidden controls are skipped, and so is anything the page did not lay out at all (zero by zero):
+# the census is about what the photograph shows.
+CONTROLS_JS = (
+    "'controls':(function(){"
+    "var NOVALUE=['hidden','radio','checkbox','submit','button','reset','image','range','color',"
+    "'select-one','select-multiple'];"
+    "var page=getComputedStyle(document.body);"
+    "var items=[];"
+    "Array.prototype.forEach.call(document.querySelectorAll('input,select,textarea,button'),"
+    "function(el){"
+    "var t=(el.type||'').toLowerCase();"
+    "if(t==='hidden'){return;}"
+    "var r=el.getBoundingClientRect();"
+    "if(r.width===0&&r.height===0){return;}"
+    "var s=getComputedStyle(el);"
+    "var lab=el.closest('label');"
+    "items.push({tag:el.tagName.toLowerCase(),type:t,name:el.name||'',"
+    "family:s.fontFamily,size:s.fontSize,max:s.maxWidth,"
+    "typed:(el.tagName==='TEXTAREA'||NOVALUE.indexOf(t)<0),"
+    "toggle:(t==='radio'||t==='checkbox'),"
+    "label:lab?getComputedStyle(lab).display:''});});"
+    "return {family:page.fontFamily,size:page.fontSize,count:items.length,items:items};})()"
+)
+
+
+def control_name(item):
+    """One control, named the way a refusal has to name it: type, then the field it belongs to."""
+    label = item["tag"] + (f"[type={item['type']}]" if item["type"] else "")
+    return f"{label} {item['name']!r}" if item["name"] else label
+
+
+def _listed(items, limit=4):
+    """Up to `limit` names, then a count, because a refusal that scrolls is a refusal nobody reads."""
+    head = ", ".join(control_name(i) for i in items[:limit])
+    return head if len(items) <= limit else f"{head}, and {len(items) - limit} more"
+
+
+def _count(n, singular):
+    """`1 control` / `2 controls`. A refusal that says `1 control(s)` reads like a template."""
+    return f"{n} {singular}" if n == 1 else f"{n} {singular}s"
+
+
+def census_line(got):
+    """What the #202 guards were shown, in the form every driver prints on its measurement line.
+
+    This folder's house rule is that a rule which examined nothing must not report success silently,
+    and a passing `require_control_width` on a page with nothing typed into it is exactly that: true,
+    and about nothing. Printing `controls=15 typed=7 groups=2` is what tells the next reader which
+    kind of pass they were looking at -- the same reason the #108 check prints how many Detail cells
+    carried the note rather than only saying that it terminated cleanly. It lives here rather than in
+    pages.py because the two single-page drivers print the same census on their own line, zeros and
+    all: the verdict page and the probe page each carry one control today, the chrome's Sign out
+    button, and a reader has to be able to see that the guards were shown nothing.
+    """
+    page = (got or {}).get("controls") or {}
+    items = page.get("items") or []
+    return (f"controls={len(items)} typed={sum(1 for i in items if i['typed'])} "
+            f"groups={sum(1 for i in items if i['toggle'])}")
+
+
+def require_control_font(got, what):
+    """Every control that draws text is set in the page's own typeface (#202).
+
+    The user-agent stylesheets give a form control the browser's own font, not the document's, so a
+    stylesheet that never says otherwise renders an input in Arial 13.33 px in the middle of a page
+    written in system-ui 16 px. That is what #202 measured on every photographed page: `text`,
+    `password` and `number` boxes at `Arial 13.3333px` beside buttons at `system-ui 16px`.
+
+    The check compares each control with the *page*, not with a constant, so it says nothing about
+    which typeface the page chose -- only that a control did not choose one for itself.
+
+    The second half of the harm is why this is a refusal and not a note: `ch` resolves against the
+    element's own font, so `max-width: 22ch` is 163 px in Arial 13.33 px and 196 px in the page's
+    16 px. A control in the wrong font is also measuring its own declared width in the wrong unit,
+    which is how a stylesheet can say one width and render another.
+    """
+    page = got.get("controls")
+    if page is None:
+        raise SystemExit(f"{what}: asked whether the controls match the page when no control census "
+                         "was taken for it. The census has to be spliced into the measurement "
+                         "(cdp.CONTROLS_JS), and a check that reads a key nobody measured is a "
+                         "check that always passes (#202).")
+    bad = [i for i in page["items"] if i["family"] != page["family"] or i["size"] != page["size"]]
+    if bad:
+        raise SystemExit(
+            f"{what} sets {len(bad)} of its {page['count']} visible controls in a font of the "
+            f"browser's choosing -- {_listed(bad)} -- while the page's own prose is "
+            f"{page['family']} at {page['size']}. `font: inherit` is on the control, or it is not "
+            "(#202).")
+
+
+def require_control_width(got, what):
+    """Every control you type into is sized by one rule, not by whichever one matches its type.
+
+    The observable that says *which rule* made a width is the computed `max-width`, and it is the
+    one available without reading the stylesheet: no user-agent sheet puts a `max-width` on an
+    input, so a control reporting `none` is sitting at the browser's default width of about twenty
+    characters with nothing in `app.css` deciding it. Two controls reporting two different values
+    means two rules are sizing fields on the same page.
+
+    #202 measured both shapes at once on /settings: the number box at 65 px, the two path boxes at
+    163 px from the file's only input rule, and three password boxes at 185 px from the browser --
+    three widths on one page, which is the misalignment #199 had reported as happening "in some
+    places".
+
+    A page with nothing typed into it is not a pass, it is a page with nothing to say; the count is
+    printed on every page's line (`controls=15 typed=0 groups=0`) so a transcript shows whether
+    this ran on anything rather than leaving a reader to guess which kind of pass it was.
+    """
+    page = got.get("controls")
+    if page is None:
+        raise SystemExit(f"{what}: asked how the fields are sized when no control census was taken "
+                         "for it. The census has to be spliced into the measurement "
+                         "(cdp.CONTROLS_JS) (#202).")
+    typed = [i for i in page["items"] if i["typed"]]
+    if not typed:
+        return
+    by_max = {}
+    for item in typed:
+        by_max.setdefault(item["max"], []).append(item)
+    if len(by_max) == 1 and "none" not in by_max:
+        return
+    loose = by_max.get("none") or []
+    strict = {m: v for m, v in by_max.items() if m != "none"}
+    if loose and not strict:
+        problem = (f"no `max-width` on {_listed(typed)}, so each sits at the user-agent's own "
+                   "default of about twenty characters -- this stylesheet deciding nothing")
+    elif loose:
+        sized = next(iter(strict.values()))
+        problem = (f"{_count(len(loose), 'control')} carry no `max-width` and sit at the "
+                   f"user-agent's default of about twenty characters ({_listed(loose)}) while "
+                   f"{_count(len(sized), 'control')} are sized by a rule ({_listed(sized)})")
+    else:
+        detail = "; ".join(f"`{m}` on {_listed(v)}" for m, v in sorted(by_max.items()))
+        problem = f"their `max-width` resolves to {len(by_max)} different values -- {detail}"
+    raise SystemExit(
+        f"{what} sizes the {_count(len(typed), 'control')} you can type into from "
+        f"{len(by_max)} {'source' if len(by_max) == 1 else 'sources'}: {problem}. One width model "
+        "is what #202 asks for; three field widths on one page are the defect.")
+
+
+def require_choice_groups(got, what):
+    """A tick box and the words that name it are one box (#202).
+
+    Every radio and checkbox in this UI is written `<label><input> On — enforce the schedule</label>`
+    and `app.css` makes such a label an atomic inline-level box, because an inline label breaks at
+    any space and a box can therefore be photographed at the end of one line with its sentence on
+    the next.
+
+    This is the effect of a `:has()` selector, measured rather than grepped. The stylesheet reaches
+    these labels by what is inside them -- the templates carry no class that says "choice group" --
+    and a `:has()` rule a browser does not implement is discarded without a word, leaving the page
+    exactly as it was before it and every grep in the repository still satisfied. Computed
+    `display` is what the browser actually applied, so that is what is compared.
+
+    A toggle with no wrapping label at all is refused with the others rather than skipped: there is
+    nothing holding that box to its words, which is the defect, not an exemption from the check.
+    """
+    page = got.get("controls")
+    if page is None:
+        raise SystemExit(f"{what}: asked whether the choice groups are grouped when no control "
+                         "census was taken for it. The census has to be spliced into the measurement "
+                         "(cdp.CONTROLS_JS) (#202).")
+    toggles = [i for i in page["items"] if i["toggle"]]
+    loose = [i for i in toggles if i["label"] != "inline-flex"]
+    if loose:
+        naked = [i for i in loose if not i["label"]]
+        wrapped = [i for i in loose if i["label"]]
+        parts = []
+        if naked:
+            parts.append(f"{_listed(naked)}: no wrapping label at all")
+        if wrapped:
+            parts.append(f"{_listed(wrapped)}: its label is left as `display: "
+                         f"{wrapped[0]['label']}`")
+        raise SystemExit(
+            f"{what} has {_count(len(toggles), 'radio/checkbox control')}, and these are not one "
+            f"box with the words that name them ({' | '.join(parts)}). A choice group that is still "
+            "an inline run of text lets the box wrap away from the words it belongs to (#202).")
+
+
 def session_rows(session):
     """Every row of every `table.rows` table, as (data-label, text) pairs.
 
