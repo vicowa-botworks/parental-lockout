@@ -918,3 +918,39 @@ Two consequences, both deliberate:
   `head` and nothing else" is true of the bytes and silent about what the new value now means.
 - Checkpoint: c8b1e5a6648cb8fdbca270e9310f76c094ad6026
 - Effect: DECISIONS.md (D-0023's `sources_rev` sentence, D-0028's `head` sentence, this entry)
+
+## D-0031 · Three issues closed as satisfied by `main`, with the correspondence written row by row
+
+- Question: #211 and #222 are open, `main` implements both, and a third implementation of each is either
+  merged (`issue-211-take-2`, PR #223) or sitting in a worktree that halted the whole queue
+  (`issue-222`). Re-verify each on its own tick, close them, or rebase and reduce?
+- Options: leave them open and let the next lane re-derive the answer from a stale base | close each with
+  a row-by-row correspondence from the issue's own list to main's code, and file a separate issue for the
+  rest of the open set | rebase each onto `e74b42f` and reduce the diff to whatever survives | file one
+  reconciliation issue and let a lane work the whole set, touching nothing
+- Chose: close each with a row-by-row correspondence from the issue's own list to main's code, and file a
+  separate issue for the rest of the open set
+- Why: both issues were written as checkable lists, so closing them is measurement rather than judgement.
+  #211 asked for `--fixture-env` repeatable and per-fixture, a `capture` object carrying only what the
+  fixture declared, `scripts` recorded rather than inferred, `check` refusing an entry that declares
+  nothing while `/1` stays readable, and the `capture-manifest/2` bump: main has them at
+  `manifest.py:69`/`:74`/`:408`, `SCHEMA` at `:98`, the refusal at `:1468`, and the committed artifact
+  carries `{"fixture": "pages", "rows": 8, "scripts": "off", "tz": "America/New_York", "zone": "-04:00",
+  "census": "testing/capture/bin"}`. #222 asked for `record()` not to stamp frames its run did not take,
+  merge-or-refuse instead of overwrite, `check()` naming the class of lie, and a negative test with two
+  runs into one directory: main has the rules *a frame nobody re-took was re-stamped by the run that
+  re-took another page* and *a re-take of one page demands nothing of the frames it never touched*, plus a
+  self-test case that re-takes one of three frames and asserts `lock.png` did **not** acquire a `capture`
+  block, and a `check` that asks history (`sources_rev` against `newest_commit`) instead of the manifest's
+  memory -- its comment at `:760` records that the naive version refused the one commit where both are
+  true, "with a sentence that was false about it". Rebase-and-reduce was what review of #223 recommended
+  and it was measured to leave one thing: the inline-offset `stamp`, which is worse than main's separate
+  `zone` because `zone` is what lets `audit.png`'s declared state cell be checked against the row the page
+  showed. Leaving them open was the status quo and the status quo produced two near-identical
+  implementations of #211 in one week from bases 34 commits apart. The set is deliberately limited to the
+  three where every row was checked by hand tonight: `main`'s log also names #204, #207, #213, #219 and
+  #220, and those five have not been walked line by line, so they go to a lane with the evidence rather
+  than into this entry. Reversible by reopening -- every claim above is one `git show
+  origin/main:testing/capture/manifest.py` away from being re-checked, and each close comment says so.
+- Checkpoint: aa9c1841a949ecd2ac4805ce28b6e0f97a658307
+- Effect: issues #211, #222, pull request #223 (all closed, nothing deleted)
