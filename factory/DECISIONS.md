@@ -883,3 +883,30 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: 509aaea2b7317e587f13332be50f0e397f0253f8
 - Effect: the installed timer is `SubState=waiting` with a finite elapse after a reinstall and after a
   boot, and a long pass still cannot stack; measured on this box at the reinstall that shipped this.
+
+## H-0038 · A gate that skips on the machine doing the gating is not a gate; install the tool and let the box be red
+
+- Question: `make verify` printed `verify: OK` twice on `bf81761` and CI returned red from both `verify`
+  and `shellcheck` on the same commit. The shell step was a skip here because `shellcheck` is not
+  installed, while CI runs it with `SHELLCHECK_REQUIRED=1`. Does a locally-green tree mean anything
+  without the tool, and what goes in the reply to the reviewer?
+- Options: install shellcheck v0.10.0 -- the CI release -- at `~/.local/bin` so this box runs the same
+  gate, fix both findings, and say plainly in the PR thread that the two green gates quoted yesterday
+  were green with the step skipped | report the CI result as an environment difference | widen
+  `check-shell.sh` to ignore SC2015 and SC2034 so the two tools agree on what a finding is | treat CI as
+  the only shell gate and stop quoting local `verify` for shell changes
+- Chose: install shellcheck v0.10.0 -- the CI release -- at `~/.local/bin` so this box runs the same
+  gate, fix both findings, and say plainly in the PR thread that the two green gates quoted yesterday
+  were green with the step skipped
+- Why: one of the two findings was a latent mislog of exactly the class this branch exists to remove --
+  `gone=$(git branch -d …) && log_event BRANCH-CLEANED … || log_event BRANCH-KEPT …` runs the `||` arm
+  when the *logging* in the success arm fails, so the ledger prints BRANCH-KEPT for a branch it just
+  deleted -- and it was invisible to every local run, twice quoted to the reviewer as proof. A skip that
+  prints nothing but `SKIPPED` and still exits 0 is how a machine that cannot check something ends up
+  certifying it; the honest repair is to make the box able to check, not to argue the delta away. Both
+  findings were mine, both from the merge-verdict commit, and both tools (0.9.0 in `verify`, 0.10.0 in
+  the dedicated job) agreed.
+- Checkpoint: 2a095564d215e8e6293b43af3d27e21b84160462
+- Effect: `check-shell` here prints `0.10.0 over 26 scripts` and runs rather than skipping; the SC2015
+  site is an if/else so the arm is chosen by the deletion verdict alone; `FACTORY_EXIT_HALT` keeps one
+  home with the consumers named in the directive that silences the true positive.
