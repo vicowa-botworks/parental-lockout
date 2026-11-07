@@ -283,9 +283,15 @@ factory_merge() {
 	# about to forget. Refusing is a fine answer and gets logged; forcing is not.
 	if [ -n "$branch" ]; then
 		local gone
-		gone=$(git -C "$(factory_main_checkout)" branch -d "$branch" 2>&1) &&
-			log_event "BRANCH-CLEANED $branch merged and its worktree is gone" ||
+		# An explicit branch, not `A && B || C`: with the chain, a failing `log_event` in the success
+		# arm runs the `||` arm, and the ledger prints BRANCH-KEPT for a branch it just deleted. That is
+		# the same defect class this branch has been fixing all week -- a record that says the opposite
+		# of what happened -- reached through the log rather than through gh.
+		if gone=$(git -C "$(factory_main_checkout)" branch -d "$branch" 2>&1); then
+			log_event "BRANCH-CLEANED $branch merged and its worktree is gone"
+		else
 			log_event "BRANCH-KEPT $branch $(printf '%s' "$gone" | tr -d '\r\n' | cut -c1-120)"
+		fi
 	fi
 	return 0
 }

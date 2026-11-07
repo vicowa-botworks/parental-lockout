@@ -111,6 +111,9 @@ FACTORY_HALT=${FACTORY_HALT:-$FACTORY_DIR/HALT}
 
 # The exit code a halted supervisor leaves behind. It is a code the *machine* reads: the generated unit
 # names it in `SuccessExitStatus=`, so the two files have to agree and one of them has to own it.
+# shellcheck disable=SC2034  # read by factory.sh and install-timer.sh, both of which source this
+# file: shellcheck analyses common.sh alone, so a constant that both consumers need looks dead here.
+# The alternative -- duplicating the 8 in each -- is the drift this constant exists to prevent.
 FACTORY_EXIT_HALT=8
 DRY_RUN=${DRY_RUN:-0}
 
