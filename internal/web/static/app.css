@@ -155,14 +155,22 @@ body {
    degrees, 36 from `--held`'s 3 and 99 from `--free`'s 138, so the three are not three names for
    two colours; and no state below relies on hue alone, because each also moves weight or style.
 
-   Two classes are deliberately NOT given a colour. `.problem` carries the daemon's own words about
-   a row, and on the probe page those words are `/bin/true (configured command; not a production
-   backend)` -- a detail, visible in the committed `testlock.png`, not a fault. `.override` carries
-   the operator's deliberate release on the dashboard and the self-session note on both result
-   pages, and the two sit ADJACENT in the Detail cell (that pair is #108's seam), so giving them the
-   same voice would fuse them into one run. Italic is the machine being quoted; muted is the note
-   beside it. Both classes mean two things on two pages, which is a template's problem to split and
-   is written up as one, not papered over here. */
+   Two classes are deliberately NOT given a colour of their own. `.problem` carries the daemon's own
+   words about a row, and on the probe page those words are `/bin/true (configured command; not a
+   production backend)` -- a detail, visible in the committed `testlock.png`, not a fault. `.override`
+   carries the operator's deliberate release on the dashboard, and it sits ADJACENT to the daemon's
+   detail in the same cell (that pair is #108's seam), so giving them the same voice would fuse them
+   into one run. Italic is the machine being quoted; muted is the note beside it.
+
+   What these two names used to cover, and what covers it now (#239). Each of them carried two
+   meanings: `.problem` was the refusal, the mode notice, the help sentence and the missing value as
+   well as the quoted detail, and `.override` was the open hold and the sentence whose whole content
+   is that nothing is held. A reader who learned that one tint meant "a hold is open" therefore read
+   the daemon's own exemption as one. The templates now put one class on one job: two names were
+   added for the two jobs the vocabulary had no word for (`.refusal`, `.exempt`) and three jobs went
+   to names the vocabulary already had (`disabled` for the machine's own switch, `muted` for the help
+   sentence, `state-gap` for the missing value). The paragraphs below say what each mark is allowed to
+   mean, because the name is the only place that record lives. */
 .state-unknown {
 	color: var(--muted);
 	font-style: italic;
@@ -186,12 +194,49 @@ body {
 	padding-left: .8rem;
 }
 
+/* The daemon's own words about one row -- `/bin/true (configured command; not a production backend)`,
+   "no account entry", the detail beside a verdict. #239 narrowed it to that one job: it used to be
+   the refusal, the mode notice, the help sentence and the missing value as well, six jobs on one
+   name. It is now none of those, and `TestEveryStateClassCarriesOneMeaning` refuses it back into a
+   table cell if anyone puts it on a paragraph again -- the cell is what the name means. */
 .problem {
 	color: var(--ink);
 	font-style: italic;
 }
 
+/* A write the daemon refused, and the evaluator's sentence about a rule that can never fire (#239).
+   Amber, not red: the fact a refusal states is "what you asked for is not in effect", which is the
+   fact `--warn` already carries in this file -- the schedule is not holding -- rather than `--held`'s
+   fact, which is that the lock is on. A refusal is not a second meaning for the red. Italic because
+   the sentence is still the machine's own. Two channels, both already meaningful here, so the split
+   invents no third voice.
+
+   Measured with the same arithmetic #199's block cites: `--warn` is 2.69:1 against the ink it sits in
+   in the light scheme and 2.24:1 in the dark one, and on the page's own ground `#845600` on `#ffffff`
+   is 6.34:1 with `#cf901c` on `#16181c` at 6.48:1. D-0045's refusal of a loud paragraph voice -- "a
+   bold red paragraph on /users would turn a table into weather" -- was about words inside the table,
+   and it still holds for them; every `.refusal` is a block above or beside the form it came from, so
+   it is a paragraph on a page that holds at most two of them. */
+.refusal {
+	color: var(--warn);
+	font-style: italic;
+}
+
+/* The hold the operator granted on the status page: "open override: <reason>", and nothing else.
+   #239 moved the other thing this class marked -- the self-session note, a sentence whose whole
+   content is that nothing is held and nothing can be -- to `.exempt` below, which is the case the
+   issue names: a reader who had learned that this voice means "a hold is open" read the daemon's own
+   exemption as one. */
 .override {
+	color: var(--muted);
+}
+
+/* The session the daemon runs inside, which no schedule will ever lock (#239). It keeps the exact
+   voice it had as `.override`, because D-0045 measured this adjacency rather than inventing it: the
+   note sits beside the quoted detail in the Detail cell (#108's seam), italic is the machine being
+   quoted and muted is the note beside it. Only the name moved, so no pixel in that cell moves with
+   it -- what changed is that the note no longer claims to be a hold. */
+.exempt {
 	color: var(--muted);
 }
 
@@ -202,7 +247,13 @@ body {
 .disabled {
 	/* Same colour as `.state-gap` on purpose: "account switched off" and "scheduled, not enforced"
 	   are two reasons for one fact -- the schedule is not holding this child right now. The words
-	   say which reason; the colour says which fact. */
+	   say which reason; the colour says which fact.
+
+	   #239 gave this name a third row of the same table: the standing sentence at the top of
+	   /profiles and /settings, "Enforcement is switched off, so …". It is the same reason one scope
+	   up -- somebody switched it off, so nothing is being locked -- and it takes the existing name
+	   rather than a new one for a colour that already says it. The alternative was a synonym: two
+	   names, one voice, one meaning, which is the mirror image of the defect the issue is about. */
 	color: var(--warn);
 }
 

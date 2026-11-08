@@ -366,8 +366,13 @@ func TestTheProfilesPageShowsTheEvaluatorsComplaint(t *testing.T) {
 	}
 	// Whatever the evaluator's sentence is, the page must carry some of it rather than
 	// presenting the profile as healthy.
-	if strings.Contains(body, `class="problem"`) == false {
-		t.Errorf("the page shows no problem for a profile the evaluator reports as degraded;\n%s", body)
+	//
+	// `.refusal` is the name #239 gave this sentence; it used to be `.problem`, the class the
+	// per-account detail words in the accounts table still carry. The two are different kinds of
+	// sentence -- one says the daemon looked at this and it will not do what it looks like it does, the
+	// other is the machine's own words about one row -- and the vocabulary now says so.
+	if strings.Contains(body, `class="refusal"`) == false {
+		t.Errorf("the page shows no refusal for a profile the evaluator reports as degraded;\n%s", body)
 	}
 }
 

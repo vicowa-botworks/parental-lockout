@@ -118,7 +118,10 @@
                both actions above trim their surrounding whitespace, so two spans with a
                detail between them copy out as one word. The detail comes from DetailText so
                that word ends where the note begins (#108). */ -}}
-        {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="override">This is the session the daemon runs
+        {{- /* `.exempt` for the reason lock.tmpl now gives: this sentence says nothing is held, and
+               it no longer wears the name of an open hold. Both pages render this cell, so both
+               carry the same name for the same fact. */ -}}
+        {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="exempt">This is the session the daemon runs
           inside. Its schedule never locks it, because the daemon cannot lock itself out of
           enforcing.</span>{{end -}}
       </td>
