@@ -1353,3 +1353,66 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   origin/main:testing/capture/manifest.py` away from being re-checked, and each close comment says so.
 - Checkpoint: aa9c1841a949ecd2ac4805ce28b6e0f97a658307
 - Effect: issues #211, #222, pull request #223 (all closed, nothing deleted)
+
+## D-0039 · The audit row cites a dated run instead of a digest the manifest can outlive
+
+- Question: review's blocking 1 on #225 is a merge-result defect, and merging `origin/main` made it
+  reproducible in a working tree rather than only in a hypothetical merge commit: the `audit.png` row
+  asserts `0cfe9973711b…` is "the digest `docs/screenshots/360/manifest.json` records for `audit.png`",
+  while `b9eeec3` re-photographed all nine frames at 16:34Z on 6 Nov -- while the pull request sat
+  waiting on review -- and the manifest in the merged tree records `fc37cd9a…`. The same argument
+  reaches the corroborating clause ("the four-fixture run further down reports the same") and this PR's
+  own sentence in "What the audit fixture is not allowed to contain", which says the two-zone pair "came
+  back with the committed bytes". How does a row stop rotting in a table whose own preamble forbids it
+  to carry a hash?
+- Options: drop the quoted digest and let the manifest be the manifest, naming the run instead of its
+  bytes | keep the value but date it and name the re-take that retired it | re-run the two-zone pair
+  against the current frames and quote the new digests | re-point the row at `b9eeec3`'s set and delete
+  the two-zone claim | leave the value and hedge it with "at the time of writing"
+- Chose: drop the quoted digest and let the manifest be the manifest, naming the run instead of its
+  bytes
+- Why: the file already legislated this. The paragraph above the table reads "This table used to quote a
+  hash per row, and every hash in it eventually named a file that no longer exists … the bytes each
+  artifact is pinned to now live in `docs/screenshots/360/manifest.json` … this table carries only what a
+  machine cannot know". Option two keeps a value whose only remaining state is *retired* -- the
+  `profiles.png` row two rows up is that same sentence about `740200cc…`, and #144 is the issue that
+  counted five rows of them -- so the row now names runs and points at the manifest for values: `D-0037`
+  for the bytes committed today (the 16:33:49-16:34:09Z run that wrote the set `b9eeec3` commits, and the
+  16:17Z round that came back `cmp`-identical on all nine), and the two-zone pair only for the property
+  that pair actually demonstrates.
+  Option three is the one with real weight behind it, and it is the one a docs unit must refuse. Re-taking
+  means committing a tenth frame set inside a pull request whose whole diff is two sentences; `record` has
+  to be handed all nine `--shot` names to do it honestly, which is D-0031's entire subject; and the frame
+  set is another unit's question, not this one's -- #213 is open, asking that the two POST frames be taken
+  under the condition the driver now enforces, so a re-take from this branch would land on top of that
+  audit rather than answer it. The tie-break order agrees: nothing separates any option on `go.mod` (no
+  dependency anywhere) or on the decode-toward-lockout rule (no config is touched), option one touches one
+  markdown line against option three's nine PNGs plus a manifest plus its `sources_rev` chain, and option
+  one is reversible by `git revert` of a prose commit while option three is a re-take only `git revert` of
+  a frame set undoes. Option four was refused because the two-zone pair is the only measurement in the
+  tree of the host-zone property this page exists to demonstrate, and deleting it would quietly retire
+  the evidence #210 and #212 were opened to produce.
+  Measured, not inferred, before writing any of it: `git merge-tree --write-tree origin/main HEAD` exited
+  0, so the merge takes `main`'s manifest wholesale -- this branch touched no frame after the merge base --
+  and `python3` over the merged `manifest.json` reads `fc37cd9adcc5d0a8…` for `audit.png`, which
+  `sha256sum` over `git show origin/main:docs/screenshots/360/audit.png` confirms. That is also why the
+  sentence the row points at moved with it: "the committed bytes" became "the bytes committed at that
+  head", so neither sentence claims anything about the bytes in `docs/screenshots/360/` today.
+- What this costs, stated rather than glossed. (1) The row concedes a gap it did not admit before: the
+  host-zone property is certified on the set `b9eeec3` replaced, and nothing in this tree has re-run the
+  two-zone pair against the current frames. The row says so and names what would close it, which is the
+  honest shape of a docs unit that is not permitted to photograph. (2) Dropping the digest makes the row
+  less directly checkable than it was for the three hours it had one -- the reader opens the manifest
+  instead of reading a value here, and that indirection is exactly what :263-268 chose; the row is not
+  entitled to undo it because a reviewer once asked for a number. (3) `b9eeec3` and `D-0037` are now
+  load-bearing in prose. Both are merged history and cannot move, but the next re-take will turn "the set
+  `b9eeec3` commits" into a historical sentence too; it is written dated ("later the same day") rather
+  than in the present tense so it stays true when the set moves again. (4) The other stale digests in
+  the file -- :296, the four-fixture tally at :626-627, and the scripts-pair table at :700-701 -- are
+  `main`'s dated prose, not this PR's, and stay: :296 says "at that moment", :626 opens "Measured 6 Nov",
+  and the pair at :700 records what the two arms of one switch produced. Each names the run it came from,
+  so each is checkable against the manifest rather than false about it. The row this entry fixes was the
+  one that spoke in the present tense about what the manifest records.
+- Checkpoint: 5f6738e57ed453c6382134404bbacf25b55a1fbf
+- Effect: testing/capture/README.md (the `audit.png` row and the two-zone sentence it points at),
+  pull request #225
