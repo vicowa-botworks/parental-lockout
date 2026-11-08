@@ -487,10 +487,19 @@ factory_worktree() {
 #
 # The third shape `factory/selftest.sh` plants is the mundane one: `core.excludesFile` aimed at a
 # directory, which is configuration rather than per-tree state, so every `git -C` inherits it.
-# Measured there: `refresh`, `diff` and `ls-files --unmerged` answer clean, `diff --cached` and
-# `ls-files --others` exit 128, and `status --porcelain` exits 128 printing NOTHING -- so both the
-# replaced expression and the diff-plus-untracked prescription answer CLEAN on a tree whose state git
-# would not report.
+# Measured there on a filesystem where a directory has a size (tmpfs: 40): `refresh`, `diff` and
+# `ls-files --unmerged` answer clean, `diff --cached` and `ls-files --others` exit 128, and
+# `status --porcelain` exits 128 printing NOTHING -- so both the replaced expression and the
+# diff-plus-untracked prescription answer CLEAN on a tree whose state git would not report.
+#
+# That 128 is a filesystem property, not a git promise, and the qualifier is load-bearing. git opens
+# the exclude file, `fstat`s it and treats `st_size == 0` as an empty list; only a non-zero size
+# reaches the `read()` that fails with EISDIR and dies. A directory reports `st_size` 0 on btrfs and
+# 40 on tmpfs -- both measured on the two filesystems this box has -- and 4096 on ext4, measured by
+# review on #231 on a box that has that one. So on btrfs nothing is refused, the operator's global
+# patterns are silently dropped, and the verdict answers DIRTY naming a file git was told to ignore:
+# the false halt, with no warning from git in this shape to say why. Both arms are measured by the
+# leg, which asks git whether the plant refused before it asserts a verdict.
 #
 # Which read refuses first is a property of the git, not a promise, so each arm checks its own status
 # and the first refusal wins. That makes the checks redundant on purpose, and the redundancy was

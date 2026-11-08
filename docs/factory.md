@@ -217,12 +217,17 @@ whose answer is derived from the stat cache; and it checks the **exit status of 
 The asymmetry is why it is written that way. A false halt costs one pass, retried on the next tick; a
 false clean lets a model write into somebody's half-finished work, which is not recoverable. Measured
 on git 2.53.0, this is what the `status`-based test did with a tree whose repository could not be
-opened -- an empty `.git`, a `GIT_DIR`/`GIT_WORK_TREE` pair left exported by whatever ran before, a
-`core.excludesFile` pointing at a directory: `git status --porcelain` exits 128 printing nothing, the
-suppression in `$(... 2>/dev/null)` makes that indistinguishable from "nothing to report", and the
-pass proceeds in a tree git would not describe. A stat-only difference, the report #228 came in with,
-was tried in six variants and does *not* reproduce on this git, which refreshes the index in memory
-before reporting; the verdict no longer depends on that question either way.
+opened -- an empty `.git`, or a `GIT_DIR`/`GIT_WORK_TREE` pair left exported by whatever ran before:
+`git status --porcelain` exits 128 printing nothing, the suppression in `$(... 2>/dev/null)` makes
+that indistinguishable from "nothing to report", and the pass proceeds in a tree git would not
+describe. A third shape, a `core.excludesFile` pointing at a directory, is the same story only on some
+filesystems: git `fstat`s the exclude file and reads `st_size == 0` as an empty list, and a directory
+has size 0 on btrfs and 40 on tmpfs, so on tmpfs that typo is a 128 the verdict refuses on and on
+btrfs it is silence plus a dropped pattern list that names the operator's own ignored files as work.
+`factory/selftest.sh` measures which of the two the box is running on and asserts only that one, with
+a note naming the filesystem when the refusal is unreachable. A stat-only difference, the report #228
+came in with, was tried in six variants and does *not* reproduce on this git, which refreshes the
+index in memory before reporting; the verdict no longer depends on that question either way.
 
 `factory/selftest.sh` is the probe. It builds a throwaway repository plus a linked worktree of it --
 the second is the shape #228 was measured on -- plants one state per leg, and prints the weaker test's

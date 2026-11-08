@@ -596,39 +596,84 @@ poisoned_tree "a tree with no readable repo" "$work/poison-a/tree" \
 poisoned_tree "a GIT_DIR pair from elsewhere" "$work/poison-b/tree" \
 	"$repo/.git" "$work/poison-b/no-such-work-tree"
 
-# A repository that reads fine except for one arm. `core.excludesFile` aimed at a directory -- a
-# typo in a global config, inherited by every `git -C` the supervisor runs because it is configuration
-# and not per-tree state -- stops the dirt test with no work in the tree: `status --porcelain` exits
-# 128 printing nothing, so the replaced expression answers CLEAN, and the naive prescription (diff,
-# unmerged, untracked, reading output only) answers CLEAN as well. The verdict answers UNKNOWN, and
-# the leg prints what each of its five reads actually returned rather than asserting which one died:
-# on git 2.53.0 it is `diff --cached` and `ls-files --others` that fail and `update-index --refresh`
-# and `diff --quiet` that answer clean. Which fails first is a property of the git, not a promise, so
-# every arm checks its own status; that also means no single arm here is pinned on its own, and
-# deleting any one of the five checks has to be caught by the verdict as a whole.
+# A repository whose global ignore file git cannot use -- `core.excludesFile` aimed at a directory, a
+# typo in a config the supervisor never sets and cannot see, inherited by every `git -C` it runs
+# because it is configuration and not per-tree state.
+#
+# What that does to the dirt test depends on the FILESYSTEM the fixture sits on, so the leg asks git
+# which world it is in before it asserts anything. Measured on this box's git 2.53.0 with only
+# `$TMPDIR` moved, with a file in the tree that only the global file would hide:
+#
+#   excludesFile            dir st_size   git status --porcelain        the verdict
+#   a directory, tmpfs             40     128, prints NOTHING           UNKNOWN
+#   a directory, btrfs              0     0, lists that file            DIRTY
+#
+# git's `add_patterns()` opens the exclude file, `fstat`s it and branches on `st_size`: 0 is taken for
+# an empty list and returns; any other size reaches `read_in_full()` on a directory fd, which is
+# EISDIR and a 128 -- `fatal: cannot use %s as an exclude file`. A directory reports size 0 on btrfs
+# and 40 on tmpfs, so the refusal is a filesystem property wearing a git property's clothes, and the
+# shipped claim that `status --porcelain` "exits 128 printing nothing" for this shape is true only
+# where directories have a size. No shape of `core.excludesFile` is refused portably -- ENOENT,
+# ENOTDIR and EACCES are all tolerated on 2.53.0 -- so the leg cannot be repaired by planting the
+# same idea harder. It is repaired the way `planted()` repaired the stat leg: measure whether the
+# plant made a read refuse, then assert only the verdict this box actually determined.
+#
+# The file only the global file would hide (`excluded-by-the-global-file.tmp`, deliberately absent
+# from `.gitignore`) is what gives the second row a verdict at all. Without it the tree is clean on
+# btrfs for a reason the plant has nothing to do with, and a leg that passes there certifies the
+# CLEAN it was written to refuse. With it, the second row asserts the FALSE HALT direction the same
+# plant produces: the global patterns are gone, the file is named as untracked, and the pass stops
+# over work that is not work -- which is what the halt's sentence has to carry a reason for.
+#
+# Which read refuses first is a property of the git, not a promise, so every arm checks its own
+# status; that also means no single arm here is pinned on its own, and deleting any one of the five
+# checks has to be caught by the verdict as a whole.
+excludes_reads() { # repo -> sets EXCLUDE_READS; 0 when the plant made at least one of the five refuse
+	local arm rc any=1
+	EXCLUDE_READS=''
+	for arm in refresh cached diff unmerged others; do
+		rc=0
+		case "$arm" in
+		refresh) git -C "$1" update-index --refresh >/dev/null 2>&1 || rc=$? ;;
+		cached) git -C "$1" diff --cached --quiet >/dev/null 2>&1 || rc=$? ;;
+		diff) git -C "$1" diff --quiet >/dev/null 2>&1 || rc=$? ;;
+		unmerged) git -C "$1" ls-files --unmerged >/dev/null 2>&1 || rc=$? ;;
+		others) git -C "$1" ls-files --others --exclude-standard >/dev/null 2>&1 || rc=$? ;;
+		esac
+		EXCLUDE_READS="$EXCLUDE_READS $arm=$rc"
+		if [ "$rc" -gt 1 ]; then
+			any=0
+		fi
+	done
+	return "$any"
+}
+
 git -C "$repo" config core.excludesFile "$work/excludes-is-a-directory"
 mkdir -p "$work/excludes-is-a-directory"
+printf 'only a global ignore file would hide this\n' >"$repo/excluded-by-the-global-file.tmp"
 excl_status=""
 excl_status_rc=0
 excl_status=$(git -C "$repo" status --porcelain 2>/dev/null) || excl_status_rc=$?
-expect "an unreadable exclude file" "$repo" UNKNOWN
-excl_reads=""
-for arm in refresh cached diff unmerged others; do
-	excl_rc=0
-	case "$arm" in
-	refresh) git -C "$repo" update-index --refresh >/dev/null 2>&1 || excl_rc=$? ;;
-	cached) git -C "$repo" diff --cached --quiet >/dev/null 2>&1 || excl_rc=$? ;;
-	diff) git -C "$repo" diff --quiet >/dev/null 2>&1 || excl_rc=$? ;;
-	unmerged) git -C "$repo" ls-files --unmerged >/dev/null 2>&1 || excl_rc=$? ;;
-	others) git -C "$repo" ls-files --others --exclude-standard >/dev/null 2>&1 || excl_rc=$? ;;
-	esac
-	excl_reads="$excl_reads $arm=$excl_rc"
-done
-if [ -z "$excl_status" ] && [ "$excl_status_rc" -gt 1 ]; then
-	printf '        exit status of each read the verdict makes: %s\n' "$excl_reads"
-	printf '        `status --porcelain` exited %s printing nothing: the replaced expression and\n' "$excl_status_rc"
-	printf '        the diff-plus-untracked prescription both answer CLEAN on a tree whose state\n'
-	printf '        git would not report. Only a verdict that checks statuses refuses.\n'
+if excludes_reads "$repo"; then
+	expect "an exclude file git refused" "$repo" UNKNOWN
+	printf '        exit status of each read the verdict makes: %s\n' "${EXCLUDE_READS# }"
+	if [ -z "$excl_status" ] && [ "$excl_status_rc" -gt 1 ]; then
+		printf '        `status --porcelain` exited %s printing nothing: the replaced expression and\n' "$excl_status_rc"
+		printf '        the diff-plus-untracked prescription both answer CLEAN on a tree whose state\n'
+		printf '        git would not report. Only a verdict that checks statuses refuses.\n'
+	fi
+else
+	expect "an exclude file git swallowed" "$repo" DIRTY "" untracked:
+	printf '        exit status of each read the verdict makes: %s\n' "${EXCLUDE_READS# }"
+	printf '        note: on %s a directory reports st_size %s, so git read the exclude file as an\n' \
+		"$(stat -f -c %T -- "$work/excludes-is-a-directory")" \
+		"$(stat -c %s -- "$work/excludes-is-a-directory")"
+	printf '        empty list and refused nothing. Nothing was unreadable to git on this box, so the\n'
+	printf '        leg asserts only what it did determine here: the operator'"'"'s global patterns are\n'
+	printf '        gone and the file only they would hide is named as untracked. That is the FALSE\n'
+	printf '        HALT direction -- the pass stops over work that is not work, with no warning from\n'
+	printf '        git to say why. The refusal this leg exists to pin is unreachable on this\n'
+	printf '        filesystem, and this note is the honest statement of that, not a green leg.\n'
 fi
 git -C "$repo" config --unset core.excludesFile
 
