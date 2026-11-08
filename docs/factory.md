@@ -240,11 +240,48 @@ changed and the file's bytes did not, and measured on an unresolved merge it wro
 nothing -- three index stages before and after, `MERGE_HEAD` still present, its own report the word
 `needs merge` at exit 1. It is not a destructive read and it cannot tidy a conflict away. What remains
 unsafe is that it writes at all, into a `.git` that may belong to a person working in the same tree.
-A held `.git/index.lock` is the one shape of "busy" that shows: the refresh exits 128 naming the lock
-file while the other four reads and `git status` all answer 0, and UNKNOWN is the right answer to that,
-because the writes that follow the verdict are real ones (`merge --no-edit`, and `merge --abort` when
-it fails). One shape of busy is invisible to every read and is open work in #232: a directory at mode
-000 inside the tree makes `ls-files --others` warn and exit 0, and the verdict says clean.
+A held `.git/index.lock` is the one shape of "busy" that shows in an exit status: the refresh exits 128
+naming the lock file while the other four reads and `git status` all answer 0, and UNKNOWN is the right
+answer to that, because the writes that follow the verdict are real ones (`merge --no-edit`, and
+`merge --abort` when it fails).
+
+A second shape of busy shows in no status at all, and that was #232. With a directory inside the tree at
+mode 000, `git ls-files --others --exclude-standard` prints `warning: could not open directory 'sub/':
+Permission denied` and **exits 0**; `git diff --quiet` prints `sub/nested.txt: Permission denied` and
+exits 0 on a tree whose only modification is that unreadable file. Every read answers at or below its
+success status and the verdict says clean -- over an untracked file nobody enumerated in the first case,
+and over an *edit* git asserted unchanged in the second, because a file it cannot open is a file it
+cannot diff. So each read is now asked a sixth question, beside the five statuses: did it finish? A read
+that returned its success status and still had something to say did not. What git printed on stderr is
+therefore evidence as well as diagnosis, and the rule is deliberately about the fact that it spoke rather
+than the words -- matching git's phrasing is how a check goes quietly blind the day upstream rephrases a
+warning. Three dispositions, and the order matters:
+
+- a refusal (`rc` above the success list) voids the verdict: UNKNOWN, as before;
+- an incomplete read that found nothing, where the verdict holds nothing else, is UNKNOWN: its silence
+  was never an answer, and this is the case that used to say clean;
+- an incomplete read that found nothing, arriving where another arm already named the work, appends
+  `its … were only partly read` to that finding instead of replacing it. Measured: a staged change
+  beside an unreadable directory answers `staged-but-uncommitted: tracked.txt; its tracked files were
+  only partly read (git diff exited 0; git said: sub/nested.txt: Permission denied); …` and stops the
+  pass as dirt. The alternative tells somebody with an edit in front of them to go make the tree
+  readable, and it also *loses the edit* from the sentence.
+
+What that costs, and it changes halt semantics rather than a verdict: any git that prints something
+harmless on one of these five reads halts the pass, and the shape that already exists is H-0045's
+exclude-file warning -- `core.excludesFile` in a symlink loop answers `rc=0` with `warning: unable to
+access '…'` on two of the reads. So the leg that plants it answers UNKNOWN naming the path git could not
+read, where it used to answer DIRTY naming the file the operator told git to ignore and ordering them to
+commit or discard it. Both halt the pass; the sentence and the reason changed. Genuinely new is the halt
+on a tree that is clean apart from the unreadable config: it used to proceed, and it now stops because
+git did not apply the operator's own ignore patterns, so git's clean is not the operator's clean -- the
+same asymmetry #228 was filed on, applied to a case it did not have. Sixteen real trees on this box --
+this repository and its fifteen links -- were read the four non-writing ways before that paragraph was
+written (64 reads) and every one of them was silent; the refresh was deliberately not probed there,
+because it rewrites `.git/index` and those trees may belong to a person working in them. So nothing that
+exists today halts on existing chatter; what halts is whatever a future git starts saying. And because the capture is evidence now, a run that cannot make its
+scratch file cannot answer: it refuses, naming `TMPDIR`, where it used to send stderr to `/dev/null` and
+carry on -- #232 invisible on exactly the boxes whose `/tmp` is broken.
 
 The five refusal checks are redundant on purpose -- any one of them refusing is enough to halt -- but
 redundancy is a claim about the code, not a property you can see from reading it, so each arm is
@@ -255,9 +292,15 @@ verdict ends CLEAN; replacing its condition with an always-false test means the 
 refusal and reads it as dirt, so it still halts and only a leg that asserts the refusal's own words can
 tell. Both shapes now bite all five arms, because four of them had no plant that isolated them: every
 state on disk that stops one of those four stops another as well, which is what an unreadable tree
-actually does. The isolation is therefore built -- a `git` first on PATH that fails exactly one
+actually does. The isolation is therefore built -- a `git` first on PATH that answers exactly one
 invocation and passes every other argument list through untouched, one leg per arm, behind a control
-whose match names nothing git ever runs. That pins the arm's wiring; it makes no claim that git refuses
+whose match names nothing git ever runs. Since #232 that shim has two modes, and the second one is what
+pins the completeness branch: refuse at 128, or return the arm's own success status with a line on
+stderr. Five rows refuse, five rows warn, and the needle in each is the exit code git answered at --
+`git diff exited 0` is the completeness branch and `git diff exited 128` is the refusal, so a leg cannot
+stay green while one degrades into the other. The refresh's row warns at exit 1, because that read's
+normal report is 1 and its `needs update` text is on stdout; a leg about it would be vacuous on a
+success status of 0. That pins the arm's wiring; it makes no claim that git refuses
 that way on its own, which is what the planted legs are for. What the rows also show is the weaker shape
 at its worst: on the untracked arm the naive test says CLEAN, because a read that dies with 128 and no
 output looks exactly like a tree with nothing in it.
@@ -267,6 +310,37 @@ from `its tracked files could not be read (git diff exited 128)` to `modified: k
 Permission denied)` with the leg green -- both halt, but the second tells the operator to commit or
 discard a file git could not open. It asserts UNKNOWN and the refusal's words now, behind a runtime
 check that this git refuses on the plant at all, and prints SKIP with the git version where it does not.
+
+What the completeness branch is made of, measured as of H-0050 -- twelve mutations of
+`factory/common.sh`, one at a time, against the 120-leg suite (119 on btrfs; the one-leg difference is
+the exclude-directory plant, which refuses on tmpfs where its `st_size` is nonzero and swallows on btrfs
+where an empty directory has none):
+
+| the mutation | legs red |
+|---|---|
+| one arm's completeness branch deleted, per arm | refresh 2, staged 3, tracked 5, both `ls-files` arms 6 |
+| the helper always incomplete, whatever it answered | 89 |
+| the helper never incomplete, whatever it printed | 6 |
+| `[ -z "$raw$finding" ]` removed from both `ls-files` arms | 12 |
+| `[ -z "$finding" ]` removed from the tracked arm | 4 |
+| the three `only partly read` append branches deleted | 4 |
+| the refresh's success list `0 1` narrowed to `0` | 2 |
+| the tracked arm's success list widened to `0 1` (dirt becomes unreadable) | 6 |
+| the `/dev/null` fallback restored for a failed `mktemp` | 2 |
+
+Two of those rows earned their legs from a mutant rather than from argument. Deleting the tracked arm's
+guard left all 120 green: the only tree in the suite where the tracked read is incomplete *and* an
+earlier arm has already found work is the staged-and-unreadable one, so that plant was written after the
+mutant, and it is the row that goes red now. The `mktemp` leg was written when the capture became
+evidence: restoring the old `/dev/null` fallback is two red legs, not a silent loosening.
+
+Three of the new legs carry `strong`, which is the probe's one assertion about the *weaker* shape: it
+refuses a leg whose dirt `git status --porcelain` can see, on the ground that the leg no longer pins the
+arm it was written for. So those rows assert the weaker test is blind here, not merely that this verdict
+is right. The marker cuts both ways -- setting it on the visible-work leg, where the weaker shape does see
+the dirt beside an unreadable directory, is two red legs -- and that leg deliberately prints `naive:DIRTY`
+unpinned, because the pass halts under either verdict and the leg is about which sentence the operator
+gets.
 
 `factory/selftest.sh` is the probe. It builds a throwaway repository plus a linked worktree of it --
 the second is the shape #228 was measured on -- plants one state per leg, and prints the weaker test's
