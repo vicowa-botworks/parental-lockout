@@ -549,33 +549,57 @@ factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)
 # asks git whether the plant refused before it asserts a verdict.
 #
 # Which read refuses first is a property of the git, not a promise, so each arm checks its own status
-# and the first refusal wins. The five checks are therefore redundant on purpose -- and the number
-# this comment used to carry to prove it was wrong, which is worth keeping in the text because the way
-# it was wrong is the lesson. It claimed hollowing the tracked read's check "turns two legs red".
-# Re-measured at 8015951 it turned NONE red, and the reason was not the code: the leg asserted
-# `expect … HALT`, and `expect` accepts any answer that is not CLEAN for that, so the verdict was free
-# to degrade from `its tracked files could not be read (git diff exited 128)` to
-# `modified: keepme.txt (git said: … Permission denied)` and still pass. Both halt, but only one of
-# them tells the operator the truth: the second sends them to "commit it to its branch, or discard it
-# on purpose" about a file git could not open. The leg asserts UNKNOWN now (H-0048), and the matrix,
-# re-run with one arm's refusal test replaced by a constant-false test -- `[ "$rc" -gt 99 ]` is NOT a
-# hollowing, since a refusal is 128, and the first sweep of this measured unmutated code five times:
+# and the first refusal wins. The five checks are therefore redundant on purpose, and this comment has
+# been wrong about that twice, which is why the numbers below name the mutation each was taken with.
 #
-#   hollowed arm                   legs red at 8015951, of 70      why
-#   refresh                                   0        every plant that stops the refresh stops another read too
-#   staged (`diff --cached`)                  0        the exclude plant stops `--cached` AND `--others`
-#   tracked (`diff`)                          4        the unreadable file is the one shape with one refuser
-#   unmerged                                  0        a conflict is index entries; hiding them hides more
-#   untracked (`ls-files --others`)           0        same plant as the staged arm
-#   staged+tracked+unmerged+untracked         5        the four refusal legs, plus the unreadable file twice
-#   all five                                  8        every refusal leg, in both trees
+# First error: it claimed hollowing the tracked read's check "turns two legs red". At 8015951 it turned
+# NONE red, and the cause was the leg, not the arm -- `expect … HALT` accepts any answer but CLEAN, so
+# the verdict could degrade from `its tracked files could not be read (git diff exited 128)` to
+# `modified: keepme.txt (git said: … Permission denied)` and the leg still passed. Both halt; only one
+# of them tells the operator the truth, since the second sends them to "commit it to its branch, or
+# discard it on purpose" about a file git could not open. The leg asserts UNKNOWN now (H-0048).
 #
-# So one arm of the five is pinned by name and four are not, and no plant was found that would pin
-# them: each shape that makes one of those four refuse makes another refuse as well, which is what an
-# unreadable tree actually does. A verdict that refused only on the strength of one read would be a
-# verdict that had to trust that read, and the point of the exercise is that no read here is
-# trustworthy on its own. The redundancy is the design; the legs pin the halt for all five and the
-# refusal by name for the one arm that can be isolated.
+# Second error, in the same edit: the replacement text read the reviewer's table as though it had been
+# taken with all five arms hollowed. It had not. There are two ways to delete an arm and they are not
+# interchangeable -- a fact worth the number it cost:
+#
+#   * `return 2` -> `:` -- the arm SEES the refusal and keeps going. The finding is appended to the
+#     refusal's sentence and the verdict ends up answering CLEAN. This is the shape the review used,
+#     and at cf87ecc it reproduces that table exactly: the tracked arm 4 legs red (52 of 56), the
+#     refresh arm 1 red (55 of 56, `a directory that is no repo`), the other three none.
+#   * `[ "$rc" -gt 1 ]` -> `[ 1 -eq 0 ]` -- the arm does not see the refusal at all and reads it as
+#     dirt, so it still halts and only a leg that asserts the refusal's own WORDS can tell. Stricter
+#     of the two, and at 8015951 it pinned one arm of five: not zero, not four.
+#
+# And `[ "$rc" -gt 99 ]` hollows nothing -- a refusal is 128 -- so the first sweep of this measured
+# unmutated code five times and reported five clean runs. That is #1048's failure in shell clothing,
+# and the cure is the same: prove the mutation bites before believing its tally.
+#
+# That four arms were unpinned by every plant on disk is a property of the plants, not of the arms:
+# each shape that stops one of them stops another as well, because that is what an unreadable tree
+# does. So the isolation is built rather than found (H-0049) -- a `git` placed first on PATH that fails
+# exactly one invocation and hands every other argument list to the real binary untouched, one leg per
+# arm in `factory/selftest.sh`, each asserting that arm's own sentence in the verdict and in the halt,
+# behind a control whose match names nothing git ever runs so the shim cannot halt by construction. Be
+# clear about what that pins: the ARM, that this read's refusal alone stops the pass and says which
+# read it was. It claims nothing about git refusing this way on its own; the planted legs above remain
+# the only evidence for that, on the filesystems that can supply it. Legs red at 10556e8, of 81:
+#
+#   hollowed arm              `return 2` -> `:`   condition -> always false
+#   refresh                             3                          2
+#   staged (`diff --cached`)            3                          2
+#   tracked (`diff`)                    6                          6
+#   unmerged                            2                          2
+#   untracked (`--others`)              2                          2
+#   arms 2-5                           14                         13
+#   all five                           20                         18
+#
+# The three-red rows in the first column are the one-line contract catching the fall-through: the
+# refusal's printf plus the appended finding make a two-line HALT file, which `expect_halt` refuses.
+# The six on the tracked arm are those two plus the unreadable-file leg in both trees. A verdict that
+# refused only on the strength of one read would be a verdict that had to trust that read, and the
+# point of the exercise is that no read here is trustworthy on its own; the redundancy is the design,
+# and every arm of it now has a leg that names it.
 #
 # The same measurements say what the fix is and is not. A stat-only difference -- the state the
 # issue describes -- does not make `status --porcelain` report dirt on this git: status refreshes

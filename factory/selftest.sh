@@ -606,6 +606,77 @@ for tree in "$repo" "$wt"; do
 	fi
 done
 
+# ------------------------------------------------------ one refusal at a time, by construction
+#
+# Four of the five refusal arms were pinned for the halt and not for the refusal, and no state on disk
+# closes that: every shape measured -- `core.excludesFile` at a directory or a `chmod 000` file, a
+# poisoned `.git`, an inherited `GIT_DIR`/`GIT_WORK_TREE` pair, a corrupt index -- stops two or more
+# reads at once, because that is what an unreadable tree does. Hollowing says the same from the other
+# side: with the tracked arm's `return 2` replaced by `:` four legs go red, with the refresh's or the
+# staged's one each, and with the unmerged or untracked arm's none.
+#
+# So the isolation is built rather than found. A `git` first on PATH fails exactly one invocation and
+# hands every other argument list to the real binary untouched; one leg per arm asserts that arm's own
+# sentence, in the verdict and in the halt. Say what that pins and what it does not: it pins the ARM --
+# this read's refusal, on its own, halts the pass and names itself -- and it makes no claim that git
+# refuses this way by itself. The planted legs above are the evidence for that, in both trees, on the
+# filesystems that can or cannot supply it.
+#
+# Two things in these rows are worth reading rather than skipping. `naive:` on the untracked arm says
+# CLEAN: the weaker shape pipes `ls-files --others` through a head and tests the string, so a read that
+# died with 128 and no output is a tree with nothing in it -- the false clean #228 was filed for, on
+# one row. And the control below is not decoration: with the shim's match pointing at something git
+# never runs, these five legs would all still be green if the shim halted by construction, so the leg
+# that says "nothing refused" is what makes the five that say "this one refused" mean anything.
+shim_install() { # match -> a bin dir to put first on PATH
+	local match=$1 dir=$work/arm-shim real
+	real=$(command -v git)
+	mkdir -p "$dir"
+	cat >"$dir/git" <<SHIM
+#!/bin/sh
+# Fails exactly one git invocation; every other argument list reaches the real binary untouched.
+case " \$* " in
+*" $match "*)
+	printf 'shim: %s could not be read\n' '$match' >&2
+	exit 128
+	;;
+esac
+exec '$real' "\$@"
+SHIM
+	chmod +x "$dir/git"
+	printf '%s' "$dir"
+}
+
+reset_tree "$repo"
+refusal_alone() { # match arm needle
+	local match=$1 arm=$2 needle=$3 shim saved=$PATH
+	shim=$(shim_install "$match")
+	PATH="$shim:$PATH"
+	hash -r
+	expect "refusal alone: $arm" "$repo" UNKNOWN "" "$needle"
+	expect_halt "refusal alone: $arm" "$repo" HALT "$needle"
+	PATH=$saved
+	hash -r
+}
+refusal_alone 'update-index --refresh' refresh 'its state could not be read'
+refusal_alone 'diff --cached --quiet' staged 'its staged state could not be read'
+refusal_alone 'diff --quiet' tracked 'its tracked files could not be read'
+refusal_alone 'ls-files --unmerged' unmerged 'its index could not be read'
+refusal_alone 'ls-files --others --exclude-standard' untracked 'its untracked files could not be read'
+
+# The control, in the polarity every check in this file carries: a shim whose match names nothing git
+# ever runs has to leave the tree CLEAN. Without it the five legs above could be green because the shim
+# stops everything it sees, and a refusal check that cannot say "nothing refused" says nothing about
+# the arms it is meant to isolate. It doubles as the plant's own precondition: this tree is clean, so
+# the only thing the five legs can be reacting to is the refusal.
+control_path=$PATH
+control_shim=$(shim_install 'definitely-not-a-git-subcommand')
+PATH="$control_shim:$PATH"
+hash -r
+expect 'refusal control: inert shim' "$repo" CLEAN
+PATH=$control_path
+hash -r
+
 # A path that is not a repository: UNKNOWN, which is what both call sites halt on. Refusing on an
 # unreadable tree costs one pass; proceeding on one hands a model someone else's half-done work.
 bare=$work/not-a-repo

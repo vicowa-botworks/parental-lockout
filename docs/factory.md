@@ -246,16 +246,27 @@ because the writes that follow the verdict are real ones (`merge --no-edit`, and
 it fails). One shape of busy is invisible to every read and is open work in #232: a directory at mode
 000 inside the tree makes `ls-files --others` warn and exit 0, and the verdict says clean.
 
-The five refusal checks are redundant on purpose -- any one of them refusing is enough to halt -- and
-the redundancy is measured, arm by arm, rather than asserted: replacing one arm's refusal test with a
-constant-false test and running the probe leaves 70 legs green for four of the five arms, 4 legs red
-for the tracked read (the unreadable file is the one planted shape where exactly one read refuses),
-5 red with four arms gone and 8 red with all five. Those four are not a gap the probe can close: every
-planted shape that stops one of them stops another as well. What the legs had to stop doing was
-accepting *any* non-clean answer -- the unreadable leg used to pass while the verdict degraded from
-`its tracked files could not be read (git diff exited 128)` to `modified: keepme.txt (git said: …
-Permission denied)`, and both halt, but the second one sends the operator to commit or discard a file
-git could not open.
+The five refusal checks are redundant on purpose -- any one of them refusing is enough to halt -- but
+redundancy is a claim about the code, not a property you can see from reading it, so each arm is
+measured: an arm is hollowed, one at a time, and the probe has to go red. Two ways of deleting an arm
+give two different answers and neither is a substitute for the other. Replacing its `return 2` with `:`
+means the arm sees the refusal and keeps going, so the sentence goes out with a finding appended and the
+verdict ends CLEAN; replacing its condition with an always-false test means the arm never sees the
+refusal and reads it as dirt, so it still halts and only a leg that asserts the refusal's own words can
+tell. Both shapes now bite all five arms, because four of them had no plant that isolated them: every
+state on disk that stops one of those four stops another as well, which is what an unreadable tree
+actually does. The isolation is therefore built -- a `git` first on PATH that fails exactly one
+invocation and passes every other argument list through untouched, one leg per arm, behind a control
+whose match names nothing git ever runs. That pins the arm's wiring; it makes no claim that git refuses
+that way on its own, which is what the planted legs are for. What the rows also show is the weaker shape
+at its worst: on the untracked arm the naive test says CLEAN, because a read that dies with 128 and no
+output looks exactly like a tree with nothing in it.
+The unreadable-file leg had to be tightened for any of this to mean anything. It used to assert only
+that something stopped, and `expect … HALT` accepts any answer but clean, so the verdict could degrade
+from `its tracked files could not be read (git diff exited 128)` to `modified: keepme.txt (git said: …
+Permission denied)` with the leg green -- both halt, but the second tells the operator to commit or
+discard a file git could not open. It asserts UNKNOWN and the refusal's words now, behind a runtime
+check that this git refuses on the plant at all, and prints SKIP with the git version where it does not.
 
 `factory/selftest.sh` is the probe. It builds a throwaway repository plus a linked worktree of it --
 the second is the shape #228 was measured on -- plants one state per leg, and prints the weaker test's
