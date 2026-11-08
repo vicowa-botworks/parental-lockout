@@ -206,6 +206,85 @@ that can hear you is the agent. The supervisor also writes this file itself when
 worktree it does not own -- a person is working there, or a dead tick left a half-merged index, and
 neither is a machine's to clean up. To stop it hard: `systemctl --user stop plock-factory.timer`.
 
+## What "dirty" means, because the test decides when the queue stops
+
+Both halting call sites ask `factory_tree_dirt` (`factory/common.sh`), and it asks git for the
+**content** of the tree, four ways: staged against `HEAD`, worktree against the index, unmerged index
+entries, and untracked files that are not ignored. It does not ask `git status`, which is the command
+whose answer is derived from the stat cache; and it checks the **exit status of every read**, because
+"git could not tell" is not evidence of safety. Any failure returns UNKNOWN and UNKNOWN halts.
+
+The asymmetry is why it is written that way. A false halt costs one pass, retried on the next tick; a
+false clean lets a model write into somebody's half-finished work, which is not recoverable. Measured
+on git 2.53.0, this is what the `status`-based test did with a tree whose repository could not be
+opened -- an empty `.git`, or a `GIT_DIR`/`GIT_WORK_TREE` pair left exported by whatever ran before:
+`git status --porcelain` exits 128 printing nothing, the suppression in `$(... 2>/dev/null)` makes
+that indistinguishable from "nothing to report", and the pass proceeds in a tree git would not
+describe. A third shape, a `core.excludesFile` pointing at a directory, is the same story only on some
+filesystems, and the qualifier is narrower than "some filesystems": git `fstat`s the exclude file and
+reads `st_size == 0` as an empty list, and a directory's `st_size` is the size of its own entry data,
+so it depends on what the directory holds -- measured at `8015951`, btrfs 0 empty, 2 with a
+one-character entry, 12 with a six-character one; tmpfs 40 empty and 60 holding either. So that typo
+refuses the moment the mistyped directory contains anything, on btrfs included, and the swallow needs
+an *empty* directory on a filesystem that gives empty directories no size -- which is what the
+fixture's directory is. There the patterns are dropped silently, the operator's own ignored files come
+back as work, and the halt stops the queue over work that is not work.
+`factory/selftest.sh` measures which of the two the box is running on and asserts only that one, with
+a note naming the filesystem when the refusal is unreachable. A stat-only difference, the report #228
+came in with, was tried in six variants and does *not* reproduce on this git, which refreshes the
+index in memory before reporting; the verdict no longer depends on that question either way.
+
+The refresh is the only read here that writes, so it is worth saying plainly what it can and cannot do.
+It rewrites `.git/index`'s stat entries and nothing else: measured on a stat-only difference the index
+changed and the file's bytes did not, and measured on an unresolved merge it wrote nothing and settled
+nothing -- three index stages before and after, `MERGE_HEAD` still present, its own report the word
+`needs merge` at exit 1. It is not a destructive read and it cannot tidy a conflict away. What remains
+unsafe is that it writes at all, into a `.git` that may belong to a person working in the same tree.
+A held `.git/index.lock` is the one shape of "busy" that shows: the refresh exits 128 naming the lock
+file while the other four reads and `git status` all answer 0, and UNKNOWN is the right answer to that,
+because the writes that follow the verdict are real ones (`merge --no-edit`, and `merge --abort` when
+it fails). One shape of busy is invisible to every read and is open work in #232: a directory at mode
+000 inside the tree makes `ls-files --others` warn and exit 0, and the verdict says clean.
+
+The five refusal checks are redundant on purpose -- any one of them refusing is enough to halt -- but
+redundancy is a claim about the code, not a property you can see from reading it, so each arm is
+measured: an arm is hollowed, one at a time, and the probe has to go red. Two ways of deleting an arm
+give two different answers and neither is a substitute for the other. Replacing its `return 2` with `:`
+means the arm sees the refusal and keeps going, so the sentence goes out with a finding appended and the
+verdict ends CLEAN; replacing its condition with an always-false test means the arm never sees the
+refusal and reads it as dirt, so it still halts and only a leg that asserts the refusal's own words can
+tell. Both shapes now bite all five arms, because four of them had no plant that isolated them: every
+state on disk that stops one of those four stops another as well, which is what an unreadable tree
+actually does. The isolation is therefore built -- a `git` first on PATH that fails exactly one
+invocation and passes every other argument list through untouched, one leg per arm, behind a control
+whose match names nothing git ever runs. That pins the arm's wiring; it makes no claim that git refuses
+that way on its own, which is what the planted legs are for. What the rows also show is the weaker shape
+at its worst: on the untracked arm the naive test says CLEAN, because a read that dies with 128 and no
+output looks exactly like a tree with nothing in it.
+The unreadable-file leg had to be tightened for any of this to mean anything. It used to assert only
+that something stopped, and `expect … HALT` accepts any answer but clean, so the verdict could degrade
+from `its tracked files could not be read (git diff exited 128)` to `modified: keepme.txt (git said: …
+Permission denied)` with the leg green -- both halt, but the second tells the operator to commit or
+discard a file git could not open. It asserts UNKNOWN and the refusal's words now, behind a runtime
+check that this git refuses on the plant at all, and prints SKIP with the git version where it does not.
+
+`factory/selftest.sh` is the probe. It builds a throwaway repository plus a linked worktree of it --
+the second is the shape #228 was measured on -- plants one state per leg, and prints the weaker test's
+verdict next to its own on every line, so a leg that has stopped discriminating is visible rather than
+merely green. It is a step in `make verify`, and it refuses when that step is deleted.
+
+The halt is one function too, and that is the whole of why it is testable: `factory_tree_halt`
+(`factory/common.sh`) asks the verdict, and either returns 0 or writes `factory/HALT` and returns the
+code for the path that called it -- `4` for a tick, `2` for the conflict pass. Both call sites are
+`factory_tree_halt … || return $?` and nothing else. They used to each carry their own copy of the
+predicate, and nothing executed either copy: flipping one to halt on a clean tree, or deleting it, left
+every leg green. So the probe drives the guard over the same planted states and asserts the four things
+a halt has to get right -- that it halts, the exit code it leaves, that `factory/HALT` exists with the
+resume step and the action matching the finding ("commit it or discard it" is not advice anyone can take
+in a tree git cannot read), and one journal line per path carrying that path's own verb. A call site
+that drops the `|| return $?` is caught by the step as well, because the alternative is a pass that
+asks the question and throws the answer away.
+
 ## Exit codes, because a timer has to tell these apart
 
 `0` the pass is over · `3` the queue could not be read, so nothing was attempted · `4` a tick failed
