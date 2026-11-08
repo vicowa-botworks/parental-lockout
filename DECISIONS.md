@@ -1980,3 +1980,63 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   entry and the `D-0045` correction above), issue #239's body (re-derived citations, six jobs for
   `problem`, two for `override`), pull request #240's body and a correction comment there, a correction
   comment on #199, and the message of `3bcbfdd`, which stays as pushed
+
+## D-0047 · The change request #240 was poked for is not on GitHub, so there was nothing to answer
+
+- Question: The supervisor dispatched `address_review:240` on the strength of one review.
+  `gh pr view 240 --json reviews` returns exactly one row -- `hermesvicowa`, `MEMBER`,
+  `CHANGES_REQUESTED`, `submittedAt 2026-11-08T18:19:17Z`, `commit.oid fb4af4e04b89…`, which is the head
+  this branch is standing on. Its `body` is 21 bytes: `@/tmp/pr240-review.md`. That is the whole field --
+  `wc -c` over the API's `.reviews[].body` answers 22 counting the newline -- and the payload carries
+  `author, authorAssociation, body, commit, id, includesCreatedEdit, reactionGroups, state,
+  submittedAt` and nothing else. A tick was sent to answer a change request whose requested changes were
+  never transmitted. What is the honest unit?
+- Options: infer the ask from the branch's own open follow-ups -- #239 is the state-class split taken
+  from #199 and is the obvious candidate subject -- and implement it | answer that the review was empty
+  and change nothing, leaving the pull request where it was | escalate: publish the measurement where the
+  reviewer will land, mark the pull request blocked for a person, record this entry, and hand the
+  transport defect to its own unit
+- Chose: escalated
+- Why: the first option is the failure this branch has already written up twice. `D-0046` is five
+  citations published from memory across #239, #240 and #199 -- all five wrong, all five plausible --
+  and `D-0042` is a correction that asserted the thing it retracted. A change request is not a hypothesis
+  to be improved on: the reviewer's list is the only artifact that says what `CHANGES_REQUESTED` means,
+  and guessing would put invented requirements in a named reviewer's voice. That #239 is open is not
+  evidence that the review asked for #239.
+  The text is not recoverable by any read a tick has, measured here in five routes. The named file is not
+  on this machine: `find / -xdev -name 'pr240*'` over the whole root filesystem answers nothing, and
+  every other mount namespace's `/tmp` reached through `/proc/*/root/tmp` answers nothing. The string
+  `pr240-review` appears in 0 rows of the local session store (`~/.local/share/opencode`, 6.1 GB, both
+  the `part` and `session_part` tables), so no session on this box ever held it; `session_v2` between
+  17:00Z and 19:00Z holds five factory ticks and the historian, no reviewer. `git log --all -S
+  'pr240-review'` answers nothing, so no commit ever contained it. `gh pr view 240 --json comments` holds
+  two comments, both mine, both before the review, and #199's newest comment is mine at 17:28:30Z. And
+  `gh pr view 240 --json reviews --jq '.reviews | length'` is 1: there is no second review carrying the
+  prose. So GitHub holds only those 21 bytes. Why it holds a path is an inference rather than a
+  measurement -- the shape says the reviewer passed the file as `--body @/tmp/pr240-review.md`, and `gh`
+  expands `@` only for `--body-file` -- but what is measured is that no attachment, no review object and
+  no event on this repository carries the file's contents. The one route left, enumerating inline review
+  comments on the review, is `gh api`, denied to this agent by `.opencode/opencode.jsonc`; a review filed
+  with inline comments would still have had a body, and the body is a path.
+  The second option is the failure this harness exists to end -- a tick that ends quietly while the queue
+  believes it is working. So the escalation is published, not kept: a comment on #240 quoting the byte
+  count and all five routes, `blocked` and `question` on its labels, a status block at the top of its
+  body, and a separate issue for the defect upstream of all of it. `factory/triage.sh:188-190` projects
+  every review down to `{u,s,t}` and drops `.body`, so the dispatch that started this tick carried a
+  timestamp and no ask. That is not a quirk of this review: any change request filed against a green
+  pull request dispatches a tick with a timestamp and no ask, whoever filed it and however well the body
+  was written.
+  Say what the push costs, because it does cost. `factory/triage.sh:216-228` classes a
+  `CHANGES_REQUESTED` pull request by comparing `submitted_at` with the head commit's `committer.date`,
+  so committing this entry moves the head past the review and the class flips from `address_review` to
+  `needs_reviewer` -- "answered by the head commit; nobody holds a request" -- although nothing has been
+  answered. That is why the marker goes in the pull request's comment, labels and body rather than in its
+  queue class, and why the comment on #240 opens by saying that this commit answers the review none.
+- Checkpoint: n/a
+- Awaiting: the review text for `fb4af4e`, from `hermesvicowa`, re-posted where a tick can read it --
+  `gh pr review 240 --request-changes --body-file /tmp/pr240-review.md`, or the file's contents pasted
+  into a comment on #240. Nothing else unblocks the unit: no read inside this harness recovers a body
+  that was never uploaded, and the only alternatives are putting words in a reviewer's mouth or stopping.
+- Effect: this entry; a comment on #240 quoting the measurement and the five routes; the `blocked` and
+  `question` labels on #240; a status block prepended to #240's body; a pointer on #199; and one issue for
+  the missing transport in `factory/triage.sh`.
