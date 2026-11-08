@@ -93,6 +93,18 @@ out of `delivered` by the claim count. So `delivered` means "the queue will not 
 is the merged pull request it is leaning on", and it does not mean "every finished ticket appears
 here" -- an open body naming an issue hides it from both classes at once.
 
+Both reads are bounded, and a bounded read says so rather than answering as if it had seen everything.
+The GraphQL call asks for the first 100 open pull requests and the first 100 open issues, so each
+connection is also asked for `pageInfo{hasNextPage}`; either one answering `true` skips the whole issue
+half for that pass with a line naming the pagination bound, because a truncated issue page is not a
+smaller verdict but a `stateReason` veto that went missing -- and a claim with its veto gone reads
+`delivered`, which is the one error this class was built not to make. A missing `pageInfo` reads as
+truncated, not as `false`. The other bound is the open-issue listing itself, at `--limit 100`: past it
+an issue gets no row of any class, so the pass counts the rows it read and warns at the limit. Measured
+against GitHub at 16:29Z on 8 Nov on eleven open pull requests and three open issues, both connections
+answered `false` and neither warning printed; neither is due to go quiet on its own, and a queue that
+has outgrown its read should say so in the log rather than look finished.
+
 A claim is a verb plus **every** number still in the same list, which is a rule that only measurement
 would have produced. #221's shipped body has `Refs #219, #220, #204` on one line with
 `(Part of #219 only; the umbrella is not finished …)` eight lines above it, and open PR #233 says

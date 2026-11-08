@@ -1650,12 +1650,19 @@ cp "$claim_fix/issues.json" "$claim_work/issues.live.json"
 # The queue query's payload, derived from the two lists the legs actually edit. Deriving it is what
 # stops the state reason a leg planted in `issues.json` from disagreeing with the one triage.sh
 # reads: two copies of one fact, and one gate blind to the other, is #189's whole complaint.
+# The fixture is not a GraphQL server: it answers the same file whatever the query asks for, so the
+# bound has to be planted here rather than derived from the query text. `CLAIM_PAGE_PRS` and
+# `CLAIM_PAGE_ISSUES` trip `pageInfo.hasNextPage` on one connection each; both default to `false`,
+# which is what every other leg in this section reads. Because the fixture cannot notice the query
+# forgetting to ask, a leg over the shipped source does that instead -- see
+# `claim_query_asks_for_its_bound`.
 claim_graphql() {
-	jq -cn --slurpfile i "$claim_fix/issues.json" --slurpfile c "$claim_fix/open-claims.json" '
+	jq -cn --slurpfile i "$claim_fix/issues.json" --slurpfile c "$claim_fix/open-claims.json" \
+		--argjson prs "${CLAIM_PAGE_PRS:-false}" --argjson iss "${CLAIM_PAGE_ISSUES:-false}" '
 		{data: {repository: {
-			pullRequests: {nodes: ($c[0] | map({number: .number,
+			pullRequests: {pageInfo: {hasNextPage: $prs}, nodes: ($c[0] | map({number: .number,
 				closingIssuesReferences: {nodes: (.claims | map({number: .}))}}))},
-			issues: {nodes: ($i[0] | map({number: .number, stateReason: .stateReason}))}
+			issues: {pageInfo: {hasNextPage: $iss}, nodes: ($i[0] | map({number: .number, stateReason: .stateReason}))}
 		}}}' >"$claim_fix/graphql.json"
 }
 claim_graphql
@@ -1768,6 +1775,14 @@ claim_detail_wider_than() { # claim_detail_wider_than <key> <columns>
 claim_rows_say_nothing_about() { # claim_rows_say_nothing_about <kind>
 	! grep -q "^$1"$'\t' "$claim_rows_file"
 }
+claim_issue_rows_at_least() { # claim_issue_rows_at_least <n> -> the table printed at least n issue rows
+	local n
+	n=$(awk -F'\t' '$1 == "issue"' "$claim_rows_file" | wc -l)
+	[ "$n" -ge "$1" ] || {
+		printf '            the table printed %s issue rows, not %s or more\n' "$n" "$1" >&2
+		return 1
+	}
+}
 
 # The runtime question, asked as legs. This section execs the shipped triage.sh, so it inherits
 # factory_preflight's requirement for a model runtime -- see the stub above $claim_bin/opencode --
@@ -1798,6 +1813,12 @@ claim_runtime_is_the_fixtured_one() { # the runtime the legs resolve lives in th
 }
 claim_preflight_asks_for_a_runtime() { # claim_preflight_asks_for_a_runtime <common.sh>
 	grep -qF -- 'for tool in git gh "$FACTORY_OPENCODE"; do' "$1" 2>/dev/null
+}
+claim_query_asks_for_its_bound() { # claim_query_asks_for_its_bound <triage.sh> -> both connections ask
+	# The fixture is not a GraphQL server -- it answers the same file whatever the query asks for --
+	# so a query that stopped requesting `pageInfo` would keep every planted leg green. Two
+	# occurrences are the two connections; a third would only ever make this more true.
+	[ "$(grep -oF -- 'pageInfo{hasNextPage}' "$1" 2>/dev/null | wc -l)" -ge 2 ]
 }
 
 # One leg, with the reporter this section needs. `check`'s FAIL sentence blames a plant that did not
@@ -1835,6 +1856,8 @@ claim_reset() {
 	CLAIM_MERGED_FAIL=''
 	CLAIM_GRAPHQL_FAIL=''
 	CLAIM_MERGED_GARBAGE=''
+	CLAIM_PAGE_PRS=''
+	CLAIM_PAGE_ISSUES=''
 	claim_window=100
 	claim_merged '.'
 	claim_issues '.'
@@ -1990,6 +2013,65 @@ CLAIM_GRAPHQL_FAIL=1
 claim_rows >/dev/null
 claim_leg 'an unreadable queue prints no issue rows' claim_rows_say_nothing_about issue
 claim_leg '…and the merged claims went with them' bash -c '! grep -q delivered "$1"' _ "$claim_rows_file"
+
+# 11b. the payload answering only as far as its own bound. Both connections ask for the first 100
+#      rows, so a busier repository gets a true answer to a smaller question -- and the smaller
+#      question is not the one `delivered` asks. The harm is asymmetric across the two sides: an
+#      issue cut off the end of the issue page loses its `stateReason`, and a reopened closure with
+#      its veto gone reads as DELIVERED; a pull request cut off the end hides an OPEN claim, which is
+#      the duplicate tick H-0053 was written about. So the read asks each connection for
+#      `pageInfo{hasNextPage}` and either `true` routes into the refusal the unreadable payload above
+#      already takes -- "the read stopped" and "the read did not happen" both mean this table cannot
+#      speak, and neither may print `unclaimed`. The refusal says which, because an operator reading
+#      the log needs to know whether to fix the connection or the token.
+claim_reset
+CLAIM_PAGE_ISSUES=true
+claim_issues '.'
+claim_rows >/dev/null
+claim_leg 'a truncated issue page is not a verdict' claim_rows_say_nothing_about issue
+claim_leg '…and the merged claims go with it' bash -c '! grep -q delivered "$1"' _ "$claim_rows_file"
+claim_leg '…and the refusal names the bound, not an empty queue' claim_err_has 'pagination bound'
+claim_reset
+
+# …and the same tripped on the pull-request connection, with an open pull request planted so the half
+# that is NOT refused has a row to point at: the veto stops the issue half, never the whole table.
+claim_open '[{"number":237,"title":"fix(web): the users page names its own blocking profile","body":"Refs #212.\n","claims":[212]}]'
+CLAIM_PAGE_PRS=true
+claim_graphql
+claim_rows >/dev/null
+claim_leg 'a truncated pull-request page is not a verdict either' claim_rows_say_nothing_about issue
+claim_leg '…and the pull-request rows are untouched' claim_table_has pr 237 needs_reviewer
+
+# The fixture answers the same file whatever the query asks for, so nothing above can notice the
+# shipped query forgetting to ask. This scans the source instead, with a control that deletes both
+# occurrences from a copy: a leg that cannot go quiet is a leg that is not reading anything.
+claim_leg 'the queue query asks for its own bound' claim_query_asks_for_its_bound "$HERE/triage.sh"
+mkdir -p "$work/nobound"
+sed 's/pageInfo{hasNextPage}//g' "$HERE/triage.sh" >"$work/nobound/triage.sh"
+if claim_query_asks_for_its_bound "$work/nobound/triage.sh" 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a triage.sh with both occurrences deleted still asks for a bound,\n' "control: query bound term"
+	printf '          so the ok above is the scan being blind.\n'
+else
+	printf '        control: a copy with both deleted reads as no bound asked for, so the ok\n'
+	printf '        above is the scan working and not the check being blind.\n'
+fi
+CLAIM_PAGE_ISSUES=
+CLAIM_PAGE_PRS=
+claim_reset
+
+# 11c. the OTHER bound, which fails quietly. `gh issue list --limit 100` gives the 101st open issue no
+#      row at all -- not `unclaimed`, not `delivered`, nothing -- and silence about a bound is how a
+#      queue gets read as a census. The pass counts the rows it read and says so at the limit, so the
+#      pair of legs is the warning and its absence at nine rows.
+claim_reset
+claim_issues '[range(1;101)] | map({number: ., title: "A planted open issue", updatedAt: "2026-11-01T00:00:00Z", stateReason: null})'
+claim_rows >/dev/null
+claim_leg 'a full issue page says the read stopped short' claim_err_has 'at its own limit'
+claim_leg '…and it still printed the rows it did read' claim_issue_rows_at_least 100
+claim_reset
+claim_rows >/dev/null
+claim_leg '…and says nothing below the limit' bash -c '! grep -q "at its own limit" "$1"' _ "$claim_err"
 
 # ------------------------------------------------------ a list, and a payload with a size
 #

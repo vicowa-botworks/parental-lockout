@@ -135,15 +135,30 @@ pr_rows=$(printf '%s' "$pr_json" | jq -r "
 # doing nothing for ten minutes.
 CLOSING_OK=1
 queue_json=$(gh api graphql \
-	-f query='query($o:String!,$n:String!){repository(owner:$o,name:$n){pullRequests(states:OPEN,first:100){nodes{number closingIssuesReferences(first:20){nodes{number}}}}issues(states:OPEN,first:100){nodes{number stateReason}}}}' \
+	-f query='query($o:String!,$n:String!){repository(owner:$o,name:$n){pullRequests(states:OPEN,first:100){pageInfo{hasNextPage}nodes{number closingIssuesReferences(first:20){nodes{number}}}}issues(states:OPEN,first:100){pageInfo{hasNextPage}nodes{number stateReason}}}}' \
 	-f o="$FACTORY_OWNER" -f n="$FACTORY_NAME" 2>/dev/null) ||
 	queue_json=''
 
 # Both halves come out of the one payload, so `delivered` cannot cost a second call. Either half
 # failing means the payload is not what was asked for, and the whole issue side of the table is
 # skipped for the pass rather than rebuilt from a guess.
+#
+# A payload that answers PART of the question is the same hazard wearing a friendlier face, and both
+# connections here are capped at `first:100` -- eleven open issues today, so the cap is invisible
+# until the day it is not. A truncated issue list does not merely miss a `delivered` row: the
+# `stateReason` veto for the reopened issue it fell off disappears, and a claim that lost its only
+# veto reads as delivered -- the one mistake this class was built to refuse. A truncated PR list
+# hides an OPEN claim, which is the duplicate-tick failure H-0053 was written about, arriving because
+# the queue has more pull requests than the read asks for. So each connection is asked for
+# `pageInfo{hasNextPage}` and `true` on either one routes into the same refusal as a payload that
+# did not answer at all. `false` on BOTH is the only answer that clears it: a missing `pageInfo` is
+# not a `false`, it is a payload that is not the one that was asked for, and tie-break 3 keeps that
+# reading on the refusal side. The bound itself is not a verdict either way -- `hasNextPage` says the
+# read stopped, which is a different sentence from "nothing is delivered", and it is printed as its
+# own line so a log can tell the two apart.
 closing_json=''
 reopen_json=''
+queue_truncated=''
 if [ -n "$queue_json" ]; then
 	closing_json=$(printf '%s' "$queue_json" | jq -c \
 		'[.data.repository.pullRequests.nodes[]|{n:.number,c:[.closingIssuesReferences.nodes[].number]}]' 2>/dev/null) ||
@@ -153,12 +168,25 @@ if [ -n "$queue_json" ]; then
 	reopen_json=$(printf '%s' "$queue_json" | jq -c \
 		'[.data.repository.issues.nodes[]|{(.number|tostring):(.stateReason // "NONE")}] | add // {}' 2>/dev/null) ||
 		reopen_json=''
+	# Deliberately not `if … then "yes" else "no"`: `all(… == false)` makes the explicit `false` the
+	# only clearing value, so null (a renamed field, a payload with the connection missing) lands on
+	# the refusal side rather than the verdict side. A jq that cannot answer is `yes` as well, by the
+	# `||`, because a scan nobody read is not a scan that found nothing.
+	queue_truncated=$(printf '%s' "$queue_json" | jq -r \
+		'[.data.repository.pullRequests.pageInfo.hasNextPage, .data.repository.issues.pageInfo.hasNextPage]
+		 | if all(.[]; . == false) then "no" else "yes" end' 2>/dev/null) ||
+		queue_truncated='yes'
 fi
 if [ -z "$closing_json" ] || [ -z "$reopen_json" ]; then
 	CLOSING_OK=0
 	closing_json='[]'
 	reopen_json='{}'
 	printf 'triage: the queue payload did not answer; issues skipped this pass\n' >&2
+elif [ "$queue_truncated" = "yes" ]; then
+	CLOSING_OK=0
+	closing_json='[]'
+	reopen_json='{}'
+	printf 'triage: the queue read stopped at its pagination bound (first:100); issues skipped this pass\n' >&2
 fi
 
 issue_for_pr() {
@@ -423,8 +451,17 @@ was_reopened() { # was_reopened <issue>
 # --------------------------------------------------------------------- issues
 
 if [ "$CLOSING_OK" = "1" ]; then
+	# The row list has a bound of its own, and it fails differently from the one above: a GraphQL
+	# connection that stops mid-page loses a veto and can hand out a false `delivered`, while 101
+	# open issues simply means the 101st gets no row at all -- not `unclaimed`, not `delivered`,
+	# nothing. That is silent today, and silence about a bound is how a queue comes to be read as a
+	# census. The counter costs nothing and the sentence names the number, so an operator can see
+	# the table has stopped short instead of concluding the repository has no more open work.
+	issue_limit=100
+	issue_rows=0
 	while IFS=$'\x1f' read -r number title updated; do
 		[ -n "${number:-}" ] || continue
+		issue_rows=$((issue_rows + 1))
 		# GitHub says an open PR closes it, or an open PR body claims it with a verb.
 		if printf '%s' "$claimed_issues" | jq -e --argjson n "$number" 'index($n) != null' >/dev/null 2>&1; then
 			continue
@@ -455,9 +492,15 @@ if [ "$CLOSING_OK" = "1" ]; then
 		else
 			rows+="$(emit issue "$number" unclaimed "$title" '' "$number")"$'\n'
 		fi
-	done < <(gh issue list --state open --limit 100 --json number,title,updatedAt \
+	done < <(gh issue list --state open --limit "$issue_limit" --json number,title,updatedAt \
 		--jq '.[] | [.number, (.title | gsub("[\t\r\n]"; " ")), (.updatedAt // "")] | join("\u001f")' 2>/dev/null) ||
 		printf 'triage: gh issue list failed; the issue half is empty this pass\n' >&2
+	# `>=`, so exactly 100 warns too and the sentence is worded for that: it says the read is AT its
+	# limit, not that work is waiting past it, because the read cannot tell those two apart either.
+	if [ "$issue_rows" -ge "$issue_limit" ]; then
+		printf 'triage: the open-issue read is at its own limit (%s rows); an issue past it gets no row of any class this pass\n' \
+			"$issue_limit" >&2
+	fi
 fi
 
 # --------------------------------------------------------------------- orphaned branches
