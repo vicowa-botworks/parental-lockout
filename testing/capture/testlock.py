@@ -197,7 +197,7 @@ def capture(name):
               flush=True)
         print(f"  tables={g['tables']} backendRows={g['backendRows']} cells={g['cells']} "
               f"unlabelled={g['unlabelled']} {cdp.census_line(g)} "
-              f"{cdp.nav_census_line(g)}", flush=True)
+              f"{cdp.nav_census_line(g)} {cdp.state_census_line(g)}", flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
         return 0

@@ -1055,7 +1055,7 @@ def main(shoot_fn=None, record_fn=None):
 # on a border the browser is not drawing.
 # The two canaries are registered like every other rule and deliberately not counted: they exist to
 # prove the helper is not hollow.
-EXPECTED_RULES = 68
+EXPECTED_RULES = 69
 
 
 class _FakeSession:
@@ -2930,6 +2930,25 @@ def self_test():
             finally:
                 _LAST_EXTRA.clear()
 
+    def every_driver_that_measures_the_census_prints_it(problems):
+        """`states=N drawn=M` on every driver's line, not only on the pages driver's.
+
+        The guard ran in three drivers and the line printed in one, which is how a pull-request body
+        came to say "every driver line prints it" and be false for `lock.py` and `testlock.py`. A
+        refusal is loud and a pass is silent, so the printed pair is the only thing a reader can audit
+        after the fact: `/lock` renders `.override` (lock.tmpl:93) and the probe page renders
+        `.problem`, and a frame taken before a stylesheet change is indistinguishable from a frame
+        where nothing was asked unless the two counts are on the line.
+        """
+        for name in ("pages.py", "lock.py", "testlock.py"):
+            with open(op.join(cdp.HERE, name), encoding="utf-8") as fh:
+                src = fh.read()
+            if "cdp.STATE_JS" in src and "state_census_line" not in src:
+                problems.append(f"{name} splices cdp.STATE_JS into its measurement and never prints "
+                                "cdp.state_census_line: the guard's verdict is in the refusal and "
+                                "nowhere else, so a frame it accepted cannot be told apart from a "
+                                "page that has no state words at all")
+
     def a_state_the_stylesheet_never_drew_refuses(problems):
         """The reported defect at both viewports, with no bytes staged -- and the drawn row beside it.
 
@@ -3203,6 +3222,8 @@ def self_test():
 
     # #199: the state vocabulary.
     rule("the state census is asked for, at both viewports", the_state_census_is_asked_for)
+    rule("a driver that measures the state census prints it",
+         every_driver_that_measures_the_census_prints_it)
     rule("a state the stylesheet never drew refuses", a_state_the_stylesheet_never_drew_refuses)
     rule("a state marked only by its parent's box refuses",
          a_state_marked_only_by_its_parents_box_refuses)

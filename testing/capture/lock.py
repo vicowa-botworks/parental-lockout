@@ -213,7 +213,8 @@ def capture(name):
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
               flush=True)
         print(f"  rows={g['rows']} cells={g['cells']} unlabelled={g['unlabelled']} "
-              f"{cdp.census_line(g)} {cdp.nav_census_line(g)}", flush=True)
+              f"{cdp.census_line(g)} {cdp.nav_census_line(g)} {cdp.state_census_line(g)}",
+              flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         if g["flag"]:
             print(f"  flag:   {g['flag'].strip()[:110]}...", flush=True)

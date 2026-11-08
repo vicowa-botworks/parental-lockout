@@ -1891,6 +1891,19 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   check` answered with nine staleness problems, all of them true, and the honest reading was that a
   CSS change moves every page that renders a state word. Re-taking is 20 minutes and a manifest entry
   per frame; an exemption is a permanent clause a future reader has to re-litigate.
+- Correction (`D-0046`, 8 Nov): one number in this entry is wrong and its `Effect:` line names a
+  function that does not exist. The effect says the drivers print `format_state_line`; the helper is
+  `cdp.state_census_line` (`testing/capture/cdp.py:1092`), and the reason nobody noticed is the defect
+  D-0046 is about: only `pages.py` called it at all, so the name in this entry described a line two of
+  the three drivers did not print. The count D-0045 published for the pre-fix stylesheet -- "wrote a
+  rule for two of them" -- is one, not two: `git show 6c37739~1:internal/web/static/app.css` has
+  `.state-held` and `.state-free`, and no template has ever emitted `state-free`, which is exactly why
+  `cdp.STATE_CLASSES` leaves it out; counting it among the thirteen was the error. What the entry rests
+  on is untouched: the pre-fix refusals it quotes are verbatim driver output (`/` 4 of 5, `/users` 9 of
+  9, `/profiles` 1 of 1 and 2 of 2, `/settings` 2 of 2, `/audit` `states=0`), `dashboard.tmpl:59` and
+  `users.tmpl:61` and `lock.tmpl:93` are real, and thirteen is the census the code carries (9 words + 4
+  rows). The citations written for #239 are a separate matter and are wrong enough to need their own
+  entry, so they have one below rather than a quiet edit up there.
 - Checkpoint: 6c3773999b2054d664ec6a113e4e5a758ca391e8
 - Effect: internal/web/static/app.css (`--warn` in both schemes; `.state-unknown`, `.state-gap`,
   `.banner`, `.flag`, `.problem`, `.override`, `.override-expired`, `.disabled`, `tr.held`,
@@ -1902,3 +1915,68 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   testing/capture/README.md (the refusal row, and the note that #199's re-take moved eight of nine
   frames including the two `d439f70` reported identical), docs/screenshots/360/* (re-taken set and its
   manifest), #199's pull-request comment, #239 (the two-meanings split, deliberately not done here)
+
+## D-0046 · The split's citations were written from memory, and three published texts repeated them
+
+- Question: #239's body, #240's body and #199's comment all justify the two-meanings split with file
+  and line -- `profiles.tmpl:101` and `:204` as form-field labels, `profiles.tmpl:114` as a schedule
+  sentence, `settings.tmpl:151` as help prose, `users.tmpl:58` as a hold, "19 of the 20 `.override`
+  elements on `/profiles`" -- and #240 adds that every driver line prints `states=N drawn=M`. Which of
+  those are true of this tree, and what is done about the ones that are not, when the sentences are
+  already outside this working copy in three places and in a commit message that cannot be rewritten?
+- Options: leave them, because the argument for the split does not depend on any particular line | edit
+  the three GitHub bodies silently and let the corrected text stand alone | re-derive every claim from
+  the tree, publish the corrected numbers visibly on each artifact, and keep the false ones on the
+  record as a dated correction in this log | withdraw #239 and open a new issue with clean citations
+- Chose: re-derive every claim from the tree, publish the corrected numbers visibly on each artifact, and
+  keep the false ones on the record as a dated correction in this log
+- Why: all five citations are wrong, and not wrong in the way a typo is wrong.
+  `grep -n 'class="override"' internal/web/templates/*.tmpl` answers `dashboard.tmpl:59`, `lock.tmpl:93`
+  and `testlock.tmpl:121` and nothing else; `grep -c 'class="override"' internal/web/templates/profiles.tmpl
+  internal/web/templates/users.tmpl` answers `0` and `0`. So `/profiles` renders no `.override` at all --
+  the browser, asked directly against the pages fixture, returns `override: [0, ""]` on `/`, `/users` and
+  `/profiles` -- and there is no form-field label and no schedule sentence anywhere in the vocabulary. The
+  help prose is `settings.tmpl:189` and its sentence is "A change here takes effect the next time the
+  daemon **starts**, not now", not the wording I put in quotes; the per-account refusal is
+  `users.tmpl:61`, not `:60`; and `profiles.tmpl:110`, which I cited as a refusal, is
+  `{{if .Days}}{{.Days}}{{else}}<span class="problem">no day</span>{{end}}` -- a missing value inside a
+  cell. `.problem` turns out to carry six jobs, not two: a refused write (`profiles.tmpl:21`,
+  `profiles.tmpl:91`, `settings.tmpl:9`, each of them `role="alert"` or a complaint sentence), a
+  per-account fact (`users.tmpl:61`, `:63`, `:65`), a backend's failure detail (`dashboard.tmpl:62`,
+  `lock.tmpl:80`, `testlock.tmpl:76`, `:116`), a standing mode notice (`profiles.tmpl:6` -- "Enforcement
+  is switched off, so a rule added here changes the configuration but locks nobody out until it is
+  switched back on" -- and `settings.tmpl:24`, "...so nothing is being locked out and nothing will be,
+  whatever the schedule says"), help prose about when a change lands (`settings.tmpl:189`, "A change
+  here takes effect the **next time the daemon starts**, not now"), and a missing value in a cell
+  (`profiles.tmpl:110`).
+  `.override` carries two, and the second is better than the one I invented: `lock.tmpl:93` and
+  `testlock.tmpl:121` put it on "This is the session the daemon runs in", a sentence that says nothing is
+  being held, in the same voice as `dashboard.tmpl:59`'s "open override". The point of #239 is therefore
+  stronger than #239 said, and that is the only comfort in the finding.
+  Silently editing the three bodies is the option this repository exists to refuse: the corrected text
+  would be indistinguishable from text that had always been right, and the next reader could not tell a
+  checked citation from a remembered one. A new issue instead of a corrected one throws away the two
+  people who already read the first. The pushed commit message stays wrong and cannot be rewritten --
+  `AGENTS.md` forbids force-pushing an in-flight branch, and the correction belongs in the log and the
+  PR thread for the same reason `D-0042`'s does.
+  What let it through is the same thing that lets everything through here: nothing re-read the prose. Two
+  rules follow, one of them shipped. Shipped: `every_driver_that_measures_the_census_prints_it` in
+  `testing/capture/pages.py`, which refuses a driver that splices `cdp.STATE_JS` into its measurement and
+  never prints `cdp.state_census_line` -- the claim "every driver line prints it" was true of `pages.py`
+  alone while `lock.py:169` and `testlock.py:164` were already calling `require_state_legible`, so the
+  guard ran on those frames and left no number behind, and a frame whose guard passed cannot be told from
+  a page with no state words. Both print it now, at real values: `/lock states=8 drawn=8`, the probe page
+  `states=7 drawn=7`, with the two PNGs byte-identical afterwards (`git status --short docs/` empty), so
+  the manifest needed no re-record. The rule was proved by removing the call from `lock.py`, which
+  answers "1 of 69 rules failed" naming `lock.py`, and restored byte for byte (`md5sum` equal).
+  `EXPECTED_RULES` 68 -> 69. Not shipped, stated instead: a check that a `file.tmpl:NNN` citation in prose
+  points at a line containing the thing it names is worth writing, and it is not written here because the
+  right shape of it -- which prose counts, which file names, what counts as "the thing it names" -- is a
+  decision one example cannot settle. `D-0043` already refused to invent a citation checker for weaker
+  reasons than this.
+- Checkpoint: 45006d5a293ef5ec2776010e567f98995c55ef60
+- Effect: testing/capture/lock.py and testing/capture/testlock.py (`cdp.state_census_line` on the
+  measurement line), testing/capture/pages.py (the rule above, `EXPECTED_RULES` 69), DECISIONS.md (this
+  entry and the `D-0045` correction above), issue #239's body (re-derived citations, six jobs for
+  `problem`, two for `override`), pull request #240's body and a correction comment there, a correction
+  comment on #199, and the message of `3bcbfdd`, which stays as pushed
