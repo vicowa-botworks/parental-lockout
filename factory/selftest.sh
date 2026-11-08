@@ -2336,7 +2336,20 @@ triage_arm_coverage
 claim_reset
 
 
-printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
+# The tally names the world it was counted in, because it is not one number everywhere. H-0045
+# measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
+# and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
+# by the repository: measured at f60c367 on one machine with only `TMPDIR` moved, 191 passed 0 failed
+# under a tmpfs `$TMPDIR` and 190 passed 0 failed under a btrfs one, the leg's own line switching
+# from `an exclude file git refused` to `an exclude file git swallowed`. So a tally quoted without its
+# world is a number nobody can re-check, which is what this log has kept tripping over -- and a delta
+# is safe where an absolute is not, because both ends of one move together. No `|| printf 'unknown'`
+# behind either substitution: a fallback nobody can make fail is a branch nobody has seen run, and a
+# blank field on this line is already the evidence that the command behind it failed.
+printf 'factory/selftest.sh: %d passed, %d failed  (fixture root %s on %s, git %s)\n' \
+	"$pass" "$fail" "$work" \
+	"$(stat -f -c %T -- "$work")" \
+	"$(git --version | sed 's/^git version //')"
 if [ "$fail" -ne 0 ]; then
 	exit 1
 fi
