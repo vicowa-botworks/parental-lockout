@@ -327,15 +327,16 @@ nine: `lock.png` and `testlock.png` come from `lock-setup.sh` and `testlock-setu
 appears in any two-zone run this repository records — `fixture.sh:146-151` keeps their census
 undeclared on purpose, because "a stubbed census would photograph a fiction" — so the session-census
 condition the table above puts on those two frames is still carried by prose alone, which is #213's to
-close. And not about committed bytes: none of the seven values that pair prints is a committed file at any
-head this repository still publishes, so the pair compares one run to the other and to nothing else. That
-is the whole of what it says about bytes, and it is worth naming where the stronger clause came from: the
-paragraph above the reproducibility table that opens "#207 changed the answer for every page-fixture
-artifact" reads "Against the previously committed bytes, `settings.png` and `users-no-profiles.png` came back
-**identical**", and that sentence is about #207's re-take, which quotes no digest a reader can re-check.
-Carrying its clause into the pair's own sentence asserted a hash relation and its negation about the same
-seven PNGs, in the same paragraph that prints the seven values refuting the first half. What the pair
-establishes is that no host zone can move these pages, which is the one thing worth quoting it for.
+close. And not about committed bytes: none of the seven values that pair prints is a committed file at
+any head this repository still publishes, so the pair compares one run to the other and to nothing else.
+That is the whole of what it says about bytes, and it is worth naming where the stronger clause came
+from: the paragraph above the reproducibility table that opens "#207 changed the answer for every
+page-fixture artifact" reads "Against the previously committed bytes, `settings.png` and
+`users-no-profiles.png` came back **identical**", and that sentence is about #207's re-take, which quotes
+no digest a reader can re-check. Carrying its clause into the pair's own sentence asserted a hash
+relation and its negation about the same seven PNGs, in the paragraph that prints the seven values
+refuting the first half. What the pair establishes is that no host zone can move these pages, which is
+the one thing worth quoting it for.
 
 What has not changed is *why* the three rules below exist, and it is worth stating now that the old premise
 is gone: reproducing the pixels proves the frame comes back, it does not prove the rows are ones the
