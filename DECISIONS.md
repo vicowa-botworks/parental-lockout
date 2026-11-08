@@ -1706,5 +1706,5 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   Left deliberately: silently correcting a quotation of an earlier entry is how a decision log stops being
   evidence about what was believed when.
 - Checkpoint: 1088c2cadfdaa7009d81ced1d78e9bf595ef011f
-- Effect: DECISIONS.md (the `D-0039` item 4 citations and vouch, `D-0041`'s Why and Correction), pull
-  request #225
+- Effect: DECISIONS.md (the `D-0039` citations in costed items 2 and 4 and the vouch with them, `D-0041`'s
+  Why and Correction), pull request #225
