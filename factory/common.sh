@@ -155,6 +155,68 @@ factory_halt_reason() {
 	fi
 }
 
+# How old the marker is, in the unit every other elapsed figure in this journal already speaks:
+# `CONFLICT-SKIPPED attempted ${age}s ago`, `POKE-SKIPPED asked ${age}s ago`, `NOTICED … after ${age}s`.
+#
+# Why the age belongs in the halt line at all. `factory/HALT` is written once and afterwards merely
+# read -- the first thing a halted pass does is print the file's sentence and exit (`factory.sh`) --
+# so every activation after the detection prints the very line the detection printed. Measured 8 Nov
+# in `~/prj/wt/issue-207`: the marker was written at 04:30:02Z and the journal carries the identical
+# `HALTED … issue-207` line at 14:09:09Z, 14:20:09Z, 14:31:01Z and 14:42:09Z (#237), four activations
+# reading as four fresh blocks over a tree that had been cleaned and reset at about 14:35Z. The age is
+# the one fact that tells them apart, and it is free: the marker's own mtime is the instant the cause
+# was seen, because the only thing that writes this file is the guard that just saw the cause.
+#
+# What it deliberately does not do is ask the tree again.
+#
+#   - The content verdict's first read is `git update-index --refresh`, measured (see the comment
+#     above `factory_tree_dirt`) to rewrite `.git/index`'s stat entries. Re-probing on the halted path
+#     would therefore write into the one tree the halt sentence swears the supervisor will not touch.
+#   - The four reads that do not write have a measured false-clean direction of their own -- the
+#     `naive:` column in `factory/selftest.sh` says CLEAN where the content verdict says DIRTY -- so a
+#     report-only verdict assembled from them would tell a person to `rm factory/HALT` over work it
+#     cannot see. And a verdict that self-cleared the marker would resume the queue, with nobody in the
+#     loop, over a state the supervisor itself declared somebody else's.
+#
+# So the marker stays sticky and the line stops pretending to be new. H-0054, with what it costs.
+factory_halt_age() { # -> 'written <utc>, <n>s ago', or why the time is unknown
+	local mtime stamp now
+	mtime=$(stat -c %Y -- "$FACTORY_HALT" 2>/dev/null) || mtime=''
+	stamp=''
+	case "$mtime" in
+	'' | *[!0-9]*) : ;;
+	*) stamp=$(date -u -d "@$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || stamp='' ;;
+	esac
+	if [ -z "$stamp" ]; then
+		# The age missing quietly is the bug this function exists to fix: no age is what a fresh
+		# detection looks like. So the line says the time could not be read, rather than saying nothing.
+		printf 'whose recorded time could not be read'
+		return 0
+	fi
+	printf 'written %s' "$stamp"
+	now=$(date -u +%s)
+	if [ "$mtime" -gt "$now" ]; then
+		# Not clamped to zero the way `factory_age` clamps a ledger stamp. The number's only job is to
+		# let the reader judge how old the marker is, and `0s ago` for a marker two hours in the future
+		# is a record that says the opposite of what happened -- the same class as the line #237 is
+		# filed against. The instant is printed either way, so the raw fact is never lost.
+		printf ' (%ss ahead of this clock, so its age is unknown)' "$((mtime - now))"
+	else
+		printf ', %ss ago' "$((now - mtime))"
+	fi
+}
+
+# The stored marker as an operator reads it: its age first, then the sentence inside it. Both readers
+# go through here -- `factory.sh --status` and the journal's `HALTED` line -- for the reason H-0044
+# gives for the halt having one writer: two readers each composing their own line are two readers free
+# to disagree about what whoever finds a stopped queue is told. `factory/selftest.sh` refuses a shipped
+# script that embeds `$(factory_halt_reason)` again.
+factory_halt_report() {
+	local reason
+	reason=$(factory_halt_reason)
+	printf 'marker %s, and not re-probed since: %s' "$(factory_halt_age)" "$reason"
+}
+
 # --------------------------------------------------------------------------- ledger
 #
 # One file per (unit, fact), content is a single line. Not one JSON document, on purpose: two

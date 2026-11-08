@@ -69,7 +69,7 @@ while [ $# -gt 0 ]; do
 	--status)
 		factory_paths
 		if factory_halted; then
-			printf 'halt:    YES -- %s\n' "$(factory_halt_reason)"
+			printf 'halt:    YES -- %s\n' "$(factory_halt_report)"
 		else
 			printf 'halt:    no\n'
 		fi
