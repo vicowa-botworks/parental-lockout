@@ -222,7 +222,6 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Why: the tally moves with the choice -- `EXPECTED_RULES` becomes the union, 36 + 7 (#202) +
   2 (#207) = 45, one tally comment instead of two, which is the half of this option that has no side to
   splice. The first two options are the same mistake aimed at opposite ends of the criterion. Main's
-
   five frames are the pre-#202 stylesheet -- controls in the browser's own Arial beside 16 px
   system-ui, `/settings` sizing its fields three ways on one page -- so committing them re-files the
   exact defect #202 was opened for under the filenames the criterion calls its evidence. This
@@ -956,6 +955,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   What lost. #220's other two options lose: pinning the daemon's clock through `web.Server.Now` and declaring the window in `pages-setup.sh` — both recorded as rejected in D-0017, and #220's body carried them as offers, not requirements. #213 loses the argument that byte identity proved the condition, which #207's own withdrawal already retired. #204 loses two measured rows — the duplicate `href="/"` and the `h1` weight comparison — both fixed under D-0016 as that entry predicted, and the issue now says so instead of sending a lane to re-measure them. Nothing here is irreversible: every close is one `git show origin/main:<path>` away from being re-checked, the four comments carry those commands row by row, and #224 is shut only as the walk it asked for — #216 still owns whether the supervisor should reconcile at all.
 - Checkpoint: ab7263a2df0b8e662eb68f1a3107f143e17c65a6
 - Effect: issues #219 and #220 (closed as satisfied, nothing deleted), #213 and #204 (reduced to their residue, with the settled rows and their re-check commands beside them), #224 (closed as delivered once the pull request carrying this entry is open), DECISIONS.md (this entry)
+
 ## D-0033 · The shell is told the path, and one segment decides which entry is current
 
 - Question: #204 measured the same computed style on every navigation link on every photographed
@@ -1051,7 +1051,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   name *is* a heading; the merge that made that false is D-0036, and it retitled the entry rather
   than rewriting its Options, which are the record of a tie-break between four things that were all
   genuinely on the table at the time.
-- Checkpoint: e2dbd46e9de2f8be69e0f6db2d1a54f76d94577f
+- Checkpoint: e2dbd469d66dbc70556804cd3b848309ff8c5af8
 - Effect: internal/web/templates/page.tmpl (the `<h1>` is no longer an anchor),
   internal/web/nav_test.go (`TestTheHeaderRoutesToTheRootExactlyOnce`), DECISIONS.md
 
