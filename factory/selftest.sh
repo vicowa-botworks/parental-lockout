@@ -1574,6 +1574,29 @@ esac
 CLAIMSHIM
 chmod +x "$claim_bin/gh"
 
+# The model runtime, also from the fixture, and this one is load-bearing rather than tidy.
+# `factory_preflight` (`factory/common.sh:313`) asks for `$FACTORY_OPENCODE` on PATH, every script
+# in this directory calls it (`factory/triage.sh:80`) and the legs below exec the shipped
+# `triage.sh` -- so all of them were passing or failing on whether the machine running the suite
+# happened to have `opencode` installed. Measured at ae8aba8 on a PATH with no `opencode` anywhere,
+# which is what the `verify` job is (.github/workflows/ci.yml:21-49 installs Go and nothing else):
+# `131 passed, 45 failed`, every failure in this section, stderr `factory: missing on PATH:
+# opencode. Nothing was started.` -- the same tally CI printed on the same commit, and the reason
+# PR #238 was BLOCKED. Nothing in the section can see that from a box with opencode installed,
+# which is every developer's box and no runner.
+#
+# The stub answers `command -v` and refuses to be run. triage.sh reads the queue and starts no
+# model, so a leg that ever exec'd this gets exit 78 and a sentence about it -- the same shape as
+# the `gh` shim's refusal to write.
+cat >"$claim_bin/opencode" <<'CLAIMRUNTIME'
+#!/usr/bin/env bash
+# Fixture model runtime for the merged-claim legs in factory/selftest.sh. It exists to satisfy the
+# `$FACTORY_OPENCODE` term of factory_preflight and to refuse, loudly, to be anything else.
+printf 'claim-runtime: a leg tried to start a model: %s\n' "$*" >&2
+exit 78
+CLAIMRUNTIME
+chmod +x "$claim_bin/opencode"
+
 # The live payloads, abridged as described in the header. The bodies are GitHub's own text.
 cat >"$claim_fix/pr-merged.json" <<'JSON'
 [
@@ -1639,11 +1662,17 @@ claim_graphql
 
 # The shipped classifier, end to end, with the fixture's gh first on PATH. Nothing is stubbed between
 # the two: preflight, the jq programs, the claim channels and the emit line all run.
+#
+# `FACTORY_OPENCODE` is pinned to the shipped default (`factory/common.sh:62`) rather than inherited,
+# so the runtime preflight finds is the fixture's in $claim_bin on every host. Left to the
+# environment it would name whatever the operator exports, and the section would be green or red
+# depending on a variable nobody in it is testing.
 claim_rows() {
 	: >"$claim_err"
 	PATH="$claim_bin:$PATH" \
 		FACTORY_DIR="$claim_dir" FACTORY_ROOT="$claim_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
+		FACTORY_OPENCODE=opencode \
 		FACTORY_LOG="$claim_dir/log" FACTORY_LEDGER="$claim_dir/ledger" FACTORY_RUN="$claim_dir/run" \
 		FACTORY_DELIVERED_WINDOW="$claim_window" CLAIM_FIXTURE="$claim_fix" \
 		CLAIM_MERGED_FAIL="${CLAIM_MERGED_FAIL:-}" CLAIM_GRAPHQL_FAIL="${CLAIM_GRAPHQL_FAIL:-}" \
@@ -1729,6 +1758,37 @@ claim_err_has() { # claim_err_has <needle> -> the pass said this on stderr
 }
 claim_rows_say_nothing_about() { # claim_rows_say_nothing_about <kind>
 	! grep -q "^$1"$'\t' "$claim_rows_file"
+}
+
+# The runtime question, asked as legs. This section execs the shipped triage.sh, so it inherits
+# factory_preflight's requirement for a model runtime -- see the stub above $claim_bin/opencode --
+# and three things about that arrangement are worth pinning: the stub is what the legs resolve, the
+# stub cannot run a model, and the requirement still exists. The third is the one that goes quiet:
+# if preflight ever stops asking, the stub satisfies nothing and the section keeps its green anyway.
+claim_runtime_refuses() { # the fixture runtime is a PATH entry, never a model
+	local out rc=0
+	out=$("$claim_bin/opencode" run --auto --agent factory 2>&1) || rc=$?
+	if [ "$rc" = 0 ]; then
+		printf '            the fixture runtime exited 0, so a leg that started a model would never notice\n' >&2
+		return 1
+	fi
+	case "$out" in
+	*'tried to start a model'*) return 0 ;;
+	esac
+	printf '            the fixture runtime refused without saying why (rc %s): %s\n' "$rc" "$out" >&2
+	return 1
+}
+claim_runtime_is_the_fixtured_one() { # the runtime the legs resolve lives in the fixture
+	local got
+	got=$(PATH="$claim_bin:$PATH" command -v opencode) || got=''
+	if [ "$got" != "$claim_bin/opencode" ]; then
+		printf '            the legs resolve opencode at %s -- outside the fixture, so on this host,\n' "${got:-nothing}" >&2
+		printf '            and on a host without it the whole section goes red as it did in CI.\n' >&2
+		return 1
+	fi
+}
+claim_preflight_asks_for_a_runtime() { # claim_preflight_asks_for_a_runtime <common.sh>
+	grep -qF -- 'for tool in git gh "$FACTORY_OPENCODE"; do' "$1" 2>/dev/null
 }
 
 # One leg, with the reporter this section needs. `check`'s FAIL sentence blames a plant that did not
@@ -2018,6 +2078,30 @@ claim_leg '…and the pull-request rows survive' claim_table_has pr 237 needs_re
 claim_leg '…and an unrelated issue is still listed' claim_table_has issue 235 unclaimed
 CLAIM_MERGED_GARBAGE=
 claim_reset
+
+# 15. the runtime the legs need is the fixture's. Every leg above execs the shipped triage.sh, and
+#     factory_preflight wants a model runtime before it will read anything, so this section -- and
+#     only this section -- was green or red depending on whether the machine running it happened to
+#     have `opencode` installed. That is how PR #238's `verify` went red while every box in the loop
+#     stayed green. Measured at ae8aba8 on a PATH with no `opencode` anywhere: `131 passed, 45
+#     failed`, stderr `factory: missing on PATH: opencode. Nothing was started.` -- CI's tally on the
+#     same commit, because .github/workflows/ci.yml installs Go and nothing else.
+claim_leg 'the fixture runtime is what the legs resolve' claim_runtime_is_the_fixtured_one
+claim_leg '…and it refuses to start a model' claim_runtime_refuses
+claim_leg '…and preflight still asks for one' claim_preflight_asks_for_a_runtime "$HERE/common.sh"
+# Control for the leg above, outside the repository: a common.sh with that term deleted has to read
+# as no runtime requirement, or the ok is the scan being blind. That is this section's own failure
+# arriving from the other direction -- a fixture that answers for something nobody asks for.
+mkdir -p "$work/nopreflight/factory"
+grep -vF -- 'for tool in git gh "$FACTORY_OPENCODE"; do' "$HERE/common.sh" >"$work/nopreflight/factory/common.sh"
+if claim_preflight_asks_for_a_runtime "$work/nopreflight/factory/common.sh" 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a common.sh with the term deleted still asks for a runtime,\n' "control: preflight runtime term"
+	printf '          so the ok above is the scan being blind.\n'
+else
+	printf '        control: a copy with the term deleted reads as no requirement, so the ok\n'
+	printf '        above is the scan working and not the check being blind.\n'
+fi
 
 # --------------------------------------------------------------- the supervisor's arm
 #
