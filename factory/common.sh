@@ -51,11 +51,88 @@ FACTORY_REPO=${FACTORY_REPO:-}
 FACTORY_OWNER=${FACTORY_OWNER:-}
 FACTORY_NAME=${FACTORY_NAME:-}
 
-# The account that has approved every PR in this repository's history (measured 4 Nov: reviews
-# on #195, #197, #201, #203, #206 all from hermesvicowa). Requesting a review is the only thing
-# that ends a wait here, so the default is this repo's reviewer, and FACTORY_REVIEWER overrides
-# it for any other repository.
-FACTORY_REVIEWER=${FACTORY_REVIEWER:-hermesvicowa}
+# Who a review request is addressed to. Two forms, and the team is the one asked by default.
+#
+# The individual default this file carried for four days was justified by the wrong evidence. "The
+# account that has approved every PR in this repository's history" (measured 4 Nov: reviews on #195,
+# #197, #201, #203, #206 all from hermesvicowa) is a prediction about who answered the past, and a
+# request is not a prediction -- it is a question addressed to whoever can answer it. An individual
+# request waits for one specific person to appear; a team request notifies every member and the first
+# one online answers. Measured 8 Nov on #240: with `requested_reviewers: ["hermesvicowa"]` it sat and
+# nothing moved for the whole day; addressed to the team it reads `requested_teams: ["cinemaitor"]`
+# with `requested_reviewers: []`. Owner's instruction the same hour: ask the team, not a member,
+# because nobody knows who is online at what time.
+#
+# `FACTORY_REVIEWER_TEAM` is a TEAM SLUG, not a display name. `team_reviewers[]` wants the slug and
+# this org's team is `slug=cinemaitor`, `name=cinemAItor`, `id=19038850` (measured 8 Nov through
+# `GET /orgs/vicowa-botworks/teams`), so the pretty name pasted here would 404 and read as a wrong
+# username. It is the same endpoint the poke already POSTs to -- `team_reviewers[]` is a second
+# argument of the existing `POST pulls/N/requested_reviewers`, not a new route and not a new
+# permission.
+#
+# Precedence lives in `factory_review_target` and nowhere else: a configured team wins, because it is
+# the form that ends a wait. The individual is asked only when the team is set empty, which is also
+# how a repository outside this org overrides the default --
+# `FACTORY_REVIEWER_TEAM= FACTORY_REVIEWER=alice`. Neither, and the poke refuses (H-0055).
+#
+# `${VAR-default}`, not `${VAR:-default}`, and the two characters are the override: the colon form
+# substitutes for an *empty* value as well as an unset one, so `FACTORY_REVIEWER_TEAM=` -- the
+# documented way to say "there is no team here" -- would silently keep asking cinemaitor. Absent and
+# empty are different answers, which is the same distinction #873 makes for a config key.
+FACTORY_REVIEWER=${FACTORY_REVIEWER-hermesvicowa}
+FACTORY_REVIEWER_TEAM=${FACTORY_REVIEWER_TEAM-cinemaitor}
+
+# The poke's target as one string: `team:<slug>`, `user:<login>`, or empty for neither. Written, read
+# back, logged and --dry-run'd from here, so the four cannot disagree about who was asked. They
+# could before #241: `factory_request_review` printed `$FACTORY_REVIEWER` in every one of its journal
+# lines whatever it actually POSTed, so a team request would have been logged as an individual one.
+factory_review_target() {
+	if [ -n "$FACTORY_REVIEWER_TEAM" ]; then
+		printf 'team:%s' "$FACTORY_REVIEWER_TEAM"
+	elif [ -n "$FACTORY_REVIEWER" ]; then
+		printf 'user:%s' "$FACTORY_REVIEWER"
+	fi
+}
+
+# Who holds a review request, read out of `GET pulls/N/requested_reviewers`, defined once because two
+# readers ask the same question and must not disagree: `triage.sh` decides `needs_reviewer` from it,
+# and `factory_request_review` decides whether a refusal was a 422 (the request is out there) or a 404
+# (the name resolves to nobody). The same reason `JQ_CHECKS` exists.
+#
+# Both lists, not just `users`. A team request arrives in `teams[]` with `users[]` empty, so a reader
+# that only knows `users[]` calls every team-requested pull request unasked: the row reads
+# `needs_reviewer`, the arm calls the poke, GitHub answers 422, and the queue re-pokes a request that
+# is already outstanding every `FACTORY_REVIEW_POKES` -- which is the loop H-0016 was built to end,
+# rebuilt out of the fix for #241.
+#
+# The name is taken as `slug`, then `login`, then `name`. The current REST schema for this endpoint
+# makes `slug` required on a `Team` (read from the public schema on 8 Nov; it is the schema rather than
+# a payload from this machine, because `gh api` is denied to a tick whole by D-0013 and the supervisor
+# is the only reader here -- so `selftest.sh` carries the shapes instead of a capture, one leg per
+# spelling). `login` is the
+# spelling that field had before the slug rename, and it is the one that took the `org/team` form the
+# prefix below strips; `name` is the display name, required in the same schema, which is why the
+# comparison is case-folded -- this org's team is `slug=cinemaitor` under `name=cinemAItor`, so a
+# case-sensitive read of the display name would call a real request a 404 forever. Case-folding costs
+# nothing that is worth keeping: GitHub account and team identifiers are matched case-insensitively on
+# the way in, and two teams that differ only by case cannot both exist to be confused.
+JQ_REQUESTED_DEFS='
+  def req_display: (.slug // .login // .name // "") | sub("^.*/"; "");
+  def req_user: (.login // "") | sub("^.*/"; "") | ascii_downcase;
+  def req_team: req_display | ascii_downcase;
+'
+# For the queue table: the name as it reads, organisation prefix off, teams marked so a reader can tell
+# the two kinds apart at a glance. The case is kept here because this column is read by a person; case
+# stops mattering in the comparison half below, and only there.
+# shellcheck disable=SC2034  # both programs are read by the consumers that source this file --
+# triage.sh the list, factory.sh the holds-test -- and shellcheck analyses common.sh alone, so a
+# constant both of them need looks dead here. Same reason as the FACTORY_* note below.
+JQ_REQUESTED_LIST="$JQ_REQUESTED_DEFS"'
+  [.users[]?.login, (.teams[]? | "team:" + req_display)] | join(",")'
+# For the poke: does this name already hold one? `$who` is the slug or login as configured.
+# shellcheck disable=SC2034
+JQ_REQUESTED_HOLDS="$JQ_REQUESTED_DEFS"'
+  [(.users[]? | req_user), (.teams[]? | req_team)] | index($who | ascii_downcase) != null'
 
 # Model invocation. `--agent factory` selects the project agent whose permissions deny
 # `question`, which is what makes a headless tick unable to stall on an answer nobody will give.
@@ -368,8 +445,18 @@ $out"
 
 	# The account the supervisor will act as must not be the reviewer it asks. GitHub refuses a
 	# self-review silently enough that the wait would look like a slow reviewer.
-	if [ "$FACTORY_REVIEWER" = "$(gh api user --jq .login 2>/dev/null || printf '')" ]; then
-		die "FACTORY_REVIEWER is this same account ($FACTORY_REVIEWER); a PR cannot be reviewed by its author"
+	#
+	# The check follows the TARGET, not the variable: with a team configured -- the default since #241
+	# -- the individual name is not what gets asked, and the person running the supervisor is very
+	# likely a member of that team. That is not a self-review: a team request is answered by any other
+	# member, which is the whole point of addressing it to the team. What would be a real stall is a
+	# team holding nobody but the supervisor, and GitHub answers that at the POST, where the poke
+	# reports it as `POKE-FAILED` rather than letting it look like a slow reviewer. Reading the target
+	# first also costs the pass one fewer API call in the common case, because the `gh api user` read
+	# below is short-circuited when no individual will be asked.
+	if [ "$(factory_review_target)" = "user:$FACTORY_REVIEWER" ] && [ -n "$FACTORY_REVIEWER" ] &&
+		[ "$FACTORY_REVIEWER" = "$(gh api user --jq .login 2>/dev/null || printf '')" ]; then
+		die "FACTORY_REVIEWER is this same account ($FACTORY_REVIEWER); a PR cannot be reviewed by its author. FACTORY_REVIEWER_TEAM=<team slug> asks a team instead, or FACTORY_REVIEWER=<another login> names somebody else."
 	fi
 
 	factory_paths
