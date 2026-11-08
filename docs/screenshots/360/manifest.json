@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-08T17:11:31Z",
-  "head": "6c3773999b2054d664ec6a113e4e5a758ca391e8",
+  "captured_at": "2026-11-08T17:14:28Z",
+  "head": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b",
   "pages": [
     {
       "capture": {
@@ -27,7 +27,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     },
     {
       "capture": {
@@ -70,7 +70,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     },
     {
       "capture": {
@@ -88,7 +88,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     },
     {
       "capture": {
@@ -109,7 +109,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     },
     {
       "capture": {
@@ -130,7 +130,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     },
     {
       "capture": {
@@ -151,7 +151,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     },
     {
       "capture": {
@@ -169,7 +169,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     },
     {
       "capture": {
@@ -187,7 +187,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     },
     {
       "capture": {
@@ -208,7 +208,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
     }
   ],
   "schema": "capture-manifest/2",
