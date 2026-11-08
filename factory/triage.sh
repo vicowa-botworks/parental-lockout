@@ -441,7 +441,16 @@ if [ "$CLOSING_OK" = "1" ]; then
 		if [ -n "$claim" ]; then
 			# The row is the deliverable, so it carries what a person needs to check it without
 			# re-running anything: the PR, the moment it merged, its words, and the window it was
-			# found inside. emit() caps the detail at 80 columns, so this is sized for that cap.
+			# found inside. It is written to be checkable at a glance, which is not the same claim
+			# as fitting a cap -- nothing truncates a field here. `emit` is the six-field printf at
+			# the top of this file and the only length the phrase inherits is the one the claim
+			# itself has: one distinct number, at most 20 characters of prose ahead of it, and a
+			# list tail that can repeat that SAME number as often as a body likes, because the
+			# sole-claim rule counts distinct issues, not characters. Measured with a planted body
+			# repeating `#232` forty times: a 302-column detail, printed whole, `(window 100)` and
+			# all, and the row still `delivered`. factory/selftest.sh 12d keeps that honest with a
+			# leg rather than a sentence, since a comment that invents a bound is how the next
+			# author sizes text against a limit that does not exist.
 			rows+="$(emit issue "$number" delivered "$claim (window $FACTORY_DELIVERED_WINDOW)" '' "$number")"$'\n'
 		else
 			rows+="$(emit issue "$number" unclaimed "$title" '' "$number")"$'\n'

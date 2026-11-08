@@ -1756,6 +1756,15 @@ claim_err_has() { # claim_err_has <needle> -> the pass said this on stderr
 	printf '            stderr was: %s\n' "$(tr '\n' '|' <"$claim_err")" >&2
 	return 1
 }
+claim_detail_wider_than() { # claim_detail_wider_than <key> <columns>
+	local d n
+	d=$(row_for "$1" | cut -f4)
+	n=${#d}
+	[ "$n" -gt "$2" ] || {
+		printf '            key %s detail is %s columns, not more than %s: %s\n' "$1" "$n" "$2" "$d" >&2
+		return 1
+	}
+}
 claim_rows_say_nothing_about() { # claim_rows_say_nothing_about <kind>
 	! grep -q "^$1"$'\t' "$claim_rows_file"
 }
@@ -1846,8 +1855,9 @@ claim_leg '#235 has nothing merged for it' claim_class_is 235 unclaimed
 claim_leg '#212 has nothing merged for it' claim_class_is 212 unclaimed
 
 # The row is the deliverable, so it has to be checkable without re-running anything: which PR, merged
-# when, found in what window. `emit` caps the detail at 80 columns, which is why the row carries a
-# number and an instant rather than a sentence about them.
+# when, found in what window. Nothing truncates the column to hold any of that -- `emit` is a
+# six-field printf and 12d below measures how long it can get -- so the row carries a number and an
+# instant rather than a sentence about them because a person reads this table at a glance.
 claim_leg 'the row names PR #234' claim_detail_has 232 'PR #234'
 claim_leg 'the row names the merge instant' claim_detail_has 232 '2026-11-08T14:26:31Z'
 claim_leg 'the row says which window it read' claim_detail_has 232 'window 100)'
@@ -2036,6 +2046,26 @@ claim_merged '. + [{number: 221, baseRefName: "main", mergedAt: "2026-11-06T03:3
 	body: "feat(web): the 360 px pass, first tranche\n\nI could not tell what the palette said am I\" once it had loaded (Part of #219 only; the umbrella is not finished — the nine 360 px frames are still open).\n\nRefs #219, #220, #204\n"}]'
 claim_rows >/dev/null
 claim_leg '#219 refused on Part of and on the list' claim_class_is 219 unclaimed
+
+# 12d. how long the delivered row's detail can be -- a question a comment on that row used to answer
+#      by claiming `emit()` caps it at 80 columns. Nothing caps anything: `emit` is a six-field
+#      printf and no field is truncated on its way out. The sole-claim rule is what bounds the
+#      phrase, and it bounds DISTINCT numbers, not characters -- so the route to a long column is a
+#      list that repeats one number, and the row is still a legitimate `delivered` when it does.
+#      The plant below is that body: forty `#232`s in one sentence, which is what a real body looks
+#      like when someone pastes a checklist into the verb line. Measured at this commit: the detail
+#      is 302 columns, the row is still `delivered`, and the `(window 100)` tail is intact.
+claim_reset
+claim_merged 'map(if .number == 234 then .body = ("fix: one issue, a long list\n\nRefs "
+	+ ([range(40)] | map("#232") | join(", ")) + ".\n") else . end)'
+claim_rows >/dev/null
+claim_leg 'a list of one number repeated is one claim' claim_class_is 232 delivered
+claim_leg '…and no cap shortens what lands in the detail' claim_detail_wider_than 232 80
+# The width alone is not the property. A cap at 200 would clear that leg and still eat the end of
+# the row, and the end is the part a person re-checks -- so the assertion that matters is that the
+# tail is still there after 302 columns of it.
+claim_leg '…and the tail of the row survives the length' claim_detail_has 232 '(window 100)'
+claim_reset
 
 # 13. the payload has a SIZE. Every other leg in this section feeds triage.sh a fixture of about two
 #     kilobytes; the live read it stands for returned 632,601 bytes for 100 merged bodies on 8 Nov.
