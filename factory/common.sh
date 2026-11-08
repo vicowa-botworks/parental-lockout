@@ -103,6 +103,29 @@ FACTORY_REVIEW_POKES=${FACTORY_REVIEW_POKES:-1800}
 # a notice, not a park: the unit stays in the queue and keeps being retried.
 FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 
+# How far back the `delivered` verdict looks: one `gh pr list --state merged --limit N` per pass, so
+# the bound is what stops the read growing with the repository's age. It is a bound on the *read*,
+# not on the claim -- an issue whose fix landed outside the window keeps the verdict it always had,
+# `unclaimed`, so a window that is too small costs a wasted unit and a window that is too big costs
+# nothing but a payload. Measured 8 Nov on this repository: 125 pull requests have merged, and a
+# window of 100 reaches back to #52 at `2026-10-15T08:38:06Z`, so the twenty-five it does not read are
+# the harness's first fortnight -- every issue the queue has delivered since 15 October is inside it.
+#
+# What the bound really cuts is not time. `gh pr list --state merged` answers newest-CREATED first,
+# not newest-merged -- measured 8 Nov the first eight rows are 234, 231, 229, 227, 226, 221, 218, 217
+# and their merge dates are 8, 8, 8, 8, 6, 6, 6, 8 November -- so a branch that lived a long time
+# before it merged sits lower in the window than its merge date suggests. A window of seven would
+# already be blind to #217, which merged the same day as #234. `delivered` prints the window it leaned
+# on in its own row for exactly that reason: a bound that is not printed is a verdict nobody can
+# re-check.
+FACTORY_DELIVERED_WINDOW=${FACTORY_DELIVERED_WINDOW:-100}
+
+# The base branch a merged pull request has to have landed on for its claim to mean the work is on
+# the trunk. A pull request merged into another open pull request's branch is that branch's news, not
+# `main`'s, and #216's stacked-base chain is the shape this refuses: reporting an issue delivered by a
+# merge nobody can deploy is the false green this class exists to prevent.
+FACTORY_BASE=${FACTORY_BASE:-main}
+
 FACTORY_LOG=${FACTORY_LOG:-$FACTORY_DIR/log}
 FACTORY_LEDGER=${FACTORY_LEDGER:-$FACTORY_DIR/ledger}
 FACTORY_RUN=${FACTORY_RUN:-$FACTORY_DIR/run}
@@ -243,6 +266,156 @@ api_get() {
 	'{"message"'* | '{"errors"'*) printf '%s' "$3" ;;
 	(*) printf '%s' "$out" ;;
 	esac
+}
+
+# ------------------------------------------------------------------ the reviewer's ask
+#
+# Whether a change request's body is an ask anybody could answer, spelled once here because TWO
+# readers ask the same question and they must not be able to disagree about the answer: `triage.sh`
+# needs it to choose between spending a tick on a pull request and reporting it, and `factory.sh`
+# needs it to say the same sentence on the pull request. Two predicates would drift exactly the way
+# the two claim channels in triage.sh would have if `CLAIM_RE` were not spelled once (#1256), and
+# the drift is invisible until a tick has been dispatched at nothing.
+#
+# Why there is a question at all (#242). The REST projection that fed the classifier kept three
+# fields out of every review row -- user, state, submitted_at -- and dropped the body. So the unit
+# prompt a tick received read `review asked for changes at <ts>, after the head commit at <ts>`: a
+# verdict with no ask inside it, and a tick expected to go and find the ask on its own. On #240,
+# 8 Nov, it did not exist. The newest `CHANGES_REQUESTED` body was **21 bytes, the literal text
+# `@/tmp/pr240-review.md`** -- `gh` reads a file only for `--body-file`, so a reviewer's `--body
+# @/tmp/…` stored the reference instead of the review -- and the worktree, the ceiling and the model
+# were spent on a review that had never been uploaded. A tick cannot tell "the reviewer asked for
+# nothing" from "the reviewer asked for something I cannot see", and a tick that guesses is the
+# failure mode this repository keeps writing up: `D-0046` is five invented citations in three
+# published artifacts.
+#
+# The floor is measured, not picked. Over the 200 most recent pull requests here (read 8 Nov with
+# `gh pr list --state all --limit 200 --json number,reviews`, 86 rows whose state is
+# CHANGES_REQUESTED): exactly one body is under 40 bytes -- the 21-byte file reference above -- and
+# the next smallest is 1002 bytes. So 40 separates the broken body from all 85 real asks with a 25x
+# margin on the near side, and no working review this repository has ever received is retired by
+# it. The longest is 14863 bytes; 12000 carries 83 of the 86 into the prompt whole, and the three
+# longer ones arrive cut with the total and the command that reads the rest named in the row.
+#
+# The `reference` arm is for what a byte floor cannot see: a body that is nothing but a path or an
+# @-mention, however long. `/home/reviewer/notes/pr240-review-notes.md` is 42 bytes and 42 bytes of
+# nothing, and a floor set high enough to catch it would start refusing real asks.
+FACTORY_ASK_MIN_BYTES=40
+FACTORY_ASK_MAX_BYTES=12000
+
+# factory_ask_flat <raw-body> -> the body as the measurement and the human both see it
+#
+# Control characters become spaces, runs of spaces squeeze to one, both ends trim. One spelling,
+# because the byte count and the text quoted to a person have to come from the same string: a body of
+# four newlines is 4 bytes of newline and 0 bytes of ask, and the whole point of the predicate is to
+# report the second number. `tr`, not deletion -- a newline between two words costs a space, so a
+# body written across lines is measured as the prose it is.
+factory_ask_flat() {
+	printf '%s' "${1:-}" | tr '[:cntrl:]' ' ' | tr -s ' ' | sed -e 's/^ //' -e 's/ $//'
+}
+
+# factory_ask_verdict <body>
+#   -> "readable <bytes>" | "unreadable:<reason> <bytes>", reason in {empty, reference, below-floor}
+#
+# It flattens its own input, so the count is the count of the ask rather than the count of whatever
+# whitespace a reviewer's editor left around it -- and flattening is idempotent, so a caller holding
+# already-flat text gets the same answer twice.
+#
+# Bytes, not characters, because that is the unit the measured failure was reported in and the unit
+# the bound is applied in; for the ASCII markdown these reads return the same number.
+factory_ask_verdict() {
+	local flat bytes
+	flat=$(factory_ask_flat "$1")
+	bytes=$(printf '%s' "$flat" | wc -c | tr -dc '0-9')
+	if [ "$bytes" -eq 0 ]; then
+		printf 'unreadable:empty 0\n'
+		return 0
+	fi
+	# No whitespace anywhere in it, and it names a path or a mention: that is a transport mistake,
+	# not a sentence. A real ask has a space in it, which is what makes this shape decidable.
+	case "$flat" in
+	*[[:space:]]*) : ;;
+	*[/@]*)
+		printf 'unreadable:reference %s\n' "$bytes"
+		return 0
+		;;
+	esac
+	if [ "$bytes" -lt "$FACTORY_ASK_MIN_BYTES" ]; then
+		printf 'unreadable:below-floor %s\n' "$bytes"
+		return 0
+	fi
+	printf 'readable %s\n' "$bytes"
+}
+
+# factory_newest_ask <reviews-json>
+#   -> `id<TAB>submitted_at<TAB>user<TAB>verdict<TAB>flattened-body`, one line, or nothing when the
+#      pull request holds no CHANGES_REQUESTED review. Exit 1 in that case, and also when the
+#      payload is not the array GitHub sends, because both mean "no ask was read" and neither is an
+#      empty body.
+#
+# The body is the LAST field, and that is load-bearing: it is the only one a reviewer controls, so
+# everything the caller needs to split is in front of it. Every control character in it becomes a
+# space before it is returned, which is what keeps a body containing U+001F from splicing a column
+# into the row it is later joined into -- the hazard that made U+001F the delimiter in the first
+# place is the same one, arriving from the other direction.
+#
+# `max_by` picks the newest by `submitted_at`, the same rule the classifier used before this
+# function existed, so adding the body did not change which review is the subject.
+factory_newest_ask() {
+	local meta id when user body flat verdict
+	meta=$(printf '%s' "${1:-}" | jq -r '
+		[.[] | select((.state // "") == "CHANGES_REQUESTED")]
+		| max_by(.submitted_at // "")
+		| if . == null then empty
+		  else [(.id // 0 | tostring), (.submitted_at // ""), (.user.login // "")] | join("\u001f") end
+	' 2>/dev/null) || meta=''
+	[ -n "$meta" ] || return 1
+	IFS=$'\037' read -r id when user <<<"$meta"
+	body=$(printf '%s' "${1:-}" | jq -r '
+		[.[] | select((.state // "") == "CHANGES_REQUESTED")]
+		| max_by(.submitted_at // "") | .body // ""
+	' 2>/dev/null) || body=''
+	# Control characters to spaces, runs squeezed, both ends trimmed: the measurement and the text
+	# the human reads are taken from the same string, so a body of four newlines is 0 bytes here and
+	# not 4.
+	flat=$(printf '%s' "$body" | tr '[:cntrl:]' ' ' | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')
+	verdict=$(factory_ask_verdict "$flat")
+	printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$when" "$user" "$verdict" "$flat"
+}
+
+# factory_ask_bound <flattened-body> <pr>
+#   -> at most FACTORY_ASK_MAX_BYTES of it, and when there was more, a cut that names itself, the
+#      total and the command that reads the rest.
+#
+# The limit is not a parameter. A bound the caller supplies is a bound every caller can get wrong,
+# and there is exactly one measured number for it (83 of the 86 change requests this repository has
+# ever received fit under it whole; see the block above `factory_ask_verdict`).
+#
+# The marker is part of the transport, not decoration. A silent cut is how this file's own worst
+# habit -- a dispatch that looks complete because the payload is not empty -- comes back wearing a
+# shorter payload: a tick handed 12000 of a 14863-byte review and told nothing would answer the
+# first 12000 and report the ask as answered.
+factory_ask_bound() {
+	local flat=$1 pr=$2 n
+	n=$(printf '%s' "$flat" | wc -c | tr -dc '0-9')
+	if [ "${n:-0}" -le "$FACTORY_ASK_MAX_BYTES" ]; then
+		printf '%s' "$flat"
+		return 0
+	fi
+	# `-b`, not `-c`: `-c` is a character cut and follows the locale, so the bound would stop being
+	# the number written above the moment a reviewer used an em dash. A cut can land inside a
+	# multi-byte character, and the trailing bytes of one are cheaper than an unbounded prompt.
+	# `head -c`, not `cut -b`: cut is line-oriented and TERMINATES its output with a newline, and
+	# this function's output goes straight into the row's seventh column -- so the byte cut used to
+	# insert a newline there, splitting the unit into two lines for the supervisor's read loop. The
+	# row is newline-delimited and `emit` cannot carry a newline in a field, so a bound that adds one
+	# is not a bound but a splice: measured 8 Nov with a 14863-byte body, the ask column arrived as
+	# 12000 bytes and the marker -- the sentence that says the ask was cut -- on the line after it,
+	# where the dispatcher read it as a row with an empty class. `head -c` writes the bytes and stops;
+	# the flattening above guarantees no newline in the input that could make it line-oriented.
+	printf '%s' "$flat" | head -c "$FACTORY_ASK_MAX_BYTES"
+	printf ' [… cut at %s of %s bytes; the whole body: gh pr view %s --json reviews]' \
+		"$FACTORY_ASK_MAX_BYTES" "$n" "$pr"
 }
 
 # --------------------------------------------------------------------------- checks

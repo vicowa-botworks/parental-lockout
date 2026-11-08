@@ -3,7 +3,7 @@
 {{define "body"}}
 <p class="banner">
   {{if not .Manage}}
-    <span class="problem">Enforcement is switched off, so a rule added here changes the
+    <span class="disabled">Enforcement is switched off, so a rule added here changes the
     configuration but locks nobody out until it is switched back on.</span>
   {{else if not .Profiles}}
     There are no profiles yet, so no account can be locked out.
@@ -15,10 +15,12 @@
 {{- /* The sentence from a refused write, above everything on the page. It is not beside the
        form that produced it, because the form that produced it is one of five and the parent
        finds the sentence first and the box second (#138). The id is for the same reason the
-       boxes have ids: the row below can also carry a problem sentence, and a test that took the
-       first one in the document would be reading the evaluator rather than the refusal. */ -}}
+       boxes have ids: the row below can also carry a refusal sentence, and a test that took the
+       first one in the document would be reading the evaluator rather than the refusal. The class
+       is `refusal`, not the `problem` it used to share with the evaluator's detail sentences: this
+       one says something was NOT written, and #239 gave that fact a name of its own. */ -}}
 {{if .Notice}}
-<p id="refusal" class="problem" role="alert">{{.Notice}}</p>
+<p id="refusal" class="refusal" role="alert">{{.Notice}}</p>
 {{end}}
 
 {{- /* Creating a profile sits above the list rather than inside it, because the list is empty
@@ -86,9 +88,11 @@
   </form>
 
   {{- /* The evaluator's own degraded report. A profile whose rule can never fire, or whose
-         timezone fell back to a default, would otherwise look exactly like one that works. */ -}}
+         timezone fell back to a default, would otherwise look exactly like one that works. It is
+         a refusal in the same sense the sentence above is: the daemon looked at what is here and
+         says it will not do what it looks like it does (#239). */ -}}
   {{if .Complaint}}
-  <p class="problem" role="alert">{{.Complaint}}</p>
+  <p class="refusal" role="alert">{{.Complaint}}</p>
   {{end}}
 
   <table class="rows">
@@ -107,7 +111,11 @@
       {{range .Rules}}
       <tr>
         <th scope="row">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</th>
-        <td data-label="Days">{{if .Days}}{{.Days}}{{else}}<span class="problem">no day</span>{{end}}</td>
+        {{- /* A rule with no days is a gap, not a complaint: the window is saved and enforces
+               nothing, which is the fact `state-gap` already states on the status page
+               ("scheduled, not enforced"). It wore `.problem` until #239, which is how a data
+               gap got the voice of a refusal. */ -}}
+        <td data-label="Days">{{if .Days}}{{.Days}}{{else}}<span class="state-gap">no day</span>{{end}}</td>
         <td data-label="Window">{{.Window}}</td>
       </tr>
       {{else}}

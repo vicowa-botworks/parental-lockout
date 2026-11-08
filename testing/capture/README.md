@@ -74,7 +74,11 @@ background of its own (`cdp.require_state_legible`, #199: nine class names carry
 wrote a rule for one of them, so `/users` said *"in the configuration, not on the machine"*, *"not
 managed"*, *"the account no longer exists"* and its own banner as ordinary prose at both viewports, and
 `/` drew one of its four). The vocabulary is `cdp.STATE_CLASSES`, read off the templates by a rule in
-`pages.py --self-test` rather than remembered; what the browser computed is on the measurement line as
+`pages.py --self-test` rather than remembered; it is eleven word names and four row names today, because
+#239 split the two that each meant two things and the two new names (`refusal`, `exempt`) are in it -- a
+name the
+census gains is a name Chrome is asked about on every photographed page, which is the half a rename
+cannot quietly opt out of; what the browser computed is on the measurement line as
 `states=N drawn=M`, zeros included, so `states=6 drawn=0` is readable after the fact |
 
 Four of those deserve explaining, because each was a hole found by attacking this code rather
