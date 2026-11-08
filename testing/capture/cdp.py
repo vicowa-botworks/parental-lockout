@@ -587,6 +587,383 @@ def require_choice_groups(got, what):
             "an inline run of text lets the box wrap away from the words it belongs to (#202).")
 
 
+# The navigation census, spliced into the same measurement as the control census (#204).
+#
+# One row per `<nav>` element, and every anchor inside it with the four properties #204's
+# criterion names -- `color`, `font-weight`, `text-decoration-line`, `border-bottom-width` -- plus
+# the background it names as acceptable instead, the `aria-current` value the shell writes, and the
+# box. The box is here because criterion 4 is a position claim ("the marked entry is inside the
+# header on all five pages"), and a property comparison cannot answer a position claim; the
+# header's own rect comes back with it so "inside" is a comparison rather than an opinion.
+#
+# `vis` is `checkVisibility`, not `offsetParent`: an anchor can be legitimately hidden by the page
+# (a template that renders a link only when there is something to link to) and #204 counted what a
+# reader sees. Chrome's own answer, with the `visibility` property included so a link hidden by
+# the stylesheet is not counted as a link the palette has to explain.
+NAV_JS = (
+    "'nav':(function(){"
+    "var rows=[];"
+    "Array.prototype.forEach.call(document.querySelectorAll('nav'),function(n){"
+    "var ncs=getComputedStyle(n);"
+    "var items=[];"
+    "Array.prototype.forEach.call(n.querySelectorAll('a'),function(a){"
+    "var s=getComputedStyle(a);var r=a.getBoundingClientRect();"
+    "items.push({text:(a.textContent||'').replace(/\\s+/g,' ').trim(),"
+    "href:a.getAttribute('href'),cur:a.getAttribute('aria-current'),"
+    "color:s.color,weight:s.fontWeight,dec:s.textDecorationLine,"
+    "bw:s.borderBottomWidth,bc:s.borderBottomColor,bg:s.backgroundColor,"
+    "x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height),"
+    "vis:a.checkVisibility===undefined?true:a.checkVisibility({visibilityProperty:true})});});"
+    "rows.push({display:ncs.display,overflow:n.scrollWidth>n.clientWidth+1,items:items});});"
+    "return rows;})(),"
+    "'header':(function(){var h=document.querySelector('header');"
+    "if(!h){return null;}var r=h.getBoundingClientRect();"
+    "return {x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),"
+    "h:Math.round(r.height)};})()"
+)
+
+# The two values a link has when no stylesheet has touched it. Chrome's UA sheet puts
+# `color: -webkit-link` and `text-decoration: underline` on every anchor, and `-webkit-link`
+# resolves to this. #204 measured exactly these two on all five photographed pages: every link
+# `rgb(0, 0, 238)`, weight 400, underlined.
+UA_LINK_BLUE = "rgb(0, 0, 238)"
+UA_UNDERLINE = "underline"
+
+# The smallest box that is a target rather than a glyph, in pixels.
+#
+# #199 is a complaint about a hand as much as about a colour: "when accessing from a phone ... the
+# text is so small ... it is difficult to navigate". Measured on this stylesheet, a navigation entry
+# is 26 px tall with `nav a`'s padding gone and 40 px with it -- 23.6 px of line box, 14.4 px of
+# `.45rem` padding, 2 px of reserved border. `pages.py` transcribes the same 40 as its fixture's
+# `NAV_HEIGHT`; this is the floor the guard refuses under, and the two agree on the number while
+# doing different jobs, one a measurement of what the page renders and one a claim about what a thumb
+# can hit. #229's review is why it is a number at all: deleting the padding line was green in every
+# Go guard, every other capture guard, and a full nine-page capture run.
+NAV_MIN_TARGET = 40
+
+
+def _border_px(value):
+    """The pixel width a computed `border-bottom-width` reports, or None when it is not a length.
+
+    Chrome answers `2px`. A census from anything else could answer `2 px`, or a keyword like
+    `medium`, and a parser that read those as 0 would turn "the browser is not drawing this border"
+    into "it is drawing it at zero width" -- two different refusals collapsed into one wrong number.
+    So a value this cannot read comes back as None and the caller says it could not read it.
+    """
+    text = str(value or "").strip().lower()
+    if not text.endswith("px"):
+        return None
+    try:
+        return float(text[:-2])
+    except ValueError:
+        return None
+
+
+def _nav_rows(got, what):
+    """The navigation rows, or a refusal naming the census that was never taken.
+
+    The same shape as the three #202 guards, for the same reason: a check that reads a key nobody
+    measured does not pass because the page is fine, it passes because nothing was ever compared,
+    and the transcript cannot tell the two apart.
+    """
+    rows = (got or {}).get("nav")
+    if rows is None:
+        raise SystemExit(f"{what}: asked whether the navigation marks the current page when no "
+                         "navigation census was taken for it. The census has to be spliced into "
+                         "the measurement (cdp.NAV_JS), and a check that reads a key nobody "
+                         "measured is a check that always passes (#204).")
+    return rows
+
+
+def nav_census_line(got):
+    """What the #204 guards were shown, on the same line as the #202 census.
+
+    `nav=5 links marked=Status overflow=0` -- the marked entry named by its own text rather than by
+    an index, because the text is the only thing a reader of the transcript can check against the
+    photograph below it.
+
+    Where there is not exactly one mark the field is a COUNT, not a name: an empty navigation prints
+    `nav=0 links marked=0` and a doubly-marked one prints `marked=2`. It said `marked=none` for the
+    first of those until #229's review read the line the code actually writes, and the difference is
+    not cosmetic -- `none` is a word this file uses for a state it did not measure, and a transcript
+    reading `marked=none` on a page that measured zero marks would be the one place in the run where
+    a reader could not tell an absence from a gap. Zero is the case this folder refuses to let pass
+    silently (see `census_line`), and the refusal is the guard's job; this line's job is to report
+    what the census saw, in the units it counted in.
+    """
+    rows = (got or {}).get("nav") or []
+    items = [i for row in rows for i in row["items"]]
+    marked = [i for i in items if i["cur"] == "page"]
+    return (f"nav={len(items)} links marked={marked[0]['text'] if len(marked) == 1 else len(marked)}"
+            f" overflow={sum(1 for row in rows if row['overflow'])}")
+
+
+def nav_names(items, limit=4):
+    """Navigation entries by their own text, the way a refusal has to name them.
+
+    Not `_listed`, which names a *control* by its tag and `name` attribute: an anchor has neither
+    in the way a reader of the transcript could check, and the artifact below the refusal line
+    shows these links by their words. Falls back to the href for an anchor with no text, because
+    the refusal still has to point at something.
+    """
+    def one(item):
+        return repr(item["text"]) if item["text"] else f"href={item['href']!r} (no text)"
+    head = ", ".join(one(i) for i in items[:limit])
+    return head if len(items) <= limit else f"{head}, and {len(items) - limit} more"
+
+
+def require_nav_marked(got, what, nav):
+    """Exactly one entry per navigation row says "this is the page you are on" (#204), and it is the
+    entry this page belongs to.
+
+    `nav` is the href the fixture declares for this page's section, and it is what turns a count
+    into criterion 1. Without it the strongest thing this function could say is "one of these five
+    is marked", which a stylesheet gets right on every page by marking the first -- and nine
+    photographs of a wrong mark are nine photographs of the wrong page. The alternative source for
+    that string, deriving the section from the URL here, would be a second copy of the segment rule
+    `internal/web/sources.go` already owns; D-0025 refused that duplication for the browser, and
+    the same reason applies a layer out.
+
+    The count is the whole of #199's first sentence -- "indicate clearly which page is currently
+    selected" -- and #204 measured it as zero everywhere: five links per page, none carrying
+    `aria-current`, on all five photographed pages.
+
+    Zero and two are different failures and both are refused by name. Zero is the reported defect.
+    Two is what happens when the site's name stays an anchor to the root while the row also carries
+    an entry for the root: two elements marked current on one page turns the mark into decoration,
+    which is the belief the issue was filed against.
+
+    Then the position, because criterion 4 is a position claim and property comparisons cannot
+    answer it: the marked box has to be inside the header's box. A navigation moved out of the
+    header -- into a footer, or into a `<div>` after `</header>` -- would keep marking the right
+    entry and would satisfy every property check in this file while photographing something the
+    report did not ask for.
+
+    Then the box's own height, because #199's first sentence is about a thumb and not only about an
+    eye. `NAV_JS` has always recorded `h` per entry and the header check has always read `y`, and
+    until #229's review nothing in the repository read `h`: deleting `nav a`'s padding left every Go
+    guard green, left `require_nav_in_palette` and `require_nav_distinguishable` green (padding moves
+    no colour, weight, decoration or border), and let a full nine-page capture exit 0 while the
+    profiles frame genuinely moved 17 px. A census that measures a box and refuses nothing about it
+    is a census that was never asked the question. The floor is the marked entry's own -- the one a
+    reader is aiming at -- and `NAV_MIN_TARGET` says why 40.
+
+    What this does NOT ask is whether the marked entry's *name* is the page's name. The row's first
+    entry reads "Status", its `<title>` reads "Status", and no heading on the page says either word
+    (#219). That is a page-identity question and a census of computed style cannot settle it.
+    """
+    rows = _nav_rows(got, what)
+    header = (got or {}).get("header")
+    for row in rows:
+        items = [i for i in row["items"] if i["vis"]]
+        marks = [i for i in items if i["cur"] == "page"]
+        if len(items) < 2:
+            raise SystemExit(
+                f"{what} has a <nav> holding {len(items)} visible links, so nothing in it can be "
+                "marked out of a set. #204 asks which entry is the current page *of the row*; a row "
+                "of one has no other entry, and a page that lost its links fits at any width "
+                "(#140's lesson, applied to the header).")
+        if not marks:
+            raise SystemExit(
+                f"{what} has {len(items)} links in its navigation and marks none of them current. "
+                "No entry carries `aria-current=\"page\"`, so the row cannot be told which page it "
+                "is on by anything except reading the URL -- which is the defect #204 was filed "
+                "about, measured as zero marks on all five photographed pages.")
+        if len(marks) > 1:
+            raise SystemExit(
+                f"{what} marks {len(marks)} navigation entries current "
+                f"({', '.join(repr(i['text']) for i in marks)}). `aria-current=\"page\"` is one "
+                "fact about one location; two of them is the header containing a second route to "
+                "the root, and the reader cannot tell which one the page is.")
+        marked = marks[0]
+        if not marked["text"]:
+            raise SystemExit(
+                f"{what} marks a navigation entry with no text as the current page. A screen reader "
+                "announces the mark and nothing to announce with it, and the parent looking at the "
+                "photograph sees a mark on blank space.")
+        if not any(i["href"] == nav for i in items):
+            raise SystemExit(
+                f"{what} declares its section as {nav!r} and the rendered row offers no such href "
+                f"({nav_names(items, limit=8)}). Either the shell lost an entry or this page's "
+                "declaration is stale -- and with no entry for this page, there is nothing the mark "
+                "could correctly be on, so criterion 1 cannot be answered at all.")
+        if marked["href"] != nav:
+            raise SystemExit(
+                f"{what} is photographed in the {nav!r} section and marks {marked['href']!r} "
+                f"({marked['text']!r}) current. Criterion 1 is about the link whose href resolves to "
+                "the page being photographed; this is what a stylesheet that marks the first entry "
+                "on every page looks like, and it would have been photographed, plausibly, nine times "
+                "over.")
+        if header is None:
+            raise SystemExit(
+                f"{what} marks an entry current and renders no <header> for the mark to be inside. "
+                "#204's criterion 4 is that the mark is the header's current-page mark; measured "
+                "against no header, that claim is about nothing.")
+        if not (header["x"] <= marked["x"] and header["y"] <= marked["y"]
+                and marked["y"] <= header["y"] + header["h"]):
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current at ({marked['x']},{marked['y']}) while "
+                f"the header spans y={header['y']}..{header['y'] + header['h']}, so the mark is not "
+                "the header's. A navigation moved out of the header keeps marking the right entry "
+                "and photographs a different page than the one #204 asked about.")
+        # The target, measured on the one entry the reader is aiming at. The comparison is on the
+        # rounded number NAV_JS records -- the same one the census prints -- because a floor is a
+        # claim about a thumb, and a thumb does not care about the tenth of a pixel the browser
+        # rounded away.
+        if marked["h"] < NAV_MIN_TARGET:
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current in a box {marked['h']} px tall, under the "
+                f"{NAV_MIN_TARGET} px this row is required to offer. #199 is a complaint about "
+                "navigating a phone with a thumb: the mark being on the right link, in the right "
+                "colour, at the right weight, says nothing about the link being hittable. That is "
+                "`nav a`'s padding -- 26 px without it, 40 with it, measured on this stylesheet -- "
+                "and no other guard in this repository reads a box's height, which is how deleting "
+                "it stayed green through nine photographs (#229).")
+
+
+def require_nav_in_palette(got, what):
+    """No link in the navigation is still the browser's own link (#204's first sentence).
+
+    The scope is the navigation, and it is worth saying because the sentence above it does not carry
+    it: #204's table is the five links in `<nav>` on five pages, so the loop below walks the rows
+    `NAV_JS` censused and nothing else. A link in the page's own body that still computes to the
+    user-agent's blue is outside this census -- `NAV_JS` selects `nav`, and a guard can only refuse
+    what it was shown. Widening it would mean widening the census to every anchor on nine pages,
+    which is a different claim about a different set of links than the one the report measured.
+
+    #199 opens with "it doesn't match the color palette of the system" and #204 measured why: the
+    stylesheet's only rule for `a` was `:focus-visible`, so every anchor kept Chrome's user-agent
+    `color: -webkit-link` -- `rgb(0, 0, 238)` -- and its underline, next to a page that says
+    `--ink: #1a1c20` in its first lines. The first committed artifact even shows the visited half:
+    the site's name rendered `rgb(100, 0, 100)` because the capture browser had already been to the
+    root and the UA's visited rule was the only rule about that anchor's color.
+
+    Two properties, both the UA's signature, checked on every link in every navigation row. This
+    refuses on the value, not on the presence of a rule: a stylesheet that reaches these links by
+    any selector at all passes, and one that greps beautifully while a typo keeps the UA value on
+    the page fails.
+
+    The visited state is NOT observable here and this says so rather than pretending: a fresh
+    profile has no history, so `a:visited` never matches in the capture browser. What protects it
+    is the same author declaration -- an author `color` on the anchor outranks the UA's visited rule
+    for the same reason it outranks the UA's unvisited one -- and the artifact above is why the
+    check is worth having even so.
+    """
+    rows = _nav_rows(got, what)
+    blue = []
+    underlined = []
+    for row in rows:
+        for item in row["items"]:
+            if not item["vis"]:
+                continue
+            if item["color"] == UA_LINK_BLUE:
+                blue.append(item)
+            elif item["dec"] == UA_UNDERLINE:
+                underlined.append(item)
+    if blue or underlined:
+        parts = []
+        if blue:
+            parts.append(f"{nav_names(blue)} still user-agent blue {UA_LINK_BLUE}")
+        if underlined:
+            parts.append(f"{nav_names(underlined)} still carries the user-agent's underline")
+        raise SystemExit(
+            f"{what} has {len(blue) + len(underlined)} navigation link(s) the stylesheet never "
+            f"claimed ({' | '.join(parts)}). The palette in `app.css` says `--ink: #1a1c20` and "
+            "`--muted: #5b6270`; a link reading neither is not in the palette (#204, #199).")
+
+
+def require_nav_distinguishable(got, what, nav):
+    """The entry for this page differs from every sibling on something a browser agrees is visible.
+
+    The first four properties are the issue's own list -- `color`, `font-weight`,
+    `text-decoration-line`, `border-bottom-width` -- and the reason all of them are read is the
+    failure this rule exists for: a stylesheet can mark the current page with a rule the engine
+    throws away, or with a rule whose effect is invisible, and every grep in the repository stays
+    green while the reader sees the same row. #204's wording is that the current link "does not
+    differ from its siblings in any property a reader can see", so that is exactly the comparison.
+
+    `border-bottom-color` is the fifth and it is here because the four as written cannot see the
+    design this stylesheet chose: every link reserves a 2px border so marking the current one does
+    not move the row, so `border-bottom-width` is `2px` everywhere and only its COLOR changes. A
+    comparison limited to the width would call this page unmarked. Adding a property makes the
+    guard more accepting, never less: it still refuses the case where nothing at all differs, which
+    is the regression that actually ships.
+
+    The obvious cheap compliance -- `text-decoration: underline` on the current page alone --
+    satisfies "at least one of them" and is the worst answer available, because the row's links
+    just stopped being underlined when they stopped being plain anchors. That is not written as a
+    rule here: a rule saying "the mark must not be an underline" is a rule about one design, and
+    the next designer argues with it and wins. It is written as the comment on the stylesheet rule
+    instead, where the person editing that rule reads it.
+
+    The reservation itself is the exception to that paragraph, and it is measured here rather than
+    left to the comment, because #229's review showed what leaving it costs: deleting
+    `border-bottom: 2px solid transparent` from `nav a` was green in the whole `internal/web`
+    package AND green through a full capture run. With the reservation gone every link computes
+    `0px`, the current-page rule's `border-bottom-color` is a colour on a border the browser never
+    draws, and the comparison above still passes on colour and weight alone -- so the third visible
+    part of the mark silently stops existing while every property named in the issue's own list
+    still differs. That is not a sixth property added to the comparison, it is the fifth one made
+    honest: `bc` only means anything on a border that is drawn.
+
+    So two things are asserted about the width, on the whole row rather than on the marked entry
+    alone. It is non-zero -- otherwise nothing is drawn -- and every entry computes the same value,
+    because "marking the current entry cannot move the row's baseline" is a claim about the row: a
+    width that differs between siblings is the design D-0035 refused, and it would have put 2 px of
+    vertical jump on every page the shell renders.
+    """
+    rows = _nav_rows(got, what)
+    for row in rows:
+        items = [i for i in row["items"] if i["vis"]]
+        # The entry this page belongs to, by href -- not "the marked one", which is the same row
+        # only after require_nav_marked has run. Criterion 1 names the link "whose href resolves to
+        # that page", so this guard asks about that link; in `shoot()` the marked guard runs first
+        # and has already refused the case where the two disagree, and a caller that runs this one
+        # alone gets no comparison rather than a second, weaker opinion about the wrong element.
+        marks = [i for i in items if i["href"] == nav]
+        if len(marks) != 1:
+            continue  # require_nav_marked owns the count and the identity, and says more about both
+        marked = marks[0]
+        same = [i for i in items if i is not marked and all(
+            marked[k] == i[k] for k in ("color", "weight", "dec", "bw", "bc"))]
+        if same:
+            raise SystemExit(
+                f"{what} is in the {nav!r} section and that entry ({marked['text']!r}) looks exactly "
+                f"like {len(same)} of its siblings ({nav_names(same)}) -- "
+                f"color {marked['color']}, weight {marked['weight']}, decoration "
+                f"{marked['dec']}, border-bottom {marked['bw']} {marked['bc']}. The attribute is in "
+                "the DOM and nothing in the stylesheet turns it into something a parent can see, "
+                "which is the half of #204 a grep of `app.css` cannot tell apart from a rule that "
+                "works.")
+        # The reservation the mark is drawn on, asserted on every entry rather than on the marked one.
+        # `reserved` is None when the census reports a width this parser cannot read at all, and that
+        # is said as itself -- a comparison that read `medium` as 0 would refuse with a sentence about
+        # a border nobody drew.
+        reserved = _border_px(marked["bw"])
+        others = sorted({i["bw"] for i in items if i is not marked and i["bw"] != marked["bw"]})
+        if reserved is None:
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current with a border-bottom-width the capture "
+                f"driver cannot read ({marked['bw']!r}). The mark in this repository is drawn as the "
+                "COLOUR of a reserved border, so an unreadable width is not a harmless extra digit: "
+                "it means the census stopped reporting the number this guard compares.")
+        if reserved <= 0 or others:
+            why = (f"its border-bottom-width computes {marked['bw']!r}, so the browser draws no "
+                   "border at all and the current page's `border-bottom-color` is a colour on "
+                   "nothing" if reserved <= 0 else
+                   f"the entries do not compute it the same: {marked['bw']!r} on "
+                   f"{marked['text']!r} against "
+                   f"{', '.join(repr(w) for w in others)} on its siblings")
+            raise SystemExit(
+                f"{what} marks the current entry on a border that is not the row's reservation: "
+                f"{why}. `nav a` reserves one border on every link precisely so that marking "
+                "the current entry cannot move the row's baseline, and this is the only place that "
+                "reservation is measured: deleting `border-bottom: 2px solid transparent` was green "
+                "package-wide and green through nine photographs, and a future rule that marks by "
+                "width would put a vertical jump in the header of every page the shell renders "
+                "(#229, D-0035).")
+
+
 def session_rows(session):
     """Every row of every `table.rows` table, as (data-label, text) pairs.
 

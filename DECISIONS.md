@@ -25,7 +25,8 @@ branch, because `git log --grep 'Decision: D-0011'` has to name exactly one comm
 `scripts/check-decisions.py` refuses a reused id. D-0001–D-0010 belong to the branch that installs
 the decision-log gate and the `make verify` hook for it (`feat/factory-harness`, PR #217), which
 was still open when the first entry below was written. When the two files meet, both halves are
-kept; nothing here renumbers anything.
+kept. Renumbering is rarer than the collision it avoids, and the rule that decides which side moves
+is at the end of this section.
 
 ## Writing to this file before the gate exists
 
@@ -36,7 +37,7 @@ alternative -- waiting for #217 to merge -- silently exempts every branch in fli
 `issue-202` did the same thing on its own branch, which is why this file is two logs and the merge
 that joined them kept both halves.
 
-Two consequences, both deliberate:
+Three consequences, all deliberate, and the third is no longer a prediction:
 
 - **The numbering continues past the highest id on any open branch.** #217's log ends at `D-0020`
   and the half above ran `D-0011`..`D-0015`, so ids were already colliding across branches; the
@@ -44,6 +45,27 @@ Two consequences, both deliberate:
   once already: `main` minted `D-0016`..`D-0018` independently while this branch was writing, so a
   branch that had numbered from its own highest id would have opened a third set of those three.
   This file took `main`'s at the 6 Nov merge and renumbered nothing.
+- **When two logs really do collide, the published side keeps its ids and the merging branch moves.**
+  That is the direction the 6 Nov merge chose for the two mutant rows that arrived as `W298`/`W299`
+  on both sides and landed as `W301`/`W302`: `main`'s ids were already published history, and
+  `main`'s own entry cited them by id, so renumbering them would have left a merged entry naming rows
+  the file beside it no longer holds. The same rule moved three entries when `main` was merged into
+  `issue-199` on 6 Nov, the branch that wrote the paragraph you are reading. `D-0025`, `D-0026` and
+  `D-0027` as authored there are `D-0033`, `D-0034` and `D-0035` here, because `main` had meanwhile
+  minted its own `D-0025` (the scripts condition reaching the browser) and `D-0026` (the two POST
+  frames), while `D-0031` and `D-0032` are already claimed by `feat/factory-harness` and `issue-224`
+  -- read off `git show <branch>:DECISIONS.md`, the only source that answers. What the move costs is
+  stated rather than hidden: the `Decision:` trailers on the three effect commits keep the numbers
+  they were written with, because changing them means rewriting a pushed branch, which this
+  repository does not do. So `git log --grep 'Decision: D-0034'` finds nothing, and
+  `git log --grep 'Decision: D-0026'` names the right commit and, once `main`'s half is beside it, an
+  unrelated entry. The bodies of those commits cite the old numbers in prose too, and they are pushed
+  as well: `git log --grep 'D-0026'` finds `a2ccac0`, which is talking about the navigation under the
+  number this file now reads as the two POST frames. The mapping is D-0036's to carry, and the four
+  prose citations of the old numbers
+  (`testing/capture/cdp.py`, `testing/capture/lock.py`, `testing/capture/pages.py` twice) were
+  rewritten in the same commit so that nothing in the tree points at a number this file no longer
+  holds.
 - **The field contract is #217's, unchanged** -- `## D-NNNN · title` followed by `Question`,
   `Options`, `Chose`, `Why`, `Checkpoint` (plus `Effect`), with `Chose` repeating one option
   verbatim. So when #217 lands, `make verify` starts checking these entries instead of rejecting
@@ -51,6 +73,18 @@ Two consequences, both deliberate:
   will name two decisions apiece once #217's own log lands beside them -- the last three arrived
   from `main` with #221, which answers #219 and #220 -- and renumbering them is that branch's call,
   not this file's.
+- **The shape half of that prediction has now been run, and it is not the collision.** On 6 Nov this
+  branch fetched #217's gate -- `git show feat/factory-harness:scripts/check-decisions.py`, run with
+  `--log DECISIONS.md` -- and it returns three problems, none of them a reused or out-of-order id
+  and none of them in either half's
+  numbering: `D-0016`, `D-0017` and `D-0018`, all three arrived from `main` with #221, each with a
+  `Chose:` that runs past the option it chose. They are one class of defect, the one
+  `fix(decisions)` already fixed here once for `D-0015` (b55d892), and the repair is the same: widen
+  the option to the `Chose`, which keeps the arithmetic the entry needs and shortens nothing. This
+  branch does not repair them, because rewriting another unit's entry is not this unit's call -- the
+  three record decisions made on #219's and #221's branches, and the entry is the record of *their*
+  tie-break. Whoever merges #217 next inherits them, and the three lines above name them exactly.
+
 
 ## D-0011 · One typeface and one width model for the controls you type into
 
@@ -921,3 +955,297 @@ Two consequences, both deliberate:
   What lost. #220's other two options lose: pinning the daemon's clock through `web.Server.Now` and declaring the window in `pages-setup.sh` — both recorded as rejected in D-0017, and #220's body carried them as offers, not requirements. #213 loses the argument that byte identity proved the condition, which #207's own withdrawal already retired. #204 loses two measured rows — the duplicate `href="/"` and the `h1` weight comparison — both fixed under D-0016 as that entry predicted, and the issue now says so instead of sending a lane to re-measure them. Nothing here is irreversible: every close is one `git show origin/main:<path>` away from being re-checked, the four comments carry those commands row by row, and #224 is shut only as the walk it asked for — #216 still owns whether the supervisor should reconcile at all.
 - Checkpoint: ab7263a2df0b8e662eb68f1a3107f143e17c65a6
 - Effect: issues #219 and #220 (closed as satisfied, nothing deleted), #213 and #204 (reduced to their residue, with the settled rows and their re-check commands beside them), #224 (closed as delivered once the pull request carrying this entry is open), DECISIONS.md (this entry)
+
+## D-0033 · The shell is told the path, and one segment decides which entry is current
+
+- Question: #204 measured the same computed style on every navigation link on every photographed
+  page -- the link for the page the reader is on included -- and named the markup half of the cause:
+  `page.tmpl` emits the five links with no class and no `aria-current`, so there is no attribute for
+  a rule to hook onto and nothing for a screen reader to announce. How does the shell find out which
+  page it is rendering, and what does it write?
+- Options: `pageData.Path` filled from `r.URL.Path`, plus one method on the shell that answers "is
+  this href the reader's section" | the page's own `pagename` definition, compared against each href
+  in the shell | the navigation moved into Go as a slice of entries carrying a `Current` bool |
+  `body.page-<pagename>` and a stylesheet selector, with no DOM attribute | `app.js` setting
+  `aria-current` when the page loads
+- Chose: `pageData.Path` filled from `r.URL.Path`, plus one method on the shell that answers "is
+  this href the reader's section"
+- Why: the last option dies on a measurement before any tie-break is reached. #212 made every
+  capture run with `Emulation.setScriptExecutionDisabled`, so an attribute that exists only after a
+  script has run is absent from all nine committed frames, from every reader who blocks scripts, and
+  from #204's own criterion 3, which asks for `aria-current="page"` "asserted on the DOM rather than
+  inferred from CSS". The fourth is the fewest files and has this repository's own precedent --
+  `page.tmpl` already writes `class="page-{{template "pagename"}}` on the body -- and it loses on
+  that same criterion: no selector reaches a DOM attribute, so a stylesheet-only answer marks the
+  page for the parent who can see it and nothing for the one who cannot. What it keeps, and keeps,
+  is that it needs no template edit at all; the stylesheet gets its hook from the attribute instead,
+  which is why the rule written later reads `nav a[aria-current="page"]` rather than a class. The
+  second loses because `pagename` names a template, not a location: the two POST result pages render
+  from a template named for the action that produced them, at a URL that is a child of an account
+  row, so a per-template answer marks nothing on `lock.png` and `testlock.png` and has no way to
+  learn that `/users/casey/lock-now` is standing in the accounts section. The third loses on the
+  shape D-0011 and D-0012 both refuse -- a table of hrefs somebody has to add an entry to, in the
+  file that is not the one writing the markup -- and it does not even remove the markup: the
+  masthead's byte-separation guard and the comment that explains why the Settings link has no
+  trimming dashes stay in `page.tmpl` either way. What it keeps is labels readable from Go, and
+  `TestEveryNavigationEntryIsALiveGETRoute` answers that from the rendered page instead, so it also
+  catches an entry whose href is not a route at all. Inside the chosen option, "refuses rather than
+  proceeds" decided the empty case: no path marks nothing, because a shell that was never told where
+  it is has no answer, and that is `readAccounts` refusing a nil listing as "answered nothing at
+  all" one layer up. The match is a segment split rather than a prefix test for a reason the code
+  repeats: a prefix test makes `/` a prefix of every path, which marks two entries at once, and
+  makes `/users` a prefix of `/usersfoo`, which marks an account page on a path nobody registered.
+  The cost is stated rather than hidden: the rule now lives in Go, where whoever edits the five links
+  in `page.tmpl` will not be looking at it, and the capture driver separately counts how many
+  entries carry the attribute on nine pages. That is a count and deliberately not a second
+  derivation of the segment rule in JavaScript -- two implementations of one rule drift, and the
+  list D-0011 refused is the cautionary example earlier in this log -- and the number of entries
+  between the two is deliberately not stated, because the merge that grew this log is exactly the
+  thing that would make a count written there false.
+- Checkpoint: 64c2751a5d8abd4c449a46833da5842f2fb43173
+- Effect: internal/web/sources.go (`pageData.Path`, `IsCurrent`, `firstSegment`; `render` fills the
+  path), internal/web/templates/page.tmpl (`aria-current="page"` on the current entry),
+  internal/web/nav_test.go, DECISIONS.md
+
+## D-0034 · The site's name stops being a second route to the root
+
+- Question: #204 measured two anchors in the header with the same `href="/"`, on the page the root
+  renders, differing only in weight -- "One of them is not a navigation target, and nothing says
+  which." Which of the two is the navigation?
+- Options: the site's name stops being a link and the row's own entry becomes the only route to the
+  root | the name keeps its href and gets `aria-hidden="true"` with `tabindex="-1"` | the name stays
+  a link and the `Status` entry is deleted, so the row carries one route to the dashboard | both
+  stay and both are marked current on the root | nothing: the report is about the stylesheet, not
+  the header
+- Chose: the site's name stops being a link and the row's own entry becomes the only route to the
+  root
+- Why: the fourth inverts what the attribute means. `aria-current="page"` is a fact about which
+  page the reader is on, and a page that marks two elements current teaches them the mark is
+  decoration -- which is the belief #204 was filed against. The second keeps the worst two
+  properties of the pair: the mouse affordance survives, the keyboard stop and the announcement go,
+  so whether the element exists depends on which input device the parent picked up; and it hides
+  the duplication instead of ending it, when the complaint was that the duplication is not legible,
+  not that it is invisible to software. The third is the one that leaves the header honest about
+  its routes, and it decides a content question by default: with `Status` gone the row's first entry
+  is the product's name, so the row no longer says what the root page is *for*, and #204's own
+  finding -- the link reads `Status`, the page is the dashboard, `docs/` uses neither word
+  consistently -- gets settled by whichever element happened to survive. The fifth is refused by
+  the report being a measurement: two anchors, one href, one page in five, and a tab order that
+  pays for it there. "Refuses rather than proceeds" is the tie-break and it points one way: this
+  removes a route rather than adding an attribute, and the route it removes is the one offered by
+  the element beside it, now marked. The costs are kept in the open. A wordmark that does nothing
+  breaks the convention a parent's finger expects, and `TestTheHeaderRoutesToTheRootExactlyOnce` is
+  the guard that keeps the anchor from coming back as a well-meaning wordmark. The larger one is
+  what the `<h1>` now *is*: the product's name, on a page whose own name reaches a reader only
+  through `<title>` and whose visible heading is a table caption, so skip-to-heading lands on the
+  same two words on all five pages. Fixing that means deciding which element carries a page's
+  identity, across five templates' `title` and `pagename` blocks, and it is #219 -- filed with the
+  measurements and the two candidate answers, because a deferred half that lives only in a decision
+  log entry is a deferred half nobody is queued to finish.
+  #219 was answered on `main` while this entry was still on an unmerged branch, and its answer
+  (D-0016) took the cost above and closed it: the `<h1>` is now the page's own name, rendered from
+  the same `title` block `<title>` is built from, and the product's name is
+  `<p class="masthead__name">` -- not a heading, and still not a link. So only the half of this
+  decision survives into the merged tree, and it is the half #204 actually measured: the header has
+  exactly one anchor to `/`, the entry that is marked current. The heading of this entry said the
+  name *is* a heading; the merge that made that false is D-0036, and it retitled the entry rather
+  than rewriting its Options, which are the record of a tie-break between four things that were all
+  genuinely on the table at the time.
+- Checkpoint: e2dbd469d66dbc70556804cd3b848309ff8c5af8
+- Effect: internal/web/templates/page.tmpl (the `<h1>` is no longer an anchor),
+  internal/web/nav_test.go (`TestTheHeaderRoutesToTheRootExactlyOnce`), DECISIONS.md
+
+## D-0035 · The current entry is marked by ink, weight and a rule it already reserved
+
+- Question: #204 asks three things of the stylesheet -- that no navigation link computes to the
+  browser's `rgb(0, 0, 238)`, that the current entry differ from *every* sibling in at least one of
+  `color`, `font-weight`, `text-decoration-line`, `border-bottom-width`, and that the mark hang off
+  a DOM attribute rather than a class only the stylesheet knows. What does the row actually get
+  drawn, and what is refused even though it would pass the criterion?
+- Options: `text-decoration: underline` on the current entry alone | ink and weight on the current
+  entry, over a 2 px bottom rule reserved transparent on every link | a filled background chip
+  behind the current entry | `::after { content: " (current)" }` on the current entry | the
+  attribute only, with nothing drawn, leaving the mark to assistive technology
+- Chose: ink and weight on the current entry, over a 2 px bottom rule reserved transparent on every
+  link
+- Why: the first option satisfies criterion 1 exactly and is the worst thing that could ship, and
+  that is why the entry records a refusal rather than a preference. The row's links only just
+  stopped being underlined -- the underline was the user-agent's, and `nav a` is what took it away
+  -- so making the current entry the one underlined link puts back the property the parent has just
+  learned to read as "a destination", and the mark says *this is a link* on the one entry where the
+  fact is not the point. It is also one rule away from vanishing: a later `nav a:hover` placed
+  below it, or a reset that clears decoration, leaves the row as #204 found it, and criterion 1's
+  own reasoning says a single-pinned property is the mistake repeated through #196 and #201. The
+  chip is refused on the palette it would have to invent: this file has `--bg: #fff` and
+  `--line: #d8dbe2` and no fill token, so a chip means a sixth variable added for a navigation
+  mark, which is a larger change to the palette than the mark is worth, and a chip on a 360 px row
+  that already wraps onto a second line eats the room the entries need. The `::after` string is
+  honest about being for the reader who can see it, and it says in text what `aria-current` already
+  says in the DOM -- so it announces twice to a screen reader and costs horizontal room at the
+  width the row is tightest. The last is refused by the sentence of the report it would fail: the
+  parent who reads the row with their eyes gets nothing, and #204 was filed by one.
+  Inside the chosen option the load-bearing part is the reservation, not the colour. Every link
+  carries `border-bottom: 2px solid transparent` and only the current one colours it, because a
+  border introduced by the current-page rule alone grows that one link's box and moves the baseline
+  of every page the shell renders -- measured on the dashboard, a link is 40 px tall with its
+  padding and 26 px without, and the row wraps at 360 px, so a 2 px shift is a shift of a whole
+  second line. Three properties then differ while nothing moves: `--ink` against `--muted`, 600
+  against 500, `--line` against transparent -- all three from tokens the file already declares,
+  which is what criterion 2 is really asking for, since the complaint was not that blue is ugly but
+  that the navigation was the one part of the page not using this palette. Costs, kept in the open:
+  the rule works only because `nav a:hover` is written *above* it, so hovering the page you are on
+  does not underline it -- an order a formatter or an alphabetical tidy could silently invert,
+  which is why `TestTheStylesheetMarksTheCurrentEntryLast` reads byte offsets rather than trusting
+  the file to stay as written. And because `nav a` now sets `color`, the user-agent's visited blue
+  is outranked for these links; the capture browser has a fresh profile and no history, so nothing
+  in a photograph can show that, and the comment says so instead of the test claiming it.
+- Checkpoint: 05f6aab3991f52f5051bd85d9642aa4a13c686b2
+- Effect: internal/web/static/app.css (the navigation block -- `nav`, `.masthead h1`, `nav a`,
+  `nav a:hover`, `nav a:active`, `nav a[aria-current="page"]`), internal/web/nav_test.go
+  (`TestTheStylesheetMarksTheCurrentEntryLast`), DECISIONS.md
+
+## D-0036 · The merge takes main's masthead, and this branch's three ids move
+
+- Question: `git merge origin/main` on 6 Nov stops on thirteen paths. Two of them are the same
+  element drawn twice: this branch made the masthead's `<h1>` prose-with-no-anchor (#204, D-0034)
+  while `main` moved each page's own name into the `<h1>` and demoted the product's name to
+  `<p class="masthead__name">` (#219, D-0016). The other eleven are the nine 360 px frames plus
+  `manifest.json` and this file, each side having re-photographed the same set and minted ids in
+  the same range. Whose masthead renders, whose ids survive, whose bytes get staged, and from which
+  base does the pull request open?
+- Options: main's masthead with this branch's `aria-current` navigation kept, main's ids kept and
+  this branch's three entries moved to D-0033..D-0035, main's frames staged and a new set taken
+  against the merge | this branch's masthead kept and #219's page-name heading dropped | main taken
+  wholesale, navigation included, this branch's #204 work abandoned | main's three entries
+  renumbered instead of this branch's | the branch left 42 commits behind main and the pull request
+  opened from the stale base
+- Chose: main's masthead with this branch's `aria-current` navigation kept, main's ids kept and this
+  branch's three entries moved to D-0033..D-0035, main's frames staged and a new set taken against
+  the merge
+- Why: the two mastheads are not rivals, and only one of them is a superset. #204's finding is "one
+  of these two anchors is not a navigation target and nothing says which"; this branch answered it
+  by deleting the anchor, `main` answered the same finding by moving the heading as well, so its
+  header has no second route to the root either -- it additionally makes the heading layer answer
+  "which page am I", which is what #219 was opened for. Dropping that would mean deleting
+  `TestEveryPageNamesItselfInTheHeading`, a guard that landed on `main` and answers to each page's
+  own `<title>`; keeping this branch's template would mean keeping an `<h1>` that guard refuses, and
+  the two assertions -- the heading carries the page's name, the heading carries the product's name
+  -- cannot both hold in one file. What lost is recorded rather than hidden: D-0034's heading half
+  is superseded, so that entry is retitled to the half that survives (the header routes to the root
+  once) and carries a note saying which merge closed the rest; and the rule that inked the wordmark,
+  `.masthead h1 { color: var(--ink) }`, is deleted rather than left reading an element that no
+  longer holds those words -- the heading inherits `--ink` from `body` either way, so no pixel moves
+  and one false comment goes with it. The navigation merges additively: nothing on `main` touches
+  `nav`, `nav a` or `aria-current`, so `TestTheStylesheetMarksTheCurrentEntryLast` and the four
+  capture guards keep their subject, and `go test ./internal/web/` is green on the merged tree
+  (17.3 s, ok) with `nav_test.go`'s header guard rewritten to ask where the product's name is --
+  once, in the header, outside the anchor -- instead of asking which element holds it.
+  The ids follow the rule the preamble of this file now carries: the published side keeps its
+  numbers. `main`'s `D-0025` and `D-0026` are merged history whose own entries cite each other by
+  id, and `D-0031`/`D-0032` are already claimed by `feat/factory-harness` and `issue-224`, read off
+  `git show <branch>:DECISIONS.md` -- the only source that answers. So this branch's three moved,
+  and what that costs is in the preamble rather than here: the three effect commits keep the
+  `Decision:` trailers they were written with, because rewriting a pushed branch is forbidden in
+  this repository, so `git log --grep 'Decision: D-0034'` finds nothing and this entry is the only
+  thing that maps the two numbers to each other. The four prose citations of the old ids
+  (`testing/capture/cdp.py`, `testing/capture/lock.py`, `testing/capture/pages.py` twice) were
+  rewritten in this commit so nothing in the tree points at a number this file no longer holds.
+  `EXPECTED_RULES` is the union, 58, and the number is measured rather than tallied:
+  `python3 testing/capture/pages.py --self-test` prints "58 refusal rules hold" and refuses
+  otherwise, which is why the two sides' counts did not have to be added correctly by hand.
+  The frames could not be chosen between at all -- that is the mistake D-0015 refused once already,
+  and it is worse here: the merged tree renders a flex navigation with 40 px targets and one marked
+  entry, which is in neither side's nine photographs. So `main`'s bytes are staged to keep the merge
+  itself free of new artifacts, and the price is paid in the open: `manifest.py check` fails on this
+  commit, `make verify` with it, and the next commit re-takes all nine against the merged tree and
+  re-records the manifest. Opening the pull request from the 42-commits-stale base is refused by the
+  same arithmetic -- a branch whose tree has never been gated together, and a merge state the
+  supervisor cannot read as clean.
+- Checkpoint: 354cd244b314d0c80b90d9bb71156ef73df1cd1b
+- Effect: DECISIONS.md (both halves kept in id order; D-0025..D-0027 of this branch renumbered to
+  D-0033..D-0035; D-0034 retitled and its superseded half annotated; the renumbering rule and the
+  measured #217 gate findings added to the preamble), internal/web/templates/page.tmpl (main's masthead
+  plus this branch's `aria-current` entries), internal/web/static/app.css (`.masthead h1` deleted),
+  internal/web/nav_test.go (`TestTheHeaderRoutesToTheRootExactlyOnce` asks where the name is, not
+  what element holds it), testing/capture/pages.py (main's declared audit state with `nav="/audit"`,
+  `EXPECTED_RULES` 58), testing/capture/{cdp,lock,manifest}.py and the fixtures (main's versions with
+  this branch's navigation guards beside them), docs/screenshots/360/ (main's nine staged, re-taken in
+  the next commit)
+
+## D-0037 · The set is re-taken rather than re-dated, because a re-dated frame cannot be seen to be wrong
+
+- Question: D-0036 committed `main`'s nine frames with `manifest.py check` refusing on all nine and
+  promised a re-take against the merged tree. The run happened, and then the merge commit was amended
+  to add one sentence to this file's preamble about the ids those commits cite -- so the commit the
+  frames had just been stamped against, `f033291`, stopped existing and `HEAD` became `cf26e50`. Does
+  the set go in recorded against a commit that is gone, with the gate red, or does something else
+  happen?
+- Options: keep the first record and ship the red gate | reset the branch to `f033291` so the
+  recording names a commit that exists again | re-run `record` over the bytes the first run
+  photographed, on the strength of a `git diff` showing the two merge commits differ in prose only |
+  re-take all nine from the fixture setups onward and record once | re-take only the frames whose
+  bytes moved
+- Chose: re-take all nine from the fixture setups onward and record once
+- Why: option one is refused on measurement, not on tidiness. `Makefile:90` runs `manifest.py check`
+  inside `verify`, and at the merge commit the check printed nine problems and exit 1 -- `audit.png
+  predates the newest change to /audit's sources ... the manifest was taken at d1ee983743fd...,
+  internal/web/templates/audit.tmpl (or the shared shell) has moved to f0332913b315...`. D-0036 accepted
+  that
+  red for the merge commit on the ground that a merge is a merge and its tree is not a render of
+  anything; the red was always meant to end in the next commit, and shipping it would hand the
+  supervisor a branch it reads as not-green. Option two buys a true `sources_rev` by deleting the
+  caveat the amendment added -- that sentence is the only place in the tree mapping the ids those
+  commits cite -- and it buys it with a rewrite of a branch `origin` already carries part of, which
+  this repository answers with revert, never rewrite.
+  Option three is the one with a real argument, and it is the one refused. The argument is honest:
+  `git diff --name-only f033291 cf26e50` was run and returned `DECISIONS.md` alone, so nothing the
+  browser could have drawn moved between the two commits, and D-0024's provenance paragraph is exactly
+  this kind of reasoning. It loses because it asks the reader to trust a diff in place of the artifact.
+  `record` writes `sources_rev = newest_commit(sources)` from the commit and the clock and never asks
+  the pixels what page they show, and `check`'s drift arm opens `if recorded == current: continue` --
+  so the equality the recorder mints is the same equality the gate reads, and a re-dated frame cannot
+  be seen to be wrong. That is not a hypothetical here: on 6 Nov, in a scratch copy of the committed
+  directory holding `main`'s `audit.png` -- a photograph of an `MST` cell the branch had just deleted
+  -- one bare `record` answered `9 photographs current`, rc 0 (D-0030). A re-record justified by a
+  command the reader has to re-run is the weaker claim when the honest one costs twenty-one seconds:
+  the whole nine-fixture run below ran 16:33:49 to 16:34:09.
+  Option five is refused by this branch's own history. `record()` walks the PNGs sitting in its target
+  directory and cannot know which ones this run took, so a partial re-take stamps the frames it never
+  touched as just-taken -- measured 5 Nov, reported as 9 current while `lock.png` and `testlock.png`
+  were byte-for-byte the previous files (D-0017's finding (1), #222). The nine `--shot` names are the
+  only input that says what a run photographed, and they are worth nothing unless the run really took
+  the set it names. The tie-break order agrees with the rest of this file: nothing separates on
+  `go.mod` (no option adds a dependency), on breadth four beats three beats five, and "refuses rather
+  than proceeds" picks four for the same reason D-0015 and D-0024 picked the re-take -- a screenshot
+  the driver in the same commit cannot reproduce is not evidence.
+  The measurement then confirmed the choice instead of decorating it. Every one of the nine frames from
+  this run is byte-identical to the frame the 16:17 run wrote -- `cmp` over all nine, all nine
+  identical, four fixtures re-seeded and two separate Chrome rounds in between. That is the property the
+  refused re-record could only argue for: two shutters, one digest set, so the pixels are a property of
+  `cf26e506`'s tree and not of either run that happened to take them.
+- What this costs, stated rather than glossed. (1) The manifest on this branch is rewritten twice
+  inside twenty minutes and the history shows the churn with nothing in the log to explain it until
+  this entry; an intermediate `captured_at` of `16:32:35Z` existed for a few minutes and appears in no
+  commit. (2) `head` in the manifest now reads `21c1ecf1`, the checkpoint below, because `record()`
+  stamps `git rev-parse HEAD` -- an empty commit that rendered nothing. Its tree is identical to the
+  merge's (`git diff --name-only cf26e50 21c1ecf1` prints nothing), and every page's `sources_rev`
+  names `cf26e506`, the commit whose bytes the browser actually drew, so the field the gate compares
+  and the field a human audits are both right and it is `head`, which nobody reads as provenance, that
+  is loose. D-0021's shape one notch milder. (3) `captured_at` is still one field for nine frames, the
+  wart D-0015 put on the record and this entry widens again: `16:34:09Z` against shutters at
+  16:33:57Z to 16:34:07Z. Twelve seconds of slop where the re-record would have shipped fifteen
+  minutes. (4) Two Chrome rounds and four fixture re-seeds to prove a point one `git diff` already
+  proved, paid for in wall clock and in the small risk that the second run disagrees with the first --
+  which is the point of paying it, and it did not.
+  One consequence worth naming before someone else finds it: all nine rows now carry
+  `capture.scripts: off`, including `lock.png` and `testlock.png`, which `main` committed with page
+  scripts running. That is #213's standing objection to the committed set, satisfied here as a
+  side-effect of re-taking everything; #213 stays open, because what the other branches' artifacts
+  show is still that issue's to audit.
+- Checkpoint: 21c1ecf1990fa5b431a769ae4a089141b34f0405
+- Effect: docs/screenshots/360/audit.png, dashboard.png, users.png, users-no-profiles.png,
+  profiles.png, profiles-refused.png, settings.png, lock.png, testlock.png (all nine re-photographed
+  against `cf26e506` at 360 px), docs/screenshots/360/manifest.json (`head`, `captured_at`, nine
+  `png_sha256`, nine `sources_rev` at `cf26e506`, nine `capture` blocks with `scripts: off` and their
+  own fixture envs), DECISIONS.md
+  The re-take proved the palette marker reaches the browser. The current-page mark's browser coverage arrived later on this branch, in cdp.py's three checks and the frames' failure report, so this entry's evidence covers the marker it re-took and not the whole review thread's claims.
