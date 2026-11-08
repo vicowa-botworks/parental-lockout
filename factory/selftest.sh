@@ -125,6 +125,41 @@ planted() { # tree rel -> 0 when git's cached mtime and the file's own disagree
 	[ "$((10#${cs:-0}))" != "$((10#${ls:-0}))" ] || [ "$((10#${cn:-0}))" != "$((10#${ln:-0}))" ]
 }
 
+# The verdict's whole output is one line. Not a formatting taste: the HALT file is read as its last
+# line, and the journal line the halt appends is read as the last line of the journal, so a second
+# line loses the resume step. This is the tight form of the invariant `expect_halt` also guards, and
+# it is here because the stderr capture almost broke it -- `git update-index --refresh` prints
+# "path: needs update" on its STANDARD output, and anything that lets that into the finding splits
+# every halt in the run.
+finding_one_line() { # tree -> 0 when the verdict printed exactly one line
+	local n
+	n=$(factory_tree_dirt "$1" 2>/dev/null | wc -l | tr -d '[:space:]')
+	[ "$n" = 1 ]
+}
+
+# Every path, when there are three or fewer. The cap is honest in both directions or it is not a cap:
+# seven problems printed as three read as a complete list, and a marker printed on a complete list
+# teaches the reader to ignore the marker.
+finding_uncapped() { # tree -> 0 when the finding names all three planted paths and says nothing about more
+	local out names
+	out=$(factory_tree_dirt "$1" 2>/dev/null)
+	[ -n "$out" ] || return 1
+	case "$out" in *"in all)"*) return 1 ;; esac
+	names=$(printf '%s' "$out" | tr ' ' '\n' | grep -c '^extra-' || true)
+	[ "$names" = 3 ]
+}
+
+# A reason that names the thing the operator would have to fix. `check`, not `expect`: this is about
+# whether the plant produced a reason at all, and a git that words its warnings differently is a
+# subject missing from the tree, not a wrong verdict.
+verdict_names() { # tree needle -> 0 when the verdict's line carries it
+	local out
+	out=$(factory_tree_dirt "$1" 2>/dev/null)
+	[ -n "$out" ] || return 1
+	case "$out" in *"$2"*) return 0 ;; esac
+	return 1
+}
+
 # An assertion that is not a verdict -- the subject of a leg, rather than its answer. Same contract
 # as `expect`: it never returns non-zero, because a probe that dies at its first finding
 # under-reports exactly like a gate that skips.
@@ -234,7 +269,7 @@ FACTORY_HALT=$FACTORY_DIR/HALT
 #   not just the return code.
 expect_halt() {
 	local label=$1 tree=$2 want=$3 sub=${4:-}
-	local c1=0 c2=0 h1="" j1="" j2="" before=0 after=0 bad="" want_how drc=0
+	local c1=0 c2=0 h1="" hl=0 j1="" j2="" before=0 after=0 bad="" want_how drc=0
 
 	factory_tree_dirt "$tree" >/dev/null || drc=$?
 	case "$drc" in
@@ -246,7 +281,10 @@ expect_halt() {
 	fi
 
 	factory_tree_halt TICK-HALTED selftest "$tree" >"$work/guard.out" 2>&1 || c1=$?
-	if [ -e "$FACTORY_HALT" ]; then h1=$(tr '\n' ' ' <"$FACTORY_HALT"); fi
+	if [ -e "$FACTORY_HALT" ]; then
+		h1=$(tr '\n' ' ' <"$FACTORY_HALT")
+		hl=$(wc -l <"$FACTORY_HALT" | tr -d '[:space:]')
+	fi
 	if [ -s "$FACTORY_LOG/supervisor.log" ]; then j1=$(tail -n 1 "$FACTORY_LOG/supervisor.log"); fi
 	rm -f -- "$FACTORY_HALT"
 	factory_tree_halt CONFLICT-HALTED selftest "$tree" >"$work/guard.out" 2>&1 || c2=$?
@@ -270,6 +308,13 @@ expect_halt() {
 		[ "$c1" = 4 ] || bad="the tick left $c1, want 4"
 		[ "$c2" = 2 ] || bad="${bad:+$bad; }the conflict pass left $c2, want 2"
 		[ -n "$h1" ] || bad="${bad:+$bad; }no HALT file, so factory_halted() would not stop the pass"
+		# One line, and it is an assertion rather than a formatting taste. Everything that reads this
+		# file takes the LAST line: `log_event` appends the finding to a journal line, `tail -n 1` is how
+		# the journal is read above, and a verdict that lets git's own chatter into its output splits the
+		# sentence in two -- which happened while writing the stderr capture, where `update-index
+		# --refresh`'s "path: needs update" (stdout, not stderr) went into the finding and every halt in
+		# the run failed here with a message about journal lines.
+		[ "$hl" = 1 ] || bad="${bad:+$bad; }the HALT file is $hl lines, want one: the resume step and\n          the reason are read as the last line, so a split sentence loses one of them"
 		case "$h1" in *"rm $FACTORY_HALT"*) : ;; *) bad="${bad:+$bad; }the sentence names no resume step" ;; esac
 		case "$h1" in *"$want_how"*) : ;; *) bad="${bad:+$bad; }the sentence promises the wrong action for a $drc" ;; esac
 		case "$j1" in *TICK-HALTED*"$tree"*) : ;; *) bad="${bad:+$bad; }the journal line is not the tick's" ;; esac
@@ -469,6 +514,18 @@ for tree in "$repo" "$wt"; do
 	expect "[$where] an untracked file" "$tree" DIRTY "" untracked:
 	expect_halt "[$where] an untracked file" "$tree" HALT untracked:
 
+	# The cap, from both sides. Three names is what fits a one-line HALT file; what made the old cap a
+	# lie was saying nothing about the rest -- ten problems arrived as three names and a trailing space,
+	# and the reader stopped at the last comma. A marker printed on a complete list is the same lie the
+	# other way, so this leg plants three (no marker, all named) and then five (three named, two
+	# declared, five in all), in both trees.
+	reset_tree "$tree"
+	for f in 1 2 3; do printf 'x\n' >"$tree/extra-$f.txt"; done
+	check "[$where] three named are all there are" finding_uncapped "$tree"
+	for f in 4 5; do printf 'x\n' >"$tree/extra-$f.txt"; done
+	expect "[$where] five untracked, three named" "$tree" DIRTY "" '(+2 more, 5 in all)'
+	expect_halt "[$where] five untracked, three named" "$tree" HALT '(+2 more, 5 in all)'
+
 	reset_tree "$tree"
 	printf 'a build artifact\n' >"$tree/ignored-by-design.tmp"
 	expect "[$where] only an ignored file" "$tree" CLEAN
@@ -480,6 +537,9 @@ for tree in "$repo" "$wt"; do
 
 	reset_tree "$tree"
 	chmod +x "$tree/keepme.txt"
+	# The shape that leaks: a mode-bit change makes `update-index --refresh` print "keepme.txt: needs
+	# update", so this is the tree that catches any read's chatter reaching the finding.
+	check "[$where] the finding is one line" finding_one_line "$tree"
 	expect "[$where] the exec bit flipped" "$tree" DIRTY
 	expect_halt "[$where] the exec bit flipped" "$tree" HALT
 
@@ -628,21 +688,27 @@ poisoned_tree "a GIT_DIR pair from elsewhere" "$work/poison-b/tree" \
 # Which read refuses first is a property of the git, not a promise, so every arm checks its own
 # status; that also means no single arm here is pinned on its own, and deleting any one of the five
 # checks has to be caught by the verdict as a whole.
-excludes_reads() { # repo -> sets EXCLUDE_READS; 0 when the plant made at least one of the five refuse
+excludes_reads() { # repo -> sets EXCLUDE_READS and EXCLUDE_WHY; 0 when the plant made at least one refuse
 	local arm rc any=1
 	EXCLUDE_READS=''
+	EXCLUDE_WHY=0
 	for arm in refresh cached diff unmerged others; do
 		rc=0
+		: >"$work/excl-err"
 		case "$arm" in
-		refresh) git -C "$1" update-index --refresh >/dev/null 2>&1 || rc=$? ;;
-		cached) git -C "$1" diff --cached --quiet >/dev/null 2>&1 || rc=$? ;;
-		diff) git -C "$1" diff --quiet >/dev/null 2>&1 || rc=$? ;;
-		unmerged) git -C "$1" ls-files --unmerged >/dev/null 2>&1 || rc=$? ;;
-		others) git -C "$1" ls-files --others --exclude-standard >/dev/null 2>&1 || rc=$? ;;
+		refresh) git -C "$1" update-index --refresh >/dev/null 2>>"$work/excl-err" || rc=$? ;;
+		cached) git -C "$1" diff --cached --quiet >/dev/null 2>>"$work/excl-err" || rc=$? ;;
+		diff) git -C "$1" diff --quiet >/dev/null 2>>"$work/excl-err" || rc=$? ;;
+		unmerged) git -C "$1" ls-files --unmerged >/dev/null 2>>"$work/excl-err" || rc=$? ;;
+		others) git -C "$1" ls-files --others --exclude-standard >/dev/null 2>>"$work/excl-err" || rc=$? ;;
 		esac
 		EXCLUDE_READS="$EXCLUDE_READS $arm=$rc"
 		if [ "$rc" -gt 1 ]; then
 			any=0
+			# Did the refusal come with a reason, or is git silent here? Asked, because the leg is about
+			# to assert that a reason reaches the operator, and a git that refuses without saying why
+			# leaves nothing to assert -- the same bargain `planted()` struck for the stat leg.
+			if [ -s "$work/excl-err" ]; then EXCLUDE_WHY=1; fi
 		fi
 	done
 	return "$any"
@@ -655,7 +721,17 @@ excl_status=""
 excl_status_rc=0
 excl_status=$(git -C "$repo" status --porcelain 2>/dev/null) || excl_status_rc=$?
 if excludes_reads "$repo"; then
-	expect "an exclude file git refused" "$repo" UNKNOWN
+	if [ "$EXCLUDE_WHY" = 1 ]; then
+		# The exit code alone is what `2>/dev/null` used to hand the operator: "exited 128" says
+		# something refused and nothing about what or where. `git said:` is this repository's own marker,
+		# asserted rather than git's wording, so the leg pins the carrying and not the phrasing.
+		expect "an exclude file git refused" "$repo" UNKNOWN "" 'git said:'
+		expect_halt "an exclude file git refused" "$repo" HALT 'git said:'
+	else
+		expect "an exclude file git refused silently" "$repo" UNKNOWN
+		printf '        note: this git refused without printing a reason, so there is none to carry and\n'
+		printf '        the leg asserts the verdict alone.\n'
+	fi
 	printf '        exit status of each read the verdict makes: %s\n' "${EXCLUDE_READS# }"
 	if [ -z "$excl_status" ] && [ "$excl_status_rc" -gt 1 ]; then
 		printf '        `status --porcelain` exited %s printing nothing: the replaced expression and\n' "$excl_status_rc"
@@ -674,6 +750,42 @@ else
 	printf '        HALT direction -- the pass stops over work that is not work, with no warning from\n'
 	printf '        git to say why. The refusal this leg exists to pin is unreachable on this\n'
 	printf '        filesystem, and this note is the honest statement of that, not a green leg.\n'
+fi
+
+# ...unless the exclude file is one git cannot open at all, which is the same dropped patterns WITH a
+# reason, on every filesystem there is. Measured on git 2.53.0 in this fixture, with one file that only
+# the global ignore file would hide, and the five reads run the way the verdict runs them:
+#
+#   excludesFile          the five reads   `status --porcelain`            git's stderr
+#   a `chmod 000` file    all rc=0         `?? excluded-by-the-global…`    `warning: unable to access
+#                                                                          '…': Permission denied`
+#   a symlink to itself   all rc=0         the same listing                the same warning, with
+#                                                                          'Too many levels of symbolic links'
+#   a dangling symlink    all rc=0         the same listing                nothing at all
+#   a missing path        all rc=0         the same listing                nothing at all
+#
+# So the loop is planted rather than the mode bits: `chmod 000` is invisible to root and the leg the
+# unreadable-file arm carries is already skipped there, while ELOOP catches whoever runs this. Either
+# way the EXIT STATUS says nothing is wrong -- that is what makes this the false halt of the arm above,
+# arrived at by a different road -- and the warning is the only thing in the whole run that says why the
+# queue stopped. It used to be thrown away by the same `2>/dev/null` that turned a 128 into a clean
+# tree. Asserted in both places it has to land: the verdict's line, and `factory/HALT`, which is the
+# whole of what a person finds when the pass is stopped.
+ln -s excludes-is-a-loop "$work/excludes-is-a-loop"
+git -C "$repo" config core.excludesFile "$work/excludes-is-a-loop"
+excl_warn=""
+git -C "$repo" ls-files --others --exclude-standard >/dev/null 2>"$work/excl-warn" || true
+excl_warn=$(head -n 1 "$work/excl-warn")
+if [ -n "$excl_warn" ]; then
+	expect "an exclude file git warned about" "$repo" DIRTY "" 'git said:'
+	expect_halt "an exclude file git warned about" "$repo" HALT 'git said:'
+	check "the reason names the exclude file" verdict_names "$repo" 'excludes-is-a-loop'
+	printf '        git said `%s`, and the halt now says it back: the operator can see which file\n' "$excl_warn"
+	printf '        to fix instead of being told to commit a file git was told to ignore.\n'
+else
+	expect "an exclude file git warned about" "$repo" DIRTY "" untracked:
+	printf '        note: this git dropped the patterns saying nothing, so there is no reason to\n'
+	printf '        carry and the leg asserts the verdict alone.\n'
 fi
 git -C "$repo" config --unset core.excludesFile
 

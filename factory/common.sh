@@ -424,6 +424,42 @@ factory_worktree() {
 	printf '%s\n' "$path"
 }
 
+# git's own words, when a read said any. The FIRST line only, because that is the line that names the
+# problem and the rest is git's prose about the same problem; and capped, because the sentence this
+# feeds is one line in `factory/HALT` that a person reads in a terminal. A truncated line says it was
+# truncated and by how much -- a list that stops without saying it stopped is how three paths came to
+# read as ten (see `factory_path_list`), and this function exists to stop that, so it does not commit
+# it a second time. Empty output means the read printed nothing, which is most reads, and is the
+# honest shape: nothing here is invented to fill a sentence.
+factory_git_said() { # errfile -> git's first stderr line, or nothing
+	local line
+	line=$(head -n 1 -- "$1" 2>/dev/null | tr -d '\r')
+	[ -n "$line" ] || return 0
+	if [ "${#line}" -gt 200 ]; then
+		printf '%s (git line cut at 200 of %s chars)' "${line:0:200}" "${#line}"
+	else
+		printf '%s' "$line"
+	fi
+}
+
+# Up to three paths, space separated, plus the count when there were more. `head -n 3` on its own is a
+# claim that the list is complete: ten problems arrive as three names and a trailing space, the reader
+# stops at the last comma, and the seven they did not see are the ones that were blocking the merge.
+# The marker is one clause and makes the cap the reader's friend instead of their trap; the total is
+# there too, because "and 4 more" and "and 400 more" send an operator to different actions.
+factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)"
+	local all n
+	all=$(sort -u)
+	[ -n "$all" ] || return 0
+	n=$(printf '%s\n' "$all" | wc -l)
+	if [ "$n" -gt 3 ]; then
+		printf '%s(+%s more, %s in all)' "$(printf '%s\n' "$all" | head -n 3 | tr '\n' ' ')" \
+			"$((n - 3))" "$n"
+	else
+		printf '%s' "$(printf '%s\n' "$all" | tr '\n' ' ')"
+	fi
+}
+
 # Is there anything in TREE that nobody has committed? Prints one line naming what it found,
 # and nothing when the tree is clean:
 #
@@ -516,33 +552,87 @@ factory_worktree() {
 # probe says so on its own line rather than pretending to catch it. What IS reproducible here is
 # the other direction, and it is the worse one: an unreadable tree answered CLEAN and the tick would
 # have worked in it. A false halt costs a pass. A false clean costs the work.
+#
+# What each read PRINTED on stderr is kept, and its first line rides in the sentence. `2>/dev/null` was
+# doing two jobs at once, and only one of them was wanted: it is what turned a 128 into a pass in the
+# expression this replaces, and it is also why the *opposite* failure has no explanation for the
+# operator. Measured on git 2.53.0 with `core.excludesFile` aimed at a `chmod 000` file: all five reads
+# answer 0, `git status --porcelain` prints `?? excluded-by-the-global-file.tmp` plus one line --
+# `warning: unable to access '…': Permission denied` -- and this verdict answers DIRTY naming a file the
+# operator had explicitly told git to ignore. That warning is the whole diagnosis of the false halt,
+# and the old code threw it away before the sentence was written. Same bargain on the refusal arms,
+# where git's line is `fatal: cannot use … as an exclude file` rather than a warning. A read that
+# printed nothing adds nothing: the btrfs shape of the same plant drops the patterns in real silence,
+# and a sentence with no reason in it is the accurate report of that.
+#
+# Each arm names at most three paths and then says how many it left out and how many there were; see
+# `factory_path_list`.
 factory_tree_dirt() {
-	local tree=$1 rc=0 out="" finding="" raw=""
-	git -C "$tree" update-index --refresh >/dev/null 2>&1 || rc=$?
+	local errf rc=0
+	# One scratch file for git's stderr, opened here and removed here, because the reads have several
+	# exits and a `rm` on only one of them leaks a file per tree per pass. factory.sh already made this
+	# bargain for the same reason (its `CONFLICT-BLOCKED` line keeps `factory_worktree`'s stderr in an
+	# mktemp and journals it).
+	#
+	# When `mktemp` fails there is nowhere to keep a reason, so the reads are silenced exactly as they
+	# were before: a reason is diagnosis, not evidence, and losing it must not change a verdict. Note
+	# the fallback does NOT remove `/dev/null` -- the run that chmod'd it is on this repository's log.
+	if errf=$(mktemp "${TMPDIR:-/tmp}/plock-dirt-XXXXXX" 2>/dev/null); then
+		factory_tree_dirt_read "$1" "$errf" || rc=$?
+		rm -f -- "$errf"
+		return "$rc"
+	fi
+	factory_tree_dirt_read "$1" /dev/null || rc=$?
+	return "$rc"
+}
+
+# The verdict proper, with the scratch file it writes git's stderr to. See `factory_tree_dirt` for
+# what each arm is for; this is how each arm's reason is kept alongside its answer.
+factory_tree_dirt_read() {
+	local tree=$1 errf=$2
+	local rc=0 out="" finding="" raw="" why=""
+	: >"$errf"
+	rc=0
+	# `>/dev/null` stays: `update-index --refresh` writes "path: needs update" to its STANDARD output
+	# for every file it re-stat'd, and the verdict's contract is one line. Dropping that redirect --
+	# while keeping the stderr capture -- put the refresh's own chatter in front of the finding, which
+	# split `factory/HALT`'s sentence across two lines and made the tick's journal line unreadable as
+	# the last line of the file. The legs below catch it, and one of them now catches it by name.
+	git -C "$tree" update-index --refresh >/dev/null 2>>"$errf" || rc=$?
 	if [ "$rc" -gt 1 ]; then
-		printf 'its state could not be read (git update-index --refresh exited %s)\n' "$rc"
+		why=$(factory_git_said "$errf")
+		printf 'its state could not be read (git update-index --refresh exited %s%s)\n' \
+			"$rc" "${why:+; git said: $why}"
 		return 2
 	fi
 
 	rc=0
-	git -C "$tree" diff --cached --quiet 2>/dev/null || rc=$?
+	: >"$errf"
+	git -C "$tree" diff --cached --quiet 2>>"$errf" || rc=$?
 	if [ "$rc" -eq 0 ]; then :; elif [ "$rc" -gt 1 ]; then
-		printf 'its staged state could not be read (git diff --cached exited %s)\n' "$rc"
+		why=$(factory_git_said "$errf")
+		printf 'its staged state could not be read (git diff --cached exited %s%s)\n' \
+			"$rc" "${why:+; git said: $why}"
 		return 2
 	else
-		out=$(git -C "$tree" diff --cached --name-only 2>/dev/null | sort -u | head -n 3 | tr '\n' ' ')
-		finding="${finding}staged-but-uncommitted: ${out:-and the index itself}"
+		out=$(git -C "$tree" diff --cached --name-only 2>>"$errf" | factory_path_list)
+		why=$(factory_git_said "$errf")
+		finding="${finding}staged-but-uncommitted: ${out:-and the index itself}${why:+ (git said: $why)}"
 	fi
 
 	rc=0
-	git -C "$tree" diff --quiet 2>/dev/null || rc=$?
+	: >"$errf"
+	git -C "$tree" diff --quiet 2>>"$errf" || rc=$?
 	if [ "$rc" -eq 0 ]; then :; elif [ "$rc" -gt 1 ]; then
-		printf 'its tracked files could not be read (git diff exited %s)\n' "$rc"
+		why=$(factory_git_said "$errf")
+		printf 'its tracked files could not be read (git diff exited %s%s)\n' \
+			"$rc" "${why:+; git said: $why}"
 		return 2
 	else
-		out=$(git -C "$tree" diff --name-only 2>/dev/null | sort -u | head -n 3 | tr '\n' ' ')
+		out=$(git -C "$tree" diff --name-only 2>>"$errf" | factory_path_list)
+		why=$(factory_git_said "$errf")
 		[ -n "$finding" ] && finding="$finding; "
-		finding="${finding}modified: ${out:-a tracked file}"
+		finding="${finding}modified: ${out:-a tracked file}${why:+ (git said: $why)}"
 	fi
 
 	# The unmerged arm reads the index, not the files: a conflict is three index entries, so there is
@@ -557,27 +647,35 @@ factory_tree_dirt() {
 	# clean. An unchecked substitution there reads as "no untracked files", which is the same
 	# mistake `2>/dev/null` made in the expression this function replaces.
 	rc=0
-	raw=$(git -C "$tree" ls-files --unmerged 2>/dev/null) || rc=$?
+	: >"$errf"
+	raw=$(git -C "$tree" ls-files --unmerged 2>>"$errf") || rc=$?
 	if [ "$rc" -gt 1 ]; then
-		printf 'its index could not be read (git ls-files --unmerged exited %s)\n' "$rc"
+		why=$(factory_git_said "$errf")
+		printf 'its index could not be read (git ls-files --unmerged exited %s%s)\n' \
+			"$rc" "${why:+; git said: $why}"
 		return 2
 	fi
 	if [ -n "$raw" ]; then
-		out=$(printf '%s\n' "$raw" | awk '{print $4}' | sort -u | head -n 3 | tr '\n' ' ')
+		out=$(printf '%s\n' "$raw" | awk '{print $4}' | factory_path_list)
+		why=$(factory_git_said "$errf")
 		[ -n "$finding" ] && finding="$finding; "
-		finding="${finding}unmerged: ${out:-a conflicted path}"
+		finding="${finding}unmerged: ${out:-a conflicted path}${why:+ (git said: $why)}"
 	fi
 
 	rc=0
-	raw=$(git -C "$tree" ls-files --others --exclude-standard 2>/dev/null) || rc=$?
+	: >"$errf"
+	raw=$(git -C "$tree" ls-files --others --exclude-standard 2>>"$errf") || rc=$?
 	if [ "$rc" -gt 1 ]; then
-		printf 'its untracked files could not be read (git ls-files --others exited %s)\n' "$rc"
+		why=$(factory_git_said "$errf")
+		printf 'its untracked files could not be read (git ls-files --others exited %s%s)\n' \
+			"$rc" "${why:+; git said: $why}"
 		return 2
 	fi
 	if [ -n "$raw" ]; then
-		out=$(printf '%s\n' "$raw" | sort | head -n 3 | tr '\n' ' ')
+		out=$(printf '%s\n' "$raw" | factory_path_list)
+		why=$(factory_git_said "$errf")
 		[ -n "$finding" ] && finding="$finding; "
-		finding="${finding}untracked: ${out:-an untracked file}"
+		finding="${finding}untracked: ${out:-an untracked file}${why:+ (git said: $why)}"
 	fi
 
 	if [ -n "$finding" ]; then
