@@ -129,13 +129,12 @@ issues and pull requests; the first run of this script found five, one of them s
 **Who the `needs_reviewer` row asks.** The poke addresses a TEAM (`FACTORY_REVIEWER_TEAM`, a team
 slug), because a request is a question to whoever can answer it and a team request notifies every
 member: the first one online replies, while an individual request waits for one specific person to
-appear. The measurement is #241's own reading of `#240` on 8 Nov -- with
-`requested_reviewers: ["hermesvicowa"]` nothing moved, and in the same hour, addressed to the team, the
-pull request read `requested_teams: ["cinemaitor"]` with `requested_reviewers: []`. Read the evidence
-for what it is: the reviews that evening all came from `hermesvicowa` anyway (first review 24 minutes
-after that reading, approval at 19:49:56Z, merge at 19:50:20Z), so this change is not a claim that a
-team produces a new name. It is a claim that the poke should not have to guess who is online to reach
-everybody who could be. An individual stays available as the override for a repository with no org
+appear. Read the evidence for what it is, because it is thinner than the change: #240, the pull request
+#241 was filed against, merged at 19:50:20Z on 8 Nov carrying four reviews and all four came from
+`hermesvicowa` (18:19:17Z, 18:41:12Z, 19:06:38Z, approved 19:49:56Z), and the team's second member is
+the org's machine user. Nothing measured that day shows a team producing a *new* name. The claim is
+#241's and it is narrower: the poke should not have to guess who is online in order to reach everybody
+who could be. An individual stays available as the override for a repository with no org
 team: set the team empty and name the login. The classifier counts both lists, `users` and `teams`, so
 a request the supervisor already made reads as `awaiting_review` rather than being poked again as
 `needs_reviewer`, and the journal says which kind was asked (`POKED pr:241 asked team cinemaitor`)
