@@ -471,19 +471,47 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
                              f"does not exist. A PNG named after a page with no template is not "
                              f"evidence about anything.")
         digest = sha256(os.path.join(directory, name))
+        before = prior.get(name)
+        # "Unchanged" is a byte comparison with the entry the manifest already carries, not a guess
+        # from timestamps: the only thing that makes re-attribution safe is knowing these exact pixels
+        # were certified before.
+        unchanged = bool(before) and before.get("png_sha256") == digest
+        # `sources_rev` names the commit these pixels were rendered from, so it belongs to the frame
+        # and not to whoever ran `record` last (#222) -- the same rule `shot` already applies to the
+        # conditions block, extended to the field the gate reads. Without it a run that photographs
+        # one frame writes the CURRENT commit over every frame in the directory, and `check`'s drift
+        # arm opens `if recorded == current: continue`, so the re-dating is the one value that
+        # short-circuits the refusal: measured on this file's own code, five frames, one page moved
+        # and re-taken, one bare `record`, and `check` answered 0 problems over four frames whose
+        # bytes predate the page. Carrying the prior rev instead turns that into 4 refusals, and it
+        # is the only spelling under which the field still means what its name says after a partial
+        # re-capture -- the property D-0023, D-0028 and D-0030 each lost a sentence to.
+        #
+        # `shot` is the way out for the honest case, and it is the flag the recipe already passes: a
+        # frame re-taken under moved conditions can come back byte-identical (`settings.png` does,
+        # D-0028), and only the driver's word says so. A carried frame whose page really has moved is
+        # refused by the drift arm with the carried rev in the sentence, which is the evidence, not a
+        # cover-up. Nothing here can make a stale frame look current; the worst this does is refuse a
+        # frame that was re-taken and not declared, and the message names the flag.
+        if unchanged and artifact not in shot and before.get("sources_rev"):
+            entry = {"sources_rev": before["sources_rev"]}
+            if prior_doc.get("head"):
+                # Which manifest these pixels were certified at, so a reader can ask that commit what
+                # the frame was rendered from. Omitted rather than null when the file has no `head`:
+                # a provenance field that is always the same placeholder proves nothing, and there is
+                # such a placeholder in this file's own self-test (`_fake_git` used to answer
+                # `rev-parse HEAD` with the shallow verdict).
+                entry["carried_from"] = prior_doc["head"]
+        else:
+            entry = {"sources_rev": newest_commit(sources, run=run)}
         entry = {
             "page": page if page is not None
             else ("/" if artifact == "dashboard" else "/" + artifact),
             "png": name,
             "png_sha256": digest,
             "sources": sources,
-            "sources_rev": newest_commit(sources, run=run),
+            **entry,
         }
-        before = prior.get(name)
-        # "Unchanged" is a byte comparison with the entry the manifest already carries, not a guess
-        # from timestamps: the only thing that makes re-attribution safe is knowing these exact pixels
-        # were certified before.
-        unchanged = bool(before) and before.get("png_sha256") == digest
         carried = before.get("capture") if unchanged and before.get("capture") else None
         fixture = binding.get(artifact)
         if artifact in shot and fixtures:
@@ -833,6 +861,33 @@ def build_parser():
     return ap
 
 
+def summary(doc):
+    """The sentence `check` prints when it found nothing -- naming the frames nobody re-took.
+
+    A bare count reads as "this capture photographed and re-dated all nine", which is the claim #222
+    is about: after a one-fixture run against the committed directory, the untouched entries are
+    carried and the sentence must not imply otherwise. It is a function rather than an f-string in
+    `main` so the self-test can pin the clause -- the clause is the only thing a reader of a green
+    `make verify` has to tell a whole set apart from a subset, and a check whose summary lies is
+    worse than one that refuses.
+    """
+    entries = doc.get("pages", [])
+    stated = sum(1 for e in entries if e.get("capture"))
+    carried = [e for e in entries if e.get("carried_from")]
+    line = (f"screenshot manifest: {len(entries)} photographs current against their sources "
+            f"(each pinned to {doc.get('viewport')} px and to the commit its page was rendered "
+            f"from), {stated} of them also stating the fixture and conditions they were taken under")
+    if not stated:
+        line += (f" -- {SCHEMA_PLAIN} recorded before conditions were kept, so nothing here says "
+                 f"what any frame was taken under (#211)")
+    if carried:
+        from_rev = ", ".join(sorted({str(e["carried_from"])[:9] for e in carried}))
+        line += (f"; {len(carried)} of them are carried -- their `sources_rev` is the one certified in "
+                 f"{from_rev}, not this run's, because this run did not re-take them -- so this line "
+                 f"says nothing about those frames beyond their own history")
+    return line
+
+
 def main(argv=None):
     ap = build_parser()
     a = ap.parse_args(argv)
@@ -862,12 +917,7 @@ def main(argv=None):
             print(f"  {p}")
         return 1
     doc = read_manifest(a.dir)
-    stated = sum(1 for e in doc.get("pages", []) if e.get("capture"))
-    print(f"screenshot manifest: {len(doc['pages'])} photographs current against their sources "
-          f"(each pinned to {doc['viewport']} px and to the commit its page was rendered from), "
-          f"{stated} of them also stating the fixture and conditions they were taken under"
-          + ("" if stated else f" -- {SCHEMA_PLAIN} recorded before conditions were kept, so "
-                               f"nothing here says what any frame was taken under (#211)"))
+    print(summary(doc))
     return 0
 
 
@@ -952,6 +1002,13 @@ def _fake_git(rev=RECORDED, dirty=(), png_rev=RECORDED, shallow=False, visible=T
                 return "?"
             return str(max(0, history.index(older) - history.index(newer)))
         if args[0] == "rev-parse":
+            # `rev-parse HEAD` is `record`'s question -- "which commit is this manifest being written
+            # at" -- and it used to get the shallow verdict back, because this branch was written for
+            # one caller and never looked at the argument. A box whose manifest has `head: "false"`
+            # cannot carry a frame honestly: `carried_from` would name a string that is not a commit,
+            # which is every provenance field in this file's own self-tests.
+            if len(args) > 1 and args[1] == "HEAD":
+                return rev
             return "true" if shallow else "false"
         return "HEAD"
     return run
@@ -1818,6 +1875,86 @@ def self_test():
     rule("a frame this run photographed is stamped from this run, not from the file",
          in_box(a_frame_this_run_took_is_stamped_from_this_run))
 
+    # ---- #222: the same rule applied to the field the GATE reads ---------------------
+    #
+    # Everything above is about `capture`, and the closure of #222 read as though it settled the
+    # issue. It did not: `sources_rev` is written from the commit and the clock for every PNG in the
+    # directory, and `check`'s drift arm opens `if recorded == current: continue`, so a record that
+    # photographs one frame mints the certificate for the frames it left alone. Two rules, because
+    # the finding has two halves -- what the field must say, and what the gate must then do.
+
+    def an_untouched_frame_keeps_the_rev_it_was_rendered_from(box):
+        import contextlib
+        import io
+        env = env_file(box, "pages")
+        first = recorded(box, envs=[env])
+        if first["head"] == "false":
+            return ("`record` still answers `rev-parse HEAD` with the shallow verdict, so `head` is a "
+                    "placeholder and `carried_from` would name a string that is not a commit")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        _png(box, "profiles.png", body=b"re-taken under the moved page")
+        moved = _fake_git(rev="b" * 40)
+        with contextlib.redirect_stderr(io.StringIO()):
+            record(d, run=moved, now="2026-01-02T00:00:00Z", envs=[env], shot=["profiles"])
+        after = {e["png"]: e for e in read_manifest(d)["pages"]}
+        lied = sorted(n for n, e in after.items()
+                      if n != "profiles.png" and e.get("sources_rev") != RECORDED)
+        if lied:
+            return (f"{lied[0]} was re-stamped to the current commit by a run that did not photograph "
+                    f"it, and `recorded == current` is the arm `check` short-circuits on -- the "
+                    f"re-stamp is not a wrong sentence about the frame, it is the refusal switched "
+                    f"off (#222)")
+        if after["profiles.png"].get("sources_rev") != "b" * 40:
+            return ("the frame this run DID photograph kept the old rev, so `shot` decides nothing "
+                    "and the honest re-take is indistinguishable from the stale frame")
+        if after["audit.png"].get("carried_from") != first["head"]:
+            return ("a carried frame does not name the manifest its rev came from, so the field that "
+                    "says 'this one is older' cannot be audited")
+        problems = check(d, run=moved, pages=DRIVER)
+        if not problems:
+            return ("a partial record left four frames checking clean over a page that had moved: "
+                    "0 problems where there are four, which is what #222 measured on this file")
+        missing = [a for a in ("audit", "dashboard", "settings", "users")
+                   if not any(p.startswith(a + ".png") and "predates" in p for p in problems)]
+        if missing:
+            return f"carried frames that did not travel with the page were not refused: {missing}"
+        return None
+
+    rule("a frame this run did not take keeps the rev its bytes were rendered from",
+         in_box(an_untouched_frame_keeps_the_rev_it_was_rendered_from))
+
+    def the_green_sentence_names_the_frames_it_did_not_take(box):
+        import contextlib
+        import io
+        env = env_file(box, "pages")
+        recorded(box, envs=[env])
+        d = os.path.join(box, "docs", "screenshots", "360")
+        _png(box, "profiles.png", body=b"re-taken")
+        with contextlib.redirect_stderr(io.StringIO()):
+            record(d, run=_fake_git(), now="2026-01-02T00:00:00Z", envs=[env], shot=["profiles"])
+        doc = read_manifest(d)
+        quiet = check(d, run=_fake_git(), pages=DRIVER)
+        if quiet:
+            return f"the carried set did not check clean before the sentence was read: {quiet[0]}"
+        line = summary(doc)
+        if "carried" not in line or "did not re-take them" not in line:
+            return (f"the green sentence counts {len(doc['pages'])} photographs without saying which "
+                    f"of them this run did not take: {line}")
+        # The other direction, because it is the same claim from the reader's side: a run that really
+        # does take the set clears the carry instead of adding to it.
+        with contextlib.redirect_stderr(io.StringIO()):
+            record(d, run=_fake_git(), now="2026-01-03T00:00:00Z", envs=[env],
+                   shot=["dashboard", "users", "profiles", "audit", "settings"])
+        after = read_manifest(d)
+        if any(e.get("carried_from") for e in after["pages"]):
+            return "a record that took the whole set still carries frames, so the clause never clears"
+        if "carried" in summary(after):
+            return "the whole-set sentence still claims frames were carried"
+        return None
+
+    rule("the green sentence names the frames the record did not take, and a full set clears it",
+         in_box(the_green_sentence_names_the_frames_it_did_not_take))
+
     def a_moved_declaration_is_said_not_reconciled(box):
         """An untouched frame whose env now disagrees keeps its block, and the file says so."""
         import contextlib
@@ -1859,7 +1996,7 @@ def self_test():
     rule("a run cannot report photographing a frame that is not there",
          in_box(a_shot_with_no_png_is_refused))
 
-    EXPECTED = 40
+    EXPECTED = 42
     if len(ran) != EXPECTED:
         bad.append(f"expected {EXPECTED} rules, ran {len(ran)} -- one was deleted, or never "
                    f"reached (a `return` in self_test() skips everything below it)")

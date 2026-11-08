@@ -261,11 +261,29 @@ DEFAULT_FIXTURE = "pages"
 
 
 class Page:
-    def __init__(self, url, artifact, has_rows, stress=False, refuse=None,
+    def __init__(self, url, artifact, has_rows, *, nav, stress=False, refuse=None,
                  fixture=DEFAULT_FIXTURE, needles=(), state=(), declares_rows=False):
         self.url, self.artifact = url, artifact
         self.has_rows, self.stress = has_rows, stress
         self.refuse = refuse
+        # Which entry in the shell's navigation this page is standing in, declared by the fixture
+        # rather than worked out by the driver (#204).
+        #
+        # Keyword-only and with no default on purpose: every page has to say which entry is its own,
+        # and a page added without one fails at import, in the file where it was written, instead of
+        # quietly photographing a navigation nobody asked about. The alternative -- letting the
+        # driver derive it from the URL -- would put a second copy of the "which section is this
+        # path in" rule in Python, one segment behind the rule in `internal/web/sources.go` that
+        # already decides it, and D-0025 refused exactly that duplication for JavaScript. A declared
+        # string is not a rule: when the Go rule changes, this disagrees with the page and the
+        # capture refuses, which is a finding a person reads, not a second implementation that
+        # drifts silently.
+        #
+        # It is also what makes #204's criterion 1 askable. Criterion 1 is about "the nav link whose
+        # href resolves to that page", and a guard that only compared properties could not tell a
+        # correct mark from a stylesheet that marks the FIRST entry on every page -- which would
+        # then be photographed, marked, on all nine frames.
+        self.nav = nav
         # The state this artifact is a photograph *of*, as `(row, exact cell text)` pairs, and whether
         # the page's row count is checked against the fixture's declared count. Both exist because a
         # page is a branch and not a constant: the same fixture, honestly built, renders a different
@@ -367,19 +385,19 @@ PAGES = [
     #                                       by day and `nothing scheduled` at 21:30 (#207 cause 5)
     #   alex    `x11 · seat0 · locked`    -- the census from testing/capture/bin/loginctl, not from
     #                                       this machine's logind (#207 cause 6)
-    Page("/", "dashboard", True, state=(
+    Page("/", "dashboard", True, nav="/", state=(
         ("casey", "locked out until 00:00"),
         ("casey", "Every day, every hour"),
         ("casey", "no desktop session"),
         ("alex", "nothing scheduled"),
         ("alex", "x11 · seat0 · locked"),
     )),
-    Page("/users", "users", True),
-    Page("/profiles", "profiles", True),
+    Page("/users", "users", True, nav="/users"),
+    Page("/profiles", "profiles", True, nav="/profiles"),
     # The refused profile form, as its own artifact. It is a different page from /profiles as of
     # #138 -- a sentence above the list and a form full of typed text -- and the page with more
     # prose in it is the one a 360 px criterion has to be measured on, not the tidy one.
-    Page("/profiles", "profiles-refused", True,
+    Page("/profiles", "profiles-refused", True, nav="/profiles",
          refuse=Refusal("/rules",
                         {"name": "School night", "start": "21:00", "end": "25:99"},
                         checks={"days": 2}, keep="end", keep_value="25:99",
@@ -390,7 +408,7 @@ PAGES = [
     # template_for asks this list, gets `/users`, and pins the artifact to `users.tmpl` + `page.tmpl`
     # exactly like `users.png` -- the second STATE of a page is not a second template (#138's rule,
     # #198's second use of it).
-    Page("/users", "users-no-profiles", True, fixture="pages-noprof",
+    Page("/users", "users-no-profiles", True, nav="/users", fixture="pages-noprof",
          needles=("There is no profile to assign yet", "Create a profile")),
     # `declares_rows` makes the page's own row count a claim the fixture vouches for: eight rows, the
     # seven seeded by pages-setup.sh plus the one this run's sign-in appends (cdp.pin_appended_rows
@@ -408,10 +426,10 @@ PAGES = [
     # PLOCK_CAPTURE_TZ. The zone stays declared because a daemon's local zone is a condition of a
     # frame whatever the template does with it, and this pair is the thing that would notice if a
     # host-dependent label ever came back -- which is exactly how it earned its place here.
-    Page("/audit", "audit", True, stress=True, declares_rows=True, state=(
+    Page("/audit", "audit", True, nav="/audit", stress=True, declares_rows=True, state=(
         ("auth.success", "2026-03-18 21:34:05 -04:00"),
     )),
-    Page("/settings", "settings", False),
+    Page("/settings", "settings", False, nav="/settings"),
 ]
 
 # The one flag the GET pages need and the result pages do not: these four are the pages whose
@@ -469,6 +487,11 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     # On every page and at every viewport, with no condition on it: the control census is a claim
     # about the stylesheet, and the stylesheet is the same file on /audit as on /settings (#202).
     extra += "," + cdp.CONTROLS_JS
+    # The same argument for the navigation (#204): #204's table is five links read on five pages,
+    # and the only reason nobody had ever read them is that nothing in this folder asked a browser
+    # for a computed style at all. Unconditional, because the shell is one template and a page whose
+    # navigation was never censused would not fail the guard -- it would answer `nav=0 links`.
+    extra += "," + cdp.NAV_JS
     if spec.has_rows:
         extra += "," + LONGEST_JS
     if spec.stress:
@@ -570,6 +593,17 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     cdp.require_control_font(got, page)
     cdp.require_control_width(got, page)
     cdp.require_choice_groups(got, page)
+    # The navigation, at both viewports and on every page, for the same two reasons as the three
+    # guards above: the shell is one template served by one stylesheet, and a page that overflows
+    # should report its width before it reports its links.
+    #
+    # `spec.nav` is what makes the first of these #204's criterion 1 rather than a property
+    # comparison: it names which entry this page is standing in, so a stylesheet that marks the
+    # wrong one -- the first, always, which is the bug a naive mark would have -- is refused here
+    # instead of being photographed nine times.
+    cdp.require_nav_marked(got, page, spec.nav)
+    cdp.require_nav_in_palette(got, page)
+    cdp.require_nav_distinguishable(got, page, spec.nav)
     # Hoisted above the split instead of repeated in both arms: each arm needs a browser that is
     # still up, and one call cannot drift from its twin when someone moves the split.
     cap.require_running()
@@ -579,7 +613,8 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         # evidence. Counting it as fitting is what the reviewer drove and named.
         print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
               f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-              f"{proof_of(got, spec)} {cdp.census_line(got)}{hard} UNTESTED (fixture)", flush=True)
+              f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)}"
+              f"{hard} UNTESTED (fixture)", flush=True)
         return "untested"
     if width != ARTIFACT_WIDTH:
         # Measured, refused, printed -- and no bytes. The committed set belongs to the artifact
@@ -587,12 +622,14 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         # viewport happened to run last.
         print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
               f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-              f"{proof_of(got, spec)} {cdp.census_line(got)}{hard} FITS", flush=True)
+              f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)}"
+              f"{hard} FITS", flush=True)
         return
     session.write_png(name)
     print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
           f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-          f"{proof_of(got, spec)} {cdp.census_line(got)}{hard} FITS  {name}", flush=True)
+          f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)}"
+              f"{hard} FITS  {name}", flush=True)
 
 
 # Read after a refused write. Both keys are the photograph's proof that the refusal happened in
@@ -1000,10 +1037,16 @@ def main(shoot_fn=None, record_fn=None):
 # reading of the dashboard, and the audit row count that is the fixture's. Plus one for the scripts
 # condition arriving in the browser rather than only in the record -- the #213 finding was that a
 # declared condition and an unconditional driver agree with each other in the file and disagree with
-# the frame, and nothing that drives `pages.py` can see that.
+# the frame, and nothing that drives `pages.py` can see that. Plus ten from #204 for the navigation
+# in the palette and marked: the census asked for on every page, the mark present and tied to the
+# page's own href, a link still on the user-agent's blue or underline, the marked entry differing
+# from its siblings on a computed property, the mark inside the header's box, and the five that
+# refuse the defect each one names rather than photographing it. Plus two from #229's review of those
+# same guards, both about the box instead of the ink: a mark on an entry 26 px tall, and a mark painted
+# on a border the browser is not drawing.
 # The two canaries are registered like every other rule and deliberately not counted: they exist to
 # prove the helper is not hollow.
-EXPECTED_RULES = 48
+EXPECTED_RULES = 60
 
 
 class _FakeSession:
@@ -1190,9 +1233,99 @@ CLEAN_CENSUS = {"family": PAGE_FONT, "size": PAGE_SIZE, "count": len(_CLEAN_ITEM
 _BASE_PAGE = {"scroll": 360, "inner": 360, "height": 700, "tables": 1, "cells": 12,
               "forms": 2, "fields": 4, "longest": 14}
 
+# --------------------------------------------------------------------------- #
+# The navigation, transcribed rather than invented (#204).
+#
+# Same discipline as CLEAN_CENSUS: these are the strings a real Chrome reported on the dashboard
+# at 360 px on 6 Nov, off the stylesheet this change writes -- the marked entry `rgb(26, 28, 32)`
+# at weight 600 with a `rgb(216, 219, 226)` rule under it, its siblings `rgb(91, 98, 112)` at 500
+# with nothing under them, every box 40 px tall because the padding is on all five and not only on
+# the marked one. A fixture built from guesses would let a guard pass on a page no browser can
+# produce, which is the failure mode every rule in this file exists to close.
+# --------------------------------------------------------------------------- #
+NAV_INK = "rgb(26, 28, 32)"        # app.css --ink, the marked entry and the site's name
+NAV_MUTED = "rgb(91, 98, 112)"     # app.css --muted, every entry that is somewhere else
+NAV_MARK = "rgb(216, 219, 226)"    # app.css --line, the rule under the current entry
+NAV_CLEAR = "rgba(0, 0, 0, 0)"
+CUR = "page"                     # the only value aria-current takes that means "this page"
+NAV_HEIGHT = 40                    # 23.6 px of text, 14.4 px of padding, 2 px of reserved border
+#                                   # -- and no longer only a transcription: `cdp.NAV_MIN_TARGET` is
+#                                   # the floor `require_nav_marked` refuses under (#229), so this
+#                                   # number is what the page measures AND what it has to be
+
+
+def _nav_link(text, href, **over):
+    """One navigation entry, defaulted to a link the stylesheet has already claimed."""
+    item = {"text": text, "href": href, "cur": None, "color": NAV_MUTED, "weight": "500",
+            "dec": "none", "bw": "2px", "bc": NAV_CLEAR, "bg": NAV_CLEAR,
+            "x": 0, "y": 72, "w": 60, "h": NAV_HEIGHT, "vis": True}
+    item.update(over)
+    return item
+
+
+def _nav_current(text, href, **over):
+    """The same entry as the stylesheet renders the one for the page you are on."""
+    return _nav_link(text, href, cur=CUR, color=NAV_INK, weight="600", bc=NAV_MARK, **over)
+
+
+# The dashboard's own row at 360 px: four entries on the first line, the fifth with the sign-out
+# form on the second, and the header's box spanning both -- measured `x=24 y=24 w=312 h=131`, with
+# the nav itself at `y=72 h=82`.
+NAV_HEADER = {"x": 24, "y": 24, "w": 312, "h": 131}
+# The five entries as the shell writes them, at the boxes Chrome reported -- none of them marked.
+# `clean_nav` puts the mark on whichever entry the page being faked declares as its own.
+_NAV_ITEMS = [_nav_link("Status", "/", x=24),
+              _nav_link("Accounts", "/users", x=97, w=78),
+              _nav_link("Audit", "/audit", x=188, w=49),
+              _nav_link("Profiles", "/profiles", x=250, w=66),
+              _nav_link("Settings", "/settings", x=24, y=114, w=70)]
+
+
+def clean_nav(href):
+    """A navigation row, in the measured geometry, with `href` as the current entry.
+
+    Why a function and not a constant: a canned "the current entry is Status" would make every
+    rule that runs `shoot()` against a page other than the dashboard fail on a #204 guard it knows
+    nothing about -- and the tempting repair for that failure is the one this file refuses
+    everywhere, which is to weaken the guard. The geometry is transcribed once, from the dashboard;
+    which of the five is marked is a fact about the page a rule is faking, and `_fake_browser`
+    takes it from the spec the way the real driver takes it from the fixture.
+
+    The href has to be one of the five. Asserting that here rather than defaulting to "mark nothing"
+    is the same reasoning as the `Page(nav=...)` field being keyword-only and undeclarable-by-
+    omission: a fixture that names a section the shell does not offer is a finding, not a default.
+    """
+    items = [dict(i) for i in _NAV_ITEMS]
+    hit = False
+    for item in items:
+        cur = item["href"] == href
+        hit = hit or cur
+        item.update(cur=CUR if cur else None,
+                    color=NAV_INK if cur else NAV_MUTED,
+                    weight="600" if cur else "500",
+                    bc=NAV_MARK if cur else NAV_CLEAR)
+    if not hit:
+        raise AssertionError(f"clean_nav asked for {href!r} and the shell offers "
+                             f"{[i['href'] for i in _NAV_ITEMS]}")
+    return [{"display": "flex", "overflow": False, "items": items}]
+
+
+def _nav(*items, **over):
+    """A measurement whose navigation is exactly the entries one rule is talking about.
+
+    The mirror of `_census`: every other key is the ordinary passing page, so a refusal produced by
+    a #204 rule can only have been produced by the navigation.
+    """
+    rows = over.pop("rows", None)
+    nav = rows if rows is not None else [{"display": "flex", "overflow": False,
+                                          "items": list(items)}]
+    base = dict(_BASE_PAGE, nav=nav, header=dict(NAV_HEADER))
+    base.update(over)
+    return base
+
 
 @contextlib.contextmanager
-def _fake_browser(got):
+def _fake_browser(got, nav="/"):
     """The CDP reads, replaced, so the real `shoot()` can be called with no Chrome.
 
     Only the reads are faked. `shoot` itself -- the order it sets the viewport in, the checks it
@@ -1210,7 +1343,9 @@ def _fake_browser(got):
     # transcribed from a measured page rather than invented. `the_control_census_is_asked_for` is
     # what pins that the real shoot() actually asks the browser for it.
     cdp.measure = lambda session, extra="": (
-        _LAST_EXTRA.append(extra), dict({"controls": CLEAN_CENSUS}, **got))[1]
+        _LAST_EXTRA.append(extra),
+        dict({"controls": CLEAN_CENSUS, "nav": clean_nav(nav), "header": dict(NAV_HEADER)},
+             **got))[1]
     cdp.require_records = lambda g, w: None
     cdp.require_labelled_cells = lambda g, w: None
     cdp.require_form = lambda g, w: None
@@ -1290,8 +1425,8 @@ def _run_shoot(got, width, log=None, where=None, spec=None, fixture_untested=Fal
     fixture.
     """
     log = [] if log is None else log
-    spec = Page("/users", "users", True) if spec is None else spec
-    with _fake_browser(got), contextlib.redirect_stdout(out or io.StringIO()):
+    spec = Page("/users", "users", True, nav="/users") if spec is None else spec
+    with _fake_browser(got, spec.nav), contextlib.redirect_stdout(out or io.StringIO()):
         try:
             shoot(_ShootCap(log, spec.url if where is None else where), spec,
                   "/tmp/opencode/selftest-users.png", width,
@@ -1545,7 +1680,7 @@ def self_test():
     def stress_needs_table(problems):
         saved = list(PAGES)
         try:
-            PAGES[:] = [Page("/audit", "audit", False, stress=True)]
+            PAGES[:] = [Page("/audit", "audit", False, nav="/audit", stress=True)]
             msg = refusal_from_main(problems)
             if msg and "has_rows" not in msg:
                 problems.append(f"the refusal does not say how to fix it: {msg}")
@@ -1555,7 +1690,7 @@ def self_test():
     def stress_must_be_carried(problems):
         saved = list(PAGES)
         try:
-            PAGES[:] = [Page("/", "dashboard", True)]
+            PAGES[:] = [Page("/", "dashboard", True, nav="/")]
             msg = refusal_from_main(problems)
             if msg and "stress row" not in msg:
                 problems.append(f"the refusal does not name the missing trait: {msg}")
@@ -1756,7 +1891,7 @@ def self_test():
         pushed = {"scroll": 1024, "inner": 1024, "height": 900, "tables": 1, "cells": 4,
                   "longest": 251, "stress": True}
         _log, refusal = _run_shoot(pushed, DESKTOP_WIDTH,
-                                   spec=Page(victim, "audit", True, stress=True),
+                                   spec=Page(victim, "audit", True, nav=victim, stress=True),
                                    fixture_untested=True, out=line)
         printed = line.getvalue()
         if refusal is not None:
@@ -1806,7 +1941,7 @@ def self_test():
         # for a width number to mean anything. Asked at both viewports they turn one broken fixture
         # into two refusals, and the summary counts the same page twice -- which is the failure this
         # file's own counting rules exist to prevent, arriving from the other direction.
-        spec = Page("/audit", "audit", True, stress=True)
+        spec = Page("/audit", "audit", True, nav="/audit", stress=True)
         pushed = {"scroll": 1024, "inner": 1024, "height": 900, "tables": 1, "cells": 4,
                   "longest": 251, "stress": False}
         _log, refusal = _run_shoot(pushed, DESKTOP_WIDTH, spec=spec)
@@ -2064,7 +2199,8 @@ def self_test():
         constructs is indistinguishable from no `raise` at all.
         """
         try:
-            Page("/audit", "audit-no-events", True, needles=("Nothing has been recorded yet",))
+            Page("/audit", "audit-no-events", True, nav="/audit",
+                 needles=("Nothing has been recorded yet",))
         except ValueError as exc:
             if "audit-no-events" not in str(exc) or DEFAULT_FIXTURE not in str(exc):
                 problems.append(f"the refusal does not name the artifact or the fixture: {exc}")
@@ -2421,6 +2557,320 @@ def self_test():
                 problems.append(f"the {name} guard raised {type(exc).__name__} instead of refusing; "
                                 "a traceback is not an answer")
 
+
+    def _run_width(got, width):
+        """The same fixture, laid out at `width`. shoot() refuses a page whose browser reports a
+        different viewport from the one it was asked for -- a real guard, `viewport_is_verified_not_
+        assumed`, and one a both-viewports rule has to satisfy before its own claim is tested."""
+        fresh = dict(got)
+        fresh["inner"] = width
+        return fresh
+
+    # --------------------------------------------------------------------------- #
+    # #204: the navigation, its mark, and the palette the mark is drawn in.
+    #
+    # The fixtures below are Chrome's, transcribed off the fixture on 6 Nov -- the defect rows from
+    # before `nav a` existed, the passing rows from after -- for the same reason CLEAN_CENSUS is a
+    # transcription: a fixture written from what the fix was *supposed* to produce lets a guard pass
+    # on a page no browser can render. `UA_BLUE` and its neighbours are the four strings #204's
+    # table has in it for all five photographed pages, and they are what a browser answers when no
+    # stylesheet has claimed an anchor, so a rule that survives them is a rule about a stylesheet.
+    # --------------------------------------------------------------------------- #
+    UA_BLUE = cdp.UA_LINK_BLUE          # Chrome's `-webkit-link`, what every link computed to
+    UA_WEIGHT = "400"                   # the UA does not pick a weight; the page's font did
+    UA_BORDER = "0px"                   # no border at all, so a border comparison saw only absence
+    UA_TRANSPARENT = "rgba(0, 0, 0, 0)"
+
+    def _ua_link(text, href, **over):
+        """One navigation entry as it computed before the stylesheet said anything about `a`.
+
+        26 px tall as well, which is the other half of what the report measured and the reason the
+        row needed a rule rather than a colour: a target a thumb cannot hit is not distinguishable
+        from its siblings in the way that matters on a phone, whatever its ink says.
+        """
+        return _nav_link(text, href, color=UA_BLUE, weight=UA_WEIGHT, dec=cdp.UA_UNDERLINE,
+                         bw=UA_BORDER, bc=UA_TRANSPARENT, h=26, **over)
+
+    def _nav_users(*extra, marked=True, **over):
+        """The row the shell renders on /users: five entries, the accounts one current.
+
+        The default page for a shoot() rule is /users, and #204's criterion 1 is about the entry
+        whose href resolves to the page -- so the passing fixture has to be marked where the page
+        declares, not merely marked. Every rule below that wants a defect moves one fact off this
+        row and leaves the rest alone, which is what keeps each refusal attributable to one guard.
+        """
+        items = [_nav_link("Status", "/"), _nav_link("Audit", "/audit", x=189, w=49),
+                 _nav_link("Profiles", "/profiles", x=251, w=66),
+                 _nav_link("Settings", "/settings", x=24, y=114, w=70)]
+        head = _nav_current("Accounts", "/users", x=93, w=83) if marked else \
+            _nav_link("Accounts", "/users", x=93, w=83)
+        return _nav(head, *items, *extra, **over)
+
+    def the_navigation_census_is_asked_for(problems):
+        """shoot() splices cdp.NAV_JS in, at both viewports, whatever kind of page it is.
+
+        Pinned by identity like NEEDLE_JS and CONTROLS_JS, for the same reason: a substring like
+        "nav" is already true of the row's own contents, so only the fragment itself says the
+        measurement was taken. Without the splice the three guards refuse every page with "no
+        navigation census was taken", which is a refusal -- and a run that refuses for the wrong
+        reason on every page looks from the outside like a run that found the defect.
+        """
+        for width in WIDTHS:
+            _LAST_EXTRA.clear()
+            try:
+                _run_shoot(_run_width(_nav_users(), width), width)
+                if not any(cdp.NAV_JS in e for e in _LAST_EXTRA):
+                    problems.append(f"at {width} px shoot() never asked the browser for the "
+                                    "navigation census, so the #204 guards compare a key nobody "
+                                    "measured")
+            finally:
+                _LAST_EXTRA.clear()
+
+    def an_unmarked_navigation_refuses(problems):
+        """The reported defect, at both viewports, with no bytes staged.
+
+        This is the row #204 measured: five links, none carrying `aria-current`, on all five
+        photographed pages. The canary beside it is the same row with the attribute on the entry
+        the page declares -- a guard that refuses every navigation in existence would satisfy the
+        first half and fail the second.
+        """
+        unmarked = _nav_users(marked=False)
+        for width in WIDTHS:
+            _log, refusal = _run_shoot(_run_width(unmarked, width), width)
+            if refusal is None or "aria-current" not in refusal:
+                problems.append(f"a navigation that marks nothing was accepted at {width} px: "
+                                f"{refusal!r}")
+            elif "5 links" not in refusal:
+                problems.append(f"the refusal does not say how many links it counted: {refusal!r}")
+        _log, refusal = _run_shoot(unmarked, ARTIFACT_WIDTH)
+        if any(k[0] == "png" for k in _log):
+            problems.append("a navigation with no current entry still staged a photograph")
+        _log, refusal = _run_shoot(_nav_users(), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the marked navigation was refused: {refusal!r}")
+
+    def a_navigation_the_stylesheet_never_claimed_refuses(problems):
+        """Criterion 2: a link still computing to the browser's own values is not in the palette.
+
+        The first arm is #204's table verbatim -- `rgb(0, 0, 238)`, 400, underlined -- on a row
+        where the mark itself is correct, so the refusal cannot be about the attribute. The second
+        arm is the case the blue alone would miss: a stylesheet that sets a colour and forgets
+        `text-decoration: none` leaves the user-agent's underline on the row, which is the visible
+        half of the same complaint.
+        """
+        blue = _nav_users(_ua_link("Support", "/support", x=104, y=114, w=62))
+        for width in WIDTHS:
+            _log, refusal = _run_shoot(_run_width(blue, width), width)
+            if refusal is None or UA_BLUE not in refusal:
+                problems.append(f"a link still in the browser's own blue was accepted at "
+                                f"{width} px: {refusal!r}")
+            elif "Support" not in refusal:
+                problems.append(f"the palette refusal does not name the link that drifted: "
+                                f"{refusal!r}")
+        _log, refusal = _run_shoot(blue, ARTIFACT_WIDTH)
+        if any(k[0] == "png" for k in _log):
+            problems.append("a page with a user-agent link still staged a photograph")
+        underlined = _nav_users(_nav_link("Support", "/support", x=104, y=114, w=62,
+                                          dec=cdp.UA_UNDERLINE))
+        _log, refusal = _run_shoot(underlined, ARTIFACT_WIDTH)
+        if refusal is None or "underline" not in refusal:
+            problems.append(f"a link still underlined by the user-agent was accepted: {refusal!r}")
+
+    def a_navigation_marking_two_entries_refuses(problems):
+        """The second route to the root, marked as well as the entry for it.
+
+        #204's secondary fact was that the header held two anchors with `href="/"` on the dashboard
+        -- the title and Status -- differing only in weight. D-0026 took the title out of the row;
+        this is the guard that keeps it out, because the failure mode of a fix like that is someone
+        putting the link back "for the logo" and the page then answering criterion 1 with two yeses.
+        """
+        both = _nav(_nav_current("Status", "/"), _nav_current("Accounts", "/users", x=93, w=83),
+                    _nav_link("Audit", "/audit", x=189, w=49))
+        _log, refusal = _run_shoot(both, ARTIFACT_WIDTH)
+        if refusal is None or "2 navigation entries" not in refusal:
+            problems.append(f"two entries marked current were accepted: {refusal!r}")
+        elif "'Status'" not in refusal or "'Accounts'" not in refusal:
+            problems.append(f"the refusal does not name both marked entries: {refusal!r}")
+
+    def a_navigation_marking_the_wrong_entry_refuses(problems):
+        """Criterion 1's href tie: a mark on an entry is about that entry's page and no other.
+
+        The bug this exists for is the one a naive fix ships -- the shell marks the first entry, or
+        marks from a template name rather than a path -- and it is invisible to a guard that only
+        counts marks. Nine photographs of a plausibly marked row are nine photographs of the wrong
+        page, which is what makes this worth a refusal of its own rather than part of the count.
+        """
+        wrong = _nav(_nav_current("Status", "/"), _nav_link("Accounts", "/users", x=93, w=83),
+                     _nav_link("Audit", "/audit", x=189, w=49))
+        for width in WIDTHS:
+            _log, refusal = _run_shoot(_run_width(wrong, width), width)
+            if refusal is None or "marks '/'" not in refusal:
+                problems.append(f"a mark on the wrong entry was accepted at {width} px: "
+                                f"{refusal!r}")
+            elif "/users" not in refusal:
+                problems.append(f"the refusal does not name the section the page is in: "
+                                f"{refusal!r}")
+        gone = _nav(_nav_current("Status", "/"), _nav_link("Audit", "/audit", x=60, w=49))
+        _log, refusal = _run_shoot(gone, ARTIFACT_WIDTH)
+        if refusal is None or "no such href" not in refusal:
+            problems.append(f"a page whose own section is missing from the row was accepted: "
+                            f"{refusal!r}")
+
+    def a_mark_no_property_can_see_refuses(problems):
+        """Criterion 1's other half: the attribute, and nothing a reader can measure.
+
+        Both rows are marked, correctly, on the right entry. In the first, the marked link's five
+        visible properties are its siblings'; in the second only `border-bottom-color` differs,
+        which is what this repository's stylesheet actually does -- the rule reserves 2 px
+        transparent on every link so the mark cannot move the row, and colours it on the current
+        one. #204's four properties as written would call that second page unmarked, which is why
+        the fifth is read, and why the second arm has to pass or the guard is refusing the fix.
+        """
+        quiet = _nav_users()
+        quiet["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=93, w=83, cur=CUR)
+        _log, refusal = _run_shoot(quiet, ARTIFACT_WIDTH)
+        if refusal is None or "looks exactly like" not in refusal:
+            problems.append(f"a mark no property can see was accepted: {refusal!r}")
+        elif "border-bottom" not in refusal:
+            problems.append(f"the refusal does not name the properties it compared: {refusal!r}")
+        border_only = _nav_users()
+        border_only["nav"][0]["items"][0] = _nav_link("Accounts", "/users", x=93, w=83, cur=CUR,
+                                                      bc=NAV_MARK)
+        _log, refusal = _run_shoot(border_only, ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"a mark drawn only in the reserved border was refused: {refusal!r}")
+
+    def a_mark_on_an_unhittable_target_refuses(problems):
+        """The right mark, at the right colour, on a box a thumb cannot hit (#199's other half).
+
+        Both rows are the marked navigation on the entry the page declares; only the box's height
+        moves. The defect arm is the measured 26 px, not an invented 10: that is what this stylesheet
+        answers with `nav a`'s padding deleted, and a fixture written from what a defect "would" look
+        like is how a guard ends up refusing a page no browser can render. The canary is the same row
+        with the OTHER entries small, because the guard is about the box the reader is aiming at and a
+        rule that refused the whole row would be enforcing a claim #199 never made. #229's review
+        measured the padding line as deletable with everything green, in Go and in a full capture run.
+        """
+        small = _nav_users()
+        small["nav"][0]["items"][0]["h"] = 26
+        _log, refusal = _run_shoot(small, ARTIFACT_WIDTH)
+        if refusal is None or "26 px" not in refusal:
+            problems.append(f"a mark on a 26 px target was accepted: {refusal!r}")
+        elif "Accounts" not in refusal:
+            problems.append(f"the height refusal does not name the entry it measured: {refusal!r}")
+        hittable = _nav_users()
+        for item in hittable["nav"][0]["items"][1:]:
+            item["h"] = 26
+        _log, refusal = _run_shoot(hittable, ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"a page was refused for the height of entries nobody marks: {refusal!r}")
+
+    def a_mark_the_browser_never_draws_refuses(problems):
+        """The reserved border the mark is painted on, measured rather than assumed (#204's fifth).
+
+        Three arms, and the third is the one that keeps this guard honest about the shipped
+        stylesheet. First: every entry computes `0px`, so the current page's `border-bottom-color` is
+        a colour on a border Chrome never draws -- and the five-property comparison above still passes
+        it, which is exactly what #229's review found by deleting `border-bottom: 2px solid
+        transparent`. Second: the widths differ between siblings, which is the row-moving design
+        D-0035 refused and this is the only place that refusal is measurable. Third: the transcribed
+        row -- 2 px everywhere, the current one merely coloured -- passes, or the guard below is
+        refusing the fix instead of the defect.
+        """
+        undrawn = _nav_users()
+        for item in undrawn["nav"][0]["items"]:
+            item["bw"] = "0px"
+        _log, refusal = _run_shoot(undrawn, ARTIFACT_WIDTH)
+        if refusal is None or "draws no border" not in refusal:
+            problems.append(f"a mark on a border of zero width was accepted: {refusal!r}")
+        elif "border-bottom-width" not in refusal:
+            problems.append(f"the border refusal does not name the property it read: {refusal!r}")
+        moved = _nav_users()
+        moved["nav"][0]["items"][0]["bw"] = "4px"
+        _log, refusal = _run_shoot(moved, ARTIFACT_WIDTH)
+        if refusal is None or "do not compute it the same" not in refusal:
+            problems.append(f"entries with unequal reserved borders were accepted: {refusal!r}")
+        _log, refusal = _run_shoot(_nav_users(), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the measured row's reserved border was refused: {refusal!r}")
+
+    def a_mark_outside_the_header_refuses(problems):
+        """Criterion 4: the mark is the header's current-page mark, not one from anywhere.
+
+        A navigation moved below the header -- into a footer, or a div after it -- keeps the right
+        attribute on the right href and satisfies every property comparison in the file. The claim
+        the report made is about where the mark is, so the boxes are compared, and the refusal
+        quotes both.
+        """
+        moved = _nav_users()
+        for item in moved["nav"][0]["items"]:
+            item["y"] = 1200
+        _log, refusal = _run_shoot(moved, ARTIFACT_WIDTH)
+        if refusal is None or "not the header" not in refusal:
+            problems.append(f"a mark outside the header was accepted: {refusal!r}")
+        # The same refusal has to come from a page that renders no header at all: criterion 4 has no
+        # answer against nothing, and `None` read as "no constraint" is how a guard passes by
+        # measuring less.
+        noheader = _nav_users()
+        noheader["header"] = None
+        _log, refusal = _run_shoot(noheader, ARTIFACT_WIDTH)
+        if refusal is None or "no <header>" not in refusal:
+            problems.append(f"a mark measured against no header was accepted: {refusal!r}")
+
+    def a_navigation_row_of_one_link_refuses(problems):
+        """A row of one cannot be marked out of a set, and fits at any width.
+
+        #140's lesson aimed at the header: a page that lost its content passes every property check
+        and photographs an empty region. Two links is the smallest set in which "which one is this
+        page" has a meaning, and one is the shape a template guard leaves behind when it decides
+        nobody may navigate anywhere.
+        """
+        alone = _nav(_nav_current("Accounts", "/users", x=93, w=83))
+        _log, refusal = _run_shoot(alone, ARTIFACT_WIDTH)
+        if refusal is None or "nothing in it can be marked" not in refusal:
+            problems.append(f"a navigation of one link was accepted: {refusal!r}")
+
+    def a_navigation_that_was_never_censused_refuses(problems):
+        """A missing measurement is a refusal, at all three guards, naming its own absence.
+
+        Driven straight rather than through shoot(), because the fake browser supplies a navigation
+        so the rules above can be about something else -- the only way to hand a guard the nothing
+        it has to refuse on is to call it with nothing.
+        """
+        # Arity is part of the contract here: the palette guard is section-independent -- it refuses
+        # any navigation link the stylesheet never claimed, wherever it sits in the row -- and the
+        # other two take the declared section because they compare the current entry against its
+        # siblings. Passing three arguments to a two-argument guard would be a TypeError, which the
+        # arm below reports as exactly that rather than as a pass.
+        for guard, what, args in ((cdp.require_nav_marked, "marked", ("/users",)),
+                                  (cdp.require_nav_in_palette, "palette", ()),
+                                  (cdp.require_nav_distinguishable, "distinguishable",
+                                   ("/users",))):
+            try:
+                guard({"scroll": 360}, "/users", *args)
+                problems.append(f"the {what} guard passed a page with no navigation census at all")
+            except SystemExit as exc:
+                if "navigation census" not in str(exc):
+                    problems.append(f"the {what} guard refused for a reason that does not name the "
+                                    f"missing census: {exc}")
+            except Exception as exc:
+                problems.append(f"the {what} guard raised {type(exc).__name__} instead of refusing; "
+                                "a traceback is not an answer")
+
+    def the_mark_is_printed_for_every_page(problems):
+        """The transcript names which entry it accepted, so a wrong mark is visible after the fact.
+
+        `controls=15 typed=2` says what the census saw without refusing anything; the navigation
+        gets the same treatment for the same reason -- a run that marked the wrong entry on a page
+        nobody re-read is recoverable from the log line if the line says which entry it marked.
+        """
+        line = io.StringIO()
+        _run_shoot(_nav_users(), ARTIFACT_WIDTH, out=line)
+        printed = line.getvalue()
+        if "nav=5 links marked=Accounts" not in printed:
+            problems.append(f"the printed line does not name the entry the guards accepted: "
+                            f"{printed!r}")
+
     rule("a refusal on every page still measures every page", all_refuse)
     rule("the literal census matches the page declaration", census_matches_the_declaration)
     rule("a fixture mode selects only its own pages", a_fixture_mode_selects_its_own_pages)
@@ -2467,6 +2917,25 @@ def self_test():
     rule("a tick box outside its words refuses", a_tick_box_outside_its_words_refuses)
     rule("the census a page was shown is printed", a_census_is_printed_for_every_page)
     rule("a census that was never taken refuses", a_census_that_was_never_taken_refuses)
+    # #204's nine. The first is the splice; the next six are one refusal each for one of the
+    # report's criteria; the last two are the census's own absence and its own line in the log.
+    rule("the navigation census is asked for, at both viewports",
+         the_navigation_census_is_asked_for)
+    rule("a navigation that marks nothing refuses", an_unmarked_navigation_refuses)
+    rule("a link still in the browser's own values refuses",
+         a_navigation_the_stylesheet_never_claimed_refuses)
+    rule("two entries marked current refuse", a_navigation_marking_two_entries_refuses)
+    rule("a mark on the wrong entry refuses", a_navigation_marking_the_wrong_entry_refuses)
+    rule("a mark no property can see refuses", a_mark_no_property_can_see_refuses)
+    # #229's two, both about the box rather than the ink: what a thumb can hit, and whether the
+    # border the mark is painted on is drawn at all.
+    rule("a mark on a target nobody can hit refuses", a_mark_on_an_unhittable_target_refuses)
+    rule("a mark the browser never draws refuses", a_mark_the_browser_never_draws_refuses)
+    rule("a mark outside the header refuses", a_mark_outside_the_header_refuses)
+    rule("a navigation row of one link refuses", a_navigation_row_of_one_link_refuses)
+    rule("a navigation census that was never taken refuses",
+         a_navigation_that_was_never_censused_refuses)
+    rule("the accepted mark is printed", the_mark_is_printed_for_every_page)
 
     def manifest_accompanies_the_artifacts(problems):
         # The manifest is the only thing that ties a committed PNG to the page it depicts (#144).

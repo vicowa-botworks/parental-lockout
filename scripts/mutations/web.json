@@ -1535,9 +1535,9 @@
     {
       "id": "W214",
       "file": "internal/web/templates/page.tmpl",
-      "old": "    <a href=\"/settings\">Settings</a>",
+      "old": "    <a {{if .IsCurrent \"/settings\"}}aria-current=\"page\" {{end}}href=\"/settings\">Settings</a>",
       "new": "",
-      "note": "the shell stops linking to the page, so the route exists and is reachable only by typing a URL -- the control a parent is told about in the banner has no way to be reached from the sentence that mentions it. TestTheSettingsPageIsReachableFromTheNavigation."
+      "note": "the shell stops linking to the page, so the route exists and is reachable only by typing a URL -- the control a parent is told about in the banner has no way to be reached from the sentence that mentions it. TestTheSettingsPageIsReachableFromTheNavigation. Re-pointed in the #204 merge (D-0033), which put an `aria-current` action on every entry in the shell: the bare anchor then matched 0 places, and a mutant whose pattern matches nothing tests nothing while the tests beside it keep passing -- `check-mutations.py` names it in seconds, twelve minutes before a battery would print it as NOT APPLIED. The whole anchor is still what goes away, so the behaviour under test is the one this row was written for."
     },
     {
       "id": "W215",
