@@ -1353,3 +1353,481 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   origin/main:testing/capture/manifest.py` away from being re-checked, and each close comment says so.
 - Checkpoint: aa9c1841a949ecd2ac4805ce28b6e0f97a658307
 - Effect: issues #211, #222, pull request #223 (all closed, nothing deleted)
+
+## D-0039 · The audit row cites a dated run instead of a digest the manifest can outlive
+
+- Question: review's blocking 1 on #225 is a merge-result defect, and merging `origin/main` made it
+  reproducible in a working tree rather than only in a hypothetical merge commit: the `audit.png` row
+  asserts `0cfe9973711b…` is "the digest `docs/screenshots/360/manifest.json` records for `audit.png`",
+  while `b9eeec3` re-photographed all nine frames at 16:34Z on 6 Nov -- while the pull request sat
+  waiting on review -- and the manifest in the merged tree records `fc37cd9a…`. The same argument
+  reaches the corroborating clause ("the four-fixture run further down reports the same") and this PR's
+  own sentence in "What the audit fixture is not allowed to contain", which says the two-zone pair "came
+  back with the committed bytes". How does a row stop rotting in a table whose own preamble forbids it
+  to carry a hash?
+- Options: drop the quoted digest and let the manifest be the manifest, naming the run instead of its
+  bytes | keep the value but date it and name the re-take that retired it | re-run the two-zone pair
+  against the current frames and quote the new digests | re-point the row at `b9eeec3`'s set and delete
+  the two-zone claim | leave the value and hedge it with "at the time of writing"
+- Chose: drop the quoted digest and let the manifest be the manifest, naming the run instead of its
+  bytes
+- Why: the file already legislated this. The paragraph above the table reads "This table used to quote a
+  hash per row, and every hash in it eventually named a file that no longer exists … the bytes each
+  artifact is pinned to now live in `docs/screenshots/360/manifest.json` … this table carries only what a
+  machine cannot know". Option two keeps a value whose only remaining state is *retired* -- the
+  `profiles.png` row two rows up is that same sentence about `740200cc…`, and #144 is the issue that
+  counted five rows of them -- so the row now names runs and points at the manifest for values: `D-0037`
+  for the bytes committed today (the 16:33:49-16:34:09Z run that wrote the set `b9eeec3` commits, and the
+  16:17Z round that came back `cmp`-identical on all nine), and the two-zone pair only for the property
+  that pair actually demonstrates.
+  Option three is the one with real weight behind it, and it is the one a docs unit must refuse. Re-taking
+  means committing a tenth frame set inside a pull request whose whole diff is two sentences; `record` has
+  to be handed all nine `--shot` names to do it honestly, which is D-0031's entire subject; and the frame
+  set is another unit's question, not this one's -- #213 is open, asking that the two POST frames be taken
+  under the condition the driver now enforces, so a re-take from this branch would land on top of that
+  audit rather than answer it. The tie-break order agrees: nothing separates any option on `go.mod` (no
+  dependency anywhere) or on the decode-toward-lockout rule (no config is touched), option one touches one
+  markdown line against option three's nine PNGs plus a manifest plus its `sources_rev` chain, and option
+  one is reversible by `git revert` of a prose commit while option three is a re-take only `git revert` of
+  a frame set undoes. Option four was refused because the two-zone pair is the only measurement in the
+  tree of the host-zone property this page exists to demonstrate, and deleting it would quietly retire
+  the evidence #210 and #212 were opened to produce.
+  Measured, not inferred, before writing any of it: `git merge-tree --write-tree origin/main HEAD` exited
+  0, so the merge takes `main`'s manifest wholesale -- this branch touched no frame after the merge base --
+  and `python3` over the merged `manifest.json` reads `fc37cd9adcc5d0a8…` for `audit.png`, which
+  `sha256sum` over `git show origin/main:docs/screenshots/360/audit.png` confirms. That is also why the
+  sentence the row points at moved with it: "the committed bytes" became "the bytes committed at that
+  head", so neither sentence claims anything about the bytes in `docs/screenshots/360/` today.
+- What this costs, stated rather than glossed. (1) The row concedes a gap it did not admit before: the
+  host-zone property is certified on the set `b9eeec3` replaced, and nothing in this tree has re-run the
+  two-zone pair against the current frames. The row says so and names what would close it, which is the
+  honest shape of a docs unit that is not permitted to photograph. (2) Dropping the digest makes the row
+  less directly checkable than it was for the three hours it had one -- the reader opens the manifest
+  instead of reading a value here, and that indirection is exactly what the README's own preamble to the
+  reproducibility table -- the paragraph opening "This table used to quote a hash per row" -- chose; the
+  row is not
+  entitled to undo it because a reviewer once asked for a number. (3) `b9eeec3` and `D-0037` are now
+  load-bearing in prose. Both are merged history and cannot move, but the next re-take will turn "the set
+  `b9eeec3` commits" into a historical sentence too; it is written dated ("later the same day") rather
+  than in the present tense so it stays true when the set moves again. (4) The other stale digests in
+  the file -- the `b59bb2be…`/`acc5ba4d…` pair quoted "at that moment" in "The negative control, and why
+  a refusal nobody watched fire proves nothing", and the four-fixture tally that opens "Measured 6 Nov"
+  under "What a frame was taken under (#211)" -- are `main`'s dated prose, not this PR's, and stay: each
+  names the run it came from, and each is true of the head it names, dated, and no longer claimed about
+  today. `D-0043` replaced the "checkable against the manifest" wording this line first carried, because
+  nothing here checks a markdown cell against the manifest -- that is the very gap two lines below. The
+  scripts-pair table under "What the scripts condition can and cannot witness" was on this list until
+  D-0041 read it against the artifacts: it does not belong there, because both
+  its cells read "`…`, published" -- present tense about `docs/screenshots/360/` -- and the manifest in
+  the same tree records `712ee6312051…` for `lock.png` and `ae25abeb1a32…` for `testlock.png`. Those two
+  values were the published pair from `38578aa` on 19 Oct until `9e07dde` re-took the frames on 5 Nov
+  (`7ec1a664…`, `d008fdf9…`), and `b9eeec3` moved them again the next day -- so the cells have been false
+  through two re-takes, which is exactly the rot this entry was written to stop, on the row next to the
+  one it fixed: `manifest.py check` compares bytes to bytes and `check-decisions.py` reads entries, so no
+  gate in this repository can see a markdown cell asserting a hash. The row this entry fixes was the one
+  that spoke in the present tense about what the manifest records, and the scripts-pair table named above
+  is a second such row -- one nobody was reading, six headings (four `##`, two `###`) and 430 lines below
+  the `audit.png` row that cites it, measured at `a4691ab`. The line numbers this item first gave are
+  replaced by the heading that owns each site; `D-0041` keeps the originals verbatim inside its quotation,
+  and `D-0043` measures all three drifting twice more while #225 sat in review.
+- Checkpoint: 5f6738e57ed453c6382134404bbacf25b55a1fbf
+- Effect: testing/capture/README.md (the `audit.png` row and the two-zone sentence it points at),
+  pull request #225
+
+## D-0040 · The two-zone pair is a run-vs-run measurement, and it was quoted as certifying nine artifacts against the committed bytes
+
+- Question: #225's round-5 blocking 1 is aimed at this section's own sentence -- "came back with the
+  bytes committed at that head for all nine artifacts -- the two POST frames among them" -- and it is
+  right: `docs/screenshots/360/manifest.json` distributes its nine frames over **four** fixtures
+  (`pages` 6, `pages-noprof` 1, `lock` 1, `testlock` 1), and the pair's own sentence two sections up
+  lists **seven** page-fixture artifacts, naming each, with no POST frame in the list. Reaching for that
+  sentence turned up a second defect the review did not name, and it sits in the row the review just
+  cleared: the `audit.png` row, in words `D-0039` wrote an hour before that review, says the pair "came
+  back with the bytes committed at *its* head", while the same file two paragraphs later records that
+  against the previously committed bytes only `settings.png` and `users-no-profiles.png` came back
+  identical and the other five moved. So what does the pair certify, and how much of the sentence
+  survives?
+- Options: scope the claim to the seven page-fixture artifacts and say plainly that the pair compares
+  one run against another, correcting the row's clause in the same commit | re-run the pair against the
+  nine frames committed today and quote what comes back, making both "nine" and "committed bytes" true
+  again | keep nine and hedge it as "the frames that run photographed", leaving the fixtures unnamed |
+  cut the pair out of this section and let the `audit.png` row carry the zone property on its own
+- Chose: scope the claim to the seven page-fixture artifacts and say plainly that the pair compares one
+  run against another, correcting the row's clause in the same commit
+- Why: the tie-break order does not reach these -- no dependency, no config, and options one and three
+  each touch one markdown file -- so it falls to the third rule, refuse rather than proceed on an input
+  that is not there: option three keeps a count the manifest contradicts and makes it uncheckable by
+  refusing to name which fixtures ran. Option two is the only one that produces evidence instead of
+  editing prose, and it is the one a docs unit must refuse for the reasons `D-0039` already gave -- the
+  two POST fixtures are #213's subject, an honest `record` has to be handed all nine `--shot` names
+  (`D-0031`'s discipline, merged with #227), and a tenth frame set cannot land inside a pull request
+  whose whole diff is prose. Option four retires the only two-zone measurement in the tree, which is the
+  evidence #210 and #212 were opened to produce: the same reason `D-0039` refused its own delete-the-pair
+  option.
+  Measured, not inferred, before writing any of it. The census is read off the manifest rather than out
+  of a sentence: nine rows, `capture.fixture` = `pages` 6 / `pages-noprof` 1 / `lock` 1 / `testlock` 1,
+  and `capture.census` is set only on the six `pages` rows (`testing/capture/bin`) -- the two POST rows
+  carry none because `lock-setup.sh` and `testlock-setup.sh` declare none, which `fixture.sh:146-151`
+  says is deliberate: "Empty means 'ask the machine', which is what the two POST fixtures do on purpose
+  … a stubbed census would photograph a fiction". And the pair's seven values are not retired committed
+  bytes -- they were never committed at all: hashing every historical blob of each of the seven paths on
+  every ref (`git log --all --format=%H -- docs/screenshots/360/<stem>.png`, then `sha256sum` over each
+  `git show <c>:<path>`) gives 19 distinct values for `audit.png` across 21 commits, 11 for
+  `dashboard.png` across 17, 11 for `profiles.png` across 13, 10 for `users.png` across 15, and 6, 6 and
+  3 for `profiles-refused`, `settings` and `users-no-profiles` -- and none of the seven appears in any
+  of those sets. That is what made the sentence false twice over, and it is why the row's clause had to
+  move with it: a run that produced no committed file cannot have "came back with the bytes committed at
+  its head".
+  What the fix keeps is the split `D-0039` built: bytes committed today to `D-0037`'s reproduction, the
+  zone property to the pair. The reviewer's non-blocking count rides in the same commit for the same
+  reason -- the run of 16:33:49 to 16:34:09Z is "nine-fixture" in that row while the manifest counts
+  four, and the file's own word for the nine is frames (`D-0014`, `D-0028`), so the row reads nine-frame.
+- Correction, in the same commit as the measurement that forced it (`D-0042`). The clause this entry
+  quotes out of the file -- "the same file two paragraphs later records that against the previously
+  committed bytes only `settings.png` and `users-no-profiles.png` came back identical and the other five
+  moved" -- describes #207's re-take run, not the two-zone pair, and the fix this entry shipped carried it
+  into the pair's own sentence directly beside the clause that denies it, so the paragraph ended up
+  asserting a hash relation and its negation about the same seven PNGs. `D-0042` deletes the imported half.
+  What does not move is this entry's conclusion and its measurement, both re-run at the head `D-0042`
+  corrects: `git log --all` over each of the seven paths still gives 21, 17, 13, 15 and 6, 6, 3 commits,
+  the distinct-value walk still gives 19, 11, 11, 10, 6, 6 and 3, and none of the pair's seven values
+  appears in any of those sets.
+- What this costs, stated rather than glossed. (1) The row loses a claim that read as though it had been
+  earned: no sentence here can now say the *committed* frame is zone-independent, because nothing in
+  this repository has ever established it -- the pair's outputs were never the committed bytes. (2) The
+  section states a gap where it stated a result, and `lock.png` and `testlock.png` are now named as
+  having no zone evidence at all; that reads worse than the sentence it replaces and it is the
+  measurement, with #213's rows 1 and 2 as its home. (3) The diff is larger than the finding the
+  reviewer filed: the row's clause was not on the round-5 list, so this commit corrects one clause
+  `D-0039` wrote an hour before the review and one clause the review asked for, and the pull-request
+  comment has to say which is which or the next reader cannot tell a refused option from an unnoticed
+  defect. (4) The cross-reference is now positional ("the two-zone pair above") rather than a line
+  number, which is the class of reference this section has already rotted once; if that pair's sentence
+  moves, this paragraph and the `audit.png` row both need re-reading.
+- Correction (`D-0044`, 8 Nov): the count above is a measurement of a clone on a date, and the sentence did
+  not say so. It was taken with `git log --all`, and "every ref" is a property of whoever runs it: this
+  clone today holds 49 local heads and no `refs/pull/*` at all, a reviewer's clone carrying
+  `refs/pull/*/head` and not these local heads disagrees with it without either side being wrong
+  (`dashboard` 11 values here against 12 there, `audit` 21 commits here against 20 there). Re-run in this
+  clone at this head, the same command returns 21 commits and **20** distinct values for `audit.png` where
+  this entry prints 19 -- the commit count is identical, so the difference is not the branch having moved,
+  and the ref set that produced 19 cannot be reconstructed after the fact. The half of the claim that
+  carries weight survives the tighter, reader-reproducible scope and the shipped sentence now states that
+  scope: hashing every historical blob of the seven paths over `git rev-list --remotes=origin` -- nine
+  published heads, 16, 11, 11, 9, 6, 6 and 3 distinct values in `audit`, `dashboard`, `profiles`, `users`,
+  `profiles-refused`, `settings` and `users-no-profiles` order -- returns none of the pair's seven
+  (`6545ce7d`, `3ba5275e`, `8a9bf9f5`, `76ea48fb`, `42764b11`, `175c1d1f`, `ce38334c`). Adding a ref can
+  only add a value, never remove one, so the pair's absence is safe in the one direction a reader's clone
+  can differ; the counts are not portable, and a count is worth only as much as its command.
+- Checkpoint: 5a7b5f41c0ca27813f2d5c2a247a3291caaa9536
+- Effect: testing/capture/README.md (the two-zone paragraph in "What the audit fixture is not allowed to
+  contain", and the `audit.png` row's host-zone clause), DECISIONS.md, pull request #225
+
+## D-0041 · `D-0039` certified the one stale digest that speaks in the present tense
+
+- Question: #225's round-5 blocking 2 is aimed at this log rather than at the README. `D-0039`'s
+  "What this costs" item 4 grouped three sites as "`main`'s dated prose … each is checkable against the
+  manifest rather than false about it", and one of the three is not: the scripts-pair table reads
+  "`b59bb2be…`, published" and "`acc5ba4d…`, published" for `lock.png` and `testlock.png`, present tense
+  about `docs/screenshots/360/`, while the manifest in the same tree records `712ee6312051…` and
+  `ae25abeb1a32…` for those two paths. The retraction exists -- the 02:46Z comment on #225 and row 3 of
+  #213 both say so -- but the entry is the artifact that merges, so the correction has to be in the log
+  or it does not survive the merge. Amend `D-0039` in place and record the correction beside the
+  measurement that forced it | leave the entry and let the two comments carry it | delete the list from
+  `D-0039` so it vouches for nothing | rewrite the table's two cells in this pull request as well
+- Options: amend `D-0039` item 4 in place to drop the scripts-pair table from the dated-prose list and
+  name it as present-tense rot, with the correction recorded in a new entry beside the measurement that
+  forced it | leave `D-0039` as written and let the #225 comment and #213's row 3 carry the retraction |
+  drop the whole list from `D-0039` so it vouches for no other site | rewrite the scripts-pair table's
+  two cells in this pull request so the false sentence leaves the tree with the log's vouch
+- Chose: amend `D-0039` item 4 in place to drop the scripts-pair table from the dated-prose list and name
+  it as present-tense rot, with the correction recorded in a new entry beside the measurement that forced
+  it
+- Why: this file has the rule already, twice. `D-0028` "amended three false `D-0024` sentences in the
+  commit that measured them" and recorded them in a `Correction, in the same commit as the measurement
+  that forced it` bullet; the entry that closed #222 did the same to `D-0030`'s gate claim. Option 2
+  loses on the review's own point: a comment is not a merge artifact, so a reader of `D-0039` alone --
+  which is how an entry gets read, six weeks later, by whoever is undoing something -- is still told the
+  table is checkable. Option 3 throws away the true half to remove the false half, the objection
+  `D-0030` recorded against deleting the `sources_rev` sentences: the "at that moment" pair and the
+  four-fixture tally do earn their place on the list, and the list is what tells a reader which sites
+  *not* to re-litigate. Option 4 is what
+  the finding argues for and is not this unit's to take: that table is the record of the two arms of the
+  `scripts` switch, so a replacement worth anything needs both arms re-run on the current head, and #213
+  is the unit that owns those two frames -- its row 3 already carries the measurement with the manifest
+  read-out beside it, at `origin/main`'s line numbers, so the next lane starts from a number rather than
+  from a sentence. The tie-break order agrees: option 1 touches one file and reverts as prose, and it
+  refuses rather than proceeds on a measurement this branch cannot take.
+  Measured before writing, because the claim is about two artifacts and not about a comment.
+  `sha256sum docs/screenshots/360/{lock,testlock}.png` at this head returns `712ee6312051…` and
+  `ae25abeb1a32…`, matching the manifest's `png_sha256` for both, whose `captured_at` is
+  `2026-11-06T16:34:09Z`. The two values the table calls published were published, and they stopped
+  being so three days ago: walking every commit that touches either path on every ref and hashing each
+  blob gives `lock.png` `b59bb2be…` at `38578aa` (19 Oct) then `7ec1a664…` at `9e07dde` (5 Nov) then
+  `712ee631…` at `b9eeec3` (6 Nov), and `testlock.png` `acc5ba4d…` at `38578aa` then `d008fdf9…` at
+  `9e07dde` then `ae25abeb…` at `b9eeec3` -- two re-takes have landed since the cells last described the
+  tree, and nothing noticed. That is the same mechanism `D-0039` fixed one row away, arriving from the
+  other direction: there a row quoted a digest the manifest had moved past, here a table calls a
+  moved-past digest current. That the gate cannot see it is measured rather than asserted:
+  `manifest.py check --dir docs/screenshots/360` answers "9 photographs current" with rc 0 while both
+  cells stand, and `grep -c README scripts/check-decisions.py` is 0 -- one gate reads PNGs against their
+  sources, the other reads entries, and a markdown cell asserting a hash is in neither one's field of
+  view. That gap is worth an issue of its own and #213's row 3 holds it until someone opens one; nothing
+  here closes it.
+- Correction, in the same commit as the measurement that forced it. `D-0039` item 4's sentence "The other
+  stale digests in the file -- :296, the four-fixture tally at :626-627, and the scripts-pair table at
+  :700-701 -- are `main`'s dated prose … each is checkable against the manifest rather than false about
+  it" is false of its third member, and the amended text above is what is true. The test that was applied
+  -- "a dated sentence is safe" -- is the wrong test, because the table carries no date and never needed
+  one to be read as history: what a sentence is worth is decided by whether a machine checks what it
+  asserts, and nothing checks a markdown cell. What survives of `D-0039` is its own fix and its first
+  three costed items, both of which this entry re-measured and neither of which moves. The three positions
+  quoted above were exact when `D-0039` wrote them -- `904b42b`, `540c55e` and `29bc88c` all read the tally
+  at :626 and the published pair at :700 -- and `7cd7d0ba`'s eight inserted lines moved them to :634 and
+  :708 before this entry quoted them again, which is what makes them stale at the commit that writes them
+  rather than merely later. #225's own prose commits moved them once more, to :640 and :714 at `a4691ab`,
+  and `D-0043` re-cites each of them by the heading that owns the site, which is the form that cannot rot.
+- What this costs, stated rather than glossed. (1) The log now carries three correction markers
+  (`D-0024`, `D-0030`, `D-0039`), which is the cost `D-0029` priced in advance and accepted: the log
+  reads as a record of being wrong rather than as a clean ledger. (2) `D-0039`'s "What this costs" is now
+  longer than the cost it was written to record. (3) The false sentence stays in the tree. README's
+  scripts-pair table will still read "published" when this branch merges, and what changes is only that
+  the log no longer vouches for it -- a reader of the table, rather than of the log, still gets a wrong
+  claim until #213 re-runs both arms, and that residue is the honest boundary of a prose unit. (4) It
+  retires the rule of thumb this branch was using for stale digests, so the next one has to be argued
+  from the gate rather than from the tense of the sentence it sits in.
+- Checkpoint: 97eadbd270a3c7b39aa717cb7d9a5ba2797a6f66
+- Effect: DECISIONS.md (this entry and the `D-0039` item 4 amendment above), pull request #225
+
+## D-0042 · The replacement sentence asserted the retraction and the thing it retracted
+
+- Question: #225's round-6 blocking finding is aimed at the sentence written to answer round 5, at
+  "What the audit fixture is not allowed to contain": "against the set committed at the time only
+  `settings.png` and `users-no-profiles.png` came back identical and the other five moved with the branch,
+  and none of the seven values that pair prints was ever a committed file at any head on any ref". The two
+  halves cannot both hold -- if those two frames came back identical to a committed set, their pair values
+  *are* committed files -- and the file prints the seven values that decide it nine lines of the same
+  section above. What is true about the pair's bytes, and what replaces the sentence?
+- Options: drop the imported half, let the paragraph rest on run-vs-run identity, and re-word the surviving
+  clause so its scope is checkable | keep both halves and record them as conflicting, routing the identity
+  claim to #213 beside the scripts-pair table | re-run the two-zone pair against the nine frames committed
+  today and quote what comes back | delete the pair from this section and let the `audit.png` row carry the
+  zone property alone
+- Chose: drop the imported half, let the paragraph rest on run-vs-run identity, and re-word the surviving
+  clause so its scope is checkable
+- Why: the pair's own wording already establishes what the sentence needs -- "two fresh fixtures, run about
+  a minute apart … produced byte-identical PNGs" is a run-vs-run claim with no committed term -- so the
+  first half was not doing work, it was doing damage. Measured before writing, and the walk is `D-0040`'s
+  re-run, not the review's assertion: every historical blob of each of the seven paths over every ref gives
+  `settings` six values (`111bcbe1`, `12e669d8`, `140dc2e7`, `2d7ac1d9`, `7bfacb6f`, `a7411adf`) and
+  `users-no-profiles` three (`8bbb8293`, `9173e9b4`, `dac864f4`), and the pair's `175c1d1f…` and `ce38334c…`
+  are in neither set -- so the clause is not true of *this* pair, and in a paragraph that prints these
+  seven values it reads as a claim about them. Whether some *other* run came back identical to its own
+  committed set is a different question, and `D-0044` answered it: it did, at `d439f70`, and this entry
+  said otherwise. One measurement past the review's, because the review left an out: "if in fact the pair ran on a
+  #207 head since discarded by a force-push, that is worth a sentence of its own". Hashing every blob in
+  this clone's object database -- `git cat-file --batch-all-objects --batch`, 2074 blobs, 87 of them PNGs
+  -- returns none of the seven, and `git reflog show issue-207` and `git reflog show origin/issue-207`
+  contain no forced update at all (14 and 6 entries, every one a commit, a merge, or a fast-forward push).
+  The discarded-head story is therefore not needed to explain the pair and is contradicted for this branch
+  by both reflogs. That is also why "any head on any ref" became "any head this repository still
+  publishes": the object-DB result is a fact about this clone, which a reader who clones fresh cannot
+  reproduce, while the published-refs walk is the same claim at the size a reader can check.
+  Option two is the one that keeps a contradiction on the page and asks the reader to hold both sides, and
+  it asserts about the neighbouring paragraph a thing this unit has not measured: the re-take it describes
+  quotes no digest — and `D-0044` found its equality against the then-committed set is confirmable from
+  this tree after all, in one command — so this refusal was given for a reason that does not hold. What
+  survives of it is the tie-break as procedure, not as a claim about measurability: this unit had not
+  measured the input when it wrote, and the third tie-break refuses rather than proceeds on an input that
+  is not there. Options one and two each touch one markdown file, so the fourth tie-break is decided by the size of
+  the claim, not the count of files, and the fifth is undecided between two prose commits; the sixth
+  settles it, because the file's own practice since `D-0039` is to name a run and point at the manifest
+  rather than to adjudicate two hash claims against each other in one sentence. Option three was refused
+  once in `D-0039` and again in `D-0040` for reasons that have not expired -- a docs unit does not
+  photograph, the two POST fixtures are #213's subject, and an honest `record` must be handed all nine
+  `--shot` names (`D-0031`). Option four retires the only two-zone measurement in the tree, the evidence
+  #210 and #212 were opened to produce.
+  The same walk fixes two neighbours in the same commit, because both quote one of the pair's values as
+  though it were committed. The `users-no-profiles` row said `ce38334c39ad…` was "equal to the file this
+  branch re-recorded"; this branch re-recorded that path twice, `dac864f4…` at `9e07dde` and `9173e9b4…` at
+  `b9eeec3`, so of the row's two digests one is a citation and one is not and the cell now says which. Its
+  real citation is restated as measured, because the review's version of it was one commit off:
+  `8bbb8293…` is `f56dc29`'s frame, recorded at `captured_at 2026-11-01T05:43:26Z`, and the
+  `2026-11-01T22:47:43Z` quoted in the review is `d439f70`'s re-record of the same bytes. The `audit.png`
+  row's "any head on any ref" takes the same published scope so the two rows cannot drift apart, and the
+  pair's closing clause reads "One host, two zones declared" -- the pair's own opening sentence and the
+  section's re-statement of it both say one machine, and
+  "two hosts" sat in the one sentence the retraction now depends on.
+- What this costs, stated rather than glossed. (1) The paragraph is longer than the sentence it replaces and
+  now explains a mistake as well as stating a scope, which is worse prose and the only honest shape
+  available: the imported clause has to be named, or the next reader re-imports it from the paragraph above.
+  (2) The `users-no-profiles` cell still carries a digest that names nothing committed. Labelling it stops
+  the cell lying; it does not remove the temptation to quote it, and #213's rows own that table -- `D-0041`
+  already refused rewriting its cells here for the same reason. (3) "Still publishes" is a scope that moves
+  with the branch list, but only one way: deleting a ref removes counterexamples and cannot falsify the
+  sentence, so the only way it becomes false is for someone to commit one of these seven frames -- the
+  exact case where being falsified is the point. (4) The object-database scan is corroboration this clone
+  can produce and a fresh clone may not, so the log leads with the published-refs walk and keeps the
+  stronger result where a reader can see what it does and does not license.
+- Correction (`D-0044`, 8 Nov): two sentences of this entry are false, and the round-7 finding is right
+  about them. The split the deleted clause describes is a comparison that happened, it is on `main`, and
+  one command settles it -- `git show d439f70 --stat -- docs/screenshots/360`. `d439f70` (2026-11-01,
+  "Re-take the five artifacts the fixture moved, and record why", and it arrived with **#212**, not #207)
+  lists `audit`, `dashboard`, `profiles`, `profiles-refused` and `users` changed and does not list
+  `settings.png` or `users-no-profiles.png`; re-measured blob against first parent across that directory,
+  five move (`913554df→f8a51ec3`, `4b9d36ba→65f7c261`, `a6cc0ae8→580f2896`,
+  `e977ace8→2487940d`, `311f91cc→551148e7`) while `settings` holds `add45cf8` and
+  `users-no-profiles` holds `77a840ea`, and the commit's own message says so: "Five files move because
+  their fixture content moved … users-no-profiles.png and settings.png came back byte-identical". So
+  "a split of a comparison that never happened" and "can be neither confirmed nor refuted from this tree"
+  are both wrong, and the README clause that told a reader the neighbouring sentence "quotes no digest a
+  reader can re-check" was steering a reader away from a check that exists. The deletion stands, on the
+  reason this entry already contained: the walk puts the pair's seven values in no published history, so
+  the clause has no scope in the pair's paragraph. What this entry over-read is the walk's reach. It
+  answers "is this pair's value a committed file"; it says nothing about whether some other run came back
+  identical to its own committed set, and reading it as a verdict on that second question is how an
+  unfalsifiable claim came to be labelled "Measured before writing".
+- Checkpoint: 8aa5bd80e398359db273d3dc5bb86be58c573d06
+- Effect: testing/capture/README.md (the two-zone paragraph, the `audit.png` row's host-zone clause, the
+  `users-no-profiles` row's digests, and the pair's "two hosts" clause), DECISIONS.md (this entry and the
+  `D-0040` correction above), pull request #225
+
+## D-0043 · A `:NNN` citation is worth nothing on a file that this branch edits
+
+- Question: #225's round-6 non-blocking items are both about how this log points at `README.md`. First,
+  the positions `D-0039` item 4 and `D-0041` quote -- ":626-627" for the four-fixture tally and
+  ":700-701" for the scripts-pair table -- and `D-0039`'s "the table two sections below it". Second, the
+  vouch `D-0039` item 4 still gives the two sites it keeps: "each is checkable against the manifest
+  rather than false about it", which is the standard three lines below it `D-0041` retracts. How does the
+  log point at a file it is also changing, and what does it actually vouch for?
+- Options: re-cite every site by the heading that owns it and re-word the vouch as true-of-the-head-it-names
+  | leave the line numbers and date each one | drop the positional citations and name nothing | move those
+  three sites' claims out of the log and into the README
+- Chose: re-cite every site by the heading that owns it and re-word the vouch as true-of-the-head-it-names
+- Why: measured on four heads, because the claim is about motion and not about style. `git show <head>` of
+  the README and one grep per site gives: tally at :626 and published pair at :700 at `904b42b`,
+  `540c55e` and `29bc88c`; :634 and :708 at `7cd7d0ba` and at the head the review graded, `6058c6c`; :640
+  and :714 at `a4691ab`, this branch's own rewrap commit. So the numbers were exact when `D-0039` wrote
+  them, moved before `D-0041` quoted them again, and moved twice more under this branch's own commits -- a
+  branch whose whole subject is a citation that outran its file re-stuck its own citations while it was
+  fixing that subject. "Two sections below" was never right either: from the `audit.png` row the table is
+  six headings (four `##`, two `###`) and 430 lines down at `a4691ab`. A heading is the form that cannot
+  rot, because moving prose between headings does not touch it and renaming one is a deliberate edit to the
+  cited thing rather than an accident nobody reads. The vouch re-worded for the same reason: `D-0041`'s own
+  conclusion is that
+  no gate in this repository reads a markdown cell -- `manifest.py check` compares PNGs to their sources and
+  `check-decisions.py` reads entries -- so "checkable against the manifest" promised a check that does not
+  exist. The reviewer re-ran the vouch anyway and it survives on better ground, and that ground is now
+  measured here rather than asserted there: `4739939` (2026-11-06T03:47:47Z, the commit that introduced
+  "Measured 6 Nov, from four fresh fixtures") holds `lock.png` `b59bb2bef7fc…` and `testlock.png`
+  `acc5ba4d5cfe…`, its manifest's `captured_at` is `2026-11-06T03:44:15Z`, and the "at that moment"
+  sentence quotes exactly those two against exactly that moment. Both survivors were therefore true of the
+  head they name, which is the property they actually have; neither is a statement about `main`.
+  Option two keeps a number that is wrong today and only timestamps the wrongness -- a date on a stale
+  position still sends a reader to the wrong lines. Option 3 removes the false pointer by removing every
+  pointer, the objection `D-0041` recorded against dropping `D-0039`'s whole list: the list is what tells a
+  reader which sites not to re-litigate. Option 4 moves claims into the file whose own preamble to the
+  reproducibility table forbids it from carrying hashes -- the paragraph that opens "This table used to
+  quote a hash per row" legislates exactly that, and is where `D-0039` took its own rule from. Option one touches one markdown
+  file, reverts as prose, and is what the surrounding log already does in words -- `D-0040`'s cost (4)
+  conceded this class rots and `D-0042` cites the pair by section for the same reason. The rule is written
+  for pointers into prose this branch edits, not for the log's `manifest.py:480`-style citations: those
+  name the file beside the line, and a code line moves inside a diff hunk a reviewer reads, which is not
+  the silence this class has.
+- What this costs, stated rather than glossed. (1) Headings rot too, more slowly: rename "What the scripts
+  condition can and cannot witness" and three entries lose their pointer at once. Accepted because the
+  failure needs someone to mean it. (2) The vouch is now weaker than the one it replaces -- "true of the
+  head it names, dated" is not a promise that anything checks it, and the honest answer to whether those
+  two sites are still right is "nothing in this tree can tell you". (3) `D-0041`'s quotation of `D-0039`'s
+  original sentence keeps the stale numbers verbatim, so a grep for ":700-701" still hits a wrong position.
+  Left deliberately: silently correcting a quotation of an earlier entry is how a decision log stops being
+  evidence about what was believed when.
+- Checkpoint: 1088c2cadfdaa7009d81ced1d78e9bf595ef011f
+- Effect: DECISIONS.md (the `D-0039` citations in costed items 2 and 4 and the vouch with them, `D-0041`'s
+  Why and Correction), pull request #225
+
+## D-0044 · The re-take this log sent readers away from is checkable, so the citation names the run
+
+- Question: #225's round-7 blocking finding says `D-0042` records as "a split of a comparison that never
+  happened" a comparison that is on `main` and checkable in one command, and that the shipped README
+  clause repeats the claim about a neighbouring sentence ("quotes no digest a reader can re-check"). Is
+  the finding true, is the run it points at uniquely identifiable, and what wording replaces the two
+  sentences and the clause? The same round carried four nits, taken here as one batch with it: the count
+  word at `:239`, two frames attributed to this branch that arrived by merge, a distinct-value count taken
+  over an unnamed ref set, and the live pull-request body still advertising the deleted claim.
+- Options: scope the claim to the pair it was written about, citation-free | name the run and the command,
+  and correct the two `D-0042` sentences in place with a dated correction bullet rather than a silent
+  rewrite | delete the README clause and both log sentences, leaving no account of how the clause arrived |
+  keep everything and record in this entry that a machine can check the neighbouring sentence after all
+- Chose: name the run and the command, and correct the two `D-0042` sentences in place with a dated
+  correction bullet rather than a silent rewrite
+- Why: the finding was measured true before anything was written, and the shape of the error is the one
+  this branch exists to treat: a sentence labelled "Measured before writing" whose subject a machine can
+  check, coming out the other way. The comparison is two commands long, and both halves of it reproduce
+  here independently of the review: `git show d439f70 --stat -- docs/screenshots/360` lists five PNGs and
+  not those two, and comparing each PNG's blob against its first parent gives five movers
+  (`audit`, `dashboard`, `profiles`, `profiles-refused`, `users`) against `settings` at `add45cf8` and
+  `users-no-profiles` at `77a840ea`, exactly the split the :238 paragraph describes and exactly what
+  `d439f70`'s own message records. The attribution needed care the review did not take, and the shipped
+  wording carries the care instead of the claim. The reviewer wrote that this commit is the only one,
+  across the commits since `f56dc29` that touch the manifest, where both files are unchanged while others
+  move; the *state* is not unique -- `git rev-list f56dc29..HEAD -- testing/capture/manifest.py
+  docs/screenshots/360/manifest.json` is 21 commits and six of them have both files unchanged with
+  something else moving: `d439f70`, the merges `903c09c` and `1c5a109`, and the re-takes `73a65fc`,
+  `ab0730c`, `774a270`. What is unique among the commits that took frames is the *shape*. The three later
+  re-takes each moved one frame against a different identical set -- `ab0730c`: "the other five:
+  `dashboard`, `users`, `profiles`, `profiles-refused` and `settings` returned byte-identical to main's
+  committed bytes, so only the template moved a frame"; `774a270`: "Eight of the nine came back
+  byte-identical to main's committed files; `audit.png` is the only mover" -- and the two merges adopt
+  main's bytes rather than measuring a run (`903c09c` shows five movers against its first parent with both
+  files unchanged, and is a merge). So `d439f70` is named because of its shape and its message, not
+  because nothing else moved two files, and the log says that rather than trading one over-scoped
+  citation for another. Option one is what `D-0042`'s correction would look like with no pointer, and a
+  reader holding only the corrected sentence still cannot see which run the clause came from; option
+  three destroys the only account of how an unfalsifiable clause got written into the durable artefact,
+  which is the thing the next reader quotes; option four leaves the false sentences standing on the page
+  while admitting elsewhere they are false, and a log a reader has to cross-reference against an erratum
+  is not a log. Correcting in place rather than rewriting silently is the same rule as the PR's own
+  handling of a wrong claim in a posted comment: the record has to show the correction being made.
+  The nits were each measured before being written, and two of them moved more than a word. The count word
+  is the reviewer's and it is right: the sentence named three pages behind the word "four", and five files
+  are what `git show d439f70 --stat -- docs/screenshots/360` lists, so "three plus two" is now the
+  measurement rather than a number short of it. The two adopted frames are a lineage claim, so lineage was
+  measured: `9e07dde` is an ancestor of `dbdbf4b` (the #221 merge) and `b9eeec3` of `ffd63ab`, and neither
+  commit is on `origin/issue-207`'s first-parent line -- each reached this branch through a merge,
+  `dbdbf4b` and `d246d51` respectively, and both are also on `main`; the row names the carrying merges now
+  instead of saying "this branch". The count nit turned out to be a real defect and not a clause: see the
+  dated correction on `D-0040`, where the same command run today gives 20 distinct values for `audit.png`
+  against the 19 that entry prints, over an identical commit count, with no way to reconstruct the ref set
+  that produced the 19. What the shipped sentence rests on now is the scope a reader can reproduce --
+  `git rev-list --remotes=origin`, nine published heads -- with the pair's seven values absent from it,
+  which is the half that mattered and holds. The fourth nit is not reachable from this session and is
+  recorded rather than glossed: `gh pr edit 225 --body-file` still fails server-side on the
+  classic-Projects field (`repository.pullRequest.projectCards`), and `gh api -X PATCH`, the one other
+  write, is refused by this harness's shell permission. The corrected body is staged with the ref-set
+  scoping folded into it at `/tmp/opencode/pr225-body-new.md`; the reviewer's note on the entry this log
+  numbered `H-0043` and the merge against `main` renumbered to `H-0051` -- that the body is the residue
+  a protected field leaves -- is the reason it is filed as owed work rather than dropped.
+- What this costs, stated rather than glossed. (1) The README sentence grows from one clause to five
+  lines, and the section is longer for a correction that adds no new fact about pixels. (2) The citation
+  points at a commit, so it inherits a commit's fragility: a re-record of `settings.png` cannot move
+  `d439f70`'s diff, but a history rewrite would, and the only thing holding that line is this repository
+  forbidding force-pushes (`allow_squash_merge=false`, `allow_rebase_merge=false`) -- the claim is as
+  durable as the branch protection, and the entry says so rather than implying it is a law. (3)
+  `D-0042` is now longer and visibly wrong in two places before it is right, which is the cost of
+  correcting in place; a reader who wants the clean version gets a four-line correction bullet and has to
+  trust it. (4) Naming the reviewer's over-reach in public spends the goodwill their correction earned,
+  and it is done because the same class of error is the subject of the pull request. (5) The uniqueness
+  measurement is bounded by `f56dc29`\u2013`HEAD` on this branch and by `--stat` against first parents;
+  a re-take on a branch nobody merged would not appear here, and nothing in the wording claims otherwise.
+- Checkpoint: f2a12988e76928b754ee3a204f18df693bda40c9
+- Effect: testing/capture/README.md (the provenance sentence after the reproducibility table: #207's
+  re-take becomes `d439f70` with its date, its #212 arrival, its own quoted words, and the one command
+  that settles the equality; "the four whose fixture content" becomes three, with the five-file list
+  cited; the `users-no-profiles` row's two adopted frames name `dbdbf4b` and `d246d51` rather than "this
+  branch"; the pair's published-heads sentence names `refs/remotes/origin/*` and its counts, and says what
+  a differently-scoped clone reports), DECISIONS.md (`D-0042`'s "a split of a comparison that never
+  happened" re-scoped to the pair, its option-two refusal re-grounded on the tie-break rather than on
+  unconfirmability, and the dated correction bullet above; `D-0040`'s count given its command, its clone
+  and its date, with the same command's result at this head), this entry, pull request #225
+

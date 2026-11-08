@@ -1024,6 +1024,59 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: `factory_git_incomplete()` beside `factory_git_said` in factory/common.sh, the three-way disposition (refusal / refusal-unless-nothing-else-was-found / appended `only partly read`) in the tracked, unmerged and untracked arms, the `0 1` success list on the refresh, and the no-scratch-file refusal in `factory_tree_dirt`; in factory/selftest.sh, `read_warns()` with the arm and status it expects, `no_capture_says_unknown()` with its function-shadowing `mktemp`, four unreadable-directory plants in both trees (hidden untracked work, hidden edit, visible work plus an unreadable dir, staged work plus an unreadable dir), `warn_alone()` -- the shim's second mode, answering at the arm's own success status -- with its inert-warn control, and the exclude-warning leg retargeted from DIRTY to UNKNOWN with its note saying why; three of the new legs carry `strong`, so the probe asserts `status --porcelain` is blind on them rather than only that the verdict is right, and the marker bites both ways (setting it on the visible-work leg is 2 red legs); legs 81 -> 120 on tmpfs and 80 -> 119 on btrfs, the one-leg difference still the exclude-directory plant (refuses on tmpfs where its `st_size` is nonzero, swallows on btrfs where an empty directory has none); twelve mutations of the shipped file in `docs/factory.md`'s table, every one red -- 2, 3, 5, 6, 89, 6, 12, 4, 4, 2, 6, 2 -- each restored from a backup taken after the fix with the tree confirmed back at the two intended edits, including M8, which was 120 passed / 0 failed until the staged-and-unreadable plant was written for it
 
 
+## H-0051 · A pull-request body a tick cannot rewrite: `gh pr edit` is dead on this account and the REST PATCH is denied
+
+- Id: this entered the harness log as `H-0043` on `issue-207`. That number is published on `main` as *The probe refreshed with an option git refuses, and its stat leg never asked whether it had planted anything*, and a merged entry's id never moves, so this one -- unmerged, therefore the one that can yield -- was renumbered to `H-0051` while resolving the merge. The two decisions share no subject beyond the number: this one is *A pull-request body a tick cannot rewrite: `gh pr edit` is dead on this account and the REST PATCH is denied*.
+- Question: the 8 Nov re-review of #225 asks, as its non-blocking item, for the pull-request body to be
+  refreshed, "since the body is where the rollback command lives", and its rollback line had indeed gone
+  wrong. `gh pr edit 225 --body-file …` exits 1 with `GraphQL: Projects (classic) is being deprecated …
+  (repository.pullRequest.projectCards)` and writes nothing -- three attempts, each read back from the
+  API: body still 2793 characters, still containing the stale "17 insertions and 8 deletions". `gh` is
+  `/usr/bin/gh`, version 2.46.0 (2025-12-13 Ubuntu 2.46.0-4) -- both halves, because a version nobody can
+  locate is a claim nobody can re-run. The one verb that sets a body on this account is the REST
+  `PATCH /repos/{owner}/{repo}/pulls/{number}`, which reaches only through `gh api`: `.opencode/opencode.jsonc`
+  denies it as `"* api *"` and `"* api"` inside the `bash` table, which is the keying that makes a rule
+  evaluate rather than sit inert, and `D-0013` is the entry that chose whole-over-method filtering. How
+  does a tick answer a finding it is not equipped to answer?
+- Options: post the corrected lines as a comment, say plainly that the body is stale, and name the command
+  that would set it | route the PATCH through a wrapper script so the denial is never literally spelled |
+  escalate `needs-human` and ship nothing for this finding | leave the body stale and say nothing
+- Chose: post the corrected lines as a comment, say plainly that the body is stale, and name the command
+  that would set it
+- Why: option two is the one act the harness treats as unredeemable -- "never wrap the denied call in
+  `bash -c`, `env`, `xargs`, `sh -c`, or a script that shells out to it" -- and what is denied here is not
+  a flag but the reason: `gh api` is withheld so that a unit of delivery work cannot rewrite the artifact
+  a merge is authorised from. A wrapper that obtains the write anyway does not route around a pattern, it
+  routes around the judgement, and it leaves no trace except the write. Option four is the silent tick this
+  log exists to end. Option three over-reads the stakes: a stale body is a documentation defect, not an
+  irreversible act, and the unit also owed both blocking findings, so parking #225 on `needs-human` over a
+  body line would have held up review of prose that was already finished -- and the four pull requests
+  that once sat in `REVIEW_REQUIRED` for three days are the precedent for what a tick that stops early
+  costs. Option one costs nothing a human cannot undo: every corrected line (the two-file stat, the
+  rollback pair, the `D-0038`/`D-0039` numbering) went into the comment beside the answer to the blocking
+  items, so whoever wants the body refreshed has both the text and the call.
+  The precedent is H-0010, measured four days earlier on this same account and the same verb family:
+  `gh pr edit 217 --add-reviewer hermesvicowa` exited 1 with the identical `projectCards` error and left
+  `/requested_reviewers` empty, and what was concluded there -- the REST path belongs to the supervisor,
+  call plus read-back, not to the tick -- is this entry's conclusion one field over. What is new is that
+  the field is the body, so the failure is not cosmetic: the text a reviewer is told to consult is the one
+  text this agent cannot write. `--json` is not a way out either; `gh pr edit` on 2.46.0 has no such flag
+  and answers with its usage text, so the read-back has to be a separate `gh pr view --json body`, which is
+  why every claim above quotes a length and a substring test rather than an exit code.
+- What this costs, stated rather than glossed. (1) #225's rollback instruction is correct in a comment and
+  wrong in the body, and the body is what the queue and a passing human read first. (2) The failing verb is
+  now witnessed twice, `--add-reviewer` at H-0010 and `--body-file` here, and neither the skill nor
+  `.opencode/opencode.jsonc` says so, so the next tick spends its ceiling rediscovering it; the repair is
+  one line beside the reviewer-request paragraph in `.opencode/skills/factory/SKILL.md` saying that
+  `gh pr edit` is dead on this account for every field and that a body correction ships as a comment. That
+  is named here rather than written there, because a product branch editing the harness's skill is how two
+  loops end up citing each other's ids. (3) `H-0043` is minted past `H-0042`, the highest in this clone on
+  any ref (`refs/heads/issue-228`, 40 commits ahead and un-published); if that branch numbers from its own
+  maximum instead of reading the rule, this number collides and the published side keeps it.
+- Checkpoint: 89382eee3bb92e6bd458e92d33d93cf73221c22e
+- Effect: pull request #225 (a comment; the body is unchanged because it cannot be written from here),
+  factory/DECISIONS.md
+
 ## H-0052 · A ticket already satisfied by `main` was handed to a tick, so the ending it needs is written down rather than improvised
 
 - Id: this entered the harness log as `H-0050` on `issue-228`. That number is published on `main` as *A read that answered at its success status and still said it could not open the file was taken as an answer, so the verdict called a tree with hidden work clean*, and a merged entry's id never moves, so this one -- unmerged, therefore the one that can yield -- was renumbered while resolving the merge. It took `H-0052` rather than the next free number: `H-0051` is already spoken for by the same renumber on `issue-207`, whose pull request is open at the same time, and taking the number after it is what keeps these two from colliding on `main` the way they just collided here. The two decisions that share H-0050 share nothing but the digit: this one is *A ticket already satisfied by `main` was handed to a tick, so the ending it needs is written down rather than improvised*.
