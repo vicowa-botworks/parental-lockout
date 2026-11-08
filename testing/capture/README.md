@@ -68,7 +68,14 @@ one page needs live in `cdp.py`.
 | `pages.py` | a page answers a different URL than it was sent to; **a table page** has no table or no cells (an empty fixture fits at any width); **a form page** has no POST form or no fields (the sibling check — a `/settings` that rendered only its navigation also fits at 360 px, and dropping the check instead would have committed that as evidence it fits); any cell lacks `data-label`; **the page overflows its viewport** — measured at every width in `WIDTHS`, refused per page per viewport, and before the PNG is written; **the audit page** carries no seeded `platform.error` row, or its hardest unbreakable token is under 60 characters (#140: a page that could not have overflowed is not width evidence, and a page whose pressure came from the machine rather than the fixture is not evidence about the stylesheet); **a control disagrees with the page it sits on** — set in the browser's own typeface rather than the page's, sized by no `max-width` at all or by a different one from the other fields on that page, or a radio or checkbox whose label the stylesheet left inline so the box can wrap away from the words that name it (#202; every page, both viewports, before the PNG is written) |
 | `lock.py` | the dashboard has no `lock-now` form, no submit button, no CSRF token with a value, or a method that is not `post`; the click does not navigate; the result page has no banner sentence or no session rows; a cell lacks `data-label`; a session row has no Result cell; **a row claims the lock happened while its own Result cell says otherwise** (#109); the gated clause is absent, meaning the self-session note never rendered; **the Detail cell's sentence runs into that note** (#108); the note appears in no cell at all, so the #108 rule would have examined nothing; **the click wrote no `lock.requested` line**; the page overflows; the three control claims (#202), which on this page are shown exactly one control — the chrome's Sign-out button — and report it as `controls=1 typed=0 groups=0` on the transcript rather than passing in silence |
 | `testlock.py` | the same form and click refusals for `test-lock`; the page does not say *Nothing was locked*; fewer than two tables or no backend rows; the #108 seam rule and the same empty-rule guard; **the audit trail holds anything but `lock.probed`**; the page overflows; the three control claims (#202), vacuous here for the same reason — the transport radios those rules are about are on `/settings`, a `pages.py` frame |
-| all three | the daemon the fixture started is not the process still serving its port; something already answers the DevTools endpoint before the browser is launched; `--out` resolves outside the repository, names a file, or names a directory holding PNGs without `--overwrite`; an unrecognised flag |
+| all three | the daemon the fixture started is not the process still serving its port; something already answers the DevTools endpoint before the browser is launched; `--out` resolves outside the repository, names a file, or names a directory holding PNGs without `--overwrite`; an unrecognised flag; **a word the page uses to report a state is drawn in exactly the voice of the
+text it sits in** -- same colour, weight, style and decoration as its parent, no border and no
+background of its own (`cdp.require_state_legible`, #199: nine class names carry a state and `app.css`
+wrote a rule for one of them, so `/users` said *"in the configuration, not on the machine"*, *"not
+managed"*, *"the account no longer exists"* and its own banner as ordinary prose at both viewports, and
+`/` drew one of its four). The vocabulary is `cdp.STATE_CLASSES`, read off the templates by a rule in
+`pages.py --self-test` rather than remembered; what the browser computed is on the measurement line as
+`states=N drawn=M`, zeros included, so `states=6 drawn=0` is readable after the fact |
 
 Four of those deserve explaining, because each was a hole found by attacking this code rather
 than by writing it.
@@ -271,6 +278,17 @@ Measured again on 28 Oct against the manifest's own hashes, on the run that took
 page: `profiles.png`, `profiles-refused.png`, `settings.png` and `users.png` came back
 byte-identical; `dashboard.png` and `audit.png` did not, which is why that PR commits the two that
 reproduce and leaves the two that churn -- the same choice #161 made for the same reason.
+
+#199 re-took the set on 8 Nov, on the run that gave the state vocabulary its rules in `app.css`, and
+what that run did to this table's premise belongs here rather than in a row: **eight of the nine
+frames moved** -- `settings.png` and `users-no-profiles.png` among them, the two `d439f70` reported
+identical -- because a colour change is not a fixture change, and all eight render at least one state
+word at 360 px (`/users` renders six). `audit.png` came back byte-identical, and the driver's line now
+prints why in the same breath: `states=0`, no state word anywhere on that page at either viewport, so
+there was nothing for a #199 rule to reach. So every "byte-identical to the committed file" sentence
+above this line is a citation between two runs at two dates, and not a pointer into
+`docs/screenshots/360/`; `manifest.json` is the pointer, which is what the paragraph above this one was
+written to say.
 
 | artifact | does the in-repo driver reproduce the committed file? | why |
 |---|---|---|

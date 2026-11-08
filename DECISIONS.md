@@ -1831,3 +1831,74 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   unconfirmability, and the dated correction bullet above; `D-0040`'s count given its command, its clone
   and its date, with the same command's result at this head), this entry, pull request #225
 
+
+## D-0045 · A state word is drawn by a rule, and the stylesheet had written one of nine
+
+- Question: #199 reports the web UI as "very basic" and asks which decisions carry no visible state.
+  `internal/web/static/app.css` styles `.state-held` and `.state-free` and nothing else in that
+  vocabulary, so is the fix a palette, a component, or a rule set the templates already emit; and where
+  does the guard against this class of defect go, given that a grep of `app.css` can read that a class
+  is *mentioned* and cannot read that anything is *drawn*?
+- Options: new components and markup for every state | a palette and token pass over the existing
+  elements | one rule per class the pages already name, with the effect measured in Chrome | escalate
+  the palette to a designer and ship nothing here
+- Chose: one rule per class the pages already name, with the effect measured in Chrome
+- Why: the located cause is not taste. The pages already put a class on every state word — thirteen of
+  them, nine on words and four on rows — and `app.css` wrote a rule for two, so eight of the thirteen
+  computed exactly what the sentence around them computes. Measured in Chrome on the pre-fix tree at
+  360 px: `/users` renders six state words and zero are drawn, `/` renders four and one is (`locked
+  out`, the red bold one), `/profiles` renders two and zero are drawn. Markup was never the missing
+  half. That is also why the token pass is the option that loses least: the palette exists (`--held`,
+  `--free`, `--muted`, `--warn` added here, dark variants beside each), and what was missing was the
+  decision about *what a state word is allowed to be drawn with*. That decision is written into the
+  rules rather than left to a reviewer: colour plus one of weight, style, underline or a box property,
+  because the ticket's own requirement is that a state survive greyscale and colour-blind vision, and a
+  guard that checks only contrast would pass a word whose entire distinction is a hue nobody can see.
+  The four inherited channels — colour, weight, style, decoration — are the ones that travel from the
+  prose an element sits in, so those are the four compared against its parent; `border-left-width` and
+  `background` are not, because a `td` sits in a row whose border is the row's, and the first version
+  of the guard compared them anyway and reported the pre-fix stylesheet as drawing `.flag` when it
+  draws nothing (the cell is a `td`, its parent's border is `3px`, so the comparison was against itself).
+  `problem` and `override` land on muted italic prose for the reason #199 itself gives: the refusal
+  sentence and the open hold are the most important text on those pages *and* the longest, and a bold
+  red paragraph on `/users` — where six of the thirteen state words live — would turn a table into
+  weather. A refusal earns attention from shape and position, not saturation. `state-free` stays out of
+  the census: `app.css` draws it, no template has ever emitted it, and a browser cannot be asked about a
+  class that is never on a page; the Go test asserts both halves of that sentence rather than trusting
+  either. The guard is two seams with one shared blind spot. `internal/web/state_vocabulary_test.go`
+  reads the two *names* a rename moves — a `state-` word a template says and the stylesheet never
+  mentions, and a rule for a word nothing says — and refuses the reader's own vacuity by pinning six
+  real selectors including the row rules this entry adds. The effect lives in Chrome:
+  `cdp.require_state_legible` refuses a page where a state word is undrawn, at both viewports, and the
+  measurement line prints `states=N drawn=M` with the zeros, because #204's lesson is that a number
+  that would read identically in the broken and fixed case proves nothing — `nav=5 links marked=Accounts`
+  is the line that made #204 checkable and this is the same line for the same reason. Neither seam reads
+  composed markup, so `pages.py --self-test` gained the coverage rule, which reads the templates from the
+  other side and is what found the four row classes: `dashboard.tmpl:33` and `users.tmpl:43` write
+  `class="{{if .Stale}}stale{{end}}…"`, so the names exist only between actions, carry no `state-`
+  prefix, and had no rule at all — `grep -n "tr\.\|tbody tr" app.css` on the checkpoint commit answers
+  nothing. That rule's first version called those four unreadable and stopped counting them, which is
+  the failure it exists to catch, and `page.tmpl:39` then refused it a second way: its
+  `class="page-{{template "pagename" .}}"` has a quote *inside* the action, so splitting attributes
+  before cutting actions cuts the attribute in half. Actions are cut first now, for both reasons.
+  What lost, and it is the expensive half: nine committed frames are re-taken because of this. The
+  alternative was to exempt the three frames whose drivers cannot be re-run on a CSS change, and a
+  first attempt wrote that exemption into `manifest.py` as a `css_only` block — stated on the frame,
+  naming the tests that re-verify it, refused when it named no proof — and it was reverted before
+  commit, for a reason worth keeping: it cited a `#217` that does not exist in this tree, and the
+  three `by` paths it named were tests that assert *content*, not layout, so it would have shipped an
+  exemption whose `proves` sentence claimed coverage the named tests do not provide. `manifest.py
+  check` answered with nine staleness problems, all of them true, and the honest reading was that a
+  CSS change moves every page that renders a state word. Re-taking is 20 minutes and a manifest entry
+  per frame; an exemption is a permanent clause a future reader has to re-litigate.
+- Checkpoint: 6c3773999b2054d664ec6a113e4e5a758ca391e8
+- Effect: internal/web/static/app.css (`--warn` in both schemes; `.state-unknown`, `.state-gap`,
+  `.banner`, `.flag`, `.problem`, `.override`, `.override-expired`, `.disabled`, `tr.held`,
+  `tr.unreadable, tr.stale`, `tr.unmanaged` with their dark variants), internal/web/state_vocabulary_test.go
+  (new: the name seam and the selector reader's own probe), testing/capture/cdp.py (`STATE_CLASSES`,
+  `ROW_STATE_CLASSES`, `STATE_JS`, `measure`, `state_problems`, `require_state_legible`,
+  `format_state_line`), testing/capture/pages.py (the census line, the coverage rule, `import re`,
+  `EXPECTED_RULES` 60→68), testing/capture/lock.py and testlock.py (the same census on their frames),
+  testing/capture/README.md (the refusal row, and the note that #199's re-take moved eight of nine
+  frames including the two `d439f70` reported identical), docs/screenshots/360/* (re-taken set and its
+  manifest), #199's pull-request comment, #239 (the two-meanings split, deliberately not done here)
