@@ -2209,23 +2209,43 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   re-review is blocking on, published to the person whose requirement it invokes. The reviewer scoped item
   1 to "the decision log and the PR body" because that is all they could see; the blast radius is three
   artifacts, not two. It is the same shape as the lost review body one level up: a call that reports success
-  and changes nothing on the server, with the log asserting the delivery. Two rules follow and both are
-  applied here: this round's writes go in with `--body-file` / `--body-file` on a file and are then read
-  back from the API and checked for the sentence that should be there and the one that should not, and the
-  false text on #199 is answered by a dated comment rather than by editing the comment -- for the reason
-  `D-0046` itself gives, a silently corrected artifact is indistinguishable from one that was always right.
+  and changes nothing on the server, with the log asserting the delivery. Two rules follow. Every write this
+  round makes is read back from the artifact afterwards and checked for the sentence that should be there and
+  the one that should not -- which is what turned the next finding into a finding instead of an assumption.
+  And the false text on #199 is answered by a dated comment rather than by editing the comment, for the
+  reason `D-0046` itself gives: a silently corrected artifact is indistinguishable from one that was always
+  right.
+  The third finding is that this tick cannot rewrite a pull request's body at all, which is why `D-0046`
+  believed it had. `gh --version` is 2.46.0 and every field of `gh pr edit` still dies on
+  `repository.pullRequest.projectCards`: `gh pr edit 240 --remove-label blocked --remove-label question`
+  printed the Projects-classic GraphQL error and the read-back came back `["question","blocked"]`, unchanged,
+  so nothing half-applied either. The raw transport is denied to a tick whole --
+  `.opencode/opencode.jsonc:120-121` carries `"* api *": "deny"` and `"* api": "deny"`, and a
+  `gh api -X GET …/pulls/240` probe this round was refused at parse time with `Permission denied: shell`. So
+  corrected text can only go where a tick can write, which is a comment, and #240's body and labels stay as
+  they are. That is a boundary holding, not a wall to route around: the same file withholds `gh pr merge` and
+  `gh pr review` and names `factory.sh`'s ungated `factory_request_review` as the actor allowed to POST where
+  a tick may not. Two consequences are recorded rather than smoothed over. The body that could not be
+  rewritten is where #240's stale count and its five retracted citations still live, so the comment carrying
+  the corrections has to name the body sections it supersedes; and `blocked` is still on a pull request that
+  is no longer blocked, a queue-visible lie only the supervisor or a human can clear, with the command that
+  does it being exactly the one this file forbids me to run
+  (`gh api -X DELETE repos/vicowa-botworks/parental-lockout/issues/240/labels/blocked`, and `…/question`).
 - Checkpoint: 36f43f17bab73e6ab3b94570629bc1f4c5f877d4
 - Effect: DECISIONS.md (this entry; `D-0045`'s title, its `Why:` count and per-page numbers, its
   guard-property paragraph and its `Effect:` symbol list, with a dated `D-0048` correction naming both false
   sentences; `D-0047`'s comment count, dated, and its `Awaiting:`, which now points at #242 rather than at
   one reviewer's `/tmp`; and a `D-0048` correction on `D-0046`'s `Effect:`, which claimed four GitHub writes
   and got one); internal/web/state_vocabulary_test.go (the at-rule doc rewritten to the mechanism
-  that exists, and the no-op arm deleted -- behaviour proven identical); pull request #240's body, rewritten
-  and read back from the API; a comment on #240 answering the two blocking items and the three nits where
-  each was filed; a dated correction comment on #199, because that is the artifact where the false guard
+  that exists, and the no-op arm deleted -- behaviour proven identical); a comment on #240 answering the two
+  blocking items and the three nits where each was filed, and naming the body sections it supersedes, because
+  the body itself is not writable by a tick (above) and still carries the two-of-thirteen count and the five
+  retracted citations; a dated correction comment on #199, because that is the artifact where the false guard
   property was published to the user and it is older than this round, so it is answered rather than edited;
   a comment on #242 carrying the reviewer's predicate for a lost ask and the submission side
-  that produced it; and the `blocked` and `question` labels taken off #240, because the reason they went on
-  -- the ask could not be read -- no longer holds. No shipped product line moved: `app.css`, `cdp.py`,
+  that produced it; all three read back from GitHub after posting, each confirmed by the first line it was
+  supposed to carry. #240's `blocked` and `question` labels are STILL ON: the reason they went on -- an ask
+  nobody could read -- is gone, and `gh pr edit` cannot take them off, so the clear is handed to the
+  supervisor with the one command that works. No shipped product line moved: `app.css`, `cdp.py`,
   `pages.py`, `lock.py`, `testlock.py`, the templates and the nine frames are untouched, so the manifest
   needed no re-record.
