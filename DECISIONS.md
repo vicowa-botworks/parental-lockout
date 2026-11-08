@@ -2372,3 +2372,40 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   and `gh pr review` is denied by name -- so `requested_reviewers` stays `[]` on #240 as it does on every open
   pull request in the repository, and the supervisor's `factory_request_review` is the only thing that can
   change that.
+
+## D-0050 · `verify` went red across a docs-only delta, and the tail of the race test was asking the storm instead of the loop
+
+- Question: `verify` failed on this branch at `a4f0091` with `run_test.go:270: timed out waiting for the loop to still be
+  ticking` -- one failing test, `internal/enforce` in 7.194 s, nothing else red (job `128834864268`, run `42514638592`). Three
+  readings rule out a shipped cause before any code is read: `git diff --name-only origin/main...HEAD` lists no path under
+  `internal/enforce`; the same branch was green 23 minutes earlier at `d80b895` and `git diff --stat d80b895 a4f0091` is
+  `DECISIONS.md | 107 +` and nothing else; `shellcheck`, both `packages` jobs and `mutation sets` were green on the failing
+  head. So either the guard is wrong or the engine is, and the test is the `-race` acceptance criterion for #7 -- the one line
+  in the gate that says the loop and the reloader are safe *together*, which is not a line to delete because it is
+  inconvenient. What does a red gate get when no shipped line changed: a re-run, a wider timeout, a skip, or a reading?
+- Options: re-run the workflow and treat a green tick as an answer | widen `waitFor`'s 5 s, or `t.Skip` the test when the
+  runner is loaded | rewrite the tail so it puts the fixture back into the state where a lock is owed and then asks for one
+  more lock than the storm already got | escalate: a flaky acceptance gate is a maintainer's call
+- Chose: rewrite the tail so it puts the fixture back into the state where a lock is owed and then asks for one more lock than
+  the storm already got
+- Why: two separators are silent here -- nothing is added to `go.mod`, and no config key is decoded, so the rule that resolves
+  an omitted key toward lockout has nothing to bite. The third one decides it against options 1 and 2, which both proceed on a
+  question the run did not answer. A re-run that happens to land green says nothing about the next branch, and it is the same
+  shape as the failure this log already carries three entries for: asserting a state because the call returned. Widening the
+  wait is the trap, because 5 s is not the budget problem -- `totalLocks()` is a cumulative counter, so the number the check
+  reads was finished by the storm and every extra second returns the identical number. Option 4 loses on the evidence below:
+  no product line is implicated, and asking a human to judge what a probe can settle spends the one thing a tick may not
+  manufacture. Say what option 3 gives up, because it is not free: it costs a fourth push to a pull request whose shipped code
+  the reviewer has already graded sound, and it makes the test newly dependent on the engine owing a lock after a clean config
+  write -- so a future change that legitimately stops locking on a fresh write fails here for a reason that is not a race.
+  That is the price of asking a question with an answer instead of a coin, and it is cheaper than a gate that can call a live
+  loop dead.
+- Checkpoint: 4e5f3ada
+- Effect: `internal/enforce/run_test.go`, the tail of `TestRunIsRaceCleanWhileTheConfigIsEdited` and the comment above it. What
+  did NOT move is the point of the entry: no shipped line, no other test, `internal/enforce/enforce.go` byte-identical to the
+  `be71dbb7` it was at when this round started (`sha256sum` before and after), and the two temporary probes this round built
+  are deleted rather than committed. Read-backs this field rests on are GitHub's and Actions', not this file's: job
+  `128834864268` / run `42514638592` for the red, and the fact that the two artifacts written earlier at `a4f0091` were
+  re-read before this entry was written rather than inherited -- #240's body at `2026-11-08T19:21:48Z`, 15671 bytes,
+  containing `twelve of thirteen` twice and `any one visible channel` and none of the five retracted citations, and the
+  thread's third comment at `2026-11-08T19:18:23Z`.
