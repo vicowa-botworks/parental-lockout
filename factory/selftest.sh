@@ -2236,9 +2236,9 @@ claim_reset
 
 # --------------------------------------------------------------- who the review poke asks (#241)
 #
-# H-0055 moves the review request from one named person to the organisation's team. That is worth legs
-# here rather than a grep for the team argument in factory.sh, and the reason is #1048 in shell
-# clothing: a pattern
+# H-0055 moves the review request from one named person to the organisation's team, and H-0056 decides
+# what becomes of an individual request the poke did not make. Both are worth legs here rather than a
+# grep for `team_reviewers[]` in factory.sh, and the reason is #1048 in shell clothing: a pattern
 # matches text, so it reports the absence of a match as the absence of a bug. Delete the line and a
 # presence check goes blind; move the line into a function and it says "not found" about working code.
 # These legs therefore RUN the poke and read what it asked the API for -- and every load-bearing one
@@ -2381,6 +2381,14 @@ poke_no_write_at_all() { # nothing at all was sent to the API
 	if [ -s "$poke_calls" ]; then
 		printf '            the poke was configured to ask nobody and still made %s call(s):\n' \
 			"$(wc -l <"$poke_calls")" >&2
+		sed 's/^/              /' "$poke_calls" >&2
+		return 1
+	fi
+	return 0
+}
+poke_no_delete() { # H-0056: the poke never un-asks somebody it did not ask
+	if grep -q -- '-X DELETE' "$poke_calls"; then
+		printf '            the poke revoked a request it did not make:\n' >&2
 		sed 's/^/              /' "$poke_calls" >&2
 		return 1
 	fi
@@ -2587,6 +2595,48 @@ poke_failed_names_the_override() {
 		poke_log_has 'FACTORY_REVIEWER_TEAM' && poke_rc_is 1
 }
 claim_leg 'an unknown team fails, and says what to set' poke_failed_names_the_override
+
+# 6. H-0056: a request the poke did not make stays where it is. Adding a team does not remove an
+#    individual from the list and this function does not either, on the success path or on the
+#    already-holding path. The leg is about a call that must NOT happen, so its control is the same
+#    function with the DELETE added -- the shape a "clean up the stale request" fix would take.
+poke_never_revokes_a_request() {
+	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
+	poke_no_delete || return 1
+	local POKE_POST_FAIL=1
+	local POKE_LIST='{"users":[{"login":"hermesvicowa"}],"teams":[]}'
+	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
+	poke_no_delete
+}
+claim_leg 'the poke leaves a request it did not make' poke_never_revokes_a_request
+# Its control: the same function with the tidy-up a reviewer would write -- revoke the stale individual
+# request once the team has been asked. That is the exact shape H-0056 refuses, and the leg above has
+# to go red over it.
+mkdir -p "$poke_root/revokes"
+python3 - "$HERE/factory.sh" "$poke_root/revokes/factory.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+anchor = '\t\tlog_event "POKED pr:$pr asked $label"'
+add = ('\t\trun_action gh api -X DELETE "repos/$FACTORY_OWNER/$FACTORY_NAME/pulls/$pr/requested_reviewers"'
+       ' -f "reviewers[]=$FACTORY_REVIEWER" --silent || true')
+text = open(src, encoding='utf-8').read()
+if anchor not in text:
+    print('the POKED line this control hangs the DELETE on is gone from factory.sh: ' + anchor)
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(anchor, anchor + '\n' + add, 1))
+PY
+poke_revokes_when_told_to() {
+	poke_run "$poke_root/revokes/factory.sh" hermesvicowa cinemaitor || true
+	poke_no_delete
+}
+if poke_revokes_when_told_to 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a poke that DELETEs the individual request still passed\n' "control: no revoke"
+	printf '          the leg, so the ok above is the check being blind.\n'
+else
+	printf '        control: the same function with a revoke added after the POST goes red on the\n'
+	printf '        same leg, so the ok above is the absence of a DELETE and not a blind grep.\n'
+fi
 
 # 7. --dry-run still prints and still does not write. The poke has always honoured that, and the new
 #    argument has to appear in the printed line for the same reason it has to appear in the POST:
