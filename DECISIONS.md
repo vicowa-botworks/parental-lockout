@@ -2372,3 +2372,140 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   and `gh pr review` is denied by name -- so `requested_reviewers` stays `[]` on #240 as it does on every open
   pull request in the repository, and the supervisor's `factory_request_review` is the only thing that can
   change that.
+
+## D-0050 · #239 counted two classes carrying two meanings; the templates had nine jobs between them, and two of them had no name in the vocabulary at all
+
+- Question: `.problem` and `.override` are the two names the issue names, and each is one name for
+  more than one thing — but the counts in the title are not the counts in the tree. Read off the
+  embedded templates at `7ccc73e`, `.problem` is on **16** sites and means six different things
+  depending on where it sits: the daemon's quoted words about one row (5 on `/users`, 1 in the
+  status page's Why cell, 1 Detail cell on each result page), the sentence a refused write leaves
+  above its form (`/profiles`, and the evaluator's sentence about a rule that can never fire), the
+  standing banner "Enforcement is switched off, so nothing here is being enforced" (`/profiles` and
+  `/settings`), a paragraph of instructions about when a transport change applies (`/settings`), and
+  a missing value (`no day`). `.override` is on **3** sites and means two: the open hold on the
+  status page, and the sentence whose entire content is that nothing is held and nothing can be (the
+  self-session note, copied into both result pages). Nine of the sixteen and two of the three move
+  here. Two of the jobs have no name in `cdp.STATE_CLASSES` at all — a refusal, and the daemon's own
+  exemption — while three others already have a name that carries the exact colour they need:
+  `.disabled` and `.state-gap` are both `--warn` ("somebody switched it off / it is not in a window
+  today, so the schedule is not holding"), and `.muted` is the voice every other paragraph of help on
+  `/settings` is written in. So this is not "two classes become four"; it is nine jobs landing on six
+  names, two of them new. The census is a published contract — one home in `cdp.py`, read off the
+  templates by `pages.py`, asserted from the Go side — and `app.css` is a source of all nine committed
+  screenshots, so the rename reaches the gate whatever it does. Which jobs get a new name, does the
+  name that already means "this row, quoted by the machine" keep its voice, and does a split that
+  moves no pixels on seven of nine frames still re-take all nine?
+- Options: name each job exactly once — `.problem` keeps the quoted row detail and its existing voice, `.refusal` and `.exempt` are coined for the two jobs the vocabulary has no word for, and the other three jobs move to names the vocabulary already carries (`.disabled`, `.muted`, `.state-gap`) | coin a fresh name for every one of the nine jobs, so nothing shares a colour and `.disabled`, `.state-gap` and `.muted` keep the narrow scope they have today | split only what the title names — two classes out of two — and leave the refusal, the banner, the help paragraph and the missing value all still on `.problem` | escalate: the split edits `cdp.STATE_CLASSES`, which is the contract the capture loop publishes, and re-records nine committed screenshots, so it is a maintainer's call
+- Chose: name each job exactly once — `.problem` keeps the quoted row detail and its existing voice, `.refusal` and `.exempt` are coined for the two jobs the vocabulary has no word for, and the other three jobs move to names the vocabulary already carries (`.disabled`, `.muted`, `.state-gap`)
+- Why: the separators that decide a `needs-human` case are silent — nothing here adds a module, decodes
+  a config key, publishes or deletes — so the fourth one decides it, the option that refuses to leave a
+  claim standing which its own evidence contradicts. `.problem` is that claim. Its comment in `app.css`
+  said, in as many words, "Both classes mean two things on two pages, which is a template's problem to
+  split and is written up as one, not papered over here." The split is that written-up problem, and
+  option 3 ships two of the nine jobs while leaving the comment's remaining seven in place; it is not a
+  smaller fix, it is the same defect with the issue closed. Option 2 loses one level earlier, at the
+  third separator: three of the nine jobs are already said, in this file, by a name whose colour is
+  already the colour the job needs, and a second name for a meaning this stylesheet already paints is
+  the mirror image of what the issue is about — two names, one voice, one meaning. It also lands on the
+  palette: `.disabled`, `.state-gap`, `.override-expired` and the four row rules already share three
+  hues that `app.css` defends with measured numbers (40 degrees between `--warn` and `--held`, 36 and 99
+  across the other pair), and three more names saying `--warn` would add names without adding a channel.
+  Option 4 is refused by measurement rather than optimism, and this repository has mis-called that before:
+  a census that grows is what #199 already did (it added four row names, and `docs/factory.md` records
+  that the census is the thing `pages.py` reads off the templates), so the contract change is precedented
+  and inside a tick's authority, and the screenshots are re-recordable by a documented recipe — indeed
+  they had to be re-recorded anyway, because `manifest.py check` was refusing nine frames before a line
+  of CSS was written.
+  Two of the colours were chosen by arithmetic, not taste, and both were computed against the file's own
+  tokens. `.refusal` takes `--warn`, amber: the fact a refusal states is "what you asked for is not in
+  effect", which is the fact `--warn` carries here, and not `--held`'s fact, which is that the lock is on
+  — a refusal is not a second meaning for the red. Measured with #199's arithmetic, `--warn` is 2.69:1
+  against the ink it sits in (light) and 2.24:1 (dark), and on the page's own ground 6.34:1 and 6.48:1,
+  so the word still reads as a state next to prose and passes as a paragraph; the reason the row detail
+  keeps its ink is D-0045's, and it still holds — a coloured paragraph inside a table would turn a table
+  into weather — which is why the layout rule added here forbids `.problem` outside a cell and
+  `.refusal` inside one. `.exempt` keeps `.override`'s declaration byte for byte (`color: var(--muted);`,
+  verified with `grep -A 1`) because #108's seam is that cell: the note sits next to the quoted detail,
+  italic is the machine being quoted and muted is the note beside it, so only the name moved and no pixel
+  in that cell was allowed to move with it.
+  What the mutation battery said about the split, since a rename that survives every test is a rename
+  nothing depends on: sixteen probes, fifteen of them refused, the sixteenth a clean-tree control that has
+  to stay green or the other fifteen prove nothing. Probe 1 is the one this unit needed and did not have.
+  It renames `class="refusal"` to `class="warned"` — a name with no rule in `app.css` and no reason to be
+  one — and **every Go assertion in the package stayed green**, including the census test: `warned` is not
+  a `state-` word, so the name the split adds was invisible to every rule that existed. That is how
+  `TestEveryTemplateClassIsEitherADrawnStateOrADeclaredHook` came to be written, and writing it found a
+  second thing, in the other direction: the templates write `class="state-{{if …}}held{{else}}unknown{{end}}"`,
+  so a reader that splits attribute values on whitespace finds the token `state-`, which is not a class and
+  never was, while `state-held` — the class the browser actually builds — is visible to neither Go reader
+  nor Python reader. The rows are the composed half of the vocabulary and #239 is the pass that noticed.
+  Two more defects fell out of running the probes rather than being written afterwards. The new class
+  reader counted `not` as a class, because `class="state-{{if not .Configured}}…{{end}}"` puts the HTML
+  action's word in the same field as the names; it is cut before the field is split, for the same reason
+  `pages.py` cuts it, and `TestTheClassTokenReaderCutsActionsBeforeItSplits` pins `not` and `all` out and
+  `state-held` and `override-expired` in. And `refusalSentence` (`password_test.go:211`) returned **the
+  whole page** when its selector missed, so the assertions on top of it — "the refusal must not name a
+  rotation" — were reading a help paragraph three screens below the refusal; the rename moved the selector
+  and the fallback turned a green suite into a wrong failure, which is the only reason anyone found it. It
+  refuses a page with no refusal now, and accepts a `text/plain` body as the sentence, because the 503
+  arms really do answer in plain text (`handlers.go:112`, `:123`).
+  What lost, since an entry with one option is a description of what happened. `.exempt` is a twelfth word
+  in a vocabulary whose standing complaint is its size, and it buys nothing a browser can see — the frame
+  for `/lock` and the frame for `/testlock` came back byte-identical. `.refusal` puts a paragraph in the
+  same amber as four names that live in table cells, so "amber" no longer tells a reader which of the two
+  shapes they are looking at; that distinction is now carried by the layout rule and nowhere in the
+  palette, and a rule that is deleted silently deletes the distinction with it. Nine frames were re-taken
+  for two pages' worth of moved pixels, because `app.css` is in every page's source set — the manifest's
+  rule, not this unit's preference. Five mutants in `scripts/mutations/web.json` (`W199`, `W204`, `W205`,
+  `W264`, `W282`) were anchored on template text this split renamed, so they would have reported NOT
+  APPLIED and counted invalid — memory #1048's hazard, arriving on the unit whose job was renaming
+  classes — and each is re-pointed with the reason in its own `note`. And `TestEveryStateClassCarriesOneMeaning`
+  is a fourth hand-keyed table in a file whose own header warns that a hand-keyed table is where a guard
+  goes to die; the battery is what keeps it honest, and this unit is the evidence that it works, because
+  the battery caught this unit's own five before it caught anybody else's.
+- Checkpoint: 7ccc73eb1894b97755e6df571542da10654ec7c2
+- Effect: nine template sites moved and no Go code with them. `profiles.tmpl` page-top refusal and
+  per-rule complaint `.problem`→`.refusal`, its enforcement banner `.problem`→`.disabled`, its day-less
+  value `.problem`→`.state-gap`; `settings.tmpl` the same banner and the transport help paragraph
+  (→`.disabled`, →`.muted`); `lock.tmpl` and `testlock.tmpl`, the self-session note `.override`→`.exempt`.
+  `class="problem"` now reads 9 sites (dashboard 1, lock 1, testlock 2, users 5 — every one a table cell)
+  and `class="override"` reads 1 (the status page's open hold), which is the issue's ask stated as a
+  count. `app.css` gains `.refusal` and `.exempt` and no other declaration; the two rules whose voice
+  covers a job they were never named for are documented as such. `testing/capture/cdp.py` gains the two
+  census names (11 words, 4 rows). Guards, all in `internal/web/state_vocabulary_test.go`: the layout
+  table, the drawn-or-declared-hook rule, the adjacency rule, a composed-name pin that refuses the token
+  `state-` and requires `state-held`, a census floor, and two probes for the class reader; three tests
+  re-anchored (`lock_now_test.go:721`, `password_test.go:211`, `profiles_test.go:374`) and one comment
+  corrected (`profiles_echo_test.go:36`). `scripts/mutations/web.json`: five re-points. Measured on this
+  tree, in this order, nothing overlapping (#1807): `scripts/check-mutations.py` "all 847 mutants apply
+  and compile", followed by an empty `git status --short`; `go test ./internal/web/` ok 17.3 s and
+  `go test ./...` clean; `pages.py --self-test` 69 rules, `manifest.py --self-test` 42, `cdp.py
+  --self-test` rc 0. Then the set was re-recorded with the recipe in `testing/capture/README.md` —
+  `pages-setup.sh`+`pages.py`, `pages-noprof-setup.sh`+`pages.py --fixture pages-noprof`,
+  `lock-setup.sh`+`lock.py`, `testlock-setup.sh`+`testlock.py`, then `manifest.py record` with all nine
+  `--shot` names — after `go build -o plock ./cmd/plock`, because `pages-setup.sh` refuses a binary that
+  predates its own sources (#207) and would otherwise photograph a page this tree does not contain. Every
+  frame FITS at 360 and 1024 with `overflow=0`, and every page reports `drawn` equal to `states`, which is
+  the half #199 was about: `/` 5, `/users` 9, `/profiles` 1, `/profiles-refused` 2, `/audit` 0,
+  `/settings` 1, `/users-no-profiles` 3, `/lock` 8, `/testlock` 7. Two PNGs differ from `HEAD`
+  (`profiles-refused.png`, `settings.png` — the only pages where a visible class changed colour) and
+  seven are byte-identical, which is the browser confirming the `.exempt` rename moved no pixels.
+  `manifest.json` lands in the commit after this one and names this sha, because `record` stamps the
+  head whose pages were photographed (#237) — so `manifest.py check` in this commit still says "app.css
+  has an uncommitted change" for all nine, and that is the two-commit shape, not a failure. What is
+  unchanged by this entry: the palette, the four row rules, the colour of `.problem` and `.override`, and
+  every sentence on every page. Still unreachable from a tick, as it is on every open pull request here:
+  a reviewer request.
+
+  Correction (this unit, 8 Nov, in the manifest commit): the last sentences of the `Effect:` above said
+  what `manifest.py check` would report at `2088043`, and they were written before the run. Measured at
+  that commit on a clean tree it answers **7 problems**, not nine, and in other words -- "predates the
+  newest change to /audit's sources: the manifest was taken at `3bcbfdd`, … has moved to `2088043`" --
+  because the two frames whose PNGs are inside that commit are already current and the seven whose PNGs
+  came back byte-identical are not. `record` at that head then returned rc 0 and `check` answered "9
+  photographs current", each entry pinned to `2088043` with no `dirty` flag, which is what the manifest
+  commit carries. The shape the sentence was reaching for -- two commits, because `record` stamps the head
+  whose pages were photographed (#237) -- is unchanged. What was wrong was the count and the wording, and
+  the mechanism is the one #1180 names: an `Effect:` written before the server, or the shell, has answered
+  is a prophecy with a delay built in, and this entry caught itself doing it one field from the bottom.

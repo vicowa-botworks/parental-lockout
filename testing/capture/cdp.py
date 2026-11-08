@@ -970,11 +970,23 @@ def require_nav_distinguishable(got, what, nav):
 # an element, and `every_state_class_the_pages_render_is_in_the_census` below refuses the day one of
 # them stops being rendered -- a guard that measures a class nobody emits passes on nothing. The
 # matching seam on the Go side is `TestEveryStateClassTheTemplatesNameIsDrawn` in internal/web, which
-# refuses the other direction: a `state-` word the pages say and app.css never mentions.
+# refuses the other direction: a word the pages say and app.css never mentions. Since #239 that seam
+# reads the whole vocabulary named here, not only the `state-` prefixed half of it.
 #
 # `state-free` is deliberately absent. app.css has drawn it since before this folder existed and no
 # template has ever rendered it, so it is the one entry in the stylesheet's state block a browser
 # could not be asked about; the Go test asserts both halves of that sentence stay true.
+#
+# #239 moved two names in and moved no pixels out. `.problem` was carrying six jobs at once -- a
+# refused write, a per-account fact, a backend's detail, the standing "enforcement is switched off"
+# sentence, one paragraph of help prose and a missing value -- and `.override` carried both the open
+# hold and the self-session sentence whose whole content is that nothing is held. Two of those jobs had
+# no name, so they are in this census: `refusal` (the write that did not happen, the evaluator's
+# complaint) and `exempt` (the session the daemon runs inside, which no schedule will lock). The other
+# three went to names already listed here or to no state at all -- the mode notice to `disabled`, the
+# missing value to `state-gap`, the help prose to `muted`, which is not a state and stays out. A name
+# this list gains is a name Chrome is now asked about on every photographed page, which is the half of
+# the guard a rename cannot quietly opt out of.
 # The four row-level state names, named separately because nothing outside this file can find them.
 #
 # They are the finding the coverage rule in `pages.py --self-test` produced the first time it was run,
@@ -992,8 +1004,8 @@ def require_nav_distinguishable(got, what, nav):
 # four names is a census that passes on them.
 ROW_STATE_CLASSES = ("held", "unreadable", "stale", "unmanaged")
 
-STATE_CLASSES = ("state-held", "state-unknown", "state-gap", "problem", "override",
-                 "override-expired", "disabled", "flag", "banner") + ROW_STATE_CLASSES
+STATE_CLASSES = ("state-held", "state-unknown", "state-gap", "problem", "refusal", "override",
+                 "override-expired", "exempt", "disabled", "flag", "banner") + ROW_STATE_CLASSES
 
 
 # The state census (#199): every element on the page carrying one of those classes, with the four
