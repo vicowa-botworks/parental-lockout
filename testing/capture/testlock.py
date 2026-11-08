@@ -128,7 +128,7 @@ def capture(name):
                                  "'muted':(document.querySelector('p.muted')||{}).innerText||'',"
                                  "'backendRows':document.querySelectorAll('table.rows')[0]"
                                  ".querySelectorAll('tbody tr').length" + "," + cdp.CONTROLS_JS
-                                 + "," + cdp.NAV_JS)
+                                 + "," + cdp.NAV_JS + "," + cdp.STATE_JS)
         # The page has to be the probe result, not an error page wearing its URL. The banner
         # counts the backends, so an empty one means nothing was measured whatever scrollWidth
         # says; two tables is the page's own shape, backend table then sessions.
@@ -157,6 +157,11 @@ def capture(name):
         cdp.require_nav_marked(g, "the probe result page", "/users")
         cdp.require_nav_in_palette(g, "the probe result page")
         cdp.require_nav_distinguishable(g, "the probe result page", "/users")
+        # #199, on the page where the vocabulary is the answer. Both verdict columns here are two
+        # spans, `state-held` for "yes" and `state-gap` for "no": one red and bold, the other the
+        # same ink and weight as the sentence above it, so "no, this backend cannot lock" read as
+        # an ordinary line of the explanation.
+        cdp.require_state_legible(g, "the probe result page")
         # The probe page copies the lock page's Detail cell, so it inherits the #108 rule. A
         # check that exists on one of two pages sharing a cell is the check that misses the
         # regression on the other one. The count matters for the same reason it does on lock.py:
@@ -192,7 +197,7 @@ def capture(name):
               flush=True)
         print(f"  tables={g['tables']} backendRows={g['backendRows']} cells={g['cells']} "
               f"unlabelled={g['unlabelled']} {cdp.census_line(g)} "
-              f"{cdp.nav_census_line(g)}", flush=True)
+              f"{cdp.nav_census_line(g)} {cdp.state_census_line(g)}", flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
         return 0

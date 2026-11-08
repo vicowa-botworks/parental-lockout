@@ -132,7 +132,7 @@ def capture(name):
         g = cdp.measure(s, extra="'banner':(document.querySelector('p.banner')||{}).innerText||'',"
                                  "'flag':(document.querySelector('p.flag')||{}).innerText||'',"
                                  "'rows':document.querySelectorAll('table.rows tbody tr').length"
-                                 "," + cdp.CONTROLS_JS + "," + cdp.NAV_JS)
+                                 "," + cdp.CONTROLS_JS + "," + cdp.NAV_JS + "," + cdp.STATE_JS)
         # The page has to be the verdict page, not an error page wearing its URL: the banner is
         # the sentence the feature exists to render, and an empty one means nothing was captured
         # no matter what scrollWidth says.
@@ -162,6 +162,11 @@ def capture(name):
         cdp.require_nav_marked(g, "the lock result page", "/users")
         cdp.require_nav_in_palette(g, "the lock result page")
         cdp.require_nav_distinguishable(g, "the lock result page", "/users")
+        # #199, and this is the page the issue's answer is actually about. `state-held` is the red
+        # "locked" and `state-unknown` is the plain "not locked" in the same Result column: two
+        # opposite verdicts, one of them drawn and one of them left as prose, on the one page an
+        # operator quotes as evidence. The GET frames cannot see this because they never click.
+        cdp.require_state_legible(g, "the lock result page")
 
         rows = cdp.session_rows(s)
         for r in rows:
@@ -208,7 +213,8 @@ def capture(name):
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
               flush=True)
         print(f"  rows={g['rows']} cells={g['cells']} unlabelled={g['unlabelled']} "
-              f"{cdp.census_line(g)} {cdp.nav_census_line(g)}", flush=True)
+              f"{cdp.census_line(g)} {cdp.nav_census_line(g)} {cdp.state_census_line(g)}",
+              flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         if g["flag"]:
             print(f"  flag:   {g['flag'].strip()[:110]}...", flush=True)

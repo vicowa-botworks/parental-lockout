@@ -31,6 +31,7 @@ testing/capture/runs/pages/ unless --out names a directory inside the repository
 the committed artifacts is an explicit `--out docs/screenshots/360`.
 """
 import contextlib
+import re
 import importlib
 import inspect
 import io
@@ -492,6 +493,10 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     # for a computed style at all. Unconditional, because the shell is one template and a page whose
     # navigation was never censused would not fail the guard -- it would answer `nav=0 links`.
     extra += "," + cdp.NAV_JS
+    # And the state vocabulary (#199), unconditional for the same reason: the classes are on four
+    # of the five pages and the stylesheet is one file, so a page whose state words were never
+    # read would not fail the guard -- it would answer `states=0` and be believed.
+    extra += "," + cdp.STATE_JS
     if spec.has_rows:
         extra += "," + LONGEST_JS
     if spec.stress:
@@ -604,6 +609,10 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
     cdp.require_nav_marked(got, page, spec.nav)
     cdp.require_nav_in_palette(got, page)
     cdp.require_nav_distinguishable(got, page, spec.nav)
+    # The state vocabulary (#199), at both viewports and on every page, for the same two reasons as
+    # the six guards above: the words are rendered by four of the five templates out of one
+    # stylesheet, and a page that overflows reports its width first.
+    cdp.require_state_legible(got, page)
     # Hoisted above the split instead of repeated in both arms: each arm needs a browser that is
     # still up, and one call cannot drift from its twin when someone moves the split.
     cap.require_running()
@@ -613,7 +622,7 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         # evidence. Counting it as fitting is what the reviewer drove and named.
         print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
               f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-              f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)}"
+              f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)} {cdp.state_census_line(got)}"
               f"{hard} UNTESTED (fixture)", flush=True)
         return "untested"
     if width != ARTIFACT_WIDTH:
@@ -622,13 +631,13 @@ def shoot(cap, spec, name, width=ARTIFACT_WIDTH, fixture_untested=False):
         # viewport happened to run last.
         print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
               f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-              f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)}"
+              f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)} {cdp.state_census_line(got)}"
               f"{hard} FITS", flush=True)
         return
     session.write_png(name)
     print(f"  {page:<10} @{width:<5} scrollWidth={got['scroll']:>4} "
           f"innerWidth={got['inner']:>4} height={got['height']:>5} "
-          f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)}"
+          f"{proof_of(got, spec)} {cdp.census_line(got)} {cdp.nav_census_line(got)} {cdp.state_census_line(got)}"
               f"{hard} FITS  {name}", flush=True)
 
 
@@ -1046,7 +1055,7 @@ def main(shoot_fn=None, record_fn=None):
 # on a border the browser is not drawing.
 # The two canaries are registered like every other rule and deliberately not counted: they exist to
 # prove the helper is not hollow.
-EXPECTED_RULES = 60
+EXPECTED_RULES = 69
 
 
 class _FakeSession:
@@ -1344,7 +1353,8 @@ def _fake_browser(got, nav="/"):
     # what pins that the real shoot() actually asks the browser for it.
     cdp.measure = lambda session, extra="": (
         _LAST_EXTRA.append(extra),
-        dict({"controls": CLEAN_CENSUS, "nav": clean_nav(nav), "header": dict(NAV_HEADER)},
+        dict({"controls": CLEAN_CENSUS, "nav": clean_nav(nav), "header": dict(NAV_HEADER),
+              "states": cdp.CLEAN_STATES},
              **got))[1]
     cdp.require_records = lambda g, w: None
     cdp.require_labelled_cells = lambda g, w: None
@@ -2871,6 +2881,279 @@ def self_test():
             problems.append(f"the printed line does not name the entry the guards accepted: "
                             f"{printed!r}")
 
+    # --------------------------------------------------------------------------- #
+    # #199: the words the pages use to report a state, and whether the browser draws them as states.
+
+    def _state_row(cls, text="locked out", **over):
+        """One state element as the browser reported it -- in its parent's voice by default.
+
+        Every own property starts equal to the parent's, because the shape this section guards is the
+        one #199 measured: a `<span>` carrying a class the stylesheet never mentioned, computing
+        exactly the prose around it. A rule that wants an accepted row moves ONE property, which is
+        what keeps each canary attributable to the one channel it is about.
+
+        `pbw` and `pbg` -- the parent's own border and background -- are carried although no guard
+        reads them now. Deliberate: the first version of `require_state_legible` compared them, and
+        on that version the `.problem` paragraph in `/settings`, which sits inside a bordered
+        `fieldset`, computed a different border-left-width from its parent and was therefore called
+        drawn on a stylesheet that had never heard of the class. Measured, at both viewports, on the
+        pre-fix tree. Keeping the keys is what makes a revert to that comparison fail here rather
+        than pass quietly.
+        """
+        row = {"cls": cls, "text": text,
+               "color": "rgb(26, 28, 32)", "weight": "400", "style": "normal", "dec": "none",
+               "bw": "0px", "bg": "rgba(0, 0, 0, 0)",
+               "pcolor": "rgb(26, 28, 32)", "pweight": "400", "pstyle": "normal", "pdec": "none",
+               "pbw": "0px", "pbg": "rgba(0, 0, 0, 0)", "vis": True}
+        row.update(over)
+        return row
+
+    def _states_fixture(*rows):
+        """The /users page, whose navigation already passes, showing these state elements."""
+        return dict(_nav_users(), states=list(rows))
+
+    def the_state_census_is_asked_for(problems):
+        """shoot() splices cdp.STATE_JS in, at both viewports, whatever kind of page it is.
+
+        Pinned by identity like NEEDLE_JS, CONTROLS_JS and NAV_JS: a substring like "state" is
+        already true of the page's own contents. Without the splice the guard refuses every page with
+        "no state census was taken", and a run that refuses for the wrong reason on every page looks
+        from the outside like a run that found the defect.
+        """
+        for width in WIDTHS:
+            _LAST_EXTRA.clear()
+            try:
+                _run_shoot(_run_width(_nav_users(), width), width)
+                if not any(cdp.STATE_JS in e for e in _LAST_EXTRA):
+                    problems.append(f"at {width} px shoot() never asked the browser for the state "
+                                    "census, so the #199 guard compares a key nobody measured")
+            finally:
+                _LAST_EXTRA.clear()
+
+    def every_driver_that_measures_the_census_prints_it(problems):
+        """`states=N drawn=M` on every driver's line, not only on the pages driver's.
+
+        The guard ran in three drivers and the line printed in one, which is how a pull-request body
+        came to say "every driver line prints it" and be false for `lock.py` and `testlock.py`. A
+        refusal is loud and a pass is silent, so the printed pair is the only thing a reader can audit
+        after the fact: `/lock` renders `.override` (lock.tmpl:93) and the probe page renders
+        `.problem`, and a frame taken before a stylesheet change is indistinguishable from a frame
+        where nothing was asked unless the two counts are on the line.
+        """
+        for name in ("pages.py", "lock.py", "testlock.py"):
+            with open(op.join(cdp.HERE, name), encoding="utf-8") as fh:
+                src = fh.read()
+            if "cdp.STATE_JS" in src and "state_census_line" not in src:
+                problems.append(f"{name} splices cdp.STATE_JS into its measurement and never prints "
+                                "cdp.state_census_line: the guard's verdict is in the refusal and "
+                                "nowhere else, so a frame it accepted cannot be told apart from a "
+                                "page that has no state words at all")
+
+    def a_state_the_stylesheet_never_drew_refuses(problems):
+        """The reported defect at both viewports, with no bytes staged -- and the drawn row beside it.
+
+        Two lookalikes and one drawn verdict is the dashboard as #199 found it: a red bold "locked
+        out" next to a "no desktop session" that computed nothing of its own. The count in the
+        refusal is part of the claim -- `2 of 3` says the guard found the drawn one and refused the
+        rest, where `3` would be a guard that reads nothing, and `0` would be a page with no states
+        at all.
+        """
+        rows = [_state_row("state-unknown", "no desktop session"),
+                _state_row("banner", "3 accounts are on this machine and not managed"),
+                _state_row("disabled", "account switched off", color="rgb(132, 86, 0)")]
+        for width in WIDTHS:
+            _log, refusal = _run_shoot(_run_width(_states_fixture(*rows), width), width)
+            if refusal is None or "2 of 3" not in refusal:
+                problems.append(f"the page was accepted at {width} px with two undrawn states on it: "
+                                f"{refusal!r}")
+            elif "state-unknown" not in refusal or "banner" not in refusal:
+                problems.append(f"the refusal does not name the classes it refused: {refusal!r}")
+            elif "disabled" in refusal:
+                # The drawn row is `disabled`, whose name appears nowhere in the guard's own prose --
+                # `state-held` would not do, because the refusal quotes #199's sentence about it.
+                problems.append(f"the refusal blamed the row that was drawn: {refusal!r}")
+        _log, refusal = _run_shoot(_states_fixture(*rows), ARTIFACT_WIDTH)
+        if any(k[0] == "png" for k in _log):
+            problems.append("a page whose state words are prose still staged a photograph")
+        _log, refusal = _run_shoot(_states_fixture(*cdp.CLEAN_STATES), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"the drawn vocabulary was refused: {refusal!r}")
+
+    def a_state_marked_only_by_its_parents_box_refuses(problems):
+        """The difference has to be the element's own, not the box it happens to be sitting in.
+
+        Inherited properties -- colour, weight, style, decoration -- travel from the surrounding
+        text, so the parent is the right thing to compare them against. A border and a background are
+        not inherited; they belong to a box, and the honest question about them is what THIS element
+        carries. The row below is the `/settings` help paragraph exactly: four properties equal to
+        its parent, no border and no background of its own, inside a `fieldset` that has a border. On
+        the first version of the guard it passed, because the guard compared the parent's 2px border
+        against the child's 0px and called that a mark.
+        """
+        row = _state_row("problem", "A change here takes effect the next time the daemon reads this",
+                         pbw="2px", pbg="rgb(240, 240, 240)")
+        _log, refusal = _run_shoot(_states_fixture(row), ARTIFACT_WIDTH)
+        if refusal is None or "problem" not in refusal:
+            problems.append(f"an undrawn state was accepted because its parent has a border: "
+                            f"{refusal!r}")
+
+    def one_visible_channel_is_enough(problems):
+        """Any one thing a parent can see is a mark, and the guard prescribes none of the six.
+
+        This is the half that keeps the first rule honest: a guard that refuses every state element
+        in existence satisfies "the undrawn ones refuse" and fails here. It is also the half that
+        keeps the guard from becoming a design: colour alone, weight alone, italic alone, an
+        underline alone, a 3px rule, a tinted background -- a stylesheet may pick any of them and the
+        driver's only business is that the reader can tell the word from the prose.
+        """
+        for name, over in (("colour", {"color": "rgb(179, 38, 30)"}),
+                           ("weight", {"weight": "600"}),
+                           ("style", {"style": "italic"}),
+                           ("decoration", {"dec": "underline"}),
+                           ("border", {"bw": "3px"}),
+                           ("background", {"bg": "rgb(255, 246, 224)"})):
+            _log, refusal = _run_shoot(
+                _states_fixture(_state_row("state-gap", "not managed", **over)), ARTIFACT_WIDTH)
+            if refusal is not None:
+                problems.append(f"a state marked only by its {name} was refused: {refusal!r}")
+
+    def an_invisible_state_is_skipped_and_its_neighbour_still_refuses(problems):
+        """A state the browser is not showing cannot be looked at -- and hiding it is not a pass.
+
+        Same reasoning as #204's `a_mark_the_browser_never_draws_refuses`, pointed the other way:
+        `display: none` cannot be judged for contrast, and the next template that renders a row
+        conditionally would have to style the case nobody sees. The canary is the visible row in the
+        same census, which still refuses and still says how many rows it skipped -- because a guard
+        that skips the invisible ones has to be shown to keep reading the rest.
+        """
+        hidden = _state_row("state-unknown", "no desktop session", vis=False)
+        _log, refusal = _run_shoot(_states_fixture(hidden), ARTIFACT_WIDTH)
+        if refusal is not None:
+            problems.append(f"a state the browser does not show was refused: {refusal!r}")
+        _log, refusal = _run_shoot(
+            _states_fixture(hidden, _state_row("banner", "Enforcement is on")), ARTIFACT_WIDTH)
+        if refusal is None or "banner" not in refusal:
+            problems.append(f"the visible lookalike beside a hidden row was accepted: {refusal!r}")
+        elif "1 element(s) carried a state class the browser was not showing" not in refusal:
+            problems.append(f"the refusal does not say how many rows it skipped: {refusal!r}")
+
+    def a_state_census_that_was_never_taken_refuses(problems):
+        """A missing measurement is a refusal, and so is the shape a deleted splice produces.
+
+        Driven straight as well as through shoot(), for the reason #202's and #204's versions give:
+        the fake browser supplies a census so the rules above can be about something else, and the
+        only way to hand the guard the nothing it has to refuse on is to call it with nothing.
+        `{"states": None}` through shoot() is what a splice that was commented out, or a page whose
+        measurement failed to include the fragment, actually looks like from the inside.
+        """
+        try:
+            cdp.require_state_legible({"scroll": 360}, "/users")
+            problems.append("the state guard passed a page with no census at all")
+        except SystemExit as exc:
+            if "state census" not in str(exc):
+                problems.append(f"the state guard refused for a reason that does not name the "
+                                f"missing census: {exc}")
+        except Exception as exc:
+            problems.append(f"the state guard raised {type(exc).__name__} instead of refusing; "
+                            "a traceback is not an answer")
+        _log, refusal = _run_shoot(dict(_nav_users(), states=None), ARTIFACT_WIDTH)
+        if refusal is None or "state census" not in refusal:
+            problems.append(f"a page measured without the state fragment was accepted: {refusal!r}")
+        if any(k[0] == "png" for k in _log):
+            problems.append("a page with no state census still staged a photograph")
+
+    def the_state_census_is_printed_for_every_page(problems):
+        """The transcript says how many states it saw and how many it accepted, zeros included.
+
+        `/audit` with rows in it renders no state word at all, so `states=0 drawn=0` is a real
+        reading of a real page -- and the only way a reader can tell that from `states=6 drawn=0`,
+        which is /users before the fix, is the number after `drawn=`.
+        """
+        line = io.StringIO()
+        _run_shoot(_states_fixture(*cdp.CLEAN_STATES), ARTIFACT_WIDTH, out=line)
+        if "states=4 drawn=4" not in line.getvalue():
+            problems.append(f"the printed line does not report the census it accepted: "
+                            f"{line.getvalue()!r}")
+        line = io.StringIO()
+        _run_shoot(_states_fixture(), ARTIFACT_WIDTH, out=line)
+        if "states=0 drawn=0" not in line.getvalue():
+            problems.append(f"a page with no state word prints no zeros: {line.getvalue()!r}")
+
+    def every_state_class_the_pages_render_is_in_the_census(problems):
+        """The census list is the vocabulary the templates use, in both directions.
+
+        #199 happened because the vocabulary had no single home: nine class names are spread over
+        five templates, one of them was ever styled, and nothing anywhere asked the question. The
+        browser guard asks the effect; this rule asks the COVERAGE, which is the half that retires
+        silently. A class renamed in a template leaves `STATE_CLASSES` measuring a name nobody
+        renders -- and a guard measuring nothing is a guard that passes, exactly the failure
+        `require_state_legible` itself refuses to be.
+
+        Read off the templates on disk rather than the rendered pages on purpose: the nine names are
+        all written literally in the markup, so the cheapest possible read is a complete one, and the
+        rendered check would need Chrome, which `--self-test` exists to avoid.
+        """
+        templates = os.path.normpath(os.path.join(cdp.HERE, "..", "..", "internal", "web",
+                                                  "templates"))
+        try:
+            names = sorted(f for f in os.listdir(templates) if f.endswith(".tmpl"))
+        except OSError as exc:
+            problems.append(f"the templates cannot be listed, so the census is unchecked: {exc}")
+            return
+        if len(names) < 5:
+            problems.append(f"only {len(names)} templates found under {templates}; the coverage "
+                            "claim below is only an answer about the pages if all of them are here")
+            return
+        emitted, where = set(), {}
+        for name in names:
+            with open(os.path.join(templates, name), encoding="utf-8") as fh:
+                text = fh.read()
+            # Every `{{...}}` action is cut out of the file FIRST, and the words left inside a class
+            # attribute are the names. The order matters twice over. It is what lets this reader see
+            # the four composed row names at all -- `dashboard.tmpl:33` writes
+            # `class="{{if .LockedOutNow}}held{{end}}{{if .CannotEvaluate}}unreadable{{end}}"` and
+            # `users.tmpl:43` the stale/unmanaged pair, so those names exist only as the text between
+            # two actions; a reader that accepts a whole literal attribute calls them unreadable and
+            # stops counting, which is exactly how all four stayed out of `app.css` until this rule
+            # said so. And cutting before splitting on `"` is what keeps `page.tmpl:39` from poisoning
+            # the census: its `class="page-{{template "pagename" .}}"` holds a quoted string INSIDE the
+            # action, so splitting first cuts the attribute at that inner quote and leaves a half
+            # action behind. A name built out of a value is erased by the cut and then leaves only a
+            # `page-` stub, which is dropped: it is not a state and no static reader can resolve it.
+            stripped = re.sub(r"\{\{.*?\}\}", " ", text)
+            for attr in stripped.split('class="')[1:]:
+                for token in attr.split('"', 1)[0].split():
+                    if token.endswith("-"):
+                        continue
+                    emitted.add(token)
+                    where.setdefault(token, name)
+        if not emitted:
+            problems.append(f"no class attribute was read under {templates}: the coverage rule is "
+                            "reading nothing, which is the failure it exists to catch")
+            return
+        for cls in cdp.STATE_CLASSES:
+            if cls not in emitted:
+                problems.append(f"cdp.STATE_CLASSES measures .{cls} and no template renders it, so "
+                                "the guard is asking Chrome about a class that is never on a page -- "
+                                "a rename in the markup is what this looks like (#199)")
+        for cls in cdp.ROW_STATE_CLASSES:
+            if cls not in cdp.STATE_CLASSES:
+                problems.append(f"the row state .{cls} is not in cdp.STATE_CLASSES: the four row "
+                                "classes are composed inside template actions and carry no `state-` "
+                                "prefix, so nothing but this list would notice one being dropped")
+        for cls in sorted(emitted):
+            if cls.startswith("state-") and cls not in cdp.STATE_CLASSES:
+                problems.append(f"{where[cls]} puts .{cls} on a word and cdp.STATE_CLASSES does not "
+                                "measure it, so the state it names is never asked about in the "
+                                "browser -- add it to the census (or delete the word)")
+        # The documented exception, asserted instead of remembered: the one state the stylesheet
+        # draws and no page says. If it starts being rendered it belongs in the census, and the
+        # sentence in cdp.py that excuses it has to go with the exemption.
+        if "state-free" in emitted:
+            problems.append(f"{where['state-free']} renders .state-free, which cdp.STATE_CLASSES "
+                            "omits on the stated ground that no page says it -- either put it in "
+                            "the census or take it back out of the markup")
+
     rule("a refusal on every page still measures every page", all_refuse)
     rule("the literal census matches the page declaration", census_matches_the_declaration)
     rule("a fixture mode selects only its own pages", a_fixture_mode_selects_its_own_pages)
@@ -2936,6 +3219,23 @@ def self_test():
     rule("a navigation census that was never taken refuses",
          a_navigation_that_was_never_censused_refuses)
     rule("the accepted mark is printed", the_mark_is_printed_for_every_page)
+
+    # #199: the state vocabulary.
+    rule("the state census is asked for, at both viewports", the_state_census_is_asked_for)
+    rule("a driver that measures the state census prints it",
+         every_driver_that_measures_the_census_prints_it)
+    rule("a state the stylesheet never drew refuses", a_state_the_stylesheet_never_drew_refuses)
+    rule("a state marked only by its parent's box refuses",
+         a_state_marked_only_by_its_parents_box_refuses)
+    rule("any one visible channel counts as drawn", one_visible_channel_is_enough)
+    rule("an invisible state is skipped, its neighbour still refuses",
+         an_invisible_state_is_skipped_and_its_neighbour_still_refuses)
+    rule("a state census that was never taken refuses",
+         a_state_census_that_was_never_taken_refuses)
+    rule("the state census is printed, zeros included",
+         the_state_census_is_printed_for_every_page)
+    rule("the census is the vocabulary the templates use",
+         every_state_class_the_pages_render_is_in_the_census)
 
     def manifest_accompanies_the_artifacts(problems):
         # The manifest is the only thing that ties a committed PNG to the page it depicts (#144).
