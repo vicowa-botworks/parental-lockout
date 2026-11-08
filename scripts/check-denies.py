@@ -276,8 +276,31 @@ def verdict(rules, tool, command):
     return effect or "allow"
 
 
+INVOCATION = re.compile(r"python3[ \t]+scripts/check-denies\.py(?![^\s])")
+SELFTEST_INVOCATION = re.compile(r"python3[ \t]+scripts/check-denies\.py[ \t]+--self-test(?![^\s])")
+
+
+def _status_reaches_shell(chunk, end):
+    """Whether a non-zero exit from the invocation ending at `end` can end the recipe.
+
+    Round seven, measured on `b5fd0ca`: `A --self-test && B;` under `set -e` prints nothing and exits
+    0 when A fails, because errexit ignores every command of an AND-OR list but the last. So "the text
+    is in the recipe" and "the recipe fails when this fails" are two different claims, and only the
+    second one is worth a gate. Anything after the invocation in the same chunk -- `&&`, `||`, a pipe
+    -- means something else decides the status; anything before it means the invocation is last, which
+    is the position that counts.
+    """
+    tail, head = chunk[end:], chunk[:end]
+    if "||" in tail or "&&" in tail or "|" in tail:
+        return False
+    if "|" in head:
+        return False
+    return True
+
+
 def invocation_problems(recipe):
-    """Given the text of a Makefile, say whether `verify` still runs this script.
+    """Given the text of a Makefile, say whether `verify` still runs this script -- and whether a
+    failure of it could actually fail `verify`.
 
     Copied in shape from `check-decisions.py`'s guard of the same name, including the two things it
     learned the hard way: a bare filename substring is satisfied by a comment and by an `echo` that
@@ -289,17 +312,36 @@ def invocation_problems(recipe):
     This is asked before the CLI is resolved, so that a box without opencode -- where the rules
     themselves are skipped -- still cannot lose the step that would have caught it.
     """
+    problems = []
+    found = {"plain": False, "self-test": False}
     for raw in recipe.splitlines():
         if raw.lstrip().startswith("#"):
             continue
         for chunk in raw.split(";"):
-            if chunk.strip().startswith("#"):
+            text = chunk.strip()
+            if text.startswith("#"):
                 continue
-            if re.match(r"python3[ \t]+scripts/check-denies\.py(?![^\s])", chunk.strip()):
-                return []
-    return ["Makefile: no recipe command runs `python3 scripts/check-denies.py`, so the agent's deny "
-            "list is not checked by the gate -- and a deny list nobody checks is how seven inert "
-            "rules and three re-opened commands survived four reviews"]
+            kind = "self-test" if SELFTEST_INVOCATION.match(text) else None
+            if kind is None and INVOCATION.match(text):
+                kind = "plain"
+            if kind is None:
+                continue
+            match = (SELFTEST_INVOCATION if kind == "self-test" else INVOCATION).match(text)
+            if not _status_reaches_shell(text, match.end()):
+                problems.append("Makefile: `%s` runs where its exit status cannot reach the shell -- a "
+                                "command in an && or || list, or a pipeline, can fail and the recipe "
+                                "still ends 0, so this step can never redden `verify`" % text)
+                continue
+            found[kind] = True
+    if not found["plain"]:
+        problems.append("Makefile: no recipe command runs `python3 scripts/check-denies.py`, so the "
+                        "agent's deny list is not checked by the gate -- and a deny list nobody checks "
+                        "is how seven inert rules and three re-opened commands survived four reviews")
+    if not found["self-test"]:
+        problems.append("Makefile: no recipe command runs `python3 scripts/check-denies.py --self-test` "
+                        "in a position that can fail the gate, so CI -- where there is no CLI and every "
+                        "live path skips -- checks nothing about the deny list")
+    return problems
 
 
 def config_tool_rule(tool):
@@ -425,9 +467,33 @@ def self_test():
     if not invocation_problems(commented):
         fails.append("verify-invocation: commenting out the step left the guard green, so the step that "
                      "catches this step being deleted is not real")
-    if "--self-test" not in real:
-        fails.append("verify-invocation: `verify` does not run `--self-test`, so CI -- where there is no "
-                     "CLI and every live path skips -- checks nothing about the deny list")
+    # Deleting the self-test invocation has to redden the guard. The old assertion asked whether the
+    # string `--self-test` appeared anywhere in the Makefile -- which it always does, because `verify`
+    # runs `python3 scripts/check-decisions.py --self-test` two lines above -- so the guard could not
+    # fail this way however badly the step was broken.
+    dropped = "\n".join(
+        (line.replace("check-denies.py --self-test;", "check-denies.py;")
+             .replace("check-denies.py --self-test", "check-denies.py")
+         if "scripts/check-denies.py --self-test" in line and not line.lstrip().startswith("#") else line)
+        for line in real.splitlines())
+    if "scripts/check-denies.py --self-test" in dropped:
+        fails.append("verify-invocation: the --self-test mutation case found nothing to mutate, so it "
+                     "asserts nothing -- the Makefile no longer has the invocation shape it documents")
+    elif not invocation_problems(dropped):
+        fails.append("verify-invocation: deleting the --self-test invocation left the guard green, so "
+                     "nothing catches CI losing the only deny-table check it can ever run")
+
+    # And so has putting it back the way it was: `A --self-test && B`, the shape that passed four
+    # reviews while a red self-test printed nothing and `verify` said OK.
+    chained = real.replace("check-denies.py --self-test; python3 scripts/check-denies.py",
+                           "check-denies.py --self-test && python3 scripts/check-denies.py")
+    if chained == real:
+        fails.append("verify-invocation: the && mutation case found nothing to mutate, so it asserts "
+                     "nothing -- the two invocations are no longer adjacent in `verify`")
+    elif not invocation_problems(chained):
+        fails.append("verify-invocation: joining the two invocations with && left the guard green -- a "
+                     "command other than the last in an AND-OR list is invisible to `set -e`, so a red "
+                     "self-test hides the live run, every gate behind it, and the verify: OK")
 
     # 9: the list must not be silently shrunk to the point of meaninglessness.
     if len(denies) < 10 or not any(want == "allow" for _, want, _ in COMMANDS):

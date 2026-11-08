@@ -318,7 +318,10 @@ systemctl_user daemon-reload
 # repository and absent from the machine for hours.
 if [ "$(systemctl_user is-active "$NAME.timer" 2>/dev/null || true)" = "active" ]; then
 	printf 'DRY-RUN  systemctl --user restart %s.timer\n' "$NAME" | grep -q . || true
-	"$DRY_RUN" || systemctl_user restart "$NAME.timer"
+	# Not `"$DRY_RUN" || ...`: that runs the value `0`/`1` as a program. shellcheck cannot see a
+	# variable's value and `bash -n` parses it happily, which is why scripts/check-scripts.py now
+	# refuses any $VAR in command position in a shipped script.
+	if [ "$DRY_RUN" != "1" ]; then systemctl_user restart "$NAME.timer"; fi
 	systemctl_user enable "$NAME.timer" >/dev/null 2>&1 || true
 else
 	systemctl_user enable --now "$NAME.timer"

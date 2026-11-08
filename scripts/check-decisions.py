@@ -45,10 +45,14 @@ Checks every entry in DECISIONS.md has the fields that make it arguable later, a
 still being invoked by `make verify`. Takes no positional arguments: a filename in a shell variable
 that expanded to nothing is a silent change of subject, which is what `--log` is for.
 
---log PATH checks that one file, and only the rules that live inside an entry: checkpoint existence,
-cross-log id collisions and the `make verify` invocation are each asked against the repository's own
-logs, so pointing the flag at one file leaves those three unasked and the summary still reads as a
-pass of what it did consult."""
+--log PATH checks that one file: the same entry rules, the same checkpoint
+existence rule, and the Makefile invocation rule whenever this checkout has a
+Makefile. Narrowing the file is not narrowing the rules -- the old wording
+promised checkpoint existence here while the code skipped it, which is how a
+fabricated checkpoint survived four passes of exactly this invocation. A `--log` run over one file still
+asks the duplicate-id rule, but against that file alone -- that is the only thing about `--log` that
+narrows.
+"""
 
 FIELDS = ("Question", "Options", "Chose", "Why", "Checkpoint")
 ENTRY = re.compile(r"^## ([DH]-(\d{4}))\s*(?:·|\||-)\s*(.+?)\s*$")
@@ -596,14 +600,22 @@ def main(argv):
         entries = parse(text, label)
         total += len(entries)
         problems += check(entries)
-        if path == LOG:
-            for e in entries:
-                where_seen.setdefault(e["id"], []).append(label)
-            shas = sorted({e["fields"].get("Checkpoint", "").strip() for e in entries
-                           if SHA.match(e["fields"].get("Checkpoint", "").strip())})
-            problems += checkpoint_problems(entries, git_checkpoint_resolver(shas))
+        # Both of these used to sit behind `if path == LOG`, and `LOG` is this script's own default
+        # path -- so `--log SOMETHING` was precisely the invocation that skipped them. Measured 8 Nov
+        # while checking #229's review: the same script, the same file,
+        #   --log DECISIONS.md -> 3 problems, the fabricated checkpoint absent
+        #   (no argument)       -> 5 problems, "D-0034 names checkpoint e2dbd46e..., not a commit"
+        # A fabricated checkpoint is the rule an agent walking one branch's log most needs, and the
+        # usage text promised it in this mode. There is no reason for either rule to depend on which
+        # path the caller named: a checkpoint resolves against git whatever the file is called, and the
+        # Makefile guard asks about a file in this checkout.
+        for e in entries:
+            where_seen.setdefault(e["id"], []).append(label)
+        shas = sorted({e["fields"].get("Checkpoint", "").strip() for e in entries
+                       if SHA.match(e["fields"].get("Checkpoint", "").strip())})
+        problems += checkpoint_problems(entries, git_checkpoint_resolver(shas))
 
-    if path == LOG:
+    if os.path.exists(os.path.join(ROOT, "Makefile")):
         problems += verify_invocation()
         # One id in two logs is not a duplicate to dedupe: it is a citation that points at two
         # decisions. Measured 6 Nov, when merging origin/main into the harness branch: `main` carried

@@ -114,7 +114,10 @@ fi
 # reader deletes it. A tick killed by the wall-clock ceiling dies between the write and the delete, so
 # the run directory collected eight zero-byte `worktree-error.<pid>` files in a day. Sweep the old ones:
 # anything younger than three hours could belong to a supervisor running right now.
-if ! "$DRY_RUN"; then
+# `[ ... ]` and not `"$DRY_RUN"`: a variable in command position runs the value `0` or `1` as a
+# program, which fails with `command not found` every real pass -- and a failing `!` arm is exactly
+# what a dry run is supposed to skip, so --dry-run deleted the sweep's files instead of sparing them.
+if [ "$DRY_RUN" != "1" ]; then
 	find "$FACTORY_RUN" -maxdepth 1 -name 'worktree-error.*' -mmin +180 -delete 2>/dev/null || true
 fi
 
@@ -553,8 +556,18 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 		unclaimed | branch_without_pr | address_review | conflict)
 			# `--head ""` is not a filter -- measured, it answers with an unrelated open pull
 			# request -- so an empty branch would have this check certify delivery off someone else's work.
-			[ -n "$branch" ] || { log_event "TICK-UNCHECKED $unit no branch to check a pull request against"; pr_read=1; }
-			[ "$pr_read" -eq 0 ] && pr_now=$(gh pr list --head "$branch" --json number --jq '.[0].number // ""' 2>/dev/null) || pr_read=$?
+			# if/else, not a chain. With the chain, taking the empty-branch arm made the next `[` fail,
+			# its `||` arm captured `$?` from `[`, and the ledger printed a second TICK-UNCHECKED reading
+			# "(gh exit=1)" for a unit where gh had never been called and nothing had failed -- the same
+			# invented-exit-code class as `:286`, one block further down. Now `pr_read` is only ever
+			# assigned from gh, and a unit with no branch is reported once and skips the read.
+			if [ -z "$branch" ]; then
+				log_event "TICK-UNCHECKED $unit no branch to check a pull request against"
+				pr_read=0
+				pr_now=""
+			elif ! pr_now=$(gh pr list --head "$branch" --json number --jq '.[0].number // ""' 2>/dev/null); then
+				pr_read=$?
+			fi
 			if [ "$pr_read" -ne 0 ]; then
 				# A read that failed is not a delivery that failed: say which of the two happened.
 				log_event "TICK-UNCHECKED $unit delivery could not be confirmed (gh exit=$pr_read)"
