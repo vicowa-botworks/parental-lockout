@@ -1805,8 +1805,9 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   recorded rather than glossed: `gh pr edit 225 --body-file` still fails server-side on the
   classic-Projects field (`repository.pullRequest.projectCards`), and `gh api -X PATCH`, the one other
   write, is refused by this harness's shell permission. The corrected body is staged with the ref-set
-  scoping folded into it at `/tmp/opencode/pr225-body-new.md`; the reviewer's `H-0043` note that the body
-  is the residue a protected field leaves is the reason it is filed as owed work rather than dropped.
+  scoping folded into it at `/tmp/opencode/pr225-body-new.md`; the reviewer's note on the entry this log
+  numbered `H-0043` and the merge against `main` renumbered to `H-0051` -- that the body is the residue
+  a protected field leaves -- is the reason it is filed as owed work rather than dropped.
 - What this costs, stated rather than glossed. (1) The README sentence grows from one clause to five
   lines, and the section is longer for a correction that adds no new fact about pixels. (2) The citation
   points at a commit, so it inherits a commit's fragility: a re-record of `settings.png` cannot move
