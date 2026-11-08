@@ -229,6 +229,18 @@ the second is the shape #228 was measured on -- plants one state per leg, and pr
 verdict next to its own on every line, so a leg that has stopped discriminating is visible rather than
 merely green. It is a step in `make verify`, and it refuses when that step is deleted.
 
+The halt is one function too, and that is the whole of why it is testable: `factory_tree_halt`
+(`factory/common.sh`) asks the verdict, and either returns 0 or writes `factory/HALT` and returns the
+code for the path that called it -- `4` for a tick, `2` for the conflict pass. Both call sites are
+`factory_tree_halt … || return $?` and nothing else. They used to each carry their own copy of the
+predicate, and nothing executed either copy: flipping one to halt on a clean tree, or deleting it, left
+every leg green. So the probe drives the guard over the same planted states and asserts the four things
+a halt has to get right -- that it halts, the exit code it leaves, that `factory/HALT` exists with the
+resume step and the action matching the finding ("commit it or discard it" is not advice anyone can take
+in a tree git cannot read), and one journal line per path carrying that path's own verb. A call site
+that drops the `|| return $?` is caught by the step as well, because the alternative is a pass that
+asks the question and throws the answer away.
+
 ## Exit codes, because a timer has to tell these apart
 
 `0` the pass is over · `3` the queue could not be read, so nothing was attempted · `4` a tick failed

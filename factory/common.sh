@@ -578,6 +578,53 @@ factory_tree_dirt() {
 	return 1
 }
 
+# The halt, in one place, because the decision above it was written twice and executed by nothing.
+# A mutation audit of this file's two call sites -- flip `[ "$dirt_rc" -ne 1 ]` to `-ne 0`, or to
+# `-eq 0`, or delete the guard -- left every leg green, three mutations running (H-0044): the probe
+# drove `factory_tree_dirt` directly, so the code that decides whether a model is sent into a tree
+# had no test at all. A verdict that is right is worth nothing at a call site that misreads it.
+#
+# usage: factory_tree_halt VERB UNIT TREE
+#   VERB is the journal word and it also chooses the exit code, because the two halting paths leave
+#   different ones and both are already load-bearing: 4 is what a failed tick returns and what the
+#   generated unit's `SuccessExitStatus` names, 2 is what the conflict pass returns to skip a unit.
+#   Returning them from here rather than from each call site is the point -- the mapping is one case
+#   statement the probe asserts for both verbs, instead of a `return 4` and a `return 2` that nothing
+#   runs.
+#
+# Returns 0 only when the unit may proceed. The call site is
+# `factory_tree_halt TICK-HALTED "$unit" "$tree" || return $?` and nothing else: that shape is pinned
+# by the probe too, because a site that asks the question and drops the `|| return $?` is a site that
+# reads the answer and throws it away, which is the same bug as misreading it with different syntax.
+factory_tree_halt() {
+	local verb=$1 unit=$2 tree=$3
+	local dirt dirt_rc=0 how
+	dirt=$(factory_tree_dirt "$tree") || dirt_rc=$?
+	[ "$dirt_rc" -ne 1 ] || return 0
+
+	# The action has to match the finding. "Commit it or discard it" is right for a half-done edit and
+	# wrong for a tree git could not read, where there is nothing to commit and the next thing to do is
+	# make the index readable again.
+	case "$dirt_rc" in
+	2) how="make the tree readable and its index rewritable, then \`git -C $tree update-index --refresh\` to see what is really there" ;;
+	*) how="resolve the work it names (commit it to its branch, or discard it on purpose)" ;;
+	esac
+	case "$verb" in
+	TICK-HALTED)
+		log_event "$verb $unit $tree has uncommitted work (${dirt:-no reason returned}); refusing to work in it"
+		;;
+	*)
+		log_event "$verb $unit $tree has uncommitted work (${dirt:-no reason returned}); refusing to merge into it"
+		;;
+	esac
+	printf '%s\n' "a working tree was found with uncommitted work: $tree -- what it holds: ${dirt:-nothing, but the verdict could not be read}. $how, then \`rm $FACTORY_HALT\` to resume" \
+		>"$FACTORY_HALT"
+	case "$verb" in
+	TICK-HALTED) return 4 ;;
+	*) return 2 ;;
+	esac
+}
+
 # --------------------------------------------------------------------------- actions
 #
 # One place where anything that changes the world is printed or run, so --dry-run is a property

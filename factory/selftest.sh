@@ -192,6 +192,169 @@ expect() {
 	printf '  ok    %-34s %-7s naive:%-6s %s\n' "$label" "$verb" "$naive" "$detail"
 }
 
+# --------------------------------------------------------------------------- the halt, not only the verdict
+#
+# The verdict being right is worth nothing at a call site that misreads it. Until H-0044 nothing in
+# this repository executed the decision: the two halting paths each had their own copy of
+# `[ "$dirt_rc" -ne 1 ]` and a mutation audit of them -- flip it to `-ne 0`, flip it to `-eq 0`, delete
+# the guard -- left every leg green three times over. The legs below drive `factory_tree_halt`, the
+# one guard both paths now share, over the same planted states, and assert the four things a halt has
+# to get right: that it halts, which exit code it leaves, what the operator finds in the halt file,
+# and what the journal says.
+#
+# The HALT file and the journal are part of the assertion rather than decoration. `factory_halted()`
+# reads the file and nothing else, so a guard that returns 4 and writes no file stops one unit and
+# lets the pass continue -- and the file's sentence is printed verbatim by `factory.sh --status`, which
+# is the whole of what whoever finds the queue halted has to act on.
+#
+# Every path is redirected into the fixture box: this file's own promise is that it touches nothing in
+# the repository, and `log_event` creates directories and appends. common.sh computes its defaults at
+# source time, so the assignment has to happen after the source and the functions read these at call
+# time.
+FACTORY_DIR=$work/halt
+# The three below are read only by functions sourced from common.sh, and shellcheck analyses this file
+# on its own: `factory_paths()` creates the ledger and run directories, `log_event` appends to the
+# journal. Leaving any of them at its default would point the probe's journal or halt file at the
+# repository, which is the one thing this file's own contract forbids.
+FACTORY_LOG=$FACTORY_DIR/log
+# shellcheck disable=SC2034  # created by factory_paths(), which lives in the sourced common.sh
+FACTORY_LEDGER=$FACTORY_DIR/ledger
+# shellcheck disable=SC2034  # likewise: the lock and per-unit state live here
+FACTORY_RUN=$FACTORY_DIR/run
+FACTORY_HALT=$FACTORY_DIR/HALT
+
+# expect_halt LABEL TREE WANT [SUBSTRING]
+#   WANT is PROCEED or HALT -- what the supervisor does with the unit. A HALT leg requires all of:
+#   exit 4 from the tick's verb, exit 2 from the conflict pass's, a HALT file (because that is what
+#   `factory_halted()` tests), the `rm …` resume step inside it, the action that matches the finding,
+#   and one journal line per path carrying that path's own verb. A PROCEED leg requires the guard to
+#   have halted neither and to have written neither file: a halt that fires on a clean tree is the
+#   false positive #228 was filed about, and it stops every other unit in the pass.
+#   SUBSTRING is asserted inside the halt file's sentence -- the finding has to reach the operator,
+#   not just the return code.
+expect_halt() {
+	local label=$1 tree=$2 want=$3 sub=${4:-}
+	local c1=0 c2=0 h1="" j1="" j2="" before=0 after=0 bad="" want_how drc=0
+
+	factory_tree_dirt "$tree" >/dev/null || drc=$?
+	case "$drc" in
+	2) want_how="make the tree readable" ;;
+	*) want_how="resolve the work it names" ;;
+	esac
+	if [ -f "$FACTORY_LOG/supervisor.log" ]; then
+		before=$(wc -l <"$FACTORY_LOG/supervisor.log")
+	fi
+
+	factory_tree_halt TICK-HALTED selftest "$tree" >"$work/guard.out" 2>&1 || c1=$?
+	if [ -e "$FACTORY_HALT" ]; then h1=$(tr '\n' ' ' <"$FACTORY_HALT"); fi
+	if [ -s "$FACTORY_LOG/supervisor.log" ]; then j1=$(tail -n 1 "$FACTORY_LOG/supervisor.log"); fi
+	rm -f -- "$FACTORY_HALT"
+	factory_tree_halt CONFLICT-HALTED selftest "$tree" >"$work/guard.out" 2>&1 || c2=$?
+	# The halt file's sentence is read from the tick's call only. It is one `printf` in the guard, so
+	# the two paths cannot disagree about it; what differs per path is the exit code and the journal
+	# verb, and both are asserted below. Reading the same string twice would buy a leg that can only
+	# fail twice.
+	if [ -s "$FACTORY_LOG/supervisor.log" ]; then j2=$(tail -n 1 "$FACTORY_LOG/supervisor.log"); fi
+	rm -f -- "$FACTORY_HALT"
+	if [ -f "$FACTORY_LOG/supervisor.log" ]; then
+		after=$(wc -l <"$FACTORY_LOG/supervisor.log")
+	fi
+
+	if [ "$want" = PROCEED ]; then
+		[ "$c1" = 0 ] || bad="the tick was stopped (exit $c1)"
+		[ "$c2" = 0 ] || bad="${bad:+$bad; }the conflict pass was stopped (exit $c2)"
+		[ -z "$h1" ] || bad="${bad:+$bad; }a HALT file was written, so every other unit is stopped too"
+		[ "$((after - before))" = 0 ] || bad="${bad:+$bad; }it journaled $((after - before)) line(s) for a unit it let through"
+		want=PROCEED
+	else
+		[ "$c1" = 4 ] || bad="the tick left $c1, want 4"
+		[ "$c2" = 2 ] || bad="${bad:+$bad; }the conflict pass left $c2, want 2"
+		[ -n "$h1" ] || bad="${bad:+$bad; }no HALT file, so factory_halted() would not stop the pass"
+		case "$h1" in *"rm $FACTORY_HALT"*) : ;; *) bad="${bad:+$bad; }the sentence names no resume step" ;; esac
+		case "$h1" in *"$want_how"*) : ;; *) bad="${bad:+$bad; }the sentence promises the wrong action for a $drc" ;; esac
+		case "$j1" in *TICK-HALTED*"$tree"*) : ;; *) bad="${bad:+$bad; }the journal line is not the tick's" ;; esac
+		case "$j2" in *CONFLICT-HALTED*) : ;; *) bad="${bad:+$bad; }the conflict pass journaled the tick's verb" ;; esac
+		[ "$((after - before))" = 2 ] || bad="${bad:+$bad; }it journaled $((after - before)) lines, want one per path"
+		if [ -n "$sub" ]; then
+			case "$h1" in *"$sub"*) : ;; *) bad="${bad:+$bad; }the finding never reaches the operator: ${h1:-<no file>}" ;; esac
+		fi
+		want=HALT
+	fi
+
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s halt: %s\n' "$label" "$bad"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s halt:%-8s tick:%s merge:%s %s\n' "$label" "$want" "$c1" "$c2" "${h1:+$(printf '%.60s' "$h1")}"
+	return 0
+}
+
+# The two call sites, pinned to the one shape that means "halt if the guard says so". The guard's own
+# behaviour is legs above; what a leg cannot reach is a call site that calls it and drops the answer,
+# so that is a check on the shipped text -- the same bargain as `wired_into_verify`, and the same
+# reason: the failure is silent at run time.
+halt_call_sites_in() { # dir -> prints the lines that are wrong, empty when the shape holds
+	local root=$1 sites ticks merges
+	sites=$(grep -rn --include='*.sh' --exclude-dir=.git -- 'factory_tree_halt ' "$root" 2>/dev/null |
+		grep -v 'factory/common\.sh:' | grep -v 'factory/selftest\.sh:')
+	if [ -z "$sites" ]; then
+		printf 'no call site of factory_tree_halt anywhere\n'
+		return 0
+	fi
+	printf '%s\n' "$sites" | grep -v '|| return \$?' || true
+	# Both verbs have to be present, because deleting one call site leaves the other one correctly
+	# shaped and nothing else in the repository would notice: the tick's guard vanishing is the same
+	# hole as the guard being wrong, and it is a smaller diff. Measured -- deleting the tick's whole
+	# line was the one mutation of ten that this check first missed.
+	ticks=$(printf '%s\n' "$sites" | grep -c 'TICK-HALTED' || true)
+	merges=$(printf '%s\n' "$sites" | grep -c 'CONFLICT-HALTED' || true)
+	[ "$ticks" -ge 1 ] || printf 'no call site halts a tick (TICK-HALTED): the tree is asked and the answer dropped\n'
+	[ "$merges" -ge 1 ] || printf 'no call site halts the conflict pass (CONFLICT-HALTED)\n'
+	# A second copy of the decision is how the two sites drifted apart in the first place, and the
+	# raw verdict is what a new copy would be written against.
+	grep -rn --include='*.sh' --exclude-dir=.git -- 'dirt_rc' "$root" 2>/dev/null |
+		grep -v 'factory/common\.sh:' | grep -v 'factory/selftest\.sh:' || true
+	return 0
+}
+
+halt_call_sites_shaped() {
+	local label="both halts share the guard" root bad
+	root=$(cd -- "$HERE/.." && pwd)
+	bad=$(halt_call_sites_in "$root")
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a halting path does not hand back the exit code it was given, or a\n' "$label"
+		printf '          second copy of the decision is back:\n'
+		printf '%s\n' "$bad" | while IFS= read -r line; do printf '            %s\n' "$line"; done
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s every call site is `… || return %%s`, one decision in common.sh\n' "$label"
+	fi
+
+	# The control, planted outside the repository: a call site that drops the return, and a second
+	# copy of the predicate. Either one has to be flagged, or the ok above is the check being blind.
+	mkdir -p "$work/sites/factory"
+	printf '%s\n' \
+		'#!/usr/bin/env bash' \
+		'. "$(dirname "$0")/common.sh"' \
+		'factory_tree_halt TICK-HALTED "$unit" "$tree"' \
+		'local dirt_rc=0' \
+		'dirt_rc=$(factory_tree_dirt "$tree")' \
+		'if [ "$dirt_rc" -ne 1 ]; then :; fi' >"$work/sites/factory/planted.sh"
+	if [ -n "$(halt_call_sites_in "$work/sites")" ]; then
+		printf '        control: a planted call site that drops the return and a planted second copy\n'
+		printf '        of the predicate are both flagged, so the ok above is the check working.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s neither a dropped return nor a second copy of the predicate\n' "control: $label"
+		printf '          was flagged, so its silence about the repository means nothing.\n'
+	fi
+	return 0
+}
+
+
 # A known-clean starting point for every leg, so a leg cannot inherit another leg's planting.
 # `reset --hard` is right here and nowhere else: this fixture is this script's own, and no person's
 # work is in it. In the repository's own trees the same command would destroy uncommitted work,
@@ -252,6 +415,7 @@ for tree in "$repo" "$wt"; do
 
 	reset_tree "$tree"
 	expect "[$where] nothing at all" "$tree" CLEAN
+	expect_halt "[$where] nothing at all" "$tree" PROCEED
 
 	# The leg the issue is about: the bytes are HEAD's, the stat data is not. Refresh first so this
 	# plants a fresh difference rather than inheriting one, then put the same bytes back the way the
@@ -275,6 +439,7 @@ for tree in "$repo" "$wt"; do
 	check "[$where] fingerprint is planted" planted "$tree" tracked.txt
 	check "[$where] touch planted too" planted "$tree" sub/nested.txt
 	expect "[$where] stat-only, same bytes" "$tree" CLEAN
+	expect_halt "[$where] stat-only, same bytes" "$tree" PROCEED
 	if [ "$where" = primary ]; then
 		if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
 			printf '        FALSE POSITIVE REFUSED: `status --porcelain` called this tree dirty and\n'
@@ -288,6 +453,7 @@ for tree in "$repo" "$wt"; do
 
 	printf 'ALPHA\nbeta\ngamma\n' >"$tree/tracked.txt"
 	expect "[$where] one byte changed" "$tree" DIRTY "" modified:
+	expect_halt "[$where] one byte changed" "$tree" HALT modified:
 
 	reset_tree "$tree"
 	printf 'ALPHA\nbeta\ngamma\n' >"$tree/tracked.txt"
@@ -296,26 +462,32 @@ for tree in "$repo" "$wt"; do
 	# looks like. Writing the old bytes back here would put the change in BOTH places at once, where
 	# `git diff` can see it, and the leg would pass without proving the arm it is here for.
 	expect "[$where] staged only" "$tree" DIRTY strong staged-but-uncommitted:
+	expect_halt "[$where] staged only" "$tree" HALT staged-but-uncommitted:
 
 	reset_tree "$tree"
 	printf 'brand new\n' >"$tree/untracked.txt"
 	expect "[$where] an untracked file" "$tree" DIRTY "" untracked:
+	expect_halt "[$where] an untracked file" "$tree" HALT untracked:
 
 	reset_tree "$tree"
 	printf 'a build artifact\n' >"$tree/ignored-by-design.tmp"
 	expect "[$where] only an ignored file" "$tree" CLEAN
+	expect_halt "[$where] only an ignored file" "$tree" PROCEED
 
 	rm "$tree/sub/nested.txt"
 	expect "[$where] a tracked file deleted" "$tree" DIRTY
+	expect_halt "[$where] a tracked file deleted" "$tree" HALT
 
 	reset_tree "$tree"
 	chmod +x "$tree/keepme.txt"
 	expect "[$where] the exec bit flipped" "$tree" DIRTY
+	expect_halt "[$where] the exec bit flipped" "$tree" HALT
 
 	reset_tree "$tree"
 	rm "$tree/keepme.txt"
 	ln -s /nonexistent "$tree/keepme.txt"
 	expect "[$where] a file replaced by a link" "$tree" DIRTY
+	expect_halt "[$where] a file replaced by a link" "$tree" HALT
 
 	reset_tree "$tree"
 	if git -C "$tree" merge --no-commit --no-ff side >/dev/null 2>&1; then
@@ -323,6 +495,7 @@ for tree in "$repo" "$wt"; do
 			"[$where] a conflicted index"
 	else
 		expect "[$where] a conflicted index" "$tree" DIRTY "" unmerged:
+		expect_halt "[$where] a conflicted index" "$tree" HALT unmerged:
 	fi
 
 	# Failing closed: a tree git cannot read must not answer "clean, go ahead and write into it".
@@ -336,6 +509,7 @@ for tree in "$repo" "$wt"; do
 	else
 		chmod 000 "$tree/keepme.txt"
 		expect "[$where] an unreadable file" "$tree" HALT
+		expect_halt "[$where] an unreadable file" "$tree" HALT
 		chmod 644 "$tree/keepme.txt"
 	fi
 done
@@ -348,6 +522,11 @@ if git -C "$bare" rev-parse --git-dir >/dev/null 2>&1; then
 	printf '  SKIP  %-34s $TMPDIR is inside a work tree\n' "a directory that is no repo"
 else
 	expect "a directory that is no repo" "$bare" UNKNOWN
+	# The halt on an unreadable tree has to promise the OTHER action, and this is the shape that pins
+	# it without depending on mode bits: `chmod 000` is invisible to root, so the leg in the loop that
+	# carries the same arm is skipped there. A stale entry under $FACTORY_TREES is the real version of
+	# this tree, and "commit it or discard it" is advice nobody can follow in it.
+	expect_halt "a directory that is no repo" "$bare" HALT
 fi
 
 # A tree whose repository cannot be opened: a stale entry under `$FACTORY_TREES`, a `.git` that
@@ -560,6 +739,7 @@ wired_into_verify() {
 	return 0
 }
 wired_into_verify
+halt_call_sites_shaped
 
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
