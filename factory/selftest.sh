@@ -1559,12 +1559,24 @@ case "$1 $2" in
 	esac ;;
 'issue list') emit "$here/issues.json" ;;
 'api '*)
-	case "${3:-}" in
+	# ${2}, the PATH -- not ${3}. This is written here because the wrong index shipped for the whole
+	# life of this fixture and it is the reason #242 had no leg: `api_get` calls
+	# `gh api <path> --jq <filter>`, so ${3} is the literal `--jq`, every one of the three per-pull-
+	# request REST reads fell through to `exit 9`, and `api_get` answered its own default -- `[]`
+	# for reviews, `` for the head commit's date, `` for the outstanding requests. Three plant files
+	# (`reviews.json`, `commit.json`, `reviewers.json`) sat in the fixture unreachable by any call,
+	# and no leg could produce a pull request in any review state at all. Which is precisely why the
+	# class that consumed a tick on a 21-byte body had never been exercised: not one leg could say
+	# `address_review`. Measured at this commit by planting a CHANGES_REQUESTED review on an open
+	# pull request whose head predates it: the shipped fixture answered `needs_reviewer` with the
+	# detail `answered by the head commit ` -- the head commit missing from a sentence that prints
+	# `$head_date`, which is the read failing rather than the state being empty.
+	case "${2:-}" in
 	*requested_reviewers*) emit "$here/reviewers.json" ;;
 	*/reviews*) emit "$here/reviews.json" ;;
 	*/commits/*) emit "$here/commit.json" ;;
 	*)
-		printf 'claim-shim: unhandled api path %s\n' "${3:-}" >&2
+		printf 'claim-shim: unhandled api path %s\n' "${2:-}" >&2
 		exit 9 ;;
 	esac ;;
 *)
@@ -1813,14 +1825,26 @@ claim_issues() {
 	jq -c "$1" "$claim_work/issues.live.json" >"$claim_fix/issues.json"
 	claim_graphql
 }
-claim_open() { # claim_open <json array of {number,title,body,claims}>
+claim_open() { # claim_open <json array of {number,title,body,claims,reviewDecision?}>
 	printf '%s' "$1" >"$claim_fix/open-claims.json"
+	# `reviewDecision` is a per-row pass-through now, not a constant. It was `""` for every planted
+	# pull request because no leg before the ask ones needed a decision, and a constant here is a
+	# door that cannot be opened: the CHANGES_REQUESTED arm -- the one that decides between a tick,
+	# a wait and #242's new refusal -- is unreachable from a fixture that can only say "no decision".
+	# Defaulting it to "" inside jq keeps all eighteen existing callers answering what they answered.
 	jq -c '[.[] | {number, title, headRefName: "fix/planted", isDraft: false,
-		reviewDecision: "", mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN",
+		reviewDecision: (.reviewDecision // ""), mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN",
 		updatedAt: "2026-11-08T05:00:00Z", headRefOid: "0000000", statusCheckRollup: []}]' \
 		"$claim_fix/open-claims.json" >"$claim_fix/pr-open.json"
 	jq -c '[.[] | {number, body}]' "$claim_fix/open-claims.json" >"$claim_fix/pr-bodies.json"
 	claim_graphql
+}
+# The review rows GitHub would answer with for `/pulls/<n>/reviews` -- one payload for every pull
+# request, because the shim's `*/reviews*` arm has one file behind it and no leg so far has needed
+# two pull requests reviewed differently. `.body` is the field #242 is about, and it is the field the
+# projection used to throw away, so the legs that need it are the ones that prove it survives.
+claim_reviews() { # claim_reviews <json array of review rows>
+	printf '%s' "${1:-[]}" >"$claim_fix/reviews.json"
 }
 claim_reset() {
 	CLAIM_MERGED_FAIL=''
@@ -1829,6 +1853,7 @@ claim_reset() {
 	claim_window=100
 	claim_merged '.'
 	claim_issues '.'
+	claim_reviews '[]'
 	claim_open '[]'
 }
 claim_open '[]'
@@ -2102,6 +2127,436 @@ else
 	printf '        control: a copy with the term deleted reads as no requirement, so the ok\n'
 	printf '        above is the scan working and not the check being blind.\n'
 fi
+
+# ============================================ the reviewer's ask, and the review that has none (#242)
+#
+# The dispatch that consumed a worktree, a ceiling and a model on a review whose body never arrived
+# was invisible to this suite for a reason that is itself a leg now: the fixture's REST dispatch read
+# `${3:-}` -- the literal `--jq` in `gh api <path> --jq <filter>` -- so every per-pull-request read
+# exited 9, `api_get` answered its own default, and `reviews.json`, `commit.json` and
+# `reviewers.json` were three plants no call could reach. No leg could put a pull request into ANY
+# review state, so the class `address_review` had never been produced by the suite in its whole life.
+# Measured at this commit before the shim was corrected: a planted `CHANGES_REQUESTED` newer than the
+# head commit answered `needs_reviewer` with the detail `answered by the head commit ` -- `$head_date`
+# printed empty, which is a failed read wearing the shape of an empty state.
+#
+# So the legs below are in four groups, and the order is the argument:
+#
+#   A  the predicate, `factory_ask_verdict`, over this repository's own bodies -- the 21-byte one
+#      that started it, the 1002-byte shortest real ask, and the 40-byte boundary at both sides.
+#   B  `factory_newest_ask`: that the right review is chosen and that the record cannot be spliced.
+#   C  the shipped `triage.sh` end to end, which doubles as the proof the fixture plants are now
+#      reachable: the detail has to quote a head-commit date that only `commit.json` can supply.
+#   D  the shipped `factory.sh --dry-run`, which is the only way to watch the ask cross the two
+#      re-serialisations between triage's row and the tick's argument without starting a model.
+claim_harness=$claim_work/harness
+mkdir -p "$claim_harness"
+cp "$HERE/triage.sh" "$HERE/common.sh" "$HERE/factory.sh" "$claim_harness/"
+
+# The predicate, asked directly: common.sh is sourced at the top of this file, so these legs test the
+# shipped function rather than a copy of its logic. `expect` is the whole answer, verdict and byte
+# count together -- a leg that checked only the verdict could be green while the count it reports to
+# the human was wrong, and the count IS the finding on the pull request.
+ask_verdict_says() { # ask_verdict_says <expect> <body>
+	local got
+	got=$(factory_ask_verdict "$2")
+	if [ "$got" != "$1" ]; then
+		printf '            a body of %s bytes answers %s, not %s:\n' "${#2}" "${got:-nothing}" "$1" >&2
+		printf '              %s\n' "$(printf '%s' "$2" | cut -c1-70)" >&2
+		return 1
+	fi
+}
+# The seventh column, exactly. This is the transport's own contract: what triage.sh read from GitHub
+# is what the dispatcher hands a tick, character for character, so the leg compares whole strings
+# rather than looking for a word in them.
+claim_ask_is() { # claim_ask_is <key> <exact ask column>
+	local got
+	got=$(row_for "$1" | cut -f7)
+	[ "$got" = "$2" ] || {
+		printf '            %s ask column is %s bytes, not the %s planted:\n' "$1" "${#got}" "${#2}" >&2
+		printf '              got: %s\n            want: %s\n' "$(printf '%s' "$got" | cut -c1-90)" \
+			"$(printf '%s' "$2" | cut -c1-90)" >&2
+		return 1
+	}
+}
+claim_ask_absent() { # the row exists and its ask column is empty -- the class that has no ask
+	row_for "$1" >/dev/null
+	[ -z "$(row_for "$1" | cut -f7)" ] || {
+		printf '            %s carries an ask of %s bytes; this class must not have one\n' \
+			"$1" "$(row_for "$1" | cut -f7 | wc -c | tr -dc '0-9')" >&2
+		return 1
+	}
+}
+
+# A --------------------------------------------------------------- the floor, both sides of it
+#
+# Every body here is either the one #242 measured or one measured on this repository's own pull
+# requests (8 Nov: `gh pr list --state all --limit 200 --json number,reviews`, 86 rows of state
+# CHANGES_REQUESTED, lengths 21 / 1002 / … / 14863). The floor is a claim about those numbers, so the
+# legs are too.
+claim_reset
+claim_leg 'the 21-byte #240 body is a reference, not an ask' \
+	ask_verdict_says 'unreadable:reference 21' '@/tmp/pr240-review.md'
+claim_leg '…and a longer path is still nothing to answer' \
+	ask_verdict_says 'unreadable:reference 42' '/home/reviewer/notes/pr240-review-notes.md'
+claim_leg 'an absent body is empty' \
+	ask_verdict_says 'unreadable:empty 0' ''
+claim_leg 'a body of whitespace is empty too' \
+	ask_verdict_says 'unreadable:empty 0' "$(printf '%s' "$(printf '\n\t \n')" | tr '[:cntrl:]' ' ' | tr -s ' ' | sed -e 's/^ //' -e 's/ $//')"
+# The boundary, from both sides, because `FACTORY_ASK_MIN_BYTES=40` means nothing unless 39 and 40
+# answer differently. This is the pair that catches `<` becoming `<=` and the constant moving. Both
+# bodies are GENERATED at the stated length rather than typed: the first draft of these two legs
+# carried hand-typed runs of `a` and each was off by four characters, so the legs were asserting that
+# 43 bytes answer `below-floor 39` -- a leg whose fixture does not match its own expectation is a leg
+# that fails for the wrong reason forever, and the point of a boundary leg is that the number in it
+# is the number in the body.
+claim_leg '39 bytes is below the floor' ask_verdict_says 'unreadable:below-floor 39' \
+	"$(printf 'a%.0s' $(seq 1 39))"
+claim_leg '40 bytes is an ask' ask_verdict_says 'readable 40' "$(printf 'a%.0s' $(seq 1 40))"
+# The cost of any floor, stated at the floor's own price: a 21-byte ask in ordinary English is
+# refused here exactly as the 21-byte path is. It is a leg rather than a comment because the day
+# somebody softens the predicate, this is the leg that goes quiet, and the sentence in common.sh that
+# concedes the cost has to have a thing that enforces it existing.
+claim_leg 'a 21-byte ask in English is refused (the disclosed cost)' \
+	ask_verdict_says 'unreadable:below-floor 21' 'Rename it and ship it'
+# The measured short side of real data: the shortest ask this repository has actually received is 1002
+# bytes, so the floor retires no working review. A body of that size is not pasted here; its shape
+# is what matters, so it is generated and only its verdict asserted.
+claim_leg 'the shortest real ask measured here (1002 bytes) is readable' \
+	ask_verdict_says 'readable 1002' "$(printf 'r%.0s' $(seq 1 1002))"
+# Two flattening legs, because the byte count is taken AFTER control characters become spaces, and
+# each pins a different half of that one line of `tr`/`sed`.
+#
+# Padding: 37 characters with four spaces each side is 45 bytes raw and 37 trimmed, so the leg wants
+# the refusal the trim earns and the pass an untrimmed count would give.
+claim_leg 'padding is not content: 45 raw bytes, 37 of ask' \
+	ask_verdict_says 'unreadable:below-floor 37' \
+	"    $(printf 'a%.0s' $(seq 1 37))    "
+# A newline becomes a space, it is not deleted: 16 + 23 characters across one newline is 40 flattened
+# and 39 if the control character were dropped, so this leg is the difference between `tr` and
+# `delete` and lands exactly on the boundary.
+claim_leg 'a newline costs a space, not nothing' \
+	ask_verdict_says 'readable 40' 'aaaaaaaaaaaaaaaa
+aaaaaaaaaaaaaaaaaaaaaaa'
+# Bytes, not characters, because that is the unit the measured failure was reported in: 37 ASCII
+# characters plus one three-byte em dash is 40 bytes and 38 characters. A character count would
+# refuse an ask the predicate accepts, and refuse it silently on any review written in prose.
+claim_leg 'the floor is counted in bytes, not characters' \
+	ask_verdict_says 'readable 40' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa—'
+
+# Its control, planted outside the repository. The `reference` arm is supposed to be independent of
+# the byte floor -- the 44-byte path above is over it and is still refused -- so a copy of common.sh
+# with the floor at zero has to go on refusing it, while going soft on the 21-byte English ask.
+mkdir -p "$claim_work/nofloor"
+sed 's/^FACTORY_ASK_MIN_BYTES=40$/FACTORY_ASK_MIN_BYTES=0/' "$HERE/common.sh" >"$claim_work/nofloor/common.sh"
+if [ "$(grep -c '^FACTORY_ASK_MIN_BYTES=0$' "$claim_work/nofloor/common.sh")" != "1" ]; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the control copy is not a copy with the floor at\n' "control: floor at zero"
+	printf '          zero, so whatever the two lines below say, they say nothing.\n'
+else
+	soft=$(PATH="$claim_bin:$PATH" bash -c \
+		". '$claim_work/nofloor/common.sh' >/dev/null 2>&1; factory_ask_verdict '/home/reviewer/notes/pr240-review-notes.md'")
+	soft2=$(PATH="$claim_bin:$PATH" bash -c \
+		". '$claim_work/nofloor/common.sh' >/dev/null 2>&1; factory_ask_verdict 'Rename it and ship it.'")
+	printf '        control: with the floor at zero in a copy outside the tree, the 44-byte path is\n'
+	printf '        still %s and the English ask becomes %s -- so the reference arm is its own\n' "$soft" "$soft2"
+	printf '        rule and the ok above is the floor working, not the floor being the only rule.\n'
+fi
+
+# B ------------------------------------------------------------- which review, and a record that holds
+ask_planted_newest() { # the record built from whatever reviews.json holds right now
+	factory_newest_ask "$(cat "$claim_fix/reviews.json")" 2>/dev/null
+}
+ask_newest_is() { # ask_newest_is <expected review id>
+	local got
+	got=$(ask_planted_newest | cut -f1)
+	[ "$got" = "$1" ] || {
+		printf '            the record names review %s, not %s -- the read is: %s\n' \
+			"${got:-nothing}" "$1" "$(ask_planted_newest | cut -c1-120)" >&2
+		return 1
+	}
+}
+ask_newest_shape_is() { # every field of the record for the 4002 row planted below
+	local rec when user verdict
+	rec=$(ask_planted_newest)
+	when=$(printf '%s' "$rec" | cut -f2)
+	user=$(printf '%s' "$rec" | cut -f3)
+	verdict=$(printf '%s' "$rec" | cut -f4)
+	if [ "$when" != "2026-11-08T18:19:17Z" ] || [ "$user" != "hermesvicowa" ] ||
+		[ "$verdict" != "unreadable:reference 21" ]; then
+		printf '            the record is %s | %s | %s, not the submitter, instant and\n' "$user" "$when" "$verdict" >&2
+		printf '            verdict the planted review carries.\n' >&2
+		return 1
+	fi
+}
+ask_newest_refuses() { # no change request, and an unreadable payload, both mean "no ask was read"
+	local out rc
+	rc=0
+	out=$(factory_newest_ask '[]' 2>/dev/null) || rc=$?
+	if [ "$rc" = 0 ] || [ -n "$out" ]; then
+		printf '            an empty review list answered rc=%s [%s]; it has to be distinguishable\n' "$rc" "$out" >&2
+		printf '            from a review whose body is empty, or the arms read silence as an ask.\n' >&2
+		return 1
+	fi
+	rc=0
+	out=$(factory_newest_ask 'this is not json' 2>/dev/null) || rc=$?
+	if [ "$rc" = 0 ]; then
+		printf '            a payload that is not the array GitHub sends answered rc=0 [%s].\n' "$out" >&2
+		return 1
+	fi
+}
+claim_reviews "$(jq -cn '[
+	{"id":4001,"user":{"login":"hermesvicowa"},"state":"COMMENTED","submitted_at":"2026-11-08T21:00:00Z","body":"a comment, later than both reviews"},
+	{"id":4002,"user":{"login":"hermesvicowa"},"state":"CHANGES_REQUESTED","submitted_at":"2026-11-08T18:19:17Z","body":"@/tmp/pr240-review.md"},
+	{"id":4003,"user":{"login":"someone-else"},"state":"CHANGES_REQUESTED","submitted_at":"2026-11-07T10:00:00Z","body":"an older change request, with far more words in it than the newest one has"}
+]')"
+claim_leg 'the newest change request is the subject, not the newest review' \
+	ask_newest_is 4002
+claim_leg '…with its submitter, its instant and its verdict' ask_newest_shape_is
+claim_reviews '[]'
+claim_leg 'no change request is not the same answer as an empty one' ask_newest_refuses
+claim_reset
+
+# C ------------------------------------------------------------ the row, through the shipped classifier
+#
+# One planted pull request, `CHANGES_REQUESTED`, reviewed at 18:19:17Z against a head commit the
+# fixture stamps at 00:00:00Z -- the shape #240 was in when the tick was dispatched at it. The body
+# is the constant across the legs that follow; only the reviews change.
+ASK_PLANTED_BODY='Split the third commit in two: the gate change and the fixture change retire different mutants. Then name the mutant you retired while doing it.'
+ask_pr240() { # ask_pr240 <review-row-json> -> one open PR, one review, one unrelated issue
+	claim_reset
+	# The live issue set is inherited from the legs above, and by this point in the file it holds
+	# seven unclaimed issues. A dry run over that set spends all three of FACTORY_MAX_TICKS on them
+	# and DEFERS everything else -- which is exactly the interference that made the "no tick was
+	# started" claim insensitive: with the supervisor mutated to dispatch a tick for
+	# `review_unreadable` anyway, the tick was deferred by the budget and the leg still read green,
+	# measuring the cap instead of the arm (measured 8 Nov). Two units here: the pull request, and
+	# #232 as a row that waits with no ask.
+	claim_issues '[.[] | select(.number == 232)]'
+	claim_open '[{"number":240,"title":"An address_review dispatch carries no ask","body":"no claim here","claims":[],"reviewDecision":"CHANGES_REQUESTED"}]'
+	claim_reviews "$1"
+}
+ask_iso() { printf '%s' "$1" | jq -Rs '{id:4001,user:{login:"hermesvicowa"},state:"CHANGES_REQUESTED",submitted_at:"2026-11-08T18:19:17Z",body:.}' | jq -c '[.]'; }
+
+ask_pr240 "$(ask_iso "$ASK_PLANTED_BODY")"
+claim_rows >/dev/null
+claim_leg 'a real ask still gets a tick' claim_class_is 240 address_review
+claim_leg '…and the tick is sent WITH the ask, byte for byte' claim_ask_is 240 "$ASK_PLANTED_BODY"
+claim_leg '…and the journal detail names the review it read' claim_detail_has 240 'review 4001'
+claim_leg '…and who filed it' claim_detail_has 240 'hermesvicowa'
+claim_leg '…and how many bytes arrived' claim_detail_has 240 '144 bytes'
+claim_leg '…while the wait arms carry no ask at all' claim_ask_is 232 ''
+
+ask_pr240 "$(ask_iso '@/tmp/pr240-review.md')"
+claim_rows >/dev/null
+claim_leg '#242: 21 bytes of file reference is refused, not dispatched' claim_class_is 240 review_unreadable
+claim_leg '…and the refusal carries no ask' claim_ask_absent 240
+claim_leg '…quoting the body that arrived, because the symptom is not the diagnosis' \
+	claim_detail_has 240 '@/tmp/pr240-review.md'
+claim_leg '…saying no tick was started' claim_detail_has 240 'no tick was started'
+claim_leg '…and naming the one command that puts it back in the queue' \
+	claim_detail_has 240 'gh pr review 240 --request-changes --body-file'
+claim_leg '…naming who filed it and when, so a person can find the review' \
+	claim_detail_has 240 'hermesvicowa at 2026-11-08T18:19:17Z'
+# The REASON, not only the size. A mutation that drops the `reference` arm leaves the row refusing
+# for `below-floor` instead -- the same class, the same byte count, the same command, and a human
+# told "your review is too short" when the actual fault is that it was never uploaded. That is the
+# difference between a useful refusal and one that sends the reviewer off to write more words.
+claim_leg '…and the reason it refused, not just the size' claim_detail_has 240 'which is reference'
+
+ask_pr240 "$(ask_iso '')"
+claim_rows >/dev/null
+claim_leg 'an empty body is refused the same way' claim_class_is 240 review_unreadable
+claim_leg '…and says zero bytes rather than an empty quote' claim_detail_has 240 '0 bytes'
+
+# The polarity that says the new class is about a live dispatch and not about any unreadable review
+# ever filed. Same pull request, same 21 bytes, same reviewer: the review is 25 hours older than the
+# head commit, so it has been answered and the head is what is waiting. This is also the leg that
+# proves the fixture is being read at all -- the detail has to interpolate a date that only
+# `commit.json` can supply, and it could not while the shim was dispatching on `--jq`.
+ask_pr240 "$(jq -cn '[{id:4001,user:{login:"hermesvicowa"},state:"CHANGES_REQUESTED",
+	submitted_at:"2026-11-06T23:00:00Z",body:"@/tmp/pr240-review.md"}]')"
+claim_rows >/dev/null
+claim_leg 'an ANSWERED unreadable review is not the new class' claim_class_is 240 needs_reviewer
+claim_leg '…and the head commit it was answered by is in the detail' \
+	claim_detail_has 240 'answered by the head commit 2026-11-08T00:00:00Z'
+
+# The bound. `emit` caps nothing and the journal prints one line per unit, so an unbounded ask would
+# put a 14863-byte review into a log line and a model prompt without either file saying so. The body
+# is 14863 bytes because that is the longest ask this repository has received; what the row must carry
+# is the cut, the total, and the command that reads the rest.
+ask_long() { # the row's ask column, bounded, for a 14863-byte review
+	local got
+	got=$(row_for 240 | cut -f7)
+	if [ "${#got}" -gt $((FACTORY_ASK_MAX_BYTES + 200)) ]; then
+		printf '            the ask column is %s bytes, past the bound plus its marker\n' "${#got}" >&2
+		return 1
+	fi
+	case "$got" in
+	*"[… cut at ${FACTORY_ASK_MAX_BYTES} of 14863 bytes"*'gh pr view 240 --json reviews]'*) return 0 ;;
+	esac
+	printf '            a 14863-byte body arrived as %s bytes ending:\n              …%s\n' \
+		"${#got}" "$(printf '%s' "$got" | tail -c 120)" >&2
+	return 1
+}
+ask_pr240 "$(ask_iso "$(printf 'x%.0s' $(seq 1 14863) | sed 's/xxx/xxx /g' | cut -c1-14863)")"
+claim_rows >/dev/null
+claim_leg 'a 14863-byte ask still gets its tick' claim_class_is 240 address_review
+claim_leg '…arriving bounded, and saying so with the total and the read' ask_long
+
+# The transport, at its worst moment: a body carrying a newline, a tab and a literal U+001F -- the
+# delimiter the row itself is made of. The flattening in common.sh is the only thing between that
+# review and a spliced column, so the leg asks for the whole row: one row for the pull request, the
+# class where the class is, and the ask where the ask is.
+ask_splice() {
+	local n
+	n=$(awk -F'\t' -v k=240 '$2 == k' "$claim_rows_file" | grep -c .)
+	[ "$n" = "1" ] || {
+		printf '            the pass printed %s rows for key 240, so a delimiter arrived in the body\n' "$n" >&2
+		return 1
+	}
+	claim_class_is 240 address_review || return 1
+	# Note the space before the comma: the U+001F in the planted body became a space, which is the
+	# whole flattening contract, and a leg that expected the delimiter back would be asserting the
+	# bug rather than the fix.
+	claim_ask_is 240 'a newline a tab and the row delimiter itself , in one review body'
+}
+ask_pr240 "$(jq -cn '[{id:4001,user:{login:"hermesvicowa"},state:"CHANGES_REQUESTED",
+	submitted_at:"2026-11-08T18:19:17Z",
+	body:"a newline\na tab\tand the row delimiter itself\u001f, in one review body"}]')"
+claim_rows >/dev/null
+claim_leg 'a body holding the row delimiter cannot splice the row' ask_splice
+claim_reset
+
+# D ------------------------------------------------ the supervisor, in a dry run, ask in hand
+#
+# The one question the rows above cannot answer is whether the column survives the two re-serialisations
+# between triage.sh's row and the tick's argument -- `workable`, then `ranked`, then `factory_tick`'s
+# sixth parameter. `--dry-run` prints what a tick would be told, so the transport can be watched end
+# to end without starting a model, and the shipped supervisor is the thing under test, from a copy of
+# the three scripts it needs beside each other.
+ask_dispatch() { # run the shipped supervisor, dry, over whatever is planted
+	mkdir -p "$claim_work/dtrees"
+	PATH="$claim_bin:$PATH" CLAIM_FIXTURE="$claim_fix" \
+		FACTORY_DIR="$claim_harness" FACTORY_ROOT="$claim_repo" \
+		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
+		FACTORY_OPENCODE=opencode \
+		FACTORY_LOG="$claim_work/dlog" FACTORY_LEDGER="$claim_work/dledger" \
+		FACTORY_RUN="$claim_work/drun" FACTORY_TREES="$claim_work/dtrees" \
+		"$claim_harness/factory.sh" --dry-run >"$claim_work/dry.out" 2>&1 || true
+	cat "$claim_work/dry.out"
+}
+ask_journal() { cat "$claim_work/dlog/supervisor.log" 2>/dev/null; }
+ask_dry_carries() { # the dry-run dispatch, followed by the ask on its own line
+	case "$(cat "$claim_work/dry.out")" in
+	*"tick unit=address_review:240"*) : ;;
+	*) printf '            no tick was dispatched for 240 at all:\n' >&2
+		sed 's/^/              /' "$claim_work/dry.out" >&2; return 1 ;;
+	esac
+	case "$(cat "$claim_work/dry.out")" in
+	*"ask: $ASK_PLANTED_BODY"*) return 0 ;;
+	*) printf '            the tick was dispatched without the ask after it. The dry run printed:\n' >&2
+		sed 's/^/              /' "$claim_work/dry.out" >&2; return 1 ;;
+	esac
+}
+ask_pr240 "$(ask_iso "$ASK_PLANTED_BODY")"
+ask_dispatch >/dev/null
+claim_leg 'the ask crosses the dispatcher into the tick' ask_dry_carries
+
+# What the dry run cannot reach is the last step: `factory_tick` putting the column INTO the
+# instruction. No leg can start a real tick -- the fixture runtime refuses on purpose and there is no
+# origin to open a worktree from -- so this is a scan of the shipped arm, in the shape this file
+# already uses for the `delivered` arm, with a control outside the tree. It says something narrower
+# than the legs above and is labelled for it: the arm interpolates the ask, between markers that name
+# it as quoted material, and the branch for a missing ask ends in `needs-human` instead of a guess.
+ask_prompt_assembles_it() { # ask_prompt_assembles_it [factory.sh to read]
+	local arm src=${1:-$HERE/factory.sh}
+	arm=$(awk '/^\taddress_review\)/,/^\t\t;;/' "$src")
+	[ -n "$arm" ] || {
+		printf '            factory_tick has no address_review arm to read\n' >&2
+		return 1
+	}
+	case "$arm" in
+	*'$ask'*) : ;;
+	*) printf '            the arm builds its prompt without the ask column at all\n' >&2; return 1 ;;
+	esac
+	case "$arm" in
+	*'BEGIN REVIEWER ASK'*) : ;;
+	*) printf '            the ask reaches the prompt unmarked: reviewer-controlled text arriving\n' >&2
+		printf '            inside a model'"'"'s instructions with nothing saying it is quoted\n' >&2
+		return 1 ;;
+	esac
+	case "$arm" in
+	*'not instructions to you'*) : ;;
+	*) printf '            the markers are there but the prompt never says the ask is not an\n' >&2
+		printf '            instruction to the tick, which is the half that bounds its authority\n' >&2
+		return 1 ;;
+	esac
+	case "$arm" in
+	*needs-human*) return 0 ;;
+	esac
+	printf '            the empty-ask branch does not end in needs-human and a stop, so the one\n' >&2
+	printf '            move that invents an ask is still open to it\n' >&2
+	return 1
+}
+claim_leg 'the tick assembles the ask into its instruction' ask_prompt_assembles_it
+# Control, planted outside the repository: the same scan over a copy whose arm has the interpolation
+# and the marker taken out. Three lines of a two-hundred-line function, with everything else in the
+# file unchanged -- which is exactly why a scan without a control would be worth nothing here.
+mkdir -p "$claim_work/noprompt"
+awk '/^\taddress_review\)/,/^\t\t;;/ {
+		if ($0 ~ /\$ask/ || $0 ~ /BEGIN REVIEWER ASK/ || $0 ~ /not instructions to you/) next
+		print; next
+	}
+	1' "$HERE/factory.sh" >"$claim_work/noprompt/factory.sh"
+if [ "$(grep -c 'BEGIN REVIEWER ASK' "$claim_work/noprompt/factory.sh")" -ge \
+	"$(grep -c 'BEGIN REVIEWER ASK' "$HERE/factory.sh")" ]; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the control copy still carries the marker, so it is\n' "control: the copy is a copy"
+	printf '          not a copy with the ask removed and the line below proves nothing.\n'
+elif ask_prompt_assembles_it "$claim_work/noprompt/factory.sh" 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the scan passes on a copy with the ask removed, so\n' "control: ask into the prompt"
+	printf '          the ok above is the scan being blind.\n'
+else
+	printf '        control: a copy outside the tree with the interpolation and the marker deleted is\n'
+	printf '        refused, so the ok above is the scan working and not the scan being blind.\n'
+fi
+
+ask_dry_starts_nothing() {
+	# `tick unit=` is the only line the supervisor prints that means a tick started -- factory.sh:859,
+	# `DRY-RUN  tick unit=%s:%s detail=%s`. The pattern is deliberately that exact text rather than
+	# `*unit=review_unreadable*`: shellcheck caught the looser form swallowing a second pattern that
+	# said the same thing (SC2221/SC2222), and a broad pattern here would also have to be re-read every
+	# time a new log line learns the word. Nothing the refusal arm writes through `log_event` carries
+	# `unit=` -- its line is `ASK-UNREADABLE pr:240 …` -- so this arm can only be tripped by a tick.
+	case "$(cat "$claim_work/dry.out")$(ask_journal)" in
+	*'tick unit=review_unreadable'*)
+		printf '            a tick was started for the unreadable review:\n' >&2
+		sed 's/^/              /' "$claim_work/dry.out" >&2
+		return 1 ;;
+	esac
+	# The comment is written through run_action, which is also what makes a dry run show it: the
+	# `DRY-RUN  gh pr comment 240 --body …` line is the proof the supervisor would have spoken to
+	# the human, and the journal line only proves it spoke to itself.
+	if grep -qF -- 'gh pr comment 240' "$claim_work/dry.out"; then
+		case "$(ask_journal)" in
+		*'ASK-UNREADABLE pr:240'*) return 0 ;;
+		esac
+		printf '            it tried to comment but never logged the finding, so a pass that declined\n' >&2
+		printf '            is not auditable: the journal is the only record the queue keeps.\n' >&2
+		return 1
+	fi
+	printf '            the dry run shows no comment being written for 240 at all, so the decline is\n' >&2
+	printf '            silent: a queue that declines quietly looks exactly like a queue with\n' >&2
+	printf '            nothing in it. The dry run printed:\n' >&2
+	sed 's/^/              /' "$claim_work/dry.out" | grep -v '^[[:space:]]*$' >&2
+	return 1
+}
+ask_pr240 "$(ask_iso '@/tmp/pr240-review.md')"
+ask_dispatch >/dev/null
+claim_leg 'a review_unreadable row starts no tick and is still reported' ask_dry_starts_nothing
+claim_reset
 
 # --------------------------------------------------------------- the supervisor's arm
 #

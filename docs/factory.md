@@ -53,7 +53,8 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `merge_now` | approved, `MERGEABLE`, `CLEAN`, every check passed | supervisor, in bash, after re-reading all four from the API |
 | `needs_reviewer` | no review **and** `/requested_reviewers` is empty | supervisor: request one, at most once per `FACTORY_REVIEW_POKES` |
 | `conflict` | `CONFLICTING/DIRTY` | supervisor: `git merge origin/main`; a tick only if that conflicts |
-| `address_review` | newest `CHANGES_REQUESTED` is newer than the head commit | a tick |
+| `address_review` | newest `CHANGES_REQUESTED` is newer than the head commit, **and its body carries an ask** | a tick, and the ask rides in its instruction |
+| `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body | a tick |
 | `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected | nothing: the supervisor logs it, and closes nothing |
@@ -125,6 +126,57 @@ asked" from "asked and answered" -- measured, four pull requests had an empty li
 `/pulls/N/requested_reviewers`, three days after opening, with every check green. `branch_without_pr`
 exists because a branch with commits and no pull request is invisible to every queue that reads
 issues and pull requests; the first run of this script found five, one of them seven commits deep.
+
+### The ask, and what happens when there is not one
+
+`address_review` used to be decided from three fields -- reviewer, state, timestamp -- and the body was
+projected away before anything read it. So a tick was dispatched at #240 with an instruction that said
+*review asked for changes at 18:19:17Z, after the head commit at 17:24:05Z* and nothing else, because
+the review's entire body was the 21 bytes `@/tmp/pr240-review.md`. It was filed with
+`gh api -X POST …/pulls/240/reviews -f body=@/tmp/pr240-review.md`, and `-f` is `--raw-field`: it sends
+the bytes after the `=` literally and reads no files, so GitHub stored the reference as the review and
+answered **200 with a healthy-looking review row**. `gh pr review --body @file` fails the same way one
+layer up, and only `--body-file` works on either path. The worktree, the ceiling and the model went to a
+verdict with no ask in it (#242).
+
+The row now has a seventh column, `ask`, and a verdict that decides whether it is fillable. Both come
+out of one function, `factory_ask_verdict`, so the sentence written on a pull request and the
+classifier that decides whether to spend a tick on it cannot disagree about what counts as an ask:
+
+| body | verdict | why |
+|---|---|---|
+| empty, or nothing but whitespace | `unreadable:empty` | there is nothing to answer |
+| no whitespace anywhere, and it contains `/` or `@` | `unreadable:reference` | it is a path or a mention, not a sentence -- the mistake, whatever its length |
+| under 40 bytes | `unreadable:below-floor` | too short to be a review anyone could answer |
+| anything else | `readable <n>` | it is an ask, and it rides in the tick's instruction |
+
+Every number there is measured rather than chosen, from the 86 `CHANGES_REQUESTED` reviews on this
+repository's 200 most recent pull requests (read 8 Nov): exactly one body is under 40 bytes -- the
+21-byte reference above -- and the next smallest is 1002, so the floor retires no ask anyone has written
+here. The longest is 14863 bytes; 12000 carries 83 of the 86 into a dispatch complete, and the three that
+do not fit arrive cut, with the total and the command that reads the rest named in the row. A cut is
+never silent, because a silent cut is a tick that answers 12000 bytes and reports the ask as answered.
+
+The cost of a byte floor is stated where the floor is: a genuine 21-byte ask in ordinary English --
+`Rename it and ship it` -- is refused exactly as the 21-byte path is. A selftest leg pins it, so the day
+somebody softens the predicate, the leg that goes quiet is the one that knows about the cost.
+
+The refusal is the half the ticket's own proposal would have missed. Handing the ask to the tick fixes
+the dispatch that arrives; it does not fix the dispatch that should never have started, because a tick
+cannot tell *"the reviewer asked for nothing"* from *"the reviewer asked for something I cannot see"*,
+and the second reads exactly like the first when it is time to write a summary. This repository has
+measured what happens next more often than anything else -- `D-0046` is five invented citations in
+three published artifacts. So a change request with no ask in it gets **no tick**: the supervisor posts
+one comment naming the review, its size, its shape, the text that arrived and the single command that
+re-files it, throttled to once a day by the same clock as the daily notice, and the pull request stays
+in the queue indefinitely -- `WAIT`, then `NOTICE`, never parked (H-0051). Re-filing a review is a human
+act twice over: `gh pr review` is denied to a tick, and it is a verdict on someone else's work.
+
+Two things travel with the column. It is quoted material, not instructions: it arrives inside a model's
+instructions, so the instruction says so around it and names the authorities a reviewer cannot grant.
+And an empty column on a review the classifier read as non-empty is a transport failure, not an empty
+review -- the tick is told to read the body itself, and told that if it is not there it stops with
+`needs-human` rather than writing the fix it guessed.
 
 ## Installing it
 
