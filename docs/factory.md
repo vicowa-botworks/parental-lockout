@@ -83,6 +83,16 @@ the merge reached `FACTORY_BASE`, the issue has not been updated since the merge
 that issue has already been rejected. The last of those is also the human's override in the other
 direction: one comment on the issue puts it back in the queue for a tick.
 
+Precedence is unchanged -- `delivered` is reached only where nothing open claims the issue -- and that
+has a consequence worth writing down before the class surprises anybody, because the open-claim channel
+drops an issue named *anywhere* in any open body, not only one a pull request claims. Running the
+shipped `triage.sh` against GitHub at 15:22Z on 8 Nov, #232 and #222 printed no row at all: the first is
+named by the pull request that fixes it, the second by draft #233, whose body says `Refs #220 and #222`.
+The issue rows that pass printed were #237, #213 and #199, every one `unclaimed`, the latter two held
+out of `delivered` by the claim count. So `delivered` means "the queue will not work on this, and here
+is the merged pull request it is leaning on", and it does not mean "every finished ticket appears
+here" -- an open body naming an issue hides it from both classes at once.
+
 A claim is a verb plus **every** number still in the same list, which is a rule that only measurement
 would have produced. #221's shipped body has `Refs #219, #220, #204` on one line with
 `(Part of #219 only; the umbrella is not finished …)` eight lines above it, and open PR #233 says
