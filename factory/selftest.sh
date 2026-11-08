@@ -137,6 +137,17 @@ finding_one_line() { # tree -> 0 when the verdict printed exactly one line
 	[ "$n" = 1 ]
 }
 
+# The plant's own claim, asked of the read that arm exists for: does `git diff` refuse to answer over
+# this tree? Run raw, outside the verdict, so it reports what the box does rather than what the code
+# under test decided. It is what lets the leg assert UNKNOWN instead of "anything but clean": with a
+# git that reads the file anyway there is no refusal to pin, and the leg says so instead of certifying
+# a verdict this box never produced.
+tracked_read_refuses() { # tree -> 0 when `git diff --quiet` exits above 1
+	local rc=0
+	git -C "$1" diff --quiet >/dev/null 2>&1 || rc=$?
+	[ "$rc" -gt 1 ]
+}
+
 # Every path, when there are three or fewer. The cap is honest in both directions or it is not a cap:
 # seven problems printed as three read as a complete list, and a marker printed on a complete list
 # teaches the reader to ignore the marker.
@@ -560,16 +571,37 @@ for tree in "$repo" "$wt"; do
 
 	# Failing closed: a tree git cannot read must not answer "clean, go ahead and write into it".
 	# The verdict for it is UNKNOWN rather than DIRTY -- an unreadable file makes `git diff` itself
-	# fail, and "I could not tell" is not evidence of safety, so it halts on the same path. Skipped,
-	# out loud, where the mode bits cannot bite: root reads anything.
+	# fail, and "I could not tell" is not evidence of safety, so it halts on the same path.
+	#
+	# It asserts UNKNOWN, and that is the whole point of the leg: `expect … HALT` accepts any answer
+	# that is not CLEAN, which is the right question for the halt and no question at all about the
+	# code path. Measured at 8015951 by hollowing one refusal test at a time -- a constant-false test,
+	# because `[ "$rc" -gt 99 ]` is NOT hollow, a refusal is 128 -- every single arm could be deleted
+	# with the suite at 70 passed / 0 failed, and the reason this leg stayed green while the verdict
+	# degraded from `its tracked files could not be read (git diff exited 128)` to
+	# `modified: keepme.txt (git said: … Permission denied)` is that both answers halt. The degraded
+	# sentence is the harm: it tells the operator to "commit it or discard it on purpose" about a file
+	# git could not open, and on a tree whose only other content is clean the same degradation is a
+	# CLEAN that lets the tick work in a tree it cannot read. So the needle is the refusal's own words.
+	#
+	# Skipped, out loud, where the plant cannot bite: root reads anything, and a git that reads the
+	# file anyway leaves no refusal to pin -- the same bargain `planted()` and `excludes_reads()`
+	# struck, and for the same reason: asserting a verdict this git never produced is a green leg
+	# about a subject that is not in the tree.
 	reset_tree "$tree"
 	if [ "$(id -u)" = 0 ]; then
 		printf '  SKIP  %-34s running as root, so chmod 000 hides nothing\n' \
 			"[$where] an unreadable file"
 	else
 		chmod 000 "$tree/keepme.txt"
-		expect "[$where] an unreadable file" "$tree" HALT
-		expect_halt "[$where] an unreadable file" "$tree" HALT
+		if tracked_read_refuses "$tree"; then
+			expect "[$where] an unreadable file" "$tree" UNKNOWN "" could not be read
+			expect_halt "[$where] an unreadable file" "$tree" HALT could not be read
+		else
+			printf '  SKIP  %-34s this git read the file anyway (git %s), so the plant leaves no\n' \
+				"[$where] an unreadable file" "$(git --version | awk '{print $3}')"
+			printf '        refusal to pin. The leg would assert a verdict this git never produced.\n'
+		fi
 		chmod 644 "$tree/keepme.txt"
 	fi
 done
@@ -668,10 +700,23 @@ poisoned_tree "a GIT_DIR pair from elsewhere" "$work/poison-b/tree" \
 #   a directory, tmpfs             40     128, prints NOTHING           UNKNOWN
 #   a directory, btrfs              0     0, lists that file            DIRTY
 #
+# ...and the discriminator is not the filesystem alone. A directory's `st_size` is the size of its own
+# entry data, so these two rows describe an EMPTY directory; put one entry in and the size -- and the
+# verdict -- change on both filesystems (measured at 8015951 with `stat -c %s`, an entry named `x` and
+# the same entry named `inside`):
+#
+#   the directory            empty   `x`   `inside`
+#   btrfs                       0      2      12
+#   tmpfs                      40     60      60
+#
+# So the second row is really "an empty directory on a filesystem that gives empty directories no
+# size", and the same mistyped path refuses the moment it contains anything, btrfs included. The
+# fixture's directory is empty, which is the whole reason the review box answered row two.
+#
 # git's `add_patterns()` opens the exclude file, `fstat`s it and branches on `st_size`: 0 is taken for
 # an empty list and returns; any other size reaches `read_in_full()` on a directory fd, which is
-# EISDIR and a 128 -- `fatal: cannot use %s as an exclude file`. A directory reports size 0 on btrfs
-# and 40 on tmpfs, so the refusal is a filesystem property wearing a git property's clothes, and the
+# EISDIR and a 128 -- `fatal: cannot use %s as an exclude file`. So the refusal is a filesystem
+# property wearing a git property's clothes, and the
 # shipped claim that `status --porcelain` "exits 128 printing nothing" for this shape is true only
 # where directories have a size. No shape of `core.excludesFile` is refused portably -- ENOENT,
 # ENOTDIR and EACCES are all tolerated on 2.53.0 -- so the leg cannot be repaired by planting the

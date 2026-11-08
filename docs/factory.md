@@ -221,13 +221,41 @@ opened -- an empty `.git`, or a `GIT_DIR`/`GIT_WORK_TREE` pair left exported by 
 `git status --porcelain` exits 128 printing nothing, the suppression in `$(... 2>/dev/null)` makes
 that indistinguishable from "nothing to report", and the pass proceeds in a tree git would not
 describe. A third shape, a `core.excludesFile` pointing at a directory, is the same story only on some
-filesystems: git `fstat`s the exclude file and reads `st_size == 0` as an empty list, and a directory
-has size 0 on btrfs and 40 on tmpfs, so on tmpfs that typo is a 128 the verdict refuses on and on
-btrfs it is silence plus a dropped pattern list that names the operator's own ignored files as work.
+filesystems, and the qualifier is narrower than "some filesystems": git `fstat`s the exclude file and
+reads `st_size == 0` as an empty list, and a directory's `st_size` is the size of its own entry data,
+so it depends on what the directory holds -- measured at `8015951`, btrfs 0 empty, 2 with a
+one-character entry, 12 with a six-character one; tmpfs 40 empty and 60 holding either. So that typo
+refuses the moment the mistyped directory contains anything, on btrfs included, and the swallow needs
+an *empty* directory on a filesystem that gives empty directories no size -- which is what the
+fixture's directory is. There the patterns are dropped silently, the operator's own ignored files come
+back as work, and the halt stops the queue over work that is not work.
 `factory/selftest.sh` measures which of the two the box is running on and asserts only that one, with
 a note naming the filesystem when the refusal is unreachable. A stat-only difference, the report #228
 came in with, was tried in six variants and does *not* reproduce on this git, which refreshes the
 index in memory before reporting; the verdict no longer depends on that question either way.
+
+The refresh is the only read here that writes, so it is worth saying plainly what it can and cannot do.
+It rewrites `.git/index`'s stat entries and nothing else: measured on a stat-only difference the index
+changed and the file's bytes did not, and measured on an unresolved merge it wrote nothing and settled
+nothing -- three index stages before and after, `MERGE_HEAD` still present, its own report the word
+`needs merge` at exit 1. It is not a destructive read and it cannot tidy a conflict away. What remains
+unsafe is that it writes at all, into a `.git` that may belong to a person working in the same tree.
+A held `.git/index.lock` is the one shape of "busy" that shows: the refresh exits 128 naming the lock
+file while the other four reads and `git status` all answer 0, and UNKNOWN is the right answer to that,
+because the writes that follow the verdict are real ones (`merge --no-edit`, and `merge --abort` when
+it fails). One shape of busy is invisible to every read and is open work in #232: a directory at mode
+000 inside the tree makes `ls-files --others` warn and exit 0, and the verdict says clean.
+
+The five refusal checks are redundant on purpose -- any one of them refusing is enough to halt -- and
+the redundancy is measured, arm by arm, rather than asserted: replacing one arm's refusal test with a
+constant-false test and running the probe leaves 70 legs green for four of the five arms, 4 legs red
+for the tracked read (the unreadable file is the one planted shape where exactly one read refuses),
+5 red with four arms gone and 8 red with all five. Those four are not a gap the probe can close: every
+planted shape that stops one of them stops another as well. What the legs had to stop doing was
+accepting *any* non-clean answer -- the unreadable leg used to pass while the verdict degraded from
+`its tracked files could not be read (git diff exited 128)` to `modified: keepme.txt (git said: …
+Permission denied)`, and both halt, but the second one sends the operator to commit or discard a file
+git could not open.
 
 `factory/selftest.sh` is the probe. It builds a throwaway repository plus a linked worktree of it --
 the second is the shape #228 was measured on -- plants one state per leg, and prints the weaker test's

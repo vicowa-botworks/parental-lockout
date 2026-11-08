@@ -528,22 +528,54 @@ factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)
 # `status --porcelain` exits 128 printing NOTHING -- so both the replaced expression and the
 # diff-plus-untracked prescription answer CLEAN on a tree whose state git would not report.
 #
-# That 128 is a filesystem property, not a git promise, and the qualifier is load-bearing. git opens
+# That 128 is a filesystem property, not a git promise, and the qualifier is load-bearing -- but the
+# filesystem is only half of it, and the first version of this comment got the half wrong. git opens
 # the exclude file, `fstat`s it and treats `st_size == 0` as an empty list; only a non-zero size
-# reaches the `read()` that fails with EISDIR and dies. A directory reports `st_size` 0 on btrfs and
-# 40 on tmpfs -- both measured on the two filesystems this box has -- and 4096 on ext4, measured by
-# review on #231 on a box that has that one. So on btrfs nothing is refused, the operator's global
-# patterns are silently dropped, and the verdict answers DIRTY naming a file git was told to ignore:
-# the false halt, with no warning from git in this shape to say why. Both arms are measured by the
-# leg, which asks git whether the plant refused before it asserts a verdict.
+# reaches the `read()` that fails with EISDIR and dies. A directory's `st_size` is not a constant of
+# its filesystem: it is the size of the directory's own entry data, so it depends on what the
+# directory CONTAINS. Re-measured on this box at 8015951, `stat -c %s` on the directory `core.
+# excludesFile` was aimed at: btrfs 0 when empty, 2 when it holds one entry named `x`, 12 when that
+# entry is named `inside`; tmpfs 40 when empty and 60 holding either. ext4 reports 4096 for both --
+# that figure is the reviewer's, from a box that has ext4; this machine has none (`findmnt`: btrfs,
+# vfat, fuseblk, nfs, overlay), which is why the earlier sentence here said "btrfs and tmpfs, the two
+# filesystems this box has" and named a third it had not measured.
+#
+# So the swallow needs an *empty* directory on a filesystem that gives empty directories no size, and
+# the same typo refuses the moment the mistyped directory holds anything -- on btrfs included. The
+# factory's own fixture directory is empty, which is the whole reason the review box answered the way
+# it did. On btrfs with an empty directory nothing is refused, the operator's global patterns are
+# silently dropped, and the verdict answers DIRTY naming a file git was told to ignore: the false
+# halt, with no warning from git in that shape to say why. Both arms are measured by the leg, which
+# asks git whether the plant refused before it asserts a verdict.
 #
 # Which read refuses first is a property of the git, not a promise, so each arm checks its own status
-# and the first refusal wins. That makes the checks redundant on purpose, and the redundancy was
-# measured rather than assumed: hollowing the tracked read's check turns two legs red, hollowing any
-# one of the other four turns none red, because every planted shape has at least two reads fail --
-# which is what an unreadable tree actually does. A verdict that refused only on the strength of one
-# read would be a verdict that had to trust that read, and the point of the exercise is that no read
-# here is trustworthy on its own.
+# and the first refusal wins. The five checks are therefore redundant on purpose -- and the number
+# this comment used to carry to prove it was wrong, which is worth keeping in the text because the way
+# it was wrong is the lesson. It claimed hollowing the tracked read's check "turns two legs red".
+# Re-measured at 8015951 it turned NONE red, and the reason was not the code: the leg asserted
+# `expect … HALT`, and `expect` accepts any answer that is not CLEAN for that, so the verdict was free
+# to degrade from `its tracked files could not be read (git diff exited 128)` to
+# `modified: keepme.txt (git said: … Permission denied)` and still pass. Both halt, but only one of
+# them tells the operator the truth: the second sends them to "commit it to its branch, or discard it
+# on purpose" about a file git could not open. The leg asserts UNKNOWN now (H-0048), and the matrix,
+# re-run with one arm's refusal test replaced by a constant-false test -- `[ "$rc" -gt 99 ]` is NOT a
+# hollowing, since a refusal is 128, and the first sweep of this measured unmutated code five times:
+#
+#   hollowed arm                   legs red at 8015951, of 70      why
+#   refresh                                   0        every plant that stops the refresh stops another read too
+#   staged (`diff --cached`)                  0        the exclude plant stops `--cached` AND `--others`
+#   tracked (`diff`)                          4        the unreadable file is the one shape with one refuser
+#   unmerged                                  0        a conflict is index entries; hiding them hides more
+#   untracked (`ls-files --others`)           0        same plant as the staged arm
+#   staged+tracked+unmerged+untracked         5        the four refusal legs, plus the unreadable file twice
+#   all five                                  8        every refusal leg, in both trees
+#
+# So one arm of the five is pinned by name and four are not, and no plant was found that would pin
+# them: each shape that makes one of those four refuse makes another refuse as well, which is what an
+# unreadable tree actually does. A verdict that refused only on the strength of one read would be a
+# verdict that had to trust that read, and the point of the exercise is that no read here is
+# trustworthy on its own. The redundancy is the design; the legs pin the halt for all five and the
+# refusal by name for the one arm that can be isolated.
 #
 # The same measurements say what the fix is and is not. A stat-only difference -- the state the
 # issue describes -- does not make `status --porcelain` report dirt on this git: status refreshes
@@ -552,6 +584,35 @@ factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)
 # probe says so on its own line rather than pretending to catch it. What IS reproducible here is
 # the other direction, and it is the worse one: an unreadable tree answered CLEAN and the tick would
 # have worked in it. A false halt costs a pass. A false clean costs the work.
+#
+# What the refresh is, since it is the only read here that WRITES. Measured at 8015951 in a throwaway
+# repository, before and after one `git update-index --refresh`: on a stat-only difference it rewrote
+# `.git/index` -- its sha256 changed and the cached mtime moved from `1794119396:675049893` to
+# `1577836800:0` -- and left the file's bytes alone. On a tree with an unresolved conflict it wrote
+# nothing and settled nothing: three index stages before and three after, `MERGE_HEAD` still there,
+# the conflicted file's sha unchanged, and the refresh's own report was `tracked.txt: needs merge` at
+# exit 1. So it is a metadata write, never a content write and never a resolution; the verdict that
+# runs it cannot quietly tidy a conflict away, and the `unmerged` arm still sees three stages after it.
+#
+# That write is also what makes the refresh the read that notices a person. With `.git/index.lock`
+# present -- somebody mid-`git add` in the same tree -- `update-index --refresh` exits 128 with
+# `fatal: Unable to create '…/.git/index.lock': File exists.`, while all four other reads AND
+# `status --porcelain` answer 0 over the same tree. So the one read that touches the tree is the one
+# that refuses when the tree is busy, and UNKNOWN is the right answer to a held lock: the tick does
+# not interleave with a human's index write, and the reason in the sentence names the lock file. What
+# remains unsafe, and is accepted rather than fixed: the verdict writes into a `.git` that may belong
+# to a person working in that tree, and `busy` is only visible in the one shape above. The guarded
+# writes that follow the verdict are not metadata -- the conflict pass runs `merge --no-edit`
+# (`factory/factory.sh:382`) and `merge --abort` when it fails (`:383`) -- which is exactly why the
+# verdict must not mistake a busy or unreadable tree for a clean one. And one shape of "busy" is
+# invisible to all five reads: with a directory inside the tree at mode 000, `ls-files --others`
+# prints `warning: could not open directory 'sub/': Permission denied` and exits 0, `diff --quiet`
+# prints `sub/loose.txt: Permission denied` and exits 0, and the verdict answers CLEAN over a tree
+# holding an untracked file nobody can enumerate. Measured at 8015951 and filed as #232: the exit
+# statuses there are all clean, so only the text git printed on stderr says the read was incomplete --
+# the same capture this function now keeps for the sentence, which is the material a fix would be made
+# of. Nothing about the screen or the lockout is involved: the supervisor's tick never touches the
+# display, and re-locking is the daemon's job on its own ticks (`internal/enforce/enforce.go:107`).
 #
 # What each read PRINTED on stderr is kept, and its first line rides in the sentence. `2>/dev/null` was
 # doing two jobs at once, and only one of them was wanted: it is what turned a 128 into a pass in the
