@@ -442,6 +442,45 @@ factory_git_said() { # errfile -> git's first stderr line, or nothing
 	fi
 }
 
+# Did a read that did not refuse actually FINISH? The distinction is #232, and it is invisible to any
+# status test: measured on git 2.53.0 at 99f165d, uid 1000, with a directory inside the tree at mode
+# 000, `git diff --quiet` prints `sub/nested.txt: Permission denied` and exits 0, and
+# `git ls-files --others --exclude-standard` prints
+# `warning: could not open directory 'drafts/': Permission denied` and exits 0. Both are the verdict's
+# success answer with a sentence attached saying it was not earned, and both were a CLEAN over real
+# uncommitted work until this function existed. So what a read PRINTED is evidence as well as
+# diagnosis: a read that returned its success status and still said something did not complete, and a
+# verdict built on an incomplete read is not evidence of safety -- the same thesis as the refusal arms,
+# arrived at from the side the exit statuses cannot see.
+#
+# `success-statuses` is that arm's own list of answers that mean "I read the tree and I am telling you
+# the truth about it": `0 1` for the refresh, whose 1 is `path: needs update` -- a normal report, not an
+# error, and not a claim about cleanliness either, since the arms below are what name the dirt -- and
+# `0` alone for the four reads whose 1 IS a finding. A status outside the list is either a refusal,
+# which the arm's status test has already caught, or dirt, which halts anyway and carries git's line in
+# its own clause. Keeping dirt out of the list is what makes the rule safe rather than merely strict: a
+# read that reported work AND warned has still told the truth about the tree, and downgrading its
+# finding to "could not be read" would send the operator to fix the wrong thing. The same bargain runs
+# twice more, and both times it is the finding that wins. The two `ls-files` arms carry their finding in
+# their output rather than their status, so they add `[ -z "$raw$finding" ]`; and an incomplete read
+# that found nothing, arriving at a verdict that ALREADY holds another arm's finding, appends
+# `its … were only partly read` to that finding instead of replacing it. The measured case is the one
+# that decided it: a readable edit to `tracked.txt` beside a directory at mode 000 answered UNKNOWN,
+# naming nothing but the untracked read's warning, and told somebody who has an edit in front of them to
+# go make the tree readable. It answers DIRTY naming the edit now, with the warning carried beside it.
+# What still has to refuse is the dangerous half, and only that half: a read that found NOTHING and said
+# NOTHING may be clean, and one that found nothing while saying something is not.
+#
+# What this does not do is look at WHAT git said. Matching git's wording is how a check stops meaning
+# anything the day upstream rephrases a warning -- the reason every leg asserts this repository's own
+# marker (`git said:`) and never a phrase of git's -- so the rule is "it spoke", and the words ride on
+# to the operator through `factory_git_said` unchanged.
+factory_git_incomplete() { # errfile rc success-statuses -> 0 when the read returned one and still spoke
+	local errf=$1 rc=$2
+	case " $3 " in *" $rc "*) ;; *) return 1 ;; esac
+	[ -s "$errf" ]
+}
+
 # Up to three paths, space separated, plus the count when there were more. `head -n 3` on its own is a
 # claim that the list is complete: ten problems arrive as three names and a trailing space, the reader
 # stops at the last comma, and the seven they did not see are the ones that were blocking the merge.
@@ -465,9 +504,12 @@ factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)
 #
 #   0  there is uncommitted work, and the line says which kind and where
 #   1  clean -- every tracked file's bytes match the index, the index matches HEAD, and
-#      nothing is untracked
-#   2  its state could not be read. The caller must treat that as dirt, not as clean: this
-#      verdict gates writing into a tree, and "I could not tell" is not evidence of safety.
+#      nothing is untracked. Every read that had to answer did so AND said nothing: a read
+#      that returns its success status with a sentence on stderr did not finish, and its
+#      silence is not counted as an answer (see `factory_git_incomplete`, #232).
+#   2  its state could not be read, or one of its reads answered without finishing. The
+#      caller must treat that as dirt, not as clean: this verdict gates writing into a tree,
+#      and "I could not tell" is not evidence of safety.
 #
 # Why this exists instead of `test -n "$(git status --porcelain)"`, which is what both call
 # sites used (#228). `status` is being asked a *content* question -- "did anyone leave work
@@ -507,7 +549,10 @@ factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)
 #
 # Checking each read's EXIT STATUS, and not just what it printed, is load-bearing rather than
 # tidy, and the two shapes differ in a way that decides how the arms have to be written. Measured on
-# git 2.53.0.
+# git 2.53.0. The other half of the sentence is also load-bearing, and #232 is the proof: a clean status
+# is only an answer if the read finished, so every arm asks the same two questions of its own read --
+# did it refuse, and did it speak while refusing nothing -- and neither one is a substitute for the
+# other. The statuses below are all measured; the stderr column exists only because H-0046 kept it.
 #
 # `GIT_DIR` at a `.git` directory holding nothing -- a stale entry under `$FACTORY_TREES` -- every
 # read refuses (128, or 129 for the two `diff` forms), so the first guard is enough; that is also
@@ -629,13 +674,12 @@ factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)
 # writes that follow the verdict are not metadata -- the conflict pass runs `merge --no-edit`
 # (`factory/factory.sh:382`) and `merge --abort` when it fails (`:383`) -- which is exactly why the
 # verdict must not mistake a busy or unreadable tree for a clean one. And one shape of "busy" is
-# invisible to all five reads: with a directory inside the tree at mode 000, `ls-files --others`
+# invisible to all five reads' statuses: with a directory inside the tree at mode 000, `ls-files --others`
 # prints `warning: could not open directory 'sub/': Permission denied` and exits 0, `diff --quiet`
-# prints `sub/loose.txt: Permission denied` and exits 0, and the verdict answers CLEAN over a tree
-# holding an untracked file nobody can enumerate. Measured at 8015951 and filed as #232: the exit
-# statuses there are all clean, so only the text git printed on stderr says the read was incomplete --
-# the same capture this function now keeps for the sentence, which is the material a fix would be made
-# of. Nothing about the screen or the lockout is involved: the supervisor's tick never touches the
+# prints `sub/loose.txt: Permission denied` and exits 0, and the verdict answered CLEAN over a tree
+# holding an untracked file nobody could enumerate. Measured at 8015951 and filed as #232; the fix is
+# the completeness test below, and it is made of the capture H-0046 added for the sentence. Nothing
+# about the screen or the lockout is involved: the supervisor's tick never touches the
 # display, and re-locking is the daemon's job on its own ticks (`internal/enforce/enforce.go:107`).
 #
 # What each read PRINTED on stderr is kept, and its first line rides in the sentence. `2>/dev/null` was
@@ -650,6 +694,48 @@ factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)
 # printed nothing adds nothing: the btrfs shape of the same plant drops the patterns in real silence,
 # and a sentence with no reason in it is the accurate report of that.
 #
+# And since #232 the capture answers a second question, which is the one the exit statuses cannot ask.
+# A read that returns its success status and writes to stderr did not finish, and every arm now refuses
+# on that (`factory_git_incomplete`). Both halves of #232 are planted in `factory/selftest.sh` and both
+# were a CLEAN at 99f165d on git 2.53.0, uid 1000, in throwaway repositories:
+#
+#   a mode-000 directory holding   the five reads                 the firing read
+#   only untracked work            1,0,0,0,0 all silent except
+#                                  `warning: could not open directory 'drafts/': Permission denied`
+#                                  on `ls-files --others --exclude-standard`, rc=0
+#   a MODIFIED tracked file in a   1(silent),0,0,0,0 with
+#   mode-000 directory             `sub/nested.txt: Permission denied` on `diff --quiet`, rc=0
+#                                  and the directory warning on `--others`, rc=0
+#
+# The second row is the worse one and the issue did not name it: `diff` could not open the file and
+# reported it unchanged, so an edit somebody made is not merely unlisted, it is asserted to be absent.
+# Note which read fires in each row: the tracked arm speaks first in the second tree because a tracked
+# file sits in the unreadable directory beside the untracked one, which is why the legs assert the
+# arm's own words rather than "something refused" (H-0048's lesson, applied to the new branch). The
+# first row is planted with no tracked file inside the directory so that the untracked arm is the one
+# pinned by a state on disk; the other three arms' completeness branches are pinned by the built shim
+# only, because no shape on disk stops one of them and not another.
+#
+# What that costs, written before taking it, because it changes halt semantics and not just a verdict.
+# Any git that prints something harmless to stderr on one of these five reads now halts the whole pass,
+# and the shape that already exists today is H-0045's exclude-file warning: measured here with
+# `core.excludesFile` in a symlink loop, `diff --cached` and `ls-files --others` both answer rc=0 with
+# `warning: unable to access '…': Too many levels of symbolic links` while the other three reads stay
+# silent. So the leg that plants it no longer answers DIRTY naming the file the operator told git to
+# ignore -- it answers UNKNOWN naming git's warning, and the staged arm is the one that fires. Both
+# halt: the pass stopped either way, and what changed is the sentence. It used to order the operator to
+# "commit it to its branch, or discard it on purpose" about a file they had explicitly ignored; it now
+# says the path git could not read. The genuinely new halt is the tree that is clean on its face and
+# whose configuration git cannot read, which used to proceed and now stops on the ground that git did
+# not apply the operator's own ignore patterns, so git's clean is not the operator's clean. The cost of
+# that is a sticky global halt from a config typo nobody noticed, which is the same asymmetry #228 was
+# filed on -- a false halt costs one pass, a false clean costs the work -- applied to a case #228 did
+# not have. Sixteen real trees on this box -- this repository and its fifteen links -- were read the
+# four NON-WRITING ways before this paragraph was written (64 reads) and every one of them was silent.
+# The refresh is not in that audit: it rewrites `.git/index`, and those trees may belong to a person
+# working in them. So nothing that exists today halts on chatter that is already there; what halts is
+# whatever a future git starts saying.
+#
 # Each arm names at most three paths and then says how many it left out and how many there were; see
 # `factory_path_list`.
 factory_tree_dirt() {
@@ -659,16 +745,25 @@ factory_tree_dirt() {
 	# bargain for the same reason (its `CONFLICT-BLOCKED` line keeps `factory_worktree`'s stderr in an
 	# mktemp and journals it).
 	#
-	# When `mktemp` fails there is nowhere to keep a reason, so the reads are silenced exactly as they
-	# were before: a reason is diagnosis, not evidence, and losing it must not change a verdict. Note
-	# the fallback does NOT remove `/dev/null` -- the run that chmod'd it is on this repository's log.
+	# When `mktemp` fails there is nowhere to keep a reason, and since #232 a reason is also evidence:
+	# the only thing that distinguishes a clean tree from one whose reads silently came back unfinished
+	# is what those reads printed. A run that cannot capture stderr therefore cannot answer, and it
+	# refuses. This deliberately reverses H-0046's bargain for this function -- "a reason is diagnosis,
+	# not evidence, and losing it must not change a verdict" -- because keeping it would leave the whole
+	# of #232 invisible on exactly the boxes whose `/tmp` is broken, which is the failure this verdict
+	# exists to refuse and not one it gets to be indifferent about. Say what that trades: a machine with
+	# a full or unwritable `/tmp` now halts the pass with a reason instead of carrying on, and the
+	# reason names `TMPDIR` because that is the thing to fix. Pointing the capture at `/dev/null`
+	# instead -- the old fallback -- is not taken: it is the same silence with a filename on it, and the
+	# run that chmod'd `/dev/null` is already on this repository's log.
 	if errf=$(mktemp "${TMPDIR:-/tmp}/plock-dirt-XXXXXX" 2>/dev/null); then
 		factory_tree_dirt_read "$1" "$errf" || rc=$?
 		rm -f -- "$errf"
 		return "$rc"
 	fi
-	factory_tree_dirt_read "$1" /dev/null || rc=$?
-	return "$rc"
+	printf 'its reads could not be checked for completeness (no scratch file for git%s stderr under %s, so a warning meaning "I could not read this" would be discarded)\n' \
+		"'s" "${TMPDIR:-/tmp}"
+	return 2
 }
 
 # The verdict proper, with the scratch file it writes git's stderr to. See `factory_tree_dirt` for
@@ -684,7 +779,7 @@ factory_tree_dirt_read() {
 	# split `factory/HALT`'s sentence across two lines and made the tick's journal line unreadable as
 	# the last line of the file. The legs below catch it, and one of them now catches it by name.
 	git -C "$tree" update-index --refresh >/dev/null 2>>"$errf" || rc=$?
-	if [ "$rc" -gt 1 ]; then
+	if [ "$rc" -gt 1 ] || factory_git_incomplete "$errf" "$rc" "0 1"; then
 		why=$(factory_git_said "$errf")
 		printf 'its state could not be read (git update-index --refresh exited %s%s)\n' \
 			"$rc" "${why:+; git said: $why}"
@@ -694,12 +789,12 @@ factory_tree_dirt_read() {
 	rc=0
 	: >"$errf"
 	git -C "$tree" diff --cached --quiet 2>>"$errf" || rc=$?
-	if [ "$rc" -eq 0 ]; then :; elif [ "$rc" -gt 1 ]; then
+	if [ "$rc" -gt 1 ] || factory_git_incomplete "$errf" "$rc" 0; then
 		why=$(factory_git_said "$errf")
 		printf 'its staged state could not be read (git diff --cached exited %s%s)\n' \
 			"$rc" "${why:+; git said: $why}"
 		return 2
-	else
+	elif [ "$rc" -ne 0 ]; then
 		out=$(git -C "$tree" diff --cached --name-only 2>>"$errf" | factory_path_list)
 		why=$(factory_git_said "$errf")
 		finding="${finding}staged-but-uncommitted: ${out:-and the index itself}${why:+ (git said: $why)}"
@@ -708,16 +803,24 @@ factory_tree_dirt_read() {
 	rc=0
 	: >"$errf"
 	git -C "$tree" diff --quiet 2>>"$errf" || rc=$?
-	if [ "$rc" -eq 0 ]; then :; elif [ "$rc" -gt 1 ]; then
+	# An incomplete read that turns up with nothing to add, to a verdict that has already found work, is
+	# a clause and not a verdict: the pass halts either way, and the operator's action is the work. The
+	# refusal above stays a refusal -- an unreadable tree voids the whole answer, which is what H-0044
+	# and H-0045 pinned -- but a warning beside a finding that is already in hand does not.
+	if [ "$rc" -gt 1 ] || { factory_git_incomplete "$errf" "$rc" 0 && [ -z "$finding" ]; }; then
 		why=$(factory_git_said "$errf")
 		printf 'its tracked files could not be read (git diff exited %s%s)\n' \
 			"$rc" "${why:+; git said: $why}"
 		return 2
-	else
+	elif [ "$rc" -ne 0 ]; then
 		out=$(git -C "$tree" diff --name-only 2>>"$errf" | factory_path_list)
 		why=$(factory_git_said "$errf")
 		[ -n "$finding" ] && finding="$finding; "
 		finding="${finding}modified: ${out:-a tracked file}${why:+ (git said: $why)}"
+	elif factory_git_incomplete "$errf" "$rc" 0; then
+		why=$(factory_git_said "$errf")
+		[ -n "$finding" ] && finding="$finding; "
+		finding="${finding}its tracked files were only partly read (git diff exited 0${why:+; git said: $why})"
 	fi
 
 	# The unmerged arm reads the index, not the files: a conflict is three index entries, so there is
@@ -731,36 +834,55 @@ factory_tree_dirt_read() {
 	# exits 128 with no output while `diff --cached --quiet` and `ls-files --unmerged` answer 0, i.e.
 	# clean. An unchecked substitution there reads as "no untracked files", which is the same
 	# mistake `2>/dev/null` made in the expression this function replaces.
+	#
+	# And both have the completeness test, because #232's dangerous direction does not refuse: with a
+	# directory at mode 000 and uncommitted work inside it, `ls-files --others --exclude-standard`
+	# returns 0 with an EMPTY list and one warning, which the status test reads as "no untracked files"
+	# exactly as loudly as the 128 above does. The empty list is the difference -- 128 at least says it
+	# could not answer. The `[ -z "$raw" ]` half is the same bargain the `diff` arms strike by returning
+	# their finding at rc=1: an incomplete read that found NOTHING may never be read as clean, while one
+	# that found work has already stopped the pass, and its clause carries git's warning beside the
+	# paths it did manage to name.
 	rc=0
 	: >"$errf"
 	raw=$(git -C "$tree" ls-files --unmerged 2>>"$errf") || rc=$?
-	if [ "$rc" -gt 1 ]; then
+	# The three-way split is #232's rule in one place: a refusal voids the verdict, an incomplete read
+	# that found nothing voids a CLEAN, and an incomplete read that found nothing beside a finding
+	# somebody else already made is a clause on that finding rather than a different answer. `[ -z
+	# "$raw$finding" ]` is the whole test because the two reads carry their finding in their output.
+	if [ "$rc" -gt 1 ] || { factory_git_incomplete "$errf" "$rc" 0 && [ -z "$raw$finding" ]; }; then
 		why=$(factory_git_said "$errf")
 		printf 'its index could not be read (git ls-files --unmerged exited %s%s)\n' \
 			"$rc" "${why:+; git said: $why}"
 		return 2
-	fi
-	if [ -n "$raw" ]; then
+	elif [ -n "$raw" ]; then
 		out=$(printf '%s\n' "$raw" | awk '{print $4}' | factory_path_list)
 		why=$(factory_git_said "$errf")
 		[ -n "$finding" ] && finding="$finding; "
 		finding="${finding}unmerged: ${out:-a conflicted path}${why:+ (git said: $why)}"
+	elif factory_git_incomplete "$errf" "$rc" 0; then
+		why=$(factory_git_said "$errf")
+		[ -n "$finding" ] && finding="$finding; "
+		finding="${finding}its index was only partly read (git ls-files --unmerged exited 0${why:+; git said: $why})"
 	fi
 
 	rc=0
 	: >"$errf"
 	raw=$(git -C "$tree" ls-files --others --exclude-standard 2>>"$errf") || rc=$?
-	if [ "$rc" -gt 1 ]; then
+	if [ "$rc" -gt 1 ] || { factory_git_incomplete "$errf" "$rc" 0 && [ -z "$raw$finding" ]; }; then
 		why=$(factory_git_said "$errf")
 		printf 'its untracked files could not be read (git ls-files --others exited %s%s)\n' \
 			"$rc" "${why:+; git said: $why}"
 		return 2
-	fi
-	if [ -n "$raw" ]; then
+	elif [ -n "$raw" ]; then
 		out=$(printf '%s\n' "$raw" | factory_path_list)
 		why=$(factory_git_said "$errf")
 		[ -n "$finding" ] && finding="$finding; "
 		finding="${finding}untracked: ${out:-an untracked file}${why:+ (git said: $why)}"
+	elif factory_git_incomplete "$errf" "$rc" 0; then
+		why=$(factory_git_said "$errf")
+		[ -n "$finding" ] && finding="$finding; "
+		finding="${finding}its untracked files were only partly read (git ls-files --others exited 0${why:+; git said: $why})"
 	fi
 
 	if [ -n "$finding" ]; then

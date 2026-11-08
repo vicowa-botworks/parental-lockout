@@ -148,6 +148,39 @@ tracked_read_refuses() { # tree -> 0 when `git diff --quiet` exits above 1
 	[ "$rc" -gt 1 ]
 }
 
+# The plant's claim for the OTHER branch, asked outside the verdict for the same reason: does this read
+# come back at its success status WITH something to say? #232's hazard is an incomplete read that
+# nothing refuses, so a leg about it is worth nothing on a box where the plant makes git refuse (that
+# box is pinned by the unreadable-file leg) or where git says nothing at all (nothing to pin). `arm` is
+# the two reads a mode-000 directory is measured to speak on; stdout goes to /dev/null because
+# `ls-files --others` puts its list there and the question is about stderr.
+read_warns() { # tree arm [want] -> 0 when that read exited `want` (0 unless told) and printed to stderr
+	local tree=$1 arm=$2 want=${3:-0} rc=0 errf=$work/read-err
+	: >"$errf"
+	case "$arm" in
+	diff) git -C "$tree" diff --quiet >/dev/null 2>>"$errf" || rc=$? ;;
+	others) git -C "$tree" ls-files --others --exclude-standard >/dev/null 2>>"$errf" || rc=$? ;;
+	*) return 1 ;;
+	esac
+	[ "$rc" = "$want" ] && [ -s "$errf" ]
+}
+
+# The capture is evidence since #232, so a run that cannot make its scratch file cannot answer at all.
+# Built rather than planted: `mktemp` is shadowed inside a command substitution, so the shadow reaches
+# `factory_tree_dirt`'s own call and nothing else in this file -- the probe's scratch space, and every
+# other leg, still get the real binary. Asserting the reason's own words is the point: the leg the
+# verdict would otherwise answer is CLEAN, which is the thing being refused.
+no_capture_says_unknown() { # tree -> 0 when a run with no scratch file refuses, and says why
+	local out rc=0
+	# shellcheck disable=SC2317  # the shadow reads as unreachable code, and it is: to everything except
+	# the `mktemp` call `factory_tree_dirt` makes from inside this substitution. The leg is not
+	# decorative -- restoring the `/dev/null` fallback is 2 red legs, mutation M12 in docs/factory.md.
+	out=$(mktemp() { return 1; }; factory_tree_dirt "$1" 2>&1) || rc=$?
+	[ "$rc" = 2 ] || return 1
+	case "$out" in *"could not be checked for completeness"*) return 0 ;; esac
+	return 1
+}
+
 # Every path, when there are three or fewer. The cap is honest in both directions or it is not a cap:
 # seven problems printed as three read as a complete list, and a marker printed on a complete list
 # teaches the reader to ignore the marker.
@@ -604,6 +637,162 @@ for tree in "$repo" "$wt"; do
 		fi
 		chmod 644 "$tree/keepme.txt"
 	fi
+
+	# The same idea one level up, and this time nothing refuses: a directory nobody can open, with work
+	# inside it. Measured on git 2.53.0 at 99f165d, both of the plants below answered CLEAN before the
+	# completeness test existed, on every read at or below its success status (#232). Two plants, because
+	# they are the two arms' own states and they hide different things: an untracked file nobody has
+	# committed, and an EDIT to a tracked file that `diff` reports as unchanged because it could not open
+	# the file -- the worse of the two, and the half the issue did not name. The first keeps any tracked
+	# file out of the directory so the UNTRACKED arm is the one a state on disk pins; in the second git
+	# chokes on the tracked file, so the sentence names that arm. `sub/` is the fixture's own tracked
+	# directory, which is what makes the second plant an edit and not a new file.
+	#
+	# The precondition is the plant's own claim, asked outside the verdict like `planted()` and
+	# `tracked_read_refuses()`: this box has to warn instead of refusing. A box where it refuses is
+	# already pinned by the unreadable-file leg above, and a box where git says nothing while skipping
+	# the directory has no incomplete read to pin -- there the verdict is a CLEAN over somebody's work,
+	# which is the bug, not a green leg.
+	reset_tree "$tree"
+	mkdir -p "$tree/drafts"
+	printf 'uncommitted work\n' >"$tree/drafts/patch.txt"
+	if [ "$(id -u)" = 0 ]; then
+		printf '  SKIP  %-34s running as root, so chmod 000 hides nothing\n' \
+			"[$where] work inside an unreadable dir"
+	else
+		chmod 000 "$tree/drafts"
+		if read_warns "$tree" others; then
+			expect "[$where] work inside an unreadable dir" "$tree" UNKNOWN strong \
+				'git ls-files --others exited 0'
+			expect_halt "[$where] work inside an unreadable dir" "$tree" HALT \
+				'its untracked files could not be read'
+			check "[$where] the reason names the directory" verdict_names "$tree" 'drafts/'
+		else
+			printf '  SKIP  %-34s this git skipped the directory saying nothing\n' \
+				"[$where] work inside an unreadable dir"
+			printf '        (git %s), so there is no incomplete read to pin here. The verdict is a\n' \
+				"$(git --version | awk '{print $3}')"
+			printf '        CLEAN over untracked work on such a box, which is #232, not a pass.\n'
+		fi
+		chmod 755 "$tree/drafts"
+		git -C "$tree" clean -qfd -- drafts >/dev/null 2>&1 || true
+	fi
+
+	reset_tree "$tree"
+	if [ "$(id -u)" = 0 ]; then
+		printf '  SKIP  %-34s running as root, so chmod 000 hides nothing\n' \
+			"[$where] an edit inside an unreadable dir"
+	else
+		printf 'edited by a person, and unreadable to git\n' >"$tree/sub/nested.txt"
+		chmod 000 "$tree/sub"
+		if read_warns "$tree" diff; then
+			expect "[$where] an edit inside an unreadable dir" "$tree" UNKNOWN strong \
+				'git diff exited 0'
+			expect_halt "[$where] an edit inside an unreadable dir" "$tree" HALT \
+				'its tracked files could not be read'
+			check "[$where] the reason names the edited file" verdict_names "$tree" 'nested.txt'
+		else
+			printf '  SKIP  %-34s this git refused or stayed silent over the unreadable\n' \
+				"[$where] an edit inside an unreadable dir"
+			printf '        directory (git %s), so this shape is not in the tree to pin.\n' \
+				"$(git --version | awk '{print $3}')"
+		fi
+		chmod 755 "$tree/sub"
+		reset_tree "$tree"
+	fi
+
+	# The other half of the rule, which is what keeps the first half from becoming a machine that
+	# swallows every finding git gives. Both trees below hold a readable problem AND an unreadable
+	# directory, and both have to answer DIRTY naming the problem -- not UNKNOWN telling somebody who has
+	# an edit in front of them to go make the tree readable. Three shapes, and the legs name all three:
+	# the incomplete read's OWN finding survives (`untracked: loose-visible.txt`, `modified:
+	# tracked.txt`, each carrying git's warning in its clause), and where a read came back empty and the
+	# dirt belongs to another arm, `its … were only partly read` is appended rather than replacing the
+	# answer. `[ -z "$raw$finding" ]` on the two `ls-files` arms, the success-status lists on the two
+	# `diff` arms, and the third branch in each of the three arms that can have a finding in hand are the
+	# ways this goes wrong, and each goes red under its own mutation.
+	reset_tree "$tree"
+	printf 'work nobody has committed, in a readable place\n' >"$tree/loose-visible.txt"
+	mkdir -p "$tree/drafts"
+	printf 'and more of it, in a directory git cannot open\n' >"$tree/drafts/patch.txt"
+	if [ "$(id -u)" = 0 ]; then
+		printf '  SKIP  %-34s running as root, so chmod 000 hides nothing\n' \
+			"[$where] visible work and an unreadable dir"
+	else
+		chmod 000 "$tree/drafts"
+		if read_warns "$tree" others; then
+			expect "[$where] visible work and an unreadable dir" "$tree" DIRTY "" untracked:
+			check "[$where] the finding keeps the warning" verdict_names "$tree" 'git said:'
+		else
+			printf '  SKIP  %-34s no incomplete read on this git (git %s), so there is\n' \
+				"[$where] visible work and an unreadable dir" \
+				"$(git --version | awk '{print $3}')"
+			printf '        nothing for the finding to be preferred over.\n'
+		fi
+		chmod 755 "$tree/drafts"
+		reset_tree "$tree"
+	fi
+
+	reset_tree "$tree"
+	if [ "$(id -u)" = 0 ]; then
+		printf '  SKIP  %-34s running as root, so chmod 000 hides nothing\n' \
+			"[$where] an edit and an unreadable dir"
+	else
+		printf 'ALPHA\nbeta\ngamma\n' >"$tree/tracked.txt"
+		chmod 000 "$tree/sub"
+		if read_warns "$tree" diff 1; then
+			expect "[$where] an edit and an unreadable dir" "$tree" DIRTY "" modified:
+			check "[$where] the edit is not downgraded" verdict_names "$tree" 'tracked.txt'
+			check "[$where] the part that was missed is said" verdict_names "$tree" 'only partly read'
+		else
+			printf '  SKIP  %-34s this git did not report the readable edit AND warn\n' \
+				"[$where] an edit and an unreadable dir"
+			printf '        about the unreadable directory from the same read (git %s), so there\n' \
+				"$(git --version | awk '{print $3}')"
+			printf '        is no finding to be preferred over an incomplete read here.\n'
+		fi
+		chmod 755 "$tree/sub"
+		reset_tree "$tree"
+	fi
+
+	# The third way the guard earns its place, and the only one that reaches the STAGED arm's finding:
+	# work in the index, the worktree equal to the index for that file, and a modified tracked file
+	# inside a directory nobody can open. Measured on git 2.53.0: the refresh answers 1 with
+	# `sub/nested.txt: needs update` on its stdout (not stderr, which is what makes the refresh the one
+	# arm whose success is two statuses), `diff --cached` answers 1, and `diff --quiet` answers 0 with
+	# `sub/nested.txt: Permission denied` -- so the finding is in hand from the staged arm and the
+	# tracked read has to append rather than replace. It does, and the untracked read appends beside it.
+	# Deleting the guard from the tracked arm is mutation M8 and this is the leg that goes red on it;
+	# nothing else in the suite reaches the tracked arm with a finding already in hand.
+	reset_tree "$tree"
+	if [ "$(id -u)" = 0 ]; then
+		printf '  SKIP  %-34s running as root, so chmod 000 hides nothing\n' \
+			"[$where] staged work and an unreadable dir"
+	else
+		printf 'STAGED\nbeta\ngamma\n' >"$tree/tracked.txt"
+		git -C "$tree" add -- tracked.txt
+		printf 'edited, and unreadable to git\n' >"$tree/sub/nested.txt"
+		chmod 000 "$tree/sub"
+		if [ -n "$(git -C "$tree" diff --cached --name-only 2>/dev/null)" ] && read_warns "$tree" diff 0; then
+			expect "[$where] staged work and an unreadable dir" "$tree" DIRTY strong \
+				'staged-but-uncommitted:'
+			check "[$where] the tracked read is said to be partial" \
+				verdict_names "$tree" 'tracked files were only partly read'
+		else
+			printf '  SKIP  %-34s this git did not hold the staged finding and warn over\n' \
+				"[$where] staged work and an unreadable dir"
+			printf '        the unreadable directory from the same pair of reads (git %s).\n' \
+				"$(git --version | awk '{print $3}')"
+		fi
+		chmod 755 "$tree/sub"
+		reset_tree "$tree"
+	fi
+
+	# The capture is evidence since #232, so losing it is not a verdict: the same run, with `mktemp`
+	# shadowed so there is nowhere to keep what the reads print, has to refuse. Built rather than
+	# planted, and pinned by its own words -- the answer this leg refuses is CLEAN, which is what the
+	# old fallback handed back.
+	check "[$where] no scratch file, no verdict" no_capture_says_unknown "$tree"
 done
 
 # ------------------------------------------------------ one refusal at a time, by construction
@@ -628,17 +817,18 @@ done
 # one row. And the control below is not decoration: with the shim's match pointing at something git
 # never runs, these five legs would all still be green if the shim halted by construction, so the leg
 # that says "nothing refused" is what makes the five that say "this one refused" mean anything.
-shim_install() { # match -> a bin dir to put first on PATH
-	local match=$1 dir=$work/arm-shim real
+shim_install() { # match [exit] -> a bin dir to put first on PATH
+	local match=$1 code=${2:-128} dir=$work/arm-shim real
 	real=$(command -v git)
 	mkdir -p "$dir"
 	cat >"$dir/git" <<SHIM
 #!/bin/sh
-# Fails exactly one git invocation; every other argument list reaches the real binary untouched.
+# Answers exactly one git invocation -- refusing (128) or, since #232, succeeding with a warning -- and
+# hands every other argument list to the real binary untouched.
 case " \$* " in
 *" $match "*)
-	printf 'shim: %s could not be read\n' '$match' >&2
-	exit 128
+	printf 'shim: %s said something and exited %s\n' '$match' '$code' >&2
+	exit $code
 	;;
 esac
 exec '$real' "\$@"
@@ -674,6 +864,50 @@ control_shim=$(shim_install 'definitely-not-a-git-subcommand')
 PATH="$control_shim:$PATH"
 hash -r
 expect 'refusal control: inert shim' "$repo" CLEAN
+PATH=$control_path
+hash -r
+
+# ------------------------------------------------- one incomplete read at a time, by construction
+#
+# The refusal has a twin that no status test reaches, and it needs the same isolation: a read that
+# returns its success status and writes to stderr anyway. Nothing on disk produces that for three of the
+# five arms -- the mode-000 directory plants above stop two arms at once because that is what an
+# unreadable directory does -- so, exactly as H-0049 built the refusals, the shape is made: the same
+# shim, answering with a warning at the arm's own success status instead of 128.
+#
+# What these rows pin is the ARM's completeness branch -- this read's warning, on its own, halts the
+# pass and names itself and the status it answered at -- and, like the refusal rows, nothing whatever
+# about git warning that way by itself. The two plants above are the only evidence for that, and they
+# pin the untracked and the tracked arm from real directories. The exit code is in the needle on
+# purpose: `git diff exited 0` is the completeness branch, `git diff exited 128` is the refusal, and a
+# leg that asserted only `could not be read` would stay green when one degraded into the other -- the
+# exact mistake H-0048 was written about, one branch further on. The refresh answers at 1 as its normal
+# report, so its row warns at 1: that is the arm whose success is not a single status.
+warn_alone() { # match arm needle [exit]
+	local match=$1 arm=$2 needle=$3 code=${4:-0} shim saved=$PATH
+	shim=$(shim_install "$match" "$code")
+	PATH="$shim:$PATH"
+	hash -r
+	expect "warns alone: $arm" "$repo" UNKNOWN "" "$needle"
+	expect_halt "warns alone: $arm" "$repo" HALT "$needle"
+	PATH=$saved
+	hash -r
+}
+warn_alone 'update-index --refresh' refresh 'git update-index --refresh exited 1' 1
+warn_alone 'diff --cached --quiet' staged 'git diff --cached exited 0'
+warn_alone 'diff --quiet' tracked 'git diff exited 0'
+warn_alone 'ls-files --unmerged' unmerged 'git ls-files --unmerged exited 0'
+warn_alone 'ls-files --others --exclude-standard' untracked 'git ls-files --others exited 0'
+
+# The control again, because a shim that warns at exit 0 has to be shown doing nothing to a clean tree
+# before five legs that say "this one warned" mean anything: with a match naming nothing git runs, the
+# verdict is CLEAN. It also pins the rule's other half from the only direction that can -- a read that
+# answers and says NOTHING is an answer.
+control_path=$PATH
+control_shim=$(shim_install 'definitely-not-a-git-subcommand' 0)
+PATH="$control_shim:$PATH"
+hash -r
+expect 'warns control: inert shim' "$repo" CLEAN
 PATH=$control_path
 hash -r
 
@@ -882,26 +1116,37 @@ fi
 #
 # So the loop is planted rather than the mode bits: `chmod 000` is invisible to root and the leg the
 # unreadable-file arm carries is already skipped there, while ELOOP catches whoever runs this. Either
-# way the EXIT STATUS says nothing is wrong -- that is what makes this the false halt of the arm above,
-# arrived at by a different road -- and the warning is the only thing in the whole run that says why the
-# queue stopped. It used to be thrown away by the same `2>/dev/null` that turned a 128 into a clean
-# tree. Asserted in both places it has to land: the verdict's line, and `factory/HALT`, which is the
-# whole of what a person finds when the pass is stopped.
+# way the EXIT STATUS says nothing is wrong -- and since #232 that is no longer the whole story, because
+# a read that answers at 0 while printing `warning: unable to access '…'` is now read as an incomplete
+# read and the verdict comes back UNKNOWN, not the DIRTY this leg used to assert. Both halt the pass;
+# what changed is the sentence and the reason for it. It used to name the file the operator had told git
+# to ignore and tell them to commit or discard it, which is advice nobody can take; it now names the
+# file git could not read, which is. The warning remains the only thing in the whole run that says why
+# the queue stopped, and it used to be thrown away by the same `2>/dev/null` that turned a 128 into a
+# clean tree. Asserted in both places it has to land: the verdict's line, and `factory/HALT`, which is
+# the whole of what a person finds when the pass is stopped. What is genuinely NEW here is the halt on a
+# tree that is clean apart from the unreadable config -- that one used to proceed -- and the two
+# completeness legs in the loop above, plus the sixteen real trees read the four non-writing ways
+# before this paragraph was written to check that nothing already on this box trips it -- 64 reads, all
+# silent. The refresh is kept out of that audit on purpose: it rewrites `.git/index`, and a worktree on
+# this box may belong to a person working in it.
 ln -s excludes-is-a-loop "$work/excludes-is-a-loop"
 git -C "$repo" config core.excludesFile "$work/excludes-is-a-loop"
 excl_warn=""
 git -C "$repo" ls-files --others --exclude-standard >/dev/null 2>"$work/excl-warn" || true
 excl_warn=$(head -n 1 "$work/excl-warn")
 if [ -n "$excl_warn" ]; then
-	expect "an exclude file git warned about" "$repo" DIRTY "" 'git said:'
+	expect "an exclude file git warned about" "$repo" UNKNOWN "" 'git said:'
 	expect_halt "an exclude file git warned about" "$repo" HALT 'git said:'
 	check "the reason names the exclude file" verdict_names "$repo" 'excludes-is-a-loop'
 	printf '        git said `%s`, and the halt now says it back: the operator can see which file\n' "$excl_warn"
-	printf '        to fix instead of being told to commit a file git was told to ignore.\n'
+	printf '        to fix. It no longer tells them to commit a file they had ignored, because #232\n'
+	printf '        made "answered 0 with a warning" a refusal rather than a finding.\n'
 else
 	expect "an exclude file git warned about" "$repo" DIRTY "" untracked:
 	printf '        note: this git dropped the patterns saying nothing, so there is no reason to\n'
-	printf '        carry and the leg asserts the verdict alone.\n'
+	printf '        carry, nothing is incomplete by the rule above, and the leg asserts the verdict\n'
+	printf '        alone -- the false halt on the ignored file, which is what it always was.\n'
 fi
 git -C "$repo" config --unset core.excludesFile
 
