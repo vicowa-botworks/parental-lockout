@@ -2497,3 +2497,15 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   unchanged by this entry: the palette, the four row rules, the colour of `.problem` and `.override`, and
   every sentence on every page. Still unreachable from a tick, as it is on every open pull request here:
   a reviewer request.
+
+  Correction (this unit, 8 Nov, in the manifest commit): the last sentences of the `Effect:` above said
+  what `manifest.py check` would report at `2088043`, and they were written before the run. Measured at
+  that commit on a clean tree it answers **7 problems**, not nine, and in other words -- "predates the
+  newest change to /audit's sources: the manifest was taken at `3bcbfdd`, … has moved to `2088043`" --
+  because the two frames whose PNGs are inside that commit are already current and the seven whose PNGs
+  came back byte-identical are not. `record` at that head then returned rc 0 and `check` answered "9
+  photographs current", each entry pinned to `2088043` with no `dirty` flag, which is what the manifest
+  commit carries. The shape the sentence was reaching for -- two commits, because `record` stamps the head
+  whose pages were photographed (#237) -- is unchanged. What was wrong was the count and the wording, and
+  the mechanism is the one #1180 names: an `Effect:` written before the server, or the shell, has answered
+  is a prophecy with a delay built in, and this entry caught itself doing it one field from the bottom.

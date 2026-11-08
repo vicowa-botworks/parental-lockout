@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-08T17:14:28Z",
-  "head": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b",
+  "captured_at": "2026-11-08T21:35:45Z",
+  "head": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
   "pages": [
     {
       "capture": {
@@ -27,7 +27,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -70,7 +70,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -88,7 +88,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -102,14 +102,14 @@
       },
       "page": "/profiles",
       "png": "profiles-refused.png",
-      "png_sha256": "8d4c320956383e281e9747c4ff83a3ba5f6f78dd75ed71f5e71ceae42db2d32a",
+      "png_sha256": "9a62a2cd948101b23e62c9e8bf3f3509c0c0b635c54d2c22317114d3aed22101",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -130,7 +130,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -144,14 +144,14 @@
       },
       "page": "/settings",
       "png": "settings.png",
-      "png_sha256": "dcb1efee764a9a0e3b3df5239fe3f5d8f6b96edfefb38c8f7cb7e56129a1195e",
+      "png_sha256": "c47e16d6de93c4be756c470b15aa1730d4837079dfc7f98cf0925c1c83569b80",
       "sources": [
         "internal/web/templates/settings.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -169,7 +169,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -187,7 +187,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -208,7 +208,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "3bcbfdd415f5a046896822f4d14a6e75fc453a8b"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     }
   ],
   "schema": "capture-manifest/2",
