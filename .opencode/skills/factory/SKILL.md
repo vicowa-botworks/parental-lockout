@@ -183,6 +183,39 @@ and write the same into `DECISIONS.md` with `Chose: escalated` and `Awaiting:` n
 Do not pick a side and do not open a pull request for half of it. An escalated unit is an honest
 end of a tick, not a failed one.
 
+### When the ticket is already satisfied by `main`
+
+A third thing can be wrong with a unit: the work is already finished. `factory/triage.sh` counts an
+issue as claimed only by an **open** pull request -- GraphQL `pullRequests(states:OPEN,first:100)` and
+its `closingIssuesReferences` at `:122`, `gh pr list --state open --json number,body` scanned for a
+verb at `:155` -- so a merged fix claims nothing, and a body that names the issue with `Refs` (the
+no-close-verb spelling #1256 requires) registers no closing reference either. The issue goes back to
+`unclaimed`. Measured 8 Nov: #228's fix merged at 07:08:17Z and a tick was dispatched #228 at 09:35Z on
+a branch with no commits ahead of `origin/main`, and the ceiling went to re-deriving what `main` had.
+
+So read the ticket against the head before writing code, the way Step 1 reads a pull request rather
+than remembering one. If every requirement in the ticket is met on `main`, the deliverable is the
+evidence and not a diff:
+
+1. **Measure it; do not quote the merged body.** A pull-request body is a claim about code that has
+   moved since. Run the probe it says it added, then break the thing it says is pinned and watch it go
+   red. Assert each mutant's pattern actually applied before believing its tally: a pattern that is not
+   found is a mutant that never existed, and its `SURVIVED` is not a result.
+2. **Post the measurements on the issue**, including what they do *not* establish and whatever the
+   merged entry already disclosed as unmeasured. Someone reads that comment to decide whether to reopen.
+3. **Close it** with `gh issue close "$ISSUE" --reason completed`, then read `state` back from the API
+   -- the read-back is the first call about a claim, never the confirmation after the announcement.
+4. **File the unfinished part as its own issue**, with the file-and-line evidence and the measured cost.
+   A finding that lives only in a comment on a closed issue is invisible to every queue that reads
+   issues, which is the same rule that makes a branch with no pull request invisible.
+5. Name `gh issue reopen` in the comment. It is the whole reason this ending is permitted.
+
+What is dangerous about it, stated because the hazard is the rule: `triage.sh` reads *open* issues, so a
+close takes the row out of the queue, and a close that is wrong deletes work nobody will look for again.
+`git revert` does not undo it and nothing measures how often it is taken. That is why step 1 asks for a
+measurement rather than a reading of the previous pull request, why step 2 keeps the not-established
+part in the comment, and why a ticket you are not certain about stays open with a comment on it.
+
 ## Step 4 — commit discipline
 
 ```
@@ -251,7 +284,7 @@ End with these lines, in this order, because the supervisor's log is the only pl
 look:
 
 ```
-PR:            <url or "none, escalated">
+PR:            <url or "none, escalated" or "none, #<issue> closed as satisfied by main">
 GATE:          verify: OK   (or the exact failing line)
 DECISIONS:     D-0007, D-0008        (or "none")
 CHECKPOINT:    <sha>                 (the one to revert back to)
