@@ -926,3 +926,55 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Chose: only a variable that only ever holds 0 or 1
 - Why: the chosen rule reads every assignment in every shipped script, so a name that holds anything else anywhere is not refused at all. The first draft took the first option, as the finding asked, and the tree's first run produced six false positives -- `testing/capture/fixture.sh:117` and `testing/e2e/e2e.sh:188` among them -- because `"$PLOCK_BIN" version` is the idiom for running a binary whose path the caller chose. A gate that refuses working code does not get fixed in the code; it gets widened, ignored, or deleted inside a week, and then the two real sites are unguarded again. The narrower rule still refuses both shapes that shipped (`if ! "$DRY_RUN"; then`, `"$DRY_RUN" || systemctl --user restart`), and its `--self-test` asserts the false-positive case as a first-class requirement: `"$PLOCK_BIN" version` staying green is now as much a failure to break as the bad line passing.
 - Checkpoint: 1c0c89e99d69b7bfa4cab2382c91da85e9b3100e
+
+## H-0043 · A pull-request body a tick cannot rewrite: `gh pr edit` is dead on this account and the REST PATCH is denied
+
+- Question: the 8 Nov re-review of #225 asks, as its non-blocking item, for the pull-request body to be
+  refreshed, "since the body is where the rollback command lives", and its rollback line had indeed gone
+  wrong. `gh pr edit 225 --body-file …` exits 1 with `GraphQL: Projects (classic) is being deprecated …
+  (repository.pullRequest.projectCards)` and writes nothing -- three attempts, each read back from the
+  API: body still 2793 characters, still containing the stale "17 insertions and 8 deletions". `gh` is
+  `/usr/bin/gh`, version 2.46.0 (2025-12-13 Ubuntu 2.46.0-4) -- both halves, because a version nobody can
+  locate is a claim nobody can re-run. The one verb that sets a body on this account is the REST
+  `PATCH /repos/{owner}/{repo}/pulls/{number}`, which reaches only through `gh api`: `.opencode/opencode.jsonc`
+  denies it as `"* api *"` and `"* api"` inside the `bash` table, which is the keying that makes a rule
+  evaluate rather than sit inert, and `D-0013` is the entry that chose whole-over-method filtering. How
+  does a tick answer a finding it is not equipped to answer?
+- Options: post the corrected lines as a comment, say plainly that the body is stale, and name the command
+  that would set it | route the PATCH through a wrapper script so the denial is never literally spelled |
+  escalate `needs-human` and ship nothing for this finding | leave the body stale and say nothing
+- Chose: post the corrected lines as a comment, say plainly that the body is stale, and name the command
+  that would set it
+- Why: option two is the one act the harness treats as unredeemable -- "never wrap the denied call in
+  `bash -c`, `env`, `xargs`, `sh -c`, or a script that shells out to it" -- and what is denied here is not
+  a flag but the reason: `gh api` is withheld so that a unit of delivery work cannot rewrite the artifact
+  a merge is authorised from. A wrapper that obtains the write anyway does not route around a pattern, it
+  routes around the judgement, and it leaves no trace except the write. Option four is the silent tick this
+  log exists to end. Option three over-reads the stakes: a stale body is a documentation defect, not an
+  irreversible act, and the unit also owed both blocking findings, so parking #225 on `needs-human` over a
+  body line would have held up review of prose that was already finished -- and the four pull requests
+  that once sat in `REVIEW_REQUIRED` for three days are the precedent for what a tick that stops early
+  costs. Option one costs nothing a human cannot undo: every corrected line (the two-file stat, the
+  rollback pair, the `D-0038`/`D-0039` numbering) went into the comment beside the answer to the blocking
+  items, so whoever wants the body refreshed has both the text and the call.
+  The precedent is H-0010, measured four days earlier on this same account and the same verb family:
+  `gh pr edit 217 --add-reviewer hermesvicowa` exited 1 with the identical `projectCards` error and left
+  `/requested_reviewers` empty, and what was concluded there -- the REST path belongs to the supervisor,
+  call plus read-back, not to the tick -- is this entry's conclusion one field over. What is new is that
+  the field is the body, so the failure is not cosmetic: the text a reviewer is told to consult is the one
+  text this agent cannot write. `--json` is not a way out either; `gh pr edit` on 2.46.0 has no such flag
+  and answers with its usage text, so the read-back has to be a separate `gh pr view --json body`, which is
+  why every claim above quotes a length and a substring test rather than an exit code.
+- What this costs, stated rather than glossed. (1) #225's rollback instruction is correct in a comment and
+  wrong in the body, and the body is what the queue and a passing human read first. (2) The failing verb is
+  now witnessed twice, `--add-reviewer` at H-0010 and `--body-file` here, and neither the skill nor
+  `.opencode/opencode.jsonc` says so, so the next tick spends its ceiling rediscovering it; the repair is
+  one line beside the reviewer-request paragraph in `.opencode/skills/factory/SKILL.md` saying that
+  `gh pr edit` is dead on this account for every field and that a body correction ships as a comment. That
+  is named here rather than written there, because a product branch editing the harness's skill is how two
+  loops end up citing each other's ids. (3) `H-0043` is minted past `H-0042`, the highest in this clone on
+  any ref (`refs/heads/issue-228`, 40 commits ahead and un-published); if that branch numbers from its own
+  maximum instead of reading the rule, this number collides and the published side keeps it.
+- Checkpoint: 89382eee3bb92e6bd458e92d33d93cf73221c22e
+- Effect: pull request #225 (a comment; the body is unchanged because it cannot be written from here),
+  factory/DECISIONS.md
