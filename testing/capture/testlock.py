@@ -127,7 +127,8 @@ def capture(name):
         g = cdp.measure(s, extra="'banner':(document.querySelector('p.banner')||{}).innerText||'',"
                                  "'muted':(document.querySelector('p.muted')||{}).innerText||'',"
                                  "'backendRows':document.querySelectorAll('table.rows')[0]"
-                                 ".querySelectorAll('tbody tr').length" + "," + cdp.CONTROLS_JS)
+                                 ".querySelectorAll('tbody tr').length" + "," + cdp.CONTROLS_JS
+                                 + "," + cdp.NAV_JS)
         # The page has to be the probe result, not an error page wearing its URL. The banner
         # counts the backends, so an empty one means nothing was measured whatever scrollWidth
         # says; two tables is the page's own shape, backend table then sessions.
@@ -149,6 +150,13 @@ def capture(name):
         cdp.require_control_font(g, "the probe result page")
         cdp.require_control_width(g, "the probe result page")
         cdp.require_choice_groups(g, "the probe result page")
+        # #204, and the same argument as lock.py's: `/users/<name>/test-lock` is a child of a
+        # section, so the mark belongs to the accounts entry. Both POST verdict pages are covered
+        # because between them and pages.py's five GET frames every page the shell renders is
+        # asked, and this is the only pair where the answer is not the page's own href.
+        cdp.require_nav_marked(g, "the probe result page", "/users")
+        cdp.require_nav_in_palette(g, "the probe result page")
+        cdp.require_nav_distinguishable(g, "the probe result page", "/users")
         # The probe page copies the lock page's Detail cell, so it inherits the #108 rule. A
         # check that exists on one of two pages sharing a cell is the check that misses the
         # regression on the other one. The count matters for the same reason it does on lock.py:
@@ -183,7 +191,8 @@ def capture(name):
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
               flush=True)
         print(f"  tables={g['tables']} backendRows={g['backendRows']} cells={g['cells']} "
-              f"unlabelled={g['unlabelled']} {cdp.census_line(g)}", flush=True)
+              f"unlabelled={g['unlabelled']} {cdp.census_line(g)} "
+              f"{cdp.nav_census_line(g)}", flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
         return 0

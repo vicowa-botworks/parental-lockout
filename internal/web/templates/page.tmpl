@@ -38,22 +38,45 @@ cached as immutable for a year.
 </head>
 <body class="page-{{template "pagename" .}}">
 <header class="masthead">
-  {{/* #219: the site's one heading names the PAGE, and it takes the words from this page's own
+  {{/* Two findings, one pair of elements.
+
+      #219: the site's one heading names the PAGE, and it takes the words from this page's own
       "title" block -- the same block <title> is built from, so the tab strip and the heading
       cannot disagree. It used to hold the product's name, so the first heading of every page in
       the site said the same two words and a reader moving heading to heading never learned which
       page they were on. (There is no skip link in this shell yet -- #204 -- so the heading list
-      is the only such navigation today; it is still the one that was broken.) The product's name
-      stays in the header as a label: not a heading, because it is not what this page is, and not
-      a link, because the nav below already holds the only anchor to "/" worth having.
-      TestEveryPageNamesItselfInTheHeading is the guard. */}}
+      is the only such navigation today; it is still the one that was broken.)
+      TestEveryPageNamesItselfInTheHeading is that guard.
+
+      #204 measured two anchors in this header with the same `href="/"` on the page the root
+      renders, differing only in weight -- "One of them is not a navigation target, and nothing
+      says which." The product's name is therefore a label: not a heading, because it is not what
+      this page is, and not a link, because the nav below already holds the only anchor to "/"
+      worth having -- and the entry for the page the reader is on now says so, in the row
+      underneath. TestTheHeaderRoutesToTheRootExactlyOnce keeps the anchor from coming back as a
+      well-meaning wordmark.
+
+      No trimming dashes anywhere in this block: the whitespace between the label, the heading and
+      `<nav>` is the only thing separating inline elements, and this file has already shipped two
+      of them welded together that way. */}}
   <p class="masthead__name">parental lockout</p>
   <h1>{{template "title" .}}</h1>
   <nav>
-    <a href="/">Status</a>
-    <a href="/users">Accounts</a>
-    <a href="/audit">Audit</a>
-    <a href="/profiles">Profiles</a>
+    {{/* Every entry asks the shell whether it is the reader's own section, and says so in the
+        markup rather than in a style: `aria-current="page"` is what a screen reader announces as
+        "current item", and it is the attribute the stylesheet in app.css marks the same link
+        with. #204 measured the two halves of the same absence -- no attribute for a rule to hook
+        onto, so no link differed from any other on any property, on any page.
+
+        The test lives in Go (pageData.IsCurrent) and not in five conditionals here, because the
+        answer is one rule about the URL. Every action in this block is dash-free on purpose: a
+        trimming action deletes the whitespace it points at, and this file has already shipped
+        "ProfilesSettings" that way. The guard is
+        TestTheMastheadLinksAreSeparatedInTheRenderedBytes. */}}
+    <a {{if .IsCurrent "/"}}aria-current="page" {{end}}href="/">Status</a>
+    <a {{if .IsCurrent "/users"}}aria-current="page" {{end}}href="/users">Accounts</a>
+    <a {{if .IsCurrent "/audit"}}aria-current="page" {{end}}href="/audit">Audit</a>
+    <a {{if .IsCurrent "/profiles"}}aria-current="page" {{end}}href="/profiles">Profiles</a>
     {{/* Settings is a link, not a form, even though the page it opens ends in a write: the
         navigation itself changes nothing, and a GET that mutates is the thing this repo's
         POST-only rule exists to stop.
@@ -63,7 +86,7 @@ cached as immutable for a year.
         elements with {{- -}} removes the space that separated them: this line shipped as
         "ProfilesSettings" in the masthead and the 360 px photograph is what showed it.
         TestTheMastheadLinksAreSeparatedInTheRenderedBytes is the guard. */}}
-    <a href="/settings">Settings</a>
+    <a {{if .IsCurrent "/settings"}}aria-current="page" {{end}}href="/settings">Settings</a>
     {{- /* A plain POST form, so the token has to travel in the body: csrfMiddleware
          reads the `csrf` field (or the header, which a form cannot set). */ -}}
     <form method="post" action="/logout" class="inline-form">

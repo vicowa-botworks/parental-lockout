@@ -132,7 +132,7 @@ def capture(name):
         g = cdp.measure(s, extra="'banner':(document.querySelector('p.banner')||{}).innerText||'',"
                                  "'flag':(document.querySelector('p.flag')||{}).innerText||'',"
                                  "'rows':document.querySelectorAll('table.rows tbody tr').length"
-                                 "," + cdp.CONTROLS_JS)
+                                 "," + cdp.CONTROLS_JS + "," + cdp.NAV_JS)
         # The page has to be the verdict page, not an error page wearing its URL: the banner is
         # the sentence the feature exists to render, and an empty one means nothing was captured
         # no matter what scrollWidth says.
@@ -151,6 +151,17 @@ def capture(name):
         cdp.require_control_font(g, "the lock result page")
         cdp.require_control_width(g, "the lock result page")
         cdp.require_choice_groups(g, "the lock result page")
+        # #204, on one of the two pages pages.py does not photograph -- and the case its five GET
+        # frames would never have caught: this URL is `/users/<name>/lock-now`, a child of a
+        # section, so the accounts entry is the one that has to carry the mark. A shell that marks
+        # only an exact path match renders this page with nothing current and every property guard
+        # still green, because there would be no current entry to compare. `"/users"` is declared
+        # here rather than derived from `s.where()` for the reason D-0025 gives for the same choice
+        # in JavaScript: deriving it would be a second copy of the section rule, and it would agree
+        # with any bug the shell has.
+        cdp.require_nav_marked(g, "the lock result page", "/users")
+        cdp.require_nav_in_palette(g, "the lock result page")
+        cdp.require_nav_distinguishable(g, "the lock result page", "/users")
 
         rows = cdp.session_rows(s)
         for r in rows:
@@ -197,7 +208,7 @@ def capture(name):
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
               flush=True)
         print(f"  rows={g['rows']} cells={g['cells']} unlabelled={g['unlabelled']} "
-              f"{cdp.census_line(g)}", flush=True)
+              f"{cdp.census_line(g)} {cdp.nav_census_line(g)}", flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         if g["flag"]:
             print(f"  flag:   {g['flag'].strip()[:110]}...", flush=True)
