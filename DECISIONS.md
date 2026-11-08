@@ -1408,11 +1408,19 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   load-bearing in prose. Both are merged history and cannot move, but the next re-take will turn "the set
   `b9eeec3` commits" into a historical sentence too; it is written dated ("later the same day") rather
   than in the present tense so it stays true when the set moves again. (4) The other stale digests in
-  the file -- :296, the four-fixture tally at :626-627, and the scripts-pair table at :700-701 -- are
-  `main`'s dated prose, not this PR's, and stay: :296 says "at that moment", :626 opens "Measured 6 Nov",
-  and the pair at :700 records what the two arms of one switch produced. Each names the run it came from,
-  so each is checkable against the manifest rather than false about it. The row this entry fixes was the
-  one that spoke in the present tense about what the manifest records.
+  the file -- :296 and the four-fixture tally at :626-627 -- are `main`'s dated prose, not this PR's, and
+  stay: :296 says "at that moment", :626 opens "Measured 6 Nov", each names the run it came from, and
+  each is checkable against the manifest rather than false about it. The scripts-pair table at :700-701
+  was on this list until D-0041 read it against the artifacts: it does not belong there, because both
+  its cells read "`…`, published" -- present tense about `docs/screenshots/360/` -- and the manifest in
+  the same tree records `712ee6312051…` for `lock.png` and `ae25abeb1a32…` for `testlock.png`. Those two
+  values were the published pair from `38578aa` on 19 Oct until `9e07dde` re-took the frames on 5 Nov
+  (`7ec1a664…`, `d008fdf9…`), and `b9eeec3` moved them again the next day -- so the cells have been false
+  through two re-takes, which is exactly the rot this entry was written to stop, on the row next to the
+  one it fixed: `manifest.py check` compares bytes to bytes and `check-decisions.py` reads entries, so no
+  gate in this repository can see a markdown cell asserting a hash. The row this entry fixes was the one
+  that spoke in the present tense about what the manifest records, and the table two sections below it is
+  a second such row -- one nobody was reading.
 - Checkpoint: 5f6738e57ed453c6382134404bbacf25b55a1fbf
 - Effect: testing/capture/README.md (the `audit.png` row and the two-zone sentence it points at),
   pull request #225
@@ -1480,3 +1488,73 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Checkpoint: 5a7b5f41c0ca27813f2d5c2a247a3291caaa9536
 - Effect: testing/capture/README.md (the two-zone paragraph in "What the audit fixture is not allowed to
   contain", and the `audit.png` row's host-zone clause), DECISIONS.md, pull request #225
+
+## D-0041 · `D-0039` certified the one stale digest that speaks in the present tense
+
+- Question: #225's round-5 blocking 2 is aimed at this log rather than at the README. `D-0039`'s
+  "What this costs" item 4 grouped three sites as "`main`'s dated prose … each is checkable against the
+  manifest rather than false about it", and one of the three is not: the scripts-pair table reads
+  "`b59bb2be…`, published" and "`acc5ba4d…`, published" for `lock.png` and `testlock.png`, present tense
+  about `docs/screenshots/360/`, while the manifest in the same tree records `712ee6312051…` and
+  `ae25abeb1a32…` for those two paths. The retraction exists -- the 02:46Z comment on #225 and row 3 of
+  #213 both say so -- but the entry is the artifact that merges, so the correction has to be in the log
+  or it does not survive the merge. Amend `D-0039` in place and record the correction beside the
+  measurement that forced it | leave the entry and let the two comments carry it | delete the list from
+  `D-0039` so it vouches for nothing | rewrite the table's two cells in this pull request as well
+- Options: amend `D-0039` item 4 in place to drop the scripts-pair table from the dated-prose list and
+  name it as present-tense rot, with the correction recorded in a new entry beside the measurement that
+  forced it | leave `D-0039` as written and let the #225 comment and #213's row 3 carry the retraction |
+  drop the whole list from `D-0039` so it vouches for no other site | rewrite the scripts-pair table's
+  two cells in this pull request so the false sentence leaves the tree with the log's vouch
+- Chose: amend `D-0039` item 4 in place to drop the scripts-pair table from the dated-prose list and name
+  it as present-tense rot, with the correction recorded in a new entry beside the measurement that forced
+  it
+- Why: this file has the rule already, twice. `D-0028` "amended three false `D-0024` sentences in the
+  commit that measured them" and recorded them in a `Correction, in the same commit as the measurement
+  that forced it` bullet; the entry that closed #222 did the same to `D-0030`'s gate claim. Option 2
+  loses on the review's own point: a comment is not a merge artifact, so a reader of `D-0039` alone --
+  which is how an entry gets read, six weeks later, by whoever is undoing something -- is still told the
+  table is checkable. Option 3 throws away the true half to remove the false half, the objection
+  `D-0030` recorded against deleting the `sources_rev` sentences: `:296` and `:626` do earn their place
+  on the list, and the list is what tells a reader which sites *not* to re-litigate. Option 4 is what
+  the finding argues for and is not this unit's to take: that table is the record of the two arms of the
+  `scripts` switch, so a replacement worth anything needs both arms re-run on the current head, and #213
+  is the unit that owns those two frames -- its row 3 already carries the measurement with the manifest
+  read-out beside it, at `origin/main`'s line numbers, so the next lane starts from a number rather than
+  from a sentence. The tie-break order agrees: option 1 touches one file and reverts as prose, and it
+  refuses rather than proceeds on a measurement this branch cannot take.
+  Measured before writing, because the claim is about two artifacts and not about a comment.
+  `sha256sum docs/screenshots/360/{lock,testlock}.png` at this head returns `712ee6312051…` and
+  `ae25abeb1a32…`, matching the manifest's `png_sha256` for both, whose `captured_at` is
+  `2026-11-06T16:34:09Z`. The two values the table calls published were published, and they stopped
+  being so three days ago: walking every commit that touches either path on every ref and hashing each
+  blob gives `lock.png` `b59bb2be…` at `38578aa` (19 Oct) then `7ec1a664…` at `9e07dde` (5 Nov) then
+  `712ee631…` at `b9eeec3` (6 Nov), and `testlock.png` `acc5ba4d…` at `38578aa` then `d008fdf9…` at
+  `9e07dde` then `ae25abeb…` at `b9eeec3` -- two re-takes have landed since the cells last described the
+  tree, and nothing noticed. That is the same mechanism `D-0039` fixed one row away, arriving from the
+  other direction: there a row quoted a digest the manifest had moved past, here a table calls a
+  moved-past digest current. That the gate cannot see it is measured rather than asserted:
+  `manifest.py check --dir docs/screenshots/360` answers "9 photographs current" with rc 0 while both
+  cells stand, and `grep -c README scripts/check-decisions.py` is 0 -- one gate reads PNGs against their
+  sources, the other reads entries, and a markdown cell asserting a hash is in neither one's field of
+  view. That gap is worth an issue of its own and #213's row 3 holds it until someone opens one; nothing
+  here closes it.
+- Correction, in the same commit as the measurement that forced it. `D-0039` item 4's sentence "The other
+  stale digests in the file -- :296, the four-fixture tally at :626-627, and the scripts-pair table at
+  :700-701 -- are `main`'s dated prose … each is checkable against the manifest rather than false about
+  it" is false of its third member, and the amended text above is what is true. The test that was applied
+  -- "a dated sentence is safe" -- is the wrong test, because the table carries no date and never needed
+  one to be read as history: what a sentence is worth is decided by whether a machine checks what it
+  asserts, and nothing checks a markdown cell. What survives of `D-0039` is its own fix and its first
+  three costed items, both of which this entry re-measured and neither of which moves.
+- What this costs, stated rather than glossed. (1) The log now carries three correction markers
+  (`D-0024`, `D-0030`, `D-0039`), which is the cost `D-0029` priced in advance and accepted: the log
+  reads as a record of being wrong rather than as a clean ledger. (2) `D-0039`'s "What this costs" is now
+  longer than the cost it was written to record. (3) The false sentence stays in the tree. README's
+  scripts-pair table will still read "published" when this branch merges, and what changes is only that
+  the log no longer vouches for it -- a reader of the table, rather than of the log, still gets a wrong
+  claim until #213 re-runs both arms, and that residue is the honest boundary of a prose unit. (4) It
+  retires the rule of thumb this branch was using for stale digests, so the next one has to be argued
+  from the gate rather than from the tense of the sentence it sits in.
+- Checkpoint: 97eadbd270a3c7b39aa717cb7d9a5ba2797a6f66
+- Effect: DECISIONS.md (this entry and the `D-0039` item 4 amendment above), pull request #225
