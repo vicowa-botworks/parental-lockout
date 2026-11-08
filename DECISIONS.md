@@ -1504,6 +1504,21 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   defect. (4) The cross-reference is now positional ("the two-zone pair above") rather than a line
   number, which is the class of reference this section has already rotted once; if that pair's sentence
   moves, this paragraph and the `audit.png` row both need re-reading.
+- Correction (`D-0044`, 8 Nov): the count above is a measurement of a clone on a date, and the sentence did
+  not say so. It was taken with `git log --all`, and "every ref" is a property of whoever runs it: this
+  clone today holds 49 local heads and no `refs/pull/*` at all, a reviewer's clone carrying
+  `refs/pull/*/head` and not these local heads disagrees with it without either side being wrong
+  (`dashboard` 11 values here against 12 there, `audit` 21 commits here against 20 there). Re-run in this
+  clone at this head, the same command returns 21 commits and **20** distinct values for `audit.png` where
+  this entry prints 19 -- the commit count is identical, so the difference is not the branch having moved,
+  and the ref set that produced 19 cannot be reconstructed after the fact. The half of the claim that
+  carries weight survives the tighter, reader-reproducible scope and the shipped sentence now states that
+  scope: hashing every historical blob of the seven paths over `git rev-list --remotes=origin` -- nine
+  published heads, 16, 11, 11, 9, 6, 6 and 3 distinct values in `audit`, `dashboard`, `profiles`, `users`,
+  `profiles-refused`, `settings` and `users-no-profiles` order -- returns none of the pair's seven
+  (`6545ce7d`, `3ba5275e`, `8a9bf9f5`, `76ea48fb`, `42764b11`, `175c1d1f`, `ce38334c`). Adding a ref can
+  only add a value, never remove one, so the pair's absence is safe in the one direction a reader's clone
+  can differ; the counts are not portable, and a count is worth only as much as its command.
 - Checkpoint: 5a7b5f41c0ca27813f2d5c2a247a3291caaa9536
 - Effect: testing/capture/README.md (the two-zone paragraph in "What the audit fixture is not allowed to
   contain", and the `audit.png` row's host-zone clause), DECISIONS.md, pull request #225
@@ -1606,9 +1621,10 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   re-run, not the review's assertion: every historical blob of each of the seven paths over every ref gives
   `settings` six values (`111bcbe1`, `12e669d8`, `140dc2e7`, `2d7ac1d9`, `7bfacb6f`, `a7411adf`) and
   `users-no-profiles` three (`8bbb8293`, `9173e9b4`, `dac864f4`), and the pair's `175c1d1f…` and `ce38334c…`
-  are in neither set -- so there is no reading of "at the time" on which those two came back identical to
-  committed bytes, and "the other five moved with the branch" is a split of a comparison that never
-  happened. One measurement past the review's, because the review left an out: "if in fact the pair ran on a
+  are in neither set -- so the clause is not true of *this* pair, and in a paragraph that prints these
+  seven values it reads as a claim about them. Whether some *other* run came back identical to its own
+  committed set is a different question, and `D-0044` answered it: it did, at `d439f70`, and this entry
+  said otherwise. One measurement past the review's, because the review left an out: "if in fact the pair ran on a
   #207 head since discarded by a force-push, that is worth a sentence of its own". Hashing every blob in
   this clone's object database -- `git cat-file --batch-all-objects --batch`, 2074 blobs, 87 of them PNGs
   -- returns none of the seven, and `git reflog show issue-207` and `git reflog show origin/issue-207`
@@ -1619,9 +1635,11 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   reproduce, while the published-refs walk is the same claim at the size a reader can check.
   Option two is the one that keeps a contradiction on the page and asks the reader to hold both sides, and
   it asserts about the neighbouring paragraph a thing this unit has not measured: the re-take it describes
-  quotes no digest, so its equality against the then-committed set can be neither confirmed nor refuted
-  from this tree -- the third tie-break, refuse rather than proceed on an input that is not there, refuses
-  it. Options one and two each touch one markdown file, so the fourth tie-break is decided by the size of
+  quotes no digest — and `D-0044` found its equality against the then-committed set is confirmable from
+  this tree after all, in one command — so this refusal was given for a reason that does not hold. What
+  survives of it is the tie-break as procedure, not as a claim about measurability: this unit had not
+  measured the input when it wrote, and the third tie-break refuses rather than proceeds on an input that
+  is not there. Options one and two each touch one markdown file, so the fourth tie-break is decided by the size of
   the claim, not the count of files, and the fifth is undecided between two prose commits; the sixth
   settles it, because the file's own practice since `D-0039` is to name a run and point at the manifest
   rather than to adjudicate two hash claims against each other in one sentence. Option three was refused
@@ -1651,6 +1669,24 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   exact case where being falsified is the point. (4) The object-database scan is corroboration this clone
   can produce and a fresh clone may not, so the log leads with the published-refs walk and keeps the
   stronger result where a reader can see what it does and does not license.
+- Correction (`D-0044`, 8 Nov): two sentences of this entry are false, and the round-7 finding is right
+  about them. The split the deleted clause describes is a comparison that happened, it is on `main`, and
+  one command settles it -- `git show d439f70 --stat -- docs/screenshots/360`. `d439f70` (2026-11-01,
+  "Re-take the five artifacts the fixture moved, and record why", and it arrived with **#212**, not #207)
+  lists `audit`, `dashboard`, `profiles`, `profiles-refused` and `users` changed and does not list
+  `settings.png` or `users-no-profiles.png`; re-measured blob against first parent across that directory,
+  five move (`913554df→f8a51ec3`, `4b9d36ba→65f7c261`, `a6cc0ae8→580f2896`,
+  `e977ace8→2487940d`, `311f91cc→551148e7`) while `settings` holds `add45cf8` and
+  `users-no-profiles` holds `77a840ea`, and the commit's own message says so: "Five files move because
+  their fixture content moved … users-no-profiles.png and settings.png came back byte-identical". So
+  "a split of a comparison that never happened" and "can be neither confirmed nor refuted from this tree"
+  are both wrong, and the README clause that told a reader the neighbouring sentence "quotes no digest a
+  reader can re-check" was steering a reader away from a check that exists. The deletion stands, on the
+  reason this entry already contained: the walk puts the pair's seven values in no published history, so
+  the clause has no scope in the pair's paragraph. What this entry over-read is the walk's reach. It
+  answers "is this pair's value a committed file"; it says nothing about whether some other run came back
+  identical to its own committed set, and reading it as a verdict on that second question is how an
+  unfalsifiable claim came to be labelled "Measured before writing".
 - Checkpoint: 8aa5bd80e398359db273d3dc5bb86be58c573d06
 - Effect: testing/capture/README.md (the two-zone paragraph, the `audit.png` row's host-zone clause, the
   `users-no-profiles` row's digests, and the pair's "two hosts" clause), DECISIONS.md (this entry and the
@@ -1709,3 +1745,88 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Checkpoint: 1088c2cadfdaa7009d81ced1d78e9bf595ef011f
 - Effect: DECISIONS.md (the `D-0039` citations in costed items 2 and 4 and the vouch with them, `D-0041`'s
   Why and Correction), pull request #225
+
+## D-0044 · The re-take this log sent readers away from is checkable, so the citation names the run
+
+- Question: #225's round-7 blocking finding says `D-0042` records as "a split of a comparison that never
+  happened" a comparison that is on `main` and checkable in one command, and that the shipped README
+  clause repeats the claim about a neighbouring sentence ("quotes no digest a reader can re-check"). Is
+  the finding true, is the run it points at uniquely identifiable, and what wording replaces the two
+  sentences and the clause? The same round carried four nits, taken here as one batch with it: the count
+  word at `:239`, two frames attributed to this branch that arrived by merge, a distinct-value count taken
+  over an unnamed ref set, and the live pull-request body still advertising the deleted claim.
+- Options: scope the claim to the pair it was written about, citation-free | name the run and the command,
+  and correct the two `D-0042` sentences in place with a dated correction bullet rather than a silent
+  rewrite | delete the README clause and both log sentences, leaving no account of how the clause arrived |
+  keep everything and record in this entry that a machine can check the neighbouring sentence after all
+- Chose: name the run and the command, and correct the two `D-0042` sentences in place with a dated
+  correction bullet rather than a silent rewrite
+- Why: the finding was measured true before anything was written, and the shape of the error is the one
+  this branch exists to treat: a sentence labelled "Measured before writing" whose subject a machine can
+  check, coming out the other way. The comparison is two commands long, and both halves of it reproduce
+  here independently of the review: `git show d439f70 --stat -- docs/screenshots/360` lists five PNGs and
+  not those two, and comparing each PNG's blob against its first parent gives five movers
+  (`audit`, `dashboard`, `profiles`, `profiles-refused`, `users`) against `settings` at `add45cf8` and
+  `users-no-profiles` at `77a840ea`, exactly the split the :238 paragraph describes and exactly what
+  `d439f70`'s own message records. The attribution needed care the review did not take, and the shipped
+  wording carries the care instead of the claim. The reviewer wrote that this commit is the only one,
+  across the commits since `f56dc29` that touch the manifest, where both files are unchanged while others
+  move; the *state* is not unique -- `git rev-list f56dc29..HEAD -- testing/capture/manifest.py
+  docs/screenshots/360/manifest.json` is 21 commits and six of them have both files unchanged with
+  something else moving: `d439f70`, the merges `903c09c` and `1c5a109`, and the re-takes `73a65fc`,
+  `ab0730c`, `774a270`. What is unique among the commits that took frames is the *shape*. The three later
+  re-takes each moved one frame against a different identical set -- `ab0730c`: "the other five:
+  `dashboard`, `users`, `profiles`, `profiles-refused` and `settings` returned byte-identical to main's
+  committed bytes, so only the template moved a frame"; `774a270`: "Eight of the nine came back
+  byte-identical to main's committed files; `audit.png` is the only mover" -- and the two merges adopt
+  main's bytes rather than measuring a run (`903c09c` shows five movers against its first parent with both
+  files unchanged, and is a merge). So `d439f70` is named because of its shape and its message, not
+  because nothing else moved two files, and the log says that rather than trading one over-scoped
+  citation for another. Option one is what `D-0042`'s correction would look like with no pointer, and a
+  reader holding only the corrected sentence still cannot see which run the clause came from; option
+  three destroys the only account of how an unfalsifiable clause got written into the durable artefact,
+  which is the thing the next reader quotes; option four leaves the false sentences standing on the page
+  while admitting elsewhere they are false, and a log a reader has to cross-reference against an erratum
+  is not a log. Correcting in place rather than rewriting silently is the same rule as the PR's own
+  handling of a wrong claim in a posted comment: the record has to show the correction being made.
+  The nits were each measured before being written, and two of them moved more than a word. The count word
+  is the reviewer's and it is right: the sentence named three pages behind the word "four", and five files
+  are what `git show d439f70 --stat -- docs/screenshots/360` lists, so "three plus two" is now the
+  measurement rather than a number short of it. The two adopted frames are a lineage claim, so lineage was
+  measured: `9e07dde` is an ancestor of `dbdbf4b` (the #221 merge) and `b9eeec3` of `ffd63ab`, and neither
+  commit is on `origin/issue-207`'s first-parent line -- each reached this branch through a merge,
+  `dbdbf4b` and `d246d51` respectively, and both are also on `main`; the row names the carrying merges now
+  instead of saying "this branch". The count nit turned out to be a real defect and not a clause: see the
+  dated correction on `D-0040`, where the same command run today gives 20 distinct values for `audit.png`
+  against the 19 that entry prints, over an identical commit count, with no way to reconstruct the ref set
+  that produced the 19. What the shipped sentence rests on now is the scope a reader can reproduce --
+  `git rev-list --remotes=origin`, nine published heads -- with the pair's seven values absent from it,
+  which is the half that mattered and holds. The fourth nit is not reachable from this session and is
+  recorded rather than glossed: `gh pr edit 225 --body-file` still fails server-side on the
+  classic-Projects field (`repository.pullRequest.projectCards`), and `gh api -X PATCH`, the one other
+  write, is refused by this harness's shell permission. The corrected body is staged with the ref-set
+  scoping folded into it at `/tmp/opencode/pr225-body-new.md`; the reviewer's `H-0043` note that the body
+  is the residue a protected field leaves is the reason it is filed as owed work rather than dropped.
+- What this costs, stated rather than glossed. (1) The README sentence grows from one clause to five
+  lines, and the section is longer for a correction that adds no new fact about pixels. (2) The citation
+  points at a commit, so it inherits a commit's fragility: a re-record of `settings.png` cannot move
+  `d439f70`'s diff, but a history rewrite would, and the only thing holding that line is this repository
+  forbidding force-pushes (`allow_squash_merge=false`, `allow_rebase_merge=false`) -- the claim is as
+  durable as the branch protection, and the entry says so rather than implying it is a law. (3)
+  `D-0042` is now longer and visibly wrong in two places before it is right, which is the cost of
+  correcting in place; a reader who wants the clean version gets a four-line correction bullet and has to
+  trust it. (4) Naming the reviewer's over-reach in public spends the goodwill their correction earned,
+  and it is done because the same class of error is the subject of the pull request. (5) The uniqueness
+  measurement is bounded by `f56dc29`\u2013`HEAD` on this branch and by `--stat` against first parents;
+  a re-take on a branch nobody merged would not appear here, and nothing in the wording claims otherwise.
+- Checkpoint: f2a12988e76928b754ee3a204f18df693bda40c9
+- Effect: testing/capture/README.md (the provenance sentence after the reproducibility table: #207's
+  re-take becomes `d439f70` with its date, its #212 arrival, its own quoted words, and the one command
+  that settles the equality; "the four whose fixture content" becomes three, with the five-file list
+  cited; the `users-no-profiles` row's two adopted frames name `dbdbf4b` and `d246d51` rather than "this
+  branch"; the pair's published-heads sentence names `refs/remotes/origin/*` and its counts, and says what
+  a differently-scoped clone reports), DECISIONS.md (`D-0042`'s "a split of a comparison that never
+  happened" re-scoped to the pair, its option-two refusal re-grounded on the tie-break rather than on
+  unconfirmability, and the dated correction bullet above; `D-0040`'s count given its command, its clone
+  and its date, with the same command's result at this head), this entry, pull request #225
+
