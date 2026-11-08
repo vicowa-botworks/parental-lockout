@@ -662,6 +662,22 @@ factory_body() {
 		awaiting_merge | awaiting_review | checks_pending | draft)
 			factory_wait "$unit" "$key" "$class"
 			;;
+		# A merged pull request already claims this issue, so the work is on the trunk and the ticket
+		# is the only thing left. It is the first class with no work for it, and the shape of the arm
+		# is the rule: no tick, no ledger row, no GitHub write, nothing closed.
+		#
+		# The line repeats on every pass that still sees the row, for the same reason the refused
+		# branches above do (`REFUSED … reported, not worked`). A queue that reports a thing once and
+		# then goes quiet is a queue nobody can audit, and the row is still there next pass precisely
+		# because a person has not closed the issue yet.
+		#
+		# What this arm must never grow is a close. Closing an issue is a human act on this
+		# repository's tracker -- #1256 is what happens when a machine closes an umbrella issue on a
+		# keyword in a pull-request body -- and a partial delivery that carries none of the marks
+		# triage.sh looks for still arrives here as a report, not as a done.
+		delivered)
+			log_event "DELIVERED $unit/$key $detail -- reported, not worked: nothing is dispatched and nothing is closed"
+			;;
 		*)
 			log_event "UNKNOWN-CLASS $unit/$key class=$class -- no handler, so nothing was done"
 			;;

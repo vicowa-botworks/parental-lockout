@@ -103,6 +103,29 @@ FACTORY_REVIEW_POKES=${FACTORY_REVIEW_POKES:-1800}
 # a notice, not a park: the unit stays in the queue and keeps being retried.
 FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 
+# How far back the `delivered` verdict looks: one `gh pr list --state merged --limit N` per pass, so
+# the bound is what stops the read growing with the repository's age. It is a bound on the *read*,
+# not on the claim -- an issue whose fix landed outside the window keeps the verdict it always had,
+# `unclaimed`, so a window that is too small costs a wasted unit and a window that is too big costs
+# nothing but a payload. Measured 8 Nov on this repository: 125 pull requests have merged, and a
+# window of 100 reaches back to #52 at `2026-10-15T08:38:06Z`, so the twenty-five it does not read are
+# the harness's first fortnight -- every issue the queue has delivered since 15 October is inside it.
+#
+# What the bound really cuts is not time. `gh pr list --state merged` answers newest-CREATED first,
+# not newest-merged -- measured 8 Nov the first eight rows are 234, 231, 229, 227, 226, 221, 218, 217
+# and their merge dates are 8, 8, 8, 8, 6, 6, 6, 8 November -- so a branch that lived a long time
+# before it merged sits lower in the window than its merge date suggests. A window of seven would
+# already be blind to #217, which merged the same day as #234. `delivered` prints the window it leaned
+# on in its own row for exactly that reason: a bound that is not printed is a verdict nobody can
+# re-check.
+FACTORY_DELIVERED_WINDOW=${FACTORY_DELIVERED_WINDOW:-100}
+
+# The base branch a merged pull request has to have landed on for its claim to mean the work is on
+# the trunk. A pull request merged into another open pull request's branch is that branch's news, not
+# `main`'s, and #216's stacked-base chain is the shape this refuses: reporting an issue delivered by a
+# merge nobody can deploy is the false green this class exists to prevent.
+FACTORY_BASE=${FACTORY_BASE:-main}
+
 FACTORY_LOG=${FACTORY_LOG:-$FACTORY_DIR/log}
 FACTORY_LEDGER=${FACTORY_LEDGER:-$FACTORY_DIR/ledger}
 FACTORY_RUN=${FACTORY_RUN:-$FACTORY_DIR/run}

@@ -1384,6 +1384,762 @@ wired_into_verify() {
 wired_into_verify
 halt_call_sites_shaped
 
+# ---------------------------------------------------------------- the merged claim (#235)
+#
+# Everything above this line is about a tree on disk. This section is about a queue, and it lives
+# here rather than in a file of its own because it needs the same `pass`/`fail` counters, the same
+# $work cleanup, and the same `make verify` step -- a second gate under a name nobody runs is how one
+# gate ends up not running (#189 is that story).
+#
+# What it pins is `delivered`: the verdict that an OPEN issue is already answered by a MERGED pull
+# request. The class exists because the queue cannot see that fact. Measured 8 Nov on this
+# repository, twice in one day: #228's fix merged at 07:08:17Z and a tick was dispatched for #228 at
+# 09:35Z on a branch with nothing ahead of `origin/main`, its ceiling spent re-deriving what `main`
+# already had (H-0050); eight hours later #232's fix merged at 14:26:31Z as #234, whose only
+# reference is `Refs #232`, and `factory/triage.sh` on the tree containing that fix still printed
+# `issue 232 unclaimed`.
+#
+# A fixture `gh` is the only way to drive this, so the fixture is the whole argument and its shape was
+# chosen on purpose:
+#
+#   * The payloads are the live ones, read off GitHub on 8 Nov with `gh pr list --state merged
+#     --json number,body,mergedAt,baseRefName`, `gh issue list --state open --json number,updatedAt`
+#     and the same GraphQL query triage.sh makes. Bodies are abridged to the sentences that carry a
+#     verdict; every number, timestamp, reference and state reason is the live one. Where a leg needs
+#     an issue that is not open on GitHub any more -- #149 -- the leg says so on its own line.
+#     Abridging them turned out to be a hazard and not only a convenience: the real merged payload for
+#     the same window is 632,601 bytes and the fixture is about two kilobytes, and that gap is exactly
+#     where the first version of this verdict died on the live repository. The leg that reproduces it
+#     pads a body back past 128 KiB rather than pretending the fixture is the repository.
+#   * The payloads go through the caller's OWN `--jq` and `--limit`, run by the real jq. A change to
+#     what triage.sh asks for -- its field list, its `join`, its window -- changes what these legs
+#     see, so the reads are under test and not a transcription of them.
+#   * The shim exits 9 on any call it has no payload for and 77 on anything that writes. A leg cannot
+#     write to the queue it is only supposed to describe, and cannot go green by answering a call
+#     nobody planned for.
+#   * One fixture, plus nineteen single-edit mutations of the shipped files, each named for the rule it
+#     breaks. The live table by itself proves little -- seven of the nine rows are NOT delivered, so a
+#     classifier that printed `unclaimed` for everything would pass it. Every rule gets the polarity
+#     where it bites and the polarity where the very same row gets through. The mutations are not
+#     decoration: three of the legs below were written because a mutation survived, and the numbers are
+#     in H-0053 rather than here, because a tally that does not name the commit it was measured at is a
+#     description of nothing.
+#
+# The live table these legs are built from, measured 8 Nov. It is the reason the verb is not the
+# verdict:
+#
+#   #232  merged PR #234 `Refs #232`   DELIVERED   H-0050 is the fix
+#   #228  merged PR #231 `Refs #228`   DELIVERED   the tick that found this closed it as satisfied
+#   #222  merged PR #227 `Refs #222`   not         closed 6 Nov 13:17:20Z, REOPENED 6 Nov 16:27:23Z
+#                                                 with a corrected row; #227's body says what stays open
+#   #213  merged PR #229 `Refs #213`   not         a bundle, and it spoke again at 02:46:41Z after
+#   #204  merged PR #229 `Refs #204`   not         the 01:33:46Z merge: vetoed twice, so the count
+#   #199  merged PR #229 `Refs #199`   not         rule alone is decided by the #199 row alone
+#   #149  merged PR #218, no verb      not         "Not here: #149's per-control commit policy"
+#
+# #222 and #232 are identical in every way the verb can see -- one reference each, the same head
+# branch shape, silence on the issue after the merge -- and only `stateReason` separates them. Hence
+# the leg that hands triage.sh #222's body exactly as GitHub holds it, "Why `#222` was reopened"
+# included, with the REOPENED record taken out, and demands `delivered`. A classifier that read
+# bodies for a sentence about unfinished work would fail that leg, which is precisely why it exists.
+claim_work=$work/claims
+claim_bin=$claim_work/bin
+claim_dir=$claim_work/factory
+claim_repo=$claim_work/repo
+claim_fix=$claim_work/fixture
+claim_err=$claim_work/stderr
+claim_rows_file=$claim_work/rows
+claim_window=100
+mkdir -p "$claim_bin" "$claim_dir" "$claim_repo" "$claim_fix"
+
+# The repository is here for two preflight questions and nothing else: `is this a git repository` has
+# to answer yes, and the orphan pass has to be able to fail `rev-parse origin/main`. With no remote
+# the orphan half prints its own warning and contributes no rows, which is also what keeps the row set
+# exactly the issue set the leg planted. No leg is about this tree.
+git init -q "$claim_repo"
+git -C "$claim_repo" -c user.email=fixture@invalid -c user.name=fixture \
+	commit -q --allow-empty -m 'fixture seed'
+
+cat >"$claim_bin/gh" <<'CLAIMSHIM'
+#!/usr/bin/env bash
+# Fixture gh for the merged-claim legs in factory/selftest.sh. It answers exactly the reads
+# factory/triage.sh makes, from the payload files $CLAIM_FIXTURE holds, and refuses everything else.
+#
+# The two refusals are the point. An unhandled call exits 9, because a shim that shrugs and prints
+# `[]` at a call nobody planned for turns a leg green without exercising anything. Anything that
+# writes exits 77, because `gh` is otherwise the real binary on a real PATH and a leg that commented
+# on a real issue would be writing to the queue it exists only to describe.
+set -eu
+here=${CLAIM_FIXTURE:?CLAIM_FIXTURE names the payload directory}
+jqprog=''
+limit=''
+json=''
+state=''
+args=("$@")
+i=0
+while [ "$i" -lt "${#args[@]}" ]; do
+	case "${args[$i]}" in
+	--jq) jqprog=${args[$((i + 1))]} ;;
+	--limit) limit=${args[$((i + 1))]} ;;
+	--json) json=${args[$((i + 1))]} ;;
+	--state) state=${args[$((i + 1))]} ;;
+	esac
+	i=$((i + 1))
+done
+
+emit() { # emit <payload> -> through the caller's own --limit and --jq, both run by the real jq
+	local file=$1
+	if [ ! -f "$file" ]; then
+		printf 'claim-shim: no payload for this call: %s\n' "$file" >&2
+		exit 8
+	fi
+	if [ -n "$jqprog" ]; then
+		if [ -n "$limit" ]; then
+			# --limit is under test, not worked around: the window leg means nothing unless a
+			# smaller --limit really returns fewer rows. A non-numeric --limit makes jq fail,
+			# which is the right answer to a caller that passed one.
+			jq -c --argjson n "$limit" 'if type == "array" then .[:$n] else . end' <"$file" |
+				jq -r "$jqprog"
+		else
+			jq -r "$jqprog" <"$file"
+		fi
+	elif [ -n "$limit" ]; then
+		jq -c --argjson n "$limit" 'if type == "array" then .[:$n] else . end' <"$file"
+	else
+		cat "$file"
+	fi
+}
+
+# Anything that changes the queue is refused by VERB, matched before the dispatch below can answer
+# it from a payload. A dozen spelled-out call shapes would be a list that goes stale the day triage.sh
+# learns a new verb, and the failure that would cost is a leg writing to the queue it exists to
+# describe. One line, because bash will not carry a pattern list across a newline.
+case "$1:$2" in
+'pr:merge' | 'pr:edit' | 'pr:ready' | 'pr:review' | 'pr:comment' | 'pr:request-changes' | 'pr:delete' | 'issue:close' | 'issue:reopen' | 'issue:comment' | 'issue:edit' | 'issue:lock')
+	printf 'claim-shim: a leg tried to WRITE: %s\n' "$*" >&2
+	exit 77 ;;
+esac
+
+case "$1 $2" in
+'auth status') exit 0 ;;
+'api user') emit "$here/user.json" ;;
+'api graphql')
+	[ -z "${CLAIM_GRAPHQL_FAIL:-}" ] || {
+		printf 'claim-shim: the queue query fails on purpose\n' >&2
+		exit 6
+	}
+	emit "$here/graphql.json" ;;
+'pr list')
+	case "$state" in
+	open)
+		# One read, two field lists: the bulk PR fields, then the bodies for the second claim
+		# channel. Distinguished by --json, which is the only thing that differs between them; a
+		# shim that served the wrong one would make `claimed_issues` silently empty.
+		case "$json" in
+		*body*) emit "$here/pr-bodies.json" ;;
+		*) emit "$here/pr-open.json" ;;
+		esac ;;
+	merged)
+		[ -z "${CLAIM_MERGED_FAIL:-}" ] || {
+			printf 'claim-shim: the merged read fails on purpose\n' >&2
+			exit 6
+		}
+		# Not a guess at a bad day: `gh` answers a rate-limited or half-written response on stdout
+		# with prose while still exiting 0, which is how the payload arrived non-JSON in the report
+		# this leg is modelled on. The verb is run through jq on every other call, so this one has
+		# to bypass emit and write the bytes itself.
+		[ -z "${CLAIM_MERGED_GARBAGE:-}" ] || {
+			printf 'gh: could not read the pull request bodies (http 502)\n'
+			exit 0
+		}
+		emit "$here/pr-merged.json" ;;
+	*)
+		printf 'claim-shim: unhandled pr list --state %s\n' "$state" >&2
+		exit 9 ;;
+	esac ;;
+'issue list') emit "$here/issues.json" ;;
+'api '*)
+	case "${3:-}" in
+	*requested_reviewers*) emit "$here/reviewers.json" ;;
+	*/reviews*) emit "$here/reviews.json" ;;
+	*/commits/*) emit "$here/commit.json" ;;
+	*)
+		printf 'claim-shim: unhandled api path %s\n' "${3:-}" >&2
+		exit 9 ;;
+	esac ;;
+*)
+	printf 'claim-shim: unhandled call: %s\n' "$*" >&2
+	exit 9 ;;
+esac
+CLAIMSHIM
+chmod +x "$claim_bin/gh"
+
+# The live payloads, abridged as described in the header. The bodies are GitHub's own text.
+cat >"$claim_fix/pr-merged.json" <<'JSON'
+[
+ {"number":234,"baseRefName":"main","mergedAt":"2026-11-08T14:26:31Z",
+  "body":"fix(factory): a read that answered at its success status said it could not open the file\n\nRefs #232.\n"},
+ {"number":231,"baseRefName":"main","mergedAt":"2026-11-08T07:08:17Z",
+  "body":"fix(factory): the dirt verdict asks a content question, so a killed mutation run no longer halts the queue\n\nRefs #228.\n"},
+ {"number":229,"baseRefName":"main","mergedAt":"2026-11-08T01:33:46Z",
+  "body":"feat(web): the navigation is in the palette and marks the page you are on\n\nRefs #199. Refs #204. Refs #207. Refs #213.\n\n## What this branch does not finish\n\n`#204` stays open on purpose, and two things it owns are not here: name the root page once, and the skip link.\n\n`#213` is untouched as an audit.\n"},
+ {"number":227,"baseRefName":"main","mergedAt":"2026-11-08T01:44:14Z",
+  "body":"fix(capture): a frame this run did not take keeps the rev its bytes were rendered from\n\nRefs #222.\n\n### Why `#222` was reopened\n\nIt was closed as satisfied row by row, and every row was about `capture`. The row that is wrong is the field the gate reads.\n\n### What stays open, stated rather than glossed\n"},
+ {"number":218,"baseRefName":"main","mergedAt":"2026-11-06T00:02:30Z",
+  "body":"feat: packages and a release process\n\nCloses #202.\n\nNot here: #149's per-control commit policy.\n"}
+]
+JSON
+
+# `stateReason` rides on the issue rows because that is the only way a leg can change it, and it is
+# consumed by the queue query rebuilt below -- `gh issue list` is asked for number,title,updatedAt
+# and nothing else.
+#
+# Which `updatedAt` values are live: #235, #232, #222, #213, #204 and #199 exactly as GitHub reported
+# them on 8 Nov. #228, #212 and #149 are CLOSED there, so no open-issue listing can quote them and
+# their stamps are chosen rather than read -- #228's sits before its merge at 07:08:17Z, because an
+# issue that spoke after its merge is the veto case, and that veto has two legs of its own already.
+# #212 and #149 are planted open for the same reason: the legs that use them are about the shape of a
+# sentence in a body, not about those two issues.
+cat >"$claim_fix/issues.json" <<'JSON'
+[
+ {"number":235,"title":"An issue whose fix is already merged goes back to unclaimed","updatedAt":"2026-11-08T09:43:28Z","stateReason":null},
+ {"number":232,"title":"A directory git cannot open makes the dirt verdict answer CLEAN","updatedAt":"2026-11-08T07:30:46Z","stateReason":null},
+ {"number":228,"title":"A killed mutation run leaves a worktree that halts every unit","updatedAt":"2026-11-06T02:11:40Z","stateReason":null},
+ {"number":222,"title":"manifest.py record certifies screenshots its run did not take","updatedAt":"2026-11-06T16:27:23Z","stateReason":"REOPENED"},
+ {"number":213,"title":"lock.png and testlock.png were taken with page scripts running","updatedAt":"2026-11-08T02:46:41Z","stateReason":null},
+ {"number":212,"title":"The capture artifacts of one run do not reproduce","updatedAt":"2026-11-04T17:12:33Z","stateReason":null},
+ {"number":204,"title":"The navigation is unstyled and does not mark the current page","updatedAt":"2026-11-08T01:35:56Z","stateReason":null},
+ {"number":199,"title":"Improve the design of the web UI","updatedAt":"2026-11-01T19:23:23Z","stateReason":null},
+ {"number":149,"title":"Per-control commit policy","updatedAt":"2026-10-27T00:00:00Z","stateReason":null}
+]
+JSON
+
+printf '%s' '[]' >"$claim_fix/open-claims.json"
+printf '%s' '[]' >"$claim_fix/pr-open.json"
+printf '%s' '[]' >"$claim_fix/pr-bodies.json"
+printf '%s' '{"login":"someone-else"}' >"$claim_fix/user.json"
+printf '%s' '{"users":[],"teams":[]}' >"$claim_fix/reviewers.json"
+printf '%s' '[]' >"$claim_fix/reviews.json"
+printf '%s' '{"commit":{"committer":{"date":"2026-11-08T00:00:00Z"}}}' >"$claim_fix/commit.json"
+cp "$claim_fix/pr-merged.json" "$claim_work/pr-merged.live.json"
+cp "$claim_fix/issues.json" "$claim_work/issues.live.json"
+
+# The queue query's payload, derived from the two lists the legs actually edit. Deriving it is what
+# stops the state reason a leg planted in `issues.json` from disagreeing with the one triage.sh
+# reads: two copies of one fact, and one gate blind to the other, is #189's whole complaint.
+claim_graphql() {
+	jq -cn --slurpfile i "$claim_fix/issues.json" --slurpfile c "$claim_fix/open-claims.json" '
+		{data: {repository: {
+			pullRequests: {nodes: ($c[0] | map({number: .number,
+				closingIssuesReferences: {nodes: (.claims | map({number: .}))}}))},
+			issues: {nodes: ($i[0] | map({number: .number, stateReason: .stateReason}))}
+		}}}' >"$claim_fix/graphql.json"
+}
+claim_graphql
+
+# The shipped classifier, end to end, with the fixture's gh first on PATH. Nothing is stubbed between
+# the two: preflight, the jq programs, the claim channels and the emit line all run.
+claim_rows() {
+	: >"$claim_err"
+	PATH="$claim_bin:$PATH" \
+		FACTORY_DIR="$claim_dir" FACTORY_ROOT="$claim_repo" \
+		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
+		FACTORY_LOG="$claim_dir/log" FACTORY_LEDGER="$claim_dir/ledger" FACTORY_RUN="$claim_dir/run" \
+		FACTORY_DELIVERED_WINDOW="$claim_window" CLAIM_FIXTURE="$claim_fix" \
+		CLAIM_MERGED_FAIL="${CLAIM_MERGED_FAIL:-}" CLAIM_GRAPHQL_FAIL="${CLAIM_GRAPHQL_FAIL:-}" \
+		CLAIM_MERGED_GARBAGE="${CLAIM_MERGED_GARBAGE:-}" \
+		"$HERE/triage.sh" 2>"$claim_err" | tr '\037' '\t' >"$claim_rows_file" || true
+	if [ -n "${CLAIM_DEBUG:-}" ]; then
+		printf 'CLAIM DEBUG triage rc-carrying stderr:\n' >&2
+		sed 's/^/    /' "$claim_err" >&2
+		printf 'CLAIM DEBUG rows:\n' >&2
+		sed 's/^/    /' "$claim_rows_file" >&2
+	fi
+	cat "$claim_rows_file"
+}
+
+row_for() { awk -F'\t' -v k="$1" '$2 == k { print; exit }' "$claim_rows_file"; }
+claim_class_is() { # claim_class_is <key> <class>
+	local row got
+	row=$(row_for "$1")
+	[ -n "$row" ] || {
+		printf '            no row with key %s; the pass printed:\n' "$1" >&2
+		sed 's/^/            /' "$claim_rows_file" >&2
+		return 1
+	}
+	got=$(printf '%s' "$row" | cut -f3)
+	[ "$got" = "$2" ] || {
+		printf '            %s answers %s, not %s: %s\n' "$1" "$got" "$2" "$(printf '%s' "$row" | cut -f4)" >&2
+		return 1
+	}
+}
+claim_detail_has() { # claim_detail_has <key> <needle>
+	local d
+	d=$(row_for "$1" | cut -f4)
+	case "$d" in
+	*"$2"*) return 0 ;;
+	esac
+	printf '            key %s detail is: %s\n' "$1" "$d" >&2
+	return 1
+}
+claim_has_row() { # claim_has_row <key> -> the table says something about it. On the merged channel
+	# this is the assertion that distinguishes "claimed, then refused" from "never looked at": a
+	# bundle and a stranger both answer `unclaimed`, and only the open channel drops a row outright.
+	local row
+	row=$(row_for "$1")
+	[ -n "$row" ] || {
+		printf '            nothing in the table mentions %s; the pass printed:\n' "$1" >&2
+		sed 's/^/            /' "$claim_rows_file" >&2
+		return 1
+	}
+}
+claim_rows_for() { # claim_rows_for <key>… -> the table says something about every one of them
+	local k
+	for k in "$@"; do
+		claim_has_row "$k" || return 1
+	done
+}
+claim_table_has() { # claim_table_has <kind> <key> [class] -> a row of THAT kind, and that class
+	local row got
+	row=$(awk -F'\t' -v kind="$1" -v k="$2" '$1 == kind && $2 == k { print; exit }' "$claim_rows_file")
+	if [ -z "$row" ]; then
+		printf '            no %s row for %s at all; the pass printed:\n' "$1" "$2" >&2
+		sed 's/^/            /' "$claim_rows_file" >&2
+		return 1
+	fi
+	[ -z "${3:-}" ] && return 0
+	got=$(printf '%s' "$row" | cut -f3)
+	[ "$got" = "$3" ] || {
+		printf '            %s %s answers %s, not %s\n' "$1" "$2" "$got" "$3" >&2
+		return 1
+	}
+}
+claim_no_row() { # claim_no_row <key> -> 0 when nothing at all is reported about it
+	[ -z "$(row_for "$1")" ] || {
+		printf '            %s is still in the table: %s\n' "$1" "$(row_for "$1")" >&2
+		return 1
+	}
+}
+claim_err_has() { # claim_err_has <needle> -> the pass said this on stderr
+	case "$(cat "$claim_err")" in
+	*"$1"*) return 0 ;;
+	esac
+	printf '            stderr was: %s\n' "$(tr '\n' '|' <"$claim_err")" >&2
+	return 1
+}
+claim_rows_say_nothing_about() { # claim_rows_say_nothing_about <kind>
+	! grep -q "^$1"$'\t' "$claim_rows_file"
+}
+
+# One leg, with the reporter this section needs. `check`'s FAIL sentence blames a plant that did not
+# happen in a tree, which is the wrong diagnosis for a queue row: here the row is either present with
+# the right class or it is not, and the row itself is the evidence, so it is printed.
+claim_leg() { # claim_leg <label> command...
+	local label=$1
+	shift
+	if "$@"; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "$*"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s %s\n' "$label" "$*"
+	fi
+	return 0
+}
+
+# Mutate one list at a time, from the live fixtures, so what a leg breaks is readable as the filter.
+claim_merged() { jq -c "$1" "$claim_work/pr-merged.live.json" >"$claim_fix/pr-merged.json"; }
+claim_issues() {
+	jq -c "$1" "$claim_work/issues.live.json" >"$claim_fix/issues.json"
+	claim_graphql
+}
+claim_open() { # claim_open <json array of {number,title,body,claims}>
+	printf '%s' "$1" >"$claim_fix/open-claims.json"
+	jq -c '[.[] | {number, title, headRefName: "fix/planted", isDraft: false,
+		reviewDecision: "", mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN",
+		updatedAt: "2026-11-08T05:00:00Z", headRefOid: "0000000", statusCheckRollup: []}]' \
+		"$claim_fix/open-claims.json" >"$claim_fix/pr-open.json"
+	jq -c '[.[] | {number, body}]' "$claim_fix/open-claims.json" >"$claim_fix/pr-bodies.json"
+	claim_graphql
+}
+claim_reset() {
+	CLAIM_MERGED_FAIL=''
+	CLAIM_GRAPHQL_FAIL=''
+	CLAIM_MERGED_GARBAGE=''
+	claim_window=100
+	claim_merged '.'
+	claim_issues '.'
+	claim_open '[]'
+}
+claim_open '[]'
+
+# ------------------------------------------------------ the live table, as measured
+claim_rows >/dev/null
+claim_leg '#232 delivered by #234' claim_class_is 232 delivered
+claim_leg '#228 delivered by #231' claim_class_is 228 delivered
+claim_leg '#222 not delivered: REOPENED' claim_class_is 222 unclaimed
+claim_leg '#213 not delivered: bundled' claim_class_is 213 unclaimed
+claim_leg '#204 not delivered: bundled' claim_class_is 204 unclaimed
+claim_leg '#199 not delivered: bundled' claim_class_is 199 unclaimed
+claim_leg '#149 not delivered: no verb' claim_class_is 149 unclaimed
+claim_leg '#235 has nothing merged for it' claim_class_is 235 unclaimed
+claim_leg '#212 has nothing merged for it' claim_class_is 212 unclaimed
+
+# The row is the deliverable, so it has to be checkable without re-running anything: which PR, merged
+# when, found in what window. `emit` caps the detail at 80 columns, which is why the row carries a
+# number and an instant rather than a sentence about them.
+claim_leg 'the row names PR #234' claim_detail_has 232 'PR #234'
+claim_leg 'the row names the merge instant' claim_detail_has 232 '2026-11-08T14:26:31Z'
+claim_leg 'the row says which window it read' claim_detail_has 232 'window 100)'
+
+# ------------------------------------------------------ each rule, at both polarities
+# 1. the read itself. No merged list, nothing may be claimed: `unclaimed` is the refusal, and the
+#    half that failed is named, because "the queue is empty" and "the queue could not be read" cannot
+#    print the same thing.
+claim_reset
+CLAIM_MERGED_FAIL=1
+claim_rows >/dev/null
+claim_leg 'unreadable merged list delivers nothing' claim_class_is 232 unclaimed
+claim_leg '…and names the half that failed' claim_err_has 'merged pull requests unreadable'
+
+# 2. the bound. `gh pr list --state merged` answers newest-CREATED first, so #231 is the second row
+#    regardless of when these branches merged -- which is exactly why a window bounds the read rather
+#    than the age of the work. Both halves: what a window of 1 can see it still reports, and what it
+#    cannot see it stops reporting, and the row prints the window it used.
+claim_reset
+claim_window=1
+claim_rows >/dev/null
+claim_leg 'window 1 delivers the row it sees' claim_class_is 232 delivered
+claim_leg 'window 1 loses the claim past it' claim_class_is 228 unclaimed
+claim_leg 'window 1 prints the window it used' claim_detail_has 232 'window 1)'
+
+# 3. the human's override: one comment after the merge and the ticket is work again. Only the
+#    timestamp moves, so the row that was delivered a moment ago is the control.
+claim_reset
+claim_issues 'map(if .number == 232 then .updatedAt = "2026-11-08T15:00:00Z" else . end)'
+claim_rows >/dev/null
+claim_leg 'a comment after the merge re-queues it' claim_class_is 232 unclaimed
+claim_leg '…and leaves its neighbour delivered' claim_class_is 228 delivered
+
+# 3b. a missing timestamp is not a quiet issue. Without it the question "did the issue speak after
+#     the claim?" cannot be asked, so the verdict refuses rather than silence a live ticket.
+claim_reset
+claim_issues 'map(if .number == 232 then .updatedAt = "" else . end)'
+claim_rows >/dev/null
+claim_leg 'an unreadable updatedAt refuses' claim_class_is 232 unclaimed
+
+# 4. `Part of #N`, this repository's own spelling of partial work (#1256). Same PR, same merge, same
+#    issue: only two words differ, and the row has to go the other way.
+claim_reset
+claim_merged 'map(if .number == 234 then .body = "Part of #232; it does not close it.\n" else . end)'
+claim_rows >/dev/null
+claim_leg '`Part of #232` is partial, not delivered' claim_class_is 232 unclaimed
+
+# 5. the merge has to have reached the trunk. #216's stacked-base chain is this shape every day until
+#    the bottom pull request merges, and a merge into an open branch is that branch's news.
+claim_reset
+claim_merged 'map(if .number == 234 then .baseRefName = "issue-220" else . end)'
+claim_rows >/dev/null
+claim_leg 'a merge into a branch delivers nothing' claim_class_is 232 unclaimed
+
+# 6. a rejected closure, and the proof that the FIELD carries it. The second leg hands triage.sh
+#    #222's body exactly as GitHub holds it -- "Why `#222` was reopened", "What stays open" -- with
+#    the REOPENED record removed, and demands `delivered`. A classifier that read bodies for a
+#    sentence about unfinished work would fail this leg, which is the point of writing it.
+claim_reset
+claim_issues 'map(if .number == 222 then .stateReason = null else . end)'
+claim_rows >/dev/null
+claim_leg '#222 delivered once REOPENED is gone' claim_class_is 222 delivered
+claim_leg '…on the body that says it is unfinished' claim_detail_has 222 'Refs #222'
+claim_reset
+claim_issues 'map(if .number == 222 then .stateReason = "COMPLETED" else . end)'
+claim_rows >/dev/null
+claim_leg 'a COMPLETED reason is not a rejection' claim_class_is 222 delivered
+
+# 7. a bundle. #229 references four issues and disclaims two of them in its own body; the verdict
+#    refuses all four, and accepts #213 the moment that body references only #213. The second half is
+#    what proves it is the COUNT of references doing the work and not the prose and not the mention.
+#
+#    #213's own stamp is moved back before the merge for all three legs. As measured it is
+#    02:46:41Z, after #229 merged at 01:33:46Z, so the live row is vetoed twice over and would say
+#    nothing about the bundle rule. The live row where the count alone decides is #199, quiet since
+#    1 Nov.
+claim_reset
+claim_issues 'map(if .number == 213 then .updatedAt = "2026-11-08T01:00:00Z" else . end)'
+claim_merged 'map(if .number == 229 then .body = "feat(web): the navigation\n\nRefs #213.\n" else . end)'
+claim_rows >/dev/null
+claim_leg 'one reference from #229 delivers #213' claim_class_is 213 delivered
+claim_reset
+claim_issues 'map(if .number == 213 then .updatedAt = "2026-11-08T01:00:00Z" else . end)'
+claim_merged 'map(if .number == 229 then .body = "feat(web): the navigation\n\nRefs #213. Refs #213.\n" else . end)'
+claim_rows >/dev/null
+claim_leg 'the same issue twice is one claim' claim_class_is 213 delivered
+claim_reset
+claim_issues 'map(if .number == 213 then .updatedAt = "2026-11-08T01:00:00Z" else . end)'
+claim_merged 'map(if .number == 229 then .body = "feat(web): the navigation\n\nRefs #213. Refs #207.\n" else . end)'
+claim_rows >/dev/null
+claim_leg 'two issues is a cross-reference' claim_class_is 213 unclaimed
+
+# 8. a mention with no verb claims nothing. #218's sentence about #149 is the live text ("Not here:
+#    #149's per-control commit policy"), and PR #215's about #213 is the one the shipped comment in
+#    triage.sh already quotes. #149 and #212 are planted open; both legs are about the shape.
+claim_reset
+claim_open '[{"number":215,"title":"fix(capture): the artifacts of one run reproduce","body":"Refs #212.\n\n**#213 stands and is unchanged.**\n","claims":[]}]'
+claim_rows >/dev/null
+claim_leg 'an open mention does not claim #213' claim_class_is 213 unclaimed
+claim_leg '…while the verb in it claims #212' claim_no_row 212
+
+# 9. the open channel outranks the merged one, by both of its halves: GitHub's own closing reference,
+#    and a verb in an open body -- the form #1256 forces, and the one that registers no reference at
+#    all. This is the case that used to be the common one and is now a comment in the shipped code.
+claim_reset
+claim_open '[{"number":236,"title":"fix(factory): the classifier","body":"Part of #232 only; the umbrella is not finished.","claims":[232]}]'
+claim_rows >/dev/null
+claim_leg 'an open closing reference outranks #234' claim_no_row 232
+claim_leg '…and that PR is still polled itself' claim_class_is 236 needs_reviewer
+claim_reset
+claim_open '[{"number":236,"title":"fix(factory): the classifier","body":"Refs #232.","claims":[]}]'
+claim_rows >/dev/null
+claim_leg 'an open `Refs #232` outranks #234' claim_no_row 232
+
+# 10. the newest merged claim is the one that counts, and a merge nobody can date is no evidence.
+claim_reset
+claim_merged '. + [{number: 240, baseRefName: "main", mergedAt: "2026-11-09T00:00:00Z", body: "Refs #232.\n"}]'
+claim_rows >/dev/null
+claim_leg 'the newest claim is the one named' claim_detail_has 232 'PR #240'
+claim_reset
+claim_merged '. + [{number: 241, baseRefName: "main", mergedAt: null, body: "Refs #235.\n"}]'
+claim_rows >/dev/null
+claim_leg 'a merge with no date is no evidence' claim_class_is 235 unclaimed
+
+# 11. the queue payload going unreadable. `delivered` must not be the one row that survives a failed
+#     read by falling back on a guess, so it goes the way the closing-reference read already went:
+#     the issue half is skipped for the pass and says so.
+claim_reset
+CLAIM_GRAPHQL_FAIL=1
+claim_rows >/dev/null
+claim_leg 'an unreadable queue prints no issue rows' claim_rows_say_nothing_about issue
+claim_leg '…and the merged claims went with them' bash -c '! grep -q delivered "$1"' _ "$claim_rows_file"
+
+# ------------------------------------------------------ a list, and a payload with a size
+#
+# 12. a claim can name several issues in one sentence, and this repository's shipped bodies spell it
+#     both ways: merged PR #221 `Refs #219, #220, #204`, and open PR #233 `Refs #220 and #222`
+#     (measured 8 Nov, both verbatim out of `gh pr list --json body`). A verb plus ONE number reads
+#     either line as a claim on the first issue only, and both halves of that are wrong in
+#     opposite directions: on the open channel it leaves the second issue to a duplicate tick, and on
+#     the merged channel it turns `Closes #10, #11` into a SOLE claim on #10 -- the bundle this
+#     verdict exists to refuse, arriving through a comma instead of a second sentence.
+#
+#    Which two numbers go in the list is the leg's whole power, and getting it wrong was measured:
+#    with #228 as the second number a scan that read only the LAST number of the phrase left all 175
+#    legs green, because #228 is delivered by PR #231 whatever PR #234 says. The pair that can see it
+#    is one whose ends are each otherwise unclaimed -- #235, which nothing merges into, and #213,
+#    which #229 only bundles. Then a scan taking the last number delivers #213 and a scan taking the
+#    first delivers #235, and each failure surfaces on the OTHER end's leg.
+claim_reset
+claim_merged 'map(if .number == 234 then .body = "fix: two issues, one sentence\n\nCloses #235, #213.\n" else . end)'
+claim_rows >/dev/null
+claim_leg 'a comma list claims its first number' claim_class_is 235 unclaimed
+claim_leg '…and its last number too' claim_class_is 213 unclaimed
+claim_leg '…and neither row is dropped' claim_rows_for 235 213
+claim_reset
+claim_merged 'map(if .number == 234 then .body = "fix: two issues, one sentence\n\nRefs #235 and #213.\n" else . end)'
+claim_rows >/dev/null
+claim_leg 'an `and` between numbers is a list' claim_class_is 235 unclaimed
+claim_leg '…on both sides of the word' claim_class_is 213 unclaimed
+claim_reset
+claim_open '[{"number":233,"title":"fix(web): the users page names its own blocking profile","body":"Refs #212 and #213.\n","claims":[]}]'
+claim_rows >/dev/null
+claim_leg 'an open list claims its first issue' claim_no_row 212
+claim_leg '…and its second, on the same line' claim_no_row 213
+
+# 12b. the other side of a list rule: the separator has to BE a separator. Two sentences about two
+#      issues are one claim, because the second number has no verb and no list marker in front of it
+#      -- `#218`'s live "Not here: #149's per-control commit policy" is the shape, and a rule that
+#      swallowed that number would retire #149 from the queue on a sentence saying the opposite.
+claim_reset
+claim_merged 'map(if .number == 234 then .body = "fix: one issue\n\nRefs #232. The same run also covers #228.\n" else . end)'
+claim_rows >/dev/null
+claim_leg 'a second sentence is not a list' claim_class_is 232 delivered
+claim_reset
+claim_merged 'map(if .number == 234 then .body = "fix: one issue\n\nRefs #232.\n\nAlso seen in #228.\n" else . end)'
+claim_rows >/dev/null
+claim_leg 'a second line is not a list' claim_class_is 232 delivered
+
+# 12c. the live body, with both marks in it at once. #221 writes `Part of #219 only; the umbrella is
+#      not finished` eight lines above `Refs #219, #220, #204`, so #219 is refused by two rules and
+#      #220 and #204 by one. #219 is planted open because the real one is closed.
+claim_reset
+claim_issues '. + [{number: 219, title: "The web UI is unusable at 360 px", updatedAt: "2026-11-05T18:00:00Z", stateReason: null}]'
+claim_merged '. + [{number: 221, baseRefName: "main", mergedAt: "2026-11-06T03:37:29Z",
+	body: "feat(web): the 360 px pass, first tranche\n\nI could not tell what the palette said am I\" once it had loaded (Part of #219 only; the umbrella is not finished — the nine 360 px frames are still open).\n\nRefs #219, #220, #204\n"}]'
+claim_rows >/dev/null
+claim_leg '#219 refused on Part of and on the list' claim_class_is 219 unclaimed
+
+# 13. the payload has a SIZE. Every other leg in this section feeds triage.sh a fixture of about two
+#     kilobytes; the live read it stands for returned 632,601 bytes for 100 merged bodies on 8 Nov.
+#     That difference is not a detail -- it is the reason the first version of this verdict did
+#     nothing on the real repository: `jq --argjson m "$merged_json"` passes the payload as ONE
+#     process argument, Linux refuses any single argument over 128 KiB (MAX_ARG_STRLEN) however large
+#     `getconf ARG_MAX` is, the kernel answered E2BIG, and the fallback quietly answered `{}`. Every
+#     leg here stayed green throughout, because a two-kilobyte fixture fits in an argument. So this
+#     leg's plant is measured before it is believed and the assertion is the ordinary one.
+claim_reset
+claim_merged '.[0].body = (.[0].body + ([range(2000)]
+	| map("a verification section the length real pull-request bodies run to, because they do.\n")
+	| add))'
+claim_leg 'the plant is past one argument' bash -c '[ "$(wc -c <"$1")" -gt 131072 ]' _ "$claim_fix/pr-merged.json"
+claim_rows >/dev/null
+claim_leg 'a payload past 128 Ki still delivers' claim_class_is 232 delivered
+claim_leg '…and nothing was refused on the way' bash -c '! grep -q refused "$1"' _ "$claim_err"
+claim_reset
+
+# 14. a payload that is not JSON. `gh` answers some failures with prose on stdout at exit 0, and the
+#     scan's own exit status is then a success: jq reads nothing, prints its complaint, and can answer
+#     `null`. `{}` is a legitimate answer to this question, so the only thing that separates "no
+#     merged claim qualifies" from "the scan did not happen" is the SHAPE of what came back, which is
+#     what the leg asserts -- and the refusal has to be spoken, because the alternative is the silent
+#     `unclaimed` this whole class was filed against.
+claim_reset
+# One open pull request planted beside the garbage, so the leg below has a row to ask about: the
+# point is that the OTHER half of the table is still produced, and with an empty open list there
+# would be nothing to notice.
+claim_open '[{"number":237,"title":"fix(web): the users page names its own blocking profile","body":"Refs #212.\n","claims":[212]}]'
+CLAIM_MERGED_GARBAGE=1
+claim_rows >/dev/null
+claim_leg 'a payload that is not JSON delivers nothing' claim_class_is 232 unclaimed
+claim_leg '…and says the scan refused' claim_err_has 'merged-claim scan refused'
+# The control for the `|| :` on triage.sh's scan. Without it `set -e` ends the pass at the failed
+# substitution and every other row goes with it -- a broken merged read would then stop the whole
+# queue, which is a worse failure than the one being refused. Measured that way before the `:` was
+# added: the table came back empty and the only words on stderr were jq's.
+claim_leg '…and the pull-request rows survive' claim_table_has pr 237 needs_reviewer
+claim_leg '…and an unrelated issue is still listed' claim_table_has issue 235 unclaimed
+CLAIM_MERGED_GARBAGE=
+claim_reset
+
+# --------------------------------------------------------------- the supervisor's arm
+#
+# `delivered` is the first class factory.sh has no work for, so the pair of invariants worth pinning
+# is: nothing in the dispatcher treats it as work, and every class the classifier can print has an
+# arm -- because a class that reaches the `*` arm halts the whole pass with UNKNOWN-CLASS, which is a
+# queue that stops on a class name.
+delivered_arm_reports_only() {
+	local arm
+	arm=$(awk '/^[[:space:]]*delivered\)/{f=1} f{print} f&&/;;/{exit}' "$HERE/factory.sh")
+	[ -n "$arm" ] || {
+		printf '            factory.sh has no `delivered)` arm at all\n' >&2
+		return 1
+	}
+	case "$arm" in
+	*start_tick* | *'gh '*)
+		printf '            the arm does more than report:\n' >&2
+		printf '%s\n' "$arm" | sed 's/^/              /' >&2
+		return 1 ;;
+	esac
+	case "$arm" in
+	*log_event*) return 0 ;;
+	esac
+	printf '            the arm neither starts a tick nor reports anything:\n' >&2
+	printf '%s\n' "$arm" | sed 's/^/              /' >&2
+	return 1
+}
+claim_leg 'the delivered arm only reports' delivered_arm_reports_only
+# Its control, planted outside the repository: the same scan over a copy whose arm starts a tick has
+# to say no, or the ok above is the check being blind.
+mkdir -p "$work/armstart/factory"
+awk '/^[[:space:]]*delivered\)/{print; print "\t\t\tstart_tick \"issue\" \"$key\" \"$detail\"; continue"; next}
+	{print}' "$HERE/factory.sh" >"$work/armstart/factory/factory.sh"
+if (HERE=$work/armstart/factory delivered_arm_reports_only) 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s an arm that starts a tick was accepted, so the ok above\n' "control: delivered arm"
+	printf '          is the check being blind.\n'
+else
+	printf '        control: the same scan over a copy whose arm calls start_tick says no, so the\n'
+	printf '        ok above is the check working and not the check being blind.\n'
+fi
+
+case_arm_for() { # case_arm_for <factory.sh> <class> -> 0 when some case pattern names it
+	claim_case_words "$1" | grep -qx -- "$2"
+}
+claim_case_words() { # claim_case_words <factory.sh> -> every lower-case case-pattern word it holds
+	# Anchored on the line and on the closing paren, so an argument parser's `--max-ticks)` and an
+	# exit-code `0)` cannot pass for a class arm: the character class excludes `-` and digits.
+	grep -oE '^[[:space:]]+[a-z_]+( *\| *[a-z_]+)*\)' "$1" 2>/dev/null |
+		# The tab has to go too: every case pattern in factory.sh is indented with tabs, and a word
+		# that still carries one matches no class name exactly, so every class looked undispatched.
+		tr -d ' \t)' | tr '|' '\n' | sort -u
+}
+triage_emitted_classes() { # triage_emitted_classes <triage.sh> -> every class it can put in column 3
+	# Two shapes, on purpose. Every class is emitted inline today, so the awk scan is the live one;
+	# the `class=` scan is there for the refactor that decides into a variable and passes "$class",
+	# which the awk scan cannot see -- and a check that goes blind on a refactor is exactly the
+	# silence this whole section is written against.
+	{
+		grep -oE '^[[:space:]]*class=[a-z_]+' "$1" 2>/dev/null | sed 's/.*=//'
+		awk '{ line = $0; sub(/^[ \t]+/, "", line); if (line ~ /^#/) next;
+			  for (i = 1; i < NF; i++)
+			    if ($i ~ /emit$/ && $(i + 3) ~ /^[a-z_]+$/) print $(i + 3) }' "$1"
+	} | sort -u
+}
+
+triage_classes_without_an_arm() { # <root> -> the classes triage.sh can print that factory.sh lacks
+	local root=$1 classes class
+	classes=$(triage_emitted_classes "$root/factory/triage.sh")
+	if [ -z "$classes" ]; then
+		printf 'no class could be read out of triage.sh, so this check is blind\n'
+		return 0
+	fi
+	for class in $classes; do
+		case_arm_for "$root/factory/factory.sh" "$class" ||
+			printf '%s: triage.sh can print it and factory.sh has no arm for it\n' "$class"
+	done
+}
+triage_arm_coverage() {
+	local label="every class has a dispatch arm" root bad
+	root=$(cd -- "$HERE/.." && pwd)
+	bad=$(triage_classes_without_an_arm "$root")
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a row would reach the `*` arm and halt the pass with\n' "$label"
+		printf '          UNKNOWN-CLASS: a queue that stops because of a class name.\n'
+		printf '%s\n' "$bad" | while IFS= read -r line; do printf '            %s\n' "$line"; done
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-40s every class triage.sh can print has an arm; `delivered` starts no tick\n' "$label"
+	fi
+
+	# Both controls, planted outside the repository. A presence check that cannot say absent is the
+	# check being blind, and there are two ways to be blind here: a class nobody looks for, and an
+	# arm nobody deleted.
+	mkdir -p "$work/arms/factory"
+	sed 's/emit pr "$number" conflict/emit pr "$number" phantom_class/' \
+		"$root/factory/triage.sh" >"$work/arms/factory/triage.sh"
+	cp "$root/factory/factory.sh" "$work/arms/factory/factory.sh"
+	if [ -n "$(triage_classes_without_an_arm "$work/arms")" ]; then
+		printf '        control: a class planted in triage.sh with no arm beside it is reported,\n'
+		printf '        so the ok above is the check working and not the check being blind.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a planted class with no arm was not reported.\n' "control: $label"
+	fi
+	mkdir -p "$work/arms2/factory"
+	cp "$root/factory/triage.sh" "$work/arms2/factory/triage.sh"
+	sed '/^[[:space:]]*delivered)/,+2d' "$root/factory/factory.sh" >"$work/arms2/factory/factory.sh"
+	if [ -n "$(triage_classes_without_an_arm "$work/arms2")" ]; then
+		printf '        control: deleting the `delivered)` arm is reported too -- it is five lines\n'
+		printf '        out of a two-hundred-line dispatcher and nothing else would notice.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s deleting the delivered arm was not reported.\n' "control: $label"
+	fi
+	return 0
+}
+triage_arm_coverage
+claim_reset
+
+
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
 	exit 1
