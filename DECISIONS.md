@@ -1426,10 +1426,10 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   one it fixed: `manifest.py check` compares bytes to bytes and `check-decisions.py` reads entries, so no
   gate in this repository can see a markdown cell asserting a hash. The row this entry fixes was the one
   that spoke in the present tense about what the manifest records, and the scripts-pair table named above
-  is a second such row -- one nobody was reading, 429 lines and six headings (four `##`, two `###`) below
-  the `audit.png` row that cites it. Every position in this item is quoted as `D-0039` wrote it and is
-  replaced by the heading that owns the site: `D-0043` measures the same three citations drifting twice
-  more while #225 sat in review.
+  is a second such row -- one nobody was reading, six headings (four `##`, two `###`) and 430 lines below
+  the `audit.png` row that cites it, measured at `a4691ab`. The line numbers this item first gave are
+  replaced by the heading that owns each site; `D-0041` keeps the originals verbatim inside its quotation,
+  and `D-0043` measures all three drifting twice more while #225 sat in review.
 - Checkpoint: 5f6738e57ed453c6382134404bbacf25b55a1fbf
 - Effect: testing/capture/README.md (the `audit.png` row and the two-zone sentence it points at),
   pull request #225
@@ -1570,8 +1570,8 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   quoted above were exact when `D-0039` wrote them -- `904b42b`, `540c55e` and `29bc88c` all read the tally
   at :626 and the published pair at :700 -- and `7cd7d0ba`'s eight inserted lines moved them to :634 and
   :708 before this entry quoted them again, which is what makes them stale at the commit that writes them
-  rather than merely later. #225's next prose commit moved them once more, to :639 and :713. `D-0043`
-  re-cites each of them by the heading that owns the site, which is the form that cannot rot.
+  rather than merely later. #225's own prose commits moved them once more, to :640 and :714 at `a4691ab`,
+  and `D-0043` re-cites each of them by the heading that owns the site, which is the form that cannot rot.
 - What this costs, stated rather than glossed. (1) The log now carries three correction markers
   (`D-0024`, `D-0030`, `D-0039`), which is the cost `D-0029` priced in advance and accepted: the log
   reads as a record of being wrong rather than as a clean ledger. (2) `D-0039`'s "What this costs" is now
@@ -1670,15 +1670,16 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Chose: re-cite every site by the heading that owns it and re-word the vouch as true-of-the-head-it-names
 - Why: measured on four heads, because the claim is about motion and not about style. `git show <head>` of
   the README and one grep per site gives: tally at :626 and published pair at :700 at `904b42b`,
-  `540c55e` and `29bc88c`; :634 and :708 at `7cd7d0ba` and at the head the review graded, `6058c6c`; :639
-  and :713 at the head this branch pushes next. So the numbers were exact when `D-0039` wrote them, moved
-  before `D-0041` quoted them again, and moved a third time under `D-0042` -- a branch whose whole subject
-  is a citation that outran its file re-stuck its own citations twice while it was fixing that subject.
-  "Two sections below" was never right either: from the `audit.png` row the table is six headings (four
-  `##`, two `###`) and 429 lines down. A heading is the form that cannot rot, because moving prose between
-  headings does not touch it and renaming one is a deliberate edit to the cited thing rather than an
-  accident nobody reads. The vouch re-worded for the same reason: `D-0041`'s own conclusion is that no gate
-  in this repository reads a markdown cell -- `manifest.py check` compares PNGs to their sources and
+  `540c55e` and `29bc88c`; :634 and :708 at `7cd7d0ba` and at the head the review graded, `6058c6c`; :640
+  and :714 at `a4691ab`, this branch's own rewrap commit. So the numbers were exact when `D-0039` wrote
+  them, moved before `D-0041` quoted them again, and moved twice more under this branch's own commits -- a
+  branch whose whole subject is a citation that outran its file re-stuck its own citations while it was
+  fixing that subject. "Two sections below" was never right either: from the `audit.png` row the table is
+  six headings (four `##`, two `###`) and 430 lines down at `a4691ab`. A heading is the form that cannot
+  rot, because moving prose between headings does not touch it and renaming one is a deliberate edit to the
+  cited thing rather than an accident nobody reads. The vouch re-worded for the same reason: `D-0041`'s own
+  conclusion is that
+  no gate in this repository reads a markdown cell -- `manifest.py check` compares PNGs to their sources and
   `check-decisions.py` reads entries -- so "checkable against the manifest" promised a check that does not
   exist. The reviewer re-ran the vouch anyway and it survives on better ground, and that ground is now
   measured here rather than asserted there: `4739939` (2026-11-06T03:47:47Z, the commit that introduced
