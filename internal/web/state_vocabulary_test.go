@@ -118,12 +118,28 @@ func TestEveryStateClassTheTemplatesNameIsDrawn(t *testing.T) {
 //
 //   - A rule's selector is everything between the previous `}` (or the start of the file) and its
 //     `{`, and the declaration blocks in this file contain no braces -- so one pass splits the file.
-//   - An at-rule's preamble (`@media (prefers-color-scheme: dark) {`) is not a selector, and this
-//     file's dark block re-declares the palette tokens rather than classes. Dropping what precedes a
-//     chunk's last `{` means an at-rule contributes no class names, which is right for `:root` and
-//     means a class styled ONLY inside an at-rule would not be seen. Every state class in this file is
-//     styled in both schemes, so the census does not lean on that; if one day it does not, the answer
-//     is to read the at-rule's body, not to widen the selector net.
+//   - An at-rule's preamble (`@media (prefers-color-scheme: dark) {`) is not a selector, and no filter
+//     keeps it out -- a fact about it does. A chunk is cut at its FIRST `{`, so the text read as a
+//     selector is whatever precedes that brace, and a preamble carries no `.name` token. So an at-rule
+//     contributes class names only through rules written after a `}`. That has one consequence, and this
+//     stylesheet contains the case: the FIRST rule inside an at-rule body shares its chunk with the
+//     preamble and is therefore read as the preamble. `app.css:239` opens a dark block whose first inner
+//     rule is `tr.held` at :240, and that declaration is invisible here, while `tr.unreadable,
+//     tr.stale` and `tr.unmanaged` later in the same block are seen (the block read on its own yields
+//     `stale unmanaged unreadable` -- no `held`). Measured rather than inferred: `@media (x){ .a{} }` yields []
+//     and `@media (x){ .a{} .b{} }` yields [b]. Nothing in this test turns on it today -- the four row
+//     classes carry no `state-` prefix, so neither direction here asks about them, and `held` is in the
+//     map anyway from its top-level rule at :227 -- but a state class drawn only inside a dark block,
+//     written first, would be missed. What that costs is not symmetric, so it is stated per direction:
+//     the first assertion ("a `state-` word a template says and the stylesheet never mentions") would
+//     cry wolf, and the second ("a rule for a word nothing says") would stay quiet. If it ever matters,
+//     the answer is to read the at-rule's body, not to widen the selector net -- and widening it is the
+//     loose direction for the first assertion, which is the one worth keeping strict.
+//
+// There used to be an `if strings.Contains(sel, "@")` arm below, meant to drop that preamble. `sel` is
+// the text up to the first `{`, so it can contain `@` and can never contain `{`; `LastIndex(sel, "{")`
+// is therefore always -1 and the branch assigned `sel[0:]`, which is `sel`. It changed nothing, and the
+// doc above described it working. It is gone, and this note is here so nobody writes it back.
 //
 // One limit stated rather than hidden: the comma split is textual, so a class written inside a
 // functional pseudo-class argument -- this file has `label:has(> input:is([type="radio"],
@@ -140,9 +156,6 @@ func stylesheetRules(css string) map[string]bool {
 			continue
 		}
 		sel := chunk[:i]
-		if strings.Contains(sel, "@") {
-			sel = sel[strings.LastIndex(sel, "{")+1:]
-		}
 		for _, part := range strings.Split(sel, ",") {
 			for _, m := range class.FindAllString(part, -1) {
 				out[m[1:]] = true

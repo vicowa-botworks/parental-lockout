@@ -1832,7 +1832,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   and its date, with the same command's result at this head), this entry, pull request #225
 
 
-## D-0045 · A state word is drawn by a rule, and the stylesheet had written one of nine
+## D-0045 · A state word is drawn by a rule, and the stylesheet had written one of the thirteen
 
 - Question: #199 reports the web UI as "very basic" and asks which decisions carry no visible state.
   `internal/web/static/app.css` styles `.state-held` and `.state-free` and nothing else in that
@@ -1843,17 +1843,44 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   elements | one rule per class the pages already name, with the effect measured in Chrome | escalate
   the palette to a designer and ship nothing here
 - Chose: one rule per class the pages already name, with the effect measured in Chrome
-- Why: the located cause is not taste. The pages already put a class on every state word — thirteen of
-  them, nine on words and four on rows — and `app.css` wrote a rule for two, so eight of the thirteen
-  computed exactly what the sentence around them computes. Measured in Chrome on the pre-fix tree at
-  360 px: `/users` renders six state words and zero are drawn, `/` renders four and one is (`locked
-  out`, the red bold one), `/profiles` renders two and zero are drawn. Markup was never the missing
-  half. That is also why the token pass is the option that loses least: the palette exists (`--held`,
+- Why: the located cause is not taste. The pages already put a class on every state word — the
+  thirteen names in the census the guard reads (`cdp.STATE_CLASSES`: nine on words, four on rows) — and
+  `app.css` wrote a rule for one of them, `.state-held`, so twelve of the thirteen computed exactly what
+  the sentence around them computes. Thirteen is the base, for the reason `D-0048` records: it is the
+  set the shipped guard counts, so the denominator in this entry and the denominator in the driver's
+  `states=N drawn=M` line are one number, and it keeps the four row classes — the half a word-only count
+  hides, which had no rule at all — inside the total. Restricted to the nine word classes the same
+  measurement is eight of nine undrawn, and that is the same fact on the narrower set, not a second
+  count. What `app.css` also styled, `.state-free`, is not one of the thirteen: no template has ever
+  emitted it, which is why the census leaves it out, and counting it among the thirteen was the error
+  `D-0046` corrects. The per-page numbers are the guard's, not a hand count of words on a page, because
+  the two disagree by design (the guard counts every element carrying a census class, including rows and
+  repeats): `/` refuses with 4 of 5 undrawn, `/users` 9 of 9, `/profiles` 1 of 1 and 2 of 2 on the
+  refused-write frame, `/settings` 2 of 2, and `/audit` passes honestly at `states=0 drawn=0` because it
+  renders no state word at either viewport. Markup was never the missing half. That is also why the
+  token pass is the option that loses least: the palette exists (`--held`,
   `--free`, `--muted`, `--warn` added here, dark variants beside each), and what was missing was the
-  decision about *what a state word is allowed to be drawn with*. That decision is written into the
-  rules rather than left to a reviewer: colour plus one of weight, style, underline or a box property,
-  because the ticket's own requirement is that a state survive greyscale and colour-blind vision, and a
-  guard that checks only contrast would pass a word whose entire distinction is a hue nobody can see.
+  decision about *what a state word is allowed to be drawn with*. That decision is recorded here and
+  deliberately not written into the guard, and the log should have said so the first time. The guard
+  accepts **any one** visible channel: `cdp._state_lookalikes` (`testing/capture/cdp.py:1106`) passes an
+  element when one inherited property differs from its parent's *or* it carries a border or a background
+  of its own; `pages.py:3230` registers the rule under the literal name "any one visible channel counts
+  as drawn"; the self-test beside it, `one_visible_channel_is_enough` (`testing/capture/pages.py:3000`),
+  holds the guard green for each of six marks given alone — colour, weight, italic, underline, a 3px rule,
+  a tinted background — and says in its own docstring that "the guard prescribes none of the six"; and
+  `cdp.py:1134` states it in the guard's voice, "Nothing here says WHICH treatment a state gets". So
+  colour alone passes, and four of the classes this entry ships are colour alone: `.state-gap`
+  (`app.css:171`), `.override` (`:194`), `.override-expired` (`:198`) and `.disabled` (`:202`). That is a
+  design choice, and it survives the ticket's own greyscale requirement by measurement rather than by
+  assertion: separated from the ink they sit in, `--warn` is 2.69:1 and `--muted` 2.78:1 in the light
+  scheme beside the pre-existing `--held` 2.61 and `--free` 2.60, and 2.24 and 2.10 in the dark scheme
+  beside 2.28 and 1.73 — no more hue-dependent than the red this branch was handed, and not the weakest
+  marks in the file. What the guard refuses is the case where the stylesheet said nothing about the class;
+  what it prescribes is nothing, because the last time this repository put one designer's answer into a
+  guard (#229's `nav a:hover` above the current-page rule) the guard had to grow three more properties to
+  stay honest. Anyone who later wants the channel-counting rule that an earlier draft of this entry
+  claimed the guard enforced — colour *plus* one of weight, style, underline or a box — should know what
+  it would cost: it refuses four of the nine word rules as shipped.
   The four inherited channels — colour, weight, style, decoration — are the ones that travel from the
   prose an element sits in, so those are the four compared against its parent; `border-left-width` and
   `background` are not, because a `td` sits in a row whose border is the row's, and the first version
@@ -1904,13 +1931,30 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `users.tmpl:61` and `lock.tmpl:93` are real, and thirteen is the census the code carries (9 words + 4
   rows). The citations written for #239 are a separate matter and are wrong enough to need their own
   entry, so they have one below rather than a quiet edit up there.
+- Correction (`D-0048`, 8 Nov): the re-review filed at `2026-11-08T18:41:12Z` found two claims this entry
+  still made about its own guard, and both are now corrected in the prose above rather than only in a
+  note beneath it. (i) It said the channel rule is "written into the rules rather than left to a
+  reviewer: colour plus one of weight, style, underline or a box property". The guard enforces no such
+  thing: `cdp._state_lookalikes` passes any one channel, `pages.py:3230` is named "any one visible channel
+  counts as drawn", and `one_visible_channel_is_enough` proves colour alone passes — so the entry now
+  records the channel choice as a decision this log makes and the guard deliberately does not, with the
+  greyscale separation of the four colour-only classes measured beside it. (ii) Its base is now stated
+  as the thirteen-name census — one drawn, twelve undrawn, the nine-word subset named as a subset — and
+  its `Why:` no longer counts words off a page (`/users` six, `/` four, `/profiles` two), a hand count
+  that disagreed with the verbatim driver refusals quoted ten lines below it in `D-0046`'s correction.
+  `D-0048` is the entry that chooses the base and says what each alternative would have hidden. The false
+  sentences survive here, in `D-0046`'s correction above, in the re-review, and in the message of
+  `3bcbfdd`, which cannot be rewritten.
 - Checkpoint: 6c3773999b2054d664ec6a113e4e5a758ca391e8
 - Effect: internal/web/static/app.css (`--warn` in both schemes; `.state-unknown`, `.state-gap`,
   `.banner`, `.flag`, `.problem`, `.override`, `.override-expired`, `.disabled`, `tr.held`,
   `tr.unreadable, tr.stale`, `tr.unmanaged` with their dark variants), internal/web/state_vocabulary_test.go
   (new: the name seam and the selector reader's own probe), testing/capture/cdp.py (`STATE_CLASSES`,
-  `ROW_STATE_CLASSES`, `STATE_JS`, `measure`, `state_problems`, `require_state_legible`,
-  `format_state_line`), testing/capture/pages.py (the census line, the coverage rule, `import re`,
+  `ROW_STATE_CLASSES`, `STATE_JS`, `STATE_PROPS:1040`, `measure:343`, `state_census_line:1092`,
+  `_state_painted:1072`, `_state_rows:1077`, `_state_lookalikes:1106`, `require_state_legible:1123` —
+  the two names this line used to carry, `state_problems` and `format_state_line`, are not functions in
+  the file: `D-0046` caught the first and the re-review caught the second, which had survived it),
+  testing/capture/pages.py (the census line, the coverage rule, `import re`,
   `EXPECTED_RULES` 60→68), testing/capture/lock.py and testlock.py (the same census on their frames),
   testing/capture/README.md (the refusal row, and the note that #199's re-take moved eight of nine
   frames including the two `d439f70` reported identical), docs/screenshots/360/* (re-taken set and its
@@ -1980,6 +2024,18 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   entry and the `D-0045` correction above), issue #239's body (re-derived citations, six jobs for
   `problem`, two for `override`), pull request #240's body and a correction comment there, a correction
   comment on #199, and the message of `3bcbfdd`, which stays as pushed
+- Correction (`D-0048`, 8 Nov): the three GitHub artifacts this `Effect:` names after #239 did not happen.
+  Read back the same day: #240's body still carries all five citations this entry retracted; #240 holds two
+  comments, 17:28:05Z and 18:31:07Z, and #199's newest before this round was 17:28:30Z -- all three earlier
+  than `fb4af4e`, the commit carrying this entry, at 17:34:11Z -- and read in full, the 17:28 pair is the
+  gate-and-reviewer-request note and says nothing about the citations. #239's body is the one artifact of
+  the four that changed. So the thing this entry's `Chose:` promised, "publish the corrected numbers
+  visibly on each artifact", was done on one of four, and this log asserted four until the reviewer
+  re-measured the head at 18:41:12Z. `D-0048` measures it, finds the third place the false guard property was
+  published (#199's 17:28:30Z comment, addressed to the user whose requirement it invokes), and puts a
+  read-it-back rule on every write this round makes. What this entry concluded is untouched: all five
+  citations are still wrong, the shipped driver rule still holds, and the reason nothing caught the prose is
+  still that nothing re-read it -- now including a log line that re-read nothing and claimed four writes.
 
 ## D-0047 · The change request #240 was poked for is not on GitHub, so there was nothing to answer
 
@@ -2009,8 +2065,14 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `pr240-review` appears in 0 rows of the local session store (`~/.local/share/opencode`, 6.1 GB, both
   the `part` and `session_part` tables), so no session on this box ever held it; `session_v2` between
   17:00Z and 19:00Z holds five factory ticks and the historian, no reviewer. `git log --all -S
-  'pr240-review'` answers nothing, so no commit ever contained it. `gh pr view 240 --json comments` holds
-  two comments, both mine, both before the review, and #199's newest comment is mine at 17:28:30Z. And
+  'pr240-review'` answers nothing, so no commit ever contained it. `gh pr view 240 --json comments` held
+  one comment, mine at 17:28:05Z, before the review; the second row, 18:31:07Z, is this entry's own
+  escalation comment and postdates it. What was measured is that no *issue comment* carried the review's
+  text, not that there were two comments and both predated it — an earlier draft of this line said "two
+  comments, both mine, both before the review", which cannot be true of the file at any point on the
+  clock, because before 18:31:07Z it held one and after it holds two with one *after* the review.
+  #199's newest comment as I wrote it was mine at 17:28:30Z; the pointer this entry sent is now newer
+  there at 18:30:25Z. And
   `gh pr view 240 --json reviews --jq '.reviews | length'` is 1: there is no second review carrying the
   prose. So GitHub holds only those 21 bytes. Why it holds a path is an inference rather than a
   measurement -- the shape says the reviewer passed the file as `--body @/tmp/pr240-review.md`, and `gh`
@@ -2033,10 +2095,137 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   answered. That is why the marker goes in the pull request's comment, labels and body rather than in its
   queue class, and why the comment on #240 opens by saying that this commit answers the review none.
 - Checkpoint: n/a
-- Awaiting: the review text for `fb4af4e`, from `hermesvicowa`, re-posted where a tick can read it --
-  `gh pr review 240 --request-changes --body-file /tmp/pr240-review.md`, or the file's contents pasted
-  into a comment on #240. Nothing else unblocks the unit: no read inside this harness recovers a body
-  that was never uploaded, and the only alternatives are putting words in a reviewer's mouth or stopping.
+- Awaiting: answered at `2026-11-08T18:41:12Z`, and the durable half belongs to #242. The text arrived:
+  the re-review filed at that timestamp carries the 18:19:17Z ask verbatim, submitted with
+  `gh api --input payload.json` -- a JSON body built by `json.dump`, where a filename cannot masquerade as
+  content -- so the unit was unblocked by the reviewer, not by any read this harness has. Say plainly what
+  the original `Awaiting:` was worth: `gh pr review 240 --request-changes --body-file
+  /tmp/pr240-review.md` is the right recovery for a person who still has the file on the machine that filed
+  it, and it is not a fix for the queue. It depends on one reviewer's `/tmp`, and the next change request
+  filed with `--body @path` lands a 21-byte verdict on some other pull request and dispatches another tick
+  with a timestamp and no ask. The fix that outlives this instance is on the submission side and #242 is
+  where both ends belong -- `factory/triage.sh:188-190`, which projects every review down to `{u,s,t}` and
+  drops `.body`, and the client that let `gh api -f body=@/tmp/pr240-review.md` answer 200 with a healthy
+  review row after sending 21 bytes. The reviewer's own predicate is recorded on #242: an
+  `address_review` dispatch should refuse a `CHANGES_REQUESTED` whose body is empty, or 40 bytes or under,
+  or matches `^@?/[\w/.-]+$`, because that is the shape of a lost ask.
 - Effect: this entry; a comment on #240 quoting the measurement and the five routes; the `blocked` and
   `question` labels on #240; a status block prepended to #240's body; a pointer on #199; and one issue for
   the missing transport in `factory/triage.sh`.
+
+## D-0048 · The re-review arrived with its text and asked for one base, and for a guard property this log does not own
+
+- Question: At `2026-11-08T18:41:12Z` -- 703 seconds after the head commit it graded -- `hermesvicowa`
+  re-reviewed at `6e0169d` and the body arrived this time: 14863 bytes read back from the API, filed with
+  the payload taken from an `--input` JSON file, carrying the unread `18:19:17Z` ask verbatim (whose source
+  file, 9088 bytes, the reviewer reports is still on the box that filed it). `D-0047`'s escalation
+  is therefore answered and there is a real ask to work. Two blocking items, both prose this branch
+  published about itself, and the reviewer re-measured both at this head. (1) `D-0045` says the channel
+  rule is "written into the rules rather than left to a reviewer: colour plus one of weight, style,
+  underline or a box property"; the shipped guard is self-tested *not* to have it. (2) The pre-fix count is
+  on the record as *two of thirteen* (`DECISIONS.md:1847`, and #240's body leading with "two of them … the
+  other eleven"), *one of nine* (the entry's title), *eight of thirteen* (the same sentence's other half)
+  and *one* (`D-0046`) -- four numbers and no stated base. So: which base does this repository use, and does
+  a false sentence stay where a reader meets it? And is the log made to say what the guard does, or the
+  guard made to say what the log claims? Three nits of the same class came with them: `D-0045`'s `Effect:`
+  still names `state_problems`, which is not a function in `cdp.py`; #240's body reports `--self-test`
+  printing 68 where head prints 69; and `state_vocabulary_test.go` documents an at-rule filter its own code
+  does not contain.
+- Options: keep the nine-word base, leave `D-0045`'s live prose alone and add a third dated correction
+  beneath it | settle on the thirteen-name census base, rewrite the guard-property claim to what
+  `cdp._state_lookalikes` actually enforces, and leave the false sentences in the dated corrections and in
+  the commit messages that cannot be rewritten | move the guard to match the published claim, requiring
+  colour plus one more channel, so the sentence becomes true by changing shipped behaviour | answer only the
+  two blocking items and leave the re-review's three nits for the next tick
+- Chose: settle on the thirteen-name census base, rewrite the guard-property claim to what
+  `cdp._state_lookalikes` actually enforces, and leave the false sentences in the dated corrections and in
+  the commit messages that cannot be rewritten
+- Why: the base first, because three numbers with no base is the defect rather than three numbers. The
+  shipped guard counts thirteen names (`cdp.STATE_CLASSES`, `testing/capture/cdp.py:995`: nine words plus
+  four rows) and prints a fraction of them on every page, so the thirteen-name base is the only one whose
+  denominator is the number the driver prints. Re-measured with this branch's own reader, not by hand:
+  `stylesheetRules` over `git show 6c37739:internal/web/static/app.css` returns seven class names --
+  `inline masthead__name muted request-id rows state-free state-held` -- exactly one of them in the census,
+  so twelve of thirteen undrawn, and eight of nine on the word subset. Both are now in `D-0045` with the
+  base named, and the subset is called a subset so that the entry's older "one of nine" reads as the
+  narrower count instead of a fifth contradiction. The nine-word base loses on the tie-break that prefers
+  the reading which cannot under-count: it hides the four row classes, the half that had no rule at all --
+  `grep -n "tr\.\|tbody tr" app.css` on the checkpoint answers nothing -- and a reader holding "eight of
+  nine" has no number at all for the finding the coverage rule actually turned up. What choosing thirteen
+  costs is worth stating: `state-free` is drawn and is not in the census, because no template has ever
+  emitted it, so the pre-fix stylesheet wrote two state *rules* and drew one state *the pages use*, and the
+  entry has to hand a reader that split rather than a single clean fact. It now does, in the same sentence.
+  The guard item stings, because the reviewer is right and this branch's own self-test is the
+  counter-evidence. `cdp._state_lookalikes` (`testing/capture/cdp.py:1106`) passes an element when one
+  inherited property differs from its parent's *or* it carries a border or a background of its own;
+  `pages.py:3230` registers the rule under the literal name "any one visible channel counts as drawn"; the
+  self-test beside it, `one_visible_channel_is_enough` (`pages.py:3000`), runs six marks each given alone --
+  colour, weight, italic, underline, a 3px border, a tinted background -- and fails if any one is refused,
+  its docstring saying "the guard prescribes none of the six"; and `cdp.py:1134` states it in the guard's
+  own voice, "Nothing here says WHICH treatment a state gets". So the log claimed a property the guard is
+  tested to refuse, on the artifact whose entire job is to be the record of what was decided. The option
+  that would make the sentence true -- colour plus one more channel -- is refused here on measurement and
+  not on taste: it rejects four of the nine word rules as shipped (`.state-gap` `app.css:171`, `.override`
+  `:194`, `.override-expired` `:198`, `.disabled` `:202`, each colour and nothing else), and the property it
+  would buy is not what it sounds like. Separated from the ink they sit in, `--warn` is 2.69:1 and
+  `--muted` 2.78:1 in the light scheme beside the pre-existing `--held` 2.61 and `--free` 2.60, and in the
+  dark scheme 2.24 and 2.10 beside 2.28 and 1.73: the four marks this branch added are no more
+  hue-dependent than the red it inherited, and two inherited marks are weaker than any of the four. A
+  channel-counting guard would therefore not protect a colour-blind reader, it would enforce one designer's
+  answer -- which is what #229's `nav a:hover` pin became three more properties later. The log now says what
+  the code says: the guard refuses the case where the browser was told nothing, the choice of channel is a
+  decision recorded here, and the ratios above are what defends the choice.
+  Why the nits are not deferred: all three are the same failure as the two blocking items -- published prose
+  asserting a mechanism the tree does not have -- and the one that was deferred once is the reason `D-0046`
+  had to exist. `state_problems` is `D-0046`'s own miss: it corrected `format_state_line` and left its
+  neighbour on the same line claimed. The 68 is #240's body quoting a printed count that `fb4af4e` itself
+  invalidated -- `EXPECTED_RULES` is 69 at `pages.py:1058`, and `./testing/capture/pages.py --self-test`
+  prints "69 refusal rules hold" at this head -- and the durable fix is to stop restating a number a rule
+  addition moves. The Go comment is the one that needed code rather than prose: it described dropping what
+  precedes a chunk's last `{`, while `sel` is cut at the chunk's FIRST `{`, so `sel` can contain `@` and can
+  never contain `{`, so `LastIndex(sel, "{")` is always -1 and the branch assigned `sel[0:]`, which is `sel`.
+  Deleting it is provably behaviour-neutral: a scratch program running both readers over the real `app.css`
+  returns the same 19 class names, and agrees over six synthetic shapes including `@media (x){ .a{} }`
+  (yields nothing) and `@media (x){ .a{} .b{} }` (yields `b`). With the arm gone the comment describes the
+  mechanism that is there -- a preamble carries no `.name` token, which is what keeps `:root` and `@media`
+  out of the census -- and names the case the old comment asserted did not exist: the FIRST rule inside an
+  at-rule shares its chunk with the preamble and is never read, so the dark `tr.held` at `app.css:240` is
+  invisible to this reader (that block, read on its own, yields `stale unmanaged unreadable`), while `held`
+  is in the map anyway from `:227` and no row class carries the `state-` prefix this test asks about.
+  Widening the reader was refused: for the assertion that matters -- a `state-` word a template says and the
+  stylesheet never mentions -- reading more classes as styled is the loose direction.
+  One thing this round found that nobody asked about, and it is wider than the ask. `D-0046`'s `Effect:`
+  names four artifacts it corrected outside this file: #239's body, #240's body, "a correction comment
+  there" on #240, and a correction comment on #199. Read all four back. #239's body carries the correction
+  under its own heading, as claimed. #240's body still carries all five retracted citations verbatim --
+  `profiles.tmpl:101` and `:204` as form-field labels, `profiles.tmpl:114`, `users.tmpl:58`,
+  `settings.tmpl:151`, "19 of the 20 `.override` elements on `/profiles`". Neither correction comment
+  exists: #240 has two comments, 17:28:05Z and 18:31:07Z, and #199's is 17:28:30Z, while `D-0046` landed in
+  `fb4af4e` at 17:34:11Z -- so on the clock alone none of the three can be it, and reading them confirms it
+  (the 17:28 pair are the gate-and-reviewer-request note). So one write of four happened, and the log says
+  four. And #199's 17:28:30Z comment is worse than stale citations: it tells the user who filed the ticket
+  that "A state is still required to be distinguishable without colour: colour **plus** one of weight,
+  style, underline or a box property, checked in the browser" -- the same false guard property the
+  re-review is blocking on, published to the person whose requirement it invokes. The reviewer scoped item
+  1 to "the decision log and the PR body" because that is all they could see; the blast radius is three
+  artifacts, not two. It is the same shape as the lost review body one level up: a call that reports success
+  and changes nothing on the server, with the log asserting the delivery. Two rules follow and both are
+  applied here: this round's writes go in with `--body-file` / `--body-file` on a file and are then read
+  back from the API and checked for the sentence that should be there and the one that should not, and the
+  false text on #199 is answered by a dated comment rather than by editing the comment -- for the reason
+  `D-0046` itself gives, a silently corrected artifact is indistinguishable from one that was always right.
+- Checkpoint: 36f43f17bab73e6ab3b94570629bc1f4c5f877d4
+- Effect: DECISIONS.md (this entry; `D-0045`'s title, its `Why:` count and per-page numbers, its
+  guard-property paragraph and its `Effect:` symbol list, with a dated `D-0048` correction naming both false
+  sentences; `D-0047`'s comment count, dated, and its `Awaiting:`, which now points at #242 rather than at
+  one reviewer's `/tmp`; and a `D-0048` correction on `D-0046`'s `Effect:`, which claimed four GitHub writes
+  and got one); internal/web/state_vocabulary_test.go (the at-rule doc rewritten to the mechanism
+  that exists, and the no-op arm deleted -- behaviour proven identical); pull request #240's body, rewritten
+  and read back from the API; a comment on #240 answering the two blocking items and the three nits where
+  each was filed; a dated correction comment on #199, because that is the artifact where the false guard
+  property was published to the user and it is older than this round, so it is answered rather than edited;
+  a comment on #242 carrying the reviewer's predicate for a lost ask and the submission side
+  that produced it; and the `blocked` and `question` labels taken off #240, because the reason they went on
+  -- the ask could not be read -- no longer holds. No shipped product line moved: `app.css`, `cdp.py`,
+  `pages.py`, `lock.py`, `testlock.py`, the templates and the nine frames are untouched, so the manifest
+  needed no re-record.
