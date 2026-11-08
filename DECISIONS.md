@@ -1416,3 +1416,67 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Checkpoint: 5f6738e57ed453c6382134404bbacf25b55a1fbf
 - Effect: testing/capture/README.md (the `audit.png` row and the two-zone sentence it points at),
   pull request #225
+
+## D-0040 · The two-zone pair is a run-vs-run measurement, and it was quoted as certifying nine artifacts against the committed bytes
+
+- Question: #225's round-5 blocking 1 is aimed at this section's own sentence -- "came back with the
+  bytes committed at that head for all nine artifacts -- the two POST frames among them" -- and it is
+  right: `docs/screenshots/360/manifest.json` distributes its nine frames over **four** fixtures
+  (`pages` 6, `pages-noprof` 1, `lock` 1, `testlock` 1), and the pair's own sentence two sections up
+  lists **seven** page-fixture artifacts, naming each, with no POST frame in the list. Reaching for that
+  sentence turned up a second defect the review did not name, and it sits in the row the review just
+  cleared: the `audit.png` row, in words `D-0039` wrote an hour before that review, says the pair "came
+  back with the bytes committed at *its* head", while the same file two paragraphs later records that
+  against the previously committed bytes only `settings.png` and `users-no-profiles.png` came back
+  identical and the other five moved. So what does the pair certify, and how much of the sentence
+  survives?
+- Options: scope the claim to the seven page-fixture artifacts and say plainly that the pair compares
+  one run against another, correcting the row's clause in the same commit | re-run the pair against the
+  nine frames committed today and quote what comes back, making both "nine" and "committed bytes" true
+  again | keep nine and hedge it as "the frames that run photographed", leaving the fixtures unnamed |
+  cut the pair out of this section and let the `audit.png` row carry the zone property on its own
+- Chose: scope the claim to the seven page-fixture artifacts and say plainly that the pair compares one
+  run against another, correcting the row's clause in the same commit
+- Why: the tie-break order does not reach these -- no dependency, no config, and options one and three
+  each touch one markdown file -- so it falls to the third rule, refuse rather than proceed on an input
+  that is not there: option three keeps a count the manifest contradicts and makes it uncheckable by
+  refusing to name which fixtures ran. Option two is the only one that produces evidence instead of
+  editing prose, and it is the one a docs unit must refuse for the reasons `D-0039` already gave -- the
+  two POST fixtures are #213's subject, an honest `record` has to be handed all nine `--shot` names
+  (`D-0031`'s discipline, merged with #227), and a tenth frame set cannot land inside a pull request
+  whose whole diff is prose. Option four retires the only two-zone measurement in the tree, which is the
+  evidence #210 and #212 were opened to produce: the same reason `D-0039` refused its own delete-the-pair
+  option.
+  Measured, not inferred, before writing any of it. The census is read off the manifest rather than out
+  of a sentence: nine rows, `capture.fixture` = `pages` 6 / `pages-noprof` 1 / `lock` 1 / `testlock` 1,
+  and `capture.census` is set only on the six `pages` rows (`testing/capture/bin`) -- the two POST rows
+  carry none because `lock-setup.sh` and `testlock-setup.sh` declare none, which `fixture.sh:146-151`
+  says is deliberate: "Empty means 'ask the machine', which is what the two POST fixtures do on purpose
+  … a stubbed census would photograph a fiction". And the pair's seven values are not retired committed
+  bytes -- they were never committed at all: hashing every historical blob of each of the seven paths on
+  every ref (`git log --all --format=%H -- docs/screenshots/360/<stem>.png`, then `sha256sum` over each
+  `git show <c>:<path>`) gives 19 distinct values for `audit.png` across 21 commits, 11 for
+  `dashboard.png` across 17, 11 for `profiles.png` across 13, 10 for `users.png` across 15, and 6, 6 and
+  3 for `profiles-refused`, `settings` and `users-no-profiles` -- and none of the seven appears in any
+  of those sets. That is what made the sentence false twice over, and it is why the row's clause had to
+  move with it: a run that produced no committed file cannot have "came back with the bytes committed at
+  its head".
+  What the fix keeps is the split `D-0039` built: bytes committed today to `D-0037`'s reproduction, the
+  zone property to the pair. The reviewer's non-blocking count rides in the same commit for the same
+  reason -- the run of 16:33:49 to 16:34:09Z is "nine-fixture" in that row while the manifest counts
+  four, and the file's own word for the nine is frames (`D-0014`, `D-0028`), so the row reads nine-frame.
+- What this costs, stated rather than glossed. (1) The row loses a claim that read as though it had been
+  earned: no sentence here can now say the *committed* frame is zone-independent, because nothing in
+  this repository has ever established it -- the pair's outputs were never the committed bytes. (2) The
+  section states a gap where it stated a result, and `lock.png` and `testlock.png` are now named as
+  having no zone evidence at all; that reads worse than the sentence it replaces and it is the
+  measurement, with #213's rows 1 and 2 as its home. (3) The diff is larger than the finding the
+  reviewer filed: the row's clause was not on the round-5 list, so this commit corrects one clause
+  `D-0039` wrote an hour before the review and one clause the review asked for, and the pull-request
+  comment has to say which is which or the next reader cannot tell a refused option from an unnoticed
+  defect. (4) The cross-reference is now positional ("the two-zone pair above") rather than a line
+  number, which is the class of reference this section has already rotted once; if that pair's sentence
+  moves, this paragraph and the `audit.png` row both need re-reading.
+- Checkpoint: 5a7b5f41c0ca27813f2d5c2a247a3291caaa9536
+- Effect: testing/capture/README.md (the two-zone paragraph in "What the audit fixture is not allowed to
+  contain", and the `audit.png` row's host-zone clause), DECISIONS.md, pull request #225
