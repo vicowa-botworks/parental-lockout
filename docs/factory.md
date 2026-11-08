@@ -55,9 +55,69 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `conflict` | `CONFLICTING/DIRTY` | supervisor: `git merge origin/main`; a tick only if that conflicts |
 | `address_review` | newest `CHANGES_REQUESTED` is newer than the head commit | a tick |
 | `checks_failing` | a check concluded failure | a tick |
-| `unclaimed` | open issue no open pull request references | a tick |
+| `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body | a tick |
+| `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected | nothing: the supervisor logs it, and closes nothing |
 | `branch_without_pr` | commits ahead of `main`, no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure | nothing, except the throttle and the daily notice |
+
+`delivered` is the fourth class the queue could not see, and it was measured twice in one day before
+it was written (#235). Both claim channels read *open* pull requests only, so a merged one claims
+nothing whatever its body says, and an issue whose fix is already on `main` goes back out as
+`unclaimed`. #228's fix merged at 07:08:17Z and a tick was dispatched for #228 at 09:35Z on a branch
+with nothing ahead of `origin/main` -- the ceiling went to re-deriving what `main` already had
+(H-0050). Eight hours later #232's fix merged at 14:26:31Z as #234, whose only reference is `Refs
+#232`, and the queue printed `issue 232 unclaimed` on a tree containing the fix.
+
+The claim verb is not the verdict, and that is the finding rather than a caveat. Read against the live
+open issues, PR #229's `Refs #199. Refs #204. Refs #207. Refs #213.` is one body pointing at four
+issues, two of which its own "What this branch does not finish" section disclaims; #218's body carries
+"Not here: #149's per-control commit policy", which is a cross-reference with no verb on it at all;
+and #227's `Refs #222` is a merged fix to an issue that was closed on 6 Nov at 13:17:20Z and
+**REOPENED** at 16:27:23Z with a corrected row. #222 and #232 are identical in every way the verb can
+see -- one reference each, the same head-branch shape, silence on the issue after the merge -- and only
+`stateReason` separates them. So the verdict is built out of five facts GitHub already holds, and
+never out of a sentence in a body about what is finished: the body claims exactly one issue, it did not
+use this repository's own spelling of partial work (`Part of #N` -- H-0020, and #1256 for why an
+adjacent inflection of "close" is never a harmless way to say it),
+the merge reached `FACTORY_BASE`, the issue has not been updated since the merge, and no closure of
+that issue has already been rejected. The last of those is also the human's override in the other
+direction: one comment on the issue puts it back in the queue for a tick.
+
+Precedence is unchanged -- `delivered` is reached only where nothing open claims the issue -- and that
+has a consequence worth writing down before the class surprises anybody, because the open-claim channel
+drops an issue named *anywhere* in any open body, not only one a pull request claims. Running the
+shipped `triage.sh` against GitHub at 15:22Z on 8 Nov, #232 and #222 printed no row at all: the first is
+named by the pull request that fixes it, the second by draft #233, whose body says `Refs #220 and #222`.
+The issue rows that pass printed were #237, #213 and #199, every one `unclaimed`, the latter two held
+out of `delivered` by the claim count. So `delivered` means "the queue will not work on this, and here
+is the merged pull request it is leaning on", and it does not mean "every finished ticket appears
+here" -- an open body naming an issue hides it from both classes at once.
+
+A claim is a verb plus **every** number still in the same list, which is a rule that only measurement
+would have produced. #221's shipped body has `Refs #219, #220, #204` on one line with
+`(Part of #219 only; the umbrella is not finished …)` eight lines above it, and open PR #233 says
+`Refs #220 and #222`; a verb plus ONE number reads either line as a claim on its first issue, which on
+the merged channel turns `Closes #10, #11` into a sole claim on #10 -- the bundle this class refuses,
+arriving through a comma. Two sentences about two issues are still two sentences, because the second
+number has neither a verb nor a list marker in front of it, and that is what stops "Not here: #149"
+from retiring #149 out of the queue.
+
+The read itself is one bulk call -- `gh pr list --state merged --limit $FACTORY_DELIVERED_WINDOW
+--json number,body,mergedAt,baseRefName` -- because the per-PR shape the channels above use would cost
+one call per merged pull request. The window is a bound on the read, not on the claim: an issue whose
+fix landed outside it keeps the verdict it always had, `unclaimed`, and the row prints the window it
+leaned on so a stale-looking verdict can be re-checked by raising it. It is a bound on the read and also
+on what a single pass costs, because merged bodies are big: 100 of them were 632,601 bytes on 8 Nov,
+which is why the payload is handed to `jq` on standard input rather than as an argument -- Linux
+refuses any one argument over 128 KiB, and a scan that cannot run must say so rather than answer
+`{}`, which is the same shape as "nothing has been delivered".
+
+The supervisor's arm is one `log_event` line. It starts no tick, writes no ledger row, and closes
+nothing -- closing is a human act on this repository's tracker, and the harm of a false `delivered` is
+a ticket nobody looks at again, which is why the row is reported rather than closed or dropped. The
+ledger is not consulted: it answers "was this ever worked" and keeps answering it after the work
+merges, which makes it exactly the wrong thing to ask when the question is "does anything still claim
+this?"
 
 Two of these are the reason the whole thing was worth building. `needs_reviewer` exists because
 `gh pr list`'s `reviewRequests` lists only *outstanding* requests, so it cannot distinguish "never
