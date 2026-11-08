@@ -135,6 +135,55 @@ stranger cannot have written. The driver requires the address to be `127.0.0.1:<
 is what catches the `::1` fallback), requires `/json/version` to advertise the same browser id,
 and asks the endpoint again before every write.
 
+## What a refusal leaves behind (#220)
+
+A refused run publishes nothing, and that is the contract: a half-replaced artifact set is worse
+than none, because every filename in the directory then looks current (#222). What it used to also
+do is destroy the frames it had measured on the way out. Measured 6 Nov on `main`, with the one
+condition the capture notes already document as refusing this fixture
+(`PLOCK_CAPTURE_SCRIPTS=on ./pages-setup.sh && PLOCK_CAPTURE_SCRIPTS=on ./pages.py`):
+
+```
+REFUSED: /: the 'casey' row says ['locked out until 18h 16m', …]
+  no file was written
+  /users     @360   … FITS   …/runs/pages/users.png
+  … four more like it
+5/6 pages fit at 360 px (fixture pages); refused: /
+Nothing was written to …/testing/capture/runs/pages.
+```
+
+Five sentences naming five files, and the directory held none of them — so the operator had the
+refusal's prose and no way to look at the page that caused it. Every guard runs before the write,
+which is right for a publish and was silently right for a look.
+
+So a refused run now keeps what it measured, in `testing/capture/runs/<fixture>-refused/`, with the
+refusals written beside them in `REFUSED.txt`. The frame of the page that refused is taken even
+though it will never be published: the guard says what the page was expected to say, and only the
+picture says what it did. Four properties are enforced in `cdp.py` rather than trusted:
+
+* **Moved, not copied beside the queue.** `_PENDING` is emptied, so no later `publish()` can reach
+  a refused run's bytes even if a future caller reaches it with a broken refusal count.
+* **Cleared once, on opening.** A frame from yesterday's refusal beside today's is the same lie in
+  a new costume, so whatever is in the directory when this run first opens it is deleted — and what
+  this run writes after that is left alone. The clearing is announced, because a reader who expected
+  to find something there is owed a record of when it went.
+* **Never into `--out`.** The directory is named from `RUNS` and the fixture, never from `--out`,
+  and `keep_refused` declines a target outside `runs/` or one that overlaps the run's own `--out` —
+  in which case it destroys the frames and says so. A frame that could be read as the evidence this
+  run refused to write is worth less than the bytes.
+* **Named for the fixture.** `pages` and `pages-noprof` get separate drawers, for the reason
+  `capture_out` gives about scratch directories: two fixtures in one directory produce frames whose
+  names look like whoever wrote last.
+
+None of it is evidence. Nothing records these frames, no manifest names them, and the summary says
+so in the same breath as the count — because a PNG with no sentence under it is exactly what #211
+says a frame is not, and these frames state less than most: the reason they exist is that the state
+was *not* the declared one. `runs/` is gitignored, so they cannot reach a commit by accident.
+
+`lock.py` and `testlock.py` still discard their stage. Their refusal is one page and one frame, so
+the loss above is a single picture rather than five sentences about pictures, and neither driver
+has the per-page loop that made `pages.py`'s case. Wiring them is open work, not an oversight.
+
 ## The negative control, and why a refusal nobody watched fire proves nothing
 
 An assertion never run against the alternative is unproven; a refusal never watched firing is the

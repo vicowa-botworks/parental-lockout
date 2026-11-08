@@ -908,3 +908,73 @@ Two consequences, both deliberate:
   `head` and nothing else" is true of the bytes and silent about what the new value now means.
 - Checkpoint: c8b1e5a6648cb8fdbca270e9310f76c094ad6026
 - Effect: DECISIONS.md (D-0023's `sources_rev` sentence, D-0028's `head` sentence, this entry)
+
+
+## D-0031 · A refused run keeps the frames it measured, in a directory nothing certifies
+
+- Question: #220's second clause — "a refused page publishes nothing" — is the contract #222 asks
+  for, and it holds. What came with it is that the run also destroyed what it had measured.
+  Measured 6 Nov on `main` at this head's parent, with the one condition the capture notes already
+  document as refusing this fixture (`PLOCK_CAPTURE_SCRIPTS=on ./pages-setup.sh &&
+  PLOCK_CAPTURE_SCRIPTS=on ./pages.py`): the transcript printed `REFUSED: /: the 'casey' row says
+  ['locked out until 18h 16m', …]`, then five `FITS …/runs/pages/<page>.png` lines, then `Nothing
+  was written to …/runs/pages.` The directory held no PNG. So the operator had five filenames that
+  pointed at nothing and one sentence about a sixth page, and no way to look at any of them — the
+  guards all run before the write, which is right for a publish and was silently right for a look.
+  Keep the frames beside the artifacts as `*.refused.png` | keep them in `runs/<fixture>-refused/`
+  with the refusals written beside them and the refusing page photographed too | keep only the
+  refusing page's frame | change nothing and treat the refusal's prose as the record?
+- Options: keep them in `--out` under a `.refused` suffix | keep them in `runs/<fixture>-refused/`,
+  moved out of the publish queue, with `REFUSED.txt` beside them and a frame of the refusing page |
+  keep only the refusing page's frame | leave the destruction in place and rely on the transcript
+- Chose: `runs/<fixture>-refused/`, moved out of the queue, with `REFUSED.txt` and the refusing
+  page's frame
+- Why: the tie-break list decides the first option by itself. A frame in the directory `--out`
+  publishes to and `manifest.py check` reads is a frame somebody commits, and #222 is what a
+  half-replaced artifact set does to a reader who cannot tell which nine are current; suffixing the
+  name does not help, because the manifest's verdict comes from the file's git history and a
+  committed `.refused.png` has one. The fourth option is refuted by the measurement above — the
+  prose was all anyone had at 21:05 and it settled nothing, and #211's standing objection is exactly
+  that a frame with no sentence under it is not evidence, which cuts both ways: a sentence with no
+  frame under it is not a checkable claim either. Between the two keep-options, photographing only
+  the refusing page loses the case that actually happened here: five pages had *fitted* and printed
+  paths, and whether the refusal is about the fixture or about the page is a question about the
+  whole run. `runs/` is gitignored (#211's note), and that is what makes keeping safe rather than
+  merely tidy — the bytes cannot reach a commit by accident, so the risk is bounded by the ignore
+  rule and the naming rule rather than by care. Four properties are enforced in `cdp.py` rather
+  than trusted: the frames are **moved** and `_PENDING` emptied, so no later `publish()` can reach
+  a refused run's bytes; the directory is **cleared once on opening**, because a frame from
+  yesterday's refusal beside today's is the same lie in a new costume, and the clearing is
+  announced; the target is **never `--out`**, and `keep_refused` declines a target outside `runs/`
+  or one that overlaps the run's `--out` — a frame that could be read as the evidence this run
+  refused to write is worth less than the bytes, so declining destroys them and says so; and the
+  directory is **named for the fixture**, for the reason `capture_out` gives about scratch
+  directories. Each is mutation-proved in a copy of the tree, so the working tree was never mutated:
+  hollowing `keep_refused` to `return []` reddens twelve rules, restoring `discard_stage()` reddens
+  seven, dropping the fixture from the directory name reddens six, and one rule each reddens for the
+  unannounced clear, the removed overlap guard, the lost `_PENDING.clear()`, the bare
+  `except Exception`, an unnamed viewport, photographing every page, and the retracted `FITS`
+  sentence. The baseline stays green, and honest comment edits stay green.
+- What this costs, stated rather than glossed. Six new failure modes to police, all now rules:
+  a stale frame read as current, a keep directory overlapping `--out`, a keep outside `runs/`,
+  frames left in the publish queue, a diagnostic outranking the refusal it was called from, and a
+  second directory under `runs/` for a person to learn. Two of these were found by the tests, not
+  before them: `capture_refused` needed `SystemExit` in its `except` clause (`require_running`
+  raises it, and a dead browser is one of the refusals that reaches the handler), and the first
+  version of the guard rule asserted that a path *outside the scratch tree did not exist* — which
+  the mutation that lets the guard through created in the system temp, so every run after it
+  reported writing into a directory an earlier run had left. A rule a piece of litter can redden is
+  a rule that gets ignored, so the target became a fresh empty directory and the claim is about what
+  is in it. The self-test also had to give up a sentence about itself: it claimed it writes
+  nothing, and a suite that pins what a refusal leaves behind has to write something — the claim is
+  now "nothing outside a temporary box", which is the claim that is true. Two rules reported a
+  bare `FileNotFoundError` rather than a sentence, so the rule helper now names the rule that threw.
+  And keeping bytes invites somebody to quote a kept frame as evidence; the note says in its own
+  first lines that it is not evidence, nothing records these frames, and `lock.py`/`testlock.py`
+  still discard their stage — one page and one frame each, no per-page loop, wired as open work in
+  the capture notes rather than quietly left out.
+- Checkpoint: 2e3cd4cfdb97492a48ddbd27d5e43384d995c986
+- Effect: `testing/capture/cdp.py` (`refused_dir`, `keep_refused`, `capture_refused`,
+  `REFUSED_NOTE`), `testing/capture/pages.py` (the three refusal arms, `_refusal_note`, six rules,
+  `EXPECTED_RULES` 48→54, the rule helper names what threw), `testing/capture/README.md` ("What a
+  refusal leaves behind")
