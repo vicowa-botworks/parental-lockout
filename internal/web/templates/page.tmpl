@@ -35,10 +35,30 @@ cached as immutable for a year.
 <header class="masthead">
   <h1><a href="/">parental lockout</a></h1>
   <nav>
-    <a href="/">Status</a>
-    <a href="/users">Accounts</a>
-    <a href="/audit">Audit</a>
-    <a href="/profiles">Profiles</a>
+    {{- /* Every link here carries the page it points at twice: in its href, and as the
+           string compared below. `.Page` is the name render() looked this template up by
+           (internal/web/sources.go, pageData.Page), and the shell -- not the page -- owns
+           the navigation, so the shell is where the comparison has to live.
+
+           `aria-current="page"` is the mark rather than a class, because the two are not
+           the same claim and only one of them is the claim #204 is short of. A class says
+           "style this one differently"; aria-current says "this link IS the page you are
+           reading", which is what a screen reader announces, what a reader who cannot see
+           the styling gets, and what the stylesheet can hang a rule off anyway --
+           `a[aria-current="page"]` in static/app.css. #204's own measurement of the
+           symptom is that the only element on any page that differed from a link was the
+           h1 title, and it differed because h1 makes text 700 weight: an unmarked row of
+           identical anchors is not a navigation with a current page, it is five guesses.
+
+           Pages the navigation does not contain -- the two POST result pages, whose paths
+           are /users/<name>/lock-now and /users/<name>/test-lock -- mark nothing, which is
+           correct: marking "Accounts" from a lock result page would claim the reader is on
+           /users, and they are not. That is why the comparison is against the render name
+           rather than a prefix match on the path. */ -}}
+    <a href="/"{{if eq .Page "dashboard"}} aria-current="page"{{end}}>Status</a>
+    <a href="/users"{{if eq .Page "users"}} aria-current="page"{{end}}>Accounts</a>
+    <a href="/audit"{{if eq .Page "audit"}} aria-current="page"{{end}}>Audit</a>
+    <a href="/profiles"{{if eq .Page "profiles"}} aria-current="page"{{end}}>Profiles</a>
     {{/* Settings is a link, not a form, even though the page it opens ends in a write: the
         navigation itself changes nothing, and a GET that mutates is the thing this repo's
         POST-only rule exists to stop.
@@ -48,7 +68,7 @@ cached as immutable for a year.
         elements with {{- -}} removes the space that separated them: this line shipped as
         "ProfilesSettings" in the masthead and the 360 px photograph is what showed it.
         TestTheMastheadLinksAreSeparatedInTheRenderedBytes is the guard. */}}
-    <a href="/settings">Settings</a>
+    <a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}>Settings</a>
     {{- /* A plain POST form, so the token has to travel in the body: csrfMiddleware
          reads the `csrf` field (or the header, which a form cannot set). */ -}}
     <form method="post" action="/logout" class="inline-form">

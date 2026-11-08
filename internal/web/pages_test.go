@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/vicowa-botworks/parental-lockout/internal/audit"
 	"github.com/vicowa-botworks/parental-lockout/internal/auth"
 	"github.com/vicowa-botworks/parental-lockout/internal/config"
 	"github.com/vicowa-botworks/parental-lockout/internal/platform"
@@ -225,6 +227,163 @@ func between(body, open, close string) (string, bool) {
 		return "", false
 	}
 	return rest[:j], true
+}
+
+// mastheadLink is one anchor in the shell's navigation, as the rendered bytes declare it.
+type mastheadLink struct {
+	href    string
+	current string // the aria-current value, "" when the attribute is absent
+}
+
+// mastheadLinks reads the navigation out of one rendered page.
+//
+// Bytes rather than a DOM, in the file that already asserts on the masthead's bytes: the
+// claim below is about what the template emits, and the same choice #204's own measurement
+// made when it counted `aria-current=` in the rendered files rather than in a browser. What
+// the bytes cannot say -- whether the mark is actually visible -- is the half the capture
+// driver measures through Chrome instead (testing/capture/cdp.py, require_nav_marked).
+func mastheadLinks(t *testing.T, what, body string) []mastheadLink {
+	t.Helper()
+	nav, ok := between(body, "<nav>", "</nav>")
+	if !ok {
+		t.Fatalf("%s: the page renders no <nav> block, so nothing below can be claimed about it", what)
+	}
+	var links []mastheadLink
+	for _, tag := range mastheadATag.FindAllString(nav, -1) {
+		href, cur := "", ""
+		if m := mastheadHref.FindStringSubmatch(tag); m != nil {
+			href = m[1]
+		}
+		if m := mastheadAria.FindStringSubmatch(tag); m != nil {
+			cur = m[1]
+		}
+		links = append(links, mastheadLink{href: href, current: cur})
+	}
+	return links
+}
+
+var (
+	mastheadATag = regexp.MustCompile(`<a\b[^>]*>`)
+	mastheadHref = regexp.MustCompile(`href="([^"]*)"`)
+	mastheadAria = regexp.MustCompile(`aria-current="([^"]*)"`)
+)
+
+// TestTheShellMarksTheLinkForThePageItRenders is #204's first criterion, on the bytes.
+//
+// The navigation is rendered by the shared shell, so there is exactly one place that can
+// know which page is being written, and exactly one way for it to go wrong on every page at
+// once: the five strings compared in templates/page.tmpl are the names handlers pass to
+// render(), and a rename on either side leaves a row of five unmarked links that looks
+// correct to everyone looking at it. A screen reader announcing no current page is not a
+// visible symptom, which is why the guard is a test and not a screenshot.
+//
+// Three things are refused here, and the third is the one a naive test misses:
+//
+//   - no link marked, the shipped bug;
+//   - the wrong link marked, which is worse than none, because it reads as an answer;
+//   - more than one element on the page marked. The masthead's h1 is also a link to /, so
+//     a selector keyed on the href rather than on the page name would light up two elements
+//     on the dashboard and #204's criterion says at most one element may be so marked -- the
+//     count is therefore taken over the whole body, not over the navigation.
+func TestTheShellMarksTheLinkForThePageItRenders(t *testing.T) {
+	// One server per page, because the helpers differ: /audit is the one content page
+	// pageServer cannot render -- it wires no trail seam, so the page answers its failure
+	// page instead, and a failure page has no navigation to mark.
+	for _, page := range []struct {
+		path, name string
+		trail      bool
+	}{
+		{"/", "dashboard", false},
+		{"/users", "users", false},
+		{"/profiles", "profiles", false},
+		{"/settings", "settings", false},
+		{"/audit", "audit", true},
+	} {
+		var s *Server
+		if page.trail {
+			s, _, _ = pageWithTrail(t, audit.Tail{Records: trailFixture(), FilesRead: 1}, nil)
+		} else {
+			s = pageServer(t, pageConfig(), nil, nil, nil, nil)
+		}
+		rec := authGet(t, s, page.path)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s (%s): answered %d, so there is no page here to mark: %s",
+				page.path, page.name, rec.Code, rec.Body.String())
+			continue
+		}
+		body := rec.Body.String()
+		links := mastheadLinks(t, page.path, body)
+		// A page whose navigation vanished would contain no unmarked link and no wrong one,
+		// so the count is the control for everything below it.
+		if len(links) != 5 {
+			t.Errorf("%s: the masthead renders %d links, want 5", page.path, len(links))
+			continue
+		}
+		var marked []mastheadLink
+		for _, l := range links {
+			if l.current != "" {
+				marked = append(marked, l)
+			}
+		}
+		if len(marked) != 1 {
+			t.Errorf("%s (%s): %d of the five navigation links carry aria-current, want exactly 1 "+
+				"-- an unmarked row is the defect #204 opened, and two is a navigation with two answers",
+				page.path, page.name, len(marked))
+			continue
+		}
+		if marked[0].href != page.path {
+			t.Errorf("%s (%s): the marked link is %q, so the page claims to be somewhere else",
+				page.path, page.name, marked[0].href)
+		}
+		if marked[0].current != "page" {
+			t.Errorf("%s: aria-current=%q; `page` is the value that means \"this link is the current "+
+				"page\" -- `true` means the same thing to no assistive technology in a navigation",
+				page.path, marked[0].current)
+		}
+		if n := strings.Count(body, "aria-current"); n != 1 {
+			t.Errorf("%s: %d elements in the page carry aria-current, want 1; the masthead's title is "+
+				"also a link to /, so a mark keyed on the href rather than on the page marks two",
+				page.path, n)
+		}
+	}
+}
+
+// TestTheResultPagesMarkNothing is the other half of #204's criterion: at most one element.
+//
+// Both result pages are rendered through the same shell, so they carry the same navigation --
+// and neither of them is one of the five pages the navigation contains. Marking "Accounts"
+// from /users/casey/lock-now would tell a reader who cannot see the page that they are on
+// /users, which is a confident wrong answer rather than an honest absence. So the absence has
+// to be pinned here: without this test the cheapest way to satisfy the test above on the two
+// POST pages is a comparison that matches on a path prefix, and the five GET tests stay green.
+//
+// The link count is asserted too, for the reason it is asserted above: zero marks on a page
+// with no navigation would pass this test while failing #204 outright.
+func TestTheResultPagesMarkNothing(t *testing.T) {
+	for _, page := range []struct {
+		desc string
+		body func(t *testing.T) string
+	}{
+		{"the lock result page", func(t *testing.T) string {
+			return authPost(t, newLockFixture(t).s, "/users/casey/lock-now", "").Body.String()
+		}},
+		{"the backend probe result page", func(t *testing.T) string {
+			return authPost(t, newProbeFixture(t).s, "/users/casey/test-lock", "").Body.String()
+		}},
+	} {
+		body := page.body(t)
+		links := mastheadLinks(t, page.desc, body)
+		if len(links) != 5 {
+			t.Errorf("%s renders %d navigation links, want 5 -- the shell renders its navigation here, "+
+				"and a page with no navigation is not the absence this test is recording", page.desc, len(links))
+			continue
+		}
+		if n := strings.Count(body, "aria-current"); n != 0 {
+			t.Errorf("%s carries aria-current %d time(s): this page is not one of the five the "+
+				"navigation links to, so marking a link here claims the reader is somewhere they are not",
+				page.desc, n)
+		}
+	}
 }
 
 // cspComplaints checks one rendered page against the CSP contract, from both halves.

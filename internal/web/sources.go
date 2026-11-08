@@ -21,11 +21,27 @@ import (
 //go:embed templates/*.tmpl
 var pageFS embed.FS
 
-// pageData wraps a view model with the two things the shell needs and no view model
+// pageData wraps a view model with the three things the shell needs and no view model
 // has any reason to know about.
 type pageData struct {
 	CSS string
 	JS  string
+	// Page is the name the page template was looked up by -- "dashboard", "users", and so
+	// on -- and it is what lets the shell's navigation say which of its five links is the
+	// page being rendered (#204).
+	//
+	// It is a field rather than a `{{template "pagename" .}}` comparison inside the shell
+	// because that is not a thing a Go template can do: `template` writes its result, it is
+	// not a function that returns one, so `{{$here := template "pagename" .}}` does not
+	// parse (`unexpected <template> in command`, measured on go1.27.2). The alternative
+	// that does parse -- threading the name through every view model -- would need a field
+	// on all seven, and seven places that can forget it instead of one that cannot.
+	//
+	// The value is the render name, not the `pagename` definition, because the render name
+	// is what the handler already had in hand: `render` looked the template up by it, so
+	// there is no second list to keep in step. TestTheShellMarksTheLinkForThePageItRenders
+	// is what holds the shell's five comparisons to these names.
+	Page string
 	// CSRF is the session's token, emitted twice: as a hidden field on the shell's
 	// logout form and as the `meta name="csrf-token"` that static/app.js reads.
 	//
@@ -162,6 +178,9 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, vie
 		CSS:  s.assetURL("app.css"),
 		JS:   s.assetURL("app.js"),
 		CSRF: csrf,
+		// The name this handler was called with, one line above. The shell needs it and no
+		// view model does, which is the whole reason pageData exists.
+		Page: name,
 		Data: view,
 	}); err != nil {
 		s.logf("web: %s %s could not render: %v", requestID(r), name, err)
