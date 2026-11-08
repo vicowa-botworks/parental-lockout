@@ -343,9 +343,15 @@ factory_resolve_conflict() {
 	fi
 	rm -f -- "$worktree_err"
 	factory_ledger_now "pr:$pr" conflict-at
-	if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
-		log_event "CONFLICT-HALTED pr:$pr $tree is dirty -- a person or a dead tick owns it"
-		printf '%s\n' "a working tree was found dirty and the supervisor will not touch it: $tree" \
+	# Content, not stat data -- see `factory_tree_dirt` in common.sh (#228). What the halt says is
+	# what the verdict actually saw: the old line asserted "a person or a dead tick owns it", which
+	# on a tree whose bytes match HEAD is false about the work, and a reader who follows its advice
+	# commits nothing, discards nothing, and halts again next pass.
+	local dirt_line dirt_rc=0
+	dirt_line=$(factory_tree_dirt "$tree") || dirt_rc=$?
+	if [ "$dirt_rc" -ne 1 ]; then
+		log_event "CONFLICT-HALTED pr:$pr $tree has uncommitted work (${dirt_line:-no reason returned}); refusing to merge into it"
+		printf '%s\n' "a working tree was found with uncommitted work and the supervisor will not touch it: $tree -- what it holds: ${dirt_line:-nothing, but the verdict could not be read}. Resolve that work (commit it to its branch, or discard it on purpose), then \`rm $FACTORY_HALT\` to resume" \
 			>"$FACTORY_HALT"
 		return 2
 	fi
@@ -490,13 +496,26 @@ factory_tick() {
 		log_event "TICK-SKIPPED $unit no worktree for $branch :: ${why:-common.sh gave no reason}"
 		return 5
 	fi
-	if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
-		log_event "TICK-HALTED $unit $tree is dirty from an earlier run; refusing to work in it"
+	# The content verdict, for the reason given at `factory_tree_dirt` in common.sh (#228): a halt
+	# stops the whole pass -- every other unit, every review answer, every merge -- so it must not
+	# rest on a filesystem timestamp, and it must say what it found.
+	local dirt_line dirt_rc=0
+	dirt_line=$(factory_tree_dirt "$tree") || dirt_rc=$?
+	if [ "$dirt_rc" -ne 1 ]; then
+		log_event "TICK-HALTED $unit $tree has uncommitted work (${dirt_line:-no reason returned}); refusing to work in it"
 		# The reason is read by whoever finds the queue halted -- `factory.sh --status` prints this file
 		# verbatim -- so it has to carry the resume step as well as the cause. Without it the operator
 		# learns the queue is stopped and which tree, and has to find `rm factory/HALT` in
 		# docs/factory.md unaided; the halt is deliberately sticky, so the sentence has to be too.
-		printf '%s\n' "a worktree was left dirty by a previous tick: $tree -- resolve the tree (commit it to its branch, or discard it on purpose), then \`rm $FACTORY_HALT\` to resume" >"$FACTORY_HALT"
+		# It also has to carry the *matching* action: "commit it or discard it" is right for a half-done
+		# edit and wrong for a tree git could not read, where there is nothing to commit and the next
+		# thing to do is make the index readable again.
+		local how
+		case "$dirt_rc" in
+		2) how="make the tree readable and its index rewritable, then \`git -C $tree update-index --refresh\` to see what is really there" ;;
+		*) how="resolve the work it names (commit it to its branch, or discard it on purpose)" ;;
+		esac
+		printf '%s\n' "a worktree was found with uncommitted work: $tree -- what it holds: ${dirt_line:-nothing, but the verdict could not be read}. $how, then \`rm $FACTORY_HALT\` to resume" >"$FACTORY_HALT"
 		return 4
 	fi
 

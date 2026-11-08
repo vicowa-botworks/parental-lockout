@@ -206,6 +206,29 @@ that can hear you is the agent. The supervisor also writes this file itself when
 worktree it does not own -- a person is working there, or a dead tick left a half-merged index, and
 neither is a machine's to clean up. To stop it hard: `systemctl --user stop plock-factory.timer`.
 
+## What "dirty" means, because the test decides when the queue stops
+
+Both halting call sites ask `factory_tree_dirt` (`factory/common.sh`), and it asks git for the
+**content** of the tree, four ways: staged against `HEAD`, worktree against the index, unmerged index
+entries, and untracked files that are not ignored. It does not ask `git status`, which is the command
+whose answer is derived from the stat cache; and it checks the **exit status of every read**, because
+"git could not tell" is not evidence of safety. Any failure returns UNKNOWN and UNKNOWN halts.
+
+The asymmetry is why it is written that way. A false halt costs one pass, retried on the next tick; a
+false clean lets a model write into somebody's half-finished work, which is not recoverable. Measured
+on git 2.53.0, this is what the `status`-based test did with a tree whose repository could not be
+opened -- an empty `.git`, a `GIT_DIR`/`GIT_WORK_TREE` pair left exported by whatever ran before, a
+`core.excludesFile` pointing at a directory: `git status --porcelain` exits 128 printing nothing, the
+suppression in `$(... 2>/dev/null)` makes that indistinguishable from "nothing to report", and the
+pass proceeds in a tree git would not describe. A stat-only difference, the report #228 came in with,
+was tried in six variants and does *not* reproduce on this git, which refreshes the index in memory
+before reporting; the verdict no longer depends on that question either way.
+
+`factory/selftest.sh` is the probe. It builds a throwaway repository plus a linked worktree of it --
+the second is the shape #228 was measured on -- plants one state per leg, and prints the weaker test's
+verdict next to its own on every line, so a leg that has stopped discriminating is visible rather than
+merely green. It is a step in `make verify`, and it refuses when that step is deleted.
+
 ## Exit codes, because a timer has to tell these apart
 
 `0` the pass is over · `3` the queue could not be read, so nothing was attempted · `4` a tick failed

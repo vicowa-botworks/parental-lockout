@@ -424,6 +424,160 @@ factory_worktree() {
 	printf '%s\n' "$path"
 }
 
+# Is there anything in TREE that nobody has committed? Prints one line naming what it found,
+# and nothing when the tree is clean:
+#
+#   0  there is uncommitted work, and the line says which kind and where
+#   1  clean -- every tracked file's bytes match the index, the index matches HEAD, and
+#      nothing is untracked
+#   2  its state could not be read. The caller must treat that as dirt, not as clean: this
+#      verdict gates writing into a tree, and "I could not tell" is not evidence of safety.
+#
+# Why this exists instead of `test -n "$(git status --porcelain)"`, which is what both call
+# sites used (#228). `status` is being asked a *content* question -- "did anyone leave work
+# here, or is this tree safe to write into" -- and it answers a *stat-cache* question: it
+# reports a file dirty from its cached size/mtime/inode, which is data about the filesystem,
+# not about the bytes. A killed `check-mutations.py` is a machine for making the two disagree:
+# it rewrites tracked files in place and writes the original bytes back, so the content ends
+# where it began and the stat data does not. On a halt that is the expensive kind of
+# disagreement -- a halt is global (`$FACTORY_HALT` stops every unit in the pass), and the
+# halt's own advice cannot undo it: "commit it to its branch, or discard it on purpose"
+# commits nothing and discards nothing when there is no content difference, and the halt
+# returns on the next pass.
+#
+# So the verdict is built out of content reads, each pinned by a leg in `factory/selftest.sh`:
+#
+#   `diff --cached` (index vs HEAD)  a staged-only change -- `git add` then the worktree put
+#                                    back -- is invisible to `git diff`. Measured: status
+#                                    DIRTY, `diff --quiet` CLEAN. It is also exactly the state
+#                                    a half-merged index is, so dropping this arm would let
+#                                    the one tree this halt exists to refuse walk straight
+#                                    through. Issue #228's literal prescription (diff plus
+#                                    untracked) has this hole; selftest.sh refuses it.
+#   `diff` (worktree vs index)       an edit to a tracked file.
+#   `ls-files --unmerged`            a conflicted index. Conflicts are index *entries*, not
+#                                    files, so they are read from the index, not diffed.
+#   `ls-files --others`              untracked files -- and the plumbing for them rather than
+#                                    `status`, because `status` is the command whose
+#                                    stat-derived answer is not trusted here. `--exclude-standard`
+#                                    keeps build output out of it: an ignored file is not work.
+#
+# The `update-index --refresh` first is not belt-and-braces: it is what stops a stale stat
+# cache answering at all, and it persists the recheck rather than redoing it per read. It
+# exits 1 for files that need updating -- which is dirt the arms below go on to name, not an
+# error -- so only 2 and above mean git could not do the job. That case returns 2, and both
+# call sites halt: refusing on an unreadable tree costs one pass, proceeding on one costs a
+# model writing into someone's half-done work.
+#
+# Checking each read's EXIT STATUS, and not just what it printed, is load-bearing rather than
+# tidy, and the two shapes differ in a way that decides how the arms have to be written. Measured on
+# git 2.53.0.
+#
+# `GIT_DIR` at a `.git` directory holding nothing -- a stale entry under `$FACTORY_TREES` -- every
+# read refuses (128, or 129 for the two `diff` forms), so the first guard is enough; that is also
+# where the replaced expression goes wrong, because `status --porcelain` exits 128 printing nothing,
+# and `test -n "$(… 2>/dev/null)"` reads that as clean.
+#
+# `GIT_DIR` at a working repository elsewhere with `GIT_WORK_TREE` at a path that is not there -- an
+# environment a wrapper exported and never unset -- the reads stop agreeing with one another:
+# `update-index --refresh`, `diff --quiet` and `ls-files --others` exit 128 while
+# `diff --cached --quiet` and `ls-files --unmerged` exit 0, meaning clean, out of the OTHER
+# repository's index. A verdict assembled from the two that answer reports no work in a tree it
+# cannot open, and a verdict that looks only at output rather than status does the same.
+#
+# The third shape `factory/selftest.sh` plants is the mundane one: `core.excludesFile` aimed at a
+# directory, which is configuration rather than per-tree state, so every `git -C` inherits it.
+# Measured there: `refresh`, `diff` and `ls-files --unmerged` answer clean, `diff --cached` and
+# `ls-files --others` exit 128, and `status --porcelain` exits 128 printing NOTHING -- so both the
+# replaced expression and the diff-plus-untracked prescription answer CLEAN on a tree whose state git
+# would not report.
+#
+# Which read refuses first is a property of the git, not a promise, so each arm checks its own status
+# and the first refusal wins. That makes the checks redundant on purpose, and the redundancy was
+# measured rather than assumed: hollowing the tracked read's check turns two legs red, hollowing any
+# one of the other four turns none red, because every planted shape has at least two reads fail --
+# which is what an unreadable tree actually does. A verdict that refused only on the strength of one
+# read would be a verdict that had to trust that read, and the point of the exercise is that no read
+# here is trustworthy on its own.
+#
+# The same measurements say what the fix is and is not. A stat-only difference -- the state the
+# issue describes -- does not make `status --porcelain` report dirt on this git: status refreshes
+# the index in memory and finds the bytes equal, whether or not `.git/index` or even `.git/` is
+# writable and whether or not `core.trustctime` is on; six planted variants read clean, and the
+# probe says so on its own line rather than pretending to catch it. What IS reproducible here is
+# the other direction, and it is the worse one: an unreadable tree answered CLEAN and the tick would
+# have worked in it. A false halt costs a pass. A false clean costs the work.
+factory_tree_dirt() {
+	local tree=$1 rc=0 out="" finding="" raw=""
+	git -C "$tree" update-index --refresh >/dev/null 2>&1 || rc=$?
+	if [ "$rc" -gt 1 ]; then
+		printf 'its state could not be read (git update-index --refresh exited %s)\n' "$rc"
+		return 2
+	fi
+
+	rc=0
+	git -C "$tree" diff --cached --quiet 2>/dev/null || rc=$?
+	if [ "$rc" -eq 0 ]; then :; elif [ "$rc" -gt 1 ]; then
+		printf 'its staged state could not be read (git diff --cached exited %s)\n' "$rc"
+		return 2
+	else
+		out=$(git -C "$tree" diff --cached --name-only 2>/dev/null | sort -u | head -n 3 | tr '\n' ' ')
+		finding="${finding}staged-but-uncommitted: ${out:-and the index itself}"
+	fi
+
+	rc=0
+	git -C "$tree" diff --quiet 2>/dev/null || rc=$?
+	if [ "$rc" -eq 0 ]; then :; elif [ "$rc" -gt 1 ]; then
+		printf 'its tracked files could not be read (git diff exited %s)\n' "$rc"
+		return 2
+	else
+		out=$(git -C "$tree" diff --name-only 2>/dev/null | sort -u | head -n 3 | tr '\n' ' ')
+		[ -n "$finding" ] && finding="$finding; "
+		finding="${finding}modified: ${out:-a tracked file}"
+	fi
+
+	# The unmerged arm reads the index, not the files: a conflict is three index entries, so there is
+	# nothing to diff. `sort -u` because a conflicted path is one entry *per stage*: unsorted, one
+	# file is named three times in the sentence the halt prints, which reads like three problems and
+	# sends the reader looking for two files that are not there.
+	#
+	# Both `ls-files` reads have their exit status checked for the reason the whole arm exists: a
+	# failure here is silent in exactly the dangerous direction. Measured on git 2.53.0 with an
+	# inherited `GIT_DIR`/`GIT_WORK_TREE` pair pointing at another repository -- `ls-files --others`
+	# exits 128 with no output while `diff --cached --quiet` and `ls-files --unmerged` answer 0, i.e.
+	# clean. An unchecked substitution there reads as "no untracked files", which is the same
+	# mistake `2>/dev/null` made in the expression this function replaces.
+	rc=0
+	raw=$(git -C "$tree" ls-files --unmerged 2>/dev/null) || rc=$?
+	if [ "$rc" -gt 1 ]; then
+		printf 'its index could not be read (git ls-files --unmerged exited %s)\n' "$rc"
+		return 2
+	fi
+	if [ -n "$raw" ]; then
+		out=$(printf '%s\n' "$raw" | awk '{print $4}' | sort -u | head -n 3 | tr '\n' ' ')
+		[ -n "$finding" ] && finding="$finding; "
+		finding="${finding}unmerged: ${out:-a conflicted path}"
+	fi
+
+	rc=0
+	raw=$(git -C "$tree" ls-files --others --exclude-standard 2>/dev/null) || rc=$?
+	if [ "$rc" -gt 1 ]; then
+		printf 'its untracked files could not be read (git ls-files --others exited %s)\n' "$rc"
+		return 2
+	fi
+	if [ -n "$raw" ]; then
+		out=$(printf '%s\n' "$raw" | sort | head -n 3 | tr '\n' ' ')
+		[ -n "$finding" ] && finding="$finding; "
+		finding="${finding}untracked: ${out:-an untracked file}"
+	fi
+
+	if [ -n "$finding" ]; then
+		printf '%s\n' "$finding"
+		return 0
+	fi
+	return 1
+}
+
 # --------------------------------------------------------------------------- actions
 #
 # One place where anything that changes the world is printed or run, so --dry-run is a property

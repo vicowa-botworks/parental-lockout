@@ -75,6 +75,16 @@ fmt:
 # --self-test`, so deleting a step here leaves `verify` green. That is why the shape is shared by
 # both steps rather than fixed in one of them -- two invocations of the same script must not be
 # asserted in two different strengths.
+# The factory step (#228) is the first gate `factory/*.sh` has ever had. Measured on this branch:
+# `grep -rn factory Makefile .github/workflows/` returns nothing, so the four scripts that decide
+# which issue is worked next, when the queue halts, and what gets merged were linted and tested by
+# no job at all -- including the dirt verdict that halts the whole pass, which is the one command in
+# the loop that refuses to do work. It goes in this target rather than in a job of its own for the
+# reason given twenty lines above, where the attack suite is placed: a guard that runs only when
+# somebody remembers it is a guard whose evidence nobody can reproduce. It starts no repository of
+# its own -- the fixture is a throwaway under $TMPDIR -- writes nothing outside it, and costs 0.4 s
+# measured, against the 3m9s this target already costs.
+#
 # The decision-log gate (#216) is here for the same reason the two above it are: the delivery
 # supervisor runs sessions with nobody in the loop, and the whole licence for that is that every
 # judgement call it makes is written down with its alternatives and a checkpoint to roll back to.
@@ -92,6 +102,7 @@ verify:
 	echo "==> mutation-gate self-test"; python3 scripts/check-mutations.py --self-test; \
 	echo "==> decision-log contract"; python3 scripts/check-decisions.py --self-test; \
 	echo "==> decision log"; python3 scripts/check-decisions.py; \
+	echo "==> factory dirt verdict"; bash factory/selftest.sh; \
 	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
 	echo "==> agent deny list"; python3 scripts/check-denies.py --self-test; python3 scripts/check-denies.py; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
