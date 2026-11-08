@@ -1403,15 +1403,21 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   two-zone pair against the current frames. The row says so and names what would close it, which is the
   honest shape of a docs unit that is not permitted to photograph. (2) Dropping the digest makes the row
   less directly checkable than it was for the three hours it had one -- the reader opens the manifest
-  instead of reading a value here, and that indirection is exactly what :263-268 chose; the row is not
+  instead of reading a value here, and that indirection is exactly what the README's own preamble to the
+  reproducibility table -- the paragraph opening "This table used to quote a hash per row" -- chose; the
+  row is not
   entitled to undo it because a reviewer once asked for a number. (3) `b9eeec3` and `D-0037` are now
   load-bearing in prose. Both are merged history and cannot move, but the next re-take will turn "the set
   `b9eeec3` commits" into a historical sentence too; it is written dated ("later the same day") rather
   than in the present tense so it stays true when the set moves again. (4) The other stale digests in
-  the file -- :296 and the four-fixture tally at :626-627 -- are `main`'s dated prose, not this PR's, and
-  stay: :296 says "at that moment", :626 opens "Measured 6 Nov", each names the run it came from, and
-  each is checkable against the manifest rather than false about it. The scripts-pair table at :700-701
-  was on this list until D-0041 read it against the artifacts: it does not belong there, because both
+  the file -- the `b59bb2be…`/`acc5ba4d…` pair quoted "at that moment" in "The negative control, and why
+  a refusal nobody watched fire proves nothing", and the four-fixture tally that opens "Measured 6 Nov"
+  under "What a frame was taken under (#211)" -- are `main`'s dated prose, not this PR's, and stay: each
+  names the run it came from, and each is true of the head it names, dated, and no longer claimed about
+  today. `D-0043` replaced the "checkable against the manifest" wording this line first carried, because
+  nothing here checks a markdown cell against the manifest -- that is the very gap two lines below. The
+  scripts-pair table under "What the scripts condition can and cannot witness" was on this list until
+  D-0041 read it against the artifacts: it does not belong there, because both
   its cells read "`…`, published" -- present tense about `docs/screenshots/360/` -- and the manifest in
   the same tree records `712ee6312051…` for `lock.png` and `ae25abeb1a32…` for `testlock.png`. Those two
   values were the published pair from `38578aa` on 19 Oct until `9e07dde` re-took the frames on 5 Nov
@@ -1419,8 +1425,11 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   through two re-takes, which is exactly the rot this entry was written to stop, on the row next to the
   one it fixed: `manifest.py check` compares bytes to bytes and `check-decisions.py` reads entries, so no
   gate in this repository can see a markdown cell asserting a hash. The row this entry fixes was the one
-  that spoke in the present tense about what the manifest records, and the table two sections below it is
-  a second such row -- one nobody was reading.
+  that spoke in the present tense about what the manifest records, and the scripts-pair table named above
+  is a second such row -- one nobody was reading, 429 lines and six headings (four `##`, two `###`) below
+  the `audit.png` row that cites it. Every position in this item is quoted as `D-0039` wrote it and is
+  replaced by the heading that owns the site: `D-0043` measures the same three citations drifting twice
+  more while #225 sat in review.
 - Checkpoint: 5f6738e57ed453c6382134404bbacf25b55a1fbf
 - Effect: testing/capture/README.md (the `audit.png` row and the two-zone sentence it points at),
   pull request #225
@@ -1525,8 +1534,9 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   loses on the review's own point: a comment is not a merge artifact, so a reader of `D-0039` alone --
   which is how an entry gets read, six weeks later, by whoever is undoing something -- is still told the
   table is checkable. Option 3 throws away the true half to remove the false half, the objection
-  `D-0030` recorded against deleting the `sources_rev` sentences: `:296` and `:626` do earn their place
-  on the list, and the list is what tells a reader which sites *not* to re-litigate. Option 4 is what
+  `D-0030` recorded against deleting the `sources_rev` sentences: the "at that moment" pair and the
+  four-fixture tally do earn their place on the list, and the list is what tells a reader which sites
+  *not* to re-litigate. Option 4 is what
   the finding argues for and is not this unit's to take: that table is the record of the two arms of the
   `scripts` switch, so a replacement worth anything needs both arms re-run on the current head, and #213
   is the unit that owns those two frames -- its row 3 already carries the measurement with the manifest
@@ -1556,7 +1566,12 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   -- "a dated sentence is safe" -- is the wrong test, because the table carries no date and never needed
   one to be read as history: what a sentence is worth is decided by whether a machine checks what it
   asserts, and nothing checks a markdown cell. What survives of `D-0039` is its own fix and its first
-  three costed items, both of which this entry re-measured and neither of which moves.
+  three costed items, both of which this entry re-measured and neither of which moves. The three positions
+  quoted above were exact when `D-0039` wrote them -- `904b42b`, `540c55e` and `29bc88c` all read the tally
+  at :626 and the published pair at :700 -- and `7cd7d0ba`'s eight inserted lines moved them to :634 and
+  :708 before this entry quoted them again, which is what makes them stale at the commit that writes them
+  rather than merely later. #225's next prose commit moved them once more, to :639 and :713. `D-0043`
+  re-cites each of them by the heading that owns the site, which is the form that cannot rot.
 - What this costs, stated rather than glossed. (1) The log now carries three correction markers
   (`D-0024`, `D-0030`, `D-0039`), which is the cost `D-0029` priced in advance and accepted: the log
   reads as a record of being wrong rather than as a clean ledger. (2) `D-0039`'s "What this costs" is now
@@ -1622,7 +1637,8 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `8bbb8293…` is `f56dc29`'s frame, recorded at `captured_at 2026-11-01T05:43:26Z`, and the
   `2026-11-01T22:47:43Z` quoted in the review is `d439f70`'s re-record of the same bytes. The `audit.png`
   row's "any head on any ref" takes the same published scope so the two rows cannot drift apart, and the
-  pair's closing clause reads "One host, two zones declared" -- :232 and :324 both say one machine, and
+  pair's closing clause reads "One host, two zones declared" -- the pair's own opening sentence and the
+  section's re-statement of it both say one machine, and
   "two hosts" sat in the one sentence the retraction now depends on.
 - What this costs, stated rather than glossed. (1) The paragraph is longer than the sentence it replaces and
   now explains a mistake as well as stating a scope, which is worse prose and the only honest shape
@@ -1639,3 +1655,56 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Effect: testing/capture/README.md (the two-zone paragraph, the `audit.png` row's host-zone clause, the
   `users-no-profiles` row's digests, and the pair's "two hosts" clause), DECISIONS.md (this entry and the
   `D-0040` correction above), pull request #225
+
+## D-0043 · A `:NNN` citation is worth nothing on a file that this branch edits
+
+- Question: #225's round-6 non-blocking items are both about how this log points at `README.md`. First,
+  the positions `D-0039` item 4 and `D-0041` quote -- ":626-627" for the four-fixture tally and
+  ":700-701" for the scripts-pair table -- and `D-0039`'s "the table two sections below it". Second, the
+  vouch `D-0039` item 4 still gives the two sites it keeps: "each is checkable against the manifest
+  rather than false about it", which is the standard three lines below it `D-0041` retracts. How does the
+  log point at a file it is also changing, and what does it actually vouch for?
+- Options: re-cite every site by the heading that owns it and re-word the vouch as true-of-the-head-it-names
+  | leave the line numbers and date each one | drop the positional citations and name nothing | move those
+  three sites' claims out of the log and into the README
+- Chose: re-cite every site by the heading that owns it and re-word the vouch as true-of-the-head-it-names
+- Why: measured on four heads, because the claim is about motion and not about style. `git show <head>` of
+  the README and one grep per site gives: tally at :626 and published pair at :700 at `904b42b`,
+  `540c55e` and `29bc88c`; :634 and :708 at `7cd7d0ba` and at the head the review graded, `6058c6c`; :639
+  and :713 at the head this branch pushes next. So the numbers were exact when `D-0039` wrote them, moved
+  before `D-0041` quoted them again, and moved a third time under `D-0042` -- a branch whose whole subject
+  is a citation that outran its file re-stuck its own citations twice while it was fixing that subject.
+  "Two sections below" was never right either: from the `audit.png` row the table is six headings (four
+  `##`, two `###`) and 429 lines down. A heading is the form that cannot rot, because moving prose between
+  headings does not touch it and renaming one is a deliberate edit to the cited thing rather than an
+  accident nobody reads. The vouch re-worded for the same reason: `D-0041`'s own conclusion is that no gate
+  in this repository reads a markdown cell -- `manifest.py check` compares PNGs to their sources and
+  `check-decisions.py` reads entries -- so "checkable against the manifest" promised a check that does not
+  exist. The reviewer re-ran the vouch anyway and it survives on better ground, and that ground is now
+  measured here rather than asserted there: `4739939` (2026-11-06T03:47:47Z, the commit that introduced
+  "Measured 6 Nov, from four fresh fixtures") holds `lock.png` `b59bb2bef7fc…` and `testlock.png`
+  `acc5ba4d5cfe…`, its manifest's `captured_at` is `2026-11-06T03:44:15Z`, and the "at that moment"
+  sentence quotes exactly those two against exactly that moment. Both survivors were therefore true of the
+  head they name, which is the property they actually have; neither is a statement about `main`.
+  Option two keeps a number that is wrong today and only timestamps the wrongness -- a date on a stale
+  position still sends a reader to the wrong lines. Option 3 removes the false pointer by removing every
+  pointer, the objection `D-0041` recorded against dropping `D-0039`'s whole list: the list is what tells a
+  reader which sites not to re-litigate. Option 4 moves claims into the file whose own preamble to the
+  reproducibility table forbids it from carrying hashes -- the paragraph that opens "This table used to
+  quote a hash per row" legislates exactly that, and is where `D-0039` took its own rule from. Option one touches one markdown
+  file, reverts as prose, and is what the surrounding log already does in words -- `D-0040`'s cost (4)
+  conceded this class rots and `D-0042` cites the pair by section for the same reason. The rule is written
+  for pointers into prose this branch edits, not for the log's `manifest.py:480`-style citations: those
+  name the file beside the line, and a code line moves inside a diff hunk a reviewer reads, which is not
+  the silence this class has.
+- What this costs, stated rather than glossed. (1) Headings rot too, more slowly: rename "What the scripts
+  condition can and cannot witness" and three entries lose their pointer at once. Accepted because the
+  failure needs someone to mean it. (2) The vouch is now weaker than the one it replaces -- "true of the
+  head it names, dated" is not a promise that anything checks it, and the honest answer to whether those
+  two sites are still right is "nothing in this tree can tell you". (3) `D-0041`'s quotation of `D-0039`'s
+  original sentence keeps the stale numbers verbatim, so a grep for ":700-701" still hits a wrong position.
+  Left deliberately: silently correcting a quotation of an earlier entry is how a decision log stops being
+  evidence about what was believed when.
+- Checkpoint: 1088c2cadfdaa7009d81ced1d78e9bf595ef011f
+- Effect: DECISIONS.md (the `D-0039` item 4 citations and vouch, `D-0041`'s Why and Correction), pull
+  request #225
