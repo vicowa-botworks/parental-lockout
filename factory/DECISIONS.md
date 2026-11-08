@@ -910,3 +910,19 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: `check-shell` here prints `0.10.0 over 26 scripts` and runs rather than skipping; the SC2015
   site is an if/else so the arm is chosen by the deletion verdict alone; `FACTORY_EXIT_HALT` keeps one
   home with the consumers named in the directive that silences the true positive.
+
+## H-0039 · `--log` skipped the two rules that would have caught a fabricated checkpoint
+
+- Question: a checker with two invocation modes has one set of rules; which mode runs which, and who says so?
+- Options: the modes genuinely differ and the usage text names the difference | the rules are one set and `--log` only narrows the file | drop `--log` and always check both logs
+- Chose: the rules are one set and `--log` only narrows the file -- `checkpoint_problems` and `verify_invocation` moved out from behind `if path == LOG`, and the usage text now states what the code does
+- Why: the two hidden rules are the only thing that catches an invented `Checkpoint:`, and `--log` is the mode an agent reaches for when it wants one branch's log checked. Measured on the same script against the same file: `--log DECISIONS.md` answered 3 problems with a fabricated sha absent, no argument answered 5 with it named. Four passes over #229's log in that mode is how its mis-transcribed checkpoint survived to be found by a reviewer instead. The usage text had it the other way -- "and only the rules that live inside an entry: checkpoint existence" -- so this is a documented-hazard contradiction as well as a bug: the promise is what made the silence look like a clean log. The duplicate-id rule is the honest exception and the text now says it is one: it compares logs, so over one file it can only find a repeat inside that file.
+- Checkpoint: 1c0c89e99d69b7bfa4cab2382c91da85e9b3100e
+
+## H-0040 · A guard that refuses working code is a guard that gets widened away
+
+- Question: what does the `"$DRY_RUN"`-runs-as-a-program class actually cover?
+- Options: any `$VAR` in command position | only a variable that only ever holds 0 or 1 | only the literal name `DRY_RUN`, matched by string
+- Chose: only a variable that only ever holds 0 or 1 -- every assignment in every shipped script is read, and a name that holds anything else anywhere is not refused at all
+- Why: the first draft took the first option, as the finding asked, and the tree's first run produced six false positives -- `testing/capture/fixture.sh:117` and `testing/e2e/e2e.sh:188` among them -- because `"$PLOCK_BIN" version` is the idiom for running a binary whose path the caller chose. A gate that refuses working code does not get fixed in the code; it gets widened, ignored, or deleted inside a week, and then the two real sites are unguarded again. The narrower rule still refuses both shapes that shipped (`if ! "$DRY_RUN"; then`, `"$DRY_RUN" || systemctl --user restart`), and its `--self-test` asserts the false-positive case as a first-class requirement: `"$PLOCK_BIN" version` staying green is now as much a failure to break as the bad line passing.
+- Checkpoint: 1c0c89e99d69b7bfa4cab2382c91da85e9b3100e
