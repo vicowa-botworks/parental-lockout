@@ -322,7 +322,7 @@ out from under it — the `rows` declaration, `cdp.pin_appended_rows`, `require_
 comparison this section assumed impossible is now a command, and it was run on 6 Nov: two fresh
 fixtures, taken under two host timezones, came back with the bytes committed at that head for all nine
 artifacts — the two POST frames among them, under the session census their own rows name, which is the
-condition the table below puts on those two and on nothing else.
+condition the table above puts on those two and on nothing else.
 
 What has not changed is *why* the three rules below exist, and it is worth stating now that the old premise
 is gone: reproducing the pixels proves the frame comes back, it does not prove the rows are ones the
