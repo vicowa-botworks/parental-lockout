@@ -2265,3 +2265,110 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   product line moved: `app.css`, `cdp.py`,
   `pages.py`, `lock.py`, `testlock.py`, the templates and the nine frames are untouched, so the manifest
   needed no re-record.
+- Correction (`D-0049`, 8 Nov): the two artifacts this `Effect:` names after #199 and #242 did not exist when
+  it was written, and this is the third consecutive entry in this file to assert a delivery its author had not
+  made. Read back on 8 Nov before anything was written: #240's body was 8590 bytes at `updated_at 18:50:52Z`
+  -- older than `d80b895` at 18:58:10Z, the head this entry says it rewrote -- and still carried every
+  citation `D-0046` retracted; #240's newest comment was still `18:31:07Z`, so the "a comment on #240
+  answering the two blocking items and the three nits" clause describes an artifact nobody had posted, and the
+  sentence ending "each of the three read back from GitHub after posting" cannot have run for any of them.
+  Three of five, not five -- the same shape as the finding 22 lines above this one records against `D-0046`,
+  one entry later, which is why it is worth its own paragraph rather than a shrug. What is true now:
+  `D-0049`'s round posted the body at `19:17:26Z` and the comment at `19:18:23Z`, one checkpoint later than
+  the head this entry claims to have rewritten, and read both back for the sentence that had to be present and
+  the strings that had to be absent. The two clauses are left standing rather than cut, for the reason
+  `D-0049` gives: an `Effect:` silently shrunk to fit the facts is indistinguishable from one that was always
+  right, and the review now on that thread quotes this entry's `Effect:` in a table, cell by cell. The proof
+  of the two writes is in `D-0049`, not here.
+
+## D-0049 · #240's `Effect:` claimed five GitHub writes and got three, and the two missing were the artifact a reader meets first
+
+- Question: `D-0048`'s `Effect:` names five artifacts outside this file and closes "each of the three read
+  back from GitHub after posting and confirmed by the first line it was meant to carry." The re-review at
+  `2026-11-08T19:06:38Z` -- `CHANGES_REQUESTED` at `d80b895`, 9909 bytes, filed 488 s after the head it graded
+  -- read them and got three: the dated comment on #199 and the comment on #242, both `18:50:57Z`, and
+  `blocked`/`question` off #240 (`labels: []`). The other two had not happened, and that was re-measured here
+  before this entry wrote a word of them: `gh pr view 240 --json updatedAt,body` answers `18:50:52Z` and 8590
+  bytes for the body -- earlier than the commit that says it rewrote it -- with `wrote a rule for two` present
+  and `twelve of thirteen` absent, and the thread's newest comment was still `18:31:07Z`, older than the
+  review it was said to answer. So the entry that indicts `D-0046` for "one write of four happened, and the
+  log says four" asserted three of five; `D-0046` is the first instance and `D-0048`'s own first draft (the
+  transport claim, self-corrected between `0bdb10a` and `d80b895`) the second. The reviewer's ask is ordered
+  by cost: rewrite #240's body, post one comment answering the review where the review filed it, and until
+  both are done, cut the two clauses rather than leave them standing. What does a published record get when
+  the server contradicts it: an edit, a deletion, or a dated correction naming the read-back -- and does the
+  same verb apply to a pull-request body, which is not a decision record?
+- Options: cut the two unperformed clauses from `D-0048`'s `Effect:` and post nothing, the reviewer's stated
+  minimum | rewrite `D-0048`'s `Effect:` in place so the pushed entry says only what is true now | perform
+  both writes, read each back for the sentence that must be there and the ones that must not be, and add this
+  entry with a dated `Correction:` on `D-0048`'s `Effect:` naming three of five against five | escalate: a
+  pull request's body is unreachable on this account, so label #240 `needs-human` and stop the unit
+- Chose: perform both writes, read each back for the sentence that must be there and the ones that must not
+  be, and add this entry with a dated `Correction:` on `D-0048`'s `Effect:` naming three of five against five
+- Why: the tie-break order first, because writing it down is what makes the next one cheaper. No dependency is
+  added and no config key is decoded, so those two separators are silent here. The third one decides it, and it
+  is the option that refuses to leave standing a claim its own evidence contradicts. Option 1 is the cheapest
+  and it is what the reviewer offered, but it fixes the log and leaves the artifact wrong, and the artifact was
+  the worse of the two: #240's header asserted in the present tense that nothing on the pull request answers
+  the review and nothing will until the text is re-posted, when `D-0047`'s own `Awaiting:` says the text
+  arrived at `18:41:12Z`, and the `blocked` label that used to warn a reader who lands there had been removed
+  in the same round that left the sentence up. A reader who came to #240 rather than to this file was told the
+  opposite of the log's state, with the warning label gone. And a clause cut with no dated note is the same
+  defect as an over-wide one with the sign flipped -- the entry would under-claim silently. So option 1 loses
+  at the third tie-break, before reaching the fourth, which is the one it would have won: fewest files. Say
+  that out loud, because the cost is real and the tie-break is the one that keeps a tick from wandering -- here
+  it would have left a public falsehood standing to save one commit and one entry.
+  Option 2 loses on the sixth tie-break rather than the third, and it loses hard. `d80b895` is pushed, and the
+  review on that thread quotes `D-0048`'s `Effect:` in a table; rewriting the field makes the log's past agree
+  with the present by editing. This file settled the question twice already, at `:1921` and `:2027`, in
+  `D-0046`'s own words -- a silently corrected artifact is indistinguishable from one that was always right --
+  and the surrounding entries are the rule to follow. Note the split the settled rule actually draws, because
+  this round had to apply it to two artifacts in one move: a **status** artifact is edited in place, a
+  **decision record** gets a dated correction. #240's body is status, so the stale header was replaced rather
+  than annotated -- an annotation would have left a reader meeting the falsehood first and the correction
+  second, on a page nobody scrolls -- and this file is the record, so `D-0048` keeps its text and gains a dated
+  line above this entry.
+  Option 4 is refused by measurement rather than by optimism, and it is the option this repository has
+  mis-called before. The verb needed was proven on this very artifact by `D-0048` itself -- the ISSUE verb
+  aimed at the pull-request number, which moved the labels and read back `labels: []` -- and it worked again
+  this round on the first call: `gh issue edit 240 --body-file` and `gh issue comment 240 --body-file`, both
+  landing. Nothing here adds a dependency, weakens a guard, publishes a release or deletes data, so a
+  `needs-human` label would have been a unit returning a queue item it never tested. What option 3 cost, stated
+  as a loss: an `Effect:` and a dated `Correction:` that contradict each other unless a reader reads both, on a
+  branch whose shipped code has not moved in three rounds; two writes to a public pull request whose entire
+  content is this repository's own errors, at `19:17:26Z` and `19:18:23Z`; and a fourth round of ceiling spent
+  on prose while CI's `mutation sets` job ran against a head that already had the answers in it.
+  One rule this round earns, and it is why this entry is committed *after* both reads: the write and its
+  read-back are one move, and a claim in prose about a write that has not been read back yet is the same hazard
+  with a delay built in. Both of this entry's predecessors wrote their `Effect:` before asking the server --
+  `D-0046` claimed four and got one, `D-0048` claimed five and got three -- and neither could have noticed from
+  an exit status, because `gh` reports success for a call that changes nothing: the same property that let a
+  21-byte review body be filed with a 200 and a healthy-looking row is what let a five-of-five `Effect:` be
+  written without anyone looking. So the strings this entry says it checked are named in `Effect:` and were
+  compared against the read-back, not against the command that was supposed to have made it so.
+- Checkpoint: 89a2f4732ccad06e0f733ec0de48998e810249c7
+- Effect: DECISIONS.md (this entry, and the dated `Correction (D-0049, 8 Nov)` line appended above it to
+  `D-0048`, whose five-claim `Effect:` stays intact); pull request #240's body, written with
+  `gh issue edit 240 --body-file` and read back from `gh pr view 240 --json updatedAt,body` as
+  `updated_at 2026-11-08T19:17:26Z`, 15774 bytes, byte-identical to the posted file but for the one trailing
+  newline the API adds -- checked for what must be present (`twelve of thirteen`, twice; `eight of nine` as
+  the named subset; `any one visible channel counts as drawn`; the guard property stated as the recorded
+  decision it is) and for what must be absent (each of the five citations `D-0046` retracted, the form-label
+  count, the printed rule count, the channel-plus-colour sentence, and the header that told readers the review
+  was unreadable), every one of which returned the answer the entry claims; and a comment on #240 answering
+  both blocking items and all three nits where the review filed them, `gh issue comment 240 --body-file`, read
+  back as the thread's third comment at `2026-11-08T19:18:23Z`, 9888 bytes, first line as written. What did
+  NOT move: every shipped line. `git rev-parse` per path over all 17 paths this PR touches says 15 are
+  byte-identical to `6e0169d` and the two movers are `DECISIONS.md` and `internal/web/state_vocabulary_test.go`
+  -- neither of which changes what a browser computes -- so no frame is re-taken: `manifest.py check` rc 0
+  ("9 photographs current") and `pages.py --self-test` rc 0 in this worktree. Gates run here on this tree:
+  `go test ./internal/web/` ok in 17.3 s; `scripts/check-mutations.py` "all 847 mutants apply and compile",
+  run to completion before anything else touched the tree and followed by an empty `git status --short`
+  (#1807); `scripts/check-decisions.py` rc 0. `make verify` is the gate on the tree this entry is committed to
+  and its last line belongs in the round's hand-off rather than in this field, because asserting a gate in the
+  log before the run finished is the exact move this entry exists to stop. Still unreachable from a tick, and
+  unchanged by this round: a review request. `gh pr edit --add-reviewer` dies on the retired `projectCards`
+  field, the requested-reviewers list is only readable through the raw API, which is denied to this agent whole,
+  and `gh pr review` is denied by name -- so `requested_reviewers` stays `[]` on #240 as it does on every open
+  pull request in the repository, and the supervisor's `factory_request_review` is the only thing that can
+  change that.
