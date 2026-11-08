@@ -35,7 +35,22 @@
 #                     worth less than the others and must not print as if it were worth the same,
 #                     which is what the note is for. On a git or a filesystem that does report
 #                     stat dirt, the same line reads FALSE POSITIVE REFUSED -- and that is the day
-#                     this leg starts earning its place.
+#                     this leg starts earning its place. What it *does* prove is proved twice: the
+#                     fingerprint is measured with `ls-files --debug` before the verdict is asked,
+#                     so the leg cannot pass on a tree where the planting did not happen (H-0043).
+#
+# Two of the checks are about the shipped text rather than a planted tree, because the failure they
+# guard is silent at run time -- a step nobody runs, and a git invocation git refuses:
+#
+#   wired_into_verify   deleting the line in `verify:` would delete the only gate on `factory/`.
+#   refused_refresh…    a refresh written with an option `update-index` does not accept exits 129
+#                       into the `2>/dev/null || true` wrapped around it, which is the same output
+#                       as a refresh that worked.
+#
+# Both are re-run against a copy of the file they read with the thing they look for taken out or put
+# in, in the opposite polarity to the real assertion: a presence check has to prove it can say absent,
+# an absence check has to prove it can say present. Without that, a clean line is the check working
+# and not the check being blind.
 #
 # Nothing here touches the repository: the fixture is its own throwaway repo in $TMPDIR plus one
 # of its linked worktrees, because a linked worktree is what the supervisor actually tests and it
@@ -84,6 +99,47 @@ naive_verdict() {
 		return
 	fi
 	printf 'CLEAN\n'
+}
+
+# The fingerprint itself: git's cached mtime for a path versus the mtime on the file.
+#
+# It is measured rather than assumed because a leg about the stat cache is worth nothing when the
+# cache is not actually disagreeing, and the first version of the stat leg could not tell: the line
+# that reads as settling the cache before planting was written with an option `update-index` does
+# not accept (H-0043), so it exited 129 behind a `|| true` and the leg asserted a verdict about a
+# state it had not confirmed. A planted state is proved by `ls-files --debug`, which is the same
+# number git would read from the cache.
+#
+# The two spellings differ in their leading zeros -- git prints `44033527`, `date +%N` prints
+# `044033527`, and those are the same instant -- so each half is compared as a number. Comparing
+# the strings reports a fingerprint that is not there, which is the failure mode where a leg
+# believes it planted something and passes while pinning nothing.
+planted() { # tree rel -> 0 when git's cached mtime and the file's own disagree
+	local cached live cs cn ls ln
+	cached=$(git -C "$1" ls-files --debug -- "$2" 2>/dev/null |
+		sed -n 's/^[[:space:]]*mtime:[[:space:]]*//p' | head -n 1)
+	live=$(printf '%s:%s' "$(stat -c '%Y' -- "$1/$2" 2>/dev/null)" "$(date -r "$1/$2" +%N 2>/dev/null)")
+	[ -n "$cached" ] && [ -n "$live" ] || return 1
+	cs=${cached%%:*}; cn=${cached##*:}
+	ls=${live%%:*}; ln=${live##*:}
+	[ "$((10#${cs:-0}))" != "$((10#${ls:-0}))" ] || [ "$((10#${cn:-0}))" != "$((10#${ln:-0}))" ]
+}
+
+# An assertion that is not a verdict -- the subject of a leg, rather than its answer. Same contract
+# as `expect`: it never returns non-zero, because a probe that dies at its first finding
+# under-reports exactly like a gate that skips.
+check() { # label command...
+	local label=$1
+	shift
+	if "$@"; then
+		pass=$((pass + 1))
+		printf '  ok    %-34s %s\n' "$label" "$*"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the subject of this leg is not in the tree, so whatever the\n' "$label"
+		printf '          verdict says afterwards proves nothing about it: %s\n' "$*"
+	fi
+	return 0
 }
 
 # expect LABEL TREE WANT [strong] [SUBSTRING]
@@ -146,7 +202,10 @@ reset_tree() {
 	git -C "$tree" rebase --abort >/dev/null 2>&1 || true
 	git -C "$tree" reset --quiet --hard HEAD >/dev/null 2>&1 || true
 	git -C "$tree" clean -qfd >/dev/null 2>&1 || true
-	git -C "$tree" update-index --quiet --refresh >/dev/null 2>&1 || true
+	# Plain, with no option in front of --refresh. The long form of -q is not an option `update-index`
+	# accepts at all (H-0043: 129, "unknown option 'quiet'"), and -q itself means "keep going when the
+	# index needs updating", which is the exit status the verdict's first arm reads.
+	git -C "$tree" update-index --refresh >/dev/null 2>&1 || true
 }
 
 # ------------------------------------------------------------------------ the fixture
@@ -198,11 +257,23 @@ for tree in "$repo" "$wt"; do
 	# plants a fresh difference rather than inheriting one, then put the same bytes back the way the
 	# sweep's restore does -- a write, not a `touch` -- because the fingerprint is what the halt
 	# mistook for work.
-	git -C "$tree" update-index --quiet --refresh >/dev/null 2>&1 || true
+	#
+	# `check … planted` is what turns this from a restatement of the leg above it into the leg the
+	# ticket came for: the verdict is only about the stat cache if the cache is actually disagreeing
+	# when the question is asked, and that is measured here rather than inferred from the write that
+	# was meant to cause it. Both halves are checked -- the written-back file and the touched one,
+	# because they are the two ways a sweep and an operator each leave this state.
+	#
+	# Before `expect`, deliberately: `factory_tree_dirt` refreshes first, and a writable index
+	# absorbs the new mtime as it re-reads the bytes. Asking afterwards would find no fingerprint
+	# whatever the tree looked like when the verdict was formed.
+	git -C "$tree" update-index --refresh >/dev/null 2>&1 || true
 	sleep 0.02
 	cp "$tree/tracked.txt" "$work/same-bytes"
 	cat "$work/same-bytes" >"$tree/tracked.txt"
 	touch "$tree/sub/nested.txt"
+	check "[$where] fingerprint is planted" planted "$tree" tracked.txt
+	check "[$where] touch planted too" planted "$tree" sub/nested.txt
 	expect "[$where] stat-only, same bytes" "$tree" CLEAN
 	if [ "$where" = primary ]; then
 		if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then
@@ -383,6 +454,67 @@ fi
 git -C "$repo" config --unset core.excludesFile
 
 
+# Nobody writes the refused spelling again, because nothing at run time would say so. That spelling
+# exits 129 printing its usage on stderr, and behind the `>/dev/null 2>&1 || true` every one of these
+# calls carries it is indistinguishable from a refresh that ran: the verdict stays correct (its own
+# refresh is spelled right), and the probe quietly stops settling anything. Measured on git 2.53.0:
+#
+#     git update-index --quiet --refresh   -> 129, stderr `error: unknown option 'quiet'`
+#     git update-index -q --refresh        -> 0
+#     git update-index --refresh           -> 0
+#
+# Worth the leg for the other direction too: the same option written into `factory_tree_dirt` would
+# make 129 its first read's answer, so every tree in the pass -- every clean one included -- would
+# come back UNKNOWN and halt. One character, and the queue stops for all of them.
+#
+# The pattern is built so the line that defines it cannot match itself: the literal inside this file
+# is followed by a quote, not by whitespace, and the control's copy is assembled from two arguments.
+#
+# Everything from the first `#` is cut before the test, so the check asks about code and not about
+# prose. It has to: two of the three lines this leg first flagged were comments that named the bad
+# spelling to explain it, and a guard that refuses a comment is a guard that gets widened away
+# inside a week -- H-0040 is that lesson already, learned on this repository's other gate.
+bad_refresh_calls() { # dir
+	grep -rnE --exclude-dir=.git --exclude-dir=__pycache__ \
+		--include='*.sh' --include='*.py' --include='Makefile' --include='*.spec' \
+		-- 'update-index[[:space:]][^|;&]*--quiet' "$1" 2>/dev/null |
+		awk '{ code = $0; sub(/#.*/, "", code); if (code ~ /update-index[ \t][^|;&]*--quiet/) print }' |
+		head -n 5
+}
+
+refused_refresh_spelling() {
+	local label="no refresh git refuses" root hits
+	root=$(cd -- "$HERE/.." && pwd)
+	hits=$(bad_refresh_calls "$root")
+	if [ -n "$hits" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a shipped script asks git the refused way, which exits 129 into a\n' "$label"
+		printf '          `2>/dev/null || true` and reads exactly like a refresh that ran:\n'
+		printf '%s\n' "$hits" | while IFS= read -r hit; do printf '            %s\n' "$hit"; done
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s every shipped refresh is the spelling git accepts\n' "$label"
+	fi
+
+	# The control. A checker that cannot see the thing certifies the absence of nothing, so it is
+	# handed the bad spelling in a scratch directory -- outside the repository, so the check above
+	# stays an honest statement about what is shipped.
+	mkdir -p "$work/spelling"
+	printf '%s %s\n' 'git -C "$tree" update-index' '--quiet --refresh >/dev/null 2>&1 || true' \
+		>"$work/spelling/planted.sh"
+	if [ -n "$(bad_refresh_calls "$work/spelling")" ]; then
+		printf '        control: the same check does see the spelling when it is planted, so the\n'
+		printf '        clean answer above is the check working and not the check being blind.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the check did not see a bad spelling planted for it, so its\n' "control: $label"
+		printf '          silence about the repository means nothing. Fix the pattern.\n'
+	fi
+	return 0
+}
+refused_refresh_spelling
+
+
 # The step's own invocation, pinned. Nothing in this repository referenced `factory/` before this
 # change -- `grep -rn factory Makefile .github/workflows/` on `feat/factory-harness` returns nothing
 # and there is no step-manifest checker (`git log --all -S'check-verify.sh'` is empty) -- so this file
@@ -391,14 +523,17 @@ git -C "$repo" config --unset core.excludesFile
 # screenshot manifest: "a gate whose invocation can be deleted silently is a suggestion, and the
 # cheapest way to pass a check is to stop calling it". So deleting the step from `verify:` makes the
 # step itself refuse.
+verify_runs_this() { # makefile -> 0 when the `verify:` recipe invokes this file
+	awk '/^verify:/{inr=1; next} inr && /^[^ \t]/{inr=0} inr' "$1" | grep -q 'factory/selftest\.sh'
+}
+
 wired_into_verify() {
-	local label="the step is wired into make verify" makefile=$HERE/../Makefile
+	local label="the step is wired into make verify" makefile=$HERE/../Makefile stripped
 	if [ ! -f "$makefile" ]; then
 		printf '  SKIP  %-34s no Makefile above %s\n' "$label" "$HERE"
 		return 0
 	fi
-	if awk '/^verify:/{inr=1; next} inr && /^[^ \t]/{inr=0} inr' "$makefile" |
-		grep -q 'factory/selftest\.sh'; then
+	if verify_runs_this "$makefile"; then
 		pass=$((pass + 1))
 		printf '  ok    %-34s invoked from the verify recipe\n' "$label"
 	else
@@ -406,6 +541,21 @@ wired_into_verify() {
 		printf '  FAIL  %-34s nothing under `verify:` runs this file, so nothing executes it.\n' "$label"
 		printf '          A guard that runs only when somebody remembers it is a guard whose evidence\n'
 		printf '          nobody can reproduce: add `bash factory/selftest.sh` to the verify recipe.\n'
+	fi
+
+	# The control, in the opposite polarity: the same scan of the same recipe with the step's line
+	# deleted has to say no. If it still says yes the pattern is matching something else in the
+	# recipe and the ok above is this file certifying itself out of the goodness of a wildcard.
+	mkdir -p "$work/wiring"
+	stripped=$work/wiring/Makefile
+	sed '/factory\/selftest\.sh/d' "$makefile" >"$stripped"
+	if verify_runs_this "$stripped"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan still finds the step after its line is deleted, so it\n' "control: $label"
+		printf '          matches something else in the recipe and the ok above means nothing.\n'
+	else
+		printf '        control: the same scan says the step is gone once its line is deleted, so\n'
+		printf '        the ok above is the check working and not the check being blind.\n'
 	fi
 	return 0
 }
