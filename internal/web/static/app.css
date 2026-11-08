@@ -208,6 +208,84 @@ textarea {
 	box-sizing: border-box;
 }
 
+/* ---------------------------------------------------------------------------
+   The navigation, and the one entry in it that is the page you are on (#204).
+
+   Before this block the file said nothing about `nav`, `nav a` or `a` -- its
+   only anchor rule was `a:focus-visible` -- so the whole row was user-agent:
+   link blue #0000EE, always underlined, in a size and face this stylesheet
+   never chose, beside buttons it does style. #204 measured that on all five
+   photographed pages, and measured the same thing on the entry for the page the
+   reader is standing on: no color, weight, decoration, border or background
+   differed from any sibling, on any page. This block is that half of #199.
+
+   The row is flex rather than an inline run of links because an inline run breaks between WORDS
+   and a flex row breaks between ENTRIES. Measured on the dashboard: the five entries want 323 px
+   of box, and inside the 312 px this page has at 360 px the row puts Status, Accounts, Audit and
+   Profiles on its first line and Settings on its second (nav 312x82, header 131 tall); at 1024 px
+   all five plus the sign-out form fit one line (nav 976x40). The other shape was a word broken
+   across those two lines, the failure this file has refused before.
+
+   Flex also makes the sign-out form a member of the row instead of a block under it, which is
+   what the shell's `class="inline-form"` has claimed all along -- a class no rule in this file
+   ever read, the same kind of unwired hook D-0012 refused.
+
+   `nav a:hover` is above the current-page rule and that rule names `text-decoration` itself.
+   That order is the whole reason the page you are on stops answering the mouse: at equal
+   specificity the later rule wins, so hovering it does not underline it while hovering a page
+   you are not on still says it is a link. Written as `nav a[aria-current="page"]:not(:hover)`
+   it behaves identically today and goes wrong the day someone moves the hover rule below it. */
+nav {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: .15rem .9rem;
+}
+
+nav a {
+	color: var(--muted);
+	font-weight: 500;
+	text-decoration: none;
+	/* The target, not the glyph. Measured on the same link at both viewports: with this line out
+	   the box is 26 px tall, with it 40 -- the box a parent holding a phone can actually hit --
+	   and `:focus-visible` draws its ring OUTSIDE the box, so the focus state grew with it rather
+	   than being clipped by it. #199 asked for a layout that does not break "in some places"; the
+	   place it broke for a thumb was here, at 26 px. Every entry gets the same padding, which is
+	   also why marking the current one by color and weight is the cheap option: a mark that added
+	   height would move the whole row. */
+	padding: .45rem .3rem;
+	/* Reserved now so the current page can be marked by color and weight alone. A `border-bottom`
+	   introduced only by the current-page rule would grow that link's box by its own width and
+	   move the whole baseline down on every page the shell renders -- which is every page. */
+	border-bottom: 2px solid transparent;
+}
+
+nav a:hover {
+	color: var(--ink);
+	text-decoration: underline;
+}
+
+nav a:active {
+	color: var(--ink);
+}
+
+/* Three properties, on purpose. #204's criterion is that the current entry differ from every
+   sibling in at least one of `color`, `font-weight`, `text-decoration-line` and
+   `border-bottom-width`, and the cheapest compliant answer -- `text-decoration: underline` on
+   the current page -- is the one that would have made the page you are on look like the link it
+   just stopped being. Weight and ink carry the mark; the rule underneath carries the fact that
+   this entry is where you are rather than somewhere to go. The capture driver measures every one
+   of these -- color, weight, decoration, border width and border color -- on all nine pages at
+   both viewports and refuses if none of them differ from a sibling's
+   (`cdp.require_nav_distinguishable`), so deleting two of the three still has to leave one the
+   browser agrees is visible. */
+nav a[aria-current="page"] {
+	color: var(--ink);
+	font-weight: 600;
+	text-decoration: none;
+	border-bottom-color: var(--line);
+}
+
 /* A tick box travels with its own words (#202).
 
    Every radio and checkbox in this UI is written `<label><input> On — enforce the schedule</label>`

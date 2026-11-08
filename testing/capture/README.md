@@ -447,17 +447,20 @@ frames byte-identical to the pre-change files, moving only the two whose *fixtur
 for a page nobody photographed. `fixture.sh` now refuses a binary older than the sources compiled into
 it and names them; the build line above is the fix it asks for.
 
-**Record last, and only over a complete set.** `record()` walks the PNGs sitting in its target
-directory (`pngs_in`, and `record`'s loop over it) and stamps each with the newest commit over its
-sources — it does not
-know, and cannot tell, which of them this run took. Pointed at the committed directory, a partial
-re-capture therefore advances `sources_rev` for the frames it left alone, and `check` calls those
-stale photographs current: measured 5 Nov after the two `pages.py` lines above, the check reported
-*9 photographs current* while `lock.png` and `testlock.png` were byte-for-byte the previous files.
-The identity check cannot see it, because the recorded hash matches the stale file it was recorded
-from. The sentence further up this file — that a fixture records its manifest in its own `runs/`
-directory "so a one-page re-capture cannot certify another run's PNGs as just-taken" — is true of the
-default target and false of `--out`.
+**Record last, and name what you took.** `record()` walks the PNGs sitting in its target directory
+(`pngs_in`, and `record`'s loop over it), so the frames it may *re-date* have to come from somewhere
+other than the directory listing: that is `--shot`, and since D-0031 it governs `sources_rev` as well
+as the conditions block. A frame this run did not name, whose bytes are the bytes the manifest already
+recorded, keeps the `sources_rev` it already had and gains `carried_from`, naming the manifest it came
+from; the green sentence then says so (`4 of them are carried … this run did not re-take them`) instead
+of counting nine. Before that, pointed at the committed directory, a partial re-capture advanced
+`sources_rev` for the frames it left alone and `check` called those stale photographs current: measured
+5 Nov after the two `pages.py` lines above, the check reported *9 photographs current* while
+`lock.png` and `testlock.png` were byte-for-byte the previous files, and measured again 6 Nov on
+`origin/main` with each path's own commit supplied, one `record` over four untouched frames answered
+*0 problems* where the drift arm has four refusals to make. The identity check could not see it then
+and cannot now, because the recorded hash matches the stale file it was recorded from — which is why
+the carried rev, not the digest, is the thing that had to stop moving.
 
 The stronger form of the same hole, measured 6 Nov on the merge of #221: substitution, not staleness.
 In a scratch copy of the committed directory with `main`'s `audit.png` — a photograph of the `MST`
@@ -466,10 +469,16 @@ cell the branch had just deleted — sitting in place of the current one, `check
 bytes answers **`9 photographs current`, rc 0**. `record` writes `sources_rev = newest_commit(sources)`
 from the commit and the clock and never asks the pixels what page they show, and `check`'s drift arm
 opens `if recorded == current: continue` — so the equality the recorder mints is the same equality the
-gate reads, and a re-dated frame cannot be seen to be wrong. That is what the `--shot` names are for:
-they are the only input that says which frames this run photographed, and a frame named without an env
-that states its fixture is a refusal rather than a guess. The bare command is still right for a set
-this folder took whole and honest; it is the *only* command that will not tell you it was wrong.
+gate reads, and a re-dated frame cannot be seen to be wrong. D-0031 closes the staleness half, because
+the recorder is no longer allowed to move a rev for pixels it did not write. **The substitution half is
+open**, and the carry-over does not touch it by design: swapped bytes differ from the manifest, so they
+are a *changed* frame, and a changed frame nobody names is still re-dated. Two things hold it: `check`
+before `record` refuses the swap on identity, and `--shot` is the input that says which frames this run
+photographed, so a frame named without an env that states its fixture is a refusal rather than a guess.
+What is not there yet is a refusal for a frame whose bytes moved and nobody claimed it — the honest
+recipe for that is `--shot` for every frame the run took, including `lock.png` and `testlock.png`,
+which no driver records for. The bare command is still right for a set this folder took whole and
+honest; it is the *only* command that will not tell you it was wrong.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver
@@ -546,11 +555,17 @@ and `make verify` runs `manifest.py check`, which refuses when:
 - the newest commit over that page's `sources` is **newer than the newest commit over the PNG** —
   the page grew and the photograph did not;
 
-The comparison is an ancestry test, not an equality against `sources_rev`, and the first version got
-this wrong in the direction that costs an hour: it compared the manifest's own commit with the page's,
-so a commit that changed a template *and* re-took its photograph — the one commit in which both are
-true — was refused by the very change that made the photograph current, with a sentence asserting the
-opposite. `git rev-list --count <png>..<source>` asks the history instead of asking the manifest, so
+The comparison is an ancestry test once it gets there, and the equality against `sources_rev` that
+precedes it is not innocent: the arm opens `if recorded == current: continue`, so the value the
+recorder wrote is what decides whether the history is consulted at all. That is how #222 passed — a
+partial `record` mints `sources_rev = current` for frames it never photographed, and the ancestry test
+below is then never reached for them. D-0031 stops the recorder writing that value for a frame it did
+not take, which is the only reason the sentence "the comparison is an ancestry test" is true of a
+partial re-capture as well as a whole one. The first version got the ancestry test itself wrong in the
+direction that costs an hour: it compared the manifest's own commit with the page's, so a commit that
+changed a template *and* re-took its photograph — the one commit in which both are true — was refused
+by the very change that made the photograph current, with a sentence asserting the opposite.
+`git rev-list --count <png>..<source>` asks the history instead of asking the manifest, so
 a page change and its re-take may share a commit, a re-take with no page change is current, and the
 failure this file is about still refuses. (The spelling matters: `--count <png> ^<source>` is zero for
 a descendant as well as for an ancestor, which accepts exactly the case the rule exists to refuse. The
@@ -796,7 +811,7 @@ with a fake that reports `innerWidth=360` at a 1024 px request.
 
 ## The self-test, because nothing else in this repository can read these files
 
-`./pages.py --self-test` runs 45 rules about what a refusal does. It starts no browser, spawns no
+`./pages.py --self-test` runs 48 rules about what a refusal does. It starts no browser, spawns no
 daemon, writes no file, and costs **0.03 s** for all of them, so `make verify` runs it
 beside the two mutation
 self-tests. What it cannot do is reach below its own fakes — see the two body guttings above, which

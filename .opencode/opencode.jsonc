@@ -1,0 +1,145 @@
+// Project OpenCode configuration.
+//
+// Why this file exists: the delivery supervisor starts sessions with `opencode run`, where nobody
+// is present to answer a permission prompt or a `question`. Two tools make a headless run stop
+// forever -- an approval it cannot ask for, and a question it cannot answer -- and both are bounded
+// here rather than by hoping the model behaves.
+//
+// `--auto` on the command line approves permissions that are not explicitly denied. That is why the
+// deny list below is the boundary the tick actually runs inside: everything not named is allowed,
+// and everything named is refused no matter what flag was passed. It is a short list on purpose --
+// each entry is an action whose result cannot be undone by reverting a commit.
+//
+// What this list is NOT: a sandbox. The matcher globs the WHOLE parsed command line, so a rule binds
+// the command shapes it can spell, and H-0013 records which ones it could not spell. It constrains a
+// cooperative agent; it does not contain an adversary, and nothing here should be read as claiming
+// otherwise. The boundary against irreversibility is that a tick cannot merge at all (H-0006) and the
+// supervisor re-reads every gate from the API before it does.
+//
+// Because that glob is anchored at both ends, a deny on a program a command can OPEN with needs two
+// patterns: `* rm -r*` to catch the flag-inserted form (`cd /tmp && rm -rf …`) and `rm -r*` to catch the
+// bare form (`rm -rf …`), which is the one a model types first. Neither covers the other, and the list
+// has now been wrong in both directions. Measured at 869564a with `opencode debug agent factory` on
+// v2.2.5: 17 bash rules, 7 of them opening on a literal, therefore inert -- `gh pr merge*` left
+// `gh -R vicowa-botworks/parental-lockout pr merge 218` allowed, the form `gh`'s own `--repo` flag
+// produces. Deleting those literals and keeping only the `* ` forms then allowed `rm -rf`, `systemctl`
+// and `go get` again, measured at 37120a8 on 6 Nov. Where a flag can sit between the program and the
+// subcommand the wildcard has to start at the subcommand (`* pr merge*`, not `* gh pr merge*`), which is
+// why the `git`/`gh` rules need no literal twin: their patterns key on a subcommand, so a command always
+// has something before them. `scripts/check-denies.py` asserts both spellings of every denial, and a
+// short allow-list, against the resolved ruleset -- four rounds of pattern-shaping had nothing
+// re-checking it, which is why the same file kept being wrong in a new way. The scanner rule in the
+// skill is the other half of why this matters: keying these patterns under `bash` means the scanner
+// parses every command this agent types, so a pattern nobody parses is invisible in exactly the same way
+// a pattern nobody evaluates was.
+//
+// The agent is `factory`, named by `factory/factory.sh` through FACTORY_AGENT.
+{
+	"$schema": "https://opencode.ai/config.json",
+	"agent": {
+		"factory": {
+			"description": "One unit of delivery work, unattended: implement, verify, open the pull request. Never merge.",
+			"permission": {
+				// The tool that stops a headless session dead. It "pauses execution and presents
+				// the question to the user", and `opencode run` renders no question UI, so a tick
+				// that calls it holds its worktree until the wall-clock ceiling kills it -- with no
+				// reason recorded anywhere. Denied, the call returns an error to the model instead,
+				// and the skill's decision procedure is what it does next: write the entry, take the
+				// recommended option, carry on.
+				//
+				// `question` is a TOOL, so its rule is one of allow | ask | deny and is written
+				// plainly. Everything below is `bash`, where the value is instead a table of command
+				// patterns -- and that is the whole of D-0013. Measured on 5 Nov against v2.2.5,
+				// `opencode debug agents` read a flat `"git push --force*": "deny"` as
+				// `{"action": "git push --force*", "resource": "*", "effect": "deny"}`: an ACTION,
+				// and no tool reports an action by that name, so nothing matched it and `--auto`
+				// approved the command. Nested under `bash`, the same entries read as
+				// `{"action": "*", "resource": "git push --force*", "effect": "deny"}`, which is a
+				// rule the bash permission check evaluates.
+				"question": "deny",
+				"bash": {
+					// The catch-all first, the denials after it: rules are matched in order and the
+					// last match wins, so a `deny` placed before `*` would be erased by it. This
+					// line says out loud what `--auto` already does, and the entries under it are
+					// the exceptions.
+					"*": "allow",
+					// Merging is `factory.sh`'s job: it re-reads reviewDecision, mergeable,
+					// mergeStateStatus and every check from the API immediately before merging, and
+					// refuses unless all four still say yes. A tick does none of that reliably.
+					"* pr merge*": "deny",
+					// Approving is denied for the same reason as merging, and by the same reader: a
+					// tick that reviews its own pull request makes the four-way re-read above a
+					// formality. The method-scoped allow (`gh api -X POST .../requested_reviewers`) that
+					// this denial also blocks was weighed at round five and is deliberately NOT added: no
+					// released gh has a --reviewer flag -- `pr edit` has only --add-assignee/--remove-
+					// assignee, `pr reopen` has --unready, `pr review` has --request-changes, `search prs`
+					// has --review-required -- so api is the only transport, and a whole-line allow for one
+					// POST method is blind to the method: `* api -X POST*` would also admit
+					// -X POST .../merge, the exact call "* pr merge*" exists to stop, since --admin
+					// overrides a non-passing status check. It stays withheld because the one actor who
+					// needs it is a tick that has already been told not to run gh api and is refused at
+					// parse time, while the actor who actually asks is `factory_request_review` in
+					// factory.sh, which is ungated and uses the same endpoint -- measured: a POST to
+					// .../pulls/217/requested_reviewers returns 201, so the ask is on the record without
+					// weakening the boundary. Recorded here, not just in the thread, so round six does
+					// not re-open it.
+					"* pr review*": "deny",
+					// A push of a branch is expected and is how a tick's work survives it. These are
+					// the push shapes that destroy other people's work. Each one is written with a
+					// leading `* ` because the pattern matches the whole command line, and a leading
+					// literal would miss `git -C /some/tree push --force` -- the form this harness
+					// uses constantly, and the reason the previous list was not merely mis-keyed.
+					"* push --force*": "deny",
+					"* push -f*": "deny",
+					"* push --delete*": "deny",
+					"* push origin main*": "deny",
+					"* push origin master*": "deny",
+					// The dependency rule (#856): a `require` line is the user's decision, full stop.
+					// Both spellings, because `go get x` opens with the program and `GOTOOLCHAIN=… go
+					// get x` does not.
+					"* go get*": "deny",
+					"go get*": "deny",
+					// A release is a public act, and this repository publishes from a tag. `git tag` with any argument
+					// is a create, move or delete; `git tag` alone only lists, so the pattern wants the
+					// space. The broad form `* tag*` was rejected deliberately: it also denies
+					// `git describe --tags`, which the packaging gate runs, and a deny that breaks the
+					// gate teaches the next tick to route around denies.
+					"* tag *": "deny",
+					"* release create*": "deny",
+					"* release delete*": "deny",
+					"* release edit*": "deny",
+					// The raw API call, denied whole rather than filtered by method. Two measured
+					// reasons, both in D-0013: `gh api -X DELETE refs/tags/...` is an irreversible
+					// public act that no tick needs, and the matcher cannot spell "reads only" --
+					// `-X` can sit anywhere in the arguments, and `gh pr view --json` has no
+					// `closingIssuesReferences` field to read linkage with instead (measured: it is
+					// not in this gh's field list). So the one place that read belongs is the
+					// supervisor's own triage, `factory/triage.sh`, which is not an agent and is not
+					// gated by this file. The skill's two `gh api` snippets are rewritten to
+					// first-class commands for the same reason.
+					"* api *": "deny",
+					"* api": "deny",
+					// A stopped machine is a bigger incident than a stalled ticket, and a recursive
+					// force-delete is the one thing a wrong directory turns into an outage. Both
+					// spellings for each: the `* ` form reaches `sudo systemctl stop …` and
+					// `cd /tmp && rm -rf …`, the literal form is the only thing that reaches
+					// `systemctl --user stop …` and `rm -rf …`, and those bare forms are what a model
+					// types first. They were allowed at 37120a8 for exactly one round.
+					"* systemctl*": "deny",
+					"systemctl*": "deny",
+					// Any recursive delete, in whichever order the flags are spelled: `-rf`, `-fr`,
+					// `-r -f`, `--recursive --force`. The two patterns this file carried covered one of them.
+					"* rm -r*": "deny",
+					"rm -r*": "deny",
+					"* rm --recursive*": "deny",
+					"rm --recursive*": "deny",
+					// Worktrees are the supervisor's to create and remove: one removal on a branch
+					// another session holds, or on a tree with uncommitted work, destroys a person's
+					// afternoon. Measured the same week this line was added.
+					"* worktree remove*": "deny",
+					"* worktree move*": "deny"
+				}
+			}
+		}
+	}
+}
