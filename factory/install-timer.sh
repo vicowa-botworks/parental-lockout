@@ -167,6 +167,7 @@ render() {
 		-e "s#@INTERVAL@#$(sed_replacement "$INTERVAL")#g" \
 		-e "s#@STOP@#$(sed_replacement "$STOP")#g" \
 		-e "s#@REVIEWER@#$(sed_replacement "$FACTORY_REVIEWER")#g" \
+		-e "s#@REVIEWER_TEAM@#$(sed_replacement "$FACTORY_REVIEWER_TEAM")#g" \
 		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
 		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g"
 }
@@ -197,6 +198,15 @@ ExecStart=@REPO@/factory/factory.sh
 # The unit reads none of your shell profile: name the directories gh and opencode live in.
 Environment=PATH=@PATHS@
 Environment=FACTORY_REVIEWER=@REVIEWER@
+# Both halves of the review target, and the pair is the point. A review request goes to a TEAM by
+# default (#241) with an individual as the override, so a unit that named only `FACTORY_REVIEWER`
+# would bake a person into the install and the poke would keep asking one account long after the file
+# was changed to ask the team -- which is exactly how #240 sat unanswered for a day. The team line is
+# the SLUG, and an empty one (`Environment=FACTORY_REVIEWER_TEAM=`) is the documented override that
+# means "ask the individual on this repository": systemd reads `Environment=VAR=` as an empty value,
+# and common.sh reads the defaults with `${VAR-default}` so that empty survives instead of being
+# refilled with cinemaitor.
+Environment=FACTORY_REVIEWER_TEAM=@REVIEWER_TEAM@
 # Not a convenience, and not the same thing as WorkingDirectory above. The CLI takes its project --
 # the agent, the agent's deny rules, and the skill the instruction points at -- from $PWD, and
 # chdirs there; a unit chdirs and exports no PWD, so the CLI never moves and the session opens in

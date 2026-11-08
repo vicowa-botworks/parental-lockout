@@ -235,11 +235,17 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 	#   /requested_reviewers  -- whether anybody was asked at all. This is read from REST rather
 	#                            than from `reviewRequests`, which lists only OUTSTANDING requests
 	#                            and so cannot tell "never asked" from "asked and already answered".
+	# The program is `$JQ_REQUESTED_LIST` (common.sh), shared with the poke's own read-back so the two
+	# cannot disagree about who holds a request. It counts `teams[]` as well as `users[]`, because that
+	# is where a request addressed to a team lands -- and a row that called one `needs_reviewer` would
+	# hand it back to the poke every FACTORY_REVIEW_POKES for a request that is already outstanding.
+	# The `team:` prefix is what makes the detail column say who was asked instead of blending a team
+	# into a list of logins.
 	reviews=$(api_get "pulls/$number/reviews" \
 		'[.[]|{u:(.user.login//""),s:.state,t:.submitted_at}]' '[]')
 	newest_change=$(printf '%s' "$reviews" | jq -r '[.[]|select(.s=="CHANGES_REQUESTED")]|max_by(.t)|.t // empty' 2>/dev/null || true)
 	any_review=$(printf '%s' "$reviews" | jq -r 'length' 2>/dev/null || printf '0')
-	requested=$(api_get "pulls/$number/requested_reviewers" '[.users[].login]|join(",")' '')
+	requested=$(api_get "pulls/$number/requested_reviewers" "$JQ_REQUESTED_LIST" '')
 	head_date=$(api_get "commits/$oid" '.commit.committer.date' '')
 
 	case "$mergeable" in
