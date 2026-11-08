@@ -1473,6 +1473,16 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   zone property to the pair. The reviewer's non-blocking count rides in the same commit for the same
   reason -- the run of 16:33:49 to 16:34:09Z is "nine-fixture" in that row while the manifest counts
   four, and the file's own word for the nine is frames (`D-0014`, `D-0028`), so the row reads nine-frame.
+- Correction, in the same commit as the measurement that forced it (`D-0042`). The clause this entry
+  quotes out of the file -- "the same file two paragraphs later records that against the previously
+  committed bytes only `settings.png` and `users-no-profiles.png` came back identical and the other five
+  moved" -- describes #207's re-take run, not the two-zone pair, and the fix this entry shipped carried it
+  into the pair's own sentence directly beside the clause that denies it, so the paragraph ended up
+  asserting a hash relation and its negation about the same seven PNGs. `D-0042` deletes the imported half.
+  What does not move is this entry's conclusion and its measurement, both re-run at the head `D-0042`
+  corrects: `git log --all` over each of the seven paths still gives 21, 17, 13, 15 and 6, 6, 3 commits,
+  the distinct-value walk still gives 19, 11, 11, 10, 6, 6 and 3, and none of the pair's seven values
+  appears in any of those sets.
 - What this costs, stated rather than glossed. (1) The row loses a claim that read as though it had been
   earned: no sentence here can now say the *committed* frame is zone-independent, because nothing in
   this repository has ever established it -- the pair's outputs were never the committed bytes. (2) The
@@ -1558,3 +1568,74 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   from the gate rather than from the tense of the sentence it sits in.
 - Checkpoint: 97eadbd270a3c7b39aa717cb7d9a5ba2797a6f66
 - Effect: DECISIONS.md (this entry and the `D-0039` item 4 amendment above), pull request #225
+
+## D-0042 · The replacement sentence asserted the retraction and the thing it retracted
+
+- Question: #225's round-6 blocking finding is aimed at the sentence written to answer round 5, at
+  "What the audit fixture is not allowed to contain": "against the set committed at the time only
+  `settings.png` and `users-no-profiles.png` came back identical and the other five moved with the branch,
+  and none of the seven values that pair prints was ever a committed file at any head on any ref". The two
+  halves cannot both hold -- if those two frames came back identical to a committed set, their pair values
+  *are* committed files -- and the file prints the seven values that decide it nine lines of the same
+  section above. What is true about the pair's bytes, and what replaces the sentence?
+- Options: drop the imported half, let the paragraph rest on run-vs-run identity, and re-word the surviving
+  clause so its scope is checkable | keep both halves and record them as conflicting, routing the identity
+  claim to #213 beside the scripts-pair table | re-run the two-zone pair against the nine frames committed
+  today and quote what comes back | delete the pair from this section and let the `audit.png` row carry the
+  zone property alone
+- Chose: drop the imported half, let the paragraph rest on run-vs-run identity, and re-word the surviving
+  clause so its scope is checkable
+- Why: the pair's own wording already establishes what the sentence needs -- "two fresh fixtures, run about
+  a minute apart … produced byte-identical PNGs" is a run-vs-run claim with no committed term -- so the
+  first half was not doing work, it was doing damage. Measured before writing, and the walk is `D-0040`'s
+  re-run, not the review's assertion: every historical blob of each of the seven paths over every ref gives
+  `settings` six values (`111bcbe1`, `12e669d8`, `140dc2e7`, `2d7ac1d9`, `7bfacb6f`, `a7411adf`) and
+  `users-no-profiles` three (`8bbb8293`, `9173e9b4`, `dac864f4`), and the pair's `175c1d1f…` and `ce38334c…`
+  are in neither set -- so there is no reading of "at the time" on which those two came back identical to
+  committed bytes, and "the other five moved with the branch" is a split of a comparison that never
+  happened. One measurement past the review's, because the review left an out: "if in fact the pair ran on a
+  #207 head since discarded by a force-push, that is worth a sentence of its own". Hashing every blob in
+  this clone's object database -- `git cat-file --batch-all-objects --batch`, 2074 blobs, 87 of them PNGs
+  -- returns none of the seven, and `git reflog show issue-207` and `git reflog show origin/issue-207`
+  contain no forced update at all (14 and 6 entries, every one a commit, a merge, or a fast-forward push).
+  The discarded-head story is therefore not needed to explain the pair and is contradicted for this branch
+  by both reflogs. That is also why "any head on any ref" became "any head this repository still
+  publishes": the object-DB result is a fact about this clone, which a reader who clones fresh cannot
+  reproduce, while the published-refs walk is the same claim at the size a reader can check.
+  Option two is the one that keeps a contradiction on the page and asks the reader to hold both sides, and
+  it asserts about the neighbouring paragraph a thing this unit has not measured: the re-take it describes
+  quotes no digest, so its equality against the then-committed set can be neither confirmed nor refuted
+  from this tree -- the third tie-break, refuse rather than proceed on an input that is not there, refuses
+  it. Options one and two each touch one markdown file, so the fourth tie-break is decided by the size of
+  the claim, not the count of files, and the fifth is undecided between two prose commits; the sixth
+  settles it, because the file's own practice since `D-0039` is to name a run and point at the manifest
+  rather than to adjudicate two hash claims against each other in one sentence. Option three was refused
+  once in `D-0039` and again in `D-0040` for reasons that have not expired -- a docs unit does not
+  photograph, the two POST fixtures are #213's subject, and an honest `record` must be handed all nine
+  `--shot` names (`D-0031`). Option four retires the only two-zone measurement in the tree, the evidence
+  #210 and #212 were opened to produce.
+  The same walk fixes two neighbours in the same commit, because both quote one of the pair's values as
+  though it were committed. The `users-no-profiles` row said `ce38334c39ad…` was "equal to the file this
+  branch re-recorded"; this branch re-recorded that path twice, `dac864f4…` at `9e07dde` and `9173e9b4…` at
+  `b9eeec3`, so of the row's two digests one is a citation and one is not and the cell now says which. Its
+  real citation is restated as measured, because the review's version of it was one commit off:
+  `8bbb8293…` is `f56dc29`'s frame, recorded at `captured_at 2026-11-01T05:43:26Z`, and the
+  `2026-11-01T22:47:43Z` quoted in the review is `d439f70`'s re-record of the same bytes. The `audit.png`
+  row's "any head on any ref" takes the same published scope so the two rows cannot drift apart, and the
+  pair's closing clause reads "One host, two zones declared" -- :232 and :324 both say one machine, and
+  "two hosts" sat in the one sentence the retraction now depends on.
+- What this costs, stated rather than glossed. (1) The paragraph is longer than the sentence it replaces and
+  now explains a mistake as well as stating a scope, which is worse prose and the only honest shape
+  available: the imported clause has to be named, or the next reader re-imports it from the paragraph above.
+  (2) The `users-no-profiles` cell still carries a digest that names nothing committed. Labelling it stops
+  the cell lying; it does not remove the temptation to quote it, and #213's rows own that table -- `D-0041`
+  already refused rewriting its cells here for the same reason. (3) "Still publishes" is a scope that moves
+  with the branch list, but only one way: deleting a ref removes counterexamples and cannot falsify the
+  sentence, so the only way it becomes false is for someone to commit one of these seven frames -- the
+  exact case where being falsified is the point. (4) The object-database scan is corroboration this clone
+  can produce and a fresh clone may not, so the log leads with the published-refs walk and keeps the
+  stronger result where a reader can see what it does and does not license.
+- Checkpoint: 8aa5bd80e398359db273d3dc5bb86be58c573d06
+- Effect: testing/capture/README.md (the two-zone paragraph, the `audit.png` row's host-zone clause, the
+  `users-no-profiles` row's digests, and the pair's "two hosts" clause), DECISIONS.md (this entry and the
+  `D-0040` correction above), pull request #225
