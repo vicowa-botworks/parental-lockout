@@ -811,11 +811,18 @@ git -C "$repo" config --unset core.excludesFile
 # spelling to explain it, and a guard that refuses a comment is a guard that gets widened away
 # inside a week -- H-0040 is that lesson already, learned on this repository's other gate.
 bad_refresh_calls() { # dir
+	# `|| true` is load-bearing, not tidiness. The step runs `set -euo pipefail`, so a pipeline whose
+	# FIRST command fails fails as a whole, and callers take the status into an assignment --
+	# `hits=$(bad_refresh_calls "$root")` -- where errexit kills the script at that line: no FAIL line,
+	# no tally, exit 1, and the gate has stopped running in silence. A scan whose subject is absent must
+	# answer "nothing", which is a status of 0. Today the first grep matches only because this
+	# repository's comments quote the bad spelling; delete those comments and the guard itself goes
+	# missing. `scans_cannot_kill_the_step` below is the leg that keeps it true.
 	grep -rnE --exclude-dir=.git --exclude-dir=__pycache__ \
 		--include='*.sh' --include='*.py' --include='Makefile' --include='*.spec' \
 		-- 'update-index[[:space:]][^|;&]*--quiet' "$1" 2>/dev/null |
 		awk '{ code = $0; sub(/#.*/, "", code); if (code ~ /update-index[ \t][^|;&]*--quiet/) print }' |
-		head -n 5
+		head -n 5 || true
 }
 
 refused_refresh_spelling() {
@@ -849,6 +856,124 @@ refused_refresh_spelling() {
 	return 0
 }
 refused_refresh_spelling
+
+# The dirt test this branch deleted, refused by its own text -- in every shipped script, not only in
+# the copies of the predicate.
+#
+# The shipped-text guard used to look for two shapes: a halting call site that drops `|| return $?`,
+# and a second copy of the predicate named `dirt_rc` or `tree_is_dirty`. Both were drawn from the one
+# bug report this branch answers, and a scan drawn from a bug report is a scan for that bug. Measured
+# on the head commit of #231 as it was filed: `factory/factory.sh` held no `status --porcelain`, so
+# the scan was green while the file held the expression the branch exists to delete, written as
+#
+#     if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then return 4; fi
+#
+# which is the same hole the ticket filed -- it answers a stat-cache question, and on the shapes the
+# exclude leg measures it exits 128 printing nothing -- in a halting path, and nothing in this file
+# could see it. That is how #228 was filed in the first place; a guard that cannot recognise the
+# original crime coming back has not retired anything.
+#
+# The probe is exempt and says so: it has to keep asking the question the shipped code is forbidden to
+# ask, because printing what the old expression answers is the only way the legs show the replaced
+# behaviour was wrong rather than merely different. Comment lines are cut before the test for the same
+# reason `bad_refresh_calls` cuts them -- this file's own prose names the expression to explain why it
+# is refused, and a guard that refuses a quotation is a guard that gets widened away (H-0040).
+naive_dirt_tests() { # dir -> shipped lines under factory/ that ask git the stat question
+	if [ ! -d "$1/factory" ]; then
+		# Loud, not empty. A scan pointed at a directory that is not there answers "no hits", and an
+		# absence check that cannot tell an empty room from a locked one certifies nothing. One test
+		# covers the count and the path the grep takes, so the two cannot drift apart.
+		printf 'no factory/ directory under %s -- the scan has nothing to read\n' "$1"
+		return 0
+	fi
+	# `|| true` for the reason in `bad_refresh_calls`: no match is an answer, not a failure, and the
+	# caller's assignment would otherwise end the step before it can print the ok.
+	grep -rn --include='*.sh' --exclude-dir=.git -- 'status --porcelain' "$1/factory" 2>/dev/null |
+		grep -v 'factory/selftest\.sh:' |
+		awk '{ code = $0; sub(/#.*/, "", code); if (code ~ /git[^|;&]*status --porcelain/) print }' |
+		head -n 5 || true
+}
+
+# A gate that can be killed by the shape of the tree it is reading is not a gate. Both shipped-text
+# scans are invoked as `hits=$(scan "$dir")`, and under `set -euo pipefail` a scan whose first grep
+# finds nothing returns non-zero -- so the assignment ends the script at that line, with no FAIL line
+# and no tally. This asks each scan directly for its status on a tree holding one ordinary script and
+# nothing to find, in a subshell so that a failing one reports its status instead of ending the run.
+# Measured before the `|| true` was added: this leg is red with exit 1 for both scans, which is the
+# silent death it exists to catch.
+scans_cannot_kill_the_step() { # -> 0 when every shipped-text scan answers 0 on a tree with no matches
+	local fn quiet rc=0 bad=''
+	quiet=$work/no-match/factory
+	mkdir -p "$quiet"
+	printf '%s\n' '#!/usr/bin/env bash' 'true' >"$quiet/quiet.sh"
+	for fn in bad_refresh_calls naive_dirt_tests; do
+		rc=0
+		( "$fn" "$work/no-match" >/dev/null 2>&1 ) || rc=$?
+		[ "$rc" = 0 ] || bad="${bad:+$bad, }$fn exited $rc"
+	done
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a scan with nothing to find ends the step: %s. The\n' "no scan can kill the step" "$bad"
+		printf '          assignment `hits=$(…)` under `set -euo pipefail` is where it dies, so\n'
+		printf '          the gate stops running and prints neither a FAIL line nor a tally.\n'
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s a scan with nothing to find answers 0 and the step goes on\n' "no scan can kill the step"
+}
+scans_cannot_kill_the_step
+
+naive_dirt_test_refused() {
+	local label="no stat-question dirt test" root hits
+	root=$(cd -- "$HERE/.." && pwd)
+	hits=$(naive_dirt_tests "$root")
+	if [ -n "$hits" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a shipped script decides a halt from `status --porcelain`, which asks\n' "$label"
+		printf '          a stat-cache question and, on the exclude-file shapes measured above,\n'
+		printf '          exits 128 printing nothing -- the hole #228 was filed for:\n'
+		printf '%s\n' "$hits" | while IFS= read -r hit; do printf '            %s\n' "$hit"; done
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s every halting path asks the content verdict\n' "$label"
+	fi
+
+	# Two controls, opposite polarities, both planted outside the repository so the answer about the
+	# repository stays an honest statement about what is shipped. The first is the expression this
+	# branch deleted from `factory/factory.sh`, verbatim: a scan that cannot see it is blind, and its
+	# silence about the tree would mean nothing.
+	mkdir -p "$work/naive/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# a halting path that went back to the stat question' \
+		'if [ -n "$(git -C "$tree" status --porcelain 2>/dev/null)" ]; then return 4; fi' \
+		>"$work/naive/factory/planted.sh"
+	if [ -z "$(naive_dirt_tests "$work/naive")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan did not see the deleted expression planted for it, so its\n' "control: $label"
+		printf '          silence about the repository means nothing. Fix the pattern.\n'
+	else
+		printf '        control: the expression this branch deleted is refused when it is planted in a\n'
+		printf '        shipped script, so the ok above is the check working and not the check being blind.\n'
+	fi
+
+	# The second is the same expression inside a comment. Refusing prose is how this guard gets deleted:
+	# the file that explains a rule would then be the file the rule stops.
+	mkdir -p "$work/naive-prose/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# this used to be `if [ -n "$(git status --porcelain)" ]`, and that is the bug' \
+		'factory_tree_halt TICK-HALTED "$unit" "$tree" || return $?' \
+		>"$work/naive-prose/factory/prose.sh"
+	if [ -n "$(naive_dirt_tests "$work/naive-prose")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan refuses a comment that only quotes the expression, so it is\n' "control: $label"
+		printf '          asking about prose and will be widened away inside a week (H-0040).\n'
+	else
+		printf '        control: the same expression inside a comment is not refused, so the guard\n'
+		printf '        reads code and not prose.\n'
+	fi
+	return 0
+}
+naive_dirt_test_refused
 
 
 # The step's own invocation, pinned. Nothing in this repository referenced `factory/` before this
