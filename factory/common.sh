@@ -583,7 +583,7 @@ factory_path_list() { # stdin: paths -> at most three, plus "(+N more, M in all)
 # behind a control whose match names nothing git ever runs so the shim cannot halt by construction. Be
 # clear about what that pins: the ARM, that this read's refusal alone stops the pass and says which
 # read it was. It claims nothing about git refusing this way on its own; the planted legs above remain
-# the only evidence for that, on the filesystems that can supply it. Legs red at 10556e8, of 81:
+# the only evidence for that, on the filesystems that can supply it. Legs red in the tree at e97fe83, of 81:
 #
 #   hollowed arm              `return 2` -> `:`   condition -> always false
 #   refresh                             3                          2
