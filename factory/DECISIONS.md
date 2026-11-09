@@ -1173,8 +1173,13 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   both the marker and the issue notice render `factory_halt_reason`. There is no per-file at-risk
   checklist to update, and this sentence claimed there was one until the grep showed otherwise; it is
   corrected in place rather than appended, because it was written before the files were. Suite: 242
-  legs, 0 failed, against the 176 measured on `ae8aba845` the day this was filed -- a count from that
-   commit, not from `origin/main`, which is the only head this suite has ever been run at here. The
+  legs, 0 failed. Corrected 9 Nov after the review of #250 re-measured the base rather than repeating it: the
+   addition is not +66. `ae8aba845` is 39 legs behind this branch's actual base, `main@e0d27d3`, and that
+   base measures **216 legs on this box** (215 on the reviewer's -- the +/-1 filesystem-dependent spread
+   this repository already documents), so the entry added **+26** legs, and the branch carrying it stands
+   at 247 after H-0059..H-0061. `176` is not a wrong count of some head, it is a count of a head this
+   suite was never run at, quoted as though it were the base; corrected in place with the date and the
+   reason, for the reason the two lines below give. The
    sentence this replaces claimed that `factory/factory.sh:107`'s comment already named this entry for
    the age clause, and that a re-pointed comment would hand the age clause and the per-unit scope to
    `H-0059`. Neither held when it was checked: line 107 is the argument parser, the halt block is
