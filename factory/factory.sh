@@ -482,8 +482,10 @@ factory_resolve_conflict() {
 	fi
 	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch"
 	factory_ledger_clear "pr:$pr" stuck-since
-	# Same reason as at `TICK-START`: progress of any kind ends a quarantine streak. A `pr:` unit never
-	# takes a tick once its conflict is gone, so without this its counter could never come back down.
+	# The one progress a `pr:` unit can make on a conflict, and it ends a quarantine streak for the same
+	# reason a finished tick does -- see `factory_quarantine_after_tick`. This site is not redundant with
+	# that one: the conflict pass's streak is kept under `pr:$pr` while a conflict tick's is kept under
+	# `conflict:<pr>`, two ledger keys, so each needs its own clearing.
 	factory_quarantine_reset "pr:$pr"
 	return 0
 }
@@ -629,10 +631,11 @@ is the failure this repository has written up more often than any other (#1180, 
 
 	log="$FACTORY_LOG/$(date -u +%Y%m%dT%H%M%SZ).$(factory_slug "$unit").log"
 	log_event "TICK-START $unit tree=$tree log=$(basename -- "$log")"
-	# A tick has entered this unit, so whatever the previous one left behind has been dealt with and
-	# the quarantine streak is no longer a streak. Without this the counter only ever grows and the
-	# second honest accident of a two-year-old unit halts the queue forever.
-	factory_quarantine_reset "$unit"
+	# Nothing clears the quarantine streak here. It used to: `TICK-START` -> reset, in the same pass as
+	# the `factory_tree_stop` above, so the counter was back to 0 before the tick that would have shown
+	# whether this tree is one that keeps dying -- `attempt=2` was unreachable for every tick unit, and
+	# the review of #250 drove five abandoned ticks through the shipped functions to prove it. The reset
+	# now happens after the session, against the tree's verdict, at `factory_quarantine_after_tick`.
 
 	# `--auto` approves permissions that are not explicitly denied; the deny rules in
 	# .opencode/opencode.jsonc are what bounds that, and the `factory` agent denies `question`, so a
@@ -670,6 +673,15 @@ exactly: checkpoint before a judgement call, one decision per commit carrying it
 trailer, DECISIONS.md updated in the same commit as what it decides, and stop once the pull request
 is open or updated. Merging belongs to the supervisor and is denied to you." \
 		>"$log" 2>&1 || status=$?
+
+	# The quarantine streak is settled here, after the session has run, because this is the first moment
+	# the question has an answer: did work appear in this tree again? It used to sit three lines below
+	# `TICK-START`, which meant every pass cleared the counter before the tick that could have proved the
+	# pattern, and #248's streak could not fire on the tick path at all -- see
+	# `factory_quarantine_after_tick` in common.sh for the measurement. It is above both exits below, so
+	# the `TICK-UNDELIVERED` return and the failed-tick return are both covered, and it returns 0
+	# whatever it found: what the tick achieved remains the tick's own answer.
+	factory_quarantine_after_tick "$unit" "$tree"
 
 	if [ "$status" -eq 0 ]; then
 		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two

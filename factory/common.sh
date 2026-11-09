@@ -1459,13 +1459,56 @@ factory_notice_halt() {
 # usage: factory_tree_stop VERB UNIT TREE
 # exit:  0 this unit's tree is clean and the pass carries on;
 #        4 (tick) or 2 (conflict) the pass stops, as `factory_tree_halt` decided.
-# A tick starting on a unit ends any quarantine streak it had. Kept as its own function rather than a
-# `factory_ledger_set … 0` at the call site so the selftest can drive the semantic -- streak counts up,
-# a tick clears it, the next accident is absorbed again instead of halting -- and a text check can pin
-# the call site. The counter is what turns "halt on the second accident" into a rule that cannot
-# eventually freeze a two-year-old unit for an honest accident it has never had before.
+# The counter is what turns "halt on the second accident" into a rule that cannot eventually freeze a
+# two-year-old unit for an honest accident it has never had before -- so it has to come back down, and
+# where it comes back down is the whole design. A resolved conflict clears it here (`CONFLICT-RESOLVED`
+# in `factory.sh`, the only progress a `pr:` unit can make); a tick unit's streak is ended by
+# `factory_quarantine_after_tick` once the tick has run and the tree has been read, NOT at
+# `TICK-START` -- see that function for the measurement that moved it.
 factory_quarantine_reset() { # unit
 	factory_ledger_set "$1" quarantine-count 0
+}
+
+# The end of a streak, asked at the only moment it has an answer: after the tick, of the tree.
+#
+# The review of #250 measured what the previous shape did. `factory_tick` ran
+# `factory_tree_stop` -> `TICK-START` -> `factory_quarantine_reset` in one pass, so for a tick unit the
+# order was always quarantine(1) then reset(0): the counter was cleared before the tick that could have
+# proved the pattern, and `attempt=2` was unreachable on the tick path. Five passes over a tree whose
+# tick dies at the ceiling every time printed `attempt=1` five times and halted nothing -- the streak
+# existed, was wired, and could not fire for the one outage it was written for. The legs did not see it
+# because they called the increment twice with nothing between them; what was never composed was the
+# counter and the tick that follows it. Those legs now drive this order instead.
+#
+# Why the tree's verdict and not the tick's exit status: the question the streak asks is "did work
+# appear in this tree again?", and both endings answer it -- a session that exits 0 and a session
+# killed at the ceiling are distinguished by what they leave behind, which is exactly what the next
+# pass would have to quarantine. UNKNOWN keeps the streak armed rather than clearing it: an unreadable
+# tree is not evidence that the tree is fine, and the next pass refuses at `factory_tree_stop` before
+# anything is stashed, so arming costs a halt that was the right answer anyway.
+#
+# Not guarded on `--dry-run`, because there is nothing to guard: a rehearsal never reaches
+# `factory_tick` at all (`factory.sh`'s dispatcher prints and continues), and a dead guard here would
+# be a claim about a path that does not exist.
+#
+# usage: factory_quarantine_after_tick UNIT TREE
+# exit:  0 always. What the tick achieved is the tick's own answer; this one must not overwrite it.
+factory_quarantine_after_tick() {
+	local unit=$1 tree=$2 verdict="" rc=0
+	verdict=$(factory_tree_dirt "$tree") && rc=0 || rc=$?
+	case "$rc" in
+	1)
+		factory_quarantine_reset "$unit"
+		log_event "TREE-AFTER-TICK $unit streak=cleared the tree is clean, so this tick did not repeat the accident"
+		;;
+	0)
+		log_event "TREE-AFTER-TICK $unit streak=armed the tick left ${verdict:-git named nothing}; the next quarantine of this unit is the second and halts"
+		;;
+	*)
+		log_event "TREE-AFTER-TICK $unit streak=armed the tree could not be read after the tick (${verdict:-git gave no reason}); the streak stays armed on an unreadable verdict"
+		;;
+	esac
+	return 0
 }
 
 factory_tree_stop() {

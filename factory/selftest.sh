@@ -1758,18 +1758,118 @@ quarantine_stays_in_the_fixture() {
 }
 quarantine_stays_in_the_fixture
 
+# The leg the review of #250 asked for by name -- "whatever lands, please add the leg that composes the
+# two calls" -- and the reason it exists: the streak legs above call `factory_tree_stop` twice with
+# nothing between them, which is a shape the shipped pass never has. Between the two calls the shipped
+# pass puts a TICK-START and a session, and the reset that used to sit there made `attempt=2`
+# unreachable for every tick unit: five abandoned ticks in one tree counted `attempt=1` five times and
+# halted nothing. This drives the order the pass actually runs -- quarantine, tick, verdict, next
+# pass -- and never calls the increment itself.
+streak_composed_with_a_tick() { # tree where -> the counter and the tick that follows it
+	local tree=$1 where=$2 label bad="" rc=0 v=""
+	label="a streak survives its tick ($where)"
+
+	# Pass 1: the tree is dirty from a dead tick, so this pass quarantines it and starts a tick. The
+	# tick then dies the same way the last one did -- leaving work in the tree -- and the pass ends by
+	# asking the tree what it thinks.
+	q_reset "$tree" selftest
+	q_dirty "$tree"
+	rc=0
+	factory_tree_stop TICK-HALTED selftest "$tree" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="the first pass stopped the unit (exit $rc) instead of quarantining it"
+	printf 'the next tick died here too\n' >>"$tree/tracked.txt"
+	factory_quarantine_after_tick selftest "$tree"
+	[ "$(factory_ledger_get selftest quarantine-count)" = 1 ] ||
+		bad="${bad:+$bad; }the tick that left the tree dirty cleared the streak to $(factory_ledger_get selftest quarantine-count); it has to stay at 1"
+	q_journal_has 'TREE-AFTER-TICK selftest streak=armed' ||
+		bad="${bad:+$bad; }the journal never says the streak stayed armed after the tick"
+
+	# Pass 2: exactly the same opening -- the tree is dirty, nobody cleaned it, this is what the dead
+	# tick left -- and this is the pass that is allowed to conclude that something keeps dying here.
+	rc=0
+	factory_tree_stop TICK-HALTED selftest "$tree" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 4 ] || bad="${bad:+$bad; }the second pass left $rc, want 4: the streak cannot fire, so a tree that keeps killing ticks quarantines forever"
+	[ -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }the second accident did not halt the queue"
+	q_journal_has 'TREE-STREAK' || bad="${bad:+$bad; }the journal does not name the streak as the reason"
+	q_journal_has 'attempt=2' ||
+		bad="${bad:+$bad; }the journal never counted attempt=2; the counter reads $(factory_ledger_get selftest quarantine-count)"
+
+	# The control, and it is the same shape with one thing changed: the tick finishes and leaves the
+	# tree clean. Without it every assertion above is satisfied by a function that always halts -- the
+	# exact behaviour #248 was filed against.
+	q_reset "$tree" selftest
+	q_dirty "$tree"
+	factory_tree_stop TICK-HALTED selftest "$tree" >/dev/null 2>&1 || true
+	factory_quarantine_after_tick selftest "$tree"
+	q_journal_has 'TREE-AFTER-TICK selftest streak=cleared' ||
+		bad="${bad:+$bad; }a tick that left the tree clean did not clear the streak"
+	q_dirty "$tree"
+	rc=0
+	factory_tree_stop TICK-HALTED selftest "$tree" >/dev/null 2>&1 || rc=$?
+	[ "$rc" = 0 ] || bad="${bad:+$bad; }a clean tick followed by an honest accident halted anyway (exit $rc)"
+	[ "$(factory_ledger_get selftest quarantine-count)" = 1 ] ||
+		bad="${bad:+$bad; }the streak after the clean tick reads $(factory_ledger_get selftest quarantine-count), want 1"
+	[ ! -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }the control wrote a HALT file"
+
+	# The third arm, planted rather than argued: a tree git will not read back is not evidence that the
+	# tree is fine. The exclude-file loop at `$work/excludes-is-a-loop` is the shape #228 measured; on a
+	# git that drops the patterns saying nothing it is simply DIRTY, which arms the streak for the other
+	# reason, so the wording is only demanded when the verdict really is UNKNOWN.
+	q_reset "$tree" selftest
+	q_dirty "$tree"
+	factory_tree_stop TICK-HALTED selftest "$tree" >/dev/null 2>&1 || true
+	git -C "$tree" config core.excludesFile "$work/excludes-is-a-loop"
+	v=$(verdict "$tree")
+	factory_quarantine_after_tick selftest "$tree"
+	[ "$(factory_ledger_get selftest quarantine-count)" = 1 ] ||
+		bad="${bad:+$bad; }a tree reading ${v%%$'\t'*} cleared the streak to $(factory_ledger_get selftest quarantine-count); neither UNKNOWN nor DIRTY is a clean verdict"
+	case "$v" in
+	UNKNOWN*)
+		q_journal_has 'streak=armed the tree could not be read' ||
+			bad="${bad:+$bad; }the verdict was UNKNOWN and the journal did not say so -- it printed the dirty sentence instead, which is the wrong reason"
+		;;
+	esac
+	git -C "$tree" config --unset core.excludesFile >/dev/null 2>&1 || true
+	q_state "$tree"
+
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "$label" "$bad"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s quarantine, tick, verdict, next pass -> attempt=2 halts\n' "$label"
+	return 0
+}
+
+for q_tree in "$repo" "$wt"; do
+	q_where=primary
+	[ "$q_tree" = "$wt" ] && q_where=worktree
+	streak_composed_with_a_tick "$q_tree" "$q_where"
+done
+
 # A streak is only fair if it can end. The counter is what makes "halt on the second accident" safe,
 # and a counter that only ever grows turns that safety rule into the #248 outage with a delay built in:
 # any unit that has been quarantined once in its life halts the queue forever on its next accident,
 # however long ago the first was and however many ticks ran in between. So the clearing of the streak
 # is a shipped-text fact the same way the halt call sites are -- the behaviour is exercised by the legs
 # above, the call site is what nothing else would notice.
-streak_reset_after_tick_start() { # dir -> 0 when a tick starting clears its unit's streak
+streak_reset_after_tick_end() { # dir -> 0 when the tick's streak is cleared once the session has run
 	awk '
-		/TICK-START \$unit tree=/ { tick = NR }
-		/factory_quarantine_reset "\$unit"/ { if (tick && NR - tick <= 8) found = 1 }
+		/TICK-START \$unit tree=/ { start = NR }
+		/timeout --signal=TERM --kill-after=/ { ran = NR }
+		/factory_quarantine_after_tick "\$unit" "\$tree"/ { if (ran && NR > ran && start) found = 1 }
 		END { exit found ? 0 : 1 }
 	' "$1/factory/factory.sh" 2>/dev/null
+}
+
+streak_reset_gated_on_the_tree() { # dir -> 0 when that clear sits behind the tree's own verdict
+	awk '
+		/^factory_quarantine_after_tick\(\)/ { f = 1 }
+		f && /verdict=\$\(factory_tree_dirt "\$tree"\)/ { asked = NR }
+		f && /factory_quarantine_reset "\$unit"/ { if (asked) found = 1 }
+		END { exit found ? 0 : 1 }
+	' "$1/factory/common.sh" 2>/dev/null
 }
 
 streak_reset_after_conflict() { # dir -> 0 when a resolved conflict clears the pr unit's streak
@@ -1782,7 +1882,10 @@ streak_reset_after_conflict() { # dir -> 0 when a resolved conflict clears the p
 
 streak_reset_wired() {
 	local label="a tick ends the streak" root=$HERE/.. bad=""
-	streak_reset_after_tick_start "$root" || bad="no factory_quarantine_reset of \"\$unit\" follows TICK-START"
+	streak_reset_after_tick_end "$root" ||
+		bad="no factory_quarantine_after_tick of \"\$unit\" \"\$tree\" after the session has run"
+	streak_reset_gated_on_the_tree "$root" ||
+		bad="${bad:+$bad; }the clear is not behind factory_tree_dirt, so a tick clears the streak whatever its tree looks like"
 	streak_reset_after_conflict "$root" || bad="${bad:+$bad; }no reset follows CONFLICT-RESOLVED"
 	if [ -n "$bad" ]; then
 		fail=$((fail + 1))
@@ -1790,20 +1893,32 @@ streak_reset_wired() {
 		printf '          second honest accident of any unit halts every other unit forever.\n'
 	else
 		pass=$((pass + 1))
-		printf '  ok    %-34s cleared at TICK-START and at CONFLICT-RESOLVED\n' "$label"
+		printf '  ok    %-34s cleared after the tick on a clean tree, and at CONFLICT-RESOLVED\n' "$label"
 	fi
 
-	# The control: the same two scans over a copy with each reset line deleted. A scan that still says
-	# yes is matching the function's own definition and its ok about the repository means nothing.
+	# The controls: the same scans over copies with the thing each scan looks for taken out. A scan that
+	# still says yes is matching something else -- here, matching the function's own definition in
+	# common.sh, which is exactly how the previous version of this leg could read "wired" at a call site
+	# that made the streak unreachable.
 	mkdir -p "$work/streak/factory"
-	sed '/factory_quarantine_reset/d' "$root/factory/factory.sh" >"$work/streak/factory/factory.sh"
-	if streak_reset_after_tick_start "$work/streak" || streak_reset_after_conflict "$work/streak"; then
+	sed '/factory_quarantine_after_tick "\$unit" "\$tree"/d' "$root/factory/factory.sh" >"$work/streak/factory/factory.sh"
+	cp "$root/factory/common.sh" "$work/streak/factory/common.sh"
+	if streak_reset_after_tick_end "$work/streak"; then
 		fail=$((fail + 1))
-		printf '  FAIL  %-34s still finds the reset after both lines are deleted, so the\n' "control: $label"
-		printf '          scan matches something else and the ok above means nothing.\n'
+		printf '  FAIL  %-34s still finds the call after deleting it, so the scan\n' "control: $label"
+		printf '          matches something else and the ok above means nothing.\n'
 	else
-		printf '        control: deleting each reset line is refused, so the ok above is the scan\n'
-		printf '        working and not the scan matching the function definition.\n'
+		printf '        control: deleting the call after the session is refused, so the ok above is\n'
+		printf '        the scan working and not the scan matching a definition.\n'
+	fi
+	sed '/verdict=\$(factory_tree_dirt "\$tree")/d' "$root/factory/common.sh" >"$work/streak/factory/common.sh"
+	if streak_reset_gated_on_the_tree "$work/streak"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s still finds the gate after deleting the verdict, so the\n' "control: $label"
+		printf '          clear is not pinned to the tree and an unreadable tree would end the streak.\n'
+	else
+		printf '        control: taking the verdict out of the function is refused too -- the clear is\n'
+		printf '        pinned to the tree, not merely to a tick having been attempted.\n'
 	fi
 	return 0
 }
