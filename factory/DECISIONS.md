@@ -1167,3 +1167,51 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   line and its comment, in factory/install-timer.sh; in docs/factory.md, the unit excerpt's two
   deadlines and their comment, the account of the 8 Nov outage with the `reset-failed` line and the
   status read a watchdog owes, and `TimeoutStartSec` in the sentence about what `--install` derives.
+
+## H-0057 · The deadline gate renders the shipped generator; it does not read its template
+
+- Question: H-0056 splits one rendered number into two. What has to go red for the two deadlines to be
+  re-merged, and where does a check that can see that live?
+- Options: grep the template in `install-timer.sh` for the two `Timeout…Sec=` lines | run
+  `install-timer.sh --install --dry-run` from `factory/selftest.sh` against a throwaway repo with stub
+  `gh` and `opencode` on the PATH, and assert on the unit it prints | cut a throwaway service/timer
+  pair under a transient user scope at `TimeoutStopSec=5s`, measure the stop, and put that in the gate |
+  ship no gate and leave the two lines beside a comment that says not to merge them
+- Chose: run `install-timer.sh --install --dry-run` from `factory/selftest.sh` against a throwaway repo
+  with stub `gh` and `opencode` on the PATH, and assert on the unit it prints
+- Why: the defect is a substitution, not a line of text, and three different regressions leave the
+  template looking exactly right -- point the stop token back at `@STOP@`, point the start token at the
+  stop token, or delete the substitution line and ship a unit carrying a literal `@STOP_TIMEOUT@`, which
+  a manager reads as no deadline at all. A grep over the template passes all three. The generator is the
+  only thing that knows what a token becomes, and `--dry-run` is the call that answers without writing:
+  it prints both units and exits before the first manager call. The two stubs are what makes the leg run
+  anywhere -- `install-timer.sh` refuses to start unless it can find `gh` and `opencode` on its PATH,
+  and this gate has no business needing a GitHub token or the CLI -- and neither stub is ever asked to
+  do anything, because the dry run never reaches a manager call. `FACTORY_ROOT` and `FACTORY_DIR` both
+  name the copy so that even `factory_paths`' three `mkdir`s land in `$work`: a gate that dirties the
+  tree it is checking can halt the very pass that runs it. Six legs, each with its own plant in the
+  opposite polarity -- a copy of the generator carrying the bug, which the same predicate has to refuse
+  -- because a check that cannot say absent is the check being blind, and that is how a green gate
+  coexists with the outage it was written for. One leg needs a second render to mean anything: at
+  `FACTORY_BUDGET=9000` start must move and stop must not, which is the only way to tell two derived
+  numbers from two literals that happen to differ. The bound asserted on stop is 120 s, not the shipped
+  60: the number *is* the outage a leaked descendant causes, so the gate refuses anything ceiling-sized
+  while leaving room for a measured argument about the constant.
+  What this gate cannot prove, on its own line so nobody mistakes it for the measurement: the live
+  reproduction the issue asks for has not been run. A manager call is denied to this agent in both
+  spellings, and this session measured the denial on the read-only form of it -- a `show` of the
+  service asking for `ActiveState`, `SubState` and `TasksCurrent` came back `Permission denied: shell`.
+  So no claim here rests on observed stop behaviour: not that 60 s reaps what 5460 s waited for, nor
+  that the unit goes inactive a minute after the last leaked descendant dies. The commands owed are in
+  the pull request body, and they are the issue's own pair: a transient unit whose `ExecStart` leaves a
+  detached descendant and exits, once at `TimeoutStopSec=5s` -- assert inactive inside about 5 s, and
+  the paired timer's next-fire non-empty again -- and once at 5460, which is tonight's outage and must
+  come back `stop-sigterm` with an empty next-fire. That second arm is the one that makes the first one
+  mean something. Using another manager client to get around the denial was considered and refused: the
+  denial is on the manager, not on one binary's name, and routing a refused call through a different
+  program is how a harness gap turns into a trust problem.
+- Checkpoint: b05070735f644f2e297863489f2dd85cb06144bc
+- Effect: the "unit's two deadlines" section of factory/selftest.sh -- `gen_setup`, `gen_dry_run`,
+  `gen_split`, `deadline_value`, `budget_default`, six `leg_*` predicates, `gen_leg`, `gen_planted`,
+  `gen_control` and `unit_deadlines` -- 216 -> 222 passing legs with six plants beside them, and the
+  header's claim about how many legs read shipped text rather than a planted tree.

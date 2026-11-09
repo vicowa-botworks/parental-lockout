@@ -39,13 +39,17 @@
 #                     fingerprint is measured with `ls-files --debug` before the verdict is asked,
 #                     so the leg cannot pass on a tree where the planting did not happen (H-0043).
 #
-# Two of the checks are about the shipped text rather than a planted tree, because the failure they
-# guard is silent at run time -- a step nobody runs, and a git invocation git refuses:
+# Three groups of checks are about the shipped text rather than a planted tree, because the failure
+# they guard is silent at run time -- a step nobody runs, a git invocation git refuses, and a systemd
+# unit that says something other than what its generator was handed:
 #
 #   wired_into_verify   deleting the line in `verify:` would delete the only gate on `factory/`.
 #   refused_refresh…    a refresh written with an option `update-index` does not accept exits 129
 #                       into the `2>/dev/null || true` wrapped around it, which is the same output
 #                       as a refresh that worked.
+#   the two deadlines   `install-timer.sh` rendering one number for both of a unit's deadlines held
+#                       the queue in `stop-sigterm` for 91 minutes on 8 Nov (issue #246). These run
+#                       the generator with `--dry-run` and read the unit it would have written.
 #
 # Both are re-run against a copy of the file they read with the thing they look for taken out or put
 # in, in the opposite polarity to the real assertion: a presence check has to prove it can say absent,
@@ -2677,6 +2681,368 @@ triage_arm_coverage() {
 }
 triage_arm_coverage
 claim_reset
+
+
+# ---------------------------------------------------------------- the unit's two deadlines (#246)
+#
+# `TimeoutStopSec` and `TimeoutStartSec` were one token, and on 8 Nov that coupling took the queue
+# offline for 1 h 07 min: a tick's leaked Wine grandchild sat in the unit's cgroup ignoring SIGTERM,
+# `KillMode=control-group` will not call the cgroup empty while one process lives, systemd waited out
+# the 5460-second stop deadline before escalating to SIGKILL, and `OnUnitInactiveSec=` -- the setting
+# that re-arms the queue -- starts counting only when the unit finishes going inactive. The unit sat at
+# `SubState=stop-sigterm MainPID=0` with the timer still `active`. The fix is two numbers (H-0056).
+#
+# What is pinned here is the unit the generator *renders*, not the text of its template. The defect was
+# in a substitution, and a check that greps a template can be satisfied by a template that renders
+# something else: there are three ways to re-merge these two numbers that all leave the template
+# looking right -- point the stop token back at `@STOP@`, point the start token at the stop token, or
+# delete the substitution line and ship a unit carrying a literal `@STOP_TIMEOUT@`. So every leg below
+# runs `install-timer.sh --install --dry-run`, which writes nothing and prints both units, and reads
+# the values out of what it printed. `install-timer.sh` is the only thing that knows what a token
+# becomes.
+#
+# Two stub binaries are on that one invocation's PATH because the generator refuses to start without
+# `gh` and `opencode` on it, and this gate has no business needing a GitHub token or the CLI: `--dry-run`
+# exits before the first systemctl call, so neither stub is ever asked to do anything. Everything the
+# run could write is inside `$work` -- `FACTORY_ROOT` and `FACTORY_DIR` both name the copy, which is
+# what `factory_paths`' three mkdirs follow -- so the tree this gate is checking stays untouched.
+#
+# The bound on the stop deadline is asserted as a number rather than as a name because the number is
+# the outage: a descendant that ignores SIGTERM holds the factory for exactly `TimeoutStopSec` seconds,
+# and the value that stood here was 5460 for as long as nobody measured what it cost.
+gen_stub=$work/stubbin
+gen_root=$work/genrepo
+gen_out=$work/gen-out
+gen_err=$work/gen-err
+gen_svc=$work/gen-service
+gen_tim=$work/gen-timer
+# The ceiling a leaked descendant may hold the queue for, in seconds. Twice the shipped value: loose
+# enough that a deliberate, argued change is possible, tight enough that re-deriving this line from
+# the pass budget -- which is the defect -- cannot pass.
+gen_stop_max=120
+
+gen_setup() {
+	mkdir -p -- "$gen_stub" "$gen_root/factory" || return 1
+	# shellcheck disable=SC2317  # the stub is run by the generator, not by this file
+	cat >"$gen_stub/gh" <<'STUB'
+#!/bin/sh
+# A stub. `install-timer.sh --install --dry-run` asks gh for its auth state and a login and nothing
+# else: it exits before the first systemctl call, so nothing written here can reach GitHub. Its only
+# job is to satisfy the two checks a real install would pass, so that this gate needs no token.
+case "$1 $2" in
+"auth status") exit 0 ;;
+esac
+printf 'stub-login\n'
+exit 0
+STUB
+	printf '#!/bin/sh\nexit 0\n' >"$gen_stub/opencode" || return 1
+	chmod +x -- "$gen_stub/gh" "$gen_stub/opencode" || return 1
+	cp -- "$HERE/common.sh" "$HERE/factory.sh" "$gen_root/factory/" || return 1
+	chmod +x -- "$gen_root/factory/factory.sh" || return 1
+	git init -q -- "$gen_root" >/dev/null 2>&1 || return 1
+	git -C "$gen_root" remote add origin https://github.com/plock/plock.git >/dev/null 2>&1
+}
+
+# `--dry-run` of one generator, with any number of VAR=value overrides. Stdout and stderr are left in
+# $gen_out and $gen_err for the caller to read; the exit status is the generator's.
+gen_dry_run() { # <generator> [VAR=value...]
+	local gen=$1
+	shift
+	env PATH="$gen_stub:$PATH" \
+		FACTORY_ROOT="$gen_root" \
+		FACTORY_DIR="$gen_root/factory" \
+		FACTORY_REPO='plock/plock' \
+		FACTORY_REVIEWER='reviewer-other' \
+		"$@" bash "$gen" --install --dry-run >"$gen_out" 2>"$gen_err"
+}
+
+# The two units, split out of the dry run's output by the `DRY-RUN  write <path>` lines that head them.
+gen_split() {
+	awk '/^DRY-RUN  write / { f = ($0 ~ /\.service$/); next } f' "$gen_out" >"$gen_svc"
+	awk '/^DRY-RUN  write / { f = ($0 ~ /\.timer$/); next } f' "$gen_out" >"$gen_tim"
+}
+
+deadline_value() { # <unit file> <KEY> -> the value on the un-commented `KEY=` line
+	awk -v k="$2" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }' "$1"
+}
+
+is_a_number() {
+	case "$1" in
+	'' | *[!0-9]*) return 1 ;;
+	*) return 0 ;;
+	esac
+}
+
+# FACTORY_BUDGET as `common.sh` states it, not as a literal repeated here: a leg that hardcodes 5400
+# keeps passing the day somebody moves the default, and then it is measuring a number that no longer
+# exists. Empty when the file cannot be read, which every caller treats as "this leg has no subject".
+is_a_number() {
+	case "$1" in
+	'' | *[!0-9]*) return 1 ;;
+	*) return 0 ;;
+	esac
+}
+
+budget_default() {
+	sed -n 's/^FACTORY_BUDGET=[^0-9]*\([0-9][0-9]*\)}.*/\1/p' "$HERE/common.sh" |
+		head -n 1
+}
+
+# Each predicate reads the rendered unit already in $gen_svc (and $gen_tim), prints why it refused, and
+# returns non-zero. Split out this way so a control can aim the same predicate at a planted generator's
+# output instead of the shipped one.
+leg_both_deadlines_rendered() {
+	local stop start
+	stop=$(deadline_value "$gen_svc" TimeoutStopSec)
+	start=$(deadline_value "$gen_svc" TimeoutStartSec)
+	if is_a_number "$stop" && is_a_number "$start"; then
+		return 0
+	fi
+	printf '            the service unit holds TimeoutStopSec=%s and TimeoutStartSec=%s;\n' \
+		"${stop:-<absent>}" "${start:-<absent>}" >&2
+	printf '            both have to be plain numbers or systemd falls back to its own defaults.\n' >&2
+	return 1
+}
+
+leg_deadlines_differ() {
+	local stop start
+	stop=$(deadline_value "$gen_svc" TimeoutStopSec)
+	start=$(deadline_value "$gen_svc" TimeoutStartSec)
+	if [ -n "$stop" ] && [ "$stop" != "$start" ]; then
+		return 0
+	fi
+	printf '            both deadlines are %s s. One token serves both again, which is the defect:\n' \
+		"${stop:-<absent>}" >&2
+	printf '            one stubborn grandchild then holds the queue for the whole pass budget, and\n' >&2
+	printf '            OnUnitInactiveSec= cannot re-arm until it is done (issue #246, 67 minutes).\n' >&2
+	return 1
+}
+
+leg_start_clears_budget() {
+	local start budget
+	start=$(deadline_value "$gen_svc" TimeoutStartSec)
+	budget=$(budget_default)
+	if [ -z "$budget" ]; then
+		printf '            FACTORY_BUDGET could not be read out of factory/common.sh\n' >&2
+		return 2
+	fi
+	if is_a_number "$start" && [ "$start" -ge "$budget" ]; then
+		return 0
+	fi
+	printf '            TimeoutStartSec=%s but the pass ceiling is FACTORY_BUDGET=%s. A start deadline\n' \
+		"${start:-<absent>}" "$budget" >&2
+	printf '            below the budget kills a live tick mid-commit, and a tick killed mid-commit\n' >&2
+	printf '            leaves a dirty worktree the next pass halts on. Splitting the two deadlines is\n' >&2
+	printf '            about STOP, never about this one.\n' >&2
+	return 1
+}
+
+# The two numbers have to be derived from different things, not merely happen to differ today. Start
+# follows the budget; stop must not move when the budget does. Rendered twice, so a literal that
+# satisfies both legs by accident cannot pass this one.
+leg_only_start_follows_the_budget() { # <budget>
+	local budget start stop base_stop
+	budget=$1
+	start=$(deadline_value "$gen_svc" TimeoutStartSec)
+	stop=$(deadline_value "$gen_svc" TimeoutStopSec)
+	base_stop=$(deadline_value "$work/base-service" TimeoutStopSec)
+	if is_a_number "$start" && [ "$start" -ge "$budget" ] &&
+		[ -n "$stop" ] && [ "$stop" = "$base_stop" ] && [ "$start" != "$base_stop" ]; then
+		return 0
+	fi
+	printf '            at FACTORY_BUDGET=%s the unit rendered TimeoutStartSec=%s TimeoutStopSec=%s;\n' \
+		"$budget" "${start:-<absent>}" "${stop:-<absent>}" >&2
+	printf '            start was meant to clear %s, and stop was meant to stay at %s -- the value it\n' \
+		"$budget" "${base_stop:-<absent>}" >&2
+	printf '            has at every budget since #246. A stop deadline that tracks the budget is the\n' >&2
+	printf '            91-minute outage back with a different default.\n' >&2
+	return 1
+}
+
+leg_stop_is_a_reaping() {
+	local stop
+	stop=$(deadline_value "$gen_svc" TimeoutStopSec)
+	if is_a_number "$stop" && [ "$stop" -ge 1 ] && [ "$stop" -le "$gen_stop_max" ]; then
+		return 0
+	fi
+	printf '            TimeoutStopSec=%s. Nothing legitimate runs during stop, so this number is\n' \
+		"${stop:-<absent>}" >&2
+	printf '            only how long one descendant that ignores SIGTERM can hold the queue; it has\n' >&2
+	printf '            to stay at most %s s, and it was 5460 s the night the queue went silent.\n' \
+		"$gen_stop_max" >&2
+	return 1
+}
+
+leg_no_token_left_unrendered() {
+	local left
+	left=$(grep -hohE '@[A-Z_]+@' "$gen_svc" "$gen_tim" 2>/dev/null |
+		sort -u | paste -sd' ' - || true)
+	if [ -z "$left" ]; then
+		return 0
+	fi
+	printf '            the rendered units still hold %s: a token with no substitution line in\n' "$left" >&2
+	printf '            render(). systemd does not reject the line -- it reads a garbage deadline, or\n' >&2
+	printf '            no deadline at all, and a oneshot with no deadline never stops by itself.\n' >&2
+	return 1
+}
+
+# One leg, in the file's shape: ok, or FAIL with the predicate's own words underneath. Status 2 is a
+# missing subject, which is a SKIP -- the same bargain as `wired_into_verify` refusing to guess about
+# a Makefile that is not there.
+gen_leg() { # <label> <predicate> [args...]
+	local label=$1 rc=0
+	shift
+	if "$@"; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s\n' "$label"
+		return 0
+	fi
+	rc=$?
+	if [ "$rc" = 2 ]; then
+		printf '  SKIP  %-40s the subject is not in this tree\n' "$label"
+		return 0
+	fi
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the rendered unit is wrong:\n' "$label"
+	return 0
+}
+
+gen_leg() { # <label> <what an ok means here> <predicate> [args...]
+	local label=$1 fact=$2 rc=0
+	shift 2
+	# `"$@" && { … }`, not `if "$@"`: an `if` with no `else` returns 0 when the predicate refuses, so
+	# `$?` afterwards is the `if`'s status rather than the predicate's -- and status 2, "the subject is
+	# not in this tree", would then be reported as a verdict on the unit.
+	"$@" && {
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "$fact"
+		return 0
+	}
+	rc=$?
+	if [ "$rc" = 2 ]; then
+		printf '  SKIP  %-40s the subject is not in this tree\n' "$label"
+		return 0
+	fi
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the rendered unit is wrong:\n' "$label"
+	return 0
+}
+
+# A generator planted in `$work`: the shipped file, with one thing done to it that the shipped file no
+# longer does. `FACTORY_ROOT` stays the one throwaway repo, because a copy is only ever asked to print
+# a unit -- the repo is what the generator checks, not what it reads.
+gen_planted() { # <dir> <sed expression> -> the planted generator's path
+	local d=$1 expr=$2
+	mkdir -p -- "$d" || return 1
+	cp -- "$HERE/install-timer.sh" "$HERE/common.sh" "$d/" || return 1
+	sed "$expr" "$d/install-timer.sh" >"$d/install-timer.new" || return 1
+	mv -- "$d/install-timer.new" "$d/install-timer.sh" || return 1
+	printf '%s' "$d/install-timer.sh"
+}
+
+# One control: the predicate that passes on the shipped unit has to refuse the planted one. A control
+# that still says yes means the ok above is this file certifying itself out of the goodness of a
+# pattern, which is the only way a green gate can coexist with the bug it was written for.
+gen_control() { # <label> <dir> <sed expression> <predicate> [args...]
+	local label=$1 dir=$2 expr=$3 pred=$4 bad
+	shift 4
+	bad=$(gen_planted "$dir" "$expr" || true)
+	if [ -z "$bad" ]; then
+		printf '  SKIP  %-40s the plant could not be written\n' "control: $label"
+		return 0
+	fi
+	if ! gen_dry_run "$bad"; then
+		printf '  SKIP  %-40s the planted generator would not run\n' "control: $label"
+		return 0
+	fi
+	gen_split
+	# The predicate's own refusal text is about a unit nobody is shipping, so it goes nowhere: a control
+	# passes by refusing, and printing the refusal would read as a failed leg.
+	if "$pred" "$@" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted the planted generator, so the ok\n' "control: $label"
+		printf '          above is the check being blind, not the check working.\n'
+		return 0
+	fi
+	printf '  ok    %-40s the same check refuses it\n' "control: $label"
+	return 0
+}
+
+unit_deadlines() {
+	local shown_stop shown_start budget2 rc=0
+	if ! gen_setup; then
+		printf '  SKIP  %-40s the throwaway generator could not be built in %s\n' \
+			"the unit's two deadlines" "$work"
+		return 0
+	fi
+	if ! gen_dry_run "$HERE/install-timer.sh"; then
+		printf '  SKIP  %-40s install-timer.sh --dry-run refused to run here:\n' \
+			"the unit's two deadlines"
+		sed -n '1,3p' "$gen_err" | sed 's/^/          /'
+		printf '          Every check below needs the generator; none of them is a verdict on the unit.\n'
+		return 0
+	fi
+	gen_split
+	# The stop deadline as shipped, kept for the leg that renders a second budget and asks which of
+	# the two numbers moved.
+	cp -- "$gen_svc" "$work/base-service"
+	shown_stop=$(deadline_value "$gen_svc" TimeoutStopSec)
+	shown_start=$(deadline_value "$gen_svc" TimeoutStartSec)
+
+	gen_leg 'both deadlines are rendered' \
+		'a TimeoutStopSec and a TimeoutStartSec, both plain numbers' \
+		leg_both_deadlines_rendered
+	gen_leg 'stop and start are different numbers' \
+		"stop=${shown_stop}s is not start=${shown_start}s" \
+		leg_deadlines_differ
+	gen_leg 'start still clears FACTORY_BUDGET' \
+		"${shown_start}s clears the pass ceiling" \
+		leg_start_clears_budget
+	gen_leg 'stop is a reaping, not a ceiling' \
+		"${shown_stop}s, at most ${gen_stop_max}s" \
+		leg_stop_is_a_reaping
+	gen_leg 'every @TOKEN@ was substituted' \
+		'no @TOKEN@ left in either rendered unit' \
+		leg_no_token_left_unrendered
+
+	# Rendered a second time, at a budget nobody hardcoded a value for. One render can satisfy "the
+	# two numbers differ" with two literals that happen to differ; only a second budget shows whether
+	# start is *derived* from it and stop is not.
+	budget2=9000
+	if gen_dry_run "$HERE/install-timer.sh" "FACTORY_BUDGET=$budget2"; then
+		gen_split
+		gen_leg "start follows FACTORY_BUDGET=$budget2" \
+			"start moved, stop stayed at ${shown_stop}s" \
+			leg_only_start_follows_the_budget "$budget2"
+	else
+		printf '  SKIP  %-40s the generator refused a second budget\n' \
+			'start follows the budget'
+	fi
+
+	printf '        TimeoutStopSec=%s TimeoutStartSec=%s, from the generator in this tree -- the stop\n' \
+		"$shown_stop" "$shown_start"
+	printf '        deadline is how long one leaked grandchild can hold the queue. #246: was 5460.\n'
+
+	gen_control 'stop re-coupled to the budget token' "$work/ctrl-coupled" \
+		's/^TimeoutStopSec=@STOP_TIMEOUT@$/TimeoutStopSec=@STOP@/' leg_deadlines_differ
+	gen_control 'the stop token left unsubstituted' "$work/ctrl-unsub" \
+		'/^[[:space:]]*-e "s#@STOP_TIMEOUT@#/d' leg_no_token_left_unrendered
+	gen_control 'start re-pointed at the stop token' "$work/ctrl-shrunk" \
+		's/^TimeoutStartSec=@STOP@$/TimeoutStartSec=@STOP_TIMEOUT@/' leg_start_clears_budget
+	# The same regression wearing the clothes a person would actually write it in: somebody takes the
+	# complaint that 60 s is short for a slow teardown and re-derives the value from the budget. Both
+	# numbers are still different at the default budget, so only the two legs that ask what each one is
+	# *made of* can see it -- which is why both of them get a plant of their own.
+	gen_control 'stop re-derived from the budget' "$work/ctrl-budget-a" \
+		's/^STOP_TIMEOUT=60$/STOP_TIMEOUT=$((FACTORY_BUDGET + 60))/' \
+		leg_only_start_follows_the_budget 5400
+	gen_control 'stop re-derived from the budget' "$work/ctrl-budget-b" \
+		's/^STOP_TIMEOUT=60$/STOP_TIMEOUT=$((FACTORY_BUDGET + 60))/' leg_stop_is_a_reaping
+	gen_control 'both deadline lines gone' "$work/ctrl-gone" \
+		'/^TimeoutStopSec=@/d; /^TimeoutStartSec=@/d' leg_both_deadlines_rendered
+	return 0
+}
+unit_deadlines
 
 
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
