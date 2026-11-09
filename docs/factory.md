@@ -27,7 +27,7 @@ systemd timer (or `while :; do factory.sh; sleep 600; done`)
 factory/factory.sh --dry-run            # every action printed, nothing written
 factory/triage.sh --table               # just the verdict, for a human
 factory/triage.sh --pr 206              # why this one is sitting there
-factory/factory.sh --status             # halt state and the ledger
+factory/factory.sh --status             # halt state, which code this is, and the ledger
 ```
 
 `--dry-run` is a property of the whole script, not of one call site: no GitHub write, no git write, no
@@ -186,7 +186,8 @@ and refuses to install anything that would fail quietly:
 
 ```bash
 factory/install-timer.sh --install --dry-run     # prints both units and the systemctl commands
-factory/install-timer.sh --install
+factory/install-timer.sh --install               # refuses a tree that is not the trunk
+factory/install-timer.sh --install --force       # anyway, and `TIMER-FORCED` in the journal
 journalctl --user -u parental-lockout-factory.service -n 50
 factory/install-timer.sh --remove                # the whole thing, reversibly
 ```
@@ -334,6 +335,115 @@ That is why the first install can point at the harness branch (`factory/DECISION
 `install-timer.sh` refuses rather than installing a unit whose `ExecStart` path does not exist: a
 timer that fires into 127 looks identical, from the outside, to a timer that is working.
 
+## Which code the loop is running
+
+`ExecStart=@REPO@/factory/factory.sh` is a *path*. A path says where the supervisor lives, not what
+it is, and the tree under it can be any commit anybody left there. Measured 9 Nov, from the tree's own
+reflog: it had sat on `efa4e29` since 6 Nov 19:27Z and been fast-forwarded at 16:39:59Z -- **three
+days**, with `origin/main` 121 commits away the whole time and `ahead 0`, so a fast-forward was always
+available and nobody was told to take one. What that cost is checkable rather than rhetorical: the
+halt path in that tree predates #228's hardening of the dirt verdict -- `git show efa4e29:factory/common.sh`
+has no `update-index --refresh` and `origin/main` has eight of them, arriving in `cf87ecc`, `08bd015`
+and `15352b3`, all three inside the 121 -- so the code that decides whether to stop the whole queue was
+the version that reads a stale stat cache. And the reinstall a person reaches for when a loop is not
+moving is a no-op with a healthy exit: run against a clone 33 commits behind its own trunk, the shipped
+`--install` exited 0, wrote both unit files, and left one journal line reading `TIMER-INSTALLED`
+(#249).
+
+So the tree's position against the trunk is part of *which code a given pass is*, and the harness says
+it in two places. The one command a person types when the queue is not moving:
+
+```
+$ factory/factory.sh --status
+halt:    no
+code:    3962919 (detached, 3 behind origin/main)
+```
+
+and the same fact in the journal, beside the `PASS` line, on every activation -- because nobody asks a
+timer a question, and `units=0` is one word short of a lie when the reader is out of date:
+
+```
+2026-11-09T17:39:29Z PASS units=0 dry=0 budget=5400s root=/tmp/opencode/demo-ff trees=/tmp/opencode/wt
+2026-11-09T17:39:29Z SUPERVISOR-AT 3962919 dirty=0
+2026-11-09T17:39:29Z SUPERVISOR-STALE origin/main is 3 commits ahead; the loop is not running merged code
+```
+
+Both are from a clone detached three commits behind its own trunk, with the harness where
+`install-timer.sh` puts it -- the same shape `factory/selftest.sh` builds for its `behind only` legs, so
+the shas in them are that clone's own commits and match no branch here. A fork, or a dirty tree, is the
+same two lines with more to say: `code: 95e1816 (issue-249, 0 behind origin/main, 1 commit ahead: a
+fork, which a fast-forward will not fix) + 5 uncommitted path(s)` is the line from the tree this change
+was written in, printed at 17:29:33Z while the work was in progress.
+
+`SUPERVISOR-AT` is on every pass. `SUPERVISOR-STALE`, `SUPERVISOR-FORKED` (the tree also holds commits
+the trunk does not), `SUPERVISOR-NOBASE` (no `origin/<trunk>` ref to compare against) and
+`SUPERVISOR-UNKNOWN` (git could not read the tree) appear only for the state each names, and
+`factory/selftest.sh` pins all five against trees planted in each state. `dirty=` is a path count from
+the same three content reads `factory_tree_dirt` uses -- never from `git status --porcelain`, for the
+reason given in the section on dirty trees.
+
+The count is every commit reachable from `origin/main` that the tree lacks, which is the reading
+`triage.sh` already uses for its `branch=` column. It is therefore *not* first-parent: the tree above
+is parked three merge commits back on a history of merges and says 33, because 33 merged commits are
+what it is missing. `git log --oneline HEAD..origin/main` is the list it counts.
+
+Two trees can be "the code under test" and they are different directories, which is why the branch is
+never asked of a global: `$FACTORY_HARNESS` is where the running script was read from -- what `--status`
+and the pass report, because it is what is actually executing -- and `$FACTORY_ROOT` is what `@REPO@`
+becomes, so `--install` judges that one, because it is what the unit will exec. They are equal only
+while the harness lives in the primary checkout, which is the arrangement `H-0009` rejects.
+
+This is what a reinstall of that tree now prints, verbatim:
+
+```
+install-timer: refusing to install a tree that is not the trunk.
+  /tmp/opencode/demo-ff is at 3962919 on detached: 3 commits behind origin/main.
+  The unit execs /tmp/opencode/demo-ff/factory/factory.sh, so this tree IS the supervisor: every merge
+  since its checkout is invisible to the loop that exists to act on them, and every other
+  check in this harness reads healthy while that is true (#249).
+
+      git -C /tmp/opencode/demo-ff fetch origin main && git -C /tmp/opencode/demo-ff merge --ff-only origin/main
+
+  Then re-run --install. --force installs this tree anyway, and says so in the journal.
+```
+
+and the same refusal where the tree holds commits the trunk does not, because the operator's next
+command is different and the message has to be the one that is true:
+
+```
+install-timer: refusing to install a tree that is not the trunk.
+  /tmp/opencode/demo-fork is at 5e32220 on detached: 3 commits behind origin/main, 1 ahead of it.
+  The unit execs /tmp/opencode/demo-fork/factory/factory.sh, so this tree IS the supervisor: every merge
+  since its checkout is invisible to the loop that exists to act on them, and every other
+  check in this harness reads healthy while that is true (#249).
+
+  This tree's branch (detached) holds 1 commit origin/main does not have, so a fast-forward is
+  not available. Merge it or rebase it onto the trunk, or arm a checkout the trunk
+  already contains:
+
+      FACTORY_ROOT=<checkout> /tmp/opencode/demo-fork/factory/install-timer.sh --install
+
+  Then re-run --install. --force installs this tree anyway, and says so in the journal.
+```
+
+What the check deliberately does **not** do:
+
+- **No fetch inside the verdict.** It compares against `origin/<trunk>` as this checkout last learned
+  it, the same reading the orphan pass already makes. A fetch is a blocking network call in front of a
+  budget, and this repository already owns the hazard of a read that parks (H-0056; `H-0013` cost
+  5min2s of a pass for a local read). The command the refusal prints starts with the fetch, because an
+  operator with a terminal cannot park a pass.
+- **No automatic move.** A timer runs a path, and editing the script a shell is reading is not a thing
+  to do from inside it.
+
+The refusal differs by the operator's next command, because the two states have different fixes and
+only one of them has a fast-forward: behind with no local commits prints
+`git -C <tree> fetch origin main && git -C <tree> merge --ff-only origin/main`; a fork -- commits of its
+own, which is what a tree looks like after a pass was interrupted mid-work -- prints that a
+fast-forward is *not* available and names the three real choices. A stale tree can always still be
+*removed*: `--remove` runs before the check, because the wrong reason to be unable to stop a broken
+loop is that it is broken.
+
 ## Configuration
 
 Everything is an environment override with a default, in `factory/common.sh`.
@@ -362,6 +472,11 @@ enough on its own: a tick can hold a worktree for 45 minutes, and inside that wi
 that can hear you is the agent. The supervisor also writes this file itself when it finds a dirty
 worktree it does not own -- a person is working there, or a dead tick left a half-merged index, and
 neither is a machine's to clean up. To stop it hard: `systemctl --user stop plock-factory.timer`.
+
+Nothing halted and the queue still is not moving: read the `code:` line of
+`factory/factory.sh --status` first. A supervisor 121 commits behind the trunk prints the same
+`halt: no` as one with nothing to do, and the journal's `SUPERVISOR-STALE` line is the only place that
+says otherwise (#249, and the section above).
 
 ## What "dirty" means, because the test decides when the queue stops
 

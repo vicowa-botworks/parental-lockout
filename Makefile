@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify check-scripts check-shell check-denies check-mutations mutate package package-verify clean install uninstall run-dev
+.PHONY: build fmt vet test selftest verify check-scripts check-shell check-denies check-mutations mutate package package-verify clean install uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -91,6 +91,14 @@ fmt:
 # A log that is not checked is a list of conclusions, and a list of conclusions is what is useless
 # six weeks later. It costs milliseconds -- it parses one markdown file -- and it pins its own
 # invocation, so the two lines below cannot be deleted without this target refusing.
+# The harness's own suite, on its own. `factory/selftest.sh` is pure bash and git, and every other way
+# to run it goes through `verify`, which begins with gofmt and the Go guards -- so on a machine with no
+# Go toolchain (a CI runner before the setup step, a fresh box, anyone debugging the delivery loop) the
+# suite that checks the delivery loop cannot be invoked at all. Measured 9 Nov on the #238 runner: the
+# diagnosis needed the harness suite and the only documented entry point was `make verify`.
+selftest:
+	@bash factory/selftest.sh
+
 verify:
 	@set -e; \
 	echo "==> gofmt"; \

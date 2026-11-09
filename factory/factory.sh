@@ -46,7 +46,9 @@ usage: factory.sh [--dry-run] [--max-ticks N] [--budget SECS] [--once] [--status
 --max-ticks N model ticks this pass may start (default FACTORY_MAX_TICKS=3).
 --budget S    stop opening new ticks after S seconds (default FACTORY_BUDGET=5400).
 --once        at most one tick; the same as --max-ticks 1.
---status      print the halt state and the ledger, then exit without reading GitHub.
+--status      print one verdict -- WORKING, IDLE, HALTED or STALLED -- then the halt state and the
+              ledger, and exit without reading GitHub. The verdict is local state only: the halt of
+              9 Nov was exactly the moment a read of GitHub was not the useful one.
 
 A tick runs the `factory` agent in a per-unit worktree through
 `opencode run --auto --agent factory`. The instruction tells it to stop at the pull request and
@@ -70,11 +72,49 @@ while [ $# -gt 0 ]; do
 	--once) FACTORY_MAX_TICKS=1 ;;
 	--status)
 		factory_paths
+		# First line, before the details: the question that makes anyone type this is "is it working",
+		# and the answer used to require reading a journal timestamp and comparing it to `date`.
+		printf 'verdict: %s\n' "$(factory_verdict)"
 		if factory_halted; then
 			printf 'halt:    YES -- %s\n' "$(factory_halt_reason)"
 		else
 			printf 'halt:    no\n'
 		fi
+		# Which code this harness is (#249), in the one command a person types when the queue is not
+		# moving. Until now the only place the answer was written down anywhere was the unit's
+		# `ExecStart` path, and a path is not a position: measured 8 Nov it pointed at a tree 121
+		# commits behind `origin/main` while every other line `--status` prints read healthy. Asked of
+		# `$FACTORY_HARNESS`, not `$FACTORY_ROOT` -- this is the tree the script being run was read
+		# from, and the primary checkout sits on whatever a human left there, which is the same reason
+		# `triage.sh` asks for the current branch of `$FACTORY_DIR`. The branch is printed even when
+		# the tree is current, because a bare sha is exactly what made #249 invisible: the number
+		# looks like a version, so nobody asks which ref it names.
+		pos_rc=0
+		pos=$(factory_supervisor_position "$FACTORY_HARNESS") || pos_rc=$?
+		IFS=$'\t' read -r pos_sha pos_branch pos_behind pos_ahead pos_dirty <<EOF
+$pos
+EOF
+		pos_base=$(factory_supervisor_base)
+		pos_base=${pos_base#refs/remotes/}
+		case "$pos_rc" in
+		2)
+			printf 'code:    unknown -- git could not read %s, so nothing can say what code this is\n' \
+				"$FACTORY_HARNESS"
+			;;
+		3)
+			printf 'code:    %s (%s, %s uncommitted) -- %s is not a ref in this checkout, so its position against the trunk is unknown\n' \
+				"$pos_sha" "$pos_branch" "$pos_dirty" "$pos_base"
+			;;
+		*)
+			printf 'code:    %s (%s, %s behind %s' "$pos_sha" "$pos_branch" "$pos_behind" "$pos_base"
+			[ "$pos_ahead" = "0" ] ||
+				printf ', %s %s ahead: a fork, which a fast-forward will not fix' \
+					"$pos_ahead" "$(factory_plural "$pos_ahead")"
+			printf ')'
+			[ "$pos_dirty" = "0" ] || printf ' + %s uncommitted path(s)' "$pos_dirty"
+			printf '\n'
+			;;
+		esac
 		printf 'repo:    %s\n' "$(git -C "$FACTORY_ROOT" remote get-url origin 2>/dev/null)"
 		printf 'trees:   %s\n' "$FACTORY_TREES"
 		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
@@ -427,7 +467,11 @@ factory_resolve_conflict() {
 	# saw: the old line asserted "a person or a dead tick owns it", which on a tree whose bytes match
 	# HEAD is false about the work, and a reader who follows its advice commits nothing, discards
 	# nothing, and halts again next pass.
-	factory_tree_halt CONFLICT-HALTED "pr:$pr" "$tree" || return $?
+	#
+	# `factory_tree_stop`, not `_halt`, since #248: a tree left dirty by a dead tick is mirrored to
+	# `$FACTORY_AT_RISK` and cleaned so the rest of the queue runs, and the halt is what happens when
+	# that cannot be done for certain, or when the same unit goes dirty twice without a tick between.
+	factory_tree_stop CONFLICT-HALTED "pr:$pr" "$tree" || return $?
 
 	# The base is not always `main`. Pull request #215 is based on `fix/audit-row-label` -- another open
 	# pull request, because its capture work needs the audit-row change -- and this function merged
@@ -473,6 +517,11 @@ factory_resolve_conflict() {
 	fi
 	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch"
 	factory_ledger_clear "pr:$pr" stuck-since
+	# The one progress a `pr:` unit can make on a conflict, and it ends a quarantine streak for the same
+	# reason a finished tick does -- see `factory_quarantine_after_tick`. This site is not redundant with
+	# that one: the conflict pass's streak is kept under `pr:$pr` while a conflict tick's is kept under
+	# `conflict:<pr>`, two ledger keys, so each needs its own clearing.
+	factory_quarantine_reset "pr:$pr"
 	return 0
 }
 
@@ -608,14 +657,20 @@ is the failure this repository has written up more often than any other (#1180, 
 		log_event "TICK-SKIPPED $unit no worktree for $branch :: ${why:-common.sh gave no reason}"
 		return 5
 	fi
-	# The content verdict and the halt, both in common.sh (#228, H-0044): a halt stops the whole pass
-	# -- every other unit, every review answer, every merge -- so it must not rest on a filesystem
-	# timestamp, it must say what it found, and the one place that decides must be the place the probe
-	# drives.
-	factory_tree_halt TICK-HALTED "$unit" "$tree" || return $?
+	# The content verdict and the response to it, both in common.sh (#228, H-0044): a halt stops the
+	# whole pass -- every other unit, every review answer, every merge -- so it must not rest on a
+	# filesystem timestamp, it must say what it found, and the one place that decides must be the place
+	# the probe drives. Since #248 the response is a quarantine first and a halt only when the work
+	# cannot be mirrored, because one dead tick's four modified files froze 22 units for 15h57m.
+	factory_tree_stop TICK-HALTED "$unit" "$tree" || return $?
 
 	log="$FACTORY_LOG/$(date -u +%Y%m%dT%H%M%SZ).$(factory_slug "$unit").log"
 	log_event "TICK-START $unit tree=$tree log=$(basename -- "$log")"
+	# Nothing clears the quarantine streak here. It used to: `TICK-START` -> reset, in the same pass as
+	# the `factory_tree_stop` above, so the counter was back to 0 before the tick that would have shown
+	# whether this tree is one that keeps dying -- `attempt=2` was unreachable for every tick unit, and
+	# the review of #250 drove five abandoned ticks through the shipped functions to prove it. The reset
+	# now happens after the session, against the tree's verdict, at `factory_quarantine_after_tick`.
 
 	# `--auto` approves permissions that are not explicitly denied; the deny rules in
 	# .opencode/opencode.jsonc are what bounds that, and the `factory` agent denies `question`, so a
@@ -653,6 +708,15 @@ exactly: checkpoint before a judgement call, one decision per commit carrying it
 trailer, DECISIONS.md updated in the same commit as what it decides, and stop once the pull request
 is open or updated. Merging belongs to the supervisor and is denied to you." \
 		>"$log" 2>&1 || status=$?
+
+	# The quarantine streak is settled here, after the session has run, because this is the first moment
+	# the question has an answer: did work appear in this tree again? It used to sit three lines below
+	# `TICK-START`, which meant every pass cleared the counter before the tick that could have proved the
+	# pattern, and #248's streak could not fire on the tick path at all -- see
+	# `factory_quarantine_after_tick` in common.sh for the measurement. It is above both exits below, so
+	# the `TICK-UNDELIVERED` return and the failed-tick return are both covered, and it returns 0
+	# whatever it found: what the tick achieved remains the tick's own answer.
+	factory_quarantine_after_tick "$unit" "$tree"
 
 	if [ "$status" -eq 0 ]; then
 		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two
@@ -743,8 +807,19 @@ factory_body() {
 	# slide every column after it one place left.
 	rows=$(printf '%s\n' "$rows" | tail -n +2)
 	log_event "PASS units=$(printf '%s\n' "$rows" | grep -c . || true) dry=$DRY_RUN budget=${FACTORY_BUDGET}s root=$FACTORY_ROOT trees=$FACTORY_TREES"
+	# The code under test belongs in the pass's own announcement (#249). `PASS units=0` from a tree 121
+	# commits behind the trunk is indistinguishable in the journal from a queue that is genuinely empty,
+	# and nobody asks a timer a question -- which is why this is a journal line and not only `--status`.
+	# Three sentences at most, and the one that is always printed is the sha (see common.sh for the
+	# pair of trees that can both claim to be "the code under test", and for what the comparison is
+	# measured against). This reports and changes nothing: moving a tree the timer is executing from is
+	# editing a script while bash is reading it, so the move stays a human act.
+	while IFS= read -r supervisor_line; do
+		[ -n "$supervisor_line" ] || continue
+		log_event "$supervisor_line"
+	done < <(factory_supervisor_lines "$FACTORY_HARNESS")
 
-	local workable='' unit key class detail branch issue ask rc_tick rc_conflict
+	local workable='' unit key class detail branch issue ask rc_tick rc_conflict supervisor_line
 	while IFS=$'\037' read -r unit key class detail branch issue ask; do
 		[ -n "${unit:-}" ] || continue
 		[ -n "$(factory_ledger_get "$unit:$(factory_slug "$key")" first-seen)" ] ||
