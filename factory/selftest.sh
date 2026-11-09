@@ -1981,7 +1981,7 @@ mirror_carries_its_binary() { # where -> apply the shipped mirror to a fresh clo
 	# only the sentence takes the notes.md edit down with it.
 	if [ -n "$m" ]; then
 		grep -q 'GIT binary patch' "$m" ||
-			bad="${bad:+$bad; }the mirror has no `GIT binary patch` block -- it is the rendering that declines"
+			bad="${bad:+$bad; }the mirror has no 'GIT binary patch' block -- it is the rendering that declines"
 		grep -q 'Binary files' "$m" &&
 			bad="${bad:+$bad; }the mirror carries the sentence git prints instead of the bytes"
 		clone="$work/binclone-$where"
