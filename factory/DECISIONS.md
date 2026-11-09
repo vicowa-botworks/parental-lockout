@@ -1117,7 +1117,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: d4708cd214fcd1b8b653b74147aa072e65e9f636
 - Effect: `FACTORY_ASK_MIN_BYTES` and `FACTORY_ASK_MAX_BYTES`, `factory_ask_flat`, `factory_ask_verdict`, `factory_newest_ask` and `factory_ask_bound` in factory/common.sh; the newest-ask read, the `ask` column, the `review_unreadable` class, its detail sentence and the bounded carry in factory/triage.sh; the `review_unreadable)` arm (throttled comment, no tick) and the ask's place in the `address_review` instruction -- markers, the not-instructions-to-you sentence and the `needs-human` stop -- plus the dry run's `ask:` line in factory/factory.sh; in factory/selftest.sh, the shim's `${2}` dispatch fix, the per-pull-request `reviewDecision`, and the ask legs, 179 -> 216; the two `address_review` rows and the section "The ask, and what happens when there is not one" in docs/factory.md. Two GitHub writes, each read back from the API after posting and before this line was written: the superseding correction on #240 at `20:35:41Z` -- `gh pr view 240 --json comments` answers 6 comments, the last carrying "Superseding the comment immediately above", "21, 1002, 2695, 2986, 3124" and "83 of the 86", and not carrying the sentence it retracts -- and the re-dated-`sources_rev` pointer on #199, which answers with `:480`, "0 problems over four frames" and `is_ancestor` in the newest comment. Neither write was in the record before this entry: `H-0050` named both artifacts and neither existed on the tracker until now.
 
-## H-0056 · Stop is a reaping, not a second copy of the pass ceiling
+## H-0066 · Stop is a reaping, not a second copy of the pass ceiling
 
 - Question: `install-timer.sh` renders `TimeoutStopSec` and `TimeoutStartSec` from one token,
   `STOP=$((FACTORY_BUDGET + 60))` -- 5460 s on this box. On 8 Nov one leaked grandchild held the unit in
@@ -1159,7 +1159,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `TimeoutStartSec=5460` (read this session, its lines 51-52), because putting 60 s on the box needs
   `install-timer.sh --install`, which is a manager write a tick may not make; H-0037 is why that
   reinstall must also restart the running timer, and it does. The live reproduction the issue asks for
-  has therefore not been run -- H-0057 records what the shipped gate proves instead, and the exact
+  has therefore not been run -- H-0067 records what the shipped gate proves instead, and the exact
   commands still owed. And 60 s is a judgement, so the gate pins a *bound* (120 s) rather than this
   constant: a measured argument can move the number without editing the check.
 - Checkpoint: 4cfa83abc7b4e8a2dfbd79e86513ccc59f86b5f1
@@ -1167,10 +1167,12 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   line and its comment, in factory/install-timer.sh; in docs/factory.md, the unit excerpt's two
   deadlines and their comment, the account of the 8 Nov outage with the `reset-failed` line and the
   status read a watchdog owes, and `TimeoutStartSec` in the sentence about what `--install` derives.
+  This entry was written as `H-0056` and the commits that made it carry `Decision: H-0056`; `H-0068`
+  says why the number moved, and `H-0056` on `main` is a different decision -- the stale-tree refusal.
 
-## H-0057 · The deadline gate renders the shipped generator; it does not read its template
+## H-0067 · The deadline gate renders the shipped generator; it does not read its template
 
-- Question: H-0056 splits one rendered number into two. What has to go red for the two deadlines to be
+- Question: H-0066 splits one rendered number into two. What has to go red for the two deadlines to be
   re-merged, and where does a check that can see that live?
 - Options: grep the template in `install-timer.sh` for the two `Timeout…Sec=` lines | run
   `install-timer.sh --install --dry-run` from `factory/selftest.sh` against a throwaway repo with stub
@@ -1214,4 +1216,66 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: the "unit's two deadlines" section of factory/selftest.sh -- `gen_setup`, `gen_dry_run`,
   `gen_split`, `deadline_value`, `budget_default`, six `leg_*` predicates, `gen_leg`, `gen_planted`,
   `gen_control` and `unit_deadlines` -- 216 -> 222 passing legs with six plants beside them, and the
-  header's claim about how many legs read shipped text rather than a planted tree.
+  header's claim about how many legs read shipped text rather than a planted tree. This entry was
+  written as `H-0057`, which `issue-235` also holds; `H-0068` says why the number moved.
+
+
+## H-0068 · The two ids this branch took are taken on `main` too, so the merge this pull request asks for would have turned `main`'s gate red
+
+- Question: `origin/main` is at `ef99ae2`, 30 commits ahead of this branch's merge-base with it.
+  `git merge-tree`
+  resolves every file but `factory/DECISIONS.md`, and the reason is worse than a textual conflict: the
+  merge puts `H-0056` (this branch's stop deadline) beside `H-0056` (`#252`'s stale-tree refusal), so
+  the merged log has one id naming two decisions. Whose numbers move, and what happens to the two
+  already-pushed commits whose `Decision:` trailers name the old ones?
+- Options: renumber this branch's two entries to the next ids free on every ref, `H-0066`/`H-0067` |
+  renumber `main`'s `H-0056` instead, since this branch took its number first | keep both pairs and let
+  the merged `main` fail `check-decisions.py` | give every branch its own id range by editing
+  `scripts/check-decisions.py` | report the collision on #246 and change nothing
+- Chose: renumber this branch's two entries to the next ids free on every ref, `H-0066`/`H-0067`
+- Why: the refusal is measured on the merged bytes, not argued. `git merge-tree --write-tree
+  origin/main HEAD` at `84ccdf9` prints `CONFLICT (content): Merge conflict in factory/DECISIONS.md`
+  and nothing else, so its merged blob was extracted and run through the gate:
+  `python3 scripts/check-decisions.py --log <merged blob>` answers **four** problems, exit 1 -- `id
+  H-0056 is already used at :1122; 'revert to before H-0056' would name two commits`, two `out of
+  order` rows, and the cross-log `one id, 2 decisions; a citation to it does not resolve`. So this is
+  not untidiness deferred to the person who resolves the conflict; it is `main`'s own `make verify` red
+  after a green merge, in the one gate the supervisor cannot skip. The ids were read off every ref
+  before any was taken, which is the discipline `H-0061` names as its whole reason for existing: above
+  `H-0055` the union over `refs/heads` and `refs/remotes/origin` is `H-0056` (`origin/main`,
+  `issue-235`, `issue-241`, `issue-246`, and the already-merged local `issue-248`/`issue-249` and two
+  backup branches), `H-0057` (`issue-235`, `issue-246`), `H-0058`..`H-0065` (`origin/main`), nothing
+  above `H-0065`. `H-0066` is therefore the first id no ref holds. That measurement was re-taken
+  mid-session and moved: the first read had `origin/main` at `93ee5f6` and its ceiling at `H-0061`, and
+  by the time this entry was written `#250` had merged `issue-248`, which renumbered *its own* three
+  entries to `H-0062`..`H-0064` and filed the notice as `H-0065` -- the same defect, third time in
+  twenty-four hours, on three branches that each did the thing `H-0061` told them to do. Why the four
+  others lose. **Renumber `main`'s**: its id sits in merged history and moving it means rewriting
+  `main`, barred twice over -- `AGENTS.md` forbids the rewrite and both squash and rebase merge are off
+  on this repository, so a rewrite is a force-push this agent cannot make and that no `git revert`
+  undoes. **Keep both pairs** moves a failure that is currently visible on a branch onto `main`, which
+  is the exact move this harness exists to stop making (the words are `H-0061`'s, and `H-0065` re-made
+  the same argument for the same three ids one branch later). **Per-branch id ranges** is the real
+  answer and is not this unit's to make: it edits `scripts/check-decisions.py`, invalidates the
+  numbering of three open branches mid-flight, and belongs to whoever owns the queue; the tie-break
+  order therefore lands on the option that touches the fewest files and is reversible by `git revert`
+  alone. **Nothing** is the state that produced four `H-0056`s. The yield is recorded inside both moved
+  entries' `Effect:` prose rather than in a new `Id:` field, because that is how `D-0050` was resolved
+  at `392f451` and because the field set `check-decisions.py` recognises must stay the five it declares
+  plus `Awaiting` and `Effect`. What lost, as measured: the two pushed commits keep `Decision: H-0056`
+  and `Decision: H-0057` in their messages -- rewriting them is the same barred force-push -- so
+  `git log --grep='Decision: H-0066'` finds this rename and not the work, and the follow-the-trailer
+  habit breaks once, here, on purpose; `issue-235` and `issue-241` still hold their `H-0056`s and
+  `issue-235` its `H-0057`, so this branch's contribution to the mess goes from two collisions to zero
+  only for the merge it is asking for, and the next sibling to merge still has to do this dance; a
+  fourth branch can take `H-0066` an hour from now, because the allocator is untouched and this entry
+  is a notice, not a lock -- the only real fix is a reservation the gate can see, and no leg can be
+  written for it without putting a read of sibling branches (a network read) inside a gate that
+  `H-0056` on `main` deliberately keeps off any fetch path; and `main`'s permanent gap at `H-0057`
+  means anyone counting entries against the highest id will read one as missing.
+- Checkpoint: e3903d1053f028a408841e59aa860b8972b47d00
+- Effect: `factory/DECISIONS.md` -- the two entry headers, the cross-reference each makes to the other,
+  and the two sentences above that say where the old numbers went; one cite in `docs/factory.md` and one
+  in `factory/selftest.sh`, both pointing at the stop-decision. No shipped script changed: the collision
+  is in the log, not in the harness. Re-measured at this head: `check-decisions: 93 entries across 2
+  log(s), clean`.

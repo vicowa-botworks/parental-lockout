@@ -2690,7 +2690,7 @@ claim_reset
 # `KillMode=control-group` will not call the cgroup empty while one process lives, systemd waited out
 # the 5460-second stop deadline before escalating to SIGKILL, and `OnUnitInactiveSec=` -- the setting
 # that re-arms the queue -- starts counting only when the unit finishes going inactive. The unit sat at
-# `SubState=stop-sigterm MainPID=0` with the timer still `active`. The fix is two numbers (H-0056).
+# `SubState=stop-sigterm MainPID=0` with the timer still `active`. The fix is two numbers (H-0066).
 #
 # What is pinned here is the unit the generator *renders*, not the text of its template. The defect was
 # in a substitution, and a check that greps a template can be satisfied by a template that renders

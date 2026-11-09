@@ -252,7 +252,7 @@ than a smarter kill. Three things travel with that:
 - `TimeoutStopSec` is now its own token at 60 s and `TimeoutStartSec` keeps the budget-derived ceiling.
   Shrinking the start ceiling by accident would kill a real tick at a minute, so `factory/selftest.sh`
   renders the shipped generator and asserts the two values are *different* and that start still clears
-  the budget (H-0056).
+  the budget (H-0066).
 - The only line in the whole system that recorded this failure is the unit's own substate, and nobody
   reads it. Whatever watches the loop has to print it:
   `systemctl --user show parental-lockout-factory.service -p ActiveState -p SubState -p TasksCurrent`,
