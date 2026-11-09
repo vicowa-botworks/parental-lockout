@@ -2776,13 +2776,6 @@ is_a_number() {
 # FACTORY_BUDGET as `common.sh` states it, not as a literal repeated here: a leg that hardcodes 5400
 # keeps passing the day somebody moves the default, and then it is measuring a number that no longer
 # exists. Empty when the file cannot be read, which every caller treats as "this leg has no subject".
-is_a_number() {
-	case "$1" in
-	'' | *[!0-9]*) return 1 ;;
-	*) return 0 ;;
-	esac
-}
-
 budget_default() {
 	sed -n 's/^FACTORY_BUDGET=[^0-9]*\([0-9][0-9]*\)}.*/\1/p' "$HERE/common.sh" |
 		head -n 1
@@ -2791,6 +2784,7 @@ budget_default() {
 # Each predicate reads the rendered unit already in $gen_svc (and $gen_tim), prints why it refused, and
 # returns non-zero. Split out this way so a control can aim the same predicate at a planted generator's
 # output instead of the shipped one.
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg / gen_control
 leg_both_deadlines_rendered() {
 	local stop start
 	stop=$(deadline_value "$gen_svc" TimeoutStopSec)
@@ -2804,6 +2798,7 @@ leg_both_deadlines_rendered() {
 	return 1
 }
 
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg / gen_control
 leg_deadlines_differ() {
 	local stop start
 	stop=$(deadline_value "$gen_svc" TimeoutStopSec)
@@ -2818,6 +2813,7 @@ leg_deadlines_differ() {
 	return 1
 }
 
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg / gen_control
 leg_start_clears_budget() {
 	local start budget
 	start=$(deadline_value "$gen_svc" TimeoutStartSec)
@@ -2840,6 +2836,7 @@ leg_start_clears_budget() {
 # The two numbers have to be derived from different things, not merely happen to differ today. Start
 # follows the budget; stop must not move when the budget does. Rendered twice, so a literal that
 # satisfies both legs by accident cannot pass this one.
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg / gen_control
 leg_only_start_follows_the_budget() { # <budget>
 	local budget start stop base_stop
 	budget=$1
@@ -2859,6 +2856,7 @@ leg_only_start_follows_the_budget() { # <budget>
 	return 1
 }
 
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg / gen_control
 leg_stop_is_a_reaping() {
 	local stop
 	stop=$(deadline_value "$gen_svc" TimeoutStopSec)
@@ -2873,6 +2871,7 @@ leg_stop_is_a_reaping() {
 	return 1
 }
 
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg / gen_control
 leg_no_token_left_unrendered() {
 	local left
 	left=$(grep -hohE '@[A-Z_]+@' "$gen_svc" "$gen_tim" 2>/dev/null |
@@ -2889,24 +2888,6 @@ leg_no_token_left_unrendered() {
 # One leg, in the file's shape: ok, or FAIL with the predicate's own words underneath. Status 2 is a
 # missing subject, which is a SKIP -- the same bargain as `wired_into_verify` refusing to guess about
 # a Makefile that is not there.
-gen_leg() { # <label> <predicate> [args...]
-	local label=$1 rc=0
-	shift
-	if "$@"; then
-		pass=$((pass + 1))
-		printf '  ok    %-40s\n' "$label"
-		return 0
-	fi
-	rc=$?
-	if [ "$rc" = 2 ]; then
-		printf '  SKIP  %-40s the subject is not in this tree\n' "$label"
-		return 0
-	fi
-	fail=$((fail + 1))
-	printf '  FAIL  %-40s the rendered unit is wrong:\n' "$label"
-	return 0
-}
-
 gen_leg() { # <label> <what an ok means here> <predicate> [args...]
 	local label=$1 fact=$2 rc=0
 	shift 2
