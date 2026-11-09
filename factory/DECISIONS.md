@@ -1177,12 +1177,12 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
    addition is not +66. `ae8aba845` is 39 legs behind this branch's actual base, `main@e0d27d3`, and that
    base measures **216 legs on this box** (215 on the reviewer's -- the +/-1 filesystem-dependent spread
    this repository already documents), so the entry added **+26** legs, and the branch carrying it stands
-   at 247 after H-0059..H-0061. `176` is not a wrong count of some head, it is a count of a head this
+   at 247 after H-0062..H-0064. `176` is not a wrong count of some head, it is a count of a head this
    suite was never run at, quoted as though it were the base; corrected in place with the date and the
    reason, for the reason the two lines below give. The
    sentence this replaces claimed that `factory/factory.sh:107`'s comment already named this entry for
    the age clause, and that a re-pointed comment would hand the age clause and the per-unit scope to
-   `H-0059`. Neither held when it was checked: line 107 is the argument parser, the halt block is
+   `H-0062`. Neither held when it was checked: line 107 is the argument parser, the halt block is
    `factory.sh:113-117`, and the only id that comment names is `H-0036`, for why a halt exits 8 instead
    of reading as a crash. So the age of the marker in the journal line and the per-unit scope of the
    switch stay exactly where this entry puts them -- rejected arms, each with the reason it was refused
@@ -1190,7 +1190,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
    appended to, for the reason the two lines above give: it was written before the files were, and a
    merged log that quietly agrees with itself is worse than one that admits it was wrong.
 
-## H-0059 · A quarantine streak was cleared before the tick that could prove it, so it could not fire on the tick path at all
+## H-0062 · A quarantine streak was cleared before the tick that could prove it, so it could not fire on the tick path at all
 
 - Question: The streak is #248's evidence rule -- a SECOND quarantine of the same unit says something keeps dying in that tree, and a third guess is how work gets thrown away. The review of #250 drove the shipped functions in the pass's real order (`factory_tree_stop` -> `TICK-START` -> `factory_quarantine_reset`) over a tree whose tick dies leaving dirt, five passes, and got `attempt=1` five times with no HALT. Where does a streak end, so that it can both end and fire?
 - Options: clear it at `TICK-START` as shipped, and re-point the selftest's adjacency pin at whatever shape follows | clear it after the session, gated on the tree reading clean, so a tick that leaves work behind leaves the streak armed | clear it after the session whatever the tree says, on the argument that a tick entering the unit is the progress the counter measures | require two quarantines of one unit inside a single activation instead of across activations | keep a timestamp instead of a counter and halt on two quarantines inside N minutes
@@ -1199,7 +1199,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: 1554b3070b7b38040729a11afc9a1ac5d3f2e395
 - Effect: `factory_quarantine_after_tick` in `factory/common.sh` (new, returns 0 always so it can never overwrite the tick's own answer); one call site in `factory/factory.sh`, placed after the `timeout ... || status=$?` line so it covers `TICK-DONE`, the early `TICK-UNDELIVERED` return and `TICK-FAILED` alike; the reset is gone from the `TICK-START` block, with the reason left in place of it; the `CONFLICT-RESOLVED` site stays and its comment now says why it is not redundant -- the conflict pass keeps its streak under `pr:$pr` and a conflict tick keeps its own under `conflict:<pr>`, two ledger keys, which was true before this commit and is now written down where someone would mistake them for one counter. Journal: `TREE-AFTER-TICK <unit> streak=cleared|armed ...`; the word chosen does not contain `TREE-STREAK`, because `expect_quarantine`'s STREAK arm greps that string and an armed-but-never-halted pass would have satisfied it -- the collision was found by reading the assertion, not by the suite. `factory/selftest.sh`: the leg the review asked for by name, `a streak survives its tick (primary|worktree)`, composes quarantine -> tick -> verdict -> next pass from the shipped functions and never calls the increment, asserts `attempt=2` halts, and controls it with the same shape where the tick leaves the tree clean -- plus the third arm, a tree reading UNKNOWN from #228's exclude-file loop must not end the streak; `streak_reset_after_tick_start` becomes `streak_reset_after_tick_end` (the call must come after the `timeout` line, not beside `TICK-START`) and gains a second scan, `streak_reset_gated_on_the_tree`, with a control each: deleting the call, and deleting the verdict inside the function. Suite: 244 legs, 0 failed, against 242 at `9547949`. Still owed, and stated because the shape can bite: the armed counter has no wall-clock decay. A unit that is quarantined and then never ticked again -- its PR merged, its branch gone from triage's view -- keeps the streak armed indefinitely, so two accidents a year apart can halt on the second with no tick between them because no tick *could* come between them. `quarantined-at` is already stamped, so the repair is an age test in `factory_quarantine_after_tick`'s armed arm; it is not written here because no measured outage needs it yet and H-0048 is about not inventing a number.
 
-## H-0060 · The mirror rendered a binary path as a sentence about itself, and the size guard could not tell
+## H-0063 · The mirror rendered a binary path as a sentence about itself, and the size guard could not tell
 
 - Question: The quarantine's rule is "clean a tree only after its contents exist somewhere other than the tree", and the guard that enforces it is `[ ! -s "$tmp" ]`. Measured on git 2.53.0: `git stash show -p --include-untracked` prints `Binary files a/shot.png and b/shot.png differ` for a tracked binary and omits the payload, so a tree holding one modified PNG produced a 45-byte non-empty mirror, the tree was cleaned, and the journal advertised `mirror=<path>` that restores nothing. What makes the claim true?
 - Options: pass `--binary` to the `git stash show` that renders the mirror | leave the rendering alone and refuse any mirror whose text contains `Binary files`, treating a binary-bearing tree as unmirrorable and halting | after writing the mirror, verify it by applying it to a throwaway clone and comparing digests, and refuse when that fails | keep the flagless rendering and record the limit in the entry, since `refs/stash` still holds the bytes
@@ -1208,7 +1208,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: 28f41bc1f68382956cce174d69f18fdfa83a49ad
 - Effect: `--binary` on the one `git stash show -p` in `factory_tree_quarantine` (`factory/common.sh`), its plumbing comment corrected where it claimed the flagless form "renders both halves", and the emptiness comment extended to say what emptiness does not prove. `factory/selftest.sh`: `the mirror carries its binary (capture)` builds a throwaway repo with a committed PNG and a committed text file, modifies the PNG, adds an untracked binary, quarantines it, then applies the journal's own mirror to a fresh clone of the base and compares three digests -- the tracked binary, the untracked binary, the text edit -- because "the mirror restores nothing" and "the mirror takes the text edit down with it" are the same bug and only the second one is loud. Its control re-renders the same stash without the flag and asserts the patch is non-empty AND refused by `git apply`, which is the pair the size guard cannot distinguish; a control that applied would report itself. Suite: 245 legs, 0 failed, against 244 at `9797e7b`. The legs above this one count paths and plant text, which is why none of them could see it. Still owed, adjacent and untouched because the refusal still refuses: on this path stderr and stdout both go to `$tmp` (`err=$(git … >"$tmp" 2>&1)`), so a refused render journals `no mirror could be written to <path> ::` with nothing after the colon -- the reason is in the file that gets deleted, not in the sentence.
 
-## H-0061 · A rescue popped the top of a stash stack it does not own, in a repository where that stack is shared
+## H-0064 · A rescue popped the top of a stash stack it does not own, in a repository where that stack is shared
 
 - Question: `factory_tree_unstash` undoes a quarantine that could not be finished, and it did it with a bare `git stash pop`. Measured on git 2.53.0: `refs/stash` is repo-global -- a primary tree and a linked worktree of the same repository answer the same sha, and one `git stash list` shows both units' entries -- so after another unit's accident the pop restores that unit's work into this unit's tree. `git stash pop "$sha"` is refused (`is not a stash reference`), so the entry cannot simply be named to the pop. How is an undo pinned to the thing it is undoing?
 - Options: re-check `refs/stash` and pop only while its top is still the entry made moments ago; otherwise restore nothing and say which sha holds the work | locate the entry's index in `git stash list` and `git stash pop stash@{n}` so the right entry is restored and dropped | `git stash apply "$sha`, which does accept a non-top entry (measured), and leave the entry on the stack | keep the bare pop and treat the caller's subject check as the guard
@@ -1216,3 +1216,49 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Why: The subject check in the caller is the right check and runs too early -- it proves the entry was ours when we made it, not that it is still on top when we undo; the review named that gap and it is the finding. Popping by index does restore the right entry, and lost on the third tie-break: it writes into a tree whose HEAD may have moved since the stash and whose index may be mid-merge, and its failure mode is a conflict *mid-pop*, which is the half-moved state the refusal arm exists to prevent; refusing and naming the sha leaves the work exactly where it already is safe. `apply <sha>` is what a person is pointed at in the sentence for precisely that reason -- it restores without dropping anyone else's entry -- but as shipped behaviour it leaves our entry on the stack forever, so the stack never drains and the next rescue meets a taller version of the same hazard. Keeping the bare pop was never an option: its failure is silent and it moves a stranger's work into a tree that then looks like its own. Landed with it, both from the same review: the `$FACTORY_RUN/quarantine-error.$$` file is read and removed where it is written instead of below the success path's `return 0` (measured: one zero-byte file named after a dead pid per happy pass), and the function's own promise -- "every refusal leaves the tree exactly as it was found" -- is rewritten to say what the code buys, which is a stash undone by a pop that can fail, plus the measured mid-merge arm (`git stash push -u` refuses a half-merged index and leaves `MERGE_HEAD` and every stage entry intact, so a tree stuck mid-merge keeps halting with the resolution still there for a person).
 - Checkpoint: 5e0a9406c11840a1be8fd35d9a5aa8c210132e6d
 - Effect: `factory_tree_unstash` in `factory/common.sh` (the pin, and the sentence that names both shas and the `git stash apply` command); `factory_tree_stop` reads git's sentence into `qerr` and removes the file immediately after the call, so the refusal arm prints the reason instead of re-reading a file that no longer exists at a point the success path never reaches; the plumbing comment above `factory_tree_quarantine` carries the honest version of "refused means untouched" and the mid-merge measurement. `factory/selftest.sh`: `a rescue undoes its own stash` puts a second unit's entry on top of ours in a throwaway repo and asserts the pop restores nothing, says `was NOT put back`, and names our sha -- with the control that the same call on its own entry still restores; `a rescue leaves no temp behind` counts `quarantine-error.*` around one successful rescue, with a planted file as its control. Suite: 247 legs, 0 failed, against 245 at `ac5f365`.
+
+## H-0065 · Three ids this branch took are already taken on `main`, so the merge #250 was sent for would have turned `main`'s own gate red
+
+- Question: `#250` reads `CONFLICTING`/`DIRTY` against `main`, and the reason `main` moved under this branch is worse than the two textual conflicts. `93ee5f6` merged #252, whose log entries are `H-0059`, `H-0060` and `H-0061` -- the same three ids this branch took across `3319571..97d5daf` for three unrelated decisions. `H-0058` is this branch's alone, because #252's own `H-0061` deliberately stepped over `H-0057` and `H-0058` to dodge exactly this. Whose numbers move, and what happens to the four already-pushed commits whose `Decision:` trailers name the old ones?
+- Options: renumber this branch's three entries up to `H-0062`/`H-0063`/`H-0064`, the next ids free on every ref | renumber `main`'s three instead, since its prose is the younger of the two | keep both pairs and let the merged `main` fail `check-decisions.py` | give every branch its own id range by editing `scripts/check-decisions.py` | report the collision on #248 and change nothing
+- Chose: renumber this branch's three entries up to `H-0062`/`H-0063`/`H-0064`, the next ids free on every ref
+- Why: The ids are read off every ref, not guessed, because a collision is only visible across branches --
+  the discipline `H-0061` names as its whole reason for existing. Measured here over `refs/heads` and
+  `refs/remotes`, taking every `^## H-` heading each ref carries: above `H-0055` the union is `H-0056`
+  (`origin/main`, `issue-235`, `issue-241`, `origin/issue-246`, `origin/issue-249`), `H-0057`
+  (`issue-235`, `origin/issue-246`), `H-0058` (this branch alone), `H-0059`/`H-0060`/`H-0061` (`origin/main`
+  AND this branch -- the collision), and nothing above `H-0061`. So `H-0062` is the first id no ref holds,
+  and a renumber is free exactly once, before the merge makes someone else resolve it. Why these three lose
+  their numbers while `main`'s three keep theirs: `main`'s sit in merged history, and moving them means
+  rewriting `main`, which is refused here twice over -- `AGENTS.md` bars the rewrite and both squash and
+  rebase merge are off on this repository, so a rewrite is a force-push this agent cannot make. This
+  branch's three move as text in one file, no commit moves, so the same escape `H-0061` took is available
+  without touching an in-flight branch. What was rejected and why. **Renumber `main`'s**: it moves a
+  failure that is currently visible on a branch onto the trunk, the exact move #252 exists to stop making,
+  and it does it to the one gate the supervisor cannot skip. **Keep both pairs**: `check()` at
+  `scripts/check-decisions.py:128-131` refuses the repeated id for the reason already on the record --
+  `'revert to before H-0059' would name two commits` -- and the rule next to it in the same loop,
+  `if e["num"] < prev_num`, refuses a merged file that concatenates the two blocks, so a naive merge is red
+  twice over, once for the duplicate and once for the order. **Per-branch id ranges** is the real answer to
+  the allocator and is not this unit's to make: it edits the gate and invalidates the numbering of three
+  open branches mid-flight. **Report and change nothing** is the state that produced this collision. What
+  was lost, as measured: the four pushed commits `9797e7b`, `ac5f365`, `3196d2d` and `97d5daf` keep their
+  `Decision: H-0059`/`H-0060`/`H-0061` trailers, and once this branch merges those trailers resolve on
+  `main` to #252's three decisions rather than to this branch's -- strictly worse than `H-0061`'s case, where
+  the ids it abandoned named nothing at all, because here following a trailer does not merely miss the
+  commit, it arrives at the wrong decision; the mapping is in this entry and nowhere else. No selftest leg
+  pins any of it, for the reason `H-0061` gives: a leg that tested for collisions would have to read
+  sibling refs, which is a network read inside a pass `H-0056`'s own entry keeps off the pass path. And the
+  allocator is untouched, so the next branch cut from `main` can claim `H-0062` alongside this one; this is
+  the third band-aid over the same wound and is named as one, not as a fix.
+- Checkpoint: 5ba87a029fa3c879c0349d97535b46843271971a
+- Effect: `factory/DECISIONS.md` only, and only what has happened in this commit: the three headers `H-0059`
+  → `H-0062`, `H-0060` → `H-0063`, `H-0061` → `H-0064`, the two cross-references inside `H-0058` that point
+  at them (the leg arithmetic, now "247 after `H-0062..H-0064`", and the rejected arm that names `H-0062`),
+  plus this entry. Read back rather than asserted: `grep -cE 'H-00(59|60|61)' factory/DECISIONS.md` prints
+  `0`, and `python3 scripts/check-decisions.py` answers "95 entries across 2 log(s)" with rc 0 at this
+  head. The merge is the NEXT commit and is deliberately not claimed here, because an `Effect:` naming a
+  merge that has not run is the same prophecy this log has now been corrected twice for; that commit
+  interleaves #252's `H-0056`/`H-0059`/`H-0060`/`H-0061` with this branch's `H-0058`/`H-0062`/`H-0063`/
+  `H-0064` in the ascending order the gate's ordering rule demands, and keeps both sides' additions in
+  `factory/common.sh`.
