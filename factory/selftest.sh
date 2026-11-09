@@ -63,15 +63,28 @@ HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck disable=SC1091
 . "$HERE/common.sh"
 
+pass=0
+fail=0
+reached_verdict=0
 work=$(mktemp -d "${TMPDIR:-/tmp}/plock-factoryselftest-XXXXXX")
+# The tally at the bottom of this file is the only line that says how many legs ran, and a run that
+# dies on its way there never prints it. Measured 9 Nov on CI: a fixture that needed the host's git
+# identity (H-0057) ended the script at its own command, this trap wiped the fixture, and the log
+# stopped at git's fatal -- no FAIL line, no `N passed, M failed`, and nothing that said where 217
+# legs became 236. Finding that meant re-running the suite with the box's identity taken away. So the
+# trap now says the one thing a dead run cannot: how far it got, that it never reached a verdict, and
+# the status it died with. `reached_verdict` is set by the tally line alone, so a run that reported
+# never says it did not.
 cleanup() {
+	local rc=$?
+	if [ "$reached_verdict" != 1 ]; then
+		printf 'factory/selftest.sh: RUN INCOMPLETE -- died with exit %d after %d ok and %d FAIL, before any verdict\n' \
+			"$rc" "$pass" "$fail" >&2
+	fi
 	chmod -R u+rwX "$work" 2>/dev/null || true
 	rm -rf -- "$work"
 }
 trap cleanup EXIT INT TERM
-
-pass=0
-fail=0
 
 # The verdict under test, as `verb<TAB>detail`.
 verdict() {
@@ -3227,7 +3240,73 @@ fixture_carries_identity() {
 }
 claim_leg 'no fixture repo inherits the host' fixture_carries_identity
 
+# A run that dies before its tally leaves no tally behind. That is what H-0057 cost: the CI log ended
+# at git's fatal with no number in it, and the only way to find where 217 legs stopped being 236 was
+# to re-run the suite with the box's identity taken away. The trap's own text is extracted from the
+# shipped file rather than pasted here, so the leg runs what a run runs, and the two scripts are the
+# only states there are to know about: a death before the verdict, and a run that reaches it. Either
+# half alone is a grep -- the death case without the clean one proves only that the word is printed
+# for everything.
+incomplete_reports_itself() {
+	local box=$work/incomplete-trap fn out rc
+	mkdir -p "$box/tree"
+	fn=$(awk '/^cleanup\(\)/,/^}/' "$HERE/selftest.sh")
+	[ -n "$fn" ] || { pos_say 'no cleanup() in the shipped file, so the leg would be testing a copy of it'; return 1; }
+	printf '%s\n' "$fn" >"$box/cleanup.sh"
+	grep -q 'RUN INCOMPLETE' "$box/cleanup.sh" || {
+		pos_say 'the shipped trap carries no incomplete-run notice, so there is nothing to run:'
+		pos_say "$fn"
+		return 1; }
+
+	# The trap, installed over a run that counts one leg and then fails under `set -e`. The verdict
+	# line stays in the script after the death, where only a run that does not die can reach it -- so
+	# "the verdict was not printed" is a fact about the death, not about a missing line.
+	{
+		printf 'set -euo pipefail\npass=7\nfail=2\nreached_verdict=0\nwork=%q\n' "$box/tree"
+		cat "$box/cleanup.sh"
+		printf 'trap cleanup EXIT INT TERM\n'
+	} >"$box/head.sh"
+	{
+		cat "$box/head.sh"
+		printf 'false\n'
+		printf 'printf "factory/selftest.sh: %%d passed, %%d failed\\n" "$pass" "$fail"\n'
+	} >"$box/death.sh"
+	{
+		cat "$box/head.sh"
+		printf 'printf "factory/selftest.sh: %%d passed, %%d failed\\n" "$pass" "$fail"\n'
+		printf 'reached_verdict=1\n'
+	} >"$box/finish.sh"
+
+	rc=0
+	out=$(bash "$box/death.sh" 2>&1) || rc=$?
+	[ "$rc" -ne 0 ] || { pos_say 'the planted death exited 0 -- nothing failed, so the case proves nothing'; return 1; }
+	printf '%s\n' "$out" | grep -q 'RUN INCOMPLETE' || {
+		pos_say 'a run that died before its verdict said nothing about it:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -q 'after 7 ok and 2 FAIL' || {
+		pos_say 'the notice does not say how far the run got, which is the whole reason for it:'
+		pos_say "$out"
+		return 1; }
+	printf '%s\n' "$out" | grep -q 'factory/selftest.sh: 7 passed, 2 failed' && {
+		pos_say 'the run reached the verdict line after the planted death, so the case is not a death:'
+		pos_say "$out"
+		return 1; }
+
+	mkdir -p "$box/tree"
+	rc=0
+	out=$(bash "$box/finish.sh" 2>&1) || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "the clean run exited $rc:"; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -q 'factory/selftest.sh: 7 passed, 2 failed' || {
+		pos_say 'the clean run did not print its verdict:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -q 'RUN INCOMPLETE' && {
+		pos_say 'a run that printed its verdict also said it had not:'; pos_say "$out"; return 1; }
+	# The notice is an addition to the trap, not a replacement for it: the fixture still has to go.
+	[ ! -e "$box/tree" ] || { pos_say 'the trap stopped cleaning up the fixture'; return 1; }
+	return 0
+}
+claim_leg 'a death before the verdict is reported' incomplete_reports_itself
+
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
+reached_verdict=1
 if [ "$fail" -ne 0 ]; then
 	exit 1
 fi
