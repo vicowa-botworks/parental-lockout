@@ -385,11 +385,11 @@ expect_halt() {
 # so that is a check on the shipped text -- the same bargain as `wired_into_verify`, and the same
 # reason: the failure is silent at run time.
 halt_call_sites_in() { # dir -> prints the lines that are wrong, empty when the shape holds
-	local root=$1 sites ticks merges
-	sites=$(grep -rn --include='*.sh' --exclude-dir=.git -- 'factory_tree_halt ' "$root" 2>/dev/null |
+	local root=$1 sites ticks merges inner v
+	sites=$(grep -rn --include='*.sh' --exclude-dir=.git -- 'factory_tree_stop ' "$root" 2>/dev/null |
 		grep -v 'factory/common\.sh:' | grep -v 'factory/selftest\.sh:')
 	if [ -z "$sites" ]; then
-		printf 'no call site of factory_tree_halt anywhere\n'
+		printf 'no call site of factory_tree_stop anywhere\n'
 		return 0
 	fi
 	printf '%s\n' "$sites" | grep -v '|| return \$?' || true
@@ -399,8 +399,22 @@ halt_call_sites_in() { # dir -> prints the lines that are wrong, empty when the 
 	# line was the one mutation of ten that this check first missed.
 	ticks=$(printf '%s\n' "$sites" | grep -c 'TICK-HALTED' || true)
 	merges=$(printf '%s\n' "$sites" | grep -c 'CONFLICT-HALTED' || true)
-	[ "$ticks" -ge 1 ] || printf 'no call site halts a tick (TICK-HALTED): the tree is asked and the answer dropped\n'
-	[ "$merges" -ge 1 ] || printf 'no call site halts the conflict pass (CONFLICT-HALTED)\n'
+	[ "$ticks" -ge 1 ] || printf 'no call site stops a tick (TICK-HALTED): the tree is asked and the answer dropped\n'
+	[ "$merges" -ge 1 ] || printf 'no call site stops the conflict pass (CONFLICT-HALTED)\n'
+	# One level down, the same duty. Since #248 the halt is the fallback inside `factory_tree_stop`,
+	# so a quarantine arm that reaches the halt and drops its exit code is the identical bug the sites
+	# above are pinned against -- and nothing outside this check would see it, because the quarantine
+	# arms return 0 and a green pass continues with a tree it believes it cleaned.
+	inner=$(awk '/^factory_tree_stop\(\) \{/{f=1} f{print} f && /^\}/{exit}' "$root/factory/common.sh" 2>/dev/null)
+	if [ -z "$inner" ]; then
+		printf 'factory_tree_stop is not defined in %s/factory/common.sh\n' "$root/factory/common.sh"
+	else
+		printf '%s\n' "$inner" | grep 'factory_tree_halt ' | grep -v '|| return \$?' || true
+		for v in TICK-HALTED CONFLICT-HALTED; do
+			printf '%s\n' "$inner" | grep -q "factory_tree_halt $v" ||
+				printf 'factory_tree_stop never halts with %s: that path cleans nothing and stops nobody\n' "$v"
+		done
+	fi
 	# A second copy of the decision is how the two sites drifted apart in the first place, and the
 	# raw verdict is what a new copy would be written against.
 	grep -rn --include='*.sh' --exclude-dir=.git -- 'dirt_rc' "$root" 2>/dev/null |
@@ -409,7 +423,7 @@ halt_call_sites_in() { # dir -> prints the lines that are wrong, empty when the 
 }
 
 halt_call_sites_shaped() {
-	local label="both halts share the guard" root bad
+	local label="both halts share the guard" root bad v
 	root=$(cd -- "$HERE/.." && pwd)
 	bad=$(halt_call_sites_in "$root")
 	if [ -n "$bad" ]; then
@@ -422,23 +436,32 @@ halt_call_sites_shaped() {
 		printf '  ok    %-34s every call site is `… || return %%s`, one decision in common.sh\n' "$label"
 	fi
 
-	# The control, planted outside the repository: a call site that drops the return, and a second
-	# copy of the predicate. Either one has to be flagged, or the ok above is the check being blind.
+	# The control, planted outside the repository: a call site that drops the return, a halt arm inside
+	# the guard that drops its own, and a second copy of the predicate. Any one of them has to be
+	# flagged, or the ok above is the check being blind.
 	mkdir -p "$work/sites/factory"
 	printf '%s\n' \
 		'#!/usr/bin/env bash' \
 		'. "$(dirname "$0")/common.sh"' \
-		'factory_tree_halt TICK-HALTED "$unit" "$tree"' \
+		'factory_tree_stop TICK-HALTED "$unit" "$tree"' \
 		'local dirt_rc=0' \
 		'dirt_rc=$(factory_tree_dirt "$tree")' \
 		'if [ "$dirt_rc" -ne 1 ]; then :; fi' >"$work/sites/factory/planted.sh"
+	printf '%s\n' \
+		'#!/usr/bin/env bash' \
+		'factory_tree_stop() {' \
+		'	local verb=$1' \
+		'	factory_tree_halt TICK-HALTED "$unit" "$tree"' \
+		'	return 0' \
+		'}' >"$work/sites/factory/common.sh"
 	if [ -n "$(halt_call_sites_in "$work/sites")" ]; then
-		printf '        control: a planted call site that drops the return and a planted second copy\n'
-		printf '        of the predicate are both flagged, so the ok above is the check working.\n'
+		printf '        control: a planted site that drops the return, a planted halt arm that drops\n'
+		printf '        its own, and a planted second copy of the predicate are all flagged, so the ok\n'
+		printf '        above is the check working.\n'
 	else
 		fail=$((fail + 1))
-		printf '  FAIL  %-34s neither a dropped return nor a second copy of the predicate\n' "control: $label"
-		printf '          was flagged, so its silence about the repository means nothing.\n'
+		printf '  FAIL  %-34s neither a dropped return, nor a dropped halt arm, nor a second\n' "control: $label"
+		printf '          copy of the predicate was flagged, so its silence about the repository means nothing.\n'
 	fi
 	return 0
 }
@@ -1383,6 +1406,568 @@ wired_into_verify() {
 }
 wired_into_verify
 halt_call_sites_shaped
+
+# ------------------------------------------------- the quarantine, and the halt that follows it
+#
+# Issue #248 measured what a dirty worktree used to cost: the tick that died on `issue-247` left four
+# modified paths, and because `factory_halted()` is read before triage, 22 units and 15h57m of queue
+# went past printing one true sentence into a journal nobody was watching. `factory_tree_stop` is the
+# response now -- mirror the tree, clean it, let the rest of the queue run -- and the halt is what is
+# left for the cases where that cannot be done for certain.
+#
+# The legs below drive that function over planted dirt and assert the two things the halt could never
+# assert: that the work still exists afterwards *somewhere readable*, and that somebody is told when
+# the queue really does stop. Each one has its opposite planted beside it, because an assertion that
+# cannot say the other word is not measuring anything:
+#
+#   the mirror is complete      a tree with one edit and one untracked file has to produce a patch
+#                               naming BOTH; the untracked-only leg is the case a `git diff` loses
+#                               entirely, so a mirror written from the working tree passes the first
+#                               leg and fails that one.
+#   a refusal touches nothing   an uncreatable mirror directory must leave the tree exactly as dirty
+#                               as it was and halt anyway. This is the arm that proves the cleaner
+#                               cannot eat work, and it is the only reason the cleaner is allowed.
+#   the streak halts            a second quarantine with no tick between them stops the queue, and the
+#                               leg after it shows `TICK-START` bringing the counter back down -- so
+#                               the streak leg is not a leg that simply always halts.
+#   a rehearsal rehearses       `--dry-run` returns the halt's answer while touching nothing at all,
+#                               including the marker. A dry run that wrote `factory/HALT` would halt
+#                               the real queue from a demonstration.
+#   a halt speaks               the notice posts, is throttled, and says so when the post fails --
+#                               with the failure leg asserting the ledger is NOT stamped, because a
+#                               stamped failure is a halt that never tells anyone twice.
+#
+# FACTORY_AT_RISK is redirected to the fixture before the first quarantine and never left at its
+# default: the default is a real directory holding the only copies of real work, and a probe that
+# wrote there would be a probe that silently tidied the thing it exists to describe.
+FACTORY_AT_RISK=$work/at-risk
+mkdir -p "$FACTORY_AT_RISK"
+
+q_gh=$work/qbin
+q_rec=$work/gh-calls
+mkdir -p "$q_gh"
+cat >"$q_gh/gh" <<'QGHS'
+#!/usr/bin/env bash
+# Fixture gh for the halt-notice legs. It records the call, keeps a copy of the body it was handed,
+# and exits as $Q_GH_RC says. Anything that is not `issue comment` exits 9: a shim that answers `[]`
+# to a call nobody planned for turns a leg green without exercising anything (CLAIMSHIM's rule, and
+# the same reason).
+set -u
+rec=${Q_GH_REC:?Q_GH_REC names the record file}
+printf '%s\n' "$*" >>"$rec"
+if [ "${1:-}" = issue ] && [ "${2:-}" = comment ]; then
+	prev=""
+	for a in "$@"; do
+		if [ "$prev" = --body-file ]; then
+			cp -- "$a" "$rec.body" 2>/dev/null || true
+		fi
+		prev=$a
+	done
+	exit "${Q_GH_RC:-0}"
+fi
+exit 9
+QGHS
+chmod +x "$q_gh/gh"
+
+q_state() { # tree -> clean tree, no marker, no stale stash, empty journal; the LEDGER IS LEFT ALONE
+	local tree=$1
+	rm -f -- "$FACTORY_HALT"
+	reset_tree "$tree"
+	# The exclude-file legs above leave `core.excludesFile` pointing at a symlink loop, and since #232
+	# a read that prints `warning: unable to access` is an incomplete read: every verdict in this tree
+	# answers UNKNOWN from there on. Measured -- every quarantine leg below then reported
+	# `quarantine refused: git stash exited 0 and the tree cannot be read back clean`, which is the
+	# harness being right and the fixture being poisoned. These legs are about a tree with work in it, so
+	# the config the other legs planted is taken back. (It is also a fact worth knowing on its own: the
+	# quarantine refuses rather than stashing into a tree git will not read back, so a unit whose halt
+	# says "cannot be read back clean" has an exclude-file problem, not a dirty-tree problem.)
+	git -C "$tree" config --unset core.excludesFile >/dev/null 2>&1 || true
+	git -C "$tree" stash clear >/dev/null 2>&1 || true
+	mkdir -p "$FACTORY_LOG"
+	: >"$FACTORY_LOG/supervisor.log"
+}
+
+q_reset() { # tree [unit] -> q_state plus that unit's ledger, for a leg that starts from nothing
+	local tree=$1 unit=${2:-selftest}
+	q_state "$tree"
+	factory_ledger_clear "$unit" quarantine-count
+	factory_ledger_clear "$unit" halt-notice
+}
+
+q_dirty() { # tree -> plant one edit and one untracked file, the pair a mirror has to survive
+	printf 'quarantine me\n' >>"$tree/tracked.txt"
+	printf 'nobody else has this\n' >"$tree/scratch-notes.txt"
+}
+
+q_dirt() { # tree -> how many paths git calls dirty (the fixture's own reading, never a verdict)
+	local n=0
+	n=$(git -C "$1" status --porcelain 2>/dev/null | grep -c .) || n=0
+	printf '%s\n' "$n"
+}
+
+q_stash_is_ours() { # tree unit -> 0 when refs/stash exists and carries our own subject
+	local s subj
+	s=$(git -C "$1" rev-parse -q --verify refs/stash 2>/dev/null) || return 1
+	subj=$(git -C "$1" log -1 --format=%s "$s" 2>/dev/null)
+	# Same substring rule as the guard: git writes the subject as `On <branch>: <message>`.
+	case "$subj" in *"supervisor quarantine $2 "*) return 0 ;; esac
+	return 1
+}
+
+# The mirror path, taken from the journal line the quarantine wrote (`… stash=<sha> mirror=<path>`).
+# The first version of this helper took the newest file in the box, and that is not the same thing: the
+# names sort as `<tree>-quarantine-<second>-<stash sha>.patch`, so two quarantines in one second sort
+# by stash sha and a leg could grep a previous leg's patch and call it a pass. Asking the journal is
+# also the better contract -- it asserts the harness told the reader where the copy is.
+q_mirror_of() { # -> path from the newest TREE-QUARANTINED journal line, empty when it names none
+	local line="" p=""
+	line=$(grep -F 'TREE-QUARANTINED' "$FACTORY_LOG/supervisor.log" 2>/dev/null | tail -n 1) || true
+	[ -n "$line" ] || {
+		printf '\n'
+		return 0
+	}
+	p=$(printf '%s\n' "$line" | sed -n 's/.*mirror=\([^ ]*\).*/\1/p')
+	[ -n "$p" ] || printf '\n'
+	printf '%s\n' "$p"
+}
+
+# How many mirrors exist, for the legs that have to say "no new file". An existence test on "a patch
+# in the box" cannot tell a fresh mirror from one an earlier leg wrote, and that is exactly the
+# difference a dry run is being asked about.
+q_mirror_count() {
+	local n=0
+	n=$(find "$FACTORY_AT_RISK" -name '*-quarantine-*.patch' 2>/dev/null | grep -c .) || n=0
+	printf '%s\n' "$n"
+}
+
+q_journal_has() { # needle -> 0 when the fixture journal carries it
+	[ -s "$FACTORY_LOG/supervisor.log" ] || return 1
+	grep -qF -- "$1" "$FACTORY_LOG/supervisor.log"
+}
+
+# expect_quarantine LABEL TREE WANT [UNIT] [NEEDLES] [ATTEMPT]
+#   NEEDLES is a comma-separated list of paths the mirror has to contain -- the edit-and-untracked leg
+#   asks for both, the untracked-only leg for one. Hard-coding both in the arm made that leg fail for
+#   the wrong reason: it is the leg whose whole subject is a tree with nothing tracked to diff.
+#   ATTEMPT is the value the streak counter is expected to hold afterwards.
+expect_quarantine() { # label tree want [unit] [needles] [attempt]
+	local label=$1 tree=$2 want=$3 unit=${4:-selftest} needles=${5:-tracked.txt} want_n=${6:-1}
+	local rc=0 out="" before="" after_mirrors=0 before_mirrors=0 bad="" m="" want_rc=0 needle
+
+	before=$(q_dirt "$tree")
+	before_mirrors=$(q_mirror_count)
+	out=$(factory_tree_stop TICK-HALTED "$unit" "$tree" 2>&1) || rc=$?
+	after_mirrors=$(q_mirror_count)
+	m=$(q_mirror_of)
+
+	case "$want" in
+	QUARANTINE)
+		want_rc=0
+		[ "$rc" = 0 ] || bad="the unit was stopped (exit $rc)"
+		[ "$(q_dirt "$tree")" = 0 ] || bad="${bad:+$bad; }the tree is still dirty, so the pass could not have continued"
+		[ ! -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }a HALT file was written, so every other unit stopped too"
+		q_stash_is_ours "$tree" "$unit" || bad="${bad:+$bad; }nothing is in refs/stash under our own subject"
+		# Not "one more file in the box": the patch is named `<tree>-quarantine-<second>-<stash>.patch`,
+		# and re-quarantining identical bytes produces the same stash commit, so the honest second write
+		# lands on the same path. Nothing is lost -- identical content, and the journal names the file
+		# that exists -- so the arm asserts the named file is there, is not empty, and carries this leg's
+		# own dirt. Counting files is kept for the arms whose claim is that NOTHING was written.
+		[ -n "$m" ] || bad="${bad:+$bad; }the journal names no mirror path, so a reader cannot find the copy"
+		if [ -n "$m" ]; then
+			[ -f "$m" ] || bad="${bad:+$bad; }the mirror it names, $m, is not a file"
+			[ -s "$m" ] || bad="${bad:+$bad; }the mirror $m is zero bytes -- a rescue that is an empty file"
+			for needle in ${needles//,/ }; do
+				grep -q -- "$needle" "$m" || bad="${bad:+$bad; }the mirror $m does not contain $needle"
+			done
+		fi
+		q_journal_has "TREE-QUARANTINED $unit" || bad="${bad:+$bad; }the journal never says the tree was quarantined"
+		q_journal_has "attempt=$want_n" ||
+			bad="${bad:+$bad; }the journal never prints attempt=$want_n; the counter reads $(factory_ledger_get "$unit" quarantine-count)"
+		[ "$(factory_ledger_get "$unit" quarantine-count)" = "$want_n" ] ||
+			bad="${bad:+$bad; }the streak counter reads $(factory_ledger_get "$unit" quarantine-count), want $want_n"
+		;;
+	HALT)
+		want_rc=4
+		[ "$rc" = "$want_rc" ] || bad="the tick left $rc, want $want_rc"
+		[ -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }no HALT file, so factory_halted() would not stop the pass"
+		q_journal_has 'TREE-QUARANTINE-REFUSED' ||
+			bad="${bad:+$bad; }the journal never says the quarantine was refused, so the halt looks like the old one"
+		[ "$after_mirrors" = "$before_mirrors" ] ||
+			bad="${bad:+$bad; }it wrote a mirror anyway, so a refusal is not the honest arm"
+		[ "$(q_dirt "$tree")" = "$before" ] ||
+			bad="${bad:+$bad; }a refusal changed the tree: $before path(s) before, $(q_dirt "$tree") after -- the arm that cannot save the work must not move it"
+		;;
+	STREAK)
+		want_rc=4
+		[ "$rc" = "$want_rc" ] || bad="the tick left $rc, want $want_rc -- a halt that re-asks whether the tree is dirty after cleaning it evaporates here"
+		[ -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }the second accident did not halt the queue"
+		q_journal_has 'TREE-STREAK' || bad="${bad:+$bad; }the journal does not name the streak as the reason"
+		q_journal_has 'TREE-QUARANTINED' || bad="${bad:+$bad; }the second quarantine was not journaled either"
+		q_journal_has "attempt=$want_n" ||
+			bad="${bad:+$bad; }the journal never counted this as attempt $want_n, so the streak is not being counted"
+		[ "$(q_dirt "$tree")" = 0 ] || bad="${bad:+$bad; }the tree was left dirty while the queue was halted"
+		# The work is in a stash AND named by the journal, so the halt is not the only copy.
+		[ -n "$m" ] && [ -s "$m" ] || bad="${bad:+$bad; }the halt names no usable mirror, so the work is only in a stash"
+		;;
+	PROCEED)
+		want_rc=0
+		[ "$rc" = 0 ] || bad="the unit was stopped (exit $rc)"
+		[ ! -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }a HALT file was written for a tree with nothing in it"
+		[ "$after_mirrors" = "$before_mirrors" ] || bad="${bad:+$bad; }a clean tree still produced a mirror"
+		q_journal_has 'TREE-CLEAN' || bad="${bad:+$bad; }the journal never says which arm it took"
+		;;
+	DRYRUN)
+		want_rc=4
+		[ "$rc" = "$want_rc" ] || bad="a dry run let the unit through (exit $rc, want $want_rc)"
+		[ "$(q_dirt "$tree")" = "$before" ] ||
+			bad="${bad:+$bad; }it changed the tree: $before path(s) before, $(q_dirt "$tree") after"
+		[ ! -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }it wrote $FACTORY_HALT, halting the real queue from a rehearsal"
+		q_stash_is_ours "$tree" "$unit" && bad="${bad:+$bad; }it stashed real work"
+		[ "$after_mirrors" = "$before_mirrors" ] ||
+			bad="${bad:+$bad; }it wrote a mirror: $before_mirrors before, $after_mirrors after"
+		q_journal_has 'DRY-RUN TREE-QUARANTINE' || bad="${bad:+$bad; }the journal never says it was a rehearsal"
+		;;
+	*)
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s no such expectation: %s\n' "$label" "$want"
+		return 0
+		;;
+	esac
+
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s (want %s)\n' "$label" "$bad" "$want"
+		[ -z "$out" ] || printf '          it said: %s\n' "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-500)"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s %-10s exit=%s dirt=%s %s\n' "$label" "$want" "$rc" "$(q_dirt "$tree")" \
+		"${m:+mirror=$(basename -- "$m")}"
+	return 0
+}
+
+echo "factory/selftest.sh: the quarantine that replaced the halt, and the notice the halt never sent"
+q_dry_saved=$DRY_RUN
+
+for tree in "$repo" "$wt"; do
+	where=primary
+	if [ "$tree" = "$wt" ]; then
+		where=worktree
+	fi
+
+	# One accident, honestly absorbed: the tree is clean again, the work is in a stash AND in a patch,
+	# the queue kept running, and the journal says so with a count. Both paths are named in the mirror
+	# because a `git diff` alone would have lost the untracked file, and the untracked file is the
+	# category of work that has no other copy anywhere.
+	# One accident, honestly absorbed: the tree is clean again, the work is in a stash AND in a patch,
+	# the queue kept running, and the journal says so with a count. Both paths are named in the mirror
+	# because a `git diff` alone would have lost the untracked file, and the untracked file is the
+	# category of work that has no other copy anywhere.
+	q_reset "$tree"
+	q_dirty "$tree"
+	expect_quarantine "[$where] edit + untracked" "$tree" QUARANTINE selftest "tracked.txt,scratch-notes.txt" 1
+
+	# The second accident on the unit that has just had one, with the ledger deliberately left alone:
+	# two accidents in a row on the same unit is the pattern that means a person should look, so this
+	# is the leg where the halt is the right answer -- and the only place the streak can be shown to
+	# halt, because a halt that re-asks whether the tree is dirty after cleaning it evaporates.
+	q_state "$tree"
+	q_dirty "$tree"
+	expect_quarantine "[$where] the same unit again" "$tree" STREAK selftest tracked.txt 2
+
+	# The control for the leg above, and it is a real control: a tick entering the unit clears the
+	# streak, so after it the very same shape is absorbed again instead of halting. Without this the
+	# streak leg would only be demonstrating that the function always halts -- precisely the behaviour
+	# #248 was filed against, where one dirty tree stopped twenty-two other units for 15h57m.
+	q_reset "$tree"
+	factory_ledger_set selftest quarantine-count 2
+	factory_quarantine_reset selftest
+	q_dirty "$tree"
+	expect_quarantine "[$where] a tick ends the streak" "$tree" QUARANTINE selftest tracked.txt 1
+
+	q_reset "$tree"
+	expect_quarantine "[$where] nothing was dirty" "$tree" PROCEED
+
+	q_reset "$tree"
+	q_dirty "$tree"
+	# Saved and restored, NOT `DRY_RUN=1 expect_quarantine …`. Bash leaves an assignment that precedes a
+	# *function* call in effect after the function returns, so the prefix form silently left the whole
+	# rest of the run in dry-run mode -- and because `factory_ledger_clear` and `factory_notice_halt` are
+	# both dry-run no-ops, the notice legs downstream then posted nothing and the ledger never cleared.
+	# Measured: two legs simply stopped printing. A rehearsal flag that leaks past the rehearsal is the
+	# same class as a dry run that writes: it changes what the run believes it was.
+	DRY_RUN=1 expect_quarantine "[$where] dry run touches nothing" "$tree" DRYRUN
+	DRY_RUN=$q_dry_saved
+
+	# A tree whose only work is untracked: `git diff` and `git diff --cached` are both empty here, so
+	# this is the shape where a mirror written from the working tree is worth nothing and the mirror's
+	# content is the only proof the harness captured what it moved.
+	q_reset "$tree"
+	printf 'only ever untracked\n' >"$tree/never-committed.txt"
+	expect_quarantine "[$where] untracked only" "$tree" QUARANTINE selftest never-committed.txt 1
+
+	q_reset "$tree"
+	q_dirty "$tree"
+	# A regular file where the mirror directory has to be created: `mkdir -p` over a plain non-existent
+	# path simply succeeds, and that is what this leg first planted -- it reported a quarantine that
+	# worked and proved nothing about the refusal arm.
+	: >"$work/blocker"
+	FACTORY_AT_RISK=$work/blocker/underneath \
+		expect_quarantine "[$where] no mirror, so no clean" "$tree" HALT
+	q_reset "$tree"
+	FACTORY_AT_RISK=$work/at-risk
+done
+
+# The mirror has to land in the fixture box and nowhere else. `FACTORY_AT_RISK` defaults to a real
+# directory whose whole contents are work that exists nowhere else, so a leg that inherited the
+# default would tidy the thing it is describing -- and would do it quietly, because the file it moves
+# is by definition a file nobody was watching.
+quarantine_stays_in_the_fixture() {
+	local label="the mirror box is the fixture's" stray real
+	stray=$(find "$FACTORY_AT_RISK" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
+	real=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
+	if [ "$stray" -lt 1 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s no mirror was ever written to %s, so the legs above never\n' "$label" "$FACTORY_AT_RISK"
+		printf '          proved a mirror exists -- their ok means nothing.\n'
+	elif [ "$real" != 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s quarantine patch(es) in %s -- this file has written to\n' "$label" "$real" "$HOME/prj/at-risk"
+		printf '          the directory that holds the only copies of real work.\n'
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s %s patch(es) in the fixture, none in %s\n' "$label" "$stray" "$HOME/prj/at-risk"
+	fi
+	return 0
+}
+quarantine_stays_in_the_fixture
+
+# A streak is only fair if it can end. The counter is what makes "halt on the second accident" safe,
+# and a counter that only ever grows turns that safety rule into the #248 outage with a delay built in:
+# any unit that has been quarantined once in its life halts the queue forever on its next accident,
+# however long ago the first was and however many ticks ran in between. So the clearing of the streak
+# is a shipped-text fact the same way the halt call sites are -- the behaviour is exercised by the legs
+# above, the call site is what nothing else would notice.
+streak_reset_after_tick_start() { # dir -> 0 when a tick starting clears its unit's streak
+	awk '
+		/TICK-START \$unit tree=/ { tick = NR }
+		/factory_quarantine_reset "\$unit"/ { if (tick && NR - tick <= 8) found = 1 }
+		END { exit found ? 0 : 1 }
+	' "$1/factory/factory.sh" 2>/dev/null
+}
+
+streak_reset_after_conflict() { # dir -> 0 when a resolved conflict clears the pr unit's streak
+	awk '
+		/CONFLICT-RESOLVED pr:\$pr/ { hit = NR }
+		/factory_quarantine_reset "pr:\$pr"/ { if (hit && NR - hit <= 6) found = 1 }
+		END { exit found ? 0 : 1 }
+	' "$1/factory/factory.sh" 2>/dev/null
+}
+
+streak_reset_wired() {
+	local label="a tick ends the streak" root=$HERE/.. bad=""
+	streak_reset_after_tick_start "$root" || bad="no factory_quarantine_reset of \"\$unit\" follows TICK-START"
+	streak_reset_after_conflict "$root" || bad="${bad:+$bad; }no reset follows CONFLICT-RESOLVED"
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s, so the quarantine counter only ever rises and the\n' "$label" "$bad"
+		printf '          second honest accident of any unit halts every other unit forever.\n'
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s cleared at TICK-START and at CONFLICT-RESOLVED\n' "$label"
+	fi
+
+	# The control: the same two scans over a copy with each reset line deleted. A scan that still says
+	# yes is matching the function's own definition and its ok about the repository means nothing.
+	mkdir -p "$work/streak/factory"
+	sed '/factory_quarantine_reset/d' "$root/factory/factory.sh" >"$work/streak/factory/factory.sh"
+	if streak_reset_after_tick_start "$work/streak" || streak_reset_after_conflict "$work/streak"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s still finds the reset after both lines are deleted, so the\n' "control: $label"
+		printf '          scan matches something else and the ok above means nothing.\n'
+	else
+		printf '        control: deleting each reset line is refused, so the ok above is the scan\n'
+		printf '        working and not the scan matching the function definition.\n'
+	fi
+	return 0
+}
+streak_reset_wired
+
+# ---------------------------------------------------------------- the notice a halt never sent
+#
+# `factory_maybe_notice` is the only thing in the harness that speaks to a human, and it returns early
+# for any unit that is not `pr:` -- so the halt of 9 Nov, on `unclaimed:247`, said nothing to anyone
+# for 15h57m. These legs drive the halt itself with a fixture `gh` on PATH and assert the four things
+# that make a notice real: it goes on the unit's own issue, it carries the marker's sentence, it is
+# throttled, and a failed post is journaled without stamping the throttle.
+notice_legs() {
+	local label unit=unclaimed:247 tree=$repo n=0 body=""
+	q_reset "$tree" "$unit"
+	q_dirty "$tree"
+	: >"$q_rec"
+	mkdir -p "$FACTORY_LOG"
+	: >"$FACTORY_LOG/supervisor.log"
+
+	# The halt path, not factory_tree_stop: the notice belongs to the halt, so a leg that reached it
+	# through a refused quarantine would be asserting the refusal's plumbing instead.
+	if ! (PATH="$q_gh:$PATH" Q_GH_REC=$q_rec Q_GH_RC=0 factory_tree_halt TICK-HALTED "$unit" "$tree") >"$work/notice.out" 2>&1; then
+		: # exit 4 is the halt's answer and the point of the call
+	fi
+	n=$(grep -c . "$q_rec" 2>/dev/null || true)
+	body=$(cat "$q_rec.body" 2>/dev/null || printf '')
+
+	if [ "$n" != 1 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the halt posted %s comments, want exactly one (record: %s)\n' "$label" "${n:-0}" "$(tr '\n' '|' <"$q_rec" 2>/dev/null)"
+		return 0
+	fi
+	case "$body" in
+	*'halted the whole queue'*) : ;;
+	*)
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the comment does not say the queue stopped: %s\n' "$label" "${body:0:120}"
+		return 0 ;;
+	esac
+	case "$body" in
+	*"$tree"*) : ;;
+	*)
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the comment never names the tree, which is the one thing a reader\n' "$label"
+		printf '          cannot guess: %s\n' "${body:0:120}"
+		return 0 ;;
+	esac
+	q_journal_has "HALT-NOTICED $unit #$unit" || q_journal_has "HALT-NOTICED $unit" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the journal never records the notice, so a pass that spoke to a human\n' "$label"
+		printf '          leaves no trace of having done it.\n'
+		return 0
+	}
+	[ -n "$(factory_ledger_get "$unit" halt-notice)" ] || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the throttle was not stamped, so the next pass posts the same comment.\n' "$label"
+		return 0
+	}
+	pass=$((pass + 1))
+	printf '  ok    %-34s one comment on #%s, carrying the marker sentence\n' "a halt comments on its unit" "${unit##*:}"
+
+	# The throttle: the same halt again, an hour of silence away, must not speak twice.
+	rm -f -- "$q_rec" "$q_rec.body"
+	: >"$FACTORY_LOG/supervisor.log"
+	(PATH="$q_gh:$PATH" Q_GH_REC=$q_rec Q_GH_RC=0 factory_tree_halt TICK-HALTED "$unit" "$tree") >"$work/notice2.out" 2>&1 || true
+	if [ -s "$q_rec" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s it posted again inside the throttle window:\n' "control: the notice is throttled"
+		while IFS= read -r line; do printf '            %s\n' "$line"; done <"$q_rec"
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s the second halt within the hour is silent\n' "control: the notice is throttled"
+	fi
+
+	# A post that fails has to be said AND left unstamped, or the harness believes it told someone.
+	q_reset "$tree" "$unit"
+	q_dirty "$tree"
+	: >"$q_rec"
+	rm -f -- "$q_rec.body"
+	(PATH="$q_gh:$PATH" Q_GH_REC=$q_rec Q_GH_RC=1 factory_tree_halt TICK-HALTED "$unit" "$tree") >"$work/notice3.out" 2>&1 || true
+	bad=""
+	q_journal_has 'HALT-NOTICE-FAILED' ||
+		bad="a refused post left no trace, so a halt nobody was told about reads in the journal like one everybody was"
+	[ -z "$(factory_ledger_get "$unit" halt-notice)" ] ||
+		bad="${bad:+$bad; }it stamped the throttle anyway, so the failure is never retried"
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "a failed notice is said" "$bad"
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s journaled as a failure, throttle left clear for the next pass\n' "a failed notice is said"
+	fi
+
+	# A unit that names no issue -- the shape `expect_halt` above uses -- must not reach for gh at all.
+	q_reset "$tree" "$unit"
+	q_dirty "$tree"
+	: >"$q_rec"
+	rm -f -- "$q_rec.body"
+	(PATH="$q_gh:$PATH" Q_GH_REC=$q_rec Q_GH_RC=0 factory_tree_halt TICK-HALTED selftest "$tree") >"$work/notice4.out" 2>&1 || true
+	if [ -s "$q_rec" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s it commented on something for a unit that names no number:\n' "control: no number, no comment"
+		while IFS= read -r line; do printf '            %s\n' "$line"; done <"$q_rec"
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s a unit with no issue number posts nothing\n' "control: no number, no comment"
+	fi
+	return 0
+}
+notice_legs
+
+# ---------------------------------------------------------------- one verdict: is the loop doing anything
+#
+# `--status` used to print a halt boolean and a ledger, and finding out whether the queue was alive
+# meant reading a journal timestamp and comparing it with `date` -- which is precisely the reading
+# nobody did while 115 `HALTED` lines went by. These legs build the journal rather than hope for it,
+# so each word is produced by a state this file controls, and each is produced by a different state:
+# four verdicts, four journals, no two the same age.
+q_verdict_tree=$repo
+q_stamp() { date -u -d "-${1} minutes" +%Y-%m-%dT%H:%M:%SZ; }
+q_journal() { # minutes_ago mark -> a journal whose newest line is `mark` at that age
+	local age=$1 mark=$2
+	mkdir -p "$FACTORY_LOG"
+	{
+		printf '%s PASS units=3 dry=0\n' "$(q_stamp "$((age + 30))")"
+		printf '%s WAIT pr:215 review_required\n' "$(q_stamp "$((age + 10))")"
+		printf '%s %s unclaimed:247 tree=%s log=x.log\n' "$(q_stamp "$age")" "$mark" "$q_verdict_tree"
+	} >"$FACTORY_LOG/supervisor.log"
+	touch -d "-$age minutes" "$FACTORY_LOG/supervisor.log"
+}
+q_expect_verdict() { # label word [TICK_MINUTES|marker|none]
+	local label=$1 want=$2 plant=${3:-none} out=""
+	rm -f -- "$FACTORY_HALT"
+	case "$plant" in
+	marker)
+		printf 'a working tree was found with uncommitted work: %s\n' "$q_verdict_tree" >"$FACTORY_HALT"
+		q_journal 90 TICK-START
+		;;
+	none)
+		mkdir -p "$FACTORY_LOG"
+		: >"$FACTORY_LOG/supervisor.log"
+		touch -d '-3 hours' "$FACTORY_LOG/supervisor.log"
+		;;
+	*)
+		q_journal "$plant" TICK-START
+		# A pass that ran and started nothing: the tick line is old, the journal is young.
+		if [ "$want" = IDLE ]; then
+			printf '%s QUEUED 4 unit(s) remain\n' "$(q_stamp 1)" >>"$FACTORY_LOG/supervisor.log"
+			touch "$FACTORY_LOG/supervisor.log"
+		fi
+		;;
+	esac
+	out=$(factory_verdict)
+	case "$out" in
+	"$want "*)
+		pass=$((pass + 1))
+		printf '  ok    %-34s %s\n' "$label" "$out"
+		;;
+	*)
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "$label" "${out:-<the verdict printed nothing>}"
+		printf '          want the word %s first, and the state planted for it was `%s`\n' "$want" "$plant"
+		;;
+	esac
+	return 0
+}
+
+echo "factory/selftest.sh: the one-word verdict -- four states, four journals, planted"
+q_expect_verdict "verdict: a tick just ran" WORKING 4
+q_expect_verdict "verdict: a pass ran, nothing was ready" IDLE 90
+q_expect_verdict "verdict: the journal is old" STALLED 90
+q_expect_verdict "verdict: the marker wins over all of it" HALTED marker
+q_expect_verdict "verdict: no journal at all" STALLED none
+
+# HALT is the one verdict with a second duty: it has to carry the marker's own sentence, because that
+# sentence is the whole of what an operator gets. `factory_halted()` is also the first branch of every
+# other leg's state, so this is the leg that stops HALTED from meaning merely "some word".
+q_expect_verdict "verdict: HALTED quotes the reason" HALTED marker
+FACTORY_AT_RISK=$work/at-risk
 
 # ---------------------------------------------------------------- the merged claim (#235)
 #
