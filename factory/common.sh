@@ -1257,9 +1257,17 @@ factory_tree_halt() {
 # the contents can be mirrored first, so the halt became the fallback rather than the reflex.
 #
 # The rule, and it is the whole function: clean a tree only after its contents exist somewhere other
-# than the tree, and never report a mirror that was not written and read back. Every refusal leaves
-# the tree exactly as it was found, because an auto-cleaner that can eat work is worse than the halt
-# it replaced -- this repository keeps `~/prj/at-risk/` precisely because `/tmp` already ate some.
+# than the tree, and never report a mirror that was not written and read back. A refusal is meant to
+# leave the tree as it was found, and it is honest to say how much of that the code buys: the arms
+# after `git stash push` undo themselves with `factory_tree_unstash`, so the sentence is true only if
+# that pop succeeds. If it does not, the tree is clean and the only copy is in `refs/stash` under the
+# sha the refusal prints -- a recoverable outcome, not the advertised one. Before the stash nothing is
+# moved at all, and a tree that is mid-merge is in that first group: `git stash push -u` refuses a
+# half-merged index (`could not write index` / `needs merge`) and leaves `MERGE_HEAD` and every stage
+# entry intact, so a tree stuck mid-merge keeps halting, with a `TREE-QUARANTINE-REFUSED` sentence in
+# front of it and the resolution still there for a person. An auto-cleaner that can eat work is worse
+# than the halt it replaced -- this repository keeps `~/prj/at-risk/` precisely because `/tmp` already
+# ate some.
 #
 # The plumbing was measured on git 2.53.0, in a linked worktree, before any of this was written:
 #
@@ -1404,7 +1412,23 @@ factory_tree_quarantine() {
 #
 # usage: factory_tree_unstash TREE SHA  ->  stdout: nothing on success, one sentence on failure
 factory_tree_unstash() {
-	local tree=$1 sha=$2 out=""
+	local tree=$1 sha=$2 top="" out=""
+	# `refs/stash` is repo-global, not per-worktree: measured on git 2.53.0, a primary tree and a linked
+	# worktree of the same repository answer the SAME sha for `refs/stash`, and one `git stash list`
+	# shows both units' entries. A bare `git stash pop` therefore restores whatever is on top, which
+	# after another unit's accident is somebody else's work, restored into this unit's tree. The subject
+	# check in the caller is the right check and runs too early -- it proves the entry was ours when we
+	# made it, not that it is still on top when we undo. `git stash pop "$sha"` is refused (`is not a
+	# stash reference`, measured), so the pin is the re-check: pop only while the top is still ours, and
+	# otherwise say where the work is rather than reaching past it. (`git stash apply "$sha"` does take
+	# a non-top entry -- measured -- and is what a person is pointed at, because it restores the entry
+	# without dropping anyone else's.)
+	top=$(git -C "$tree" rev-parse -q --verify refs/stash 2>/dev/null)
+	if [ -n "$top" ] && [ "$top" != "$sha" ]; then
+		printf 'the work is in stash %s of %s and was NOT put back: stash %s is on top of it, and a bare pop would restore that one instead. Put this one back with `git stash apply %s`.\n' \
+			"${sha:0:9}" "$tree" "${top:0:9}" "${sha:0:9}"
+		return 0
+	fi
 	out=$(git -C "$tree" stash pop 2>&1) || {
 		printf 'the work is still in stash %s of %s; it could not be put back :: %s\n' \
 			"${sha:0:9}" "$tree" "$(printf '%s' "$out" | tr '\n\r' '  ' | cut -c1-140)"
@@ -1525,7 +1549,7 @@ factory_quarantine_after_tick() {
 
 factory_tree_stop() {
 	local verb=$1 unit=$2 tree=$3
-	local q="" qrc=0 n="" dirt="" qfinding=""
+	local q="" qrc=0 n="" dirt="" qfinding="" qerr="" qerr_file=""
 
 	# A rehearsal must not rehearse a rescue. Under `--dry-run` nothing is stashed, nothing is
 	# mirrored and no marker is written -- a dry run that halted the real queue would be the same
@@ -1545,7 +1569,15 @@ factory_tree_stop() {
 	# printing nothing), and a count written for a log line is exactly that read. `factory_tree_dirt`
 	# is the one verdict, and its finding names the paths, which is also what a reader wants.
 	dirt=$(factory_tree_dirt "$tree" 2>/dev/null) || true
-	q=$(factory_tree_quarantine "$unit" "$tree" 2>"$FACTORY_RUN/quarantine-error.$$") || qrc=$?
+	qerr_file="$FACTORY_RUN/quarantine-error.$$"
+	q=$(factory_tree_quarantine "$unit" "$tree" 2>"$qerr_file") || qrc=$?
+	# Read it and remove it here, before any arm returns. The first version left the `rm -f` below the
+	# success path's `return 0`, so every happy quarantine left a `run/quarantine-error.<pid>` behind --
+	# measured, one per pass. A zero-byte file a pass is not an outage; a run directory that slowly
+	# fills with other processes' pids is how an operator loses the ability to read it, and the file
+	# names the wrong thing to ask about.
+	qerr=$(factory_git_said "$qerr_file")
+	rm -f -- "$qerr_file"
 
 	if [ "$qrc" -eq 0 ]; then
 		n=$(( $(factory_ledger_int "$unit" quarantine-count) + 1 ))
@@ -1563,10 +1595,9 @@ factory_tree_stop() {
 		log_event "TREE-CLEAN $unit $tree was found dirty and is clean now; nothing was quarantined"
 		return 0
 	else
-		q=$(factory_git_said "$FACTORY_RUN/quarantine-error.$$")
+		q="$qerr"
 		log_event "TREE-QUARANTINE-REFUSED $unit $tree ${q:-git gave no reason}"
 	fi
-	rm -f -- "$FACTORY_RUN/quarantine-error.$$"
 
 	# Both halt arms keep the shape the probe pins (`factory_tree_halt … || return $?`,
 	# `halt_call_sites_in`): a site that asks the question and drops the answer is the same bug as

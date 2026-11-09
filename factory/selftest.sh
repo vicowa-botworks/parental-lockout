@@ -2024,6 +2024,73 @@ mirror_carries_its_binary() { # where -> apply the shipped mirror to a fresh clo
 
 mirror_carries_its_binary capture
 
+# `refs/stash` is repo-global across linked worktrees, so the stack a rescue pops is not its own. The
+# two legs below were the review's non-blocking findings, and both are the class the whole file is
+# about: one restores somebody else's work into this unit's tree, the other leaves a file behind that
+# tells the next reader about a process that no longer exists.
+unstash_does_not_reach_past_its_own_entry() {
+	local label="a rescue undoes its own stash" d="" sha1="" sha2="" out="" bad=""
+	d=$(q_mkbin_repo unstash)
+	printf 'mine\n' >>"$d/notes.md"
+	git -C "$d" stash push -u -qm "supervisor quarantine selftest x"
+	sha1=$(git -C "$d" rev-parse -q --verify refs/stash)
+	printf 'theirs\n' >>"$d/notes.md"
+	git -C "$d" stash push -u -qm "supervisor quarantine other-unit y"
+	sha2=$(git -C "$d" rev-parse -q --verify refs/stash)
+	[ -n "$sha1" ] && [ -n "$sha2" ] && [ "$sha1" != "$sha2" ] ||
+		bad="the fixture did not produce two stash entries; it produced '${sha1:-none}' and '${sha2:-none}'"
+	# Ours is under someone else's now. The pop must stop and name the entry, not take the top one.
+	out=$(factory_tree_unstash "$d" "$sha1")
+	[ -z "$(git -C "$d" status --porcelain)" ] ||
+		bad="${bad:+$bad; }it popped the stack anyway, restoring the top entry into a tree that never held it"
+	printf '%s' "$out" | grep -q 'was NOT put back' ||
+		bad="${bad:+$bad; }it did not say the work was left in stash: ${out:-it said nothing}"
+	printf '%s' "$out" | grep -qF -- "${sha1:0:9}" ||
+		bad="${bad:+$bad; }the sentence does not name the sha the work is actually in"
+	# The control: with its own entry on top, the same call must still do the rescue.
+	out=$(factory_tree_unstash "$d" "$sha2")
+	git -C "$d" status --porcelain | grep -q 'notes.md' ||
+		bad="${bad:+$bad; }control: with its own entry on top it restored nothing (said: ${out:-nothing})"
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "$label" "$bad"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s refuses a stack it does not own, names stash %s\n' "$label" "${sha1:0:9}"
+	return 0
+}
+
+rescue_leaves_no_temporary_behind() {
+	local label="a rescue leaves no temp behind" d="" before=0 after=0 bad=""
+	leak_probe() {
+		find "$FACTORY_RUN" -name 'quarantine-error.*' 2>/dev/null | grep -c . || true
+	}
+	d=$(q_mkbin_repo leak)
+	printf 'dirt from a dead tick\n' >>"$d/notes.md"
+	factory_ledger_clear selftest quarantine-count
+	before=$(leak_probe)
+	factory_tree_stop TICK-HALTED selftest "$d" >/dev/null 2>&1 || true
+	after=$(leak_probe)
+	[ "$after" = "$before" ] ||
+		bad="a successful quarantine left $((after - before)) quarantine-error file(s) in $FACTORY_RUN"
+	# The control: one planted file has to move the number, or the ok above is a count of nothing.
+	printf '' >"$FACTORY_RUN/quarantine-error.999999"
+	after=$(leak_probe)
+	[ "$after" != "$before" ] || bad="control: a planted quarantine-error.999999 was not counted"
+	rm -f -- "$FACTORY_RUN/quarantine-error.999999"
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "$label" "$bad"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s the run directory is the same size after a rescue as before\n' "$label"
+	return 0
+}
+unstash_does_not_reach_past_its_own_entry
+rescue_leaves_no_temporary_behind
+
 # ---------------------------------------------------------------- the notice a halt never sent
 #
 # `factory_maybe_notice` is the only thing in the harness that speaks to a human, and it returns early
