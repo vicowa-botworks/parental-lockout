@@ -69,7 +69,7 @@ reached_verdict=0
 work=$(mktemp -d "${TMPDIR:-/tmp}/plock-factoryselftest-XXXXXX")
 # The tally at the bottom of this file is the only line that says how many legs ran, and a run that
 # dies on its way there never prints it. Measured 9 Nov on CI: a fixture that needed the host's git
-# identity (H-0057) ended the script at its own command, this trap wiped the fixture, and the log
+# identity (H-0059) ended the script at its own command, this trap wiped the fixture, and the log
 # stopped at git's fatal -- no FAIL line, no `N passed, M failed`, and nothing that said where 217
 # legs became 236. Finding that meant re-running the suite with the box's identity taken away. So the
 # trap now says the one thing a dead run cannot: how far it got, that it never reached a verdict, and
@@ -2725,7 +2725,7 @@ claim_reset
 #
 # Nor does it read the host's git identity. Every repository the section creates is given one where it
 # is created, because a clone inherits no local config and a CI runner has no `~/.gitconfig` identity
-# to fall back on -- which is exactly how this section died on its first CI run (H-0057, pinned by
+# to fall back on -- which is exactly how this section died on its first CI run (H-0059, pinned by
 # `no fixture repo inherits the host`).
 
 pos_work=$work/position
@@ -2761,7 +2761,7 @@ pos_tip=$(git -C "$pos_up" rev-parse --short HEAD)
 # clone copies the upstream's *remote* and none of its local config, so `user.email` set on `$pos_up`
 # says nothing about the clones -- and two of the statements below commit inside a clone. Measured
 # 9 Nov: this box has a `~/.gitconfig` with an identity in it, a GitHub runner has none, and CI died
-# at the first such commit with `Author identity unknown`, 217 legs printed and no verdict (H-0057).
+# at the first such commit with `Author identity unknown`, 217 legs printed and no verdict (H-0059).
 # Identity is planted per repository rather than exported as `GIT_AUTHOR_*` for the section so that a
 # future leg can still plant the *absence* of one on purpose; the host's is never what a leg reads.
 pos_clone() { # pos_clone <name> -> a fresh clone of the fixture trunk, echoed as a path
@@ -3094,7 +3094,7 @@ pos_empty=$pos_work/tree-empty
 mkdir -p "$pos_empty/factory"
 # Nothing commits here today -- the leg below wants a HEAD that does not resolve. The identity is
 # planted anyway because the section's invariant is about where an identity comes from, not about
-# which legs happen to commit right now (H-0057).
+# which legs happen to commit right now (H-0059).
 git init -q "$pos_empty"
 git -C "$pos_empty" config user.email fixture@invalid
 git -C "$pos_empty" config user.name fixture
@@ -3189,7 +3189,7 @@ claim_leg 'the verdict never fetches' no_fetch_in_the_verdict
 
 # --- the fixture's own independence from the box ---------------------------------------------
 #
-# H-0057 is the reason this scan exists: a fixture that commits under whatever identity the host
+# H-0059 is the reason this scan exists: a fixture that commits under whatever identity the host
 # happens to have is green on every workstation in the loop and red on CI, and it was invisible until
 # it was. A leg cannot re-run this suite under an empty `$HOME` -- that is a second copy of a
 # fifty-second run inside itself -- so the pin is on the creation sites, the way `wired_into_verify`
@@ -3222,7 +3222,7 @@ fixture_carries_identity() {
 	gaps=$(pos_unconfigured_repos "$HERE/selftest.sh")
 	[ -z "$gaps" ] || {
 		pos_say 'these fixture repositories inherit the host'"'"'s git identity, and a runner'
-		pos_say 'has none (H-0057: `Author identity unknown` kills the run mid-suite):'
+		pos_say 'has none (H-0059: `Author identity unknown` kills the run mid-suite):'
 		pos_say "$gaps"
 		return 1; }
 	# The control, planted outside the repository: the identity deleted from the clone helper, in the
@@ -3240,7 +3240,7 @@ fixture_carries_identity() {
 }
 claim_leg 'no fixture repo inherits the host' fixture_carries_identity
 
-# A run that dies before its tally leaves no tally behind. That is what H-0057 cost: the CI log ended
+# A run that dies before its tally leaves no tally behind. That is what H-0059 cost: the CI log ended
 # at git's fatal with no number in it, and the only way to find where 217 legs stopped being 236 was
 # to re-run the suite with the box's identity taken away. The trap's own text is extracted from the
 # shipped file rather than pasted here, so the leg runs what a run runs, and the two scripts are the
