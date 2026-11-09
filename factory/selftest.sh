@@ -2678,6 +2678,482 @@ triage_arm_coverage() {
 triage_arm_coverage
 claim_reset
 
+# ------------------------------------------- the code the loop is running (#249)
+#
+# `install-timer.sh` renders `ExecStart` as a path, so the timer runs whatever that tree has checked
+# out. Measured 8 Nov: the tree was `efa4e29` and `origin/main` was 121 commits later, so every merge
+# since the checkout was invisible to the loop meant to act on them -- and a reinstall of that tree
+# succeeded and said nothing. The legs below are the four checks #249 asks for, plus the two it does
+# not name that the shape of the fix makes possible: which tree is asked of (there are two
+# candidates and they are different directories), and that a stale tree can still be taken *off*.
+#
+# What makes these legs more than a grep for a word:
+#
+#   the count   a leg that prints `SUPERVISOR-STALE` for every state proves only that `grep` works, so
+#               the same tree is asked twice -- behind 3, then fast-forwarded to the trunk, where both
+#               sentences have to vanish and the sha has to have moved.
+#   the sha     asserted against a planted commit that is known before the call, because a line that
+#               prints *a* sha is a `date` in fancy clothes until it prints that one.
+#   the fork    a fork and a stale tree coexist and each needs its own sentence, and only one of them
+#               has a fast-forward. The fork legs assert `merge --ff-only` is NOT printed -- a
+#               refusal that sends an operator to a command git rejects is a second bug.
+#   the tree    `$FACTORY_HARNESS` (where the running script was read from) and `$FACTORY_ROOT` (where
+#               the unit's ExecStart points) are the same directory only while the harness lives in the
+#               primary checkout, which has never been true here (H-0009). Two install legs plant them
+#               in opposite states so a call site that asks the wrong one goes red.
+#   dirty=      the #228 polarity, run against the informational field: an edit that changes bytes
+#               counts 1, the same bytes written back plus a touched mtime counts 0.
+#
+# Nothing here talks to GitHub or to systemd. `gh` is a shim that answers `auth status` and refuses
+# anything else, `systemctl` and `loginctl` are shims, `go`/`gofmt`/`make`/`python3` are stubs so the
+# legs do not read the host's toolchain (H-0054 is the precedent: a section that needs a binary the
+# gate does not install is green on every box in the loop and red on CI), and the unit directory is
+# `$pos_units` under $TMPDIR.
+
+pos_work=$work/position
+pos_bin=$pos_work/bin
+pos_up=$pos_work/upstream
+pos_units=$pos_work/units
+pos_log=$pos_work/log
+mkdir -p "$pos_bin" "$pos_units" "$pos_log"
+
+# One upstream, six commits, with a committed executable `factory/factory.sh` so a clone passes the
+# installer's `-x` check the way a real checkout does -- and stays clean while doing it. An untracked
+# file planted after the clone would have put `1 uncommitted` in every install message and made the
+# dirty legs read their own fixture.
+git init -q "$pos_up"
+git -C "$pos_up" config user.email fixture@invalid
+git -C "$pos_up" config user.name fixture
+git -C "$pos_up" checkout -qb main
+mkdir -p "$pos_up/factory"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$pos_up/factory/factory.sh"
+chmod +x "$pos_up/factory/factory.sh"
+# A tracked file to edit in the dirty legs. Planted here rather than written into a clone afterwards,
+# because an untracked file is already counted as work and would put `1 uncommitted` in every message
+# the install legs read.
+printf 'seed\n' >"$pos_up/README.md"
+git -C "$pos_up" add -A
+git -C "$pos_up" commit -qm 'fixture harness'
+for i in 2 3 4 5 6; do
+	git -C "$pos_up" commit -q --allow-empty -m "merged $i"
+done
+pos_tip=$(git -C "$pos_up" rev-parse --short HEAD)
+
+pos_clone() { # pos_clone <name> -> a fresh clone of the fixture trunk, echoed as a path
+	local path=$pos_work/tree-$1
+	git clone -q "$pos_up" "$path"
+	printf '%s\n' "$path"
+}
+
+# The box the installer runs on: shims for the four binaries it talks to, stubs for the four the
+# generated unit's PATH is probed for. `git` is deliberately NOT here -- the verdict under test is a
+# reading of real git, and a stubbed git would make every leg below vacuous.
+cat >"$pos_bin/gh" <<'POSGH'
+#!/usr/bin/env bash
+# `gh auth status` is all the installer's preflight asks. Anything else exits 9: a leg that could
+# reach GitHub would be writing to the queue it only exists to describe.
+case "$1 $2" in "auth status") exit 0 ;; esac
+printf 'pos-shim gh: unhandled call: %s\n' "$*" >&2
+exit 9
+POSGH
+cat >"$pos_bin/systemctl" <<'POSSC'
+#!/usr/bin/env bash
+printf 'pos-shim systemctl %s\n' "$*"
+exit 0
+POSSC
+printf '#!/usr/bin/env bash\nprintf "yes\\n"\nexit 0\n' >"$pos_bin/loginctl"
+for pos_tool in opencode go gofmt make python3; do
+	printf '#!/usr/bin/env bash\nexit 0\n' >"$pos_bin/$pos_tool"
+done
+chmod +x "$pos_bin"/*
+
+# pos_install <root> <harness-dir> <args...> -> the installer's exit status, with its combined output
+# in $pos_out and whatever it wrote in $pos_units. Every path it can reach is redirected into the
+# fixture first: the real ~/.config/systemd/user and the user's own manager are not this file's to
+# touch, which is the same rule the rest of this suite runs by.
+pos_install() {
+	local root=$1 harness=$2
+	shift 2
+	pos_rc=0
+	pos_out=$(PATH="$pos_bin:$PATH" XDG_CONFIG_HOME="$pos_units" FACTORY_NAME=posfix \
+		FACTORY_REPO=example/repo FACTORY_DIR="$harness/factory" FACTORY_ROOT="$root" \
+		FACTORY_LOG="$pos_log" FACTORY_LEDGER="$pos_log/ledger" FACTORY_RUN="$pos_log/run" \
+		bash "$HERE/install-timer.sh" "$@" 2>&1) || pos_rc=$?
+}
+
+pos_units_written() { find "$pos_units" -type f 2>/dev/null | wc -l | tr -d ' '; }
+pos_say() { printf '%s\n' "$*" | sed 's/^/            /' >&2; }
+
+# The states, planted by moving a fresh clone: an ancestor of the trunk is what "behind" means, and
+# an empty local commit is what "a head main does not have" means. Both are the shapes the ticket
+# prescribes, built with git rather than hand-forced.
+pos_stale=$(pos_clone stale)
+git -C "$pos_stale" checkout -qb unit HEAD~3
+pos_tip3=$(git -C "$pos_up" rev-parse --short HEAD~3)
+
+# A second stale tree, for the leg that moves one to the trunk. Without its own copy the leg would
+# arrive at the install legs having already fixed the state they are about to refuse -- which is
+# exactly what happened the first time this section ran: `install refuses a stale tree` went green
+# for the wrong reason, because a leg above it had already fast-forwarded the tree.
+pos_moved=$(pos_clone moved)
+git -C "$pos_moved" checkout -qb unit HEAD~3
+
+pos_fork=$(pos_clone fork)
+git -C "$pos_fork" checkout -qb unit HEAD~2
+git -C "$pos_fork" commit -q --allow-empty -m 'local work main does not have'
+
+pos_detach=$(pos_clone detach)
+git -C "$pos_detach" checkout -qb unit HEAD~2
+git -C "$pos_detach" commit -q --allow-empty -m 'local work on a detached head'
+git -C "$pos_detach" checkout -q --detach HEAD
+
+pos_nobase=$(pos_clone nobase)
+git -C "$pos_nobase" remote rename origin upstream
+pos_plain=$pos_work/plain
+mkdir -p "$pos_plain"
+
+# leg: the lines for one tree, as one string. `pos_at <tree>` pulls the AT line out so a leg can pin
+# the sha without re-implementing the sentence.
+
+# --- the verdict, on trees that exist -------------------------------------------------------
+
+pos_at_sha() { # the sha the AT line names for <tree>
+	factory_supervisor_lines "$1" | awk '/^SUPERVISOR-AT/{print $2; exit}'
+}
+claim_leg 'AT names the planted commit' test "$(pos_at_sha "$pos_stale")" = "$pos_tip3"
+claim_leg 'AT is a real read, not the trunk tip' test "$(pos_at_sha "$pos_stale")" != "$pos_tip"
+
+stale_then_clean() {
+	local tree=$1 out
+	out=$(factory_supervisor_lines "$tree")
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-STALE origin/main is 3 commits ahead; the loop is not running merged code' || {
+		pos_say "the sentence #249 asks for, verbatim, is not there; got:"; pos_say "$out"; return 1; }
+	# The half that stops this being a grep for a word: the same tree, moved to the trunk, prints
+	# neither sentence -- and the sha it prints has moved with it.
+	git -C "$tree" merge -q --ff-only origin/main || { pos_say 'the fixture could not fast-forward'; return 1; }
+	out=$(factory_supervisor_lines "$tree")
+	printf '%s\n' "$out" | grep -qE '^SUPERVISOR-(STALE|FORKED)' && {
+		pos_say "a tree at origin/main still reports a problem:"; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -q "^SUPERVISOR-AT $pos_tip " || {
+		pos_say "the AT line does not name the trunk tip it moved to:"; pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'behind 3, then silent once moved' stale_then_clean "$pos_moved"
+
+forked_says_both() {
+	local out
+	out=$(factory_supervisor_lines "$pos_fork")
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-STALE origin/main is 2 commits ahead' || {
+		pos_say "the stale half of a forked tree is its own fact and is missing:"; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-FORKED unit holds 1 commit origin/main' || {
+		pos_say "no FORKED line naming the branch and its count:"; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -q 'ff-only' && {
+		pos_say "a fork has no fast-forward; the sentence recommends one anyway:"; pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'a fork says STALE and FORKED, no ff-only' forked_says_both
+
+claim_leg 'a detached head is named, not blank' test \
+	"$(factory_supervisor_lines "$pos_detach" | grep -c '^SUPERVISOR-FORKED detached holds 1 commit origin/main')" = 1
+
+nobase_says_unknown() {
+	local out rc=0 pos
+	pos=$(factory_supervisor_position "$pos_nobase") || rc=$?
+	[ "$rc" -eq 3 ] || { pos_say "expected exit 3 from a tree that cannot resolve origin/main, got $rc"; return 1; }
+	# The raw verdict: the two counts unknown, the identity and the dirt still read. Field 1 is
+	# asserted against the sha rather than against a sentence, so this is a read and not a print.
+	[ "$(printf '%s' "$pos" | cut -f1)" = "$(git -C "$pos_nobase" rev-parse --short HEAD)" ] || {
+		pos_say "the sha field is not the tree's own HEAD: $pos"; return 1; }
+	if [ "$(printf '%s' "$pos" | cut -f3)" != '?' ] || [ "$(printf '%s' "$pos" | cut -f4)" != '?' ]; then
+		pos_say "an unresolvable trunk ref must leave both counts unknown, not 0: $pos"
+		return 1
+	fi
+	[ "$(printf '%s' "$pos" | cut -f5)" = 0 ] || {
+		pos_say "the dirt count is read from the working tree, which does not need the trunk: $pos"; return 1; }
+	out=$(factory_supervisor_lines "$pos_nobase")
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-NOBASE origin/main cannot be resolved' || {
+		pos_say "an unresolvable trunk ref is not a clean bill of health:"; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qE '^SUPERVISOR-(STALE|FORKED)' && {
+		pos_say 'a verdict that cannot see the trunk printed a verdict about the trunk anyway:'; pos_say "$out"; return 1; }
+	# The sha is still worth printing: it is the thing that identifies the code, and it reads fine
+	# without the trunk. Refusing to say anything at all would trade one silence for another.
+	printf '%s\n' "$out" | grep -q "^SUPERVISOR-AT $(git -C "$pos_nobase" rev-parse --short HEAD) dirty=0" || {
+		pos_say "the AT line went missing with the trunk ref:"; pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'no trunk ref says NOBASE, not 0 behind' nobase_says_unknown
+
+unreadable_says_unknown() {
+	local out rc=0
+	rc=0
+	factory_supervisor_position "$pos_plain" >/dev/null || rc=$?
+	[ "$rc" -eq 2 ] || { pos_say "expected exit 2 from a plain directory, got $rc"; return 1; }
+	out=$(factory_supervisor_lines "$pos_plain")
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-UNKNOWN ' || {
+		pos_say "a tree git cannot read must not print a clean verdict:"; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -q '^SUPERVISOR-AT' && {
+		pos_say "there is no sha to print for a directory that is not a checkout:"; pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'an unreadable tree says UNKNOWN' unreadable_says_unknown
+
+# `dirty=<n>`, both polarities of the lesson that halts the queue (#228): the count is a content
+# question. The same bytes written back, with the mtime moved, is not work -- and `update-index
+# --refresh` ahead of the read is the step that makes that true rather than hoped.
+dirty_counts_bytes() {
+	local tree=$1 got stamped
+	got=$(factory_supervisor_position "$tree" | cut -f5)
+	[ "$got" = 0 ] || { pos_say "a clean fixture must count 0, got '$got'"; return 1; }
+
+	printf 'tracked bytes changed\n' >>"$tree/README.md"
+	got=$(factory_supervisor_position "$tree" | cut -f5)
+	[ "$got" = 1 ] || { pos_say "an edit that changes bytes must count 1, got '$got'"; return 1; }
+
+	# The same bytes back, and the mtime moved into the past: bytes equal to `HEAD`, stat data that
+	# disagrees. That is the state a killed `check-mutations.py` leaves, and the one #228 halts the
+	# whole pass over. The plant is checked, not assumed -- the stamped mtime is read out of the index
+	# with `ls-files --debug`, which is a read and not a refresh, so the check cannot clear the very
+	# difference it is looking for.
+	printf 'seed\n' >"$tree/README.md"
+	touch -t 202001010000 "$tree/README.md"
+	stamped=$(git -C "$tree" ls-files --debug -- README.md | awk '/mtime:/{print $2; exit}')
+	stamped=${stamped%%.*}
+	[ "$stamped" != "$(stat -c %Y "$tree/README.md")" ] || {
+		pos_say 'the write-back left the index and the file agreeing, so the leg below proves nothing'
+		return 1; }
+	# The disclosure this file already makes about its own stat leg: on git 2.53 `status` refreshes the
+	# index in memory and finds the bytes equal either way, so this half pins the invariant rather than
+	# proving the `update-index --refresh` above earns its place. On a git or a filesystem that does
+	# report stat dirt, this is the line that catches it.
+	got=$(factory_supervisor_position "$tree" | cut -f5)
+	[ "$got" = 0 ] || { pos_say "the same bytes written back must count 0, got '$got'"; return 1; }
+
+	printf 'not committed\n' >"$tree/untracked-probe.txt"
+	got=$(factory_supervisor_position "$tree" | cut -f5)
+	[ "$got" = 1 ] || { pos_say "an untracked path must count 1, got '$got'"; return 1; }
+	rm -f -- "$tree/untracked-probe.txt"
+	return 0
+}
+claim_leg 'dirty= counts bytes, not mtime' dirty_counts_bytes "$pos_fork"
+
+# A linked worktree is what the timer execs and what the supervisor reads. Its index lives under
+# `.git/worktrees/<id>/`, not next to the files, so the verdict is asked in both shapes: one that is
+# only right beside `.git/` would be wrong where it is actually called.
+worktree_answers_alike() {
+	local wt=$pos_work/tree-worktree both want
+	git -C "$pos_fork" worktree add -q --detach "$wt" HEAD~1 || {
+		pos_say 'the fixture could not add a linked worktree'; return 1; }
+	# The same state, asked of both trees. Detaching the linked tree at HEAD~1 is not the same commit
+	# as `unit`, so the comparison is between each tree's own verdict and its own `git rev-list`.
+	want=$(git -C "$wt" rev-list --count HEAD..origin/main)
+	both=$(factory_supervisor_position "$wt")
+	[ "$(printf '%s' "$both" | cut -f3)" = "$want" ] || {
+		pos_say "behind differs from git's own count in a linked worktree: want $want, got $both"; return 1; }
+	printf '%s' "$both" | grep -qF "$(git -C "$wt" rev-parse --short HEAD)" || {
+		pos_say "the worktree's own sha is not what was printed: $both"; return 1; }
+	return 0
+}
+claim_leg 'a linked worktree answers alike' worktree_answers_alike
+
+# --- the installer, end to end --------------------------------------------------------------
+#
+# These run the shipped `install-timer.sh`. Not a copy of its logic, and not a grep for its strings:
+# the file is executed with its unit directory, its journal, its `gh` and its `systemctl` all pointed
+# into the fixture, so the refusal legs prove the units were not written and the force legs prove
+# they were.
+
+pos_current=$(pos_clone current)
+
+install_refuses_stale() {
+	pos_install "$pos_stale" "$pos_stale" --install
+	[ "$pos_rc" -ne 0 ] || { pos_say "a stale tree installed anyway; output was:"; pos_say "$pos_out"; return 1; }
+	[ "$(pos_units_written)" = 0 ] || {
+		pos_say "the refusal wrote $(pos_units_written) unit file(s) before refusing:"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF 'git -C '"$pos_stale"' merge --ff-only origin/main' || {
+		pos_say "the refusal has to hand over the command that fixes it:"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF '3 commits behind origin/main' || {
+		pos_say 'the refusal does not name the count:'; pos_say "$pos_out"; return 1; }
+	return 0
+}
+claim_leg 'install refuses a stale tree, writes none' install_refuses_stale
+
+install_force_installs() {
+	pos_install "$pos_stale" "$pos_stale" --install --force
+	[ "$pos_rc" -eq 0 ] || { pos_say "--force did not install (rc=$pos_rc):"; pos_say "$pos_out"; return 1; }
+	[ "$(pos_units_written)" = 2 ] || {
+		pos_say "--force wrote $(pos_units_written) unit file(s), want 2:"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF -- '--force given, installing' || {
+		pos_say 'the forced install did not say it was forced:'; pos_say "$pos_out"; return 1; }
+	# The journal is where the next reader looks, so the override has to be a line there with the
+	# numbers in it -- and the unit name is derived from the repository, which is why this greps for
+	# the verb and the fields rather than a full line it would have to re-derive.
+	grep -qE 'TIMER-FORCED .* code=[0-9a-f]+ branch=unit behind=3 ahead=0' "$pos_log/supervisor.log" || {
+		pos_say 'the override is not in the journal, so the next reader cannot see what was forced:'
+		tail -n 5 "$pos_log/supervisor.log" | sed 's/^/            /' >&2; return 1; }
+	return 0
+}
+claim_leg '--force installs and says so, twice' install_force_installs
+
+install_current_silent() {
+	pos_install "$pos_current" "$pos_current" --install
+	[ "$pos_rc" -eq 0 ] || { pos_say "a current tree was refused (rc=$pos_rc):"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qiE 'behind|stale|fork|force' && {
+		pos_say 'a tree at the trunk was told something about its position:'; pos_say "$pos_out"; return 1; }
+	return 0
+}
+claim_leg 'a current tree installs without a word' install_current_silent
+
+install_fork_no_ff() {
+	pos_install "$pos_fork" "$pos_fork" --install
+	[ "$pos_rc" -ne 0 ] || { pos_say 'a forked tree installed without a refusal:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF 'merge --ff-only' && {
+		pos_say 'a fork has no fast-forward; the refusal recommends one anyway:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF '1 ahead of it' || {
+		pos_say 'the refusal does not say the tree is ahead as well as behind:'; pos_say "$pos_out"; return 1; }
+	# Wrapped for a terminal, so the phrase is matched across the line break it lands on -- a grep for
+	# a sentence the printer splits in two is a grep that can never fire.
+	printf '%s' "$pos_out" | tr '\n' ' ' | grep -qE 'fast-forward is +not available' || {
+		pos_say 'the refusal does not say what a fork cannot do:'; pos_say "$pos_out"; return 1; }
+	return 0
+}
+claim_leg 'the fork refusal names no fast-forward' install_fork_no_ff
+
+# The polarity #249 does not spell out and the shape of the fix demands: a stale tree is the worst
+# possible reason to be unable to take the timer off. `--remove` runs before the check by design.
+install_remove_never_refused() {
+	pos_install "$pos_stale" "$pos_stale" --remove
+	[ "$pos_rc" -eq 0 ] || {
+		pos_say "removing a timer was refused because the tree is old (rc=$pos_rc):"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qi 'refusing' && {
+		pos_say 'a removal must never be refused for staleness:'; pos_say "$pos_out"; return 1; }
+	return 0
+}
+claim_leg 'a stale tree can still be taken off' install_remove_never_refused
+
+# Which tree is asked of. The unit execs `$FACTORY_ROOT`, so that is the tree an install must judge --
+# and the two here are in opposite states, so a call site that reaches for the tree the *script* came
+# from goes red on one of these two legs rather than silently agreeing forever.
+install_judges_the_execd_tree() {
+	# FACTORY_ROOT stale, the script's own tree current: must refuse.
+	pos_install "$pos_stale" "$pos_current" --install
+	[ "$pos_rc" -ne 0 ] || {
+		pos_say 'install judged the script'"'"'s own tree: a stale FACTORY_ROOT installed:'
+		pos_say "$pos_out"; return 1; }
+	# FACTORY_ROOT current, the script's own tree stale: must install.
+	pos_install "$pos_current" "$pos_stale" --install
+	[ "$pos_rc" -eq 0 ] || {
+		pos_say "install refused a current tree because the harness it was run from is old:"; pos_say "$pos_out"; return 1; }
+	return 0
+}
+claim_leg 'install judges the ExecStart tree' install_judges_the_execd_tree
+
+install_nobase_refuses() {
+	pos_install "$pos_nobase" "$pos_nobase" --install
+	[ "$pos_rc" -ne 0 ] || { pos_say 'a tree with no trunk ref installed anyway:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF 'cannot be resolved' || {
+		pos_say 'the refusal does not name the missing trunk ref:'; pos_say "$pos_out"; return 1; }
+	pos_install "$pos_nobase" "$pos_nobase" --install --force
+	[ "$pos_rc" -eq 0 ] || { pos_say "--force did not override the missing ref (rc=$pos_rc):"; pos_say "$pos_out"; return 1; }
+	return 0
+}
+claim_leg 'no trunk ref refuses, --force overrides' install_nobase_refuses
+
+# A checkout with nothing in it. This is the state that reaches the UNKNOWN arm of the installer: a
+# directory that is not a repository at all is refused two lines earlier, by `factory_preflight`, and
+# a git checkout whose HEAD does not resolve yet is not -- it is a real repository, `rev-parse --git-dir`
+# answers, and the only thing missing is a commit. `git init` in a fresh directory is how an operator
+# gets there by accident: clone into the wrong path, copy the harness in, install.
+pos_empty=$pos_work/tree-empty
+mkdir -p "$pos_empty/factory"
+git init -q "$pos_empty"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$pos_empty/factory/factory.sh"
+chmod +x "$pos_empty/factory/factory.sh"
+
+install_no_commit_refuses() {
+	local rc=0
+	factory_supervisor_position "$pos_empty" >/dev/null || rc=$?
+	[ "$rc" -eq 2 ] || { pos_say "the fixture does not reach exit 2 from the verdict, got $rc"; return 1; }
+	pos_install "$pos_empty" "$pos_empty" --install
+	[ "$pos_rc" -ne 0 ] || { pos_say 'a checkout with no commits was armed:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF 'not a readable git checkout' || {
+		pos_say 'the refusal does not say the tree could not be read:'; pos_say "$pos_out"; return 1; }
+	return 0
+}
+claim_leg 'a checkout with no commits is refused' install_no_commit_refuses
+
+# --- the call sites in factory.sh -----------------------------------------------------------
+#
+# No leg here can run a real pass -- a pass reads GitHub and starts ticks -- so the two places the
+# verdict reaches the journal and `--status` are pinned the way `wired_into_verify` pins its own
+# step: a scan that is re-run against a copy with the call taken out, in the opposite polarity, so an
+# ok means the scan can see and not that it is blind. A function that ships with no call site is the
+# silence this file keeps being written against.
+pos_verdict_calls() { # <factory.sh> -> every call site, with the tree each one asks of
+	grep -oE 'factory_supervisor_(lines|position) "\$FACTORY_[A-Z]+"' "$1" 2>/dev/null | sort -u
+}
+status_arm() { # <factory.sh> -> the `--status)` arm, from the pattern to its `;;`
+	awk '/^[[:space:]]*--status\)/{f=1} f{print} f&&/;;/{exit}' "$1" 2>/dev/null
+}
+
+# Both call sites, and the tree each asks of. The pass reports the code under it (`$FACTORY_HARNESS`);
+# `--status` answers for the same tree, because it is the same harness the person is standing in.
+pos_call_sites() {
+	local calls
+	calls=$(pos_verdict_calls "$HERE/factory.sh")
+	printf '%s\n' "$calls" | grep -qxF 'factory_supervisor_lines "$FACTORY_HARNESS"' || {
+		pos_say "nothing logs the sentences in the pass. What the file asks of:"; pos_say "$calls"; return 1; }
+	printf '%s\n' "$calls" | grep -qxF 'factory_supervisor_position "$FACTORY_HARNESS"' || {
+		pos_say "--status does not ask for the position of the harness tree. It asks of:"; pos_say "$calls"; return 1; }
+	status_arm "$HERE/factory.sh" | grep -qF 'code:' || {
+		pos_say '--status does not print the code: line'; return 1; }
+	# The control, planted outside the repository: the same two scans over a copy whose pass call is
+	# deleted and whose --status asks of FACTORY_ROOT instead. If the scan still says yes it sees
+	# nothing, and every ok above is the check being blind.
+	mkdir -p "$work/poscalls/factory"
+	sed -e '/factory_supervisor_lines "\$FACTORY_HARNESS"/d' \
+		-e 's#factory_supervisor_position "\$FACTORY_HARNESS"#factory_supervisor_position "$FACTORY_ROOT"#' \
+		"$HERE/factory.sh" >"$work/poscalls/factory/factory.sh"
+	calls=$(pos_verdict_calls "$work/poscalls/factory/factory.sh")
+	printf '%s\n' "$calls" | grep -qxF 'factory_supervisor_lines "$FACTORY_HARNESS"' && {
+		pos_say 'control failed: the scan still found the deleted pass call'; return 1; }
+	printf '%s\n' "$calls" | grep -qxF 'factory_supervisor_position "$FACTORY_ROOT"' || {
+		pos_say 'control failed: the scan cannot see a call site pointed at the wrong tree'; return 1; }
+	return 0
+}
+claim_leg 'both call sites ask for the harness tree' pos_call_sites
+
+# The rule H-0056 buys against `H-0013` (5min2s of a pass lost to one read) and `#879` (a blocking
+# read that fails open by parking the loop): the verdict is a reading of `.git`, never a network call.
+# A `fetch` here would be invisible in every other leg, because a fixture's trunk is a local path and
+# a fetch against it succeeds -- so the pin is on the text, and the control deletes the word from the
+# function's own body in a copy outside the repository rather than trusting that nothing happens to
+# mention it today.
+no_fetch_in_the_verdict() { # -> 0 when the shipped verdict asks git nothing that can block
+	local body code control
+	body=$(awk '/^factory_supervisor_position\(\)/,/^}/' "$HERE/common.sh")
+	[ -n "$body" ] || { pos_say "no factory_supervisor_position in $HERE/common.sh -- the scan has nothing to read"; return 1; }
+	# Comments are stripped first: the function's own prose is full of the word it must not execute,
+	# and a scan that reads comments would report the explanation of the rule as a violation of it.
+	code=$(printf '%s\n' "$body" | sed 's/#.*//')
+	printf '%s\n' "$code" | grep -qE '\b(fetch|ls-remote|pull)\b' && {
+		pos_say 'the verdict makes a network call; it runs inside a pass on a budget'; return 1; }
+	# The control, planted outside the repository: a fetch written where the scan looks, in the copy of
+	# the body the scan was just run over. If the scan cannot see that, the ok above is blindness.
+	control=$pos_work/no-fetch-control
+	mkdir -p "$control"
+	printf '%s\n' "$body" | sed '0,/return 0/s//git fetch origin \/dev\/null; return 0/' >"$control/fn.sh"
+	grep -q 'git fetch' "$control/fn.sh" || {
+		pos_say 'the control could not plant a fetch, so the scan above proves nothing'; return 1; }
+	printf '%s\n' "$(sed 's/#.*//' "$control/fn.sh")" | grep -qE '\b(fetch|ls-remote|pull)\b' || {
+		pos_say 'the scan does not see a planted fetch -- it is blind, not clean'; return 1; }
+	# Why a leg cannot catch this by behaviour alone: the fixture trunk is a local path, so a fetch
+	# there would succeed in milliseconds and every leg would stay green. Pinning the path is what
+	# makes the text scan the load-bearing half rather than a decoration beside a passing test.
+	printf '%s\n' "$(git -C "$pos_fork" remote get-url origin)" | grep -q '^/' || {
+		pos_say 'the fixture trunk is not a local path, so a network call here would not be cheap -- and this leg would be the wrong shape'; return 1; }
+	return 0
+}
+claim_leg 'the verdict never fetches' no_fetch_in_the_verdict
 
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
