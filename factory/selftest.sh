@@ -2709,6 +2709,11 @@ claim_reset
 # legs do not read the host's toolchain (H-0054 is the precedent: a section that needs a binary the
 # gate does not install is green on every box in the loop and red on CI), and the unit directory is
 # `$pos_units` under $TMPDIR.
+#
+# Nor does it read the host's git identity. Every repository the section creates is given one where it
+# is created, because a clone inherits no local config and a CI runner has no `~/.gitconfig` identity
+# to fall back on -- which is exactly how this section died on its first CI run (H-0057, pinned by
+# `no fixture repo inherits the host`).
 
 pos_work=$work/position
 pos_bin=$pos_work/bin
@@ -2739,9 +2744,18 @@ for i in 2 3 4 5 6; do
 done
 pos_tip=$(git -C "$pos_up" rev-parse --short HEAD)
 
+# Every repo this section creates is given an identity where it is created, and not by the box. A
+# clone copies the upstream's *remote* and none of its local config, so `user.email` set on `$pos_up`
+# says nothing about the clones -- and two of the statements below commit inside a clone. Measured
+# 9 Nov: this box has a `~/.gitconfig` with an identity in it, a GitHub runner has none, and CI died
+# at the first such commit with `Author identity unknown`, 217 legs printed and no verdict (H-0057).
+# Identity is planted per repository rather than exported as `GIT_AUTHOR_*` for the section so that a
+# future leg can still plant the *absence* of one on purpose; the host's is never what a leg reads.
 pos_clone() { # pos_clone <name> -> a fresh clone of the fixture trunk, echoed as a path
 	local path=$pos_work/tree-$1
 	git clone -q "$pos_up" "$path"
+	git -C "$path" config user.email fixture@invalid
+	git -C "$path" config user.name fixture
 	printf '%s\n' "$path"
 }
 
@@ -3065,7 +3079,12 @@ claim_leg 'no trunk ref refuses, --force overrides' install_nobase_refuses
 # gets there by accident: clone into the wrong path, copy the harness in, install.
 pos_empty=$pos_work/tree-empty
 mkdir -p "$pos_empty/factory"
+# Nothing commits here today -- the leg below wants a HEAD that does not resolve. The identity is
+# planted anyway because the section's invariant is about where an identity comes from, not about
+# which legs happen to commit right now (H-0057).
 git init -q "$pos_empty"
+git -C "$pos_empty" config user.email fixture@invalid
+git -C "$pos_empty" config user.name fixture
 printf '#!/usr/bin/env bash\nexit 0\n' >"$pos_empty/factory/factory.sh"
 chmod +x "$pos_empty/factory/factory.sh"
 
@@ -3154,6 +3173,59 @@ no_fetch_in_the_verdict() { # -> 0 when the shipped verdict asks git nothing tha
 	return 0
 }
 claim_leg 'the verdict never fetches' no_fetch_in_the_verdict
+
+# --- the fixture's own independence from the box ---------------------------------------------
+#
+# H-0057 is the reason this scan exists: a fixture that commits under whatever identity the host
+# happens to have is green on every workstation in the loop and red on CI, and it was invisible until
+# it was. A leg cannot re-run this suite under an empty `$HOME` -- that is a second copy of a
+# fifty-second run inside itself -- so the pin is on the creation sites, the way `wired_into_verify`
+# pins its step and `no_fetch_in_the_verdict` pins its word: scan the shipped file, then prove the
+# scan is not blind by deleting one identity from a copy outside the repository and watching it
+# report the gap.
+#
+# The rule is per repository, not per environment, because `git clone` copies the upstream's remote
+# and none of its local config: identity set on the trunk says nothing about a clone of it. A site
+# counts as configured when an identity appears on the creation line or within three lines of it --
+# `git -c user.email=… commit` on the next line is as host-independent as a `config` call.
+pos_unconfigured_repos() { # <file> -> every `git init`/`git clone` with no identity within 3 lines
+	# No `\b` in here: awk reads that escape as a backspace, not a word boundary, and a scan built
+	# out of it matches nothing at all -- which is exactly what the first version of this function
+	# did, and the control below is what said so on the first run.
+	awk '
+		{ l = $0; sub(/^[ \t]+/, "", l) }
+		l ~ /^#/ { next }
+		l ~ /^git / && (l ~ / init/ || l ~ / clone/) {
+			if (pend) { printf "%d: %s\n", pend, ptxt }
+			pend = NR; ptxt = l
+		}
+		pend && NR > pend + 3 { printf "%d: %s\n", pend, ptxt; pend = 0 }
+		pend && l ~ /user\.email/ && NR <= pend + 3 { pend = 0 }
+		END { if (pend) printf "%d: %s\n", pend, ptxt }
+	' "$1"
+}
+fixture_carries_identity() {
+	local gaps control
+	gaps=$(pos_unconfigured_repos "$HERE/selftest.sh")
+	[ -z "$gaps" ] || {
+		pos_say 'these fixture repositories inherit the host'"'"'s git identity, and a runner'
+		pos_say 'has none (H-0057: `Author identity unknown` kills the run mid-suite):'
+		pos_say "$gaps"
+		return 1; }
+	# The control, planted outside the repository: the identity deleted from the clone helper, in the
+	# copy the scan was just run over clean. A scan that still says nothing is blind, not clean.
+	control=$pos_work/identity-control
+	mkdir -p "$control"
+	sed '/git -C "\$path" config user\.email/d' "$HERE/selftest.sh" >"$control/selftest.sh"
+	grep -q 'git clone' "$control/selftest.sh" || {
+		pos_say 'the control copy has no clone in it, so it tests nothing'; return 1; }
+	grep -q 'user\.email' "$control/selftest.sh" || {
+		pos_say 'the control deleted every identity line, not one'; return 1; }
+	pos_unconfigured_repos "$control/selftest.sh" | grep -q 'git clone' || {
+		pos_say 'the control removed an identity and the scan still reported nothing'; return 1; }
+	return 0
+}
+claim_leg 'no fixture repo inherits the host' fixture_carries_identity
 
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 if [ "$fail" -ne 0 ]; then
