@@ -75,6 +75,41 @@ while [ $# -gt 0 ]; do
 		else
 			printf 'halt:    no\n'
 		fi
+		# Which code this harness is (#249), in the one command a person types when the queue is not
+		# moving. Until now the only place the answer was written down anywhere was the unit's
+		# `ExecStart` path, and a path is not a position: measured 8 Nov it pointed at a tree 121
+		# commits behind `origin/main` while every other line `--status` prints read healthy. Asked of
+		# `$FACTORY_HARNESS`, not `$FACTORY_ROOT` -- this is the tree the script being run was read
+		# from, and the primary checkout sits on whatever a human left there, which is the same reason
+		# `triage.sh` asks for the current branch of `$FACTORY_DIR`. The branch is printed even when
+		# the tree is current, because a bare sha is exactly what made #249 invisible: the number
+		# looks like a version, so nobody asks which ref it names.
+		pos_rc=0
+		pos=$(factory_supervisor_position "$FACTORY_HARNESS") || pos_rc=$?
+		IFS=$'\t' read -r pos_sha pos_branch pos_behind pos_ahead pos_dirty <<EOF
+$pos
+EOF
+		pos_base=$(factory_supervisor_base)
+		pos_base=${pos_base#refs/remotes/}
+		case "$pos_rc" in
+		2)
+			printf 'code:    unknown -- git could not read %s, so nothing can say what code this is\n' \
+				"$FACTORY_HARNESS"
+			;;
+		3)
+			printf 'code:    %s (%s, %s uncommitted) -- %s is not a ref in this checkout, so its position against the trunk is unknown\n' \
+				"$pos_sha" "$pos_branch" "$pos_dirty" "$pos_base"
+			;;
+		*)
+			printf 'code:    %s (%s, %s behind %s' "$pos_sha" "$pos_branch" "$pos_behind" "$pos_base"
+			[ "$pos_ahead" = "0" ] ||
+				printf ', %s %s ahead: a fork, which a fast-forward will not fix' \
+					"$pos_ahead" "$(factory_plural "$pos_ahead")"
+			printf ')'
+			[ "$pos_dirty" = "0" ] || printf ' + %s uncommitted path(s)' "$pos_dirty"
+			printf '\n'
+			;;
+		esac
 		printf 'repo:    %s\n' "$(git -C "$FACTORY_ROOT" remote get-url origin 2>/dev/null)"
 		printf 'trees:   %s\n' "$FACTORY_TREES"
 		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
@@ -743,8 +778,19 @@ factory_body() {
 	# slide every column after it one place left.
 	rows=$(printf '%s\n' "$rows" | tail -n +2)
 	log_event "PASS units=$(printf '%s\n' "$rows" | grep -c . || true) dry=$DRY_RUN budget=${FACTORY_BUDGET}s root=$FACTORY_ROOT trees=$FACTORY_TREES"
+	# The code under test belongs in the pass's own announcement (#249). `PASS units=0` from a tree 121
+	# commits behind the trunk is indistinguishable in the journal from a queue that is genuinely empty,
+	# and nobody asks a timer a question -- which is why this is a journal line and not only `--status`.
+	# Three sentences at most, and the one that is always printed is the sha (see common.sh for the
+	# pair of trees that can both claim to be "the code under test", and for what the comparison is
+	# measured against). This reports and changes nothing: moving a tree the timer is executing from is
+	# editing a script while bash is reading it, so the move stays a human act.
+	while IFS= read -r supervisor_line; do
+		[ -n "$supervisor_line" ] || continue
+		log_event "$supervisor_line"
+	done < <(factory_supervisor_lines "$FACTORY_HARNESS")
 
-	local workable='' unit key class detail branch issue ask rc_tick rc_conflict
+	local workable='' unit key class detail branch issue ask rc_tick rc_conflict supervisor_line
 	while IFS=$'\037' read -r unit key class detail branch issue ask; do
 		[ -n "${unit:-}" ] || continue
 		[ -n "$(factory_ledger_get "$unit:$(factory_slug "$key")" first-seen)" ] ||

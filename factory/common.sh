@@ -1112,6 +1112,182 @@ factory_tree_halt() {
 	esac
 }
 
+# ------------------------------------------------- the code the loop is actually running
+#
+# #249: `install-timer.sh` renders `ExecStart` as a *path*, so the timer runs whatever that tree
+# happens to have checked out, and nothing in the harness ever compared that checkout to the trunk.
+# Measured 8 Nov: the tree was at `efa4e29` while `origin/main` was 121 commits later, and every
+# merge in between was invisible to the loop whose job is to act on them. The journal proved it
+# without meaning to -- the halt sentence printed there for sixteen hours was `efa4e29`'s wording,
+# not `main`'s. So the tree's position against the trunk is not decoration, it is part of *which
+# code a given pass is*, and it belongs in the same line that already says who the pass is.
+#
+# Two different trees can be "the code under test" and they are not the same directory:
+#
+#   the pass    the tree the running script was read from -- `$FACTORY_HARNESS`.
+#   an install  the tree the unit it is about to write will exec -- `$FACTORY_ROOT`, which is what
+#               `@REPO@` in the template becomes and what `ExecStart` will name.
+#
+# They are equal only while the harness lives in the primary checkout, which is the case that has
+# never once been true on this repository (H-0009). So the tree is an argument here and never a
+# global: a call site that picks the wrong one prints a sha for code that is not running, and the
+# print is the kind nobody re-checks because it looks like a version number.
+#
+# What the verdict is measured against: `origin/$FACTORY_BASE` **as this checkout last learned it**.
+# There is no `git fetch` in here and that is a decision rather than an oversight (H-0056): a fetch
+# is a blocking network call inside a pass whose whole budget is spent before a tick opens, and this
+# repository already owns the hazard of a read that parks (#879, where a blocking `open` on a FIFO
+# fails the enforcement loop *open*). It is also the same clock the orphan pass already reads --
+# `triage.sh`'s `rev-parse origin/main` -- and it is the reading that found #249 in the first place:
+# `git rev-list --count HEAD..origin/main` answered 121 off the ref, with no fetch of its own. What
+# the choice costs is written in `factory/DECISIONS.md` rather than hidden here: a repository nobody
+# ever fetches reads `0 behind` forever.
+
+# Where the trunk's remote-tracking ref lives, as one string both the compare and the sentence use.
+factory_supervisor_base() { printf 'refs/remotes/origin/%s' "${FACTORY_BASE:-main}"; }
+
+# `commit` or `commits`. The sentences #249 prescribes are written in the plural and grepped in the
+# plural; a journal line that reads "is 1 commits ahead" is the kind of detail that makes a person
+# doubt the number beside it, and the number is the whole content of the line.
+factory_plural() {
+	if [ "$1" = 1 ]; then
+		printf 'commit'
+	else
+		printf 'commits'
+	fi
+}
+
+# factory_supervisor_position <tree>
+#   Where <tree> stands against the trunk, as five tab-separated fields on one line:
+#
+#       <short-sha>   <branch>   <behind>   <ahead>   <dirty>
+#
+#   exit 0  all five known. A detached head puts the word `detached` in <branch> rather than an
+#           empty field: an empty field is what slides every column after it one place left, which
+#           is the reason the supervisor's own row delimiter is U+001F and not a tab.
+#   exit 2  git could not read the tree at all. All five are `unknown`/`?`, and a caller must not
+#           print `0 behind` -- an unreadable tree is not a current one.
+#   exit 3  the tree is readable but `origin/$FACTORY_BASE` is not, so <behind> and <ahead> are `?`
+#           while the sha and the branch are still worth printing.
+#
+# <dirty> is a *count of paths* with uncommitted work, or `?` when the read itself failed. It is not
+# the halt's verdict: `factory_tree_dirt` stays the one guard that stops a unit (#228), and this is
+# an informational field in a journal line. It refreshes the index first for the reason #228
+# documents -- the stat cache is what made `status` answer from mtime rather than from bytes -- and
+# the refresh is best-effort, because a tree whose index cannot be written still has paths to count
+# and the count being high is the safe direction for a field that only informs.
+factory_supervisor_position() {
+	local tree=$1 rc=0 out='' paths='' short='' branch='' behind='?' ahead='?' dirty='?'
+	local base_shown
+	base_shown=$(factory_supervisor_base)
+	base_shown=${base_shown#refs/remotes/}
+
+	rc=0
+	out=$(git -C "$tree" rev-parse --short HEAD 2>&1) || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		printf 'unknown\tunknown\tunknown\tunknown\t?\n'
+		return 2
+	fi
+	short=$(printf '%s\n' "$out" | head -n 1)
+
+	# `|| branch=detached`, and not a bare call: `symbolic-ref` exits 1 on a detached head, which is
+	# a state a tree is legitimately in (a bisect, a pinned install, every one of this harness's own
+	# unit trees once its branch merged), and `set -e` is on in every caller.
+	branch=$(git -C "$tree" symbolic-ref --short -q HEAD 2>/dev/null) || branch='detached'
+	[ -n "$branch" ] || branch='detached'
+
+	# Best-effort, on purpose. When the index cannot be written the refresh fails and the count that
+	# follows may include stat-only differences -- an over-count in a field that informs and halts
+	# nothing, which is the direction to err. The refresh is also why the three reads below cost 6s
+	# instead of 5min on the tree with 195 MB of testdata (#228, measured).
+	git -C "$tree" update-index --refresh >/dev/null 2>&1 || true
+
+	# Counted the way #228 decides a halt -- staged, unstaged, untracked, as three *content* reads --
+	# and not from `git status --porcelain`. The selftest's own `no stat-question dirt test` leg
+	# refuses a shipped script that answers a question of `status`, on the grounds that the porcelain
+	# path answers CLEAN for real work when the stat cache is stale; `dirty=` is a question of content,
+	# so it takes the same reads. Deduped, because a conflicted path is in both diff lists and would
+	# otherwise count twice against one path.
+	#
+	# This is a count for a journal line; `factory_tree_dirt` stays the one verdict that halts a unit,
+	# because it also weighs git's warnings and the unmerged statuses. What the two share is the rule,
+	# not the function, and the rule is the thing the leg enforces.
+	rc=0
+	paths=$(
+		{ git -C "$tree" diff --cached --name-only &&
+			git -C "$tree" diff --name-only &&
+			git -C "$tree" ls-files --others --exclude-standard; } 2>/dev/null
+	) || rc=$?
+	if [ "$rc" -eq 0 ]; then
+		dirty=$(printf '%s\n' "$paths" | grep . | sort -u | grep -c . || true)
+	fi
+	[ -n "$dirty" ] || dirty='?'
+
+	rc=0
+	git -C "$tree" rev-parse --verify --quiet "$base_shown" >/dev/null 2>&1 || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		printf '%s\t%s\t?\t?\t%s\n' "$short" "$branch" "$dirty"
+		return 3
+	fi
+
+	# Counted from `HEAD` and the ref, never from a sha interpolated into the range: a short sha is
+	# the shortest *unambiguous* prefix, which is a fact about today's object database, and a range
+	# built out of one can silently mean a different commit after a fetch.
+	rc=0
+	out=$(git -C "$tree" rev-list --count "HEAD..$base_shown" 2>/dev/null) || rc=$?
+	if [ "$rc" -eq 0 ]; then
+		behind=$(printf '%s' "$out" | tr -dc '0-9')
+		rc=0
+		out=$(git -C "$tree" rev-list --count "$base_shown..HEAD" 2>/dev/null) || rc=$?
+		if [ "$rc" -eq 0 ]; then
+			ahead=$(printf '%s' "$out" | tr -dc '0-9')
+		fi
+	fi
+	[ -n "$behind" ] || behind='?'
+	[ -n "$ahead" ] || ahead='?'
+
+	printf '%s\t%s\t%s\t%s\t%s\n' "$short" "$branch" "$behind" "$ahead" "$dirty"
+	return 0
+}
+
+# The sentences for the pass's journal: one per fact, so a journal grep is the whole query. The AT
+# line is unconditional -- a pass that does not say what it is running cannot be audited after the
+# fact -- and the other three appear only for the state each one names. Nothing here halts anything:
+# #249's remedy is to make the staleness loud, and moving a tree the timer is executing from is
+# editing a script while bash is reading it. That stays a human act.
+factory_supervisor_lines() {
+	local tree=$1 rc=0 pos='' sha='' branch='' behind='' ahead='' dirty='' base=''
+	pos=$(factory_supervisor_position "$tree") || rc=$?
+	IFS=$'\t' read -r sha branch behind ahead dirty <<EOF
+$pos
+EOF
+	base=$(factory_supervisor_base)
+	base=${base#refs/remotes/}
+
+	if [ "$rc" -eq 2 ]; then
+		printf 'SUPERVISOR-UNKNOWN git could not read %s, so the code this pass is running is not known\n' "$tree"
+		return 0
+	fi
+	printf 'SUPERVISOR-AT %s dirty=%s\n' "$sha" "$dirty"
+	if [ "$behind" = '?' ]; then
+		printf 'SUPERVISOR-NOBASE %s cannot be resolved in %s, so the loop cannot say whether it is running merged code\n' \
+			"$base" "$tree"
+		return 0
+	fi
+	if [ "$behind" != "0" ]; then
+		printf 'SUPERVISOR-STALE %s is %s %s ahead; the loop is not running merged code\n' \
+			"$base" "$behind" "$(factory_plural "$behind")"
+	fi
+	if [ "$ahead" != "0" ]; then
+		# A fork and a stale tree coexist, and each needs its own sentence because each has its own
+		# fix: one is a fast-forward, the other is not available on a tree holding commits the trunk
+		# does not. Saying `merge --ff-only` here would send an operator to a command git refuses.
+		printf 'SUPERVISOR-FORKED %s holds %s %s %s does not have; a fast-forward is not available on a fork\n' \
+			"$branch" "$ahead" "$(factory_plural "$ahead")" "$base"
+	fi
+	return 0
+}
+
 # --------------------------------------------------------------------------- actions
 #
 # One place where anything that changes the world is printed or run, so --dry-run is a property
