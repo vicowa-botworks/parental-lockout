@@ -1174,8 +1174,13 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   checklist to update, and this sentence claimed there was one until the grep showed otherwise; it is
   corrected in place rather than appended, because it was written before the files were. Suite: 242
   legs, 0 failed, against the 176 measured on `ae8aba845` the day this was filed -- a count from that
-  commit, not from `origin/main`, which is the only head this suite has ever been run at here. `H-0058` was already the id `factory/factory.sh:107`'s comment named for the
-  age clause; that comment now names `H-0059`, which is where the marker's age in the journal line and
-  the per-unit scope of the switch are still owed, and the yield is recorded here rather than in a
-  field because `scripts/check-decisions.py:57` recognises only `Question/Options/Chose/Why/Checkpoint`
-  plus `Awaiting`/`Effect` and refuses an unknown one.
+   commit, not from `origin/main`, which is the only head this suite has ever been run at here. The
+   sentence this replaces claimed that `factory/factory.sh:107`'s comment already named this entry for
+   the age clause, and that a re-pointed comment would hand the age clause and the per-unit scope to
+   `H-0059`. Neither held when it was checked: line 107 is the argument parser, the halt block is
+   `factory.sh:113-117`, and the only id that comment names is `H-0036`, for why a halt exits 8 instead
+   of reading as a crash. So the age of the marker in the journal line and the per-unit scope of the
+   switch stay exactly where this entry puts them -- rejected arms, each with the reason it was refused
+   and the reason it is still owed -- and no id is cited for work nothing holds. Corrected rather than
+   appended to, for the reason the two lines above give: it was written before the files were, and a
+   merged log that quietly agrees with itself is worse than one that admits it was wrong.
