@@ -1471,3 +1471,63 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   in `factory/selftest.sh`, both pointing at the stop-decision. No shipped script changed: the collision
   is in the log, not in the harness. Re-measured at this head: `check-decisions: 93 entries across 2
   log(s), clean`.
+
+
+## H-0069 · Merging `main`'s #249 arm turned all six deadline legs into SKIPs, so the fixture became a tree the generator would arm and a refusal to render became a FAIL
+
+- Question: `origin/main` brought #249 into `install-timer.sh`: the generator now asks
+  `factory_supervisor_position "$FACTORY_ROOT"` before it prints a line, and exits 1 on a tree that is
+  not its own trunk. This section's fixture is a `git init` with no commit and no trunk ref, and its
+  creation site plants no git identity. What is the fixture now, and what does the section do when the
+  generator declines to render -- because the answer it had was a SKIP.
+- Options: make the fixture a tree the generator would arm (a commit, and `origin/main` at it), plant
+  the identity where the repository is created, and fail the section when the generator refuses |
+  keep the SKIP bargain and add only the missing commit | aim the legs at a rendered unit checked into
+  the tree instead of the live generator | point `FACTORY_ROOT` at this real worktree, which is a
+  checkout with a trunk | delete the six legs and rely on #249's own legs, which now cover the generator
+- Chose: make the fixture a tree the generator would arm (a commit, and `origin/main` at it), plant the
+  identity where the repository is created, and fail the section when the generator refuses
+- Why: both halves of this are measured at `3b56a05`, on the merge commit with the log resolved and
+  nothing else touched. `bash factory/selftest.sh` there prints `FAIL  no fixture repo inherits the
+  host   fixture_carries_identity` and `SKIP  the unit's two deadlines   install-timer.sh --dry-run
+  refused to run here: install-timer: /tmp/plock-factoryselftest-M86pkW/genrepo is not a readable git
+  checkout`, and the section's own closing line -- `Every check below needs the generator; none of them
+  is a verdict on the unit.` -- is the most honest sentence in a suite that then went on to print
+  `267 passed`. That is #246's defect wearing a gate: not a wrong number, a check that stopped looking
+  while the tally kept saying the checks ran. Six legs read an empty file and reported nothing at all.
+  So the SKIP bargain, which was written for a different case, is withdrawn from both of its arms here.
+  It was correct where it came from: a tree that has no `install-timer.sh` has no subject, and demanding
+  one is a failure of the test, not of the code. Status 2 stays reserved for exactly that, and
+  `leg_generator_accepts_the_fixture` refuses to offer it, because here the subject is in this tree and
+  it is the *gate* that cannot see it -- the same distinction `leg_no_token_left_unrendered` draws
+  against its own SKIP arm. Why a real commit and a real `refs/remotes/origin/main` rather than a stub:
+  #249's verdict is a reading of git, and a fixture that fakes it would make the legs read a fixture
+  instead of a repository -- `git commit --allow-empty` plus `update-ref` is four seconds. Why not
+  `$FACTORY_ROOT` = this worktree: this branch is 30 commits behind the trunk right now, so the legs
+  would go red on every merge and green only in the window after a rebase -- armable by construction is
+  the property, armable by luck is not. Why the identity is planted at the creation site and not
+  exported for the section: H-0059's rule, quoted at the line itself, and the leg that enforces it
+  arrived on the trunk side of this merge and refused this fixture the first time the two met. Why not a
+  checked-in rendered unit: `install-timer.sh` is the only thing that knows what a token becomes, and an
+  artifact committed as a source is the failure mode H-0060 was written to refuse. Why not delete the
+  six legs: #249's legs pin the *refusal*; nothing there says which number is on which deadline, which
+  is the whole of #246. What lost, as measured: `gen_leg`'s FAIL tail changed from "the rendered unit is
+  wrong:" to "the check refused:" -- one line of shared vocabulary the six legs did not ask for, chosen
+  over a per-call wording so the helper stays one function. The section now builds a second, unarmed
+  fixture per run, so a failure there costs one more refusal to diagnose. `gen_control_unarmed` borrows
+  `$gen_tree` and hands it back, so a future leg added *after* it that assumes the armed tree is
+  correct today and wrong the day someone reorders the section. And `arm` is an argument, not a type: a
+  caller that omits it gets `arm=` , which is not `1`, which is an unarmed fixture, which is a FAIL --
+  the loud direction, but a new way to break this section that only the leg now catches. The checkpoint
+  is the merge commit and not its parent: the state this entry refuses is the merge with the blind
+  fixture in it, so that is what a revert has to land on.
+- Checkpoint: 9c96f3c7b82b717ae8121496ee3ec266a5e1d4d5
+- Effect: `factory/selftest.sh` -- `gen_setup` takes `<dir> <arm>` and now plants `user.email`/
+  `user.name` beside its `git init` and, at `arm=1`, an `--allow-empty` commit and
+  `refs/remotes/origin/main` at it; `gen_dry_run` renders against `$gen_tree`; new
+  `leg_generator_accepts_the_fixture` and `gen_control_unarmed`; both SKIP arms in `unit_deadlines`
+  replaced by FAILs; `gen_leg`'s FAIL tail; two new paragraphs in the section header. Re-measured, same
+  command before and after: `267 passed, 1 failed` with this section reporting one SKIP and reading
+  nothing, to `275 passed, 0 failed`, eight to the tally -- the identity leg the merge broke and the
+  seven this section prints now that it renders. The section itself prints fourteen `ok` lines, seven
+  legs and seven controls, the controls not counted in the tally.

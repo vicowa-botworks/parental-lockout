@@ -4216,11 +4216,20 @@ claim_leg 'a death before the verdict is reported' incomplete_reports_itself
 # run could write is inside `$work` -- `FACTORY_ROOT` and `FACTORY_DIR` both name the copy, which is
 # what `factory_paths`' three mkdirs follow -- so the tree this gate is checking stays untouched.
 #
+# The copy is a repository with a commit and `origin/main` at that commit, and that is not decoration:
+# #249 made `install-timer.sh` refuse to render a tree that is not its own trunk, and it refuses before
+# it prints anything. A fixture that fails that test produces no unit at all, so the section's first leg
+# asks the generator whether it accepted the fixture at all, and a refusal is a FAIL rather than a SKIP
+# -- six quiet SKIPs under a tally that reads `passed` is a gate that has stopped looking (H-0069).
+#
 # The bound on the stop deadline is asserted as a number rather than as a name because the number is
 # the outage: a descendant that ignores SIGTERM holds the factory for exactly `TimeoutStopSec` seconds,
 # and the value that stood here was 5460 for as long as nobody measured what it cost.
 gen_stub=$work/stubbin
 gen_root=$work/genrepo
+# Which fixture the generator renders against. Every leg uses the armed one; only the control that
+# asks whether a #249 refusal is real points it at the unarmed one, and it puts this back.
+gen_tree=$gen_root
 gen_out=$work/gen-out
 gen_err=$work/gen-err
 gen_svc=$work/gen-service
@@ -4230,8 +4239,9 @@ gen_tim=$work/gen-timer
 # the pass budget -- which is the defect -- cannot pass.
 gen_stop_max=120
 
-gen_setup() {
-	mkdir -p -- "$gen_stub" "$gen_root/factory" || return 1
+gen_setup() { # <dir> <arm: 1|0> -> the throwaway repo at <dir>; 0 leaves it a tree #249 will not arm
+	local root=$1 arm=$2
+	mkdir -p -- "$gen_stub" "$root/factory" || return 1
 	# shellcheck disable=SC2317  # the stub is run by the generator, not by this file
 	cat >"$gen_stub/gh" <<'STUB'
 #!/bin/sh
@@ -4246,20 +4256,43 @@ exit 0
 STUB
 	printf '#!/bin/sh\nexit 0\n' >"$gen_stub/opencode" || return 1
 	chmod +x -- "$gen_stub/gh" "$gen_stub/opencode" || return 1
-	cp -- "$HERE/common.sh" "$HERE/factory.sh" "$gen_root/factory/" || return 1
-	chmod +x -- "$gen_root/factory/factory.sh" || return 1
-	git init -q -- "$gen_root" >/dev/null 2>&1 || return 1
-	git -C "$gen_root" remote add origin https://github.com/plock/plock.git >/dev/null 2>&1
+	cp -- "$HERE/common.sh" "$HERE/factory.sh" "$root/factory/" || return 1
+	chmod +x -- "$root/factory/factory.sh" || return 1
+	# Identity is planted where the repository is created, the way every other fixture repository in
+	# this file does it (H-0059): a CI runner has no `~/.gitconfig`, and the commit below dies there
+	# with `Author identity unknown` and no verdict printed. `no fixture repo inherits the host` is
+	# the leg that refuses a creation site which forgets this, and it refused this one -- the leg
+	# arrived with `origin/main`, this section did not, and the merge that joined them is where the
+	# two first met (H-0069).
+	git init -q -- "$root" >/dev/null 2>&1 || return 1
+	git -C "$root" config user.email fixture@invalid || return 1
+	git -C "$root" config user.name fixture || return 1
+	git -C "$root" remote add origin https://github.com/plock/plock.git >/dev/null 2>&1
+	# A commit, and `origin/main` at that same commit, because #249 put a precondition in front of the
+	# whole render: `install-timer.sh` asks `factory_supervisor_position "$FACTORY_ROOT"` before it
+	# prints a single line and exits 1 on a tree that is not its own trunk -- with no commit it reads
+	# "not a readable git checkout", with no trunk ref "cannot be resolved". Either way there is no
+	# rendered unit, every leg below reads an empty file, and the tally still says `passed`. Measured
+	# on the merge of origin/main at 3b56a05: six legs became six SKIPs that way. `arm=0` leaves both
+	# out, which is what the control at the end of the section aims the predicate at.
+	if [ "$arm" != 1 ]; then
+		return 0
+	fi
+	git -C "$root" commit -q --allow-empty -m 'fixture: the trunk this tree is armable against' ||
+		return 1
+	git -C "$root" update-ref refs/remotes/origin/main HEAD
 }
 
-# `--dry-run` of one generator, with any number of VAR=value overrides. Stdout and stderr are left in
-# $gen_out and $gen_err for the caller to read; the exit status is the generator's.
+# `--dry-run` of one generator, with any number of VAR=value overrides. It renders against whatever
+# `$gen_tree` names -- the armed fixture for every leg, the unarmed one for the control that asks
+# whether a tree #249 refuses is refused. Stdout and stderr are left in $gen_out and $gen_err for the
+# caller to read; the exit status is the generator's.
 gen_dry_run() { # <generator> [VAR=value...]
 	local gen=$1
 	shift
 	env PATH="$gen_stub:$PATH" \
-		FACTORY_ROOT="$gen_root" \
-		FACTORY_DIR="$gen_root/factory" \
+		FACTORY_ROOT="$gen_tree" \
+		FACTORY_DIR="$gen_tree/factory" \
 		FACTORY_REPO='plock/plock' \
 		FACTORY_REVIEWER='reviewer-other' \
 		"$@" bash "$gen" --install --dry-run >"$gen_out" 2>"$gen_err"
@@ -4280,6 +4313,25 @@ is_a_number() {
 	'' | *[!0-9]*) return 1 ;;
 	*) return 0 ;;
 	esac
+}
+
+# The precondition #249 put in front of the entire render, asserted before anything reads a unit.
+# A fixture the generator will not arm produces no output at all, and every leg below would then be
+# reading an empty file -- which is a check that has stopped looking, not a check that passed. Status
+# 2 (SKIP) is deliberately not on offer here: the subject is in this tree whether or not the
+# generator agreed to render it. Measured on the merge of origin/main at 3b56a05 -- six SKIPs, tally
+# still `passed`, because #249's arm arrived on the trunk side of that merge and this section's
+# fixture predated it.
+# shellcheck disable=SC2317  # reached only as the predicate argument of gen_leg
+leg_generator_accepts_the_fixture() { # <the dry run's exit status>
+	if [ "$1" = 0 ]; then
+		return 0
+	fi
+	printf '            install-timer.sh --install --dry-run exited %s on the fixture, so no unit was\n' "$1" >&2
+	printf '            rendered and there is nothing for the deadline legs to read. It is refusing\n' >&2
+	printf '            its own #249 arm: the fixture is not a tree the generator would arm, which\n' >&2
+	printf '            means a commit whose own origin/main is that same commit (gen_setup, arm=1).\n' >&2
+	return 1
 }
 
 # FACTORY_BUDGET as `common.sh` states it, not as a literal repeated here: a leg that hardcodes 5400
@@ -4414,7 +4466,7 @@ gen_leg() { # <label> <what an ok means here> <predicate> [args...]
 		return 0
 	fi
 	fail=$((fail + 1))
-	printf '  FAIL  %-40s the rendered unit is wrong:\n' "$label"
+	printf '  FAIL  %-40s the check refused:\n' "$label"
 	return 0
 }
 
@@ -4458,18 +4510,66 @@ gen_control() { # <label> <dir> <sed expression> <predicate> [args...]
 	return 0
 }
 
+# The control for the armable leg, and it aims at the fixture rather than at the generator: the same
+# predicate has to refuse a tree #249 will not arm. Built by the very same gen_setup one argument
+# away from armable, so what gets refused is the missing precondition and not a paste of the setup
+# that happens to be broken -- the reason H-0060's leg extracts the shipped cleanup() rather than
+# quoting it. `$gen_tree` goes back before this returns, because every leg after it reads the armable
+# fixture again.
+gen_control_unarmed() {
+	local bad_root=$work/genrepo-unarmed rc=0
+	if ! gen_setup "$bad_root" 0; then
+		printf '  SKIP  %-40s the unarmed fixture could not be built\n' \
+			'control: a fixture with no trunk ref'
+		return 0
+	fi
+	gen_tree=$bad_root
+	gen_dry_run "$HERE/install-timer.sh" || rc=$?
+	gen_tree=$gen_root
+	if [ "$rc" = 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it rendered a unit for a tree with neither a commit\n' \
+			'control: a fixture with no trunk ref'
+		printf '          nor a trunk ref, so the ok above is not #249%s refusal being read.\n' "'s"
+		return 0
+	fi
+	if ! leg_generator_accepts_the_fixture "$rc" 2>/dev/null; then
+		printf '  ok    %-40s the same check refuses it\n' \
+			'control: a fixture with no trunk ref'
+		return 0
+	fi
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the predicate accepted it, so the ok above\n' \
+		'control: a fixture with no trunk ref'
+	printf '          is the check being blind, not the check working.\n'
+	return 0
+}
+
 unit_deadlines() {
 	local shown_stop shown_start budget2 rc=0
-	if ! gen_setup; then
+	if [ ! -f "$HERE/install-timer.sh" ]; then
+		printf '  SKIP  %-40s install-timer.sh is not in this tree\n' "the unit's two deadlines"
+		return 0
+	fi
+	if ! gen_setup "$gen_root" 1; then
 		printf '  SKIP  %-40s the throwaway generator could not be built in %s\n' \
 			"the unit's two deadlines" "$work"
 		return 0
 	fi
-	if ! gen_dry_run "$HERE/install-timer.sh"; then
-		printf '  SKIP  %-40s install-timer.sh --dry-run refused to run here:\n' \
-			"the unit's two deadlines"
+	gen_tree=$gen_root
+	gen_dry_run "$HERE/install-timer.sh" || rc=$?
+	gen_leg 'the fixture is a tree the generator arms' \
+		'--install --dry-run exits 0 on it' \
+		leg_generator_accepts_the_fixture "$rc"
+	if [ "$rc" -ne 0 ]; then
+		printf '          what the generator said, in its own words:\n'
 		sed -n '1,3p' "$gen_err" | sed 's/^/          /'
-		printf '          Every check below needs the generator; none of them is a verdict on the unit.\n'
+		printf '          Every leg below reads the rendered unit, so none of them is reported -- and\n'
+		printf '          this one is a FAIL, not a SKIP. The subject is in this tree; the gate has\n'
+		printf '          simply stopped seeing it, which is the failure #246 is about wearing a gate:\n'
+		printf '          six quiet SKIPs and a tally that still reads `passed` is a check that looks\n'
+		printf '          like it is running. Measured on the merge of origin/main, 9 Nov.\n'
+		gen_control_unarmed
 		return 0
 	fi
 	gen_split
@@ -4505,8 +4605,14 @@ unit_deadlines() {
 			"start moved, stop stayed at ${shown_stop}s" \
 			leg_only_start_follows_the_budget "$budget2"
 	else
-		printf '  SKIP  %-40s the generator refused a second budget\n' \
+		# The fixture was accepted a moment ago at the default budget, so a refusal here is not the
+		# subject being absent -- it is this leg losing its subject. Same bargain as above.
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the generator refused a budget it had just\n' \
 			'start follows the budget'
+		printf '          accepted, so nothing was rendered at %s and the leg cannot say\n' "$budget2"
+		printf '          which of the two numbers moved: %s\n' "$(sed -n '1,1p' "$gen_err")"
+		return 0
 	fi
 
 	printf '        TimeoutStopSec=%s TimeoutStartSec=%s, from the generator in this tree -- the stop\n' \
@@ -4530,6 +4636,9 @@ unit_deadlines() {
 		's/^STOP_TIMEOUT=60$/STOP_TIMEOUT=$((FACTORY_BUDGET + 60))/' leg_stop_is_a_reaping
 	gen_control 'both deadline lines gone' "$work/ctrl-gone" \
 		'/^TimeoutStopSec=@/d; /^TimeoutStartSec=@/d' leg_both_deadlines_rendered
+	# Last, because it borrows `$gen_tree` and hands it back: the fixture itself gets a plant, aimed
+	# at the one thing every leg above depends on.
+	gen_control_unarmed
 	return 0
 }
 unit_deadlines
