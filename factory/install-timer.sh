@@ -90,10 +90,34 @@ UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SERVICE="$UNITS/$NAME.service"
 TIMER="$UNITS/$NAME.timer"
 INTERVAL=${FACTORY_INTERVAL:-10m}
-# The timer's ceiling has to clear the supervisor's own budget. systemd kills a oneshot at
-# TimeoutStopSec, and a tick killed mid-commit leaves a dirty worktree -- which the next pass finds,
-# refuses to touch, and halts on. Deriving it here is what keeps the two numbers from drifting apart.
+# Two deadlines, two numbers, because they bound two different moments. They were one token until
+# 8 Nov, and that coupling is what issue #246 is about: it cost 67 minutes of silence.
+#
+# START bounds the pass. A `Type=oneshot` has no start timeout by default -- systemd.service(5): the
+# default is "disabled by default" for that Type -- so without a number here a wedged pass holds
+# `factory/run/lock` for as long as it lives and every later activation prints "another supervisor
+# holds the lock" and does nothing. It has to clear the supervisor's own budget, and deriving it from
+# FACTORY_BUDGET rather than writing a literal is what keeps the two from drifting apart. This is also
+# the deadline that fires if a tick is ever killed mid-commit, which is the hazard the comment used to
+# sit on the *stop* line.
 STOP=$((FACTORY_BUDGET + 60))
+#
+# STOP_TIMEOUT bounds the reaping, once the pass has already printed its last line. systemd sends
+# SIGTERM to every process in the unit's cgroup (KillMode=control-group is the default) and escalates
+# to SIGKILL when this expires, and the unit is not `inactive` until that has finished -- while
+# `OnUnitInactiveSec=` on the timer starts counting its interval only at that moment. So this number
+# is precisely how long one descendant that ignores SIGTERM can hold the whole queue. Measured 8 Nov:
+# a Wine grandchild a tick had spawned (`C:\windows\system32\winedevice.exe`, started 14 s into the
+# activation) was still in the cgroup with the main process gone -- `ActiveState=deactivating
+# SubState=stop-sigterm MainPID=0 TasksCurrent=10` -- while the timer read `active`/`running` with an
+# empty `TriggerNextElapseUSecRealtime` and did not fire for 1 h 07 min. Nothing legitimate is running
+# at that point, so what the deadline is waiting for is a process that is not going to die: 60 s is
+# generous for reaping a process group, and 60 s is the whole outage now instead of 91 minutes.
+#
+# Deliberately not an environment override, unlike every other number here. START is a property of the
+# budget this machine gives a pass; this one is a property of how long a reaper should wait. A knob for
+# it is one setting away from re-merging the two numbers, and the merge is the defect.
+STOP_TIMEOUT=60
 
 systemctl_user() {
 	if [ "$DRY_RUN" = "1" ]; then
@@ -166,6 +190,7 @@ render() {
 		-e "s#@PATHS@#$(sed_replacement "$BIN_DIRS:/usr/local/bin:/usr/bin:/bin")#g" \
 		-e "s#@INTERVAL@#$(sed_replacement "$INTERVAL")#g" \
 		-e "s#@STOP@#$(sed_replacement "$STOP")#g" \
+		-e "s#@STOP_TIMEOUT@#$(sed_replacement "$STOP_TIMEOUT")#g" \
 		-e "s#@REVIEWER@#$(sed_replacement "$FACTORY_REVIEWER")#g" \
 		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
 		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g"
@@ -205,11 +230,9 @@ Environment=FACTORY_REVIEWER=@REVIEWER@
 # defined out there. factory.sh sets the same variable at the call site too, so a pass started from a
 # terminal is correct as well; this line is the half a person can see in systemctl cat.
 Environment=PWD=@REPO@
-# Both bounds are the same number, and both are wider than FACTORY_BUDGET.
-#
-# TimeoutStopSec: systemd kills a oneshot at this point on stop, and a tick killed mid-commit leaves a
-# dirty worktree -- which the next pass finds, refuses to touch, and halts on. Deriving it from the
-# budget at the top of the generator is what keeps the two numbers from drifting apart.
+# Two numbers, because they bound two different moments. Until 8 Nov they were one token, and that
+# coupling is why the queue went silent for 1 h 07 min while every status command said it was fine --
+# `docs/factory.md` carries the measurement and the reasoning; the short version is below.
 #
 # TimeoutStartSec is written down because the default for this Type is not a number anybody would
 # guess. systemd.service(5): TimeoutStartSec "Defaults to DefaultTimeoutStartSec= set in the manager,
@@ -222,7 +245,17 @@ Environment=PWD=@REPO@
 # journal line a pass as the only symptom. An explicit start deadline is the whole fix, and it is here
 # rather than in a comment because a default that depends on `Type` is a default that changes when
 # someone changes `Type`.
-TimeoutStopSec=@STOP@
+#
+# TimeoutStopSec bounds the reaping, after the pass has said its last line: SIGTERM to the whole
+# cgroup, SIGKILL when this expires, and the unit is not `inactive` until that is done -- and the
+# timer's `OnUnitInactiveSec=`, the setting that re-arms the queue, starts its interval at that
+# moment. So this value is exactly how long one descendant that ignores SIGTERM can hold the factory:
+# a leaked `winedevice.exe` sat in this unit's cgroup on 8 Nov with the main process already gone
+# (`SubState=stop-sigterm`, `MainPID=0`, `TasksCurrent=10`) and the timer held no elapse for an hour.
+# What it is NOT is the guard against a tick being killed mid-commit -- that is TimeoutStartSec above,
+# because the start deadline is the one that fires while the pass is still running. Nothing legitimate
+# is executing during stop, which is why this one is a minute and the other is the budget.
+TimeoutStopSec=@STOP_TIMEOUT@
 TimeoutStartSec=@STOP@
 # A halt is not a failure, and saying so is not decoration. `factory/factory.sh` exits
 # FACTORY_EXIT_HALT when factory/HALT exists, and until this line existed the very first halted pass

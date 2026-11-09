@@ -181,7 +181,7 @@ review -- the tick is told to read the body itself, and told that if it is not t
 ## Installing it
 
 Generate the units; do not copy them out of a README. `factory/install-timer.sh` asks the machine
-where `gh` and `opencode` actually live, derives the unit's `TimeoutStopSec` from `FACTORY_BUDGET`,
+where `gh` and `opencode` actually live, derives the unit's `TimeoutStartSec` from `FACTORY_BUDGET`,
 and refuses to install anything that would fail quietly:
 
 ```bash
@@ -213,18 +213,53 @@ Environment=FACTORY_REVIEWER=hermesvicowa
 # WorkingDirectory. A unit exports a cwd and no PWD, so without this line every tick opens a session
 # in the background server's home directory and dies on `Agent not found: "factory"`.
 Environment=PWD=/home/rodney/prj/parental-lockout
-# The same number twice, both wider than FACTORY_BUDGET. TimeoutStopSec keeps systemd from killing a
-# tick mid-commit (a killed tick leaves a dirty worktree, and the next pass halts on it).
+# Two numbers, because they bound two different moments. They used to be the same one, and that
+# coupling is what the paragraph after this block is about.
 # TimeoutStartSec is here because a oneshot has NO start timeout at all: systemd.service(5) says the
 # default is "disabled by default" for that Type, measured as `TimeoutStartUSec=infinity` on a manager
 # whose DefaultTimeoutStartSec is 1min30s. With none, a wedged pass holds the run lock forever and
-# every later activation quietly does nothing.
-TimeoutStopSec=5460
+# every later activation quietly does nothing. It is also the deadline that fires while a pass is
+# *running*, so it is the one that could kill a tick mid-commit.
+# TimeoutStopSec bounds only the reaping, after the pass has exited: SIGTERM to the whole cgroup,
+# SIGKILL at this deadline, and the unit is not `inactive` until that finishes. One minute, because the
+# only thing left to wait for is a grandchild that will not die.
+TimeoutStopSec=60
 TimeoutStartSec=5460
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 ```
+
+**The two deadlines were one number until 8 Nov, and it took the queue offline for 1 h 07 min.**
+`OnUnitInactiveSec=` is the setting that keeps passes from stacking, and it is also the only thing that
+re-arms the queue -- so "this unit becomes inactive" is the one event the whole loop waits on. A pass
+that evening printed `END rc=4 ticks_started=1` and its main process exited at 22:18:51Z, but the unit
+never went inactive: something the tick had run left a Wine grandchild (`C:\windows\system32\winedevice.exe`)
+in the unit's cgroup, `KillMode=control-group` will not call the cgroup empty while one descendant
+lives, and systemd waits out `TimeoutStopSec` -- then 5460 s -- before escalating to `SIGKILL`. For
+91 minutes the unit sat at `ActiveState=deactivating SubState=stop-sigterm MainPID=0 TasksCurrent=10`,
+the timer sat at `ActiveState=active SubState=running` with an **empty** `TriggerNextElapseUSecRealtime`
+and a `-` in `list-timers`' next-fire column, and the journal held nothing after 22:18. Every command
+that reads as health read as healthy. `systemctl --user kill -s KILL <unit>` at 23:06:55Z re-armed the
+timer immediately.
+
+A descendant that ignores `SIGTERM` is not hypothetical and is not a Windows curiosity -- anything a
+tick runs can leak one, and the harness cannot enumerate them, so the answer is a bounded stop rather
+than a smarter kill. Three things travel with that:
+
+- `TimeoutStopSec` is now its own token at 60 s and `TimeoutStartSec` keeps the budget-derived ceiling.
+  Shrinking the start ceiling by accident would kill a real tick at a minute, so `factory/selftest.sh`
+  renders the shipped generator and asserts the two values are *different* and that start still clears
+  the budget (H-0056).
+- The only line in the whole system that recorded this failure is the unit's own substate, and nobody
+  reads it. Whatever watches the loop has to print it:
+  `systemctl --user show parental-lockout-factory.service -p ActiveState -p SubState -p TasksCurrent`,
+  alongside the timer's `TriggerNextElapseUSecRealtime`. A timer that is `active` with no elapse is the
+  least suspicious thing a stalled queue can look like: H-0037 is the same shape -- 3h13m of nothing
+  after a boot, with the timer reporting `active`.
+- After an escalated kill the unit ends `failed` -- `Result=exit-code`, from whatever the pass returned
+  -- which does not stop the timer firing, but makes `systemctl --user status` read like an outage long
+  after the queue recovered. Clear it with `systemctl --user reset-failed parental-lockout-factory.service`.
 
 No `After=`/`Wants=network-online.target`. That target does not exist in a user manager --
 `systemctl --user status network-online.target` answers `Unit network-online.target could not be
