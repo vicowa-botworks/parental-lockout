@@ -686,7 +686,25 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 				# A read that failed is not a delivery that failed: say which of the two happened.
 				log_event "TICK-UNCHECKED $unit delivery could not be confirmed (gh exit=$pr_read)"
 			elif [ -z "$pr_now" ]; then
-				log_event "TICK-UNDELIVERED $unit exit=0 with no pull request on $branch -- it stays where it was"
+				# A clean stop with nothing to show for it. `exit=0` is the CLI's verdict on whether the
+				# session closed its turn; it is not a verdict on whether the turn said anything, and
+				# the two came apart on 8 Nov in two ticks that both reported 0 -- one ended on a tool
+				# call the harness never dispatched (`<function=executae>`, 115 s alive), one on a turn
+				# opener with nothing after it over a clean tree holding four finished commits. The
+				# reason is read off the end of the log, and an undelivered turn is now said out loud
+				# rather than being reported as a stop.
+				#
+				# What this does NOT do is re-run the unit. The queue already re-offers it on a later
+				# pass, and that is what rescued #239: two undelivered stops at 17:56 and 18:12 and a
+				# 2700 s ceiling at 21:47, then pull request #245 delivered it. Spending a second model
+				# run inside the same pass buys nothing when the cause is a typo in a tool name, and
+				# #241's tree was clean with four finished commits -- neither of tonight's stops was
+				# shown to be transient, so an immediate retry would be correct only by luck.
+				log_event "$(factory_stop_marker TICK-UNDELIVERED "$unit" "$branch" "$log")"
+				# Mirror what it left behind, here and now: everything after this point is somebody
+				# else's chance to prune the tree. The mirror's own failure never changes the tick's
+				# verdict -- the unit goes back to the queue either way -- but it gets its own line.
+				factory_preserve_unpushed "$unit" "$tree" "$branch" || true
 				factory_ledger_now "$unit" last-tick
 				return 4
 			fi
@@ -719,6 +737,11 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	[ -n "$reason" ] || reason=$(tr -d '\033\r' <"$log" 2>/dev/null |
 		grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
 	log_event "TICK-FAILED $unit exit=$status (124 means the ${FACTORY_TICK_TIMEOUT}s ceiling) see $(basename -- "$log") :: ${reason:-the tick wrote nothing}"
+	# The same mirror as the `exit=0` arm, and for the same reason: exit 124 is the ceiling firing
+	# mid-message, which is exactly when a branch holds commits nobody has pushed. Measured on the
+	# tick this repository came here for: `15:30:32Z TICK-FAILED unclaimed:235 exit=124`, and the
+	# branch kept six commits that no pull request ever carried.
+	factory_preserve_unpushed "$unit" "$tree" "$branch" || true
 	factory_ledger_now "$unit" last-tick
 	return 4
 }

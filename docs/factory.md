@@ -298,6 +298,7 @@ Everything is an environment override with a default, in `factory/common.sh`.
 | `FACTORY_REPO` | from `origin` | `owner/name`; set it when the remote is a fork you do not want to file against |
 | `FACTORY_REVIEWER` | `hermesvicowa` | who a review is requested from |
 | `FACTORY_TREES` | `../wt` | where per-unit worktrees live; deliberately not under `/tmp` |
+| `FACTORY_AT_RISK` | `../at-risk` | where a stopped tick's unpushed commits are mirrored; beside `FACTORY_TREES`, never inside it |
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
@@ -470,6 +471,70 @@ resume step and the action matching the finding ("commit it or discard it" is no
 in a tree git cannot read), and one journal line per path carrying that path's own verb. A call site
 that drops the `|| return $?` is caught by the step as well, because the alternative is a pass that
 asks the question and throws the answer away.
+
+## When a tick stops clean and delivers nothing
+
+`exit=0` from `opencode run` is a verdict on whether the session closed its turn. It is not a verdict on
+whether the turn said anything, and it is not a verdict on whether anything was pushed. Measured over the
+202 tick logs the harness host keeps in `factory/log` (as at 9 Nov, 00:1Z): six ticks closed with 0 and
+delivered nothing — two of them the pair #247 was written about, on 8 Nov, and four more before them —
+and the journal said one seven-word sentence about all six: `TICK-UNDELIVERED … exit=0 with no pull
+request on <branch>`. That was all the supervisor could see. Two shapes account for four of the six.
+
+- **A tool call nothing dispatched.** The model asks for a tool by a name the CLI cannot match, the CLI
+  prints the call as text, the text becomes the assistant's reply, the turn closes, the run exits 0.
+  `20261108T233014Z.unclaimed:246.log` is 710 lines and ends, at line 710, with `<function=executae>`;
+  `20261108T175614Z.unclaimed:239.log` is 20 lines and ends inside its very first call,
+  `<function=tools.opencode>`. The name is printed and never judged, because a log records what the model
+  typed and not what the CLI would have dispatched: `edit_file` appears 247 times in this corpus and every
+  one of them is in the single log whose issue text quotes it back. Reading the logs cannot tell you
+  whether a name is a tool today, and a list that decides would go stale the day the tool set moves.
+- **An assistant turn that emitted nothing.** `20261108T215923Z.unclaimed:241.log` is 6411 lines and its
+  last line is the turn opener `> factory · default-model-fast`. That tree was clean and held four
+  finished commits on `issue-241`: work, on one directory on one machine, reachable from no queue that
+  reads pull requests.
+
+So `factory_stop_reason` (`factory/common.sh`) reads the shape of the tick's last emission and
+`TICK-UNDELIVERED` now says which of the two it was: `exit=0 refused as completion` when the run ended on
+undispatched call markup or on an empty turn, and the old plain verdict with the last line quoted when
+nothing of the kind is there. It reads the text after the **last turn opener**, and that scoping is load
+bearing: the tick handed #247 itself carries nine `<function=` hits, because the issue quotes
+`<function=executae>` at it, so a whole-file grep reports a misspelled tool call for a tick that
+misspelled nothing. `20261108T060114Z.address_review:231.log` is the other half of the polarity -- it
+ends on `<function=<function_43 edit>` and delivered anyway, having pushed three lines earlier -- so the
+reason is printed by the arm that has already established there is no pull request, and is never a
+substitute for that read. A name is scrubbed of control bytes and cut at 60, because it is the model's
+own bytes going onto a journal line.
+
+**A reason does not recover a commit, so both stopping arms also mirror them.** `exit=0` with no pull
+request, and a non-zero exit including the `FACTORY_TICK_TIMEOUT` ceiling, each call
+`factory_preserve_unpushed`: `git bundle create $FACTORY_AT_RISK/branch-<unit>-<tip>.bundle
+origin/main..<branch>`, then `PRESERVED <path> (<n> commit(s) on <branch> at <tip>)` with the restore
+command on the same line, then 0 mirrored / 1 nothing was owed / 2 refused -- three codes because
+"nothing ahead" and "it is saved" are different sentences. The write is read back with `git bundle
+verify`; a file that does not verify is `PRESERVE-UNVERIFIED` and never `PRESERVED`, because a claim
+about a write nobody re-read is this repository's most repeated failure. The mirror's own failure never
+changes the tick's verdict: the unit goes back to the queue either way.
+
+Recovery, from the line the journal prints:
+
+```
+git clone <remote-url> r.git && git -C r.git fetch <path> refs/heads/<branch>
+```
+
+The prerequisite form is what keeps the mirror cheap *and* what fixes that sentence: 28,601 bytes for
+`issue-241`'s four commits and 18,551 for `issue-235`'s six, where full history is 17,647,835 bytes and
+re-copies the 10 MB `plock` blob on every stop. It is not self-contained -- `git clone <bundle>` on a
+machine holding nothing answers `error: Repository lacks these prerequisite commits` -- which is why the
+shipped sentence names the clone first rather than an in-place `git bundle unbundle`.
+
+**Neither change re-runs the unit, and it would not have been right to.** The queue already re-offers a
+unit on a later pass, and that is what rescued #239: two undelivered stops at 17:56 and 18:12 and a 2700 s
+ceiling at 21:47, then pull request #245 delivered it. A retry inside the same pass would have spent a
+second model run on a typo in a tool name and on a clean tree holding four finished commits, neither of
+which was shown to be transient, and it would have had to decide whether the first attempt left
+half-applied work -- the question `TICK-HALTED` exists to stop a tick from answering. What a retry buys
+is throughput, and the timer is already the thing that provides it.
 
 ## Exit codes, because a timer has to tell these apart
 
