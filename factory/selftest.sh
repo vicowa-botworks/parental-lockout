@@ -1723,9 +1723,25 @@ done
 # default would tidy the thing it is describing -- and would do it quietly, because the file it moves
 # is by definition a file nobody was watching.
 quarantine_stays_in_the_fixture() {
-	local label="the mirror box is the fixture's" stray real
+	local label="the mirror box is the fixture's" stray real where
 	stray=$(find "$FACTORY_AT_RISK" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
-	real=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
+	# Ask whether the box is there before counting what is in it. Two reasons, one of which this line
+	# paid for: a GitHub runner has no ~/prj/at-risk, and `find` exits 1 on a directory that does not
+	# exist, so the assignment below -- a command substitution whose pipeline is under
+	# `set -euo pipefail` (line 59) -- took the whole suite down with it. Measured on the runner at
+	# this commit: the last quarantine leg printed at 17:08:12.47Z, `Makefile:103: verify] Error 1`
+	# followed 30ms later, and no `N passed, M failed` summary was ever reached, while the same commit
+	# here read 242 passed / 0 failed because this machine has the directory. It is the same trap this
+	# file already documents twice (see the `|| true is load-bearing` note), and I wrote it in again.
+	# The other reason is honesty: where the box does not exist the second half of this assertion
+	# cannot fail, so the line says which of the two it checked rather than claiming both.
+	if [ -d "$HOME/prj/at-risk" ]; then
+		real=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
+		where="$HOME/prj/at-risk"
+	else
+		real=0
+		where="$HOME/prj/at-risk (no box on this host)"
+	fi
 	if [ "$stray" -lt 1 ]; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-34s no mirror was ever written to %s, so the legs above never\n' "$label" "$FACTORY_AT_RISK"
@@ -1736,7 +1752,7 @@ quarantine_stays_in_the_fixture() {
 		printf '          the directory that holds the only copies of real work.\n'
 	else
 		pass=$((pass + 1))
-		printf '  ok    %-34s %s patch(es) in the fixture, none in %s\n' "$label" "$stray" "$HOME/prj/at-risk"
+		printf '  ok    %-34s %s patch(es) in the fixture, none in %s\n' "$label" "$stray" "$where"
 	fi
 	return 0
 }
