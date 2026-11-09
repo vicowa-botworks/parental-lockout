@@ -266,8 +266,43 @@ func TestRunIsRaceCleanWhileTheConfigIsEdited(t *testing.T) {
 	wg.Wait()
 
 	// The assertion is the absence of a race report. This only checks the loop is
-	// still alive and working afterwards.
-	waitFor(t, "the loop to still be ticking", func() bool { return p.totalLocks() > 0 })
+	// still alive and working afterwards — and because it checks that, it has to
+	// ask for something the loop owes it at that moment.
+	//
+	// It used to read `totalLocks() > 0`, and that is not a liveness check: the
+	// counter is cumulative, so whatever it says was written during the storm, and
+	// the five seconds waitFor is prepared to wait cannot change it. What the two
+	// spinners actually leave behind is wherever their last iteration happened to
+	// land — the file on either document, the clock on either instant. When the
+	// last write is the brief Monday rule, or the clock stopped at Wednesday
+	// midday, no lockout window is open and the engine is obliged NOT to lock. So
+	// the loop sits there healthy, ticking, and silent, and the check records that
+	// as a dead loop.
+	//
+	// Measured at this head over 40 runs of this exact storm, asking the same
+	// question of the post-storm loop alone: 15 runs ended with a window open and
+	// all 15 got a lock inside the wait; 25 ended with the window shut and all 25
+	// got nothing for the full 5 s while the loop stayed alive. 40 of 40 decided by
+	// the ending state, no exceptions either way — the coin is loaded 25:15 against
+	// seeing a lock. The red CI run is the other half of that coin. Locally the
+	// storm banks 19 to 42 locks before it stops, which is why the cumulative check
+	// has never failed here; that run logged 45 torn reads, banked none, and then
+	// waited 5 s on a window the storm had left shut. Its own log says the loop was
+	// alive the whole time: the engine refused its 178th overlapping tick at
+	// 19:22:55 and its 191st at 19:23:00, the second the timeout was recorded.
+	//
+	// And the check is wrong in the other direction too. With both of Run's arms
+	// emptied so that no tick can ever start again, the cumulative version still
+	// passed 5 runs in 60 — a dead loop it called healthy — because whatever the
+	// storm banked is enough to answer it. Asking for one more than the storm got
+	// fails all 20 runs of that same mutant.
+	//
+	// So put the fixture back into the state where a lock is owed, then ask for one
+	// more than the storm already got.
+	before := p.totalLocks()
+	writeDoc(t, path, kidDoc())
+	clock.Set(refInside)
+	waitFor(t, "the loop to still be ticking", func() bool { return p.totalLocks() > before })
 }
 
 func TestTryTickRefusesWhileATickIsInFlight(t *testing.T) {
