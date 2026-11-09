@@ -231,17 +231,19 @@ IOSchedulingPriority=7
 ```
 
 **The two deadlines were one number until 8 Nov, and it took the queue offline for 1 h 07 min.**
-`OnUnitInactiveSec=` is the setting that keeps passes from stacking, and it is also the only thing that
-re-arms the queue -- so "this unit becomes inactive" is the one event the whole loop waits on. A pass
-that evening printed `END rc=4 ticks_started=1` and its main process exited at 22:18:51Z, but the unit
-never went inactive: something the tick had run left a Wine grandchild (`C:\windows\system32\winedevice.exe`)
-in the unit's cgroup, `KillMode=control-group` will not call the cgroup empty while one descendant
-lives, and systemd waits out `TimeoutStopSec` -- then 5460 s -- before escalating to `SIGKILL`. For
-91 minutes the unit sat at `ActiveState=deactivating SubState=stop-sigterm MainPID=0 TasksCurrent=10`,
-the timer sat at `ActiveState=active SubState=running` with an **empty** `TriggerNextElapseUSecRealtime`
-and a `-` in `list-timers`' next-fire column, and the journal held nothing after 22:18. Every command
-that reads as health read as healthy. `systemctl --user kill -s KILL <unit>` at 23:06:55Z re-armed the
-timer immediately.
+`OnUnitInactiveSec=` is the setting that keeps passes from stacking, and it is the one that re-arms the
+queue after a pass -- so "this unit becomes inactive" is the event the whole loop waits on. (The timer's
+other anchor, `OnStartupSec=`, fires once per manager start, which is why it rescued nothing here: this
+manager had been up since long before the pass.) A pass that evening printed `END rc=4 ticks_started=1`
+and its main process exited at 22:18:51Z, but the unit never went inactive: something the tick had run
+left a Wine grandchild (`C:\windows\system32\winedevice.exe`) in the unit's cgroup,
+`KillMode=control-group` will not call the cgroup empty while one descendant lives, and systemd waits
+out `TimeoutStopSec` -- then 5460 s -- before escalating to `SIGKILL`. For 91 minutes the unit sat at
+`ActiveState=deactivating SubState=stop-sigterm MainPID=0 TasksCurrent=10`, the timer sat at
+`ActiveState=active SubState=running` with an **empty** `TriggerNextElapseUSecRealtime` and a `-` in
+`list-timers`' next-fire column, and the journal held nothing after 22:18. Every command that reads as
+health read as healthy. `systemctl --user kill -s KILL <unit>` at 23:06:55Z re-armed the timer
+immediately.
 
 A descendant that ignores `SIGTERM` is not hypothetical and is not a Windows curiosity -- anything a
 tick runs can leak one, and the harness cannot enumerate them, so the answer is a bounded stop rather
@@ -260,6 +262,14 @@ than a smarter kill. Three things travel with that:
 - After an escalated kill the unit ends `failed` -- `Result=exit-code`, from whatever the pass returned
   -- which does not stop the timer firing, but makes `systemctl --user status` read like an outage long
   after the queue recovered. Clear it with `systemctl --user reset-failed parental-lockout-factory.service`.
+
+Two things are still owed, and neither is a tick's to do. The reinstall that puts 60 s on a machine --
+`factory/install-timer.sh --install`, which has to restart a timer that is already running (H-0037) --
+is a manager write, and a manager call is denied to an unattended unit. And the reaping itself has not
+been measured on this box: the `systemd-run` pair that would show 5 s reaping a live detached
+descendant, against 5460 s not reaping it, is written out on the issue's pull request. Until somebody
+runs it, "60 s is enough to reap a process group" is a reading of how `SIGKILL` behaves, not a
+measurement taken here.
 
 No `After=`/`Wants=network-online.target`. That target does not exist in a user manager --
 `systemctl --user status network-online.target` answers `Unit network-online.target could not be
