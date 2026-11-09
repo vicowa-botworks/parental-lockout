@@ -1924,6 +1924,106 @@ streak_reset_wired() {
 }
 streak_reset_wired
 
+# ------------------------------------------------------------- the mirror's other half: the bytes
+#
+# `#250`'s mirror is rendered out of the stash, and for a binary path that rendering declines by
+# default: `git stash show -p` prints `Binary files a/shot.png and b/shot.png differ` and no payload,
+# so the mirror is 45 bytes of refusal, the `[ ! -s ]` guard passes, the tree is cleaned, and the
+# journal advertises `mirror=<absolute path>` that restores nothing. The legs above count paths and so
+# cannot see it -- they plant text. These plant bytes and ask the only question that matters: does the
+# mirror, applied to a fresh clone of the base, put the original digests back?
+q_mkbin_repo() { # where -> a throwaway repo holding one committed binary and one committed text file
+	local d="$work/binrepo-$1"
+	mkdir -p "$d"
+	git init -q "$d"
+	git -C "$d" config user.email selftest@invalid
+	git -C "$d" config user.name selftest
+	printf 'SHOT\210\000\001\002OLD\000\377\n' >"$d/shot.png"
+	printf 'before\n' >"$d/notes.md"
+	git -C "$d" add -A
+	git -C "$d" commit -qm 'the committed capture'
+	printf '%s\n' "$d"
+}
+
+q_stash_of() { # -> the stash the newest TREE-QUARANTINED journal line names, empty when it names none
+	local line=""
+	line=$(grep -F 'TREE-QUARANTINED' "$FACTORY_LOG/supervisor.log" 2>/dev/null | tail -n 1) || true
+	printf '%s\n' "$line" | sed -n 's/.*stash=\([^ ]*\).*/\1/p'
+}
+
+mirror_carries_its_binary() { # where -> apply the shipped mirror to a fresh clone and compare digests
+	local where=$1 label bad="" rc=0 qout="" d="" clone="" want_a="" want_b="" want_c="" m="" s=""
+	label="the mirror carries its binary ($where)"
+	d=$(q_mkbin_repo "$where")
+	# The unit ledger, not just the tree: the streak legs above leave `selftest` armed at 1 on purpose,
+	# and a quarantine that inherits that count halts on its first accident -- which is the new arm
+	# working, but is not what this leg is asking about.
+	factory_ledger_clear selftest quarantine-count
+	factory_ledger_clear selftest halt-notice
+	mkdir -p "$FACTORY_LOG"
+	: >"$FACTORY_LOG/supervisor.log"
+	printf 'SHOT\210\000\001\002NEW\000\377\376\n' >"$d/shot.png"
+	printf 'SHOT\210\000\001\002ORPHAN\000\n' >"$d/orphan.png"
+	printf 'after\n' >>"$d/notes.md"
+	want_a=$(sha256sum "$d/shot.png" | cut -d' ' -f1)
+	want_b=$(sha256sum "$d/orphan.png" | cut -d' ' -f1)
+	want_c=$(sha256sum "$d/notes.md" | cut -d' ' -f1)
+
+	rc=0
+	qout=$(factory_tree_stop TICK-HALTED selftest "$d" 2>&1) || rc=$?
+	[ "$rc" = 0 ] || bad="the unit was stopped (exit $rc): $(printf '%s' "$qout" | tr '\n' ' ' | cut -c1-300)"
+	m=$(q_mirror_of)
+	s=$(q_stash_of)
+	[ -n "$m" ] && [ -s "$m" ] || bad="${bad:+$bad; }the journal named no usable mirror"
+
+	# The mirror must contain the payload, and the text edit in the same tree has to survive with it:
+	# `git apply` refuses a whole patch when one binary hunk has no header, so a mirror that carries
+	# only the sentence takes the notes.md edit down with it.
+	if [ -n "$m" ]; then
+		grep -q 'GIT binary patch' "$m" ||
+			bad="${bad:+$bad; }the mirror has no `GIT binary patch` block -- it is the rendering that declines"
+		grep -q 'Binary files' "$m" &&
+			bad="${bad:+$bad; }the mirror carries the sentence git prints instead of the bytes"
+		clone="$work/binclone-$where"
+		if git clone -q "$d" "$clone" 2>/dev/null && (cd "$clone" && git apply "$m" 2>/dev/null); then
+			[ "$(sha256sum "$clone/shot.png" | cut -d' ' -f1)" = "$want_a" ] ||
+				bad="${bad:+$bad; }applying the mirror did not restore shot.png byte for byte"
+			[ "$(sha256sum "$clone/orphan.png" | cut -d' ' -f1)" = "$want_b" ] ||
+				bad="${bad:+$bad; }applying the mirror did not restore the untracked orphan.png"
+			[ "$(sha256sum "$clone/notes.md" | cut -d' ' -f1)" = "$want_c" ] ||
+				bad="${bad:+$bad; }applying the mirror did not restore the text edit"
+		else
+			bad="${bad:+$bad; }the mirror would not apply to a fresh clone of the base at all"
+		fi
+		# The opposite polarity, measured off the same stash rather than argued: the rendering without
+		# `--binary` is non-empty AND unusable, which is the pair the size guard cannot tell apart. An
+		# assertion that cannot say "refused" here is an assertion that never applied anything.
+		if [ -n "$s" ] && git -C "$d" stash show -p --include-untracked "$s" >"$work/nobin-$where.patch" 2>/dev/null; then
+			[ -s "$work/nobin-$where.patch" ] || bad="${bad:+$bad; }control: the flagless rendering was empty, so nothing here isolates the flag"
+			clone="$work/binclone2-$where"
+			if git clone -q "$d" "$clone" 2>/dev/null && (cd "$clone" && git apply "$work/nobin-$where.patch" 2>/dev/null); then
+				bad="${bad:+$bad; }control: the flagless mirror applied, so the ok above does not rest on the flag"
+			else
+				printf '        control: the same stash rendered without --binary is a non-empty patch that\n'
+				printf '        `git apply` refuses outright -- which is what the size guard could not see.\n'
+			fi
+		else
+			bad="${bad:+$bad; }control: the stash could not be re-rendered, so the flagless arm never ran"
+		fi
+	fi
+
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "$label" "$bad"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-34s mirror applies to a fresh clone; all three digests match\n' "$label"
+	return 0
+}
+
+mirror_carries_its_binary capture
+
 # ---------------------------------------------------------------- the notice a halt never sent
 #
 # `factory_maybe_notice` is the only thing in the harness that speaks to a human, and it returns early

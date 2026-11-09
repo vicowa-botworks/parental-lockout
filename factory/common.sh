@@ -1266,10 +1266,18 @@ factory_tree_halt() {
 #   `git stash push -u -m <msg>` takes tracked edits *and* untracked files, leaves
 #   `git status --porcelain` empty, and its subject carries the message handed to it -- which is how
 #   the caller tells the stash on top of `refs/stash` is the one it just made and not an old one.
-#   `git stash show -p --include-untracked <sha>` renders both halves: 2 files out of 2 for a tree
-#   holding one edit plus one new file, and 1 out of 1 for a stash holding only an untracked file --
-#   the case a plain `git diff` loses entirely, which is why the mirror is rendered out of the stash
-#   and never out of the working tree.
+#   `git stash show -p --binary --include-untracked <sha>` renders both halves: 2 files out of 2 for
+#   a tree holding one edit plus one new file, and 1 out of 1 for a stash holding only an untracked
+#   file -- the case a plain `git diff` loses entirely, which is why the mirror is rendered out of the
+#   stash and never out of the working tree. `--binary` is not decoration and the size guard cannot
+#   see its absence: without it a binary path renders as the 45-byte sentence
+#   `Binary files a/shot.png and b/shot.png differ`, so the mirror is non-empty, the tree is cleaned,
+#   and the journal names a patch that
+#   restores nothing -- and `git apply` refuses the *whole* patch, text edits included, with
+#   `cannot apply binary patch … without full index line`. Measured on git 2.53.0 for a modified
+#   tracked binary and a new untracked one; with the flag both come back as `GIT binary patch` and a
+#   `git apply` into a fresh clone of the base restores them byte for byte. It matters here because
+#   `docs/screenshots/360/*.png` are committed, so a killed capture tick leaves exactly that shape.
 #
 # usage: factory_tree_quarantine UNIT TREE
 # stdout: `stash=<sha> mirror=<path>`, both belong in the journal line: a mirror nobody can locate
@@ -1357,6 +1365,10 @@ factory_tree_quarantine() {
 
 	# Mirror it, then believe it. An empty patch is a refusal, not a success: it is what a stash that
 	# held nothing renders as, and a zero-byte mirror is exactly the file that looks like a rescue.
+	# Emptiness is the necessary half and not the sufficient one -- a payload-free rendering of a binary
+	# tree is 45 bytes of git telling you it declined, which is not empty. `--binary` above is what
+	# makes the bytes actually be in the file; the leg named `the mirror carries its binary` proves it
+	# by applying the mirror to a fresh clone and comparing digests, not by counting bytes here.
 	if ! mkdir -p -- "$FACTORY_AT_RISK" 2>/dev/null; then
 		printf 'quarantine refused: %s cannot be created\n' "$FACTORY_AT_RISK" >&2
 		restore=$(factory_tree_unstash "$tree" "$sha")
@@ -1365,7 +1377,7 @@ factory_tree_quarantine() {
 	fi
 	patch="$FACTORY_AT_RISK/$(basename -- "$tree")-quarantine-$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:9}.patch"
 	tmp="$patch.tmp.$$"
-	if ! err=$(git -C "$tree" stash show -p --include-untracked "$sha" >"$tmp" 2>&1) || [ ! -s "$tmp" ]; then
+	if ! err=$(git -C "$tree" stash show -p --binary --include-untracked "$sha" >"$tmp" 2>&1) || [ ! -s "$tmp" ]; then
 		printf 'quarantine refused: no mirror could be written to %s :: %s\n' "$patch" \
 			"$(printf '%s' "$err" | tr '\n\r' '  ' | cut -c1-140)" >&2
 		rm -f -- "$tmp"
