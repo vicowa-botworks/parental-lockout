@@ -2399,3 +2399,63 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   working tree, and its tree is the pre-edit state; the measurement that decided this was taken in
   `/tmp/opencode`, not in this tree, so the rollback target is the state the decision was made
   against.
+
+## H-0088 · A leg line that names a function promises nothing, and a cost with no host is not a measurement
+
+- Question: the review's non-blocking 3 and 4 are one defect at two heights. `proc_leg` ends every ok
+  with the shell function it called, so ten sentences about what ten legs require live in the
+  pull-request body and not in the output a person reads at 3 a.m.; and the section's cost comment
+  quotes "1.8 s for twelve legs" from an unnamed host where the review's box measures 11 legs at
+  +6.1 s. Print the requirement where the name is, keep every measured number with the box it came
+  from beside it, print the sentence and keep the name on the line too, or answer on the thread and
+  change neither?
+- Options: print the requirement in place of the function name and keep every measured pair with the
+  box it came from named beside it | print the requirement and keep the function name printed on the
+  line as well | keep the name and move the sentences into each predicate's failure detail | answer
+  the review thread and change neither
+- Chose: print the requirement in place of the function name and keep every measured pair with the box
+  it came from named beside it
+- Why: measured on both halves before writing. Ten call sites, `grep -c '^proc_leg '` = 10, every one
+  now naming what it requires, and no `$*` left in the runner so a name cannot creep back. The
+  argument is positional rather than a comment or an env var because a missing argument is then
+  detectable: `proc_leg 'label' cmd` leaves `"$#" -eq 0` and the leg fails as "no command given, so
+  this leg asked nothing at all", which is the file's own vacuity rule applied to its own plumbing.
+  The name is not lost -- it is on the same source line as its sentence, and a failing predicate
+  already prints its own detail under the FAIL, so nothing became harder to trace; what was
+  untraceable was the promise. On the cost, three pairs on this box (`rodney-9950x`, btrfs,
+  `~/prj/at-risk` present with 20 entries; the two bases timed in a throwaway clone checked out at
+  each sha, since a base has to be timed in a tree holding a base's files): `450a628` 337 passed /
+  1 failed at 10.67-10.71 s, `adbe6e3` 345 / 1 at 11.45-11.54 s, this head 358 / 0 at 13.13-13.32 s
+  over six runs -- 12 legs and about +1.7 s over the main it merges into. The review's box: 337 / 0
+  at 28.8 s to 348 / 0 at 34.9 s, +6.1 s for 11 legs, its totals one leg lower on both sides. That is
+  0.14 s per leg here against 0.55 s there, four times the cost for one fixture, on a suite 2.7 times
+  slower: exactly the variable `H-0048` says decides whether a quoted number means anything, and this
+  paragraph had quoted one as a property of the code. The run-to-run spread on one tree is 0.2 s, a
+  ninth of the effect being claimed, which is why the rows above are ranges -- the old line quoted
+  12.565 s, three decimals on a quantity with a 0.2 s floor. The count is the same disease one floor
+  down: the review's "+11" was right for the branch it read and the twelfth leg is `H-0087`'s, so
+  "twelve legs" and "11 legs at +6.1 s" were both true of different trees and neither sentence said
+  which, which is how two correct counts read as a contradiction. The base's single failure is now
+  identified rather than hedged: on a host that has the box, `the mirror box is the fixture's` reads
+  the real 15:12Z rescue as this file's crime (`FAIL ... 1 quarantine patch(es) in
+  /home/rodney/prj/at-risk`), so the author's base pair reproduces on a second such box -- 337 / 1,
+  10.67 s against their 10.727 s -- and the review's 0-failed base is a fact about a host without it.
+  Both were always true; the sentence had room for neither. What lost: `%-36s` lets two labels run
+  into their requirements, because the labels are 39 to 46 characters, and a clipped column reads like
+  a badly written sentence rather than a narrow field -- wrapping each requirement to its own line
+  would double the section's output for ten lines, and that trade was taken deliberately. Deeper: the
+  requirement is prose no gate can read. `bash -n` and shellcheck cannot tell a sentence from a shell
+  word, so a future leg added with a placeholder in that column prints confident nonsense beside the
+  real ones and nothing objects; the positional guard catches a missing argument, never a meaningless
+  one. The checkpoint here, like `H-0087`'s, was taken after the edits were drafted, and its tree is
+  the pre-edit state; the measurements that decided this were taken in a clone, not in this tree.
+- Checkpoint: 0c1a6a8
+- Effect: `factory/selftest.sh` -- `proc_leg` now takes `<label> <requires> <command...>` with a guard
+  that fails a leg given no command, ten call sites each naming what they require, and the cost
+  comment rewritten as the two-host table above. Read back on this tree before this commit: `bash -n`
+  clean, `make check-shell` -> `check-shell: 0.10.0 over 28 scripts` exit 0, `bash
+  factory/selftest.sh` -> `358 passed, 0 failed`, and `python3 scripts/check-decisions.py` -> 122
+  entries, gate OK. Not in this commit: the review's non-blocking 5, the stale `(line 59)`, went in
+  with `H-0087`, and the pull-request body -- still carrying "Twelve legs for 1.8 s", "Nothing here
+  conflicts" and "four comments" -- is a status claim corrected by the next push, whose read-back
+  lives in the pull request and not here.

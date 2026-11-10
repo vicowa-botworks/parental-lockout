@@ -2447,11 +2447,35 @@ notice_legs
 # and one of them contradicts #263's own account of the blast radius -- said there, not here, so the
 # sentence is next to the number.
 #
-# What it costs: this is the first leg in the file to run the loop, so it pays for a fetch, three
-# `git worktree add`, and a supervisor process per activation. Seven activations and three mutants
-# together, two timed runs each on this box: `bash factory/selftest.sh` answers 10.727 s / 10.438 s at
-# 450a628 (337 passed, 1 failed) and 12.565 s / 12.476 s with this section (349 passed, 0 failed) --
-# 1.8 s for twelve legs. Where the section
+# What it costs, and on which machine it costs it. This is the first leg in the file to run the loop,
+# so it pays for a fetch, three `git worktree add`, and a supervisor process per activation -- seven
+# activations and three mutants, two timed runs each. Every number below is a whole `bash
+# selftest.sh`, on the host named beside it, because the one variable that decides whether a quoted
+# cost means anything is the box it was taken on (H-0048's rule, and this paragraph is the case it was
+# written for):
+#
+#   rodney-9950x, btrfs, ~/prj/at-risk present with 20 entries -- measured 10 Nov. The two base rows
+#     were timed in a throwaway clone checked out at each sha (a base has to be timed in a tree that
+#     holds a base's files, and this worktree holds none of them); the head row is this checkout:
+#       450a628 (the section's base) . 337 passed, 1 failed ... 10.67-10.71 s
+#       adbe6e3 (origin/main) ........ 345 passed, 1 failed ... 11.45-11.54 s
+#       this head .................... 358 passed, 0 failed ... 13.13-13.32 s, six runs
+#     The section is therefore 12 legs and about +1.7 s over the main it merges into -- and the
+#     spread between two runs of the same tree is 0.2 s here, a ninth of the effect being claimed, so
+#     these are ranges on purpose: a difference quoted to three decimals is a difference nobody
+#     measured. The one failure at both bases is `the mirror box is the fixture's` reading the real
+#     15:12Z rescue as this file's crime -- the leg `H-0081` exists to fix, and it can only fail on a
+#     host that has the box.
+#   the #264 reviewer's host, btrfs, no ~/prj/at-risk (one run each side, not two):
+#       450a628 ......... 337 passed, 0 failed ... 28.8 s
+#       that branch tip . 348 passed, 0 failed ... 34.9 s   (+6.1 s for 11 legs)
+#       its base read 0 failed where the red leg above has nothing to be red about, and its totals
+#       sit one leg below this box's on both sides -- the same fs-dependent split #238 and #257
+#       recorded on other legs.
+#
+# Twelve legs at 0.14 s each here, 0.55 s each there: four times the cost for the same fixture, on top
+# of a whole-suite run 2.7 times slower. Neither pair is the other's and neither is wrong, so the
+# sentence that quotes one has to say which. Where the section
 # came from: the tick before this one wrote it in 16 minutes and was stopped at its ceiling with the
 # file still uncommitted, and `factory_tree_quarantine` mirrored it to
 # `~/prj/at-risk/issue-263-quarantine-20261110T151215Z-2008e6100.patch` at 15:12:15Z; this is that file,
@@ -2694,15 +2718,27 @@ proc_journal_line() { # <journal> <needle> -> the first line carrying needle, em
 }
 
 # The legs. Each one asks about the shipped run: fixture `shipped`, activation 1 with unit A dirty.
-proc_leg() { # proc_leg <label> command...
-	local label=$1
-	shift
+#
+# A leg prints what it REQUIRES, not the name of the function that asked. The first version printed
+# `$*`, so every one of these lines ended in `proc_did_run` and the sentences lived only in the pull
+# request -- the wrong artifact for the thing a person reads at 3 a.m., which is this output. A name
+# says a function ran; it does not say two units had to be ticked. The name is still one line above
+# every sentence in the source, and a failing predicate prints its own detail under the FAIL line, so
+# nothing became harder to find; what was impossible to find from the log was the promise.
+proc_leg() { # proc_leg <label> <requires> command...
+	local label=$1 requires=$2
+	shift 2
+	if [ "$#" -eq 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-36s %s\n' "$label" 'no command given, so this leg asked nothing at all'
+		return 0
+	fi
 	if "$@"; then
 		pass=$((pass + 1))
-		printf '  ok    %-40s %s\n' "$label" "$*"
+		printf '  ok    %-36s %s\n' "$label" "$requires"
 	else
 		fail=$((fail + 1))
-		printf '  FAIL  %-40s %s\n' "$label" "$*"
+		printf '  FAIL  %-36s %s\n' "$label" "$requires"
 	fi
 	return 0
 }
@@ -2762,7 +2798,7 @@ proc_did_run() {
 	}
 	return 0
 }
-proc_leg 'the pass runs, over two units' proc_did_run
+proc_leg 'the pass runs, over two units' 'two units dispatched, one session opened for each' proc_did_run
 
 proc_quarantined_and_mirrored() {
 	local line mirror
@@ -2812,7 +2848,7 @@ proc_quarantined_and_mirrored() {
 	fi
 	return 0
 }
-proc_leg 'quarantines A, mirrors both paths' proc_quarantined_and_mirrored
+proc_leg 'quarantines A, mirrors both paths' 'A at attempt=1, both paths named, the mirror on disk' proc_quarantined_and_mirrored
 
 proc_no_halt() {
 	[ ! -e "$proc_halt" ] || {
@@ -2829,7 +2865,7 @@ proc_no_halt() {
 	fi
 	return 0
 }
-proc_leg '…and leaves no halt file' proc_no_halt
+proc_leg '…and leaves no halt file' 'no halt marker, and no TICK-HALTED line either' proc_no_halt
 
 # The clause #262's acceptance leg has been carrying unpinned since it was written: "still starts a
 # tick for unit B". Two observables, because the journal line alone is #263's text scan one level up --
@@ -2863,7 +2899,7 @@ proc_ticked_b() {
 	}
 	return 0
 }
-proc_leg '…then starts a tick for unit B' proc_ticked_b
+proc_leg '…then starts a tick for unit B' 'B ticked after the quarantine, with a session for it' proc_ticked_b
 
 # The other half of "the pass continued", and the half #263 did not ask for. A first quarantine
 # returns 0 -- the tree is mirrored and clean, so the unit whose tree was rescued gets its turn in the
@@ -2882,7 +2918,7 @@ proc_quarantined_unit_got_its_turn() {
 	}
 	return 0
 }
-proc_leg '…and gives the rescued unit its turn' proc_quarantined_unit_got_its_turn
+proc_leg '…and gives the rescued unit its turn' 'A ticked again, after its own quarantine' proc_quarantined_unit_got_its_turn
 
 # A quarantine that survives its own activation and then freezes the queue tomorrow is the same outage
 # wearing a delay, so the second activation is part of the claim rather than a bonus. Its tree is clean
@@ -2917,7 +2953,7 @@ proc_next_activation_runs() {
 	fi
 	return 0
 }
-proc_leg 'the next activation still works' proc_next_activation_runs
+proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
 
 # An observation this section did not go looking for, and prints rather than asserts, because a process
 # leg reads journals and a text scan never would have noticed it. Unit B's tree is cut by
@@ -3002,7 +3038,7 @@ proc_halt_freezes() {
 	}
 	return 0
 }
-proc_leg 'control: the halt restored freezes it' proc_halt_freezes
+proc_leg 'control: the halt restored freezes it' 'exit 8, marker on disk, next run reports it, no tick' proc_halt_freezes
 
 # What the halting pass itself did with unit B, printed rather than asserted, because it is the
 # sentence #263 gets wrong and a reader should see the number next to the claim: the dispatcher
@@ -3053,7 +3089,7 @@ proc_costs_its_own_unit_its_turn() {
 	}
 	return 0
 }
-proc_leg 'control: a false failure costs its turn' proc_costs_its_own_unit_its_turn
+proc_leg 'control: a false failure costs its turn' 'B ticked, A quarantined, A got no tick' proc_costs_its_own_unit_its_turn
 
 # Its blast radius too, measured rather than repeated from the issue: with the halt file never written,
 # the dispatcher's `case $rc_tick` absorbs the failure and unit B is reached. So this mutant costs one
@@ -3122,7 +3158,7 @@ proc_failed_tick_alive() {
 	}
 	return 0
 }
-proc_leg 'a failed tick spends its unit, not the pass' proc_failed_tick_alive
+proc_leg 'a failed tick spends its unit, not the pass' "A's session exits 1, and B still gets its TICK-START" proc_failed_tick_alive
 
 proc_new unguarded-dispatch
 proc_mutate_factory \
@@ -3162,7 +3198,7 @@ proc_guard_is_the_difference() {
 	}
 	return 0
 }
-proc_leg 'control: the guard off, and B is never reached' proc_guard_is_the_difference
+proc_leg 'control: the guard off, and B is never reached' 'the same fixture without the guard: B is never reached' proc_guard_is_the_difference
 
 printf '        note: the third control is the one #263 described. Its journal ends at A (exit %s),\n' "$proc_rc"
 printf '        while the shipped dispatcher reaches B with the same failing session. So the property\n'
