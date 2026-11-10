@@ -114,6 +114,9 @@ agent runs, and a shape it cannot analyze is fatal instead of merely unmatched. 
 fix push until the reviewer re-reviews. Compare the review's `submitted_at` with the head commit's
 `committer.date`; whichever is newer decides whether there is anything to answer.
 
+The same read is owed a second time *after* you push, and Step 5 says why: the push can spend the
+approval the pull request already had, and nothing about the push itself reports that it did.
+
 ## Step 2 — the gate is the deliverable
 
 `make verify` before you push, in your worktree, and quote its last line (`verify: OK`) in your
@@ -296,6 +299,52 @@ What you owe the review is the rest of it: a body that says what changed and quo
 instruction that made the work non-obvious. The four pull requests that once sat in `REVIEW_REQUIRED`
 for three days with an empty reviewer list are why the queue asks on its own now; a tick that
 rediscovers that fact is a tick spending its ceiling on a command that cannot succeed.
+
+### The push may have spent the approval. Read the review state back.
+
+Step 1's read is not the last one. A push into a pull request that already has a review voids the
+approvals on it -- this repository does not carry a stale approval across a new head -- and it does it
+without touching either command's exit status. Measured 10 Nov on #269, over one conflict-resolution
+push (`c149fe9..ec74cf5`, a fast-forward, no force) and nothing else:
+
+```
+before  reviewDecision=APPROVED        hermesvicowa APPROVED   row at c149fe9
+after   reviewDecision=REVIEW_REQUIRED hermesvicowa DISMISSED  the same row, same commit
+```
+
+A conflicting branch cannot be moved any other way here: squash and rebase merge are both disabled,
+force-push is denied to you, and reverting the base is not an operation. So every tick that clears a
+conflict on a branch that already has a review pays a re-review, and that is fine. What is not fine is
+learning it from the supervisor's `BLOCKED` an hour later, with a body on the pull request claiming the
+unit is ready.
+
+So after the push, and before the hand-off, ask the same question again -- its own call, in the shape
+Step 1 requires:
+
+```bash
+gh pr view "$PR" --json reviewDecision,reviews,mergeable,mergeStateStatus
+```
+
+No `--jq` on this one. `reviews` is an array of objects, #270 measures what a projection program costs
+a tick on gh 2.46.0, and the `state` field is one glance at the rows.
+
+When a row that read `APPROVED` or `CHANGES_REQUESTED` now reads `DISMISSED`, one line goes on the pull
+request: who, the commit that review was filed against, and that `mergeStateStatus` reads `BLOCKED`
+until a reviewer is asked again. If the pull request already exists, the body is rewritten with
+`gh issue edit "$PR" --body-file <file>` -- `gh pr edit` fails on this account's retired
+`projectCards` field while looking like it worked, the same failure as `--add-reviewer` above -- and
+the read-back after a body write is the sentence being there, not the call returning. Do not ask the
+reviewer yourself -- that stays the supervisor's path, above. Say in the body that the dismissal happened and
+that nobody has been re-asked yet, and leave `NEXT:` in the hand-off saying the same, because a tick
+that reports `verify: OK` beside a `REVIEW_REQUIRED` it never mentions has written exactly the claim
+Step 1 exists to prevent.
+
+The trap in that line's wording: a review row's `submittedAt` is when the review was submitted, never
+when it was dismissed. #269's dismissed row still carries the approval's own stamp,
+`2026-11-10T18:23:50Z`, so a dismissal dated from that field lands twenty minutes *before* the push
+that caused it. There is no dismissal timestamp in any read available to a tick, so the honest sentence
+names the push rather than the moment the approval died. `docs/factory.md` carries what the queue does
+with a dismissal and how long the silence after one lasts.
 
 ## Before the ceiling: push, even if you are not finished
 

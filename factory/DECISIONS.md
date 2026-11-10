@@ -2797,3 +2797,58 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   free id above it was 93. Aimed at the main checkout, where no draft exists, the same command still
   answers `H-0092`, and the ref union's own ceiling is `H-0091` (PR #269's). Nothing was renumbered and
   nothing collided; a later tick that re-reads after writing its own entry is reading itself.
+
+## H-0095 · The read-back is owed after the push, because the push is what spends the approval
+
+- Question: what does a tick owe a pull request whose approval its own push has just voided?
+  Step 1 says read the review state before any claim about a pull request, and Step 5 says push and
+  open or update the pull request -- and stops. A tick that follows that text exactly delivers a body
+  quoting `verify: OK` while `reviewDecision` has moved underneath it.
+- Options: nothing new, since Step 1's pre-flight read already covers "read before you claim" |
+  re-read the review state after the push and name the dismissal in the pull request, in `SKILL.md`
+  only | re-read and additionally let the tick re-ask the reviewer | re-read and have the supervisor
+  rewrite the body on the tick's behalf when it sees the flip | write no rule and leave a comment
+  beside Step 5
+- Chose: re-read the review state after the push and name the dismissal in the pull request, in
+  `SKILL.md` only
+- Why: the first option is the bug, and it is measured rather than argued. Read back at this commit,
+  live: `gh pr view 269 --json reviewDecision,reviews,reviewRequests` answers `REVIEW_REQUIRED`, one
+  row -- `hermesvicowa`, `state: DISMISSED`, `commit.oid: c149fe9`, `submittedAt
+  2026-11-10T18:23:50Z` -- and `reviewRequests: []`, with the head at `ec74cf5`. The only thing that
+  happened between the approval and that row is the push that cleared `mergeable=CONFLICTING`, and
+  there is no way to clear one without a push here: squash and rebase merge are both disabled,
+  force-push is denied to a tick, and reverting the base is not an operation. So the state is
+  reachable by every conflict-resolution tick and invisible to the instructions that govern one.
+  Handing the re-ask to the tick (option three) is the move this harness has already refused twice:
+  every `gh pr review` shape is in the deny list a tick runs under, and `gh pr edit --add-reviewer` is
+  measured failing on this account with only a `Projects (classic)` line on stderr while
+  `/requested_reviewers` stays empty (`D-0010`) -- a verb that looks like it worked is precisely how
+  "nobody ever asked" came back once. Option four puts a second writer on a document the tick owns: the supervisor cannot know
+  which claims in that body the dismissal invalidates, and the pull-request body is the review's
+  input. Neither adds a dependency or touches the daemon, so the cheap tie-breaks do not separate
+  them; what separates them is that the chosen one makes the tick *report the state it cannot fix*
+  rather than proceed as though it could, and it is the one that touches the fewest files -- the
+  supervisor's other half of this finding is `H-0096`, in its own commit, because it is a different
+  file with a different blast radius. The bare comment (option five) is what this repository does not
+  have, on the reasoning already in `Makefile`'s note above `verify:`: a rule nobody can watch go red
+  is a suggestion, which is why `H-0096`'s legs read both documents.
+- Checkpoint: f5dab5b
+- Effect: `.opencode/skills/factory/SKILL.md`. Step 1 gains the pointer -- the same read is owed again
+  after the push -- so the pre-flight paragraph no longer reads as the whole obligation. Step 5 gains
+  "The push may have spent the approval. Read the review state back.", carrying: the two read-backs
+  above with the push that separates them, the read spelled as its own call
+  (`gh pr view "$PR" --json reviewDecision,reviews,mergeable,mergeStateStatus`) with no `--jq` and
+  #270 named as the reason, the one-line disclosure (who, which commit, and that `mergeStateStatus`
+  reads `BLOCKED` until a reviewer is asked again), the body-rewrite verb -- `gh issue edit "$PR"
+  --body-file`, because `gh pr edit` dies on `projectCards` while looking fine -- with the rule that
+  the read-back is the sentence being there and not the call returning, and the timestamp trap: a
+  dismissed row's `submittedAt` is the approval's own stamp, so a dismissal dated from #269's row
+  lands twenty minutes *before* the push that caused it.
+  What lost: the tick still cannot re-ask, so between its push and the next activation the unit is
+  genuinely unserviced, and the body has to say so rather than imply otherwise -- #241 wants the poke
+  widened from one reviewer to the team and is not this entry's to settle. The disclosure is prose
+  with a leg behind it for the *sentence in the file*, not for the sentence in any one pull request:
+  nothing here can force a tick to write the line, only catch the day the instruction that tells it to
+  is deleted. And `mergeStateStatus` was `UNKNOWN` rather than `BLOCKED` on the read that refreshed
+  this entry, because GitHub recomputes it after a push, so what the instruction hands over is the
+  field to read, not the word it will return.
