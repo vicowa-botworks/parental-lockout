@@ -4855,12 +4855,21 @@ alloc_reads_its_repo() { # <label> <fixture> <expected id> <what an ok proves>
 # pins both halves -- who yields, and the force-push that is the reason that side is the correct one --
 # because the sentence without its reason gets re-derived by the next collision, which is the defect
 # #253 opened with.
+#
+# Both halves are pinned as whole phrases, not as words. `grep -qF 'force-push'` over this file is
+# "the word appears somewhere in 842 lines": there is one occurrence today, so the two-plant control
+# passes honestly, but a second unrelated mention -- a paragraph about rebase policy, a note in a
+# changelog -- would satisfy the reason half from anywhere in the document and the leg would go on
+# printing ok while reading a different sentence. The pinned string is the clause, so a mention that
+# is not the reason cannot clear it. Scoping both greps to the yield section would be tighter still;
+# it costs a section walker, and the clause is the cheaper half of the same guarantee.
 alloc_yield_rule() { # [root] -> 0 when the guide states who yields and what makes it correct
 	local root=$HERE/.. guide
 	[ -z "${1:-}" ] || root=$1
 	guide=$root/docs/factory.md
 	[ -f "$guide" ] || return 2
-	grep -qF 'side that has not merged yields' "$guide" && grep -qF 'force-push' "$guide"
+	grep -qF 'side that has not merged yields' "$guide" &&
+		grep -qF 'force-push, denied to every agent here' "$guide"
 }
 
 # Two plants, one per half, in the layout the predicate walks. A plant that removes nothing certifies
@@ -4875,7 +4884,7 @@ alloc_yield_control() {
 	fi
 	if ! grep -vF 'side that has not merged yields' "$HERE/../docs/factory.md" \
 		>"$ctrl/rules/docs/factory.md" ||
-		! grep -vF 'force-push' "$HERE/../docs/factory.md" \
+		! grep -vF 'force-push, denied to every agent here' "$HERE/../docs/factory.md" \
 			>"$ctrl/reasons/docs/factory.md"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the control copies could not be written\n' \
@@ -4889,7 +4898,7 @@ alloc_yield_control() {
 		printf '          leg above was never aimed at the sentence it names.\n'
 		return 0
 	fi
-	if grep -qF 'force-push' "$ctrl/reasons/docs/factory.md"; then
+	if grep -qF 'force-push, denied to every agent here' "$ctrl/reasons/docs/factory.md"; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the plant left the reason in place, so the\n' \
 			'control: the yield rule, rule and reason'
