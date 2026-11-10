@@ -2546,3 +2546,76 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   re-read before this entry was written rather than inherited -- #240's body at `2026-11-08T19:21:48Z`, 15671 bytes,
   containing `twelve of thirteen` twice and `any one visible channel` and none of the five retracted citations, and the
   thread's third comment at `2026-11-08T19:18:23Z`. (one more line this field owes: this entry was written as `D-0050` on `issue-199` and yields that number to the `D-0050` #245 published, because a merged entry's id is already cited by the history that carried it; the collision is recorded here rather than in a new `Id:` field so the field set `scripts/check-decisions.py` recognises stays the five it declares plus `Awaiting` and `Effect`)
+
+## D-0052 · the session census becomes a condition the fixture declares and the driver checks, taken from the product rather than recounted
+
+- Question: `lock.png` and `testlock.png` are the only two frames here that photograph a live session
+  census, and nothing anywhere said what that census was. `testing/capture/README.md` describes both as
+  taken "on an account with one session" and quotes `rows=1 cells=3`, height 1142 px; the committed bytes
+  are a **two**-session page, `360x1536` and `360x1311`, and have been since `3bcbfdd` on 8 Nov. Measured
+  10 Nov on the machine those frames were last taken: eight fresh runs — both fixtures, twice each, under
+  the host's own zone and under `TZ=Asia/Kolkata`, plus a third pair — gave `df49958928685fa0…` and
+  `d285d1cd0d0389b6…`, every one byte-identical to the committed file, with `rows=2 cells=6` and
+  `tables=2 backendRows=1 cells=8`. So the reproduction #213 asked for holds and the pixels did not need
+  re-taking; what is wrong is the record of the state that produced them, and no gate could have noticed,
+  because the census was never a declared condition. Where does it get declared, given that a fixture
+  which stubs the census would photograph a fiction and the product's own predicate must not be copied?
+- Options: hand the two POST fixtures `testing/capture/bin/loginctl`, the stub that makes the five GET
+  frames machine-independent | count lockable sessions in the fixture by re-implementing `isLockable` in
+  shell over `loginctl list-sessions` plus one `show-session` per row | ask the product —
+  `plock status --json`, whose per-session `lockable` field *is* `internal/platform`'s predicate — and
+  declare what it answers | leave the census in prose and only correct the README
+- Chose: ask the product — `plock status --json`, whose per-session `lockable` field *is*
+  `internal/platform`'s predicate — and declare what it answers
+- Why: option one is refused by the fixture's own note — `fixture.sh` says of the stub that "a stubbed
+  census would photograph a fiction", and these two pages are evidence about *this* machine's logins, so
+  pinning them to the stub's one `x11` row would buy reproducibility by destroying the subject. Option
+  two buys the right number for the wrong price: `isLockable` is five clauses
+  (`internal/platform/platform.go:241-258`) and a second copy in shell is #211's shape one layer down — a
+  count that disagrees with the page is exactly the bug being guarded, and a re-implementation is how you
+  get one without noticing. Option four is the state that produced the defect: the census lived in a
+  README row, the row went stale at `b9eeec3` and again at `3bcbfdd`, and every gate stayed green through
+  both because a paragraph cannot disagree with anything. Say what option three gives up. The census is a
+  *host* condition, so declaring it says out loud that a re-take on a machine with another census
+  produces another page: the frames become less portable, not more, and that is the honest version of
+  what they already were. It also means the guard has to refuse rather than re-date — `manifest.py record`
+  would otherwise stamp a new `sources_rev` over a frame whose census moved underneath it, which is #222's
+  failure with the manifest's own authority behind it. Where the ticket named the session bus
+  (`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`) as what the census is taken through, measurement
+  disagrees and the recorded condition follows the measurement: `env -u DBUS_SESSION_BUS_ADDRESS
+  -u XDG_RUNTIME_DIR loginctl list-sessions --json=short` exits 0 with the census intact, while
+  `DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent/bus` gives exit 1 and `Failed to connect to system
+  scope bus via local transport`, and through `plock status --json` the same broken bus returns
+  `"sessions": []` **with a `warnings` entry**. So the census rides the system bus; recording the session
+  pair as a condition would be `PLOCK_CAPTURE_SCRIPTS` all over again — a field that looks like it governs
+  the artifact and governs nothing — and what `fixture.env` records instead is the loginctl that was
+  resolved, the uid the census was taken as, and `DBUS_SYSTEM_BUS_ADDRESS` when the operator set one. The
+  empty list with a warning is also the only clean answer to "what if the census cannot be taken": an
+  unreadable census and a census of zero are different claims, and the warning tells them apart instead of
+  the fixture guessing from emptiness.
+- Checkpoint: cff128e5b08e0b117f6c9ad36f021107973d5eb4
+- Effect: `testing/capture/fixture.sh` (`PLOCK_CAPTURE_SESSIONS`, `capture_declare_census`, the three
+  census-provenance keys written into `fixture.env`, and the census named in `capture_done`'s summary),
+  `testing/capture/post-fixture.sh` (it asks the machine unless the operator declared a number, and the
+  block that quoted `b59bb2be…`/`acc5ba4d…` as "equal to the committed files" now carries the blob-by-commit
+  table showing those were not), `testing/capture/cdp.py` (`Capture.declared_sessions`,
+  `session_census`, `require_declared_sessions`, and the census said out loud beside the scripts line),
+  `testing/capture/lock.py` and `testing/capture/testlock.py` (both call the check before the write and
+  print `census=2/2`; both docstrings corrected), `testing/capture/manifest.py` (`sessions` in
+  `CONDITION_KEYS`, a `check` arm for a census that is not a count, and two new arms inside the existing
+  condition rule — the rule count stays 42), `testing/capture/pages.py` (one new rule, 69 → 70), and
+  `testing/capture/README.md` with `docs/screenshots/360/manifest.json`. What did NOT move: the two PNGs,
+  `df499589…` and `d285d1cd…`, byte-identical before and after this branch, and the seven other manifest
+  entries' `sources_rev`. Measured read-backs this field rests on, each run after the code it describes:
+  the default arms of both fixtures reproduced the committed bytes with `census=2/2`; the negative control
+  `PLOCK_CAPTURE_SESSIONS=1 ./lock-setup.sh && ./lock.py` exited 1 with `the page renders 2 lockable
+  session row(s) and the fixture declared 1`, `no file was written`, nothing left staged, and the
+  committed `lock.png` unchanged at `df499589…`; `PLOCK_CAPTURE_SESSIONS=3` against the probe page exited 1
+  naming 2 and 3, which is the arm that proves the backend table is not counted; the broken system bus
+  refused in the setup script quoting loginctl's own sentence; `pages.py --self-test` 70/70 and
+  `manifest.py --self-test` 42/42; `manifest.py check` passes with `sessions` on both POST entries. (one
+  more line this field owes: the census refusal was first run against a `capture_declare_census` whose
+  argument array had been edited away, so the default arm failed with `plock` printing its own usage and
+  the *driver's* missing-key refusal firing on a stale `fixture.env` — a green-looking "census undeclared"
+  about a fixture that had simply died early. The fix is one line and the lesson is #1180's: a refusal
+  observed before the thing it guards was reachable is not a control that fired)
