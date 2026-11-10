@@ -2267,3 +2267,59 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   is proven against synthetic lists in the control rather than by moving real work, and that limit is
   stated here rather than left implied: what is verified live is that this suite's own writes land in
   `$FACTORY_AT_RISK`, and that the box is the same set of paths at the end of a run as at its start.
+
+## H-0091 · The out-of-order refusal prints the predecessor it read, not one it rebuilt
+
+- Question: what name does an out-of-order refusal print for the entry before the offending one?
+  `check()` carried only the number (`prev_num`) and the formatter re-attached a prefix by writing
+  `"D-%04d" % prev_num`, so the harness log could only ever be told a `D-` name. Measured 10 Nov in
+  `/home/rodney/prj/wt/issue-263` while resolving PR #264's `factory/DECISIONS.md` conflict: both
+  sides appended at the same offset, git's layout put `H-0079` after `H-0082`, and the gate said
+  `factory/DECISIONS.md:2159: H-0079 is out of order (D-0082 came before it)`. `D-0082` exists in
+  neither log -- `DECISIONS.md` carries 39 entries and stops at `D-0052` -- so the one sentence a
+  person reads while `make verify` is red sent them to grep for an entry that is not there. The
+  location, the verdict and the exit status were all correct; only the citation was invented.
+- Options: carry the previous entry's id string in the loop and print it as parsed | re-derive the
+  prefix from the offending entry (`"%s-%04d" % (e["id"][0], prev_num)`) | print no predecessor, name
+  only the offending entry | leave the formatter and widen the wording to "an earlier entry"
+- Chose: carry the previous entry's id string in the loop and print it as parsed
+- Why: the cheap tie-breaks do not separate the first two -- each is one line in `check()` and neither
+  touches another file -- so what decides it is the sentence's only job: hand over a name a person can
+  point `grep` at. Printing the id that was parsed makes the refusal quote the log. Re-deriving it
+  reconstructs a name from a number plus an assumed prefix, which is the bug's own invention with the
+  guess taken from the wrong side. That is measured, not reasoned: `--log` accepts any path and
+  `parse()` imposes no prefix on a file (both logs match the same `ENTRY`), so a file holding both id
+  spaces is reachable -- a merge that took both sides into one file produces exactly that, and
+  `cross_log_problems` cannot refuse it here because pointed at one file it sees one label. Aimed at
+  `## D-0082` followed by `## H-0079`, the carried id answers `(D-0082 came before it)`, which is what
+  is actually above it; the re-derived prefix answers `(H-0082 came before it)`, an id in neither log,
+  and `--self-test` stayed green doing it -- which is why there are three fixtures below and not the
+  two the ticket asked for. Naming no predecessor is smaller still but deletes the actionable half of
+  the rule: it exists so that "revert to before X" names one commit, and the offender's own number
+  never tells whoever is mid-conflict which of the two sides moved. Widening the wording keeps a wrong
+  number on the screen and buys nothing a `grep` does not already give.
+- Checkpoint: 4b5c541
+- Effect: `scripts/check-decisions.py` `check()` -- `prev_id` is set beside `prev_num` in the same
+  branch (`if e["num"] > prev_num: prev_num, prev_id = e["num"], e["id"]`), so number and id cannot
+  name two different decisions, and the message prints `prev_id`. Three `BAD` fixtures, not one:
+  `out-of-order` (the existing `D-` log, which is where a hardcoded `D-` happens to be right and is
+  the reason the bug survived `--self-test`), `out-of-order-harness` (the mirror the ticket asks for,
+  built as `GOOD.replace("D-", "H-")` so the two differ only by prefix), and `out-of-order-mixed`,
+  the both-spaces-in-one-file case that exists only to keep the re-derived variant from coming back.
+  The single `expect_fail(..., "out of order")` becomes a three-row loop asserting the *id* named, not
+  just the phrase -- the old needle was printed by the buggy message too, so the arm was covered while
+  the name was wrong -- and each single-space log additionally asserts it cites no `D-`/`H-` id from
+  the other space. Measured on this tree, each mutant applied to the working tree from a `/tmp` backup
+  and restored, every line `python3 scripts/check-decisions.py --self-test; echo $?`: fixed -> `19
+  cases that must fail, 9 that must pass`, exit 0; the shipped hardcoded `D-` -> exit 1,
+  `out-of-order-harness: the refusal does not name H-0082 came before it`; the re-derived prefix ->
+  exit 1, `out-of-order-mixed: the refusal does not name D-0082 came before it` (and exit 0 before the
+  third fixture existed, measured); the arm deleted -> exit 1, all three rows reporting `expected a
+  problem, got none`. The gate itself is unchanged: same location, same verdict, same exit 1, on the
+  reproduction from the ticket (`--log` over an out-of-order `H-` file) -- the fix moves the name, and
+  `check-decisions` still reports `117 entries across 2 log(s)` clean over the real logs. What lost,
+  stated: the printed name is now the heading's own text rather than a form this file controls, so a
+  future third id space sharing one log would be quoted across spaces without a refusal -- the mixed
+  fixture pins the id, it does not forbid the arrangement, because `ENTRY` accepts `[DH]-` by design
+  and this gate's rule against two logs meeting is `cross_log_problems`, which one arbitrary `--log`
+  path cannot trip.

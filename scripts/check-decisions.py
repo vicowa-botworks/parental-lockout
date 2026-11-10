@@ -118,6 +118,7 @@ def check(entries):
     problems = []
     seen = {}
     prev_num = 0
+    prev_id = None
 
     if not entries:
         return ["no entry found: the file exists and nothing in it matched `## D-0001 · …`, which "
@@ -130,11 +131,22 @@ def check(entries):
                             "two commits" % (at, e["id"], e["label"], seen[e["id"]], e["id"]))
         seen[e["id"]] = e["line"]
 
+        # The predecessor is printed exactly as it was parsed, never rebuilt from its number. This
+        # formatter used to write `"D-%04d" % prev_num`: the number comes from whichever log is being
+        # read (`e["num"]`), so re-attaching a `D-` means the harness log can only ever be told the
+        # wrong name. Measured 10 Nov in /home/rodney/prj/wt/issue-263 while resolving PR #264's
+        # `factory/DECISIONS.md` conflict -- both sides appended at the same offset, so `H-0079`
+        # landed after `H-0082` and the refusal read:
+        #   factory/DECISIONS.md:2159: H-0079 is out of order (D-0082 came before it)
+        # `D-0082` exists in neither log (`DECISIONS.md` carries 39 entries and stops at `D-0052`), so
+        # the sentence a person reads while the gate is red sends them looking for an entry that is
+        # not there. Number and id now move together and cannot name two different decisions.
         if e["num"] < prev_num:
             problems.append("%s: %s is out of order (%s came before it); the log is a history and a "
                             "history that jumps around cannot be bisected"
-                            % (at, e["id"], "D-%04d" % prev_num))
-        prev_num = max(prev_num, e["num"])
+                            % (at, e["id"], prev_id))
+        if e["num"] > prev_num:
+            prev_num, prev_id = e["num"], e["id"]
 
         f = e["fields"]
         missing = [k for k in FIELDS if not f.get(k)]
@@ -327,6 +339,24 @@ BAD = {
                         "- Why: because.\n- Checkpoint: abc1234\n",
     "out-of-order": "## D-0009 · Later\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
                     "- Why: because.\n- Checkpoint: abc1234\n" + GOOD,
+    # The same arm reached from the other id space, which is the case that did not exist and so the
+    # bug that survived: every other fixture here is a `D-` log, where a hardcoded `D-` in the
+    # message happens to be right. `GOOD.replace("D-", "H-")` keeps the two fixtures identical apart
+    # from the prefix -- the only thing that differs -- and the numbers are the measured pair from
+    # PR #264's conflict (`H-0079` after `H-0082`).
+    "out-of-order-harness": "## H-0082 · Later\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                            "- Why: because.\n- Checkpoint: abc1234\n" + GOOD.replace("D-", "H-"),
+    # One file holding both id spaces. Reachable by design: `--log` takes any path and `parse` imposes
+    # no prefix on a file (both logs match the same `ENTRY`), and a merge that took both sides into one
+    # file produces exactly this. It is the fixture that separates the two candidate fixes -- printing
+    # the predecessor as parsed names `D-0082`, which is what is really above the entry, while
+    # re-deriving the prefix from the offending entry names `H-0082`, an id in neither log. Measured
+    # 10 Nov: with the re-derived prefix the two fixtures above both still pass, so without this row
+    # that variant is green and one edit away.
+    "out-of-order-mixed": "## D-0082 · Later\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                          "- Why: because.\n- Checkpoint: abc1234\n"
+                          "## H-0079 · Earlier\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                          "- Why: because.\n- Checkpoint: abc1234\n",
 }
 
 
@@ -470,7 +500,24 @@ def self_test():
     expect_fail(BAD["bad-sha"], "bad-sha", "not a commit sha")
     expect_fail(BAD["checkpoint-na"], "checkpoint-na", "no checkpoint")
     expect_fail(BAD["duplicate"], "duplicate", "already used")
-    expect_fail(BAD["out-of-order"], "out-of-order", "out of order")
+    # Out of order, in every id-space arrangement -- and asserting the *id* named, not just the phrase.
+    # The case used to be a single `expect_fail(..., "out of order")`, a needle the buggy message also
+    # printed: the arm was covered and the wrong name still shipped, because the only fixture reaching
+    # it was a `D-` log. Each row now has to name its own predecessor; the two single-space logs must
+    # not cite the other space at all, and the mixed log has no such assertion to make (both prefixes
+    # are legitimately in that file) so its whole weight is on which id the parenthetical names.
+    for name, want, foreign in (("out-of-order", "D-0009 came before it", r"\bH-\d"),
+                                ("out-of-order-harness", "H-0082 came before it", r"\bD-\d"),
+                                ("out-of-order-mixed", "D-0082 came before it", None)):
+        counts[0] += 1
+        got = [p for p in check(parse(BAD[name], name)) if "out of order" in p]
+        if not got:
+            fails.append("%s: expected a problem, got none -- the rule is not being applied" % name)
+        elif not any(want in p for p in got):
+            fails.append("%s: the refusal does not name %s -- %s" % (name, want, got))
+        elif foreign and any(re.search(foreign, p) for p in got):
+            fails.append("%s: the refusal cites an id from the other log's id space, which is an id "
+                         "nothing in this file resolves -- %s" % (name, got))
 
     # The self-pinning pair: this file's own invocations, asserted the way the screenshot manifest
     # asserts its own. Deleting either line from `verify` makes this run refuse.
@@ -564,8 +611,9 @@ def self_test():
             print("  %s" % f)
         return 1
     print("check-decisions --self-test: %d cases that must fail, %d that must pass, the two "
-          "invocations in `verify`, four Makefiles that delete this gate, the cross-log id rule and "
-          "checkpoint existence, each asserted both ways" % (counts[0], counts[1]))
+          "invocations in `verify`, four Makefiles that delete this gate, the cross-log id rule, "
+          "checkpoint existence, and the out-of-order refusal in both logs and in a file holding "
+          "both, each asserted both ways" % (counts[0], counts[1]))
     return 0
 
 
