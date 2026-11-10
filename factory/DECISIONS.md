@@ -2970,6 +2970,66 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   and is rewritten in place to the merged numbers rather than annotated, and the merge `6442e8f`
   stands as the thing that had to be re-measured.
 
+## H-0095 · The read-back is owed after the push, because the push is what spends the approval
+
+- Question: what does a tick owe a pull request whose approval its own push has just voided?
+  Step 1 says read the review state before any claim about a pull request, and Step 5 says push and
+  open or update the pull request -- and stops. A tick that follows that text exactly delivers a body
+  quoting `verify: OK` while `reviewDecision` has moved underneath it.
+- Options: nothing new, since Step 1's pre-flight read already covers "read before you claim" |
+  re-read the review state after the push and name the dismissal in the pull request, in `SKILL.md`
+  only | re-read and additionally let the tick re-ask the reviewer | re-read and have the supervisor
+  rewrite the body on the tick's behalf when it sees the flip | write no rule and leave a comment
+  beside Step 5
+- Chose: re-read the review state after the push and name the dismissal in the pull request, in
+  `SKILL.md` only
+- Why: the first option is the bug, and it is measured rather than argued. Read back at this commit,
+  live: `gh pr view 269 --json reviewDecision,reviews,reviewRequests` answers `REVIEW_REQUIRED`, one
+  row -- `hermesvicowa`, `state: DISMISSED`, `commit.oid: c149fe9`, `submittedAt
+  2026-11-10T18:23:50Z` -- and `reviewRequests: []`, with the head at `ec74cf5`. The only thing that
+  happened between the approval and that row is the push that cleared `mergeable=CONFLICTING`, and
+  there is no way to clear one without a push here: squash and rebase merge are both disabled,
+  force-push is denied to a tick, and reverting the base is not an operation. So the state is
+  reachable by every conflict-resolution tick and invisible to the instructions that govern one.
+  Handing the re-ask to the tick (option three) is the move this harness has already refused twice:
+  every `gh pr review` shape is in the deny list a tick runs under, and `gh pr edit --add-reviewer` is
+  measured failing on this account with only a `Projects (classic)` line on stderr while
+  `/requested_reviewers` stays empty (`D-0010`) -- a verb that looks like it worked is precisely how
+  "nobody ever asked" came back once. Option four puts a second writer on a document the tick owns: the supervisor cannot know
+  which claims in that body the dismissal invalidates, and the pull-request body is the review's
+  input. Neither adds a dependency or touches the daemon, so the cheap tie-breaks do not separate
+  them; what separates them is that the chosen one makes the tick *report the state it cannot fix*
+  rather than proceed as though it could, and it is the one that touches the fewest files -- the
+  supervisor's other half of this finding is `H-0097`, in its own commit, because it is a different
+  file with a different blast radius. Corrected by that entry on 10 Nov: this read `H-0096`, because the
+  allocator answered `H-0096` at checkpoint `f5dab5b` and `1d66965` put `main`'s own `## H-0096` -- the
+  third log collision, about something else entirely -- in front of this branch while its checkpoint sat
+  here. The citation is annotated rather than quietly rewritten: a corrected log that says nothing about
+  having been corrected cannot be told apart from one that was always right. The bare comment (option
+  five) is what this repository does not
+  have, on the reasoning already in `Makefile`'s note above `verify:`: a rule nobody can watch go red
+  is a suggestion, which is why `H-0097`'s legs read both documents.
+- Checkpoint: f5dab5b
+- Effect: `.opencode/skills/factory/SKILL.md`. Step 1 gains the pointer -- the same read is owed again
+  after the push -- so the pre-flight paragraph no longer reads as the whole obligation. Step 5 gains
+  "The push may have spent the approval. Read the review state back.", carrying: the two read-backs
+  above with the push that separates them, the read spelled as its own call
+  (`gh pr view "$PR" --json reviewDecision,reviews,mergeable,mergeStateStatus`) with no `--jq` and
+  #270 named as the reason, the one-line disclosure (who, which commit, and that `mergeStateStatus`
+  reads `BLOCKED` until a reviewer is asked again), the body-rewrite verb -- `gh issue edit "$PR"
+  --body-file`, because `gh pr edit` dies on `projectCards` while looking fine -- with the rule that
+  the read-back is the sentence being there and not the call returning, and the timestamp trap: a
+  dismissed row's `submittedAt` is the approval's own stamp, so a dismissal dated from #269's row
+  lands twenty minutes *before* the push that caused it.
+  What lost: the tick still cannot re-ask, so between its push and the next activation the unit is
+  genuinely unserviced, and the body has to say so rather than imply otherwise -- #241 wants the poke
+  widened from one reviewer to the team and is not this entry's to settle. The disclosure is prose
+  with a leg behind it for the *sentence in the file*, not for the sentence in any one pull request:
+  nothing here can force a tick to write the line, only catch the day the instruction that tells it to
+  is deleted. And `mergeStateStatus` was `UNKNOWN` rather than `BLOCKED` on the read that refreshed
+  this entry, because GitHub recomputes it after a push, so what the instruction hands over is the
+  field to read, not the word it will return.
+
 ## H-0096 · The log collides with the same neighbour a third time, and this time the silent half is the auto-merged gate
 
 - Question: `#269` reads `CONFLICTING`/`DIRTY` against `origin/main` with all five checks `SUCCESS`
@@ -3065,6 +3125,130 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   for whoever takes them -- the pull-request body names them so the next tick inherits them as work, not
   as a discovery.
 
+## H-0097 · A voided verdict is not a review, so the queue re-asks instead of waiting on it
+
+- Question: what does the queue owe a pull request whose only verdict a push has just voided? `#272`
+  measured `#269` going `APPROVED` -> `REVIEW_REQUIRED` across one fast-forward, unforced conflict
+  resolution (`c149fe9..ec74cf5`), its single row turning `hermesvicowa APPROVED` -> `hermesvicowa
+  DISMISSED` at the same `c149fe9`, and `/requested_reviewers` empty on both sides of it. The
+  supervisor's own journal says what `triage.sh` then made of that state:
+
+  ```
+  17:58:17Z POKED pr:269 requested review from hermesvicowa    no rows at all: it asked
+  19:17:23Z WAIT  pr:269 awaiting_review                       one voided row: it did not
+  ```
+
+  `H-0095` made the tick see the dismissal and write it into the pull request. Nothing here made the
+  queue act on it, so the two documents would have disagreed by design: the guide's table promising an
+  ask, the classifier printing a wait, and `#269` moving only because a person read it -- re-approved
+  19:50:20Z against the new head, merged 20:18:19Z. A voided approval is not an edge case here: squash
+  and rebase merge are both disabled, force-push is denied to every agent, and reverting the base is not
+  an operation, so *every* conflict-resolution tick ends in this state.
+- Options: poke from `factory.sh`'s `awaiting_review` arm when `reviewDecision` reads `REVIEW_REQUIRED` | count only surviving verdicts in `triage.sh` and reuse `needs_reviewer` | add a `review_voided` class with its own arm and rank | leave the classifier alone and shorten `FACTORY_REVIEW_POKES` | widen the poke from one reviewer to the team while here (`#241`)
+- Chose: count only surviving verdicts in `triage.sh` and reuse `needs_reviewer`
+- Why: the handler-side poke is a second, weaker opinion in the path of a reviewer's verdict, which is
+  the shape `factory.sh` already refuses for the same reason in `review_unreadable`'s arm. Weaker in the
+  literal sense: by the time a row reaches `factory.sh` the reason has been flattened into a detail
+  string, so that arm would have to re-parse prose to tell a dismissal from a comment. The class is the
+  vocabulary this harness works in -- `docs/factory.md`'s table is the interface a person reads,
+  `factory_class_rank` orders on it, and a class that reaches the `*` arm halts the whole pass with
+  `UNKNOWN-CLASS`. `review_voided` is the same information with a new name: it costs a row in the table,
+  a rank, and an arm, and buys nothing the detail does not already say, because the journal prints the
+  detail -- `every verdict voided by a push (hermesvicowa at c149fe9); nobody holds a request` is the
+  line a human reads, and it names which of the three no-verdict states the row reached its answer from.
+  Shortening the poke floor misdiagnoses the throttle: `grep 'POKE-SKIPPED pr:269'` over the journal on
+  the box that runs the timer answers nothing, because a `WAIT` row never consults the throttle -- the
+  class that asks was never emitted, so a tighter floor only re-notices a silence faster. `#241` is a
+  different question, *who* is asked rather than *whether*, and stays open; the detail is written so that
+  widening has one place to change. What separates the two surviving options is tie-break 3, refusing
+  rather than proceeding on input that says nothing: a `DISMISSED` row is still a row, and the count
+  proceeded on it. The verdict question is `APPROVED` or `CHANGES_REQUESTED` -- somebody formed an
+  opinion about the code -- and neither `DISMISSED` nor `COMMENTED` is one. `COMMENTED` was swallowed by
+  the same count and `reviewDecision` reads `REVIEW_REQUIRED` over it exactly as over a dismissal, so the
+  widening arrives with the fix rather than as a later patch, and its cost is stated rather than buried:
+  a pull request whose reviewer commented without approving is now re-poked, at most once per
+  `FACTORY_REVIEW_POKES`, where it used to wait quietly. A comment does not satisfy a required review, so
+  asking is the honest reading of that state. Ambiguity resolves toward asking: an unreadable `/reviews`
+  payload leaves `verdicts=0` and lands in the ask, which costs one throttled `gh` call, while the other
+  direction is the silence every arm above exists to prevent -- the same direction `#873` fixed for the
+  daemon's config.
+  - Evidence, in both directions and in the same tree: with the thirteen legs in place and `triage.sh`
+    untouched, `bash factory/selftest.sh` answers `373 passed, 8 failed` -- the eight are the two voided
+    and comment-only states at the classifier, their four detail pins, and the two journal lines at the
+    supervisor -- and `381 passed, 0 failed` with the fix in. Thirteen legs, counted off the tally (368
+    before, 381 after) rather than off a printed column, which is `H-0089`'s lesson. Five were green
+    before the fix because they are the polarities the fix must not break: voided-but-somebody-holds-the-
+    request stays a wait, the never-reviewed sentence three `#212` legs pin arrives byte-identical, a
+    standing `APPROVED` is not swept into the new arm, and the document pair carries its four clauses.
+  - The fixture could not have been written this way before, and that is a finding: `/requested_reviewers`
+    was created empty and nothing ever wrote it, so "somebody already holds the request" -- the polarity
+    that separates a re-ask from noise at a reviewer who is already looking -- had no plant at all.
+    `claim_reviewers` is added for it. `voided_pr` now also refuses a plant that is not JSON, because the
+    first draft of the `COMMENTED` plant was a jq object literal: `reviews.json` held bytes `jq` could not
+    parse, `any_review` fell back to `0`, and that leg read GREEN off the never-reviewed arm with the
+    detail `no review and nobody asked since it opened`. A leg whose fixture does not parse measures the
+    empty state and reports the state it asked about.
+- Checkpoint: 7e30cb3
+- Effect: `factory/triage.sh` -- two reads beside `any_review` (`verdicts`, `voided`) and three details in
+  the arm; the class is unchanged, so `factory.sh`, `factory_class_rank` and the poke needed nothing.
+  `factory/selftest.sh` -- the `#272` group between the `#242` ask legs and the `delivered` arm,
+  `claim_reviewers` beside `claim_reviews`, `claim_reset` clearing it. `docs/factory.md` -- the
+  `needs_reviewer` row reads *no verdict that still stands*, the `awaiting_review` row says what a wait
+  now means, and a subsection "The approval a push voids" carries the two read-backs, the two journal
+  lines, the arithmetic of the silence that follows a dismissal (`FACTORY_INTERVAL`, then the
+  `FACTORY_REVIEW_POKES` floor), and what is not measured. `.opencode/skills/factory/SKILL.md` -- one
+  clause in the Step 5 subsection, so the tick's body says *not yet* rather than *never*; the leg
+  `the voided verdict is in both documents` reads SKILL's read and cadence against the guide's rule and
+  reason, with a control whose two copies each lose one clause from each document.
+  - What lost: the re-ask is not instant -- the next activation, ten minutes at the shipped interval or the
+    rest of the 30-minute poke floor -- and the pull-request body has to carry that gap until then, which
+    is `H-0095`'s half. Whether GitHub accepts `POST …/requested_reviewers` for a reviewer whose verdict
+    was just voided is **not measured**: `#269` was re-approved by hand at 19:50:20Z before any activation
+    could ask, so no such call exists anywhere. The legs assert the dispatch (`WOULD-POKE pr:269` in a dry
+    run) and not an acceptance; if the call is refused the arm logs `POKE-FAILED` and stamps the throttle,
+    which is a journal line naming a refusal in place of the silence, but still no ask. The poke asks one
+    reviewer (`FACTORY_REVIEWER`); `#241` owns the widening. And `mergeStateStatus` was `UNKNOWN` on both
+    the approved and the dismissed reads, so a merge is still only ever decided by a fresh read
+    (`H-0095`).
+  - This entry also corrects `H-0095`'s two forward citations, annotated in that entry rather than edited
+    quietly: the merge `7e44e8e` brought `main`'s `## H-0096` after `H-0095` was committed, and an entry
+    that changes what a sibling refers to says so in the log. The checkpoint keeps its name,
+    `chore(checkpoint): pre-H-0096`, because retaking it after the merge would record the state this
+    decision produced -- the thing the log already had -- and `H-0090` settled that a checkpoint is the
+    tree the allocator was asked about, not the number the entry ended up with.
+  - A previous tick reached the same rule from the same measurements and is parked, unmerged, in the
+    supervisor's own quarantine. The activation that opened this tick found the tree dirty and wrote, in
+    `/home/rodney/prj/parental-lockout/factory/log/supervisor.log`:
+
+    ```
+    2026-11-10T20:18:23Z TREE-QUARANTINED unclaimed:272 modified: docs/factory.md factory/selftest.sh factory/triage.sh  attempt=1 stash=d67d04599 mirror=/home/rodney/prj/at-risk/issue-272-quarantine-20261110T201823Z-d67d04599.patch
+    ```
+
+    That stash is 261 lines over the same three files -- `git diff d67d0459^ d67d0459` and the mirror patch
+    each hold it whole -- written on top of `8ac3eed` and never committed, so it is in no queue any sweep
+    reads. It is named here and in a comment on the pull request (`#273`, posted 20:32:31Z) rather than
+    left in `git stash list`, because the failure this repository has written up most often is work that
+    exists only where nobody looks: `AGENTS.md` calls the branch-shaped case `branch_without_pr` and this is
+    the same defect with a filename on it. Whoever reads it next should read the bullet below first.
+  - The one judgement the parked attempt and this entry do not share, recorded rather than quietly won. It
+    counts a verdict as anything that is not `DISMISSED`, so a `COMMENTED` row stands and nobody is
+    re-asked, and it pins that with a leg named `a comment is a review that stands, so nobody is re-asked`;
+    this entry counts `APPROVED` or `CHANGES_REQUESTED`, so comments-only re-asks as well. **No measurement
+    here decides it, and none is claimed:** the census is complete rather than sampled --
+    `gh pr list --state all --limit 250 --json number,reviewDecision,reviews` answers 150 rows, which is every
+    pull request this repository has ever had, 29 of them carry a `COMMENTED` row, and all 29 read
+    `reviewDecision=APPROVED` because each also carries an approval. The comments-only-plus-`REVIEW_REQUIRED`
+    state has never occurred on this account. What the choice rests on is the asymmetry of cost, and it is
+    stated so a reader can weigh it: asking costs one throttled poke per `FACTORY_REVIEW_POKES` and GitHub
+    answers 422 when a request is already outstanding, while not asking is the unbounded silence every arm
+    above exists to prevent. **One premise of the widening is not measured here and is not presented as if
+    it were:** that submitting a comment review clears that reviewer's outstanding request, which is what
+    would make the parked reading a wait nobody owes rather than one somebody is still answering. No pull
+    request on this account has ever been in that state, so there is nothing to read back -- the claim is
+    GitHub's documented behaviour carried in, not a measurement, and the legs pin only what the classifier
+    answers. A reviewer who prefers the narrower predicate changes one `select` and one leg; both fixtures
+    exist, in two copies now.
+
 ## H-0098 · Step 1 hands a tick a `--jq` program that cannot run on the gh the timer executes, and nothing had ever executed the document to find out
 
 - Question: `.opencode/skills/factory/SKILL.md:93` has told every tick to run `gh pr view "$PR" --json reviewRequests --jq '[.users[].login]'`, and that program does not run here: measured 10 Nov against PR 269 on gh 2.46.0 at `/usr/bin/gh` it prints `cannot iterate over: null` and exits 1, because `--json` hands `--jq` the WHOLE payload object -- `{"reviewRequests":[]}` -- while `.users` is the field of the REST `/pulls/N/requested_reviewers` envelope, which is what `factory/factory.sh:268` and `factory/triage.sh:283` read and where the program was copied from. The prose fix is one word. What is the deliverable: the corrected sentence, or the thing that stops the whole class -- a step quoted as prose and never run, drifting from the binary that executes it?
@@ -3073,3 +3257,94 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Why: the first tie-break that separates these is the third -- refuse rather than proceed -- and it separates them cleanly: the leg refuses a field it has no measured fixture for, a `--jq` on a line with no `--json`, and a program it cannot read, where every other option proceeds in silence in all three cases. The fourth tie-break (fewest files) does NOT separate them and is recorded as losing: prose-only touches one file, this touches two. It loses because the ticket's own diagnosis is the mechanism -- the Step 1 commands are quoted prose and nothing runs them, which is how they drift from the `gh` build the timer actually executes -- and a fix that removes one drifted sentence while leaving the mechanism in place is the same repair done once more next time. Canned rather than live is H-0054's standing rule, measured there rather than asserted: 45 legs exec'd a binary the gate does not install and CI answered `131 passed, 45 failed` with `factory: missing on PATH: opencode` while every box in the loop printed green; a leg that calls the API is green wherever a token is in the keyring and red on the runner that has none, which is the same failure one dependency over. `jq` is not a dependency smuggled in beside it -- `claim_graphql()` runs jq unconditionally mid-suite, and shipped `factory/common.sh` calls it at :536, :544 and :618. Deriving the payload from the line's own `--json` list, rather than keying a fixture by the program, is what makes the leg able to say no: the pair (`.users`, `{"users":[…]}`) passes and is still the bug, and H-0055's finding (1) is this repository's measured instance of exactly that -- a shim dispatching on the wrong argument answered empty for every review read, and one leg was green by PINNING THE BUG. Asking the live API (option three) buys a payload that exists only while somebody has an outstanding ask, which is the one row this leg needs and the row a CI runner cannot have. Option four moves the program into `triage.sh`, where the existing legs already cover it, but a tick's Step 1 read is a different question from the supervisor's queue read -- the tick is deciding whether to answer a review NOW, on one pull request -- and it is told to spell two calls because a composed one gets refused by the permission scanner.
 - Checkpoint: 47d60eb026264240166e42c1d8a3eaf94448933a
 - Effect: `.opencode/skills/factory/SKILL.md` Step 1 -- the program now reads `[.reviewRequests[].login]`, and the paragraph after the block states the rule the program broke (the payload shape, where the wrong one came from, and why the silent `[]` is worse than the error) and names the leg that now runs it; `factory/selftest.sh` -- `skill_jq_fixture`, `skill_jq_payload`, `skill_jq_lines`, `skill_jq_gaps`, `skill_jq_control`, `skill_jq_leg`, and a fourth row in the header's list of checks-about-shipped-text, 368 -> 369 legs (measured on this tree: `369 passed, 0 failed`, and `368 passed, 1 failed` with the program back-revolved in the document, exit 1, restored by `cp` and byte-compared). Three findings came out of writing the legs rather than out of the design, and all three are load-bearing. **(1) A control caught what the arm could not.** The plant that puts double quotes around the program read CLEAN on its first run: `--jq "[.a[].b]"` taken as a bare token hands the engine the four-quote-wrapped `"[.a[].b]"`, and jq reads that as a string LITERAL -- it prints the text, exits 0, and looks answered. gh would have run the program, because bash strips those quotes before gh sees them; the leg's engine does not, because the leg extracted the quotes as part of the token. The leading character now decides before the bare form is tried, and a bare token holding `$` is refused for the same reason. **(2) A plant that matches nothing has the same exit status as an arm that is blind.** A document variant that writes the program bare makes all three plants no-ops; they reported CLEAN, in the same words an arm's failure uses. A `cmp -s` against the original now runs before a plant's verdict counts, and a plant that changed nothing is its own FAIL -- "the wording moved; move the plant with it", which is H-0055's finding (3) arriving a fourth time in this repository. **(3) `local file=$1 shown=${file##*/}` aborts the suite.** bash expands every word of a `local` before assigning any of them, so under `set -u` the second reads `file` while it is still unset: `line 76: file: unbound variable`, and a run that dies before its tally is the failure this file's own trap exists to announce. Two engine facts were measured rather than assumed, because the leg asserts through real `jq` while the document is executed by gh's gojq: for this class both fail the same way (`jq: error: Cannot iterate over null (null)` at exit 5 where gh answers `cannot iterate over: null` at exit 1), so the leg asserts a nonzero status and never the sentence; and `jq -r` reproduces gh's printer on both shapes a program can return (`["hermesvicowa"]` for an array, `main` for a bare string) where `jq -c` does not match the string case. The fixture values are a live read of this repository on 10 Nov, not shapes guessed from documentation: PR 273 answered `{"reviewRequests":[{"__typename":"User","login":"hermesvicowa"}]}` and `[.reviewRequests[].login]` returns `["hermesvicowa"]` at exit 0 against it, PR 269 answers `{"reviewRequests":[]}` and the same program returns `[]` at exit 0, and the shipped program exits 1 against both. PR 264, which the ticket cited for the non-empty case, had by then gone empty -- the reviewer had been asked and had answered -- so the row shape came from 273 instead, which is the reason the leg is canned: the fact it pins outlives the pull request that happened to exhibit it. What lost, as measured: only `.opencode/skills/factory/SKILL.md` is scanned -- the sibling `issue-check` skill quotes one raw-API read (`--jq '{title, body, labels: [.labels[].name]}'`), correct as written, and NO leg runs it, because a raw-API read has no `--json` list to derive a payload from and a hand-keyed payload for it is exactly the invented-to-fit fixture this leg exists to forbid; widening the scan is a rule about API paths, not a path to add to a list. The shipped `[.users[].login]` uses at `factory/factory.sh:268` and `factory/triage.sh:283` are not covered and are not wrong -- their payload IS `{"users":[…]}` -- and proving that needs a raw API read, which is denied to a tick by the deny table, so the leg's scope rests on the documented REST envelope plus the fact that the poke path has run since #209; the day gh changes either envelope the leg says nothing about it. Field NAMES are not this leg's subject: line 92 asks for five fields and only gh validates those against the API, which is a live call, so `closingIssuesReferences` -- the documented-sounding field this very document records as answering `Unknown JSON field` -- stays un-pinned. `statusCheckRollup`'s row is the measured all-SUCCESS row, so a future program selecting a failed check trips the empty-shape refusal and a human has to measure and add the red row; the refusal says both readings out loud rather than picking one. The head-field rule is one reference deep: `.reviewRequests[].isOutstanding` is caught when it yields nothing (verified: `[.reviewRequests[].isOutstanding // empty]` exits 0 and prints NOTHING, which only the empty-shape arm sees) and a wrong leaf that yields a value, `.reviewRequests[].__typename`, is green. And the leg pins the programs a document QUOTES, not the ones a tick improvises -- 45 minutes of ceiling went on 5 Nov over a composed read the permission scanner could not parse, and no leg can see a command nobody wrote down.
+
+## H-0101 · The log collides with `H-0097` a fourth time, and neither side's green counts until a leg from each has been attacked on the merged tree
+
+- Question: `#274` went `CONFLICTING` / `DIRTY` against `main` with all five checks `SUCCESS` and
+  `reviewDecision=APPROVED` (read back 10 Nov at head `06e7f8c`, before anything here was touched). The
+  base `1d66965` ends the harness log at `H-0096`; `main` appended `H-0095` and `H-0097`, this branch
+  appended `H-0098` at the same offset, so `factory/DECISIONS.md` is the one file git could not merge.
+  What git said nothing about is the larger half: `.opencode/skills/factory/SKILL.md` and
+  `factory/selftest.sh` were edited by BOTH sides and merged without a word -- `H-0097`'s side added
+  thirteen legs to the same file `H-0098` added one leg to -- and `#1048`'s recorded failure mode is an
+  edit in one place silently retiring a check written in another, reported as a green suite. What is the
+  deliverable: the splice that clears the conflict marker, or the proof that each side's check still
+  says no on the merged tree?
+- Options: keep both entries and push, `make verify` runs afterwards anyway | keep both entries ordered by id and re-measure every gate on the merged tree, quoting the merged numbers | keep both entries ordered by id, re-measure the gates, and attack one leg from EACH side on the merged tree with a unique-occurrence anchor | resolve `factory/DECISIONS.md` with `--ours` and let this branch's copy of the file win
+- Chose: keep both entries ordered by id, re-measure the gates, and attack one leg from EACH side on the merged tree with a unique-occurrence anchor
+- Why: the first two tie-breaks have nothing to bite on -- no `require` line is at stake (#856), and no
+  config key decodes toward or away from a lockout (#873, #872) -- and the fourth (fewest files) does
+  not separate the first three either, because in all three the merge itself moves the same five files.
+  The third tie-break separates them, and cleanly: the chosen option refuses at three points where the
+  others proceed on assumption. The resolver exits 2 unless the conflict is exactly one region holding
+  exactly one `## ` heading per side; each plant exits 2 unless its anchor occurs exactly once in the
+  file it is aimed at; and a plant that fails to turn a leg red exits 3 rather than being reported as a
+  pass, including when the tree does not restore byte-identical. Option four is not a weaker choice but
+  a destructive one: `--ours` deletes the 184 log lines `main` appended and the `triage.sh` classifier
+  `H-0097` exists to pin, and it loses on that alone. The sixth tie-break was consulted before any of
+  this was written and it names `H-0096`, whose merge commit attacked each side's leg on the merged tree
+  under exactly this guard -- so this entry follows the practice the file already keeps instead of
+  inventing a lighter rule for a fourth collision of the same shape.
+- Checkpoint: 50f1b1ca77edf7ddd308ef12a6d877f9db70ca64
+- Effect: this merge commit, `origin/main` (`d34c85c`) into `issue-270`. The rule is `H-0085`'s and
+  `H-0093`'s and `H-0096`'s unchanged -- keep both, order by id -- and no id moved on either side.
+  Six findings, all measured on the merged tree.
+  - **The splice is a function of the bytes, not of the session.** It was applied twice, from two
+    independent `git merge --no-commit --no-ff origin/main` attempts, once by hand and once by the
+    resolver (`/tmp/resolve-274-log.py`, one region / one heading per side or it refuses); the second
+    run `cmp`-identical to the first. The first hand attempt got the order backwards (`H-0098` above
+    `H-0097`) and `check-decisions.py` would have caught it -- it is the resolver's comparison that was
+    wrong, which is the reason the ordering rule is written down in code here and not trusted to the
+    person doing the splice.
+  - **The union is exactly additive, which is the evidence that neither side lost a line.** Per file,
+    `numstat` against the base: ours + theirs = merged -- `SKILL.md` 12/1 + 51/0 = 63/1,
+    `factory/selftest.sh` 256/3 + 225/0 = 481/3, `factory/DECISIONS.md` 9/0 + 184/0 = 193/0,
+    `docs/factory.md` 0/0 + 50/2 = 50/2, `factory/triage.sh` 0/0 + 39/3 = 39/3. Against each parent the
+    other side's text is untouched: merged vs `HEAD` is `184 0` in the log, merged vs `origin/main` is
+    `9 0`. That is stronger than the 0-deletion diff `H-0096` leaned on, because a duplicated-then-
+    collapsed hunk would show 0 deletions and still lose a side.
+  - **Gates, resolution alone:** `python3 scripts/check-decisions.py` -> `134 entries across 2 log(s)`,
+    exit 0 (135 with this entry); `python3 scripts/check-decisions.py --self-test` -> 32 must-fail, 9
+    must-pass, exit 0; `bash factory/selftest.sh` -> `382 passed, 0 failed`, exit 0. The tally is itself
+    a union test: 368 at the base, +13 from `main` (the count `H-0097` takes off the tally), +1 from
+    this branch (`H-0098`) -> 382. Had either side's insertion displaced the other's in the same file,
+    the number would be short and nothing else would have said so.
+  - **Both sides' legs still discriminate, attacked one at a time.** Plant `--jq '[.users[].login]'`
+    back into `.opencode/skills/factory/SKILL.md:93` (the program `H-0098` exists to retire) ->
+    `381 passed, 1 failed`, exit 1, the failure is `the --jq programs the skill quotes`. Plant
+    `"$verdicts"` back to `"$any_review"` in the `needs_reviewer` guard (the predicate `H-0097` exists
+    to widen) -> `374 passed, 8 failed`, exit 1 -- the same eight `H-0097` counted on `main`
+    (`373 passed, 8 failed` there; 381 - 8 there, 382 - 8 here, and this branch's leg still green beside
+    them). Each plant was anchored with a unique-occurrence guard, applied to a `cp` backup and restored
+    by `cp` -- never `git checkout`, which would have taken the merge with it -- and each restored
+    byte-identical on a sha256 before/after.
+  - **`#1048` has no surface in this merge, measured rather than assumed:** no `.go` or `.tmpl` file is
+    touched, `NON_GO_TMPL_COUNT=0` across `scripts/mutations/*.json`, and no mutant file names
+    `selftest`, `triage`, `DECISIONS` or `SKILL`, so the anchor battery had nothing to retire and was
+    not run here (`make verify` ran; `make check-mutations` is a separate target and #1807 keeps it out
+    of any tree that is being gated).
+  - **The merge moved a citation this branch's own entry makes.** `H-0098`'s `Effect:` names
+    `factory/triage.sh:283` for the shipped `[.users[].login]`; `H-0097`'s 39 added lines push that call
+    to `factory/triage.sh:308` on the merged tree (`grep -n '\.users\[\]\.login'` -> 308).
+    `factory/factory.sh:268` is unmoved, and both remain correct as written -- the payload there is the
+    REST envelope, which is the whole point of `H-0098`. This entry is `#1180`'s dated correction beside
+    the record, not a rewrite of it.
+  - **Two sentences in the log are now stale and neither was edited.** `factory/DECISIONS.md:3178`
+    (`H-0097`) says `381 passed, 0 failed` and "counted off the tally (368 before, 381 after)"; on the
+    merged tree the tally is 382 and the extra leg is `H-0098`'s. `factory/DECISIONS.md:3259` (`H-0098`)
+    says "368 -> 369 legs (measured on this tree: `369 passed, 0 failed`)"; on the merged tree it is 382
+    and the other thirteen are `H-0097`'s. Each stays true of the tree it was measured on, and editing
+    either one turns the `184 0` / `9 0` above into a deletion -- destroying the only evidence this
+    resolution has that neither side lost a line. `H-0096` reached the same conclusion one collision
+    ago and for the same reason; the staleness is recorded here instead.
+  - **What lost, and what is still not established.** Option one lost the proof and option four lost
+    `main`'s work; what the chosen option did not buy is stated rather than left implied. (a) Nothing
+    here exercises `H-0097`'s classifier against the live API -- its legs are canned under `H-0054`'s
+    rule, so `374 passed, 8 failed` pins the classifier's arithmetic, not GitHub's behaviour. (b)
+    `H-0098`'s leg scans only `--jq` inside fenced blocks, and `main`'s new post-push read at
+    `.opencode/skills/factory/SKILL.md:336` asks for `--json` with no `--jq`, so it is outside that
+    universe by design -- measured: the scan finds exactly one program on `main`, one on this branch and
+    one on the merge, so the merge neither widened nor narrowed the leg's reach. (c) The push this merge
+    makes is expected to void `#274`'s `APPROVED` row under the rule `H-0095`/`H-0097` just wrote into
+    Step 5; whether it did is a read after the push, and the pull request carries the answer, not this
+    entry.
