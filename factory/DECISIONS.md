@@ -2001,3 +2001,61 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   run-dependent. This tree's baseline reads one above the review's `292` because the environmental
   `install-timer` leg FAILs without `go`/`gofmt` first on its stub PATH and passes here; the delta is
   three legs on either box.
+
+## H-0077 · A branch carrying half of #247 sat 50 commits behind a main that had taken its id
+
+- Question: branch `issue-247` holds the stop-reason detector and the bundle mirror as an un-gated
+  `wip` commit, cut at `f289fa1` on 8 Nov. Main has since merged #250/#252/#254/#255/#258, defines
+  `FACTORY_AT_RISK` as the quarantine box, and allocated `H-0056` twice. How is the work delivered?
+- Options: re-cut the branch from `origin/main` and re-author the 801 insertions | merge `origin/main`
+  in, resolve the overlap by union, and renumber the entry from the allocator | escalate, because a
+  taken id looks like the kind of thing a person should arbitrate
+- Chose: merge `origin/main` in, resolve the overlap by union, and renumber the entry from the
+  allocator
+- Why: a force-push to an in-flight branch is denied here and rebase merge is disabled, so "re-cut"
+  means re-authoring, and re-authored text loses the measurements already written into it -- the
+  196-log sweep that found six clean stops and exactly one delivered tick that also ended on an
+  undispatched call, the 28,601-byte prerequisite bundle against 17,647,835 bytes of full history, and
+  the `<function_43 edit` shape nobody re-derives from memory. An id is a reference that outlives a
+  checkout, which is why `factory/next-decision-id.sh` exists (#253): whether `H-0056` is taken is a
+  mechanical read of every ref, not a judgement, so the third arm had nothing to arbitrate. Union, not
+  pick, where both sides defined `FACTORY_AT_RISK` -- two rescues that have to land in one box. That
+  is the arm with the teeth: the first attempt here rebuilt `common.sh` from main's copy plus #247's
+  section, reported a clean `bash -n`, and had silently dropped `factory_at_risk_default`; the retry
+  is main's file plus #247's authored hunks as a patch, checked by asserting every `+` line is present.
+  The proof the merge was worth its noise is that main's own checks then caught the branch's new code:
+  `fixture_carries_identity` (H-0059) named three fixture repos inheriting the host's identity, and the
+  index-mode leg named a script git no longer held at 100755. Neither fires against re-authored text.
+- Checkpoint: cb29532
+- Effect: `factory/common.sh` gains `factory_stop_reason`, `factory_stop_marker` and
+  `factory_preserve_unpushed` with `factory_at_risk_default` (one definition, both rescues);
+  `factory/factory.sh` wires `TICK-UNDELIVERED` through the marker and mirrors in both stopping arms
+  (2 call sites); `factory/selftest.sh` carries the legs and `internal/enforce/run_test.go` returns to
+  main's version, which the branch never touched. Measured on this tree:
+  `bash factory/selftest.sh` -> `337 passed, 0 failed`.
+
+## H-0078 · Deriving the at-risk box from the trees would have followed them into `/tmp`
+
+- Question: #247 derives the mirror box from `$FACTORY_TREES`' parent so a worktree prune can never
+  reach it; #248 pins the same box at `$HOME/prj/at-risk` *because* `/tmp/opencode/wt-204` and
+  `wt-206` are already gone that way. H-0077 left one definition; which invariant gives when
+  `FACTORY_TREES` is overridden?
+- Options: keep #248's literal and delete the derivation | keep #247's derivation alone, first
+  assignment wins | derive beside the trees and refuse a result under `/tmp`, a relative path, or an
+  empty answer, falling back to the home box
+- Chose: derive beside the trees and refuse a result under `/tmp`, a relative path, or an empty
+  answer, falling back to the home box
+- Why: the two are not in conflict on any real configuration -- with the trees at
+  `/home/rodney/prj/wt` the derivation answers `/home/rodney/prj/at-risk`, the very directory #248
+  names -- so both legs pass together and only an override separates them. Tie-break 3 (refuse rather
+  than proceed on bad input) and tie-break 4 (fewest files) both land on the third arm: one function,
+  one `case`. What decides it is that the failure is silent. The box holds, by definition, the only
+  copy of work nobody was watching, so a `FACTORY_TREES=/tmp/…` would move the rescue into the
+  directory that has already deleted unmerged work here and nothing would print. Taking either literal
+  instead makes one rescue's mirror land where the other's legs do not look. Both directions are
+  pinned, because a fallback that always fired would pass the two refusals and fail the third:
+  `/tmp/opencode/wt` and `../wt` fall back, `/srv/queue/trees` still derives `/srv/queue/at-risk`.
+- Checkpoint: f043975
+- Effect: `factory/common.sh` `factory_at_risk_default` carries the refusal, and `factory/selftest.sh`
+  gained the leg `the mirror never lands where a reboot can`. Measured on this tree:
+  `bash factory/selftest.sh` -> `338 passed, 0 failed` (one leg above the merge's 337, none lost).

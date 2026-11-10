@@ -6281,11 +6281,12 @@ PATH=$mirror_saved_path
 # form is what keeps a stop at 28 KB instead of 22 MB -- and the day somebody changes the form to full
 # history to make the clone work, this is the line that says what was traded.
 sc_rc=0
+# The leg below asserts this clone FAILS. The two `config` lines are for the state it refuses: if the
+# bundle ever becomes self-contained and the clone succeeds, the fixture still must not author under
+# the host's identity (H-0059). A `config` against a directory git did not create is a no-op here --
+# hence `|| true`, which is load-bearing and not decoration. They sit inside three lines of the clone
+# because `pos_unconfigured_repos` skips comments, so prose above them buys them no room.
 git clone "$bundle" "$mirror/selfcontained" >"$mirror/sc.out" 2>&1 || sc_rc=$?
-# The leg below asserts this clone FAILS. The two lines are for the state it refuses: if the bundle
-# ever becomes self-contained and the clone succeeds, the fixture must still not author under the
-# host's identity (H-0059), and a `config` against a directory git did not create is a no-op here --
-# hence `|| true`, which is load-bearing and not decoration.
 git -C "$mirror/selfcontained" config user.email selftest@example 2>/dev/null || true
 git -C "$mirror/selfcontained" config user.name selftest 2>/dev/null || true
 if [ "$sc_rc" != "0" ] && grep -qF 'lacks these prerequisite commits' "$mirror/sc.out"; then

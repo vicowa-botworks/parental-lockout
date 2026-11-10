@@ -113,8 +113,8 @@ FACTORY_TREES=${FACTORY_TREES:-$(factory_trees_default)}
 # `/tmp` is refused, not derived into. The trees' parent is wherever an operator pointed
 # FACTORY_TREES, and `/tmp/opencode/wt-204` and `wt-206` are already gone that way: a box a reboot can
 # delete cannot be the surviving half of anything, which is the sentence #248 paid for and the reason
-# this does not simply inherit the trees' location. So a derived path under `/tmp` falls back to the
-# home box rather than carrying the mistake into the rescue.
+# this does not simply inherit the trees' location. So a derived path under `/tmp`, a relative path,
+# and an empty answer all fall back to the home box rather than carrying the mistake into the rescue.
 factory_at_risk_default() {
 	local trees=${FACTORY_TREES:-$(factory_trees_default)} derived
 	derived=$(dirname -- "${trees%/}")/at-risk
