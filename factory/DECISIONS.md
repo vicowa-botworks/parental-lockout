@@ -2779,6 +2779,88 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   so the record and the status claim disagreed with each other by exactly one entry, and the merge
   `6442e8f` moved the number twice more: 127 over the two sides' entries, 128 from `H-0093` on.
 
+## H-0092 · The empty-log refusal names both headings, because it cannot know which log it reads
+
+- Question: what heading does the `no entry found` refusal show the reader? `check()` printed one
+  string for every file with a `D-` example in it, so aimed at an empty harness log it told that reader
+  to look for a heading the file can never hold. Measured 10 Nov in this tree at `5a1a559`, repeating
+  #268's own probe rather than quoting it: `printf '# Harness decisions\n\nNothing here yet\n' >
+  /tmp/empty-h.md` then `python3 scripts/check-decisions.py --log /tmp/empty-h.md` printed
+  `nothing in it matched ` + backticked `## D-0001 · …` and exited 1. Verdict, exit status and refusal
+  were all correct, and this is a smaller thing than the citation `H-0091` removes: that message
+  asserts a fact and invented it, this one illustrates a format. What made it worth an entry is that
+  `--self-test` could not have caught it either way, and still could not after a one-word fix.
+- Options: name both prefixes in the one string | pass the log's prefix in from `main()`/`parse()` and
+  print only the one this file writes | print the grammar rather than an example (a
+  `<prefix>-NNNN` heading with no concrete id) | name no id and widen the wording to "a decision
+  heading" | change only the message and leave the assertion at the phrase it uses today
+- Chose: name both prefixes in the one string
+- Why: the cheap tie-breaks do not separate the first three -- each is one string in `check()`'s
+  return, none adds a dependency or touches a second file, all three still refuse. What separates them
+  is whether the sentence is allowed to assert something it cannot read. For the out-of-order arm there
+  is a fact in the file, the predecessor's own heading, so `H-0091` carries that id and refuses to
+  re-derive a prefix from a number plus a guess -- measured there, `--log` takes any path, `parse`
+  imposes no prefix on it, and a merge that took both sides into one file is reachable. This arm
+  returns before a single entry is parsed, so there is no fact to carry and any one prefix it prints is
+  a guess about a file it did not read: `DECISIONS.md` and `factory/DECISIONS.md` match the same
+  `ENTRY`, and `cross_log_problems` cannot tell one arbitrary `--log` path which space it belongs to.
+  Naming both shapes is therefore the only sentence true of every log, and it is literally what the
+  grammar accepts. An example beats the bare grammar because the sentence's one job -- the leg `H-0091`
+  used for the same choice -- is to hand over something to paste or grep, and `<prefix>-NNNN` is a
+  pattern a person has to compile before using it; widening to "a decision heading" loses the separator
+  and the heading level as well as the id. Leaving the message alone is not an option that was
+  considered and lost, it is the bug: the new fixture below is red against it, measured as M1.
+- Checkpoint: 3fca303
+- Effect: `scripts/check-decisions.py`. The refusal reads ``matched `## D-0001 · …` or `## H-0001 ·
+  …``` `, so it describes `ENTRY` rather than guessing the file. The leg that keeps it is the larger
+  part, because the unpinned assertion is the reason the bug was shippable: the `no-entries` case
+  asserted only the substring "no entry found", a phrase printed whichever example sits in the
+  sentence, so the arm was covered while its only id was wrong for half its readers. Two rows now
+  assert each empty log is offered the heading its own space writes, over a new `BAD` fixture
+  `no-entries-harness` -- the mirror the suite never had, since every other fixture is a `D-` log
+  where the hardcoded example happens to be right -- and one loop sweeps every `BAD` fixture for the
+  obligation both messages owe: an id in a refusal has to resolve, a *citation* as an entry in the log
+  being read and an *example*, a backticked heading read exactly as printed, as a heading `ENTRY`
+  parses. `ID_TOKEN` and `EXAMPLE_HEADING` are the two shapes; a citation is what survives deleting
+  every example from the sentence, so a message cannot exempt its own invention by putting a `##` in
+  front of it. Sweeping `BAD` rather than naming an arm is what makes it one rule for both messages
+  and costs no edit when a fixture is added -- measured on PR #269's own text: its three fixtures
+  spliced into `BAD` without its fix make this sweep refuse (`out-of-order-harness: the refusal cites
+  D-0082, which is not an entry in the log it is reading`, exit 1), and splicing its fix as well
+  returns exit 0. So the out-of-order message is held to the rule #268 asks it be held to, by a line
+  that does not touch the lines #269 is editing. Measured on this tree, each mutant applied to the
+  working tree from a `/tmp` backup and restored with `cp`, one line per row, every one
+  `python3 scripts/check-decisions.py --self-test; echo $?`: control exit 0 at 28 cases that must
+  fail and 9 that must pass, up from 17 and 9 at `3fca303` (+2 empty-log rows, +10 swept fixtures,
+  -1 row the loop replaces); the shipped single `D-` example exit 1, `no-entries-harness: the refusal
+  does not offer `## H-0001 · …``; the mirror single `H-` exit 1 naming `no-entries` instead, so the
+  pin is symmetric and not `D-`-phobic; `## D-001 · …` exit 1, `offers '## D-001 · …' ... ENTRY does
+  not parse`; an em-dash separator exit 1 the same way; `# D-0001 · …` exit 1 the same way, which is
+  what the heading level is doing in the check -- an earlier draft rebuilt the heading from the id it
+  had extracted and so could never fail, and M3 through M5 are that draft's refutation; an invented
+  citation in the out-of-order arm (`"D-9999"`) exit 1, `cites D-9999`. The gate itself is unchanged:
+  same verdict, same exit 1, on #268's reproduction, and the real logs still read
+  `126 entries across 2 log(s)`.
+  What lost. An empty `DECISIONS.md` is now also shown an `H-` heading it will never write: the message
+  is a statement about the grammar, not about the file, and the majority reader pays for the minority's
+  correctness. Accepted because the only way to make it shorter is to assert which file it is, and that
+  is the guess `H-0091` refused eleven entries ago. Passing on `pass the prefix in` also forgoes the
+  shorter message it buys -- if a trustworthy per-log id space is ever built, the two empty-log rows
+  still pass unchanged, because they pin which heading a reader is offered and not how it was chosen.
+  `self_test()`'s closing `print` still enumerates "the cross-log id rule and checkpoint existence"
+  without naming this rule, deliberately: PR #269 rewrites those same three lines and two pull requests
+  editing one caption is a conflict handed to the supervisor's merge path, so only the numbers inside
+  that sentence move (17 to 28). The citation arm exempts an id printed as a heading even where that
+  heading cites a real entry -- it is then still held to the parse arm, which is the seam between the
+  two obligations and is stated rather than closed -- and an example printed *without* backticks would
+  be read as a citation, which the one message that has an example does not do. One measurement about
+  this entry's own id, because the allocator reads like a stolen id if nobody writes it down: the first
+  two reads answered `H-0092`, the third answered `H-0093`, and the delta is this file -- the allocator
+  unions the current checkout, so once the draft carrying `## H-0092` was in the working tree the next
+  free id above it was 93. Aimed at the main checkout, where no draft exists, the same command still
+  answers `H-0092`, and the ref union's own ceiling is `H-0091` (PR #269's). Nothing was renumbered and
+  nothing collided; a later tick that re-reads after writing its own entry is reading itself.
+
 ## H-0093 · The same log conflict as `H-0085`, and this time the log is the only thing in the way
 
 - Question: PR #269 reads `CONFLICTING`/`DIRTY` against `5a1a559` with all five checks `SUCCESS`.
@@ -2887,3 +2969,98 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   record beside it, not a rewrite. What this commit does not do: `#269`'s body is a status claim
   and is rewritten in place to the merged numbers rather than annotated, and the merge `6442e8f`
   stands as the thing that had to be re-measured.
+
+## H-0096 · The log collides with the same neighbour a third time, and this time the silent half is the auto-merged gate
+
+- Question: `#269` reads `CONFLICTING`/`DIRTY` against `origin/main` with all five checks `SUCCESS`
+  (`verify`, `shellcheck`, `mutation sets`, `packages (amd64)`, `packages (arm64)`). The merge base is
+  `5a1a559`; `main` took `#271` (`H-0092`) into `9593797` while this branch appended `H-0091`, `H-0093`
+  and `H-0094` at the offset `main` used for `H-0092`, so `factory/DECISIONS.md` is the one conflicted
+  file -- the third occurrence of the class `H-0085` settled and `H-0093` re-settled. What is new is not
+  the conflict, which git announces, but the part it does not: `scripts/check-decisions.py`, the gate
+  that reads this file's order, was edited by both sides inside the same three regions -- `check()`'s
+  empty-return arm, the `BAD` fixtures, `self_test()`'s rows -- and git merged it without a word. A
+  log conflict costs a merge; a silently retired leg costs a green suite that no longer checks the
+  thing it was written to check. So what decides this is not a resolution but a measurement: does the
+  merged gate still hold both sides' rules?
+- Options: take git's conflict layout and let CI notice | keep only `main`'s entry and re-file this
+  branch's three above it | renumber this branch's ids above `H-0092` | rebase onto `origin/main` |
+  keep both sides' entries ordered by id and re-measure every leg on the merged tree
+- Chose: keep both sides' entries ordered by id and re-measure every leg on the merged tree
+- Why: tie-break 6 settles the layout before reasoning starts -- `H-0093` decided this exact shape one
+  sibling branch ago and `H-0085` before it, and the ordering is not an invention of the merge but what
+  the allocator already asserted: it refused to hand `H-0092` to this branch because `issue-268` held it
+  in the `refs/heads` union, and it answers `H-0096` here with `issue-272` holding `H-0095`. Three
+  things are measured this time rather than argued. **Git's layout is red, and red with a name that
+  resolves:** over the bytes git handed back (`H-0091`, `H-0093`, `H-0094`, then `H-0092`) the merged
+  gate answers `H-0092 is out of order (H-0094 came before it)`, exit 1; the same bytes against
+  `origin/main`'s copy of the formatter answer `(D-0094 came before it)`, and `grep -c '^## D-0094'` is
+  0 in both logs while `^## H-0094` is 1. So the conflict that produced `H-0091`'s invented name now
+  demonstrates the fix on identical bytes -- the A/B `H-0093` could only describe from two trees is
+  runnable in one. **No id moves, and `main`'s own entry is the reason:** `H-0092`'s `Why:` cites
+  `H-0091` by name twice ("the assumption H-0091 refused", "the guess `H-0091` refused"), so
+  renumbering this branch's entries would break a citation inside the entry this merge is bringing in --
+  a worse version of the repointed citation `H-0093` refused, because that one pointed at this branch's
+  own record and this one would edit the other side's. The review on `#269` put the same fork to the
+  supervisor as finding 2 ("either 269 merges first, or this entry gets renumbered") after simulating
+  only the append layout, which it measured red at `H-0091 is out of order (H-0092 came before it)`;
+  ordering by id answers it without moving anything. **The auto-merge is where the loss would have
+  hidden, so each side's leg was attacked in the merged tree**, each mutant applied to the working tree
+  from a `/tmp` backup with a unique-anchor guard (an anchor found twice is not applied, exit 2), and
+  every line `python3 scripts/check-decisions.py --self-test; echo $?`: control exit 0 at 32 must-fail
+  and 9 must-pass; `M1`, `main`'s empty-log example put back to the single `## D-0001` -> exit 1,
+  `no-entries-harness: the refusal does not offer ``## H-0001 · …``, so `#268`'s leg is held by this
+  branch's suite and not merely present; `M2`, this branch's formatter put back to `"D-%04d" % prev_num`
+  -> exit 1 in three lines, two of them `main`'s new sweep
+  (`out-of-order-harness: the refusal cites D-0082, which is not an entry in the log it is reading`, at
+  fixture lines 9 and 19) and one this branch's own row (`does not name H-0082 came before it`); `M3`,
+  the re-derived prefix -> exit 1, again both rules (`out-of-order-mixed: the refusal cites H-0082,
+  which is not an entry...` and `does not name D-0082 came before it`). Both behaviours are also read
+  back live rather than through fixtures: an empty harness log is offered `## D-0001 · …` or
+  `## H-0001 · …`, and a both-spaces file is refused naming `D-0082`, the heading actually above the
+  offender.
+- Checkpoint: 1690e06
+- Effect: `factory/DECISIONS.md` leaves this commit reading `H-0090`, `H-0091` (this branch), `H-0092`
+  (`main`), `H-0093`, `H-0094` (this branch), `H-0096` (this entry), with no id moved on either side.
+  "Both intents kept" is read back, per `#1180`: `git diff --numstat origin/main -- factory/DECISIONS.md`
+  and `git diff --numstat 1690e06 -- factory/DECISIONS.md` both report **0 deletions** -- insertions only,
+  in either direction, so neither side lost a line of the other's text. The insertion totals are a
+  function of this entry's own length, which is the trap `H-0094` records, so only the resolution is
+  quoted as a number: 172 lines against `origin/main` and 82 against `1690e06`, measured before this
+  entry was appended. Both read with `git diff --numstat`, which is what makes the zero exact: counting
+  added lines with `grep` on `^+` plus one character, the method `H-0093`'s `Effect:` uses, misses every
+  added blank line -- six and two of them here, and
+  `git diff --name-only origin/main` names only `factory/DECISIONS.md` and `scripts/check-decisions.py`
+  -- `factory/selftest.sh` is byte-identical to the `main` copy that was green before the merge, so this
+  branch contributes no leg and loses none. `#1048`'s merge hazard has no surface, re-checked on the
+  merged tree and not inherited from `H-0093`: across `scripts/mutations/*.json` every `"file"` value is
+  a `.go` or a `.tmpl` (`NON_GO_TMPL_COUNT=0`) and nothing in that directory names `check-decisions`,
+  `selftest` or `DECISIONS`. Read back on the merged tree with this entry in it:
+  `python3 scripts/check-decisions.py` -> 131 entries across 2 log(s), exit 0 (39 `## D-` in
+  `DECISIONS.md` plus 92 `## H-`; 130 before this entry, which is the number the resolution alone
+  printed); `python3 scripts/check-decisions.py --self-test` -> 32 must-fail, 9 must-pass, exit 0 --
+  `main`'s 28 plus the two fixtures this branch added to the swept `BAD` dict, minus the single
+  out-of-order row its three-row loop replaces; `make verify` -> `verify: OK`, which runs
+  `factory/selftest.sh` at `Makefile:113` (`368 passed, 0 failed` in 13.9 s standalone on this box --
+  totals are box-dependent and this is not another box's number).
+  What lost. `H-0091`'s third fixture stops being load-bearing in the way this pull request's own
+  approving review measured it: that review got the re-derived prefix to exit 0 at 18 cases by deleting
+  the mixed row, and on the merged tree `M3` is caught twice, so the row is no longer the only thing
+  between that variant and green. It is kept, because the two rules are not the same rule -- `main`'s
+  sweep refuses a citation that resolves nowhere, this row pins *which* resolvable id is named, and a
+  mutant that printed a real-but-wrong predecessor (the first entry, say) satisfies the sweep and fails
+  the row. Also lost, and kept for the same reason: the merged `self_test()` caption
+  (`scripts/check-decisions.py:679-682`) is this branch's sentence and names neither of `H-0092`'s rules
+  -- `H-0092` deliberately touched only the numbers inside it so two pull requests would not edit one
+  caption, and the merge takes ours because theirs never moved. It is prose printed on a green run, so
+  it is recorded here instead of being fixed inside a merge commit.
+  What this commit does NOT do. The merge makes three sentences in the log stale and edits none of them:
+  `H-0092`'s `Why:` says "the guess `H-0091` refused eleven entries ago" where the merged log puts
+  `H-0091` one heading above it (`:2719` and `:2782`, zero headings between); `H-0093` and `H-0094` both
+  say `H-0092` is "held on the sibling branch `issue-268`", true of the allocator when written and now a
+  merged heading six lines away. `#1180`'s remedy for a stale record is a dated correction beside it, not
+  a silent rewrite, and doing it here would have been worse than merely early: one deleted line from the
+  other side's entry destroys the 0-deletion diff that is the whole evidence this resolution kept both
+  intents. So this entry is the record, and the three sentence-level annotations remain a forward commit
+  for whoever takes them -- the pull-request body names them so the next tick inherits them as work, not
+  as a discovery.

@@ -59,6 +59,15 @@ ENTRY = re.compile(r"^## ([DH]-(\d{4}))\s*(?:·|\||-)\s*(.+?)\s*$")
 FIELD = re.compile(r"^\s*[-*]\s*([A-Za-z][A-Za-z ]*):\s*(.*)$")
 SHA = re.compile(r"^[0-9a-f]{7,40}$")
 ID_NUM = re.compile(r"[DH]-(\d{4})$")
+# Two shapes an id takes inside a refusal's own prose. A *citation* names an entry (`D-0082 came
+# before it`), an example shows a heading to write -- always printed between backticks, and always read
+# here exactly as printed (`## H-0001 · …`). They owe the reader different things: a citation has to
+# resolve in the log being read, an example has to be a heading `ENTRY` accepts. Telling them apart is
+# what lets one rule hold both messages to their obligation, and taking the example as printed is what
+# gives the second half teeth -- a check that rebuilds the heading from the id it extracted would be
+# matching its own string and could never fail.
+ID_TOKEN = re.compile(r"\b[DH]-\d{4}\b")
+EXAMPLE_HEADING = re.compile(r"`(#+\s*[DH]-\d+[^`]*)`")
 
 
 def parse(text, label="<log>"):
@@ -121,8 +130,15 @@ def check(entries):
     prev_id = None
 
     if not entries:
-        return ["no entry found: the file exists and nothing in it matched `## D-0001 · …`, which "
-                "is what a log that has stopped being written looks like"]
+        # Both id spaces are offered because this arm cannot know which one the file writes: it
+        # returns before a single entry has been parsed, `--log` accepts any path, and `parse` imposes
+        # no prefix on it -- both logs match the same `ENTRY`. Guessing one from the path or from a
+        # caller's label is the assumption H-0091 refused to make about the out-of-order predecessor's
+        # prefix, and measured there it is wrong for a file holding both spaces. So the example names
+        # what the grammar accepts: a lone `D-` told whoever pointed this at an empty harness log to
+        # grep for a heading that file can never hold (#268).
+        return ["no entry found: the file exists and nothing in it matched `## D-0001 · …` or "
+                "`## H-0001 · …`, which is what a log that has stopped being written looks like"]
 
     for e in entries:
         at = "%s:%d" % (e["label"], e["line"])
@@ -324,6 +340,11 @@ PROSE = WRAPPED + "\nA paragraph after a blank line, which is not part of `Check
 
 BAD = {
     "no-entries": "# Decisions\n\nNothing here yet.\n",
+    # The same arm reached from the other log. This fixture is the whole reason the bug shipped: every
+    # case in `BAD` is a `D-` log, where the single `D-` example in the empty-log refusal happens to be
+    # right, and the needle was the phrase "no entry found" -- printed whichever example the sentence
+    # carries, so the arm looked covered while its only id was wrong for half its readers (#268).
+    "no-entries-harness": "# Harness decisions\n\nNothing here yet.\n",
     "missing-field": "## D-0001 · X\n\n- Question: q?\n- Chose: a\n",
     "one-option": "## D-0001 · X\n\n- Question: q?\n- Options: only this\n- Chose: only this\n"
                   "- Why: because.\n- Checkpoint: abc1234\n",
@@ -492,7 +513,52 @@ def self_test():
         fails.append("prose-after-blank-line: `Checkpoint:` reads %r, so the paragraph after the "
                      "entry was folded into it" % tail)
 
-    expect_fail(BAD["no-entries"], "no-entries", "no entry found")
+    # An empty log has nothing parsed to tell it which id space it writes, so the example it offers is
+    # a claim about the grammar rather than about the file -- and it used to be the same `D-` claim for
+    # every log, which is false of the harness log (#268). The needle here used to be "no entry found",
+    # a phrase the message prints whichever example sits in it: the rule was covered, the id was not.
+    # Each empty log is now answered with the heading its own space writes.
+    for name, want in (("no-entries", "## D-0001 · …"), ("no-entries-harness", "## H-0001 · …")):
+        counts[0] += 1
+        got = check(parse(BAD[name], name))
+        if not got:
+            fails.append("%s: expected a problem, got none -- the rule is not being applied" % name)
+        elif not any(want in p for p in got):
+            fails.append("%s: the refusal does not offer `%s`, the heading this log writes -- %s"
+                         % (name, want, got))
+
+    # The rule that row is one instance of, stated once for every refusal this file prints: an id in
+    # the sentence has to be something the reader can resolve. A citation has to be an entry in the log
+    # being read -- an invented one sends a person to grep for an entry that is not there; an example
+    # has to be a heading `ENTRY` parses -- an example the parser does not match keeps the log refused
+    # after they do what it says. Iterating `BAD` instead of naming an arm is what makes it the same
+    # rule for both messages that name an id in prose, and it costs no edit when a fixture is added:
+    # the out-of-order refusal is held to it exactly as this one is.
+    for name, text in sorted(BAD.items()):
+        counts[0] += 1
+        parsed = parse(text, name)
+        known = set(e["id"] for e in parsed)
+        for p in check(parsed):
+            snippets = EXAMPLE_HEADING.findall(p)
+            # A citation is whatever id survives removing every printed example, so a message cannot
+            # exempt its own invention by writing it as a heading.
+            elsewhere = p
+            for snippet in snippets:
+                elsewhere = elsewhere.replace(snippet, " ")
+            for invented in sorted(set(ID_TOKEN.findall(elsewhere))):
+                if invented in known:
+                    continue
+                fails.append("%s: the refusal cites %s, which is not an entry in the log it is reading"
+                             " -- a reader sent to grep for it finds nothing: %s" % (name, invented, p))
+            for snippet in sorted(set(snippets)):
+                # `…` stands for the title, so the example is completed before it is asked whether
+                # ENTRY would take it -- but from the printed bytes, not from an id lifted out of them.
+                # The digits, the prefix and the separator are the thing under test, and a check that
+                # rebuilt the heading itself could never fail.
+                if not ENTRY.match(snippet.rstrip("…").rstrip() + " Example"):
+                    fails.append("%s: the refusal offers %r as the heading to write, which this file's "
+                                 "own ENTRY does not parse -- %s" % (name, snippet, p))
+
     expect_fail(BAD["missing-field"], "missing-field", "missing Options")
     expect_fail(BAD["one-option"], "one-option", "one option")
     expect_fail(BAD["chose-unknown"], "chose-unknown", "not among the recorded options")
