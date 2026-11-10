@@ -1667,12 +1667,52 @@ expect_quarantine() { # label tree want [unit] [needles] [attempt] [why]
 		# The work is in a stash AND named by the journal, so the halt is not the only copy.
 		[ -n "$m" ] && [ -s "$m" ] || bad="${bad:+$bad; }the halt names no usable mirror, so the work is only in a stash"
 		;;
+	UNREADABLE)
+		# #267's third arm: `factory_tree_dirt` could not answer the halt, answered the action, and the
+		# action said clean. Nothing was quarantined and nothing may be -- but NEITHER sentence this arm
+		# used to own is true of the state, which is the whole defect. "was found dirty" claims a verdict
+		# that never happened; "nothing was dirty" claims a clean nobody read.
+		want_rc=0
+		[ "$rc" = 0 ] || bad="the unit was stopped (exit $rc)"
+		[ ! -e "$FACTORY_HALT" ] ||
+			bad="${bad:+$bad; }an unreadable verdict beside a clean action halted the queue"
+		[ "$after_mirrors" = "$before_mirrors" ] ||
+			bad="${bad:+$bad; }it wrote a mirror for a tree the action called clean"
+		[ "$(q_dirt "$tree")" = "$before" ] ||
+			bad="${bad:+$bad; }it changed a tree it could not read: $before path(s) before, $(q_dirt "$tree") after"
+		q_journal_has 'cause=verdict-unreadable' ||
+			bad="${bad:+$bad; }the journal took no arm, so a pass that could not read the tree left no trace of it"
+		q_journal_has 'cause=never-dirty' &&
+			bad="${bad:+$bad; }an unreadable verdict journalled as 'nothing was dirty' -- a clean verdict from a tree nobody read"
+		q_journal_has 'cause=verdict-disagreed' &&
+			bad="${bad:+$bad; }an unreadable verdict journalled as a disagreement -- the line claims a dirty verdict it never got"
+		# And the reason has to be IN the line: an arm name with nothing behind it is #267's second
+		# unestablished point in its own words, "the line reports a cause it does not know". The needle is
+		# the VERDICT's own sentence, the one this leg planted -- not a word from this file. Measured the
+		# first time this leg ran: the check searched for "could not be read", the shipped sentence says
+		# "the dirt verdict was unreadable and the action found nothing", and so the check passed with the
+		# reason deleted from the line -- a leg satisfied by its own prose, which is the exact thing every
+		# HALT leg here names its arm to avoid. `its state could not be read` appears nowhere else.
+		case "$(grep -F 'cause=verdict-unreadable' "$FACTORY_LOG/supervisor.log" | tail -n 1)" in
+		*'its state could not be read'*) : ;;
+		*) bad="${bad:+$bad; }the line names no reason from the verdict, so the journal still cannot be read for its cause" ;;
+		esac
+		;;
 	PROCEED)
 		want_rc=0
 		[ "$rc" = 0 ] || bad="the unit was stopped (exit $rc)"
 		[ ! -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }a HALT file was written for a tree with nothing in it"
 		[ "$after_mirrors" = "$before_mirrors" ] || bad="${bad:+$bad; }a clean tree still produced a mirror"
-		q_journal_has 'TREE-CLEAN' || bad="${bad:+$bad; }the journal never says which arm it took"
+		# Both halves, because the missing one was the bug (#267). One `TREE-CLEAN` search was
+		# satisfied by the DISAGREEMENT arm, and this leg's tree -- the leg is literally labelled
+		# "nothing was dirty" -- is the tree that used to take it. So the ok below read "the journal
+		# never says which arm it took" as satisfied while the journal was saying a rescue had
+		# happened. `cause=` names the ARM, so the prose above it can be reworded without this leg
+		# silently going green or red.
+		q_journal_has 'cause=never-dirty' ||
+			bad="${bad:+$bad; }the healthy path took no arm the journal names, so nothing here says which one it took"
+		q_journal_has 'cause=verdict-disagreed' &&
+			bad="${bad:+$bad; }a tree that was never dirty journalled a disagreement -- the rescue log claims a rescue nobody performed"
 		;;
 	DRYRUN)
 		want_rc=4
@@ -1715,6 +1755,58 @@ expect_quarantine() { # label tree want [unit] [needles] [attempt] [why]
 # the mirror for the paths the patch has to carry. The control is the same helper with a match naming
 # nothing git ever runs, because three refusals prove nothing unless an inert shim is shown quarantining
 # -- otherwise every one of them is satisfied by a shim that stops everything it sees.
+# A ONE-SHOT shim: it refuses the first matching git invocation and lets every later one through.
+# `shim_install` above is stateless, and statelessness is exactly what will not reach #267's third arm.
+# That arm's state is "the verdict the halt read could not be read, the verdict the action read said
+# clean" -- a difference between TWO reads of one tree, which no on-disk fixture can hold still. A
+# stateless shim fails both reads, the quarantine then refuses, and the pass takes the refusal arm
+# instead. So the counter lives beside the shim and one install owns it.
+shim_install_first() { # match [exit] -> a bin dir to put first on PATH
+	local match=$1 code=${2:-128} dir=$work/arm-shim-one real
+	real=$(command -v git)
+	# Wiped, not `mkdir -p`d over. The counter is the whole difference between this shim and
+	# `shim_install`, so a marker left by the previous install silently turns the NEXT leg's plant into
+	# an inert shim -- measured the first time this ran: the primary tree took `cause=verdict-unreadable`
+	# and the worktree copy of the same leg answered `cause=never-dirty`, because the leg before it had
+	# already spent the refusal. Same rule as `q_arm`'s plant-inside-the-helper, one mechanism over.
+	rm -rf -- "$dir"
+	mkdir -p "$dir"
+	cat >"$dir/git" <<SHIM
+#!/bin/sh
+# Answers the FIRST matching invocation only; every later call is the real binary, untouched.
+case " \$* " in
+*" $match "*)
+	if [ ! -e "$dir/answered" ]; then
+		: >"$dir/answered"
+		printf 'shim: %s said something and exited %s\n' '$match' '$code' >&2
+		exit $code
+	fi
+	;;
+esac
+exec '$real' "\$@"
+SHIM
+	chmod +x "$dir/git"
+	printf '%s' "$dir"
+}
+
+# q_unreadable LABEL TREE WANT MATCH
+#   WANT is UNREADABLE for the plant and PROCEED for the inert control, and both go through the same
+#   helper for the reason `q_arm`'s control states: five refusals prove nothing until an inert shim is
+#   shown NOT refusing. Here it is sharper still -- an inert one-shot shim must land on
+#   `cause=never-dirty`, or the unreadable arm above would be a property of the fixture rather than of
+#   the failing read.
+q_unreadable() { # label tree want match
+	local label=$1 tree=$2 want=$3 match=$4 shim="" saved=$PATH
+	q_reset "$tree"
+	shim=$(shim_install_first "$match")
+	PATH="$shim:$PATH"
+	hash -r
+	expect_quarantine "$label" "$tree" "$want"
+	PATH=$saved
+	hash -r
+	return 0
+}
+
 q_arm() { # label tree want match exit needles
 	local label=$1 tree=$2 want=$3 match=$4 code=$5 needles=$6 shim="" saved=$PATH
 	q_reset "$tree"
@@ -1841,6 +1933,16 @@ for tree in "$repo" "$wt"; do
 		'rendered an empty mirror'
 	q_arm "[$where] an inert shim still quarantines" "$tree" QUARANTINE 'definitely-not-a-git-subcommand' 128 \
 		'tracked.txt,scratch-notes.txt'
+
+	# The two reads of ONE tree, disagreeing in the direction no refusal arm can reach (#267).
+	# `update-index --refresh` is the read that turns an unreadable tree into `rc 2` (`common.sh`'s
+	# `its state could not be read`), so failing it exactly once leaves the halt's verdict unknown and
+	# the action's verdict readable and clean -- the only state that reaches `cause=verdict-unreadable`.
+	# The tree is deliberately left CLEAN: dirty it and the second read finds work, the quarantine
+	# runs, and the pass is on the ordinary rescue path again rather than here.
+	q_unreadable "[$where] verdict unreadable, action clean" "$tree" UNREADABLE 'update-index --refresh'
+	q_unreadable "[$where] an inert one-shot shim says nothing was dirty" "$tree" PROCEED \
+		'definitely-not-a-git-subcommand'
 done
 
 # The mirror has to land in the fixture box and nowhere else. `FACTORY_AT_RISK` defaults to a real
@@ -2851,6 +2953,7 @@ proc_t1=$proc_ticks
 proc_rc1=$proc_rc
 proc_out1=$proc_out
 proc_run shipped-2
+proc_j2=$proc_journal
 
 # The legs name the activation they read, because the second activation sees the tree the first one
 # rescued: by then it is clean, and a leg that asks that pass whether a quarantine happened is asking
@@ -2860,9 +2963,12 @@ proc_run shipped-2
 # exists to keep the harness out of, arriving at the fixture instead of the production code.
 proc_did_run() {
 	local sessions
-	# The fixture before the mutant: a tree nobody dirtied reaches the same `TREE-CLEAN` the failure
-	# being controlled for reaches, and the journal cannot tell the two apart. `proc_plant` asks git how
-	# many paths it left dirty, so this is a second opinion and not the leg restating its own wish.
+	# The fixture before the mutant. `proc_plant` asks git how many paths it left dirty, so this is a
+	# second opinion and not the leg restating its own wish. It used to carry a second reason -- that a
+	# tree nobody dirtied reached the same `TREE-CLEAN` as the failure being controlled for and the
+	# journal could not tell the two apart. #267 fixed that sentence, so the count is now only what it
+	# always primarily was: proof there was work here for a rescue to describe. The arm itself is pinned
+	# by the two legs that read this fixture's journal below, not by this count.
 	if [ "${proc_p1:-0}" != 2 ]; then
 		printf '            the fixture tree has %s dirty path(s), not the two this section plants, so
 ' "${proc_p1:-nothing}" >&2
@@ -3054,26 +3160,164 @@ proc_next_activation_runs() {
 }
 proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
 
-# An observation this section did not go looking for, and prints rather than asserts, because a process
-# leg reads journals and a text scan never would have noticed it. Unit B's tree is cut by
-# `factory_worktree` minutes earlier and nothing ever writes to it -- and still the journal says of it:
+# The healthy unit's own sentence, asserted (#267). A note used to sit here: it printed what the journal
+# said of unit B and pinned nothing, on the stated grounds that a leg on the wording would be a leg that
+# refuses the fix. The fix has landed, so the wording is now the thing under test and both halves get
+# pinned -- on `cause=`, which names the ARM, which is what that objection was really about.
 #
-#   TREE-CLEAN unclaimed:901 <tree> was found dirty and is clean now; nothing was quarantined
-#
-# `factory_tick` calls `factory_tree_stop` on every tree before every tick, `factory_tree_quarantine`
-# answers 1 for a tree with nothing to stash, and that arm's sentence is written for the case where the
-# verdict and the action disagreed. So the ordinary, healthy path prints a line whose words say a person
-# or a dead tick had dirt in it and no longer does. Nothing here asserts the wording -- pinning it would
-# make the fix harder to land, not easier -- but the harness's own rule is that a failure left unspoken
-# reads as success, and this is the same shape wearing the opposite sign: a sentence that reports an
-# event that did not happen, in the log an operator is told to read. Worth an issue; it is not this
-# unit's change to make, and a leg that asserts it would be a leg that refuses the fix.
-if [ -n "$(proc_journal_line "$proc_j1" 'TREE-CLEAN unclaimed:901')" ]; then
-	printf '        note: unit B was never dirty, and the pass still journalled "was found dirty and is\n'
-	printf '        clean now" for it -- `factory_tree_stop` runs before every tick, and a clean tree\n'
-	printf '        takes the disagreement arm of the quarantine. Asserted nowhere here; said out loud\n'
-	printf '        because a reader of this file should know the journal says it.\n'
-fi
+# Half one alone is worth nothing. Delete the disagreement arm outright and "the healthy path says
+# nothing false" passes while the harness has also thrown away the one case the arm exists for. So the
+# control after this leg plants that case -- dirt the verdict sees, gone by the time the action looks --
+# and demands the disagreement sentence come out. Two legs, one per half, because each is the other's
+# proof that the first half means something.
+proc_journal_has() { # <journal> <needle> <needle> -> 0 when ONE line carries both
+	awk -v a="$2" -v b="$3" 'index($0, a) && index($0, b) { found = 1 } END { exit found ? 0 : 1 }' "$1"
+}
+
+proc_healthy_unit_says_so() {
+	local line tree
+	line=$(proc_journal_line "$proc_j1" 'TREE-CLEAN unclaimed:901')
+	[ -n "$line" ] || {
+		printf '            unit B got no `TREE-CLEAN` line at all, so the journal says nothing about\n' >&2
+		printf '            the tree it stopped. Silence is the other way this arm goes wrong: an\n' >&2
+		printf '            operator cannot tell a clean tree from a pass that never looked:\n' >&2
+		sed 's/^/              /' "$proc_j1" | cut -c1-150 >&2
+		return 1
+	}
+	if proc_journal_has "$proc_j1" 'unclaimed:901' 'cause=verdict-disagreed'; then
+		printf '            the healthy unit was journalled as a disagreement:\n              %s\n' "$line" >&2
+		printf '            That is the sentence #267 is about. It tells the operator a person or a\n' >&2
+		printf '            dead tick had dirt in this tree and no longer does, about a worktree\n' >&2
+		printf '            `factory_worktree` cut minutes earlier and nothing ever wrote to.\n' >&2
+		return 1
+	fi
+	proc_journal_has "$proc_j1" 'unclaimed:901' 'cause=never-dirty' || {
+		printf '            unit B took neither arm, so the journal still does not say which one it\n' >&2
+		printf '            took -- and "which arm" is all this line was ever for:\n              %s\n' "$line" >&2
+		return 1
+	}
+	# The second opinion, off the journal rather than out of it: the tree the line names, read after
+	# the pass. A leg that only greps for the new words passes on a build that renamed the token and
+	# went on lying, and `proc_did_run` two legs up already refuses to let a journal restate its own
+	# wish -- same rule, applied to the sentence this leg was written for.
+	tree=${line#*'TREE-CLEAN unclaimed:901 '}
+	tree=${tree%% *}
+	if [ -z "$tree" ] || [ ! -d "$tree" ]; then
+		printf '            the line names no tree a reader can go and look at: %s\n' "$line" >&2
+		return 1
+	fi
+	[ "$(q_dirt "$tree")" = 0 ] || {
+		printf '            it says nothing was dirty while the very tree it names holds %s path(s):\n' \
+			"$(q_dirt "$tree")" >&2
+		printf '              %s\n' "$tree" >&2
+		return 1
+	}
+	# Activation 2 as well, and for a different reason. By then unit A's tree has been rescued and
+	# unit B's was never dirtied, both units have ticked and the streak is cleared -- so this is the
+	# pass with the LEAST excuse for a rescue line, and the one the note never asked. Absorbed from the
+	# first attempt at this unit, which the supervisor quarantined out from under it: mirror
+	# `issue-267-quarantine-20261110T213522Z-efa97d027.patch` in `FACTORY_AT_RISK`, stash `efa97d027`.
+	# That version asked both activations and this branch had not thought to.
+	if grep -qF 'cause=verdict-disagreed' "$proc_j2"; then
+		printf '            the SECOND activation journalled a disagreement. Both trees were clean\n' >&2
+		printf '            by then and both units had ticked, so nothing in this pass had an excuse:\n' >&2
+		grep -F 'cause=verdict-disagreed' "$proc_j2" | sed 's/^/              /' | cut -c1-150 >&2
+		return 1
+	fi
+	for u in 900 901; do
+		proc_journal_has "$proc_j2" "unclaimed:$u" 'cause=never-dirty' || {
+			printf '            and `unclaimed:%s` took no named arm in the all-healthy activation,\n' "$u" >&2
+			printf '            so a pass with nothing to rescue does not say so either:\n' >&2
+			grep -F "TREE-CLEAN unclaimed:$u" "$proc_j2" | sed 's/^/              /' | cut -c1-150 >&2
+			return 1
+		}
+	done
+	return 0
+}
+proc_leg 'the clean unit is not credited with a rescue' \
+	'901 journalled cause=never-dirty, no disagreement line, and its tree is clean on disk' \
+	proc_healthy_unit_says_so
+
+# Half two: the arm the disagreement sentence is TRUE for, still reachable, on the same fixture. Planted
+# rather than hoped for, because the state is "the verdict the halt reads said dirty, the verdict the
+# action reads said clean" and on a quiescent box nothing between those two lines ever changes a tree --
+# which is why #263's controls plant their failures too. The plant takes the work away in exactly that
+# gap. It is inert for unit B, whose verdict is empty, and that is what makes ONE run carry both halves:
+# A has to disagree, B must not.
+proc_new verdict-disagrees
+proc_mutate 'dirt=$(factory_tree_dirt "$tree" 2>/dev/null) || dirt_rc=$?' \
+	'	if [ -n "$dirt" ]; then git -C "$tree" checkout -- . >/dev/null 2>&1; git -C "$tree" clean -fdq . >/dev/null 2>&1; fi # MUTANT-267A the work is gone by the time the action looks' ||
+	proc_267a_planted=0
+proc_plant
+proc_pd=$proc_planted
+proc_run disagrees-1
+proc_jd=$proc_journal
+
+proc_disagreement_still_reachable() {
+	local line
+	if [ "${proc_267a_planted:-1}" = 0 ]; then
+		printf '            the race was never planted, so this control ran shipped code and the arm\n' >&2
+		printf '            it exists to keep reachable was never asked to fire.\n' >&2
+		return 1
+	fi
+	[ "${proc_pd:-0}" = 2 ] || {
+		printf '            the fixture tree has %s dirty path(s), not the two this section plants.\n' \
+			"${proc_pd:-nothing}" >&2
+		printf '            With nothing to take away the two reads cannot disagree, and the journal\n' >&2
+		printf '            below would then be unit B reporting that it was never dirty -- true, and\n' >&2
+		printf '            not a thing that proves the arm still works.\n' >&2
+		return 1
+	}
+	line=$(proc_journal_line "$proc_jd" 'TREE-CLEAN unclaimed:900')
+	proc_journal_has "$proc_jd" 'unclaimed:900' 'cause=verdict-disagreed' || {
+		printf '            the verdict said dirty, the action found nothing, and the journal STILL\n' >&2
+		printf '            did not take the disagreement arm. Unit A'"'"'s line: %s\n' "${line:-none}" >&2
+		printf '            Delete that arm and the leg above goes green with it. That is why both\n' >&2
+		printf '            legs run, and why this one is a control and not a note.\n' >&2
+		sed 's/^/              /' "$proc_jd" | cut -c1-150 >&2
+		return 1
+	}
+	# The finding survives into the line. #267's second unestablished point is that "`factory_tree_dirt`
+	# 's verdict is not journalled, so a reader cannot reconstruct from the log which arm each line
+	# took"; a disagreement arm that names nothing is still unreadable for the same reason.
+	case "$line" in
+	*tracked.txt*scratch-notes.txt*) : ;;
+	*) printf '            the disagreement line names neither of the two paths the verdict reported,\n' >&2
+		printf '            so it still cannot be debugged from the journal alone:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	# And the arm must be honest about what it did not do. If the quarantine ran, the action found
+	# something, and this is the ordinary rescue path wearing this control's name.
+	[ -z "$(proc_journal_line "$proc_jd" 'TREE-QUARANTINED unclaimed:900')" ] || {
+		printf '            unit A was quarantined, so the action found work to stash and the two\n' >&2
+		printf '            reads never disagreed -- this control measures nothing.\n' >&2
+		return 1
+	}
+	[ "$(q_dirt "$proc_trees/issue-900")" = 0 ] || {
+		printf '            the planted work is still on disk (%s path(s)), so the state the line\n' \
+			"$(q_dirt "$proc_trees/issue-900")" >&2
+		printf '            describes did not happen: %s\n' "$proc_trees/issue-900" >&2
+		return 1
+	}
+	# Both arms in the one journal, or the control has only proved the sentence prints for everything
+	# -- which is the defect, rearranged.
+	proc_journal_has "$proc_jd" 'unclaimed:901' 'cause=never-dirty' || {
+		printf '            and unit B did not take the never-dirty arm in the very run where A\n' >&2
+		printf '            disagreed, so this journal does not hold both arms at once:\n' >&2
+		sed 's/^/              /' "$proc_jd" | cut -c1-150 >&2
+		return 1
+	}
+	[ "$proc_rc" = 0 ] || {
+		printf '            the disagreement arm changed the activation'"'"'s exit to %s. It must\n' "$proc_rc" >&2
+		printf '            still hand the unit to a tick exactly as it did before: a false halt costs\n' >&2
+		printf '            a turn, and #263 measured what a halt costs the queue.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the disagreement arm still fires when it is true' \
+	'A: cause=verdict-disagreed naming both planted paths, no quarantine, tree clean, exit 0; B: never-dirty' \
+	proc_disagreement_still_reachable
 
 # ------------------------------------------------------------------ the two controls
 #
@@ -3166,9 +3410,11 @@ proc_costs_its_own_unit_its_turn() {
 	if [ "${proc_ps:-0}" != 2 ]; then
 		printf '            this control'"'"'s fixture tree has %s dirty path(s), not two. A clean tree
 ' "${proc_ps:-nothing}" >&2
-		printf '            reaches `TREE-CLEAN` for the same reason the mutant fails to reach it, and
+		printf '            reaches `cause=never-dirty` and never gets as far as the mutant, which
 ' >&2
-		printf '            the journal below cannot tell those apart: one is the control, one is nothing.
+		printf '            is planted after `TREE-QUARANTINED`. This control would be shipped code
+' >&2
+		printf '            describing a rescue that had nothing to rescue, not the control.
 ' >&2
 		return 1
 	fi
