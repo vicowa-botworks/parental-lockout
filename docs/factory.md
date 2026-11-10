@@ -461,6 +461,45 @@ answer is one above the highest id of the selected prefix anywhere in that union
 ceiling are closed forever: a retired or renumbered id remains the thing a historical citation means,
 so "first free" is not "smallest missing number".
 
+It answers only for the decision log itself. The named path has to be named `DECISIONS.md` and be a
+regular file in the working tree or a blob in `HEAD`, because a union with no headings in it has
+exactly one answer available -- `<prefix>-0001`, the first heading both logs have carried since entry
+one -- so an empty union is a mistyped path, and answering it is the collision this command exists to
+refuse. Measured on the version #255 shipped, on three calls a session really makes:
+
+| The call | It printed | It prints now |
+|---|---|---|
+| `--prefix H factory/DECISION.md` | `H-0001`, exit 0 | a refusal naming the path |
+| `factory/DECISION.md`, no `--prefix` | nothing, exit 2, stdout and stderr both empty | a refusal naming the path |
+| `--repo <a checkout with no log> DECISIONS.md` | `D-0052` — *this* repository's ceiling | a refusal naming the path |
+
+The third row is the one that mattered: a relative log path fell back to the caller's tree whenever the
+named one was missing, so `--repo` read whatever log the directory it was invoked from had, and
+answered a question about one repository with a number from another. It now resolves against the
+repository named, once, with no second reading. The second row was a `sed` failing under
+`set -euo pipefail` inside a command-substitution assignment: the script ended with the substitution's
+status and said nothing on either stream, and a session holding an allocator that says nothing reads
+it as a broken tool and goes back to numbering by eye -- which is the defect this whole section is
+about. A fresh log is one `touch` and a title line away, and its first entry still gets an honest
+`D-0001` or `H-0001`, inferred from the path rather than from a heading that does not exist yet. Six
+legs and two controls in `factory/selftest.sh` plant each row; the controls are what prove the
+refusals are the guard and not a fixture that agrees by accident.
+
+Existence turned out to be the wrong question, and asking it is how a wrong path gets the same answer
+as a missing one. The version reviewed at `c5aa1eb` asked whether the named path was *there*, and every
+wrong path in a checkout is there: `--prefix H docs/factory.md` printed `H-0001` and exited 0, and so
+did `README.md`, `AGENTS.md`, `factory` and `factory/` -- the last a directory in the tree and a tree in
+`HEAD`, which `git cat-file -e` answers true for. `docs/factory.md` is this guide, the file carrying the
+paragraph you are reading, so it is what a session has open at the moment it reaches for the allocator.
+That hole is worse than the typo above, not merely different: the refusal `c5aa1eb` ships tells the
+caller *your path is wrong*, so a session handed `H-0001` for `docs/factory.md` reads it as "my log was
+read" and writes a duplicate heading -- the silent collision, where an error message would have been
+visible. The guard now asks whether the path *is* the log: the basename must be `DECISIONS.md`, and
+what is behind it must be a regular file or a blob in `HEAD`. A guide, a README, a directory, and a
+directory named `DECISIONS.md` are each refused and each is told why (`H-0076`); three more legs and two
+more controls join the six and two above, one plant per arm of the predicate, so neither test can be
+retired without a leg going red.
+
 It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
 verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
 That makes the answer a collision-free *read*, not a lock, and the read has a boundary. It is stated as
@@ -494,6 +533,64 @@ git about objects -- a `Checkpoint:` that resolves to nothing is a claim about `
 to be checked -- and never about refs. A verdict that reads `refs/remotes` is a different verdict in CI
 than at the merge, depending on what each tree last fetched, and a gate that disagrees with itself reads
 as flaky and gets re-run until it agrees.
+
+### When two branches take the same number, the side that has not merged yields
+
+Two reads can still agree: measured, two calls in the same instant against one fixture both answered
+`H-0010`. What that window needs -- two sessions allocating before either commits -- is not available on
+this machine by mechanism rather than by habit. `factory/factory.sh` takes `exec 9>"$FACTORY_RUN/lock"`
+and `flock -n 9` before it reads anything, so a second activation prints `another supervisor holds …, so
+nothing was done here.` and exits 7; and it starts each tick in the foreground (`timeout … opencode
+run`, no `&`) from one loop, so two sessions are never allocating at each other here. The window that
+stays open is the one no local read closes: a second clone that has not fetched, or a person running a
+unit by hand in another checkout while the timer runs one here (issue #256).
+
+**The side that has not merged yields.** Its entry is the only one that can still move. `main`'s ids sit
+in merged history, the only merge this repository offers is a merge commit whose ancestors are
+permanent, and so moving an id that is already on `main` means rewriting published history -- a
+force-push, denied to every agent here by `.opencode/opencode.jsonc`, in a repository where the thing
+it would destroy is permanent rather than retried. The gate is the arbiter and it already says enough:
+it names the id, both rows, and what a `revert to before H-NNNN` would now point at. Resolving it is
+four steps, in this order:
+
+1. merge `main` into the unit branch. The conflict is *in the log*, and the resolution keeps both
+   entries -- one of them changes number, neither changes meaning;
+2. re-run `factory/next-decision-id.sh` **on the merged tree**, so the ceiling it reads includes the
+   ids that arrived with `main`;
+3. renumber the heading and every citation of it in this branch's own files, then run
+   `python3 scripts/check-decisions.py` over both logs before the resolution is committed;
+4. record what moved, inside the entry, the way `H-0051` and `H-0052` do: the number it gave up, the
+   branch that kept it, and that the two decisions share nothing but the digit. A gap in a log is
+   citable when an entry says why it is empty, and inexplicable when it does not.
+
+### Why there is no reservation
+
+The alternative to a rule at the merge is a reservation before the write -- a fourth ref each session
+claims, or an id handed out by the tracker. Neither is built. What decides it is the shape of the window
+that is left, not the cost of a script:
+
+**A reservation ref**, claimed with a compare-and-set `git update-ref`, says nothing to the other clone
+unless it is pushed -- and a pushed reservation is a state-changing write in front of the tick budget,
+where `H-0013` priced a blocking *read* at 5min2s of a pass and `H-0056` refused one inside a verdict
+outright. Worse, a claim that outlives the session that made it is a lease: it needs an owner and an
+expiry, or a killed tick reserves a number forever and nothing here reaps it.
+
+**The supervisor allocating the id at dispatch** and naming it in the brief moves the race earlier
+without closing it. The supervisor reads the same union this allocator reads and inherits the same
+staleness, so a session whose re-read finds the handed-out number taken has to move anyway. It also
+costs a write to the tracker per unit, on a loop that already explains why it does not put network reads
+ahead of a budget.
+
+**Accepting it, with the merge as the arbiter, is what is bought.** The arbiter already resolves every
+content conflict before anything is merged; its verdict is the four lines that name the id and both
+entries; and the yield rule above is what turns the resolution into a procedure instead of a judgement
+call made by whoever merges second.
+
+What acceptance makes cheap is the mitigation #255 named and declined: `factory/factory.sh` fetching the
+trunk once per activation, before it dispatches, bounded by a `timeout` so a hung fetch cannot park a
+pass. That is the supervisor's ref policy rather than the allocator's, so it is issue #256 with the
+`H-0056` counter-argument written out on it -- not a paragraph here that only whoever reads this
+section will ever find.
 
 ## Configuration
 

@@ -1696,6 +1696,145 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `286 passed, 0 failed`; `make check-shell` reported 28 scripts; the plant and its reversal are
   recorded above.
 
+
+## H-0073 · The allocator handed `H-0001` to a mistyped path and the caller's own log to a bare `--repo`
+
+- Question: #255 shipped #253's first instruction and left the ticket open for the race, so before
+  deciding anything the shipped allocator was called the way a session calls it -- including the paths
+  a session gets wrong. Three such calls, measured on `91d992d`: `--prefix H factory/DECISION.md`
+  printed `H-0001` and exited 0; the same path without `--prefix` exited 2 with stdout *and* stderr
+  empty; `--repo` aimed at a checkout that has no log printed `D-0052`, this repository's own ceiling,
+  once with a commit in the fixture and once with none. What is an allocator to do when the union it
+  has read is empty?
+- Options: refuse when the named log is in neither the working tree nor `HEAD`, and resolve a relative
+  path against the repository named with no second reading | keep answering from the empty union and
+  let `check-decisions.py` catch the collision at `make verify` | create the missing log and allocate
+  `D-0001` from it, which is what "fresh adoption" was documented to mean | keep the fallback to the
+  caller's path and document that `--repo` is advisory
+- Chose: refuse when the named log is in neither the working tree nor `HEAD`, and resolve a relative
+  path against the repository named with no second reading
+- Why: an empty union has exactly one answer available, `<prefix>-0001`, and both logs opened with
+  that number -- so an empty union is never an empty log, it is a wrong path, and the one thing this
+  command exists to refuse is the collision it was handing out. The second call is worse than the
+  first: `prefix=$(sed ... | head -1)` fails on a missing file, a command-substitution assignment
+  inherits status 2 under `set -euo pipefail`, and `set -e` ends the script before any message. A
+  refusal with nothing on either stream is indistinguishable from a broken tool, and a session
+  holding a broken allocator numbers by eye -- which is the prose allocator this ticket exists to
+  replace, arrived at by a route no leg can see. The tie-break order decides it at its third rung,
+  "refuse rather than proceed when input is missing or empty"; it also proves the documented arm was
+  fiction. `docs/factory.md` and the code comment both promised `D-0001` for "--repo pointing at a
+  branch before the log exists", and the measurement answers `D-0052`: the fallback took the read to
+  the caller's log before the default was ever reached, which is also why the seven legs and four
+  controls #255 shipped never saw the fallback -- every one of them writes its fixture's log and
+  passes `--prefix`, so neither dead arm had a caller. Letting the gate catch it instead is the
+  current behaviour and was measured not to be enough: `check-decisions.py` is ref-blind on purpose
+  (H-0072), so it refuses a *merged* duplicate at the trunk, in the one gate the supervisor may not
+  skip, which is the exact failure #253 opened with. Creating the log is a write made by a command
+  whose whole job is to read. `Chose:` the last option and `--repo` stops meaning anything, and #249's
+  staleness work is all about what a flag that does not bind costs. What lost, as measured: a fresh
+  adoption is now one `touch` plus a title line before the first id -- a step the replaced behaviour
+  did not ask for, and one that cannot break anything that worked, since the replaced behaviour was
+  unreachable; a `--repo` aimed at a log-less tree now refuses where it used to answer, so a caller
+  that depended on the bleed fails loudly (the only callers in this repository are the skill,
+  `docs/factory.md` and the legs, and all three name a log that exists); every call now costs one
+  more `git cat-file`, which asks about an object and not a ref, so the H-0072 boundary holds and the
+  verdict stays off every fetch path; and the guard cannot be planted with the `|` delimiter the other
+  plants use, because its call site is `log_is_here ||` -- the leg says so and uses commas rather than
+  an escaped `\|`, which in a BRE would match a different line.
+- Checkpoint: da773e6f007932eaa01ad5e961d3b3e24b2417ef
+- Effect: `factory/next-decision-id.sh` -- the path `case` has one arm (`--repo`, else `$PWD`, never a
+  fallback), a `log_is_here` guard ahead of prefix inference, `|| true` on the inference `sed`, and
+  the union's `[ -f ] && cat` became an `if` so a log present in `HEAD` but not in the tree cannot
+  trip the same trap. `factory/selftest.sh` -- `alloc_run` and `alloc_control` can now omit
+  `--prefix`, which is how the inference arm finally gets a leg; six legs and two controls
+  (`alloc_refuse` asserts a refusal refused, printed no id, and named the path; `alloc_reads_its_repo`
+  pins the cross-repo read as a difference between two trees and FAILs if they ever agree).
+  `.opencode/skills/factory/SKILL.md` says a refusal means the path is wrong and that numbering by eye
+  is not the fallback; `docs/factory.md` carries the three measured calls as a table. Re-measured
+  after the write: `bash factory/selftest.sh` moved from `286 passed, 0 failed` on the checkpoint to
+  `292 passed, 0 failed`, and the two runs' line lists were diffed to confirm six new counted legs,
+  two new control lines and no leg lost -- the suite prints a control's `ok` without adding it to the
+  tally, so #255's "four counted controls" overstates it by four. The three probe calls now refuse
+  naming the path; the calls that worked are unchanged (`D-0052` and `H-0073` here, a fixture at
+  `D-0001` answers `D-0002`, a fresh uncommitted log answers `D-0001`, a heading-less
+  `factory/DECISIONS.md` answers `H-0001` with no `--prefix`).
+- Correction (`H-0073`, 10 Nov, on #257's review): one clause of this `Effect:` is false, and so is the
+  code comment that came with it. The union's `[ -f ] && cat` did not become an `if` because "a log
+  present in `HEAD` but not in the tree" could "trip the same trap" -- it could not. Bash exempts a
+  failing command inside an `&&` list from `set -e`: `bash -c 'set -euo pipefail; out=$( { [ -f /nope ]
+  && cat /nope; echo AFTER; } | cat ); echo $out'` prints `AFTER`, and measured on `91d992d` with
+  `--prefix D`, a fixture whose `DECISIONS.md` is in `HEAD` and deleted from the working tree answered
+  `D-0008` with status 0. The `sed` half of the same sentence is real and reproduces -- the same
+  fixture, no `--prefix`, status 2 with both streams empty, because `pipefail` gives the pipeline's
+  status to the command-substitution assignment -- and that is what the branch actually fixed. The `if`
+  stays because it says what it does, not because it closes a failure mode; the claim was written before
+  it was measured, the same hazard the entry two numbers later records about its own `Effect:` line.
+  Nothing in the suite planted the deleted-from-the-tree shape either, so nothing could have
+  contradicted it: `factory/selftest.sh` now answers it
+  (`a log in HEAD but not in the tree answers from HEAD`, `D-0008`). This entry is corrected in a dated
+  line rather than rewritten, because it is cited as evidence and a silently corrected decision log is
+  indistinguishable from one that was always right.
+
+
+## H-0074 · Two sessions can still take the same id, so the merge arbitrates it and the yield rule is written down
+
+- Question: #253's item 4 says the same-minute collision "is the part worth a decision rather than a
+  script", and #255 left it open. Measured on this tree: two allocator calls in the same instant against
+  one fixture both print `H-0010`. Is a reservation bought, or is the merge the arbiter -- and what has
+  to be written down for that answer to be a procedure rather than a shrug? Item 3 belongs to the same
+  question, because the rule a collision is resolved with did not exist either: `grep -c yield` over
+  `docs/factory.md` at `91d992d` answers 0, and `git diff f311075 91d992d -- docs/factory.md` adds no
+  paragraph about it, though #255's body reported "**4. The tie-break, written down.** ... is in
+  `docs/factory.md` now".
+- Options: accept the race, make the merge the arbiter, and write the yield rule and its reason into
+  `docs/factory.md` | reserve ids on a fourth ref claimed with a compare-and-set `git update-ref` |
+  have the supervisor allocate the id at dispatch and name it in the tick's brief | give each branch its
+  own id range, the option H-0070 also rejected
+- Chose: accept the race, make the merge the arbiter, and write the yield rule and its reason into
+  `docs/factory.md`
+- Why: what the race needs to open is not reachable on the deployment, and not by habit but by
+  mechanism. `factory/factory.sh` takes `exec 9>"$FACTORY_RUN/lock"` and `flock -n 9` before it reads
+  anything -- a second activation prints `another supervisor holds …, so nothing was done here.` and
+  exits 7 -- and it dispatches each tick in the foreground (`timeout … opencode run`, no `&`) from one
+  loop, so two sessions are never allocating at each other on one machine; a sibling that has already
+  committed is visible regardless, because every unit tree is a worktree and worktrees share
+  `refs/heads` (the leg in this very section: `D-0002` before the sibling commits, `D-0010` after, with
+  no fetch). The window that survives is a second clone that has not fetched, or a person running a
+  unit in a second checkout while the timer runs one here. **A reservation ref** loses on reachability
+  and on kind: a local ref says nothing to the other clone, and the moment it is pushed it is a
+  state-changing write in front of the tick budget -- `H-0013` priced a blocking *read* at 5min2s of a
+  pass and `H-0056` refused one inside a verdict -- while a claim that outlives the session that made it
+  is a lease needing an owner and an expiry, which nothing in this harness reaps. **Supervisor
+  allocation at dispatch** moves the race earlier without closing it: the supervisor reads the same
+  union this allocator reads and inherits the same staleness, so a session whose re-read finds the
+  handed-out number taken has to move anyway; it also costs a tracker write per unit. **Per-branch
+  ranges** change what every historical `H-NNNN` citation means, which is why `H-0070` refused it and
+  `H-0061` and `H-0068` before it. Acceptance is only honest if the arbiter is a procedure, so the guide
+  now carries the rule -- the side that has not merged yields -- with the reason it is that side and not
+  either: `main`'s ids sit in history that cannot be rewritten here, because the only merge offered is a
+  merge commit whose ancestors are permanent and the rewrite that would move one is a force-push
+  `.opencode/opencode.jsonc` denies every agent in this repository. The four steps end with the gate over
+  both logs, and they cite `H-0051` and `H-0052` as the shape of the record, because a gap in a log is
+  citable only when an entry says why it is empty. One leg and one control pin both halves, rule and
+  reason, each with its own plant: what failed here was a delivered claim with no leg behind it, and a
+  phrase in a pull-request body is read by nobody resolving a conflict at the trunk at 2am.
+- Checkpoint: 18d07e37589ea220f274340bd4139d227abb52f1
+- Effect: `docs/factory.md` gains "When two branches take the same number, the side that has not merged
+  yields" and "Why there is no reservation", with the measured `H-0010`/`H-0010` and the reachability
+  paragraph. `factory/selftest.sh` gains `alloc_yield_rule` with a two-plant control, and a comment
+  recording that this suite's controls print `ok` without incrementing the tally -- so #255's "four
+  counted controls" overstates it by four, and every count in both of this branch's entries says "legs"
+  and "control lines" separately. No shipped check changes: `factory/next-decision-id.sh` is already a
+  read that says it is one, and `H-0072` keeps ref-reading out of `scripts/check-decisions.py`. The
+  mitigation acceptance makes cheap -- `factory/factory.sh` fetching the trunk once per activation,
+  bounded by a `timeout` and non-fatal -- is deliberately not bought here, because it is the supervisor's
+  ref policy and needs its own decision; it is filed and read back as issue #256 (`256 OPEN The
+  supervisor dispatches against whatever refs this tree last fetched, so a second clone allocates stale
+  ids`). Re-measured after the write: `bash factory/selftest.sh` moved from `292 passed, 0 failed` to
+  `293 passed, 0 failed` -- one leg counted, one control line printed and not counted -- and the
+  control's two plants each make the leg refuse, which is what proves the leg reads both halves.
+
+
 ## H-0075 · The activation fetches origin once, ahead of the queue read, so the pass dispatches against refs it has actually refreshed
 
 - Question: `H-0056` forbids a fetch inside a verdict, and #256 asks for a refresh before the
@@ -1794,3 +1933,71 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `.opencode/skills/factory/SKILL.md`'s allocator bullet no longer says nothing fetches on a tick's
   behalf. Not touched: `factory_supervisor_position`, `factory/next-decision-id.sh`,
   `scripts/check-decisions.py`, the Makefile.
+
+
+## H-0076 · The guard asked whether the path exists, so every wrong path that exists was still answered
+
+- Question: #257's review measured the guard H-0073 shipped, at `c5aa1eb`, and found it answering a
+  different question than the one this command exists to ask. `[ -e "$target" ] || git cat-file -e
+  "HEAD:$rel"` is true of anything that is *there*, and every wrong path in a real checkout is there.
+  Re-measured on this branch's own head after the review, with `--prefix H`: `docs/factory.md`,
+  `README.md`, `AGENTS.md`, `factory` and `factory/` each printed `H-0001` and exited 0 -- the
+  collision, with exit 0. At the head this entry ships, the same five exit 2 naming the path while
+  `DECISIONS.md` answers `D-0052` and `factory/DECISIONS.md` answers `H-0076`, both unchanged. Two
+  things make it blocking rather than tidy. `docs/factory.md` is not a typo a session has to invent: it
+  is the 842-line guide carrying the section that tells a session to run this command, so it is what a
+  session has open at the moment it reaches for the allocator. And the text #255 wrote makes the
+  residual worse instead of neutral -- `SKILL.md`'s step 3 and this guide both reframe a refusal as
+  *your path is wrong*, so a session handed `H-0001` for a file that exists reads it as "my log was
+  read" and writes the duplicate heading: a silent collision where an error message would have been
+  visible. No leg can see the shape, either -- every path named in the whole `decision_ids` section is
+  `DECISIONS.md`, `factory/DECISIONS.md` or `factory/DECISION.md`, all three absent, so an existence
+  predicate and a log predicate agree on every fixture the suite owns. What is the predicate, and where
+  does it have to live for a control to be able to falsify it?
+- Options: fold the name and type tests inside `log_is_here`, and give each arm its own leg and its own
+  plant | put the name test beside the function, ahead of the call site | keep the existence predicate
+  and widen it to `! -d`, so a directory is refused | leave the allocator alone and let
+  `check-decisions.py` catch the duplicate heading at the gate
+- Chose: fold the name and type tests inside `log_is_here`, and give each arm its own leg and its own
+  plant
+- Why: the tie-break's third rung is the one H-0073 itself stopped at -- "refuse rather than proceed
+  when input is missing or empty" -- and it settles this the same way, because `docs/factory.md` is the
+  same *input* as `factory/DECISION.md`: a path that is not the log. The second option was measured,
+  not dismissed: with the `case` in front of the function, the shipped control's plant
+  (`s,^log_is_here ||,: log_is_here ||,`, which neuters `log_is_here` and nothing else) leaves a script
+  that still refuses, and `control: a mistyped log path refuses` fails with "the planted allocator
+  refused". A check the plant cannot reach is a check no control can falsify, so beside-the-function is
+  not merely clumsier -- it is unleggable, which is the thing this suite refuses to ship. The `! -d`
+  option closes one shape and admits the one that matters: it still answers `docs/factory.md`, and it
+  leaves the guard and the read disagreeing about what counts as the log, which is how a later shape --
+  a FIFO, a socket -- becomes a `cat` that parks the caller. Both tests are needed, not one: the name
+  alone admits a directory named `DECISIONS.md` (a tree in `HEAD`, and `cat-file -e` is true of a tree),
+  the type alone admits `docs/factory.md`, so each gets a fixture where only it can refuse. The fourth
+  option moves a read into the gate H-0072 keeps ref-blind on purpose, and still answers the wrong file
+  first. What lost: one `git cat-file` per call becomes `-t` instead of `-e` -- still a question about
+  an object, never about a ref, so H-0072's boundary holds and the allocator stays off every fetch path;
+  and a caller aiming at a file that exists but is not the log is now stopped instead of answered, so
+  anything that depended on that fails loudly (the only callers in this repository are the skill, this
+  guide, and the legs, and all three name a log that exists); and the refusal now carries two possible
+  reasons, which is one more sentence to keep true in `docs/factory.md`.
+- Checkpoint: 82a4acd526796b2292f1692c3acc951a91c0faed
+- Effect: `factory/next-decision-id.sh` -- `log_is_here` asks for a basename of `DECISIONS.md` and then
+  for a regular file in the tree or `git cat-file -t "HEAD:$rel"` equal to `blob`, and it records which
+  of the two refused in `$why`, because the shipped message asserted "not in the working tree, not in
+  HEAD" even when the file was sitting there. The header block and `--help` now say the log itself is
+  what gets answered, not any path. `factory/selftest.sh` -- three legs and two controls over two
+  fixtures built so each arm decides alone: a checkout holding `docs/factory.md` and a `factory/`
+  directory and no log at all (refused by name, `factory` as a directory with it), and a checkout where
+  `DECISIONS.md` is a *directory* (the name matches; only the type can refuse it). Each control's plant
+  was run against the other fixture to prove it narrow: the name plant still refuses the tree, and the
+  type plant -- which writes back `git cat-file -e`, the predicate this entry replaces -- still refuses
+  the mistyped name. `docs/factory.md` carries the five `c5aa1eb` calls and why the "your path is
+  wrong" wording made that shape worse than the typo; `.opencode/skills/factory/SKILL.md` step 3 says
+  the same thing in the text a session is reading when it runs the command. Re-measured after the
+  write: `bash factory/selftest.sh` moved from `293 passed, 0 failed` on the checkpoint's tree to `296
+  passed, 0 failed` here, and the two runs' `ok`/`FAIL` line lists were diffed -- five lines added,
+  three counted legs and two control lines printed without touching the tally, no leg lost, the only
+  other differences the fixture tmpdir names and one quarantine count this suite already treats as
+  run-dependent. This tree's baseline reads one above the review's `292` because the environmental
+  `install-timer` leg FAILs without `go`/`gofmt` first on its stub PATH and passes here; the delta is
+  three legs on either box.
