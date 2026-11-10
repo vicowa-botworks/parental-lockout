@@ -1704,9 +1704,12 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   queue read | one fetch per unit, in `factory_tick` | operator discipline only, as the skill says today
 - Chose: one unrefspec'd fetch per activation, ahead of the queue read
 - Why: Every judgement the pass makes is a reading of refs, and nothing in the harness had ever
-  fetched. `triage.sh`'s `main` row is `git rev-list --count $(git rev-parse origin/main)...HEAD`;
-  `factory_worktree` cuts every unit's branch from `origin/main`; `next-decision-id.sh` takes its
-  ceiling from every `refs/heads` and `refs/remotes` blob. All three therefore read the last time this
+  fetched. `factory/triage.sh:538` takes `main_sha` from `git rev-parse origin/main` and `:563` counts
+  `git rev-list --count "$main_sha..$sha"` for every branch with no open pull request -- that is the
+  `$ahead` number in the `branch_without_pr` detail line, so an unfetched clone reports an orphan as
+  further behind or ahead than it is; `factory_worktree` (`factory/common.sh`) cuts a unit with
+  `git worktree add -b "$branch" "$path" origin/main`; `next-decision-id.sh` takes its ceiling from
+  every `refs/heads` and `refs/remotes` blob. All three therefore read the last time this
   clone looked. That is not hypothetical here: taking this branch, `git for-each-ref` in the primary
   clone listed `origin/issue-253` carrying `H-0073` and `H-0074` while `origin/main` stopped at
   `H-0072`, and the file in the checkout ends at `H-0072` -- so a clone that had not fetched would
@@ -1775,8 +1778,10 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   until now, and its measurement is the first paragraph: a live collision on an open branch with a
   sentence in `docs/factory.md` as the only remedy.
 - Checkpoint: 96c54a1dc7d73b2c6ed750f2705c865b09a81313
-- Effect: written and read back from `git diff --stat` against this commit -- five code and
-  documentation files, 500 insertions and 7 deletions, plus this log.
+- Effect: read back from `git diff --stat origin/main...HEAD` on this branch rather than restated from
+  memory, because restating it is what made the first version of this entry name a `triage.sh` command
+  that does not exist as written -- corrected by the follow-up commit on this branch, which touches only
+  this paragraph and the matching comment in `factory/factory.sh`.
   `factory/factory.sh` gains `factory_refresh_origin` and one call in `factory_body`
   before the `triage.sh` read. `factory/common.sh` gains `FACTORY_FETCH_TIMEOUT` (default 120).
   `factory/selftest.sh` gains four counted legs (`the pass refreshes before it dispatches`,

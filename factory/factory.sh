@@ -789,9 +789,10 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 
 # --------------------------------------------------------------------------- the refs this pass reads
 
-# #256: everything here decides against refs. `triage.sh` reports this tree's position against
-# `rev-parse origin/main`, `factory_worktree` cuts every new unit's branch from `origin/main`, and the
-# allocator a tick runs before it numbers an entry (H-0070) reads every `refs/heads` and
+# #256: everything here decides against refs. `triage.sh` reads `origin/main` to judge every branch
+# that has no pull request (`:538` takes the sha, `:563` counts `$main_sha..$sha` for the
+# `branch_without_pr` detail), `factory_worktree` cuts every new unit's branch from `origin/main`, and
+# the allocator a tick runs before it numbers an entry (H-0070) reads every `refs/heads` and
 # `refs/remotes` blob. Until now nothing in the harness fetched, so all three read whatever ref state
 # this clone last happened to have -- measured on 9 Nov in this very tree: `origin/issue-253` was
 # holding `H-0073` and `H-0074` while `origin/main` stopped at `H-0072`, and a clone that had not
