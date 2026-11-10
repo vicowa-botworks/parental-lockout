@@ -39,9 +39,10 @@
 #                     fingerprint is measured with `ls-files --debug` before the verdict is asked,
 #                     so the leg cannot pass on a tree where the planting did not happen (H-0043).
 #
-# Three groups of checks are about the shipped text rather than a planted tree, because the failure
-# they guard is silent at run time -- a step nobody runs, a git invocation git refuses, and a systemd
-# unit that says something other than what its generator was handed:
+# Four groups of checks are about the shipped text rather than a planted tree, because the failure
+# they guard is silent at run time -- a step nobody runs, a git invocation git refuses, a systemd unit
+# that says something other than what its generator was handed, and a document whose own commands do
+# not run on the machine that reads it:
 #
 #   wired_into_verify   deleting the line in `verify:` would delete the only gate on `factory/`.
 #   refused_refresh…    a refresh written with an option `update-index` does not accept exits 129
@@ -50,6 +51,11 @@
 #   the two deadlines   `install-timer.sh` rendering one number for both of a unit's deadlines held
 #                       the queue in `stop-sigterm` for 91 minutes on 8 Nov (issue #246). These run
 #                       the generator with `--dry-run` and read the unit it would have written.
+#   the skill's --jq    Step 1 of `.opencode/skills/factory/SKILL.md` tells a tick to run a `--jq`
+#                       program that cannot run on the gh the timer executes, and nothing had ever
+#                       executed the document to find out (issue #270). This leg runs every quoted
+#                       program against a canned payload built from the fields that same line asks
+#                       for -- prose a tick runs verbatim is prose that drifts from the binary.
 #
 # Both are re-run against a copy of the file they read with the thing they look for taken out or put
 # in, in the opposite polarity to the real assertion: a presence check has to prove it can say absent,
@@ -7903,6 +7909,253 @@ else
 	fail=$((fail + 1))
 	printf '  FAIL  %-40s a 0644 copy read as executable.\n' "control: the mode predicate"
 fi
+# ------------------------------------------------- the --jq programs the skill quotes
+#
+# Step 1 of `.opencode/skills/factory/SKILL.md` is quoted prose that a tick runs verbatim, and nothing
+# in this repository had ever run it. Measured 10 Nov on gh 2.46.0 at `/usr/bin/gh`, the reviewer read
+# exactly as shipped prints an error and exits 1 instead of answering who has been asked:
+#
+#     gh pr view 269 --json reviewRequests --jq '[.users[].login]'   ->  cannot iterate over: null  (1)
+#     gh pr view 269 --json reviewRequests                          ->  {"reviewRequests":[]}
+#
+# `--json` hands `--jq` the WHOLE payload object, so the program has to name the field it asked for.
+# `[.users[].login]` is the right program for the REST `/pulls/N/requested_reviewers` envelope, which
+# wraps the same rows as `{"users":[…]}` -- what `factory/factory.sh:268` and `factory/triage.sh:283`
+# read -- and it had been copied out of that context into this one. Issue #270.
+#
+# The payload is DERIVED from the same line's own `--json` list rather than keyed by the program,
+# because a fixture keyed by the program can be invented to fit: `('.users', '{"users":[…]}')` is a
+# green pair and still the bug. Deriving it lets the leg ask the question the API asks -- is every
+# field this program names one that the call actually requested?
+#
+# Canned, never live, which is #270's own condition and H-0054's standing rule: a leg that calls the
+# API reads green on a signed-in box and red wherever `gh auth status` has no token. `jq` is not a new
+# requirement on this file -- `claim_graphql()` runs it unconditionally mid-suite, and shipped
+# `factory/common.sh` calls it at :536, :544 and :618. The values are a live read of this repository's
+# own API on 10 Nov (PR 273, which holds an outstanding request; PR 269, which does not), not a shape
+# guessed from documentation, and the unmeasured-field refusal below is what stops anyone guessing the
+# next one.
+#
+# What the scan refuses, in order, each with a planted control of its own:
+#   * a `--jq` inside a fenced block that cannot be read as a program -- coverage cannot then be
+#     narrowed in silence by writing the next program in a shape the leg skips;
+#   * a field the program reads that the line's own `--json` list never asks for. That is the general
+#     shape of the #270 bug, and it is also the arm that catches the QUIET variants: `.foo | length`
+#     on an absent `foo` answers `0`, exits 0, and reports "nobody has been asked";
+#   * a field with no measured fixture, which is a live read a person makes and not something this
+#     file invents;
+#   * a program that errors, prints `null`, or prints an empty shape against a payload that HOLDS a
+#     row. The last one is why the fixture is not empty: `docs/factory.md:124` and
+#     `factory/triage.sh:264` both record that `reviewRequests` lists only OUTSTANDING requests, so a
+#     wrong program answering `[]` cannot be told apart from "asked and answered" -- and that
+#     difference is what decides whether the supervisor nags at a reviewer or stays quiet.
+skill_jq_fixture() { # <field> <rows|none> -> the value gh hands `--json <field>`
+	case "$1:$2" in
+	'reviewRequests:rows') printf '[{"__typename":"User","login":"fixture-reviewer"}]' ;;
+	'reviewRequests:none') printf '[]' ;;
+	'reviewDecision:'*) printf '"CHANGES_REQUESTED"' ;;
+	'mergeable:'*) printf '"MERGEABLE"' ;;
+	'mergeStateStatus:'*) printf '"BLOCKED"' ;;
+	'headRefOid:'*) printf '"2a4f836237cb000ce18f9603a6953c9b24cb8ce9"' ;;
+	# One row, and it is the measured one: every check on PR 273 concluded SUCCESS, so a red row here
+	# would be a shape invented rather than read. A program that selects for a conclusion the fixture
+	# does not hold is the one false refusal this table can produce, and the refusal says so.
+	'statusCheckRollup:rows')
+		printf '[{"__typename":"CheckRun","name":"verify","status":"COMPLETED","conclusion":"SUCCESS"}]' ;;
+	'statusCheckRollup:none') printf '[]' ;;
+	*) return 1 ;;
+	esac
+}
+
+skill_jq_payload() { # <comma-separated fields> <arm> -> the object gh would hand `--jq`
+	local fields=$1 arm=$2 f out='{}' v
+	for f in ${fields//,/ }; do
+		v=$(skill_jq_fixture "$f" "$arm") || return 1
+		out=$(printf '%s' "$out" | jq -c --arg k "$f" --argjson v "$v" '. + {($k): $v}') || return 1
+	done
+	printf '%s' "$out"
+}
+
+# The scan's universe: the `--jq` lines inside fenced blocks, and only those. Line ~110 mentions the
+# flag in the prose that tells a tick how to write one, and a check that refused the document for
+# describing itself teaches whoever reads the next red tick that this check is noise.
+skill_jq_lines() { # <file> -> <lineno><TAB><command> for every fenced line carrying --jq
+	awk '/^```/ { fence = !fence; next } fence && /--jq/ { printf "%d\t%s\n", NR, $0 }' "$1"
+}
+
+skill_jq_gaps() { # <skill-file> -> one line per gap; 2 when the file is not here
+	local file=$1 entry lineno cmd prog fields head f arm out rc tail_c bad shown
+	# `shown` in its own statement: `local file=$1 shown=${file##*/}` expands every word before it
+	# assigns any of them, so under `set -u` the second one reads `file` while it is still unset.
+	shown=${file##*/}
+	[ -f "$file" ] || return 2
+	while IFS= read -r entry; do
+		lineno=${entry%%$'\t'*}
+		cmd=${entry#*$'\t'}
+		# Single-quoted is the shape the document teaches; a bare token is the shape
+		# `factory/common.sh:681` uses. Both are readable. Anything else is refused rather than
+		# skipped, because a scan that skips is a scan whose coverage shrinks one edit at a time.
+		# The leading character decides, BEFORE the bare form is tried: `--jq "[.a[].b]"` read as a
+		# bare token hands jq `"[.a[].b]"`, which jq takes as a string LITERAL -- it prints the text,
+		# exits 0, and looks answered. That is found by writing the control, not the arm: the plant
+		# that puts the double quotes in read CLEAN until the quote was looked at first.
+		prog=$(printf '%s' "$cmd" | sed -nE "s/.*--jq[[:space:]]+'([^']*)'.*/\1/p")
+		if [ -z "$prog" ]; then
+			tail_c=$(printf '%s' "$cmd" | sed -E 's/.*--jq[[:space:]]*//' | cut -c1)
+			case "$tail_c" in
+			'' | '`' | ',' | ')' | ']' | ';') continue ;;
+			'"')
+				printf '%s:%s  a double-quoted --jq program; single-quote it -- bash expands the\n          double form, so `--jq "[.a]|index($who)"` stops being the program it shows\n' \
+					"$shown" "$lineno"
+				continue ;;
+			"'")
+				printf '%s:%s  an --jq program that does not close on its own line\n' "$shown" "$lineno"
+				continue ;;
+			esac
+			prog=$(printf '%s' "$cmd" | sed -nE 's/.*--jq[[:space:]]+([^[:space:]]+).*/\1/p')
+			# A bare token has to LOOK like a jq program, or a `\` continuation is reported as the
+			# unreadable thing it is instead of being run as a program nobody wrote.
+			case "$prog" in
+			'.'* | '['* | '{'* | [a-zA-Z_]*) ;;
+			*)
+				printf '%s:%s  an --jq program the scan cannot read (it starts `%s`); put the whole\n          read on one line, with the program in single quotes\n' \
+					"$shown" "$lineno" "$tail_c"
+				continue ;;
+			esac
+			case "$prog" in
+			*'$'* | *'`'*)
+				printf '%s:%s  an unquoted --jq program holding %s -- the shell expands it before gh\n          ever sees the program; single-quote it\n' \
+					"$shown" "$lineno" '$'
+				continue ;;
+			esac
+		fi
+		fields=$(printf '%s' "$cmd" | sed -nE 's/.*--json[[:space:]]+([^[:space:]]+).*/\1/p')
+		if [ -z "$fields" ]; then
+			printf '%s:%s  a --jq on a line with no --json, so there is no payload to derive\n' \
+				"$shown" "$lineno"
+			continue
+		fi
+		bad=''
+		for f in ${fields//,/ }; do
+			skill_jq_fixture "$f" rows >/dev/null || bad="$bad $f"
+		done
+		if [ -n "$bad" ]; then
+			printf '%s:%s  no measured fixture for --json%s -- read it live off a real pull request\n          and add the row here; a program pinned to a guessed payload asserts nothing\n' \
+				"$shown" "$lineno" "$bad"
+			continue
+		fi
+		head=$(printf '%s' "$prog" | grep -oE '\.[A-Za-z_][A-Za-z0-9_]*' | head -n 1 | sed 's/^\.//' ||
+			true)
+		if [ -z "$head" ]; then
+			printf '%s:%s  the program reads no field, so nothing pins what it looked at\n' "$shown" "$lineno"
+			continue
+		fi
+		case ",$fields," in
+		*,"$head,"*) ;;
+		*)
+			printf '%s:%s  the program reads .%s, which --json %s never asks for -- gh hands --jq only\n          the fields listed, so .%s is the null that fails to iterate (#270)\n' \
+				"$shown" "$lineno" "$head" "$fields" "$head"
+			continue ;;
+		esac
+		for arm in rows none; do
+			if ! out=$(skill_jq_payload "$fields" "$arm"); then
+				printf '%s:%s  the %s payload could not be built\n' "$shown" "$lineno" "$arm"
+				continue
+			fi
+			rc=0
+			out=$(printf '%s' "$out" | jq -r "$prog" 2>&1) || rc=$?
+			if [ "$rc" -ne 0 ]; then
+				printf '%s:%s  exits %d on the %s payload: %s\n' "$shown" "$lineno" "$rc" "$arm" \
+					"$(printf '%s' "$out" | head -n 1 | cut -c1-88)"
+				continue
+			fi
+			case "$out" in
+			*null*)
+				printf '%s:%s  prints null on the %s payload, which a tick reads as an answer\n' \
+					"$shown" "$lineno" "$arm"
+				continue ;;
+			esac
+			if [ "$arm" = rows ]; then
+				case "$out" in
+				'' | '[]' | '{}' | '0' | 'false')
+					printf '%s:%s  answers %s against a payload that holds a row -- either it reads a\n          field the payload does not carry (the #270 shape) or the fixture holds no row it\n          selects, and a wrong program and an honest "nobody was asked" are one sentence here\n' \
+						"$shown" "$lineno" "'$out'" ;;
+				esac
+			fi
+		done
+	done < <(skill_jq_lines "$file")
+	return 0
+}
+
+# One plant, in the opposite polarity to an arm, written outside the repository: an ok that has never
+# seen its own refusal is the check being blind and not the check working (the rule this file already
+# applies to every text leg).
+skill_jq_control() { # <name> <sed program> <what the arm is>
+	local name=$1 script=$2 arm=$3 copy gaps
+	copy=$work/skilljq/ctl.md
+	if ! sed -E "$script" "$skill_jq_doc" >"$copy" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written.\n' "control: $name"
+		return 0
+	fi
+	# The plant proves it fired before its result means anything (H-0055's finding (3), which came out
+	# of a sweep where four mutations reported `0 failed` and none of them had applied). A copy equal to
+	# the original says the document's wording moved, not that the arm works -- and it would otherwise
+	# read as the SAME green the arm produces.
+	if cmp -s "$copy" "$skill_jq_doc"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant matched nothing in this document, so\n' "control: $name"
+		printf '          it proves nothing about the %s. The wording moved; move the plant with it.\n' "$arm"
+		return 0
+	fi
+	gaps=$(skill_jq_gaps "$copy")
+	if [ -z "$gaps" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the copy it mutated read as CLEAN, so the\n' "control: $name"
+		printf '          leg above pins a phrase and not the %s.\n' "$arm"
+		return 0
+	fi
+	printf '        control: %-28s -> %s\n' "$name" \
+		"$(printf '%s' "$gaps" | head -n 1 | sed -E 's/^ctl\.md:[0-9]+ +//; s/ +-- .*//' | cut -c1-88)"
+}
+
+skill_jq_leg() { # the document a tick actually reads, and the three refusals
+	local label='the --jq programs the skill quotes' gaps ran
+	skill_jq_doc=$HERE/../.opencode/skills/factory/SKILL.md
+	if [ ! -f "$skill_jq_doc" ]; then
+		printf '  SKIP  %-40s %s is not in this tree\n' "$label" '.opencode/skills/factory/SKILL.md'
+		printf '          -- the fixture trees have no `.opencode/`; CI checks out the real one.\n'
+		return 0
+	fi
+	ran=$(skill_jq_lines "$skill_jq_doc" | wc -l | tr -d '[:space:]')
+	gaps=$(skill_jq_gaps "$skill_jq_doc")
+	if [ -n "$gaps" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a quoted program does not answer, in %s:\n' \
+			"$label" "${skill_jq_doc#"$HERE"/../}"
+		printf '%s\n' "$gaps" | while IFS= read -r g; do printf '            %s\n' "$g"; done
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s program(s) run against the payload gh hands them,\n' "$label" "$ran"
+	printf '          every field they read is one the call asks for, and neither is null\n'
+
+	mkdir -p "$work/skilljq"
+	before=$fail
+	skill_jq_control 'the field name, back-revolved' \
+		's|\.reviewRequests\[\]\.login|.users[].login|' 'field-name check'
+	skill_jq_control 'the quiet one, an absent leaf' \
+		's|\[\.reviewRequests\[\]\.login\]|[.reviewRequests[].isOutstanding // empty]|' 'empty-answer check'
+	skill_jq_control 'a program the scan cannot read' \
+		"s|--jq '[^']*'|--jq \"[.reviewRequests[].login]\"|" 'coverage of unreadable programs'
+	if [ "$fail" = "$before" ]; then
+		printf '        All three are planted in a copy outside the repository and reported, so the ok\n'
+		printf '        above is each arm discriminating, not each arm being blind.\n'
+	fi
+	return 0
+}
+skill_jq_leg
+
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 reached_verdict=1
 if [ "$fail" -ne 0 ]; then
