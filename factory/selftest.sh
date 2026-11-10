@@ -2449,33 +2449,36 @@ notice_legs
 #
 # What it costs, and on which machine it costs it. This is the first leg in the file to run the loop,
 # so it pays for a fetch, three `git worktree add`, and a supervisor process per activation -- seven
-# activations and three mutants, two timed runs each. Every number below is a whole `bash
-# selftest.sh`, on the host named beside it, because the one variable that decides whether a quoted
-# cost means anything is the box it was taken on (H-0048's rule, and this paragraph is the case it was
-# written for):
+# activations and three mutants. Two timed runs at each base, six at this head; every number below is
+# a whole `bash selftest.sh`, on the host named beside it, because the one variable that decides
+# whether a quoted cost means anything is the box it was taken on (H-0048's rule, and this paragraph is
+# the case it was written for):
 #
 #   rodney-9950x, btrfs, ~/prj/at-risk present with 20 entries -- measured 10 Nov. The two base rows
 #     were timed in a throwaway clone checked out at each sha (a base has to be timed in a tree that
 #     holds a base's files, and this worktree holds none of them); the head row is this checkout:
-#       450a628 (the section's base) . 337 passed, 1 failed ... 10.67-10.71 s
-#       adbe6e3 (origin/main) ........ 345 passed, 1 failed ... 11.45-11.54 s
-#       this head .................... 358 passed, 0 failed ... 13.13-13.32 s, six runs
-#     The section is therefore 12 legs and about +1.7 s over the main it merges into -- and the
-#     spread between two runs of the same tree is 0.2 s here, a ninth of the effect being claimed, so
-#     these are ranges on purpose: a difference quoted to three decimals is a difference nobody
-#     measured. The one failure at both bases is `the mirror box is the fixture's` reading the real
-#     15:12Z rescue as this file's crime -- the leg `H-0081` exists to fix, and it can only fail on a
-#     host that has the box.
+#       450a628 (the section's base) . 338 legs, 337 passed 1 failed ... 10.67-10.71 s
+#       adbe6e3 (origin/main) ........ 346 legs, 345 passed 1 failed ... 11.45-11.54 s
+#       this head .................... 358 legs, all passed ........... 13.13-13.32 s, six runs
+#     This head is twelve legs above main -- 358 minus 346, not 358 minus 345 -- and about +1.73 s
+#     over it, so 0.14 s a leg. Eleven of those twelve are the section and the twelfth is `H-0087`'s
+#     control, and the subtraction is over TOTALS because both bases carry a red leg: reading the two
+#     `passed` columns against each other is how an eleven-leg section gets written down as twelve,
+#     which is precisely what this paragraph said until `H-0089` corrected it. The spread between two
+#     runs of the same tree is 0.2 s here, an eighth of the effect being claimed, so these are ranges
+#     on purpose: a difference quoted to three decimals is a difference nobody measured. The one
+#     failure at both bases is `the mirror box is the fixture's` reading the real 15:12Z rescue as this
+#     file's crime -- the leg `H-0081` exists to fix, and it can only fail on a host that has the box.
 #   the #264 reviewer's host, btrfs, no ~/prj/at-risk (one run each side, not two):
-#       450a628 ......... 337 passed, 0 failed ... 28.8 s
-#       that branch tip . 348 passed, 0 failed ... 34.9 s   (+6.1 s for 11 legs)
-#       its base read 0 failed where the red leg above has nothing to be red about, and its totals
-#       sit one leg below this box's on both sides -- the same fs-dependent split #238 and #257
-#       recorded on other legs.
+#       450a628 ......... 337 legs, none failed ... 28.8 s
+#       that branch tip . 348 legs, none failed ... 34.9 s   (+6.1 s for the section's 11)
+#       its base total sits one leg below this box's -- the same fs-dependent split #238 and #257
+#       recorded on other legs, where the box leg has nothing to be red about -- and its branch tip
+#       predates three commits of review fixes, so its head row is not this head's row.
 #
-# Twelve legs at 0.14 s each here, 0.55 s each there: four times the cost for the same fixture, on top
-# of a whole-suite run 2.7 times slower. Neither pair is the other's and neither is wrong, so the
-# sentence that quotes one has to say which. Where the section
+# 0.14 s a leg here against 0.55 s there, the same fixture: four times the cost per leg, on top of a
+# whole-suite run 2.7 times slower. Neither pair is the other's and neither is wrong, so the sentence
+# that quotes one has to say which. Where the section
 # came from: the tick before this one wrote it in 16 minutes and was stopped at its ceiling with the
 # file still uncommitted, and `factory_tree_quarantine` mirrored it to
 # `~/prj/at-risk/issue-263-quarantine-20261110T151215Z-2008e6100.patch` at 15:12:15Z; this is that file,

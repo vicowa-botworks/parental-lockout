@@ -2435,7 +2435,12 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   12.565 s, three decimals on a quantity with a 0.2 s floor. The count is the same disease one floor
   down: the review's "+11" was right for the branch it read and the twelfth leg is `H-0087`'s, so
   "twelve legs" and "11 legs at +6.1 s" were both true of different trees and neither sentence said
-  which, which is how two correct counts read as a contradiction. The base's single failure is now
+  which, which is how two correct counts read as a contradiction. Corrected 10 Nov by `H-0089`, which
+  is about this sentence most: `12 legs and about +1.7 s` subtracts main's `passed` column (345) from
+  the merge's (357) rather than its leg TOTAL (346), and both bases carry a red leg -- the box leg,
+  `H-0081`'s subject -- so the section is ELEVEN legs and twelve is only what this head is above main,
+  over totals. The count inside the paragraph whose subject was quoted numbers decaying had itself
+  decayed. The base's single failure is now
   identified rather than hedged: on a host that has the box, `the mirror box is the fixture's` reads
   the real 15:12Z rescue as this file's crime (`FAIL ... 1 quarantine patch(es) in
   /home/rodney/prj/at-risk`), so the author's base pair reproduces on a second such box -- 337 / 1,
@@ -2459,3 +2464,54 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   with `H-0087`, and the pull-request body -- still carrying "Twelve legs for 1.8 s", "Nothing here
   conflicts" and "four comments" -- is a status claim corrected by the next push, whose read-back
   lives in the pull request and not here.
+
+## H-0089 · An eleven-leg section, counted as twelve by subtracting two `passed` columns
+
+- Question: the cost paragraph and `H-0088` both carry the section as "12 legs and about +1.7 s",
+  derived as 357 minus 345. The tallies on this box are 338 legs at the base (337 passed, 1 failed),
+  346 at main (345 passed, 1 failed), 357 at the merge and 358 at this head, so the section is eleven
+  and twelve is only what this head is above main, over totals. Re-derive over totals in the comment
+  and annotate `H-0088` with a dated correction | rewrite `H-0088`'s sentence to read eleven and
+  change nothing else | leave the comment and answer on the review thread | count the section's legs
+  out of the source instead of subtracting two tallies?
+- Options: re-derive over totals in the comment and annotate `H-0088` with a dated correction |
+  rewrite `H-0088`'s sentence to read eleven and change nothing else | leave the comment and answer on
+  the review thread | count the section's legs out of the source instead of subtracting two tallies
+- Chose: re-derive over totals in the comment and annotate `H-0088` with a dated correction
+- Why: the mechanism is worth more than the number it produced. This file prints one line,
+  `N passed, M failed`, and the subtraction a person reaches for is over the first column -- but the
+  first column is not the number of legs. Both bases here carry exactly one red leg (`the mirror box
+  is the fixture's`, which #267 is now about), so every `passed` figure on that page sits one below its
+  total and the error is invisible in the line that produced it, because the two columns are printed
+  side by side with no total anywhere. The repair is therefore not "write 11": it is to put both
+  operands and the subtraction in the sentence, `358 minus 346`, so a reader can redo it and see which
+  column was used. Tie-break 6 carried the shape of the repair: `H-0086` is two commits old and did
+  precisely this -- an `Effect:` that had reused a count measured over one set as a count over a
+  subset, corrected by an annotation plus a new entry while the original words stayed standing. Same
+  defect family, a denominator read off the wrong set, so same repair, which is what keeps the log a
+  history instead of a draft. Rewriting `H-0088` to read eleven is the silent edit `#1180` was written
+  for, and it costs something specific here: the wrong count is the evidence for the thing that
+  paragraph argues, that a quoted number decays, and deleting it removes the demonstration. Answering
+  only on the thread leaves a comment that says twelve next to a table whose rows add to eleven, which
+  is the state the review of this pull request was filed against. Counting legs out of the source is
+  better arithmetic aimed at a different question: the cost being quoted is the whole suite's wall
+  clock, so the divisor has to be the legs the suite gained, and `grep -c '^proc_leg '` cannot see the
+  box legs or the controls that live elsewhere in the file. What lost: a comment that shows its
+  arithmetic is longer than the number it carries -- the paragraph grew by about six lines to hold two
+  subtractions and their operands, and the next person with a stopwatch will probably write `+1.7 s`
+  anyway. And the noise ratio moved with the re-derivation: 0.2 s of run-to-run spread is an eighth of
+  +1.73 s, not the ninth of +1.7 s that `H-0088` said, so a correction bought another correction one
+  decimal over.
+- Checkpoint: 414a0f2
+- Effect: `factory/selftest.sh`'s cost paragraph -- rows now name their totals with the pass/fail split
+  beside them (338 at the base, 346 at main, 358 here), the delta reads `358 minus 346`, `two timed
+  runs each` became `two at each base, six at this head`, the reviewer's rows read `337 legs` and `348
+  legs` with its branch tip labelled as predating three commits of review fixes rather than compared
+  as if it were this head, and the per-leg sentence now says 0.14 s against 0.55 s instead of dividing
+  a delta by legs it had not derived. `H-0088` carries the dated annotation; its words are untouched.
+  Read back on this tree before this commit: `bash -n` clean, `make check-shell` -> `check-shell:
+  0.10.0 over 28 scripts`, `bash factory/selftest.sh` -> `358 passed, 0 failed`,
+  `python3 scripts/check-decisions.py` -> 123 entries, gate OK. Comments and this log only: two files,
+  no `.go`, no recipe, no shipped script. `make verify` is being re-run on the resulting tip because
+  the tip it passed (`4bfbf08`) is not this tip, and its number goes in the pull-request body only if
+  it comes back green.
