@@ -2241,6 +2241,11 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: `factory/DECISIONS.md` `H-0080` and four comments in `factory/selftest.sh` now read
   `450a628`; this entry is the trace. `e334f4f`'s message still says `a7a656d`, permanently, and
   PR #264's body says so. `bash factory/selftest.sh` re-run on this commit: same 349 legs.
+  Corrected 10 Nov by `H-0086`, which leaves these words as written rather than editing them: the
+  "four comments in `factory/selftest.sh`" above are THREE -- `git show e334f4f:factory/selftest.sh`
+  piped to `grep -n a7a656d` answers lines 78, 2275 and 2313. Four is the number of tree locations
+  `d7d370d` rewrote -- 3 comments in `factory/selftest.sh` plus `H-0080` in this file -- read back
+  as a count of comments in one file.
 
 ## H-0085 · The log conflict was the cheap half: main had rewritten the function two of the three mutants are anchored on
 
@@ -2291,9 +2296,53 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   denied to a tick, and a `CHANGES_REQUESTED` review was submitted against `d7d370d` at 16:09:54Z,
   so rewriting the head would delete the artifact the review is about.
 - Checkpoint: 2b3bfe6
-- Effect: `factory/DECISIONS.md` reads `H-0078`, `H-0079` (main), `H-0080`-`H-0082` (this branch),
-  `H-0085` (this entry); no id changed on either side. Each number above was read back before this
-  line was written, per `#1180`: the gate printed 118 entries, the suite printed 357/0, and the
-  three anchors printed 1/1/1. What this commit does NOT do: `#264`'s body still asserts "Nothing
-  here conflicts", which was true of main at `79b4757` and is false of `adbe6e3`. That sentence is a
-  status claim, so it is corrected in the body itself, not by editing an entry.
+- Effect: as this commit left it, `factory/DECISIONS.md` reads `H-0078`, `H-0079` (main),
+  `H-0080`-`H-0082` (this branch), `H-0085` (this entry); no id changed on either side. Each number
+  above was read back before this commit was made, per `#1180`: the gate printed 118 entries over
+  the two sides' entries and 119 with this one (it says 120 on any head at or after `H-0086`), the
+  suite printed 357/0, and the three anchors printed 1/1/1. What this commit does NOT do: `#264`'s
+  body still asserts "Nothing here conflicts", which was true of main at `79b4757` and is false of
+  `adbe6e3`. That sentence is a status claim, so it is corrected in the body itself, not by editing
+  an entry.
+
+## H-0086 · "Four comments" was four locations wearing one file's name
+
+- Question: the review of `#264` measures three comments in `factory/selftest.sh` where `H-0082`'s
+  `Question:` and `Effect:` both say four, and the pull-request body says four too. Re-measured on
+  this tree: `git show d7d370d -- factory/selftest.sh | grep '^-.*a7a656d'` gives 3 lines,
+  `-- factory/DECISIONS.md` gives 1. Rewrite `H-0082`'s two lines to the smaller number, delete the
+  entry as untrustworthy, annotate `H-0082` with a dated correction and add this entry, or answer on
+  the review thread and change nothing on disk?
+- Options: rewrite `H-0082`'s two lines to read "three" | delete `H-0082` as untrustworthy |
+  annotate `H-0082` with a dated correction and add this entry | answer the review thread and change
+  nothing on disk
+- Chose: annotate `H-0082` with a dated correction and add this entry
+- Why: `#1180` is the rule and it was written twice in one day on this repository, both times about
+  an `Effect:` field that described writes nobody had read back -- a decision record gets a dated
+  correction, because a silently corrected log is indistinguishable from one that was always right,
+  while a status claim is edited in place. The pull-request body is a status claim and gets edited;
+  `H-0082` is a decision record and gets annotated, additively, with its own words left standing so a
+  later reader can still see what was claimed. That is also what the review asked for -- "one line in
+  the entry, one in the body" -- and the annotation shape delivers both where an in-place rewrite
+  delivers only the second. Tie-break 6 settled it before reasoning did: `H-0082` itself is the
+  precedent, having added a dated entry rather than editing `e334f4f`'s pushed message. Deletion
+  loses most: the entry's archaeology is what makes `a7a656d` unrecoverable-by-sedimentation, and
+  `#1180` names the value of keeping the wrong claim visible. Answering only on the thread is the
+  failure `#1180` measured -- the record goes on saying four while a comment says three, and the
+  next reader reads the record.
+  What the number actually was is the part worth keeping, because it is not an off-by-one: `d7d370d`
+  really did fix four things, and "the four places in the tree" is still in the body and still
+  correct. One number was measured over the set (four tree locations, two files) and then reused as a
+  count over a subset (comments in one file) inside the same paragraph. The heading's claim -- a sha
+  "cited six times" -- survives on the count of citations, one per artifact: 3 comments plus `H-0080`
+  plus the body plus `e334f4f`'s message (`git log -1 --format=%B e334f4f | grep -c a7a656d` -> 2
+  mentions inside that one message). So the entry's thesis is intact and only one denominator inside
+  it was wrong, which is the case for annotating rather than deleting.
+- Checkpoint: 7a9fb0e
+- Effect: `H-0082`'s `Effect:` now carries a dated annotation naming lines 78, 2275 and 2313; this
+  entry is the trace, and nothing else on disk moved. `python3 scripts/check-decisions.py` -> 120
+  entries across 2 logs, gate OK, read back before this commit rather than asserted by it. The
+  body's two sentences
+  are separated in `#264`'s rewrite -- three comments, four locations -- and that rewrite lands in a
+  later push, so its read-back lives in the pull request and not here; if the rewrite does not
+  arrive, this paragraph is the claim that failed, not the entry above.
