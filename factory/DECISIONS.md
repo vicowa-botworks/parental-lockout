@@ -1758,3 +1758,62 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   naming the path; the calls that worked are unchanged (`D-0052` and `H-0073` here, a fixture at
   `D-0001` answers `D-0002`, a fresh uncommitted log answers `D-0001`, a heading-less
   `factory/DECISIONS.md` answers `H-0001` with no `--prefix`).
+
+
+## H-0074 · Two sessions can still take the same id, so the merge arbitrates it and the yield rule is written down
+
+- Question: #253's item 4 says the same-minute collision "is the part worth a decision rather than a
+  script", and #255 left it open. Measured on this tree: two allocator calls in the same instant against
+  one fixture both print `H-0010`. Is a reservation bought, or is the merge the arbiter -- and what has
+  to be written down for that answer to be a procedure rather than a shrug? Item 3 belongs to the same
+  question, because the rule a collision is resolved with did not exist either: `grep -c yield` over
+  `docs/factory.md` at `91d992d` answers 0, and `git diff f311075 91d992d -- docs/factory.md` adds no
+  paragraph about it, though #255's body reported "**4. The tie-break, written down.** ... is in
+  `docs/factory.md` now".
+- Options: accept the race, make the merge the arbiter, and write the yield rule and its reason into
+  `docs/factory.md` | reserve ids on a fourth ref claimed with a compare-and-set `git update-ref` |
+  have the supervisor allocate the id at dispatch and name it in the tick's brief | give each branch its
+  own id range, the option H-0070 also rejected
+- Chose: accept the race, make the merge the arbiter, and write the yield rule and its reason into
+  `docs/factory.md`
+- Why: what the race needs to open is not reachable on the deployment, and not by habit but by
+  mechanism. `factory/factory.sh` takes `exec 9>"$FACTORY_RUN/lock"` and `flock -n 9` before it reads
+  anything -- a second activation prints `another supervisor holds …, so nothing was done here.` and
+  exits 7 -- and it dispatches each tick in the foreground (`timeout … opencode run`, no `&`) from one
+  loop, so two sessions are never allocating at each other on one machine; a sibling that has already
+  committed is visible regardless, because every unit tree is a worktree and worktrees share
+  `refs/heads` (the leg in this very section: `D-0002` before the sibling commits, `D-0010` after, with
+  no fetch). The window that survives is a second clone that has not fetched, or a person running a
+  unit in a second checkout while the timer runs one here. **A reservation ref** loses on reachability
+  and on kind: a local ref says nothing to the other clone, and the moment it is pushed it is a
+  state-changing write in front of the tick budget -- `H-0013` priced a blocking *read* at 5min2s of a
+  pass and `H-0056` refused one inside a verdict -- while a claim that outlives the session that made it
+  is a lease needing an owner and an expiry, which nothing in this harness reaps. **Supervisor
+  allocation at dispatch** moves the race earlier without closing it: the supervisor reads the same
+  union this allocator reads and inherits the same staleness, so a session whose re-read finds the
+  handed-out number taken has to move anyway; it also costs a tracker write per unit. **Per-branch
+  ranges** change what every historical `H-NNNN` citation means, which is why `H-0070` refused it and
+  `H-0061` and `H-0068` before it. Acceptance is only honest if the arbiter is a procedure, so the guide
+  now carries the rule -- the side that has not merged yields -- with the reason it is that side and not
+  either: `main`'s ids sit in history that cannot be rewritten here, because the only merge offered is a
+  merge commit whose ancestors are permanent and the rewrite that would move one is a force-push
+  `.opencode/opencode.jsonc` denies every agent in this repository. The four steps end with the gate over
+  both logs, and they cite `H-0051` and `H-0052` as the shape of the record, because a gap in a log is
+  citable only when an entry says why it is empty. One leg and one control pin both halves, rule and
+  reason, each with its own plant: what failed here was a delivered claim with no leg behind it, and a
+  phrase in a pull-request body is read by nobody resolving a conflict at the trunk at 2am.
+- Checkpoint: 18d07e37589ea220f274340bd4139d227abb52f1
+- Effect: `docs/factory.md` gains "When two branches take the same number, the side that has not merged
+  yields" and "Why there is no reservation", with the measured `H-0010`/`H-0010` and the reachability
+  paragraph. `factory/selftest.sh` gains `alloc_yield_rule` with a two-plant control, and a comment
+  recording that this suite's controls print `ok` without incrementing the tally -- so #255's "four
+  counted controls" overstates it by four, and every count in both of this branch's entries says "legs"
+  and "control lines" separately. No shipped check changes: `factory/next-decision-id.sh` is already a
+  read that says it is one, and `H-0072` keeps ref-reading out of `scripts/check-decisions.py`. The
+  mitigation acceptance makes cheap -- `factory/factory.sh` fetching the trunk once per activation,
+  bounded by a `timeout` and non-fatal -- is deliberately not bought here, because it is the supervisor's
+  ref policy and needs its own decision; it is filed and read back as issue #256 (`256 OPEN The
+  supervisor dispatches against whatever refs this tree last fetched, so a second clone allocates stale
+  ids`). Re-measured after the write: `bash factory/selftest.sh` moved from `292 passed, 0 failed` to
+  `293 passed, 0 failed` -- one leg counted, one control line printed and not counted -- and the
+  control's two plants each make the leg refuse, which is what proves the leg reads both halves.

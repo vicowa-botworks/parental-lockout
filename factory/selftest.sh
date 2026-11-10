@@ -4849,6 +4849,71 @@ alloc_reads_its_repo() { # <label> <fixture> <expected id> <what an ok proves>
 	return 0
 }
 
+# Issue #253's third instruction was reported delivered by #255 and was not: `grep -c yield` over
+# `docs/factory.md` answered 0 at `91d992d`, and the merge diff adds no paragraph about it. A rule that
+# lives in a pull-request body is a rule nobody resolving a conflict at the trunk will read, so this
+# pins both halves -- who yields, and the force-push that is the reason that side is the correct one --
+# because the sentence without its reason gets re-derived by the next collision, which is the defect
+# #253 opened with.
+alloc_yield_rule() { # [root] -> 0 when the guide states who yields and what makes it correct
+	local root=$HERE/.. guide
+	[ -z "${1:-}" ] || root=$1
+	guide=$root/docs/factory.md
+	[ -f "$guide" ] || return 2
+	grep -qF 'side that has not merged yields' "$guide" && grep -qF 'force-push' "$guide"
+}
+
+# Two plants, one per half, in the layout the predicate walks. A plant that removes nothing certifies
+# nothing, so each is checked for having removed its phrase before the verdict is asked.
+alloc_yield_control() {
+	local ctrl=$alloc_work/docs-no-yield
+	if ! mkdir -p -- "$ctrl/rules/docs" "$ctrl/reasons/docs"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' \
+			'control: the yield rule, rule and reason'
+		return 0
+	fi
+	if ! grep -vF 'side that has not merged yields' "$HERE/../docs/factory.md" \
+		>"$ctrl/rules/docs/factory.md" ||
+		! grep -vF 'force-push' "$HERE/../docs/factory.md" \
+			>"$ctrl/reasons/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copies could not be written\n' \
+			'control: the yield rule, rule and reason'
+		return 0
+	fi
+	if grep -qF 'side that has not merged yields' "$ctrl/rules/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the rule in place, so the\n' \
+			'control: the yield rule, rule and reason'
+		printf '          leg above was never aimed at the sentence it names.\n'
+		return 0
+	fi
+	if grep -qF 'force-push' "$ctrl/reasons/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the reason in place, so the\n' \
+			'control: the yield rule, rule and reason'
+		printf '          leg above does not need the reason it claims to need.\n'
+		return 0
+	fi
+	if alloc_yield_rule "$ctrl/rules" || alloc_yield_rule "$ctrl/reasons"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a guide with the rule deleted\n' \
+			'control: the yield rule, rule and reason'
+		printf '          from one copy and the reason deleted from the other, so the ok above is a\n'
+		printf '          phrase match and not the two halves it names.\n'
+		return 0
+	fi
+	# No `pass` increment, deliberately: this suite prints a control's `ok` without adding it to the
+	# tally, and `alloc_control` and `alloc_docs_control` both establish that. A control that counted
+	# would make the number on the last line mean "legs" in some rows and "legs plus controls" in
+	# others -- which is how #255 came to report "four counted controls" for four uncounted ones.
+	printf '  ok    %-40s each copy loses one half and the leg says\n' \
+		'control: the yield rule, rule and reason'
+	printf '          no; both halves are read, not a phrase that happens to sit nearby.\n'
+	return 0
+}
+
 alloc_no_fetch() {
 	! grep -Eq '^[[:space:]]*(env[[:space:]]+[^[:space:]]+[[:space:]]+)?git[[:space:]]+fetch' \
 		"$alloc_script"
@@ -5248,6 +5313,11 @@ decision_ids() {
 		'the skill and the factory guide both name its path and the refresh' \
 		alloc_docs_reference
 	alloc_docs_control
+
+	gen_leg 'the yield rule is written down' \
+		'the guide says which side renumbers, and why that side is the one that can move' \
+		alloc_yield_rule
+	alloc_yield_control
 
 	# ---- what the allocator does when there is nothing to read (issue #253, the half #255 left) ----
 	#

@@ -510,6 +510,64 @@ to be checked -- and never about refs. A verdict that reads `refs/remotes` is a 
 than at the merge, depending on what each tree last fetched, and a gate that disagrees with itself reads
 as flaky and gets re-run until it agrees.
 
+### When two branches take the same number, the side that has not merged yields
+
+Two reads can still agree: measured, two calls in the same instant against one fixture both answered
+`H-0010`. What that window needs -- two sessions allocating before either commits -- is not available on
+this machine by mechanism rather than by habit. `factory/factory.sh` takes `exec 9>"$FACTORY_RUN/lock"`
+and `flock -n 9` before it reads anything, so a second activation prints `another supervisor holds …, so
+nothing was done here.` and exits 7; and it starts each tick in the foreground (`timeout … opencode
+run`, no `&`) from one loop, so two sessions are never allocating at each other here. The window that
+stays open is the one no local read closes: a second clone that has not fetched, or a person running a
+unit by hand in another checkout while the timer runs one here (issue #256).
+
+**The side that has not merged yields.** Its entry is the only one that can still move. `main`'s ids sit
+in merged history, the only merge this repository offers is a merge commit whose ancestors are
+permanent, and so moving an id that is already on `main` means rewriting published history -- a
+force-push, denied to every agent here by `.opencode/opencode.jsonc`, in a repository where the thing
+it would destroy is permanent rather than retried. The gate is the arbiter and it already says enough:
+it names the id, both rows, and what a `revert to before H-NNNN` would now point at. Resolving it is
+four steps, in this order:
+
+1. merge `main` into the unit branch. The conflict is *in the log*, and the resolution keeps both
+   entries -- one of them changes number, neither changes meaning;
+2. re-run `factory/next-decision-id.sh` **on the merged tree**, so the ceiling it reads includes the
+   ids that arrived with `main`;
+3. renumber the heading and every citation of it in this branch's own files, then run
+   `python3 scripts/check-decisions.py` over both logs before the resolution is committed;
+4. record what moved, inside the entry, the way `H-0051` and `H-0052` do: the number it gave up, the
+   branch that kept it, and that the two decisions share nothing but the digit. A gap in a log is
+   citable when an entry says why it is empty, and inexplicable when it does not.
+
+### Why there is no reservation
+
+The alternative to a rule at the merge is a reservation before the write -- a fourth ref each session
+claims, or an id handed out by the tracker. Neither is built. What decides it is the shape of the window
+that is left, not the cost of a script:
+
+**A reservation ref**, claimed with a compare-and-set `git update-ref`, says nothing to the other clone
+unless it is pushed -- and a pushed reservation is a state-changing write in front of the tick budget,
+where `H-0013` priced a blocking *read* at 5min2s of a pass and `H-0056` refused one inside a verdict
+outright. Worse, a claim that outlives the session that made it is a lease: it needs an owner and an
+expiry, or a killed tick reserves a number forever and nothing here reaps it.
+
+**The supervisor allocating the id at dispatch** and naming it in the brief moves the race earlier
+without closing it. The supervisor reads the same union this allocator reads and inherits the same
+staleness, so a session whose re-read finds the handed-out number taken has to move anyway. It also
+costs a write to the tracker per unit, on a loop that already explains why it does not put network reads
+ahead of a budget.
+
+**Accepting it, with the merge as the arbiter, is what is bought.** The arbiter already resolves every
+content conflict before anything is merged; its verdict is the four lines that name the id and both
+entries; and the yield rule above is what turns the resolution into a procedure instead of a judgement
+call made by whoever merges second.
+
+What acceptance makes cheap is the mitigation #255 named and declined: `factory/factory.sh` fetching the
+trunk once per activation, before it dispatches, bounded by a `timeout` so a hung fetch cannot park a
+pass. That is the supervisor's ref policy rather than the allocator's, so it is issue #256 with the
+`H-0056` counter-argument written out on it -- not a paragraph here that only whoever reads this
+section will ever find.
+
 ## Configuration
 
 Everything is an environment override with a default, in `factory/common.sh`.
