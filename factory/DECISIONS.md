@@ -2059,3 +2059,90 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: `factory/common.sh` `factory_at_risk_default` carries the refusal, and `factory/selftest.sh`
   gained the leg `the mirror never lands where a reboot can`. Measured on this tree:
   `bash factory/selftest.sh` -> `338 passed, 0 failed` (one leg above the merge's 337, none lost).
+
+## H-0079 · A mirror refusal keeps its reason, and a render that wrote nothing stops being a rescue
+
+- Question: `factory_tree_quarantine` renders the mirror inside a capture, as
+  `err=$(git stash show -p --binary --include-untracked "$sha" >"$tmp" 2>&1)`. That order points stderr
+  at the FILE -- the copy the arm deletes three lines later -- so `err` is always empty and the refusal
+  prints `… :: ` with nothing after the colon. H-0063 shipped it that way knowing: its entry and #250's
+  body both disclose the empty reason as "known and disclosed, not fixed here". Is the reason worth
+  recovering, and by which shape, without losing the payload or the emptiness guard?
+- Options: capture stderr into its own file and read it back with `factory_git_said`, as
+  `factory_tree_dirt` and `factory_tree_stop` already do | reorder the redirects so stderr reaches the
+  capture and stdout reaches the file | read the reason out of `$tmp` itself before the arm deletes it |
+  leave the code alone and pin the dangling `::` shape with a text scan over the shipped file | reorder
+  the redirects and split the conjoined guard into the two causes it conflates
+- Chose: reorder the redirects and split the conjoined guard into the two causes it conflates
+- Why: the merged stream is not only losing a sentence, it is capable of forging the rescue. Measured
+  10 Nov against the shipped function with a fixture repo and a `git` that answers `stash show -p` with
+  a sentence on stderr and exit 0 -- a read that succeeds and complains, exactly #232's shape: stdout
+  empty, so `$tmp` should be empty; stderr merged, so `$tmp` holds the warning; `[ ! -s "$tmp" ]`
+  therefore PASSES, the function returns 0, the tree is cleaned, and the journal advertises
+  `TREE-QUARANTINED … mirror=/…/repo-quarantine-….patch` for a file whose bytes are a complaint and not
+  a patch. The new leg says it in its own words: `it wrote a mirror anyway, so a refusal is not the
+  honest arm; a refusal changed the tree: 2 path(s) before, 0 after`. That is H-0063's hazard -- a
+  mirror that restores nothing -- arriving through the merge instead of through a binary, and the size
+  guard cannot see it because the bytes it counts are the wrong bytes. With the order reversed, stderr
+  goes to the command substitution's pipe where the printf can quote it and stdout goes to the file
+  where only the patch belongs; nothing else about the read changes, and a rendering that works still
+  writes the same bytes. Why the four alternatives lose. **An errfile of its own** is the option the
+  tie-break order names first (it is what the surrounding code already takes, twice), and it is the one
+  that lost: it buys a second scratch file whose removal has to be remembered on every exit of the arm,
+  and `quarantine-error.$$` leaked one file per pass for exactly that reason until H-0064 found it. The
+  reorder adds no file and leaves the arm shaped like the `git stash failed` arm two screens above,
+  which already captures with `err=$(git … 2>&1)`. **Reading the reason out of `$tmp`** works only when
+  git wrote something, and it cannot tell git's sentence from the first line of a half-written patch --
+  reason and payload share one file, which is the defect being fixed. **The text scan** pins the symptom
+  (`:: ` at end of line) and not the property; the leg that asks the journal for git's own words goes
+  red on the redirect order AND on a deleted printf, and the scan goes red on neither of the two.
+  **One conjoined guard** keeps reporting a refusal that exited 0 with no bytes using a sentence about
+  not being able to write, and the two causes need different repairs -- a git that refused, and a stash
+  that renders nothing. What lost, as measured: the reordered form rests on a redirect rule (`2>&1`
+  binds whatever stdout points at at that moment) that reads like a typo to the next person, so the
+  comment says so out loud and `git refuses to render` is the leg that reddens the day it is tidied
+  back; the empty-render sentence no longer prints the patch path, because the arm deletes that file and
+  a path to nothing is not diagnosis (the box is named by the successful arm's line); and
+  `factory_git_said` keeps only the FIRST line of the refusal, so when the arm unhooks, `factory_tree_unstash`'s
+  sentence -- where the work actually is -- is still dropped from the journal. That last one predates
+  this commit and is written here because the measurement walked into it.
+- Checkpoint: a4304b6
+- Effect: `factory/common.sh` -- the render arm is two arms: `rendering stash <sha9> failed :: <git's
+  own line>` and `stash <sha9> rendered an empty mirror :: git exited 0 and wrote no bytes[; it said:
+  …]`, with `why=""` added to the function's locals. `factory/selftest.sh` -- `expect_quarantine` gains
+  a seventh argument, WHY, asserted in the HALT arm as substrings the `TREE-QUARANTINE-REFUSED` line has
+  to carry (commas split, not spaces: the sentences carry spaces); `no mirror, so no clean` now names
+  `cannot be created`, which it did not use to; new helper `q_arm` plants the dirt, installs one poisoned
+  subcommand through `shim_install`, runs the expectation and puts `PATH` back; four legs run in both
+  trees -- `git refuses to stash`, `git refuses to render`, `the render comes back empty`, `an inert
+  shim still quarantines`. `git refuses to stash` was added on this branch, not by the tick that wrote
+  the entry above: with the entry written, the push arm was re-probed at `450a628` and `344 passed,
+  0 failed` came back with its refusal made inert (`… 2>&1) && false`), so #248's own second acceptance
+  leg -- "make the stash fail… and assert BOTH halves" -- was still unpinned by the six render legs
+  alone. The third arm needed no code change: unlike stderr, a failing `git stash push` is captured by
+  `err=$(… 2>&1)` already, so its sentence was intact and only the leg was missing.
+  Provenance, because the branch moved and two ids changed. The fix was written 22 commits behind
+  `main`, in a tree whose allocator predated H-0074/H-0075, and opened as `## H-0073` -- an id
+  `origin/main` already publishes at line 1700 (the allocator entry), whose log now runs to H-0078.
+  The unmerged side yields: `factory/next-decision-id.sh` answers H-0079 here, so this entry is H-0079
+  and nothing on either side moves; the same collision #253 and H-0074 exist to end, and `check-decisions.py`
+  would have refused the duplicate rather than the rebase catching it. Rebased onto `450a628` (local-only
+  branch, no pull request, so no in-flight history was rewritten); `Checkpoint: a4304b6` is that
+  checkpoint as it now stands, the rebased form of `36da883`, and the subject it carries still reads
+  `pre-H-0073` because retitling a checkpoint is rewriting what the earlier tick believed. Both
+  originals, `36da883` and `c997ff6`, are held in
+  `~/prj/at-risk/branch-issue-248-c997ff6-20261110T141909Z.bundle` -- the 08:38 bundle named in the
+  wip commit's own message covers only `36da883`, so the work commit itself had no copy off-box until
+  this one was made.
+  Measured on the delivered base (`450a628` + this commit), each with `bash factory/selftest.sh`, and
+  each plant undone by `cp` from a `/tmp` backup rather than `git restore`: fixed tree -> `346 passed,
+  0 failed`; the shipped render arm put back (`>"$tmp" 2>&1`, conjoined guard) -> `342 passed, 4 failed`,
+  two legs for the refusal line that names no cause and two for the forged mirror, one of them printing
+  `it wrote a mirror anyway, so a refusal is not the honest arm; a refusal changed the tree: 2 path(s)
+  before, 0 after`; the `git stash failed` arm inert with this leg present -> `344 passed, 2 failed`,
+  both naming `git stash failed`; the same arm inert WITHOUT this leg -> `344 passed, 0 failed`, which is
+  the number that leg exists to make impossible. The redirect rule itself was checked apart from the
+  function on a stand-in that writes a payload to stdout and a complaint to stderr and exits 0: shipped
+  order captures nothing and leaves the file holding `payload` plus `fatal: cannot apply binary patch`
+  -- the complaint inside the mirror, contaminating a patch that would otherwise have applied -- while
+  the fixed order captures the complaint and leaves the file holding only the payload.
