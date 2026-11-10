@@ -2771,6 +2771,13 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   fixture pins the id, it does not forbid the arrangement, because `ENTRY` accepts `[DH]-` by design
   and this gate's rule against two logs meeting is `cross_log_problems`, which one arbitrary `--log`
   path cannot trip.
+  Corrected 10 Nov by `H-0094`, which leaves these words as written rather than editing them: the
+  `117 entries across 2 log(s)` above is the count at the checkpoint `4b5c541`, one short of the
+  count at the commit that carries this entry. `python3 scripts/check-decisions.py` at `c149fe9`
+  prints `118`, and the missing one is this entry -- the two logs hold 39 `## D-` headings and 79
+  `## H-` headings there, 78 at `4b5c541`. This pull request's body said `118` in the same breath,
+  so the record and the status claim disagreed with each other by exactly one entry, and the merge
+  `6442e8f` moved the number twice more: 127 over the two sides' entries, 128 from `H-0093` on.
 
 ## H-0093 · The same log conflict as `H-0085`, and this time the log is the only thing in the way
 
@@ -2827,3 +2834,56 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   of this merge, so the body -- a status claim -- gets edited, per `#1180`; and `H-0091`'s `Effect:`
   says `117 entries`, which was the count at its checkpoint `4b5c541` and one short of its own
   commit -- that is a decision record, so `H-0094` annotates it instead of rewriting it.
+  Corrected 10 Nov by `H-0094`, which likewise leaves these words standing: "one entry and one pull
+  request ago" in the `Why:` above -- and in this merge's own message, which is committed and stays
+  as committed, per the `e334f4f`/`a7a656d` precedent `H-0085`'s `Effect:` sets -- overstates the
+  closeness. Measured distance from `H-0085` to `H-0093` is seven headings (`H-0086`-`H-0091` in
+  between) and eight ids, `H-0092` being held on the sibling branch `issue-268`, which is the
+  allocator's union of `refs/heads` declining to hand out an id already spoken for. One pull request
+  ago is right: `H-0085` was `#264`.
+
+## H-0094 · `H-0091` counts the log one entry short of its own commit
+
+- Question: `H-0091`'s `Effect:` closes with "check-decisions still reports `117 entries across 2
+  log(s)` clean over the real logs", and that sentence is being read into a log the merge just
+  moved. Measured on this tree: `git show 4b5c541:DECISIONS.md | grep -c '^## D-0'` plus the same
+  over `git show 4b5c541:factory/DECISIONS.md | grep -c '^## H-0'` is 39 + 78 = 117, while at
+  `c149fe9` -- the commit that carries the entry -- it is 39 + 79 = 118, which is what the gate
+  itself printed there. So 117 is the count at the checkpoint, not at the commit, and this pull
+  request's body prints `118` while the entry that records the same change prints `117`. Rewrite
+  `H-0091`'s line to read 118, delete the count and keep the verdict, leave the log and correct
+  only the body, or annotate `H-0091` with a dated correction and add this entry?
+- Options: rewrite `H-0091`'s `Effect:` line to read 118 | delete the count from `H-0091` and keep
+  the sentence's verdict | leave the log alone and correct only the pull request's body | annotate
+  `H-0091` with a dated correction and add this entry
+- Chose: annotate `H-0091` with a dated correction and add this entry
+- Why: `H-0086` is the precedent seven headings up this file and it acted on the same object -- an
+  `Effect:` whose number does not match the command it names -- and it settled the shape there, so
+  tie-break 6 decides before reasoning does: a decision record gets a dated correction, because a
+  silently corrected log is indistinguishable from one that was always right, while a status claim
+  is edited in place, and the pull request's body is the status claim. Rewriting in place is the
+  smaller diff and is precisely what `#1180` refuses. Deleting the count loses the only arithmetic
+  in the file that shows what the merge cost: 117 at the checkpoint `4b5c541`, 118 at the commit
+  `c149fe9`, 127 at the merge `6442e8f`, 128 with `H-0093` in it -- four numbers, and the move from
+  118 to 127 is `origin/main`'s nine entries, not a regression. Silence is the worst of the four
+  because the sentence is stale twice over by then: off by one against its own commit (118 at
+  `c149fe9`) and twelve against the head this entry lands on (129), and its one job
+  was to say the gate had not changed. What lost, stated plainly: the entry now carries two numbers
+  for one claim, and this file's gate cannot tell a corrected count from a contradictory one --
+  `check()` checks field presence, id order, `Chose` membership and sha shape, never arithmetic --
+  so the correction holds only because a person reads the prose.
+- Checkpoint: 1205945
+- Effect: `H-0091`'s `Effect:` keeps every word it had and gains the dated lines under it; this
+  entry is the trace, and nothing was renumbered. Read back before this line was written, per
+  `#1180`: the annotation alone leaves the count where `6442e8f` left it -- 39 `## D-` headings plus
+  89 `## H-` headings, and `python3 scripts/check-decisions.py` there printed `128 entries across 2
+  log(s)`, exit 0 -- because an annotation adds no heading, which is the difference between this
+  commit and the rewrite it is not; with this entry added the same command prints `129`, exit 0.
+  `python3 scripts/check-decisions.py --self-test` -> 19 must-fail, 9 must-pass, exit 0;
+  `make verify` -> `verify: OK`. The same rule is applied one entry up: `H-0093` says `H-0085`
+  settled this "one entry ago" where the measured distance is seven headings and eight ids, and it
+  is annotated there rather than edited, while `6442e8f`'s message carries the same phrase and
+  stays as committed because a message is permanent history and `#1180`'s remedy for that is the
+  record beside it, not a rewrite. What this commit does not do: `#269`'s body is a status claim
+  and is rewritten in place to the merged numbers rather than annotated, and the merge `6442e8f`
+  stands as the thing that had to be re-measured.
