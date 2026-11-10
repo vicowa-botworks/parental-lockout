@@ -1307,3 +1307,227 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   interleaves #252's `H-0056`/`H-0059`/`H-0060`/`H-0061` with this branch's `H-0058`/`H-0062`/`H-0063`/
   `H-0064` in the ascending order the gate's ordering rule demands, and keeps both sides' additions in
   `factory/common.sh`.
+
+
+## H-0066 · Stop is a reaping, not a second copy of the pass ceiling
+
+- Question: `install-timer.sh` renders `TimeoutStopSec` and `TimeoutStartSec` from one token,
+  `STOP=$((FACTORY_BUDGET + 60))` -- 5460 s on this box. On 8 Nov one leaked grandchild held the unit in
+  `stop-sigterm` and the queue did not fire for 1 h 07 min. What should the stop deadline be, and where
+  should its number come from?
+- Options: keep one token and bound the outage somewhere else | give stop its own token at a fixed 60 s
+  and leave start budget-derived | give stop its own token with a `FACTORY_STOP_TIMEOUT` override
+  defaulting to 60 s | set `KillMode=mixed`, or `process`, so a stubborn descendant cannot hold the
+  cgroup, and leave the deadline alone
+- Chose: give stop its own token at a fixed 60 s and leave start budget-derived
+- Why: the two settings bound different moments and the shared token made them look like one concern.
+  `TimeoutStartSec` fires *while* the pass runs -- it is the deadline that would kill a tick mid-commit,
+  which is the hazard the comment on the stop line had cited, for the wrong setting -- and
+  `docs/factory.md` repeated it. `TimeoutStopSec` begins once `ExecStart` has exited: the pass has
+  printed its last line, and the only work left is reaping. Measured 8 Nov, issue #246:
+  `END rc=4 ticks_started=1` at `22:18:51Z`, then `ActiveState=deactivating SubState=stop-sigterm
+  MainPID=0 ControlPID=0 TasksCurrent=10` held by PID 1693618, `C:\windows\system32\winedevice.exe`,
+  started 14 s into the activation; the timer the whole while `ActiveState=active SubState=running`,
+  `TriggerNextElapseUSecRealtime` empty, `-` in `list-timers`' next-fire column, and the journal holding
+  zero lines for the unit after 22:18. Recovered at `23:06:55Z` by an escalated `kill -s KILL` at the
+  manager, after which the timer re-armed in the same second. Because `OnUnitInactiveSec=` counts its
+  interval from the moment the unit finishes going inactive, the outage *is* `TimeoutStopSec`: 5460 s,
+  stopped at 1 h 07 min only because a person killed it. At 60 s the same grandchild costs a minute and
+  nothing else. Option three is refused because every other number in this generator is a fact about the
+  machine -- interval, budget, reviewer, where the binaries live -- and this one is not: it is how long
+  the harness will wait for a process group to die. A knob for it is also one setting away from
+  re-merging the two numbers, and the merge is the defect, so the tie-break order lands on the choice
+  that touches the fewest files and cannot be un-fixed by an environment variable. `KillMode` is the
+  right instinct -- kill the group, stop waiting -- and is refused on evidence rather than taste: under
+  `mixed` the escalation is still bounded by `TimeoutStopSec`, so it removes the wait only for a
+  descendant that would have taken `SIGKILL` at all, while a process in uninterruptible sleep holds the
+  cgroup to the deadline whatever the mode; `process` is worse, because leaving a tick's orphans running
+  is precisely the dirty worktree the next pass halts and refuses to touch. Both change what is killed on
+  *every* stop, including manager shutdown, and neither can be measured by a tick on this box: a
+  manager call is denied to this agent in both spellings, so picking one would be picking a manual page
+  nobody here re-ran. The issue draws the same line -- "the answer is a bounded stop, not a smarter
+  kill". What lost, as measured: the machine is not yet the repository.
+  `~/.config/systemd/user/parental-lockout-factory.service` still reads `TimeoutStopSec=5460` and
+  `TimeoutStartSec=5460` (read this session, its lines 51-52), because putting 60 s on the box needs
+  `install-timer.sh --install`, which is a manager write a tick may not make; H-0037 is why that
+  reinstall must also restart the running timer, and it does. The live reproduction the issue asks for
+  has therefore not been run -- H-0067 records what the shipped gate proves instead, and the exact
+  commands still owed. And 60 s is a judgement, so the gate pins a *bound* (120 s) rather than this
+  constant: a measured argument can move the number without editing the check.
+- Checkpoint: 4cfa83abc7b4e8a2dfbd79e86513ccc59f86b5f1
+- Effect: `STOP_TIMEOUT` and its substitution in `render()`, and the service template's `TimeoutStopSec`
+  line and its comment, in factory/install-timer.sh; in docs/factory.md, the unit excerpt's two
+  deadlines and their comment, the account of the 8 Nov outage with the `reset-failed` line and the
+  status read a watchdog owes, and `TimeoutStartSec` in the sentence about what `--install` derives.
+  This entry was written as `H-0056` and the commits that made it carry `Decision: H-0056`; `H-0068`
+  says why the number moved, and `H-0056` on `main` is a different decision -- the stale-tree refusal.
+
+## H-0067 · The deadline gate renders the shipped generator; it does not read its template
+
+- Question: H-0066 splits one rendered number into two. What has to go red for the two deadlines to be
+  re-merged, and where does a check that can see that live?
+- Options: grep the template in `install-timer.sh` for the two `Timeout…Sec=` lines | run
+  `install-timer.sh --install --dry-run` from `factory/selftest.sh` against a throwaway repo with stub
+  `gh` and `opencode` on the PATH, and assert on the unit it prints | cut a throwaway service/timer
+  pair under a transient user scope at `TimeoutStopSec=5s`, measure the stop, and put that in the gate |
+  ship no gate and leave the two lines beside a comment that says not to merge them
+- Chose: run `install-timer.sh --install --dry-run` from `factory/selftest.sh` against a throwaway repo
+  with stub `gh` and `opencode` on the PATH, and assert on the unit it prints
+- Why: the defect is a substitution, not a line of text, and three different regressions leave the
+  template looking exactly right -- point the stop token back at `@STOP@`, point the start token at the
+  stop token, or delete the substitution line and ship a unit carrying a literal `@STOP_TIMEOUT@`, which
+  a manager reads as no deadline at all. A grep over the template passes all three. The generator is the
+  only thing that knows what a token becomes, and `--dry-run` is the call that answers without writing:
+  it prints both units and exits before the first manager call. The two stubs are what makes the leg run
+  anywhere -- `install-timer.sh` refuses to start unless it can find `gh` and `opencode` on its PATH,
+  and this gate has no business needing a GitHub token or the CLI -- and neither stub is ever asked to
+  do anything, because the dry run never reaches a manager call. `FACTORY_ROOT` and `FACTORY_DIR` both
+  name the copy so that even `factory_paths`' three `mkdir`s land in `$work`: a gate that dirties the
+  tree it is checking can halt the very pass that runs it. Six legs, each with its own plant in the
+  opposite polarity -- a copy of the generator carrying the bug, which the same predicate has to refuse
+  -- because a check that cannot say absent is the check being blind, and that is how a green gate
+  coexists with the outage it was written for. One leg needs a second render to mean anything: at
+  `FACTORY_BUDGET=9000` start must move and stop must not, which is the only way to tell two derived
+  numbers from two literals that happen to differ. The bound asserted on stop is 120 s, not the shipped
+  60: the number *is* the outage a leaked descendant causes, so the gate refuses anything ceiling-sized
+  while leaving room for a measured argument about the constant.
+  What this gate cannot prove, on its own line so nobody mistakes it for the measurement: the live
+  reproduction the issue asks for has not been run. A manager call is denied to this agent in both
+  spellings, and this session measured the denial on the read-only form of it -- a `show` of the
+  service asking for `ActiveState`, `SubState` and `TasksCurrent` came back `Permission denied: shell`.
+  So no claim here rests on observed stop behaviour: not that 60 s reaps what 5460 s waited for, nor
+  that the unit goes inactive a minute after the last leaked descendant dies. The commands owed are in
+  the pull request body, and they are the issue's own pair: a transient unit whose `ExecStart` leaves a
+  detached descendant and exits, once at `TimeoutStopSec=5s` -- assert inactive inside about 5 s, and
+  the paired timer's next-fire non-empty again -- and once at 5460, which is tonight's outage and must
+  come back `stop-sigterm` with an empty next-fire. That second arm is the one that makes the first one
+  mean something. Using another manager client to get around the denial was considered and refused: the
+  denial is on the manager, not on one binary's name, and routing a refused call through a different
+  program is how a harness gap turns into a trust problem.
+- Checkpoint: b05070735f644f2e297863489f2dd85cb06144bc
+- Effect: the "unit's two deadlines" section of factory/selftest.sh -- `gen_setup`, `gen_dry_run`,
+  `gen_split`, `deadline_value`, `budget_default`, six `leg_*` predicates, `gen_leg`, `gen_planted`,
+  `gen_control` and `unit_deadlines` -- 216 -> 222 passing legs with six plants beside them, and the
+  header's claim about how many legs read shipped text rather than a planted tree. This entry was
+  written as `H-0057`, which `issue-235` also holds; `H-0068` says why the number moved.
+
+
+## H-0068 · The two ids this branch took are taken on `main` too, so the merge this pull request asks for would have turned `main`'s gate red
+
+- Question: `origin/main` is at `ef99ae2`, 30 commits ahead of this branch's merge-base with it.
+  `git merge-tree`
+  resolves every file but `factory/DECISIONS.md`, and the reason is worse than a textual conflict: the
+  merge puts `H-0056` (this branch's stop deadline) beside `H-0056` (`#252`'s stale-tree refusal), so
+  the merged log has one id naming two decisions. Whose numbers move, and what happens to the two
+  already-pushed commits whose `Decision:` trailers name the old ones?
+- Options: renumber this branch's two entries to the next ids free on every ref, `H-0066`/`H-0067` |
+  renumber `main`'s `H-0056` instead, since this branch took its number first | keep both pairs and let
+  the merged `main` fail `check-decisions.py` | give every branch its own id range by editing
+  `scripts/check-decisions.py` | report the collision on #246 and change nothing
+- Chose: renumber this branch's two entries to the next ids free on every ref, `H-0066`/`H-0067`
+- Why: the refusal is measured on the merged bytes, not argued. `git merge-tree --write-tree
+  origin/main HEAD` at `84ccdf9` prints `CONFLICT (content): Merge conflict in factory/DECISIONS.md`
+  and nothing else, so its merged blob was extracted and run through the gate:
+  `python3 scripts/check-decisions.py --log <merged blob>` answers **four** problems, exit 1 -- `id
+  H-0056 is already used at :1122; 'revert to before H-0056' would name two commits`, two `out of
+  order` rows, and the cross-log `one id, 2 decisions; a citation to it does not resolve`. So this is
+  not untidiness deferred to the person who resolves the conflict; it is `main`'s own `make verify` red
+  after a green merge, in the one gate the supervisor cannot skip. The ids were read off every ref
+  before any was taken, which is the discipline `H-0061` names as its whole reason for existing: above
+  `H-0055` the union over `refs/heads` and `refs/remotes/origin` is `H-0056` (`origin/main`,
+  `issue-235`, `issue-241`, `issue-246`, and the already-merged local `issue-248`/`issue-249` and two
+  backup branches), `H-0057` (`issue-235`, `issue-246`), `H-0058`..`H-0065` (`origin/main`), nothing
+  above `H-0065`. `H-0066` is therefore the first id no ref holds. That measurement was re-taken
+  mid-session and moved: the first read had `origin/main` at `93ee5f6` and its ceiling at `H-0061`, and
+  by the time this entry was written `#250` had merged `issue-248`, which renumbered *its own* three
+  entries to `H-0062`..`H-0064` and filed the notice as `H-0065` -- the same defect, third time in
+  twenty-four hours, on three branches that each did the thing `H-0061` told them to do. Why the four
+  others lose. **Renumber `main`'s**: its id sits in merged history and moving it means rewriting
+  `main`, barred twice over -- `AGENTS.md` forbids the rewrite and both squash and rebase merge are off
+  on this repository, so a rewrite is a force-push this agent cannot make and that no `git revert`
+  undoes. **Keep both pairs** moves a failure that is currently visible on a branch onto `main`, which
+  is the exact move this harness exists to stop making (the words are `H-0061`'s, and `H-0065` re-made
+  the same argument for the same three ids one branch later). **Per-branch id ranges** is the real
+  answer and is not this unit's to make: it edits `scripts/check-decisions.py`, invalidates the
+  numbering of three open branches mid-flight, and belongs to whoever owns the queue; the tie-break
+  order therefore lands on the option that touches the fewest files and is reversible by `git revert`
+  alone. **Nothing** is the state that produced four `H-0056`s. The yield is recorded inside both moved
+  entries' `Effect:` prose rather than in a new `Id:` field, because that is how `D-0050` was resolved
+  at `392f451` and because the field set `check-decisions.py` recognises must stay the five it declares
+  plus `Awaiting` and `Effect`. What lost, as measured: the two pushed commits keep `Decision: H-0056`
+  and `Decision: H-0057` in their messages -- rewriting them is the same barred force-push -- so
+  `git log --grep='Decision: H-0066'` finds this rename and not the work, and the follow-the-trailer
+  habit breaks once, here, on purpose; `issue-235` and `issue-241` still hold their `H-0056`s and
+  `issue-235` its `H-0057`, so this branch's contribution to the mess goes from two collisions to zero
+  only for the merge it is asking for, and the next sibling to merge still has to do this dance; a
+  fourth branch can take `H-0066` an hour from now, because the allocator is untouched and this entry
+  is a notice, not a lock -- the only real fix is a reservation the gate can see, and no leg can be
+  written for it without putting a read of sibling branches (a network read) inside a gate that
+  `H-0056` on `main` deliberately keeps off any fetch path; and `main`'s permanent gap at `H-0057`
+  means anyone counting entries against the highest id will read one as missing.
+- Checkpoint: e3903d1053f028a408841e59aa860b8972b47d00
+- Effect: `factory/DECISIONS.md` -- the two entry headers, the cross-reference each makes to the other,
+  and the two sentences above that say where the old numbers went; one cite in `docs/factory.md` and one
+  in `factory/selftest.sh`, both pointing at the stop-decision. No shipped script changed: the collision
+  is in the log, not in the harness. Re-measured at this head: `check-decisions: 93 entries across 2
+  log(s), clean`.
+
+
+## H-0069 · Merging `main`'s #249 arm turned all six deadline legs into SKIPs, so the fixture became a tree the generator would arm and a refusal to render became a FAIL
+
+- Question: `origin/main` brought #249 into `install-timer.sh`: the generator now asks
+  `factory_supervisor_position "$FACTORY_ROOT"` before it prints a line, and exits 1 on a tree that is
+  not its own trunk. This section's fixture is a `git init` with no commit and no trunk ref, and its
+  creation site plants no git identity. What is the fixture now, and what does the section do when the
+  generator declines to render -- because the answer it had was a SKIP.
+- Options: make the fixture a tree the generator would arm (a commit, and `origin/main` at it), plant
+  the identity where the repository is created, and fail the section when the generator refuses |
+  keep the SKIP bargain and add only the missing commit | aim the legs at a rendered unit checked into
+  the tree instead of the live generator | point `FACTORY_ROOT` at this real worktree, which is a
+  checkout with a trunk | delete the six legs and rely on #249's own legs, which now cover the generator
+- Chose: make the fixture a tree the generator would arm (a commit, and `origin/main` at it), plant the
+  identity where the repository is created, and fail the section when the generator refuses
+- Why: both halves of this are measured at `3b56a05`, on the merge commit with the log resolved and
+  nothing else touched. `bash factory/selftest.sh` there prints `FAIL  no fixture repo inherits the
+  host   fixture_carries_identity` and `SKIP  the unit's two deadlines   install-timer.sh --dry-run
+  refused to run here: install-timer: /tmp/plock-factoryselftest-M86pkW/genrepo is not a readable git
+  checkout`, and the section's own closing line -- `Every check below needs the generator; none of them
+  is a verdict on the unit.` -- is the most honest sentence in a suite that then went on to print
+  `267 passed`. That is #246's defect wearing a gate: not a wrong number, a check that stopped looking
+  while the tally kept saying the checks ran. Six legs read an empty file and reported nothing at all.
+  So the SKIP bargain, which was written for a different case, is withdrawn from both of its arms here.
+  It was correct where it came from: a tree that has no `install-timer.sh` has no subject, and demanding
+  one is a failure of the test, not of the code. Status 2 stays reserved for exactly that, and
+  `leg_generator_accepts_the_fixture` refuses to offer it, because here the subject is in this tree and
+  it is the *gate* that cannot see it -- the same distinction `leg_no_token_left_unrendered` draws
+  against its own SKIP arm. Why a real commit and a real `refs/remotes/origin/main` rather than a stub:
+  #249's verdict is a reading of git, and a fixture that fakes it would make the legs read a fixture
+  instead of a repository -- `git commit --allow-empty` plus `update-ref` is four seconds. Why not
+  `$FACTORY_ROOT` = this worktree: this branch is 30 commits behind the trunk right now, so the legs
+  would go red on every merge and green only in the window after a rebase -- armable by construction is
+  the property, armable by luck is not. Why the identity is planted at the creation site and not
+  exported for the section: H-0059's rule, quoted at the line itself, and the leg that enforces it
+  arrived on the trunk side of this merge and refused this fixture the first time the two met. Why not a
+  checked-in rendered unit: `install-timer.sh` is the only thing that knows what a token becomes, and an
+  artifact committed as a source is the failure mode H-0060 was written to refuse. Why not delete the
+  six legs: #249's legs pin the *refusal*; nothing there says which number is on which deadline, which
+  is the whole of #246. What lost, as measured: `gen_leg`'s FAIL tail changed from "the rendered unit is
+  wrong:" to "the check refused:" -- one line of shared vocabulary the six legs did not ask for, chosen
+  over a per-call wording so the helper stays one function. The section now builds a second, unarmed
+  fixture per run, so a failure there costs one more refusal to diagnose. `gen_control_unarmed` borrows
+  `$gen_tree` and hands it back, so a future leg added *after* it that assumes the armed tree is
+  correct today and wrong the day someone reorders the section. And `arm` is an argument, not a type: a
+  caller that omits it gets `arm=` , which is not `1`, which is an unarmed fixture, which is a FAIL --
+  the loud direction, but a new way to break this section that only the leg now catches. The checkpoint
+  is the merge commit and not its parent: the state this entry refuses is the merge with the blind
+  fixture in it, so that is what a revert has to land on.
+- Checkpoint: 9c96f3c7b82b717ae8121496ee3ec266a5e1d4d5
+- Effect: `factory/selftest.sh` -- `gen_setup` takes `<dir> <arm>` and now plants `user.email`/
+  `user.name` beside its `git init` and, at `arm=1`, an `--allow-empty` commit and
+  `refs/remotes/origin/main` at it; `gen_dry_run` renders against `$gen_tree`; new
+  `leg_generator_accepts_the_fixture` and `gen_control_unarmed`; both SKIP arms in `unit_deadlines`
+  replaced by FAILs; `gen_leg`'s FAIL tail; two new paragraphs in the section header. Re-measured, same
+  command before and after: `267 passed, 1 failed` with this section reporting one SKIP and reading
+  nothing, to `275 passed, 0 failed`, eight to the tally -- the identity leg the merge broke and the
+  seven this section prints now that it renders. The section itself prints fourteen `ok` lines, seven
+  legs and seven controls, the controls not counted in the tally.
