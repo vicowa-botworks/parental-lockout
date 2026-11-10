@@ -2059,3 +2059,71 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: `factory/common.sh` `factory_at_risk_default` carries the refusal, and `factory/selftest.sh`
   gained the leg `the mirror never lands where a reboot can`. Measured on this tree:
   `bash factory/selftest.sh` -> `338 passed, 0 failed` (one leg above the merge's 337, none lost).
+
+## H-0080 · The quarantined section is the work, and the ticket's blast radius is one line off
+
+- Question: the tick before this one spent its whole life on #263 and was stopped at its ceiling with
+  646 lines still uncommitted; `factory_tree_quarantine` mirrored them to
+  `~/prj/at-risk/issue-263-quarantine-20261110T151215Z-2008e6100.patch` and `git stash`ed them at
+  15:12:15Z, which is the state #247 and #250 built the mirror for. Re-apply the mirror and finish it,
+  re-author the section from its own header, or escalate a piece of another unit's half-work?
+- Options: `git apply` the mirror onto the blob it was cut from, add the control it lacks, re-measure
+  every number in it | re-author from the header and the issue | escalate, because the author is a
+  different session
+- Chose: `git apply` the mirror onto the blob it was cut from, add the control it lacks, re-measure
+  every number in it
+- Why: an id is not authorship and a stash is not a lost unit -- the mirror exists so the next tick
+  finishes the work instead of paying for it twice, and `git apply --check` against `89687df` answered
+  clean, which is the proof the two are the same text. Re-authoring is what H-0077 measured as the
+  expensive arm: it keeps the sentences and loses the measurements written into them. What the mirror
+  did not have was the third control, and it needed one: its own two mutants both ended with the clean
+  unit still ticked, so its central leg -- "then starts a tick for unit B" -- could only ever say yes,
+  and a leg that cannot say the other word is the thing this file exists to refuse. Measured here,
+  same fixture, unit A's session made to fail, the one variable the dispatcher's guard: with
+  `|| rc_tick=$?` the pass reaches B; with it taken the journal stops at A and the process exits 4. So
+  the property #248 was filed for is held by two lines, not the one #263 names. That also corrects the
+  ticket, and the correction is printed by the legs rather than asserted: the two mutants it prescribes
+  do NOT stop the units behind the quarantined one -- the halt marker freezes the NEXT activation (exit
+  8, nothing started), and the false failure costs one unit its own turn (exit 4, B still started).
+  Only the halt file ends a queue, and only for later activations. Re-measured numbers went in for the
+  ones the mirror carried: 337 passed / 1 failed at `a7a656d` in 10.727 s / 10.438 s, 349 passed / 0
+  failed with the section in 12.565 s / 12.476 s, and the `grep -c` pair in the header's own claim,
+  which as written counted its own comment and answered 2 where it said 1.
+- Checkpoint: 6367582
+- Effect: `factory/selftest.sh` gains the supervisor-process section (ten legs, seven activations of
+  the shipped `factory.sh` over a two-unit fixture, three mutants) and the check-decisions gate now
+  reads this file. Nothing in `factory/factory.sh` or `factory/common.sh` moved: this unit adds tests
+  and reports, and the hazard it found in the ticket's own account belongs in the PR body, not in a
+  behaviour change nobody asked for.
+
+## H-0081 · The at-risk box check was asking the box, not the run
+
+- Question: `quarantine_stays_in_the_fixture` fails whenever `~/prj/at-risk` holds a quarantine patch,
+  and that directory's entire purpose is to hold the only copies of work the supervisor rescued. It
+  went red at 15:12:15Z when the supervisor mirrored this unit's own half-finished file there, and
+  `make verify` on the next tick in that tree died at `Makefile:103` with "1 quarantine patch(es) in
+  ~/prj/at-risk". Make it pass by moving the rescue aside, leave it red and report a gate nobody can
+  turn green, or change the question it asks?
+- Options: move or delete the patch, which is what a person under a red gate will do | leave it red
+  and report it as #263's cost | ask this run, not the box: count patches newer than a marker taken at
+  suite start, and prove the predicate can separate the two cases
+- Chose: ask this run, not the box: count patches newer than a marker taken at suite start, and prove
+  the predicate can separate the two cases
+- Why: the assertion anyone actually wants is "this suite never mirrored fixture dirt into the
+  operator's box", and that is a fact about the run -- the box's absolute contents say nothing, because
+  a healthy harness makes the box non-empty forever. The other two arms are the failure: the first
+  destroys the only copy of real work to make a test green, which is the exact hazard the box exists to
+  prevent, and the second leaves a red gate in front of every later unit in this tree. `-newer`
+  introduces its own vacuity, so it is not shipped unverified: `at_risk_predicate_provable` plants one
+  patch dated 2000 and one dated 2020 either side of a 2010 marker and requires the same expression to
+  answer 1 and 1 out of 2 -- a mistyped marker path answers 0, and 0 is the green answer. Measured: the
+  leg prints `4 patch(es) in the fixture, none written by this run in /home/rodney/prj/at-risk
+  (1 rescue(s) already there from before this run, left alone)`, and the runner with no such box still
+  takes the `[ -d ]` arm H-0059's runner cost added.
+- Checkpoint: 6367582
+- Effect: `factory/selftest.sh` takes `at_risk_mark` beside `$work`, the box leg counts
+  `-newer "$at_risk_mark"` and reports what it left alone, and `at_risk_predicate_provable` is the
+  control. Both entries ride one commit because the leg text and the marker are one hunk: an isolated
+  box-check commit would contain a `-newer` against a marker defined only in the other hunk, which
+  answers 0 and passes for the wrong reason -- a tree that cannot be verified as it stands is not a
+  checkpoint.
