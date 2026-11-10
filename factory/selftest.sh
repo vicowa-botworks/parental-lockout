@@ -6138,12 +6138,14 @@ FACTORY_AT_RISK=$mirror/at-risk
 
 # Two stops of one unit at two tips leave two files, not one written over the other: the second stop's
 # commits are the ones nobody has read yet, and the unit is named the same both times.
-n_before=$(ls -1 "$FACTORY_AT_RISK" | grep -c . || true)
+n_before=$(find "$FACTORY_AT_RISK" -maxdepth 1 -type f -name '*.bundle' 2>/dev/null |
+	wc -l | tr -d '[:space:]' || true)
 git -C "$mirror/seed" checkout -q issue-902
 git -C "$mirror/seed" -c user.email=selftest@example -c user.name=selftest \
 	commit -q --allow-empty -m 'work the second stop did'
 factory_preserve_unpushed unclaimed:902 "$mirror/seed" issue-902 >>"$mirror/run.out" 2>&1 || true
-n_after=$(ls -1 "$FACTORY_AT_RISK" | grep -c . || true)
+n_after=$(find "$FACTORY_AT_RISK" -maxdepth 1 -type f -name '*.bundle' 2>/dev/null |
+	wc -l | tr -d '[:space:]' || true)
 second=$(grep -c PRESERVED "$(mirror_journal)" || true)
 newest=$(grep PRESERVED "$(mirror_journal)" | tail -n 1 | sed -nE 's/.*PRESERVED ([^ ]+\.bundle).*/\1/p' || true)
 if [ "${n_after:-0}" -gt "${n_before:-0}" ] && [ "${second:-0}" -ge 1 ] &&
@@ -6316,7 +6318,8 @@ stop_real() { # unit want_substring
 	pass=$((pass + 1))
 	printf '  ok    %-40s inert here: no *.%s.log in %s (%s file(s))\n' \
 		"real log: $unit" "$unit" "$FACTORY_LOG" \
-		"$(ls -1 "$FACTORY_LOG" 2>/dev/null | grep -c . || printf 0)"
+		"$(find "$FACTORY_LOG" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d '[:space:]' ||
+			printf 0)"
 	printf '        -- the fixtures above are the gate on this machine, and that is said here\n'
 	printf '        rather than left as a silent ok.\n'
 	return 0
