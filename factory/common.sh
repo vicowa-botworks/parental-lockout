@@ -1618,7 +1618,7 @@ factory_quarantine_after_tick() {
 
 factory_tree_stop() {
 	local verb=$1 unit=$2 tree=$3
-	local q="" qrc=0 n="" dirt="" qfinding="" qerr="" qerr_file=""
+	local q="" qrc=0 n="" dirt="" dirt_rc=0 qfinding="" qerr="" qerr_file=""
 
 	# A rehearsal must not rehearse a rescue. Under `--dry-run` nothing is stashed, nothing is
 	# mirrored and no marker is written -- a dry run that halted the real queue would be the same
@@ -1637,7 +1637,16 @@ factory_tree_stop() {
 	# question directly (H-0040, #228: on the exclude-file shapes it measures, that read exits 128
 	# printing nothing), and a count written for a log line is exactly that read. `factory_tree_dirt`
 	# is the one verdict, and its finding names the paths, which is also what a reader wants.
-	dirt=$(factory_tree_dirt "$tree" 2>/dev/null) || true
+	#
+	# The exit code is kept as well as the finding, and it is the CODE that discriminates (#267).
+	# `|| true` threw it away, and that is what let one sentence cover three histories: rc 1 is "the
+	# tree is clean", rc 0 is "dirty, here are the paths", rc 2+ is "git would not answer" -- and a
+	# `qrc` of 1 from the action is compatible with all three. `H-0099` keeps all three apart rather
+	# than folding them, because a line that names the wrong history in the rescue log is the defect
+	# being fixed, not a detail of it. `dirt` alone cannot do this: the `:-` fallback two arms below
+	# exists precisely because an rc-0 verdict can return no paths, so an empty `$dirt` is not the
+	# same statement as "the verdict said clean".
+	dirt=$(factory_tree_dirt "$tree" 2>/dev/null) || dirt_rc=$?
 	qerr_file="$FACTORY_RUN/quarantine-error.$$"
 	q=$(factory_tree_quarantine "$unit" "$tree" 2>"$qerr_file") || qrc=$?
 	# Read it and remove it here, before any arm returns. The first version left the `rm -f` below the
@@ -1659,9 +1668,35 @@ factory_tree_stop() {
 			return 0
 		fi
 	elif [ "$qrc" -eq 1 ]; then
-		# The verdict the halt reads and the verdict the action reads disagreed, and the action's is
-		# the later one. Clean is clean; say which arm was taken rather than falling through silently.
-		log_event "TREE-CLEAN $unit $tree was found dirty and is clean now; nothing was quarantined"
+		# The action found nothing to stash. Clean is clean; what the line has to get right is WHY,
+		# and only the verdict two lines above knows that, so it is asked (#267). Each arm carries a
+		# machine-readable `cause=` token beside its sentence -- the house shape for a reason a leg
+		# has to pin (`attempt=`, `streak=`, `mirror=`) -- so the selftest pins the ARM that was taken
+		# and not the prose, and rewording a sentence cannot silently retire a leg.
+		case "$dirt_rc" in
+		1)
+			# The healthy path. `factory_tick` calls `factory_tree_stop` on every tree before every
+			# tick, so this is what a pass writes for a tree nothing ever touched -- and the one
+			# sentence used to cover it, so the rescue log reported a rescue nobody had performed: 6
+			# such lines in one day's `factory/log/supervisor.log`, against 0 dirty verdicts (#267).
+			log_event "TREE-CLEAN $unit $tree cause=never-dirty nothing was dirty; nothing was quarantined"
+			;;
+		0)
+			# The arm the sentence was written for, and the only case where it is true: the verdict the
+			# halt reads and the verdict the action read disagreed, and the action's is the later one.
+			# The finding is named because what made the false line undebuggable is that a reader could
+			# not tell from the journal which arm any line had taken.
+			log_event "TREE-CLEAN $unit $tree cause=verdict-disagreed was found dirty and is clean now; nothing was quarantined (${dirt:-git named nothing})"
+			;;
+		*)
+			# Neither dirty nor clean, so neither sentence above is true and the line says so instead
+			# of borrowing one. Reachable only when the two reads disagree in THIS direction: the
+			# quarantine answers 1 solely on its own verdict saying clean (`common.sh:1366`), so an
+			# unreadable verdict here is a second, different disagreement -- and `H-0099` records it as
+			# the one arm of the three no leg here reaches.
+			log_event "TREE-CLEAN $unit $tree cause=verdict-unreadable the dirt verdict was unreadable and the action found nothing; nothing was quarantined (${dirt:-git gave no reason})"
+			;;
+		esac
 		return 0
 	else
 		q="$qerr"
