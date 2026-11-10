@@ -2146,6 +2146,107 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   order captures nothing and leaves the file holding `payload` plus `fatal: cannot apply binary patch`
   -- the complaint inside the mirror, contaminating a patch that would otherwise have applied -- while
   the fixed order captures the complaint and leaves the file holding only the payload.
+
+## H-0080 · The quarantined section is the work, and the ticket's blast radius is one line off
+
+- Question: the tick before this one spent its whole life on #263 and was stopped at its ceiling with
+  646 lines still uncommitted; `factory_tree_quarantine` mirrored them to
+  `~/prj/at-risk/issue-263-quarantine-20261110T151215Z-2008e6100.patch` and `git stash`ed them at
+  15:12:15Z, which is the state #247 and #250 built the mirror for. Re-apply the mirror and finish it,
+  re-author the section from its own header, or escalate a piece of another unit's half-work?
+- Options: `git apply` the mirror onto the blob it was cut from, add the control it lacks, re-measure
+  every number in it | re-author from the header and the issue | escalate, because the author is a
+  different session
+- Chose: `git apply` the mirror onto the blob it was cut from, add the control it lacks, re-measure
+  every number in it
+- Why: an id is not authorship and a stash is not a lost unit -- the mirror exists so the next tick
+  finishes the work instead of paying for it twice, and `git apply --check` against `89687df` answered
+  clean, which is the proof the two are the same text. Re-authoring is what H-0077 measured as the
+  expensive arm: it keeps the sentences and loses the measurements written into them. What the mirror
+  did not have was the third control, and it needed one: its own two mutants both ended with the clean
+  unit still ticked, so its central leg -- "then starts a tick for unit B" -- could only ever say yes,
+  and a leg that cannot say the other word is the thing this file exists to refuse. Measured here,
+  same fixture, unit A's session made to fail, the one variable the dispatcher's guard: with
+  `|| rc_tick=$?` the pass reaches B; with it taken the journal stops at A and the process exits 4. So
+  the property #248 was filed for is held by two lines, not the one #263 names. That also corrects the
+  ticket, and the correction is printed by the legs rather than asserted: the two mutants it prescribes
+  do NOT stop the units behind the quarantined one -- the halt marker freezes the NEXT activation (exit
+  8, nothing started), and the false failure costs one unit its own turn (exit 4, B still started).
+  Only the halt file ends a queue, and only for later activations. Re-measured numbers went in for the
+  ones the mirror carried: 337 passed / 1 failed at `450a628` in 10.727 s / 10.438 s, 349 passed / 0
+  failed with the section in 12.565 s / 12.476 s, and the `grep -c` pair in the header's own claim,
+  which as written counted its own comment and answered 2 where it said 1.
+- Checkpoint: 6367582
+- Effect: `factory/selftest.sh` gains the supervisor-process section (ten legs, seven activations of
+  the shipped `factory.sh` over a two-unit fixture, three mutants) and the check-decisions gate now
+  reads this file. Nothing in `factory/factory.sh` or `factory/common.sh` moved: this unit adds tests
+  and reports, and the hazard it found in the ticket's own account belongs in the PR body, not in a
+  behaviour change nobody asked for.
+
+## H-0081 · The at-risk box check was asking the box, not the run
+
+- Question: `quarantine_stays_in_the_fixture` fails whenever `~/prj/at-risk` holds a quarantine patch,
+  and that directory's entire purpose is to hold the only copies of work the supervisor rescued. It
+  went red at 15:12:15Z when the supervisor mirrored this unit's own half-finished file there, and
+  `make verify` on the next tick in that tree died at `Makefile:103` with "1 quarantine patch(es) in
+  ~/prj/at-risk". Make it pass by moving the rescue aside, leave it red and report a gate nobody can
+  turn green, or change the question it asks?
+- Options: move or delete the patch, which is what a person under a red gate will do | leave it red
+  and report it as #263's cost | ask this run, not the box: count patches newer than a marker taken at
+  suite start, and prove the predicate can separate the two cases
+- Chose: ask this run, not the box: count patches newer than a marker taken at suite start, and prove
+  the predicate can separate the two cases
+- Why: the assertion anyone actually wants is "this suite never mirrored fixture dirt into the
+  operator's box", and that is a fact about the run -- the box's absolute contents say nothing, because
+  a healthy harness makes the box non-empty forever. The other two arms are the failure: the first
+  destroys the only copy of real work to make a test green, which is the exact hazard the box exists to
+  prevent, and the second leaves a red gate in front of every later unit in this tree. `-newer`
+  introduces its own vacuity, so it is not shipped unverified: `at_risk_predicate_provable` plants one
+  patch dated 2000 and one dated 2020 either side of a 2010 marker and requires the same expression to
+  answer 1 and 1 out of 2 -- a mistyped marker path answers 0, and 0 is the green answer. Measured: the
+  leg prints `4 patch(es) in the fixture, none written by this run in /home/rodney/prj/at-risk
+  (1 rescue(s) already there from before this run, left alone)`, and the runner with no such box still
+  takes the `[ -d ]` arm H-0059's runner cost added.
+- Checkpoint: 6367582
+- Effect: `factory/selftest.sh` takes `at_risk_mark` beside `$work`, the box leg counts
+  `-newer "$at_risk_mark"` and reports what it left alone, and `at_risk_predicate_provable` is the
+  control. Both entries ride one commit because the leg text and the marker are one hunk: an isolated
+  box-check commit would contain a `-newer` against a marker defined only in the other hunk, which
+  answers 0 and passes for the wrong reason -- a tree that cannot be verified as it stands is not a
+  checkpoint.
+
+## H-0082 · A sha cited six times is not an object in this repository
+
+- Question: `H-0080`, four comments in `factory/selftest.sh`, the pull-request body and `e334f4f`'s own
+  commit message all date their measurements to `a7a656d`. `git rev-parse a7a656d` answers
+  `unknown revision or path not in the working tree` and
+  `git log --all --format='%h' | grep -c '^a7a656'` answers `0`. Replace the string everywhere and move
+  on, or record the correction where a reader of the log will find it?
+- Options: silently `sed` the six places, which leaves no trace that a citation was ever wrong | delete
+  the affected entries as untrustworthy | correct the string, add this entry, and say in the pull
+  request that the pushed commit message cannot be corrected
+- Chose: correct the string, add this entry, and say in the pull request that the pushed commit message
+  cannot be corrected
+- Why: a decision log that has been quietly edited is indistinguishable from one that was always right,
+  and the whole reason `H-0080` cites a base is so a reader can re-run the 337/1 number against it --
+  a sha that resolves to nothing makes that claim unfalsifiable, which is the failure this repository
+  names over and over. The numbers themselves are not in doubt: every one was measured on the commit
+  now named, `450a628`, the merge of #259 and the parent of the checkpoint `6367582`; only the label was
+  invented. Deleting the entries would throw away the third control and the blast-radius measurement
+  with the typo. The fourth place is unreachable: a pushed commit message is not amendable here, because
+  force-push is denied to a tick and both squash and rebase merge are disabled, so the correction has to
+  live beside it rather than inside it, and `#1180` is the reason it is written as a dated entry instead
+  of an edit.
+- Checkpoint: e334f4f
+- Effect: `factory/DECISIONS.md` `H-0080` and four comments in `factory/selftest.sh` now read
+  `450a628`; this entry is the trace. `e334f4f`'s message still says `a7a656d`, permanently, and
+  PR #264's body says so. `bash factory/selftest.sh` re-run on this commit: same 349 legs.
+  Corrected 10 Nov by `H-0086`, which leaves these words as written rather than editing them: the
+  "four comments in `factory/selftest.sh`" above are THREE -- `git show e334f4f:factory/selftest.sh`
+  piped to `grep -n a7a656d` answers lines 78, 2275 and 2313. Four is the number of tree locations
+  `d7d370d` rewrote -- 3 comments in `factory/selftest.sh` plus `H-0080` in this file -- read back
+  as a count of comments in one file.
+
 ## H-0083 · Which checkout the timer execs is read from the unit, not composed from the tree standing in front of the script
 
 - Question: `install-timer.sh` printed `The unit execs <FACTORY_ROOT>/factory/factory.sh` inside the
@@ -2267,3 +2368,350 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   is proven against synthetic lists in the control rather than by moving real work, and that limit is
   stated here rather than left implied: what is verified live is that this suite's own writes land in
   `$FACTORY_AT_RISK`, and that the box is the same set of paths at the end of a run as at its start.
+
+## H-0085 · The log conflict was the cheap half: main had rewritten the function two of the three mutants are anchored on
+
+- Question: PR #264 reads `CONFLICTING`/`DIRTY` against `adbe6e3` -- six commits of drift since
+  `450a628`, and both sides appended to `factory/DECISIONS.md` at the same offset: main took
+  `H-0079`, this branch took `H-0080`-`H-0082`. Inside that drift is #262's `08550d6`, which
+  rewrites the mirror render inside `factory_tree_quarantine` and adds `why=""` to that function's
+  locals -- the same function two of this section's three controls cut into, at the lines
+  `qerr_file="$FACTORY_RUN/quarantine-error.$$"` and `log_event "TREE-QUARANTINED $unit`. Take
+  git's conflict layout and let CI notice, keep one side's log text, renumber this side below
+  `H-0079`, rebase onto main, or keep both sides' entries, ordered by id, and re-run the section
+  against the merged tree?
+- Options: take git's conflict layout and let CI notice | keep only the longer side's entries |
+  renumber this side's three ids below `H-0079` | rebase onto `origin/main` | keep both sides'
+  entries, ordered by id, and re-run the section against the merged tree
+- Chose: keep both sides' entries, ordered by id, and re-run the section against the merged tree
+- Why: no id moves on either side. `H-0080`-`H-0082` are cited by the pushed commits `e334f4f` and
+  `d7d370d`, by this pull request's body, and by each other, so renumbering would turn every one of
+  those citations into a pointer at a different entry -- the exact defect `H-0082` exists to record,
+  one entry after it was written. `H-0079` has already paid the other version of this bill: its own
+  entry records that it opened as `H-0073`, found the id taken on `origin/main`, and yielded the id.
+  A position, unlike an id, is free to move, and it has to: `scripts/check-decisions.py` reads the
+  order. Taking git's layout verbatim -- the first resolution made here, left in place and measured
+  rather than guessed at -- answers `factory/DECISIONS.md:2159: H-0079 is out of order (D-0082 came
+  before it); the log is a history and a history that jumps around cannot be bisected`. Ordering by
+  id is what the allocator's contract already asserts: both sides numbered against the union of
+  `refs/heads` and `refs/remotes`, so the numbers are the history's order and only the text
+  disagreed. (That message names `D-0082`, which lives in the other log: `check-decisions.py:136`
+  formats the predecessor as `"D-%04d" % prev_num` whichever log it is reading. Location and verdict
+  are right, so no gate is bypassed and nothing here depends on it -- but a refusal that sends the
+  reader to the wrong file is a real papercut, and it is filed rather than fixed under a review that
+  asked for two named things.) What makes this more than a text merge is the anchor problem this
+  repository has already been bitten by (#1048): `proc_mutate` and `proc_mutate_factory` each require
+  their anchor to occur exactly once, so a retargeted line is a control that reports itself unplanted
+  -- and a control that reports itself unplanted is only caught because the leg asks. So the merge
+  was run, not read. On the merged tree: both `common.sh` anchors and the `factory.sh` anchor occur
+  once each (`grep -c` = 1, 1, 1), `python3 scripts/check-decisions.py` -> `118 entries across 2
+  log(s)` over the two sides' entries and `119` with this one added, and `bash factory/selftest.sh`
+  -> `357 passed, 0 failed` in 13.5 s. Totals are
+  box-dependent and this one is not the review's: this box's base is 349 and main contributes 8
+  legs; the review's box reads 345 + 11 = 356. The same fs-dependent split #238 and #257 recorded --
+  neither number is the other's, and both read 0 failed. That both sides survived intact was checked
+  in both directions rather than assumed: `git diff HEAD -- factory/selftest.sh` deletes only the
+  four lines this branch had already replaced with main's 7-argument `expect_quarantine`, and
+  `git diff origin/main -- factory/selftest.sh` deletes only the four lines this branch had already
+  replaced with `H-0081`'s marker -- each side loses its own superseded text and nothing of the
+  other's. Rebase loses three ways: `allow_rebase_merge=false` on this repository, force-push is
+  denied to a tick, and a `CHANGES_REQUESTED` review was submitted against `d7d370d` at 16:09:54Z,
+  so rewriting the head would delete the artifact the review is about.
+- Checkpoint: 2b3bfe6
+- Effect: as this commit left it, `factory/DECISIONS.md` reads `H-0078`, `H-0079` (main),
+  `H-0080`-`H-0082` (this branch), `H-0085` (this entry); no id changed on either side. Each number
+  above was read back before this commit was made, per `#1180`: the gate printed 118 entries over
+  the two sides' entries and 119 with this one (it says 120 on any head at or after `H-0086`), the
+  suite printed 357/0, and the three anchors printed 1/1/1. What this commit does NOT do: `#264`'s
+  body still asserts "Nothing here conflicts", which was true of main at `79b4757` and is false of
+  `adbe6e3`. That sentence is a status claim, so it is corrected in the body itself, not by editing
+  an entry.
+
+## H-0086 · "Four comments" was four locations wearing one file's name
+
+- Question: the review of `#264` measures three comments in `factory/selftest.sh` where `H-0082`'s
+  `Question:` and `Effect:` both say four, and the pull-request body says four too. Re-measured on
+  this tree: `git show d7d370d -- factory/selftest.sh | grep '^-.*a7a656d'` gives 3 lines,
+  `-- factory/DECISIONS.md` gives 1. Rewrite `H-0082`'s two lines to the smaller number, delete the
+  entry as untrustworthy, annotate `H-0082` with a dated correction and add this entry, or answer on
+  the review thread and change nothing on disk?
+- Options: rewrite `H-0082`'s two lines to read "three" | delete `H-0082` as untrustworthy |
+  annotate `H-0082` with a dated correction and add this entry | answer the review thread and change
+  nothing on disk
+- Chose: annotate `H-0082` with a dated correction and add this entry
+- Why: `#1180` is the rule and it was written twice in one day on this repository, both times about
+  an `Effect:` field that described writes nobody had read back -- a decision record gets a dated
+  correction, because a silently corrected log is indistinguishable from one that was always right,
+  while a status claim is edited in place. The pull-request body is a status claim and gets edited;
+  `H-0082` is a decision record and gets annotated, additively, with its own words left standing so a
+  later reader can still see what was claimed. That is also what the review asked for -- "one line in
+  the entry, one in the body" -- and the annotation shape delivers both where an in-place rewrite
+  delivers only the second. Tie-break 6 settled it before reasoning did: `H-0082` itself is the
+  precedent, having added a dated entry rather than editing `e334f4f`'s pushed message. Deletion
+  loses most: the entry's archaeology is what makes `a7a656d` unrecoverable-by-sedimentation, and
+  `#1180` names the value of keeping the wrong claim visible. Answering only on the thread is the
+  failure `#1180` measured -- the record goes on saying four while a comment says three, and the
+  next reader reads the record.
+  What the number actually was is the part worth keeping, because it is not an off-by-one: `d7d370d`
+  really did fix four things, and "the four places in the tree" is still in the body and still
+  correct. One number was measured over the set (four tree locations, two files) and then reused as a
+  count over a subset (comments in one file) inside the same paragraph. The heading's claim -- a sha
+  "cited six times" -- survives on the count of citations, one per artifact: 3 comments plus `H-0080`
+  plus the body plus `e334f4f`'s message (`git log -1 --format=%B e334f4f | grep -c a7a656d` -> 2
+  mentions inside that one message). So the entry's thesis is intact and only one denominator inside
+  it was wrong, which is the case for annotating rather than deleting.
+- Checkpoint: 7a9fb0e
+- Effect: `H-0082`'s `Effect:` now carries a dated annotation naming lines 78, 2275 and 2313; this
+  entry is the trace, and nothing else on disk moved. `python3 scripts/check-decisions.py` -> 120
+  entries across 2 logs, gate OK, read back before this commit rather than asserted by it. The
+  body's two sentences
+  are separated in `#264`'s rewrite -- three comments, four locations -- and that rewrite lands in a
+  later push, so its read-back lives in the pull request and not here; if the rewrite does not
+  arrive, this paragraph is the claim that failed, not the entry above.
+
+## H-0087 · A count that cannot be taken ends the suite; an insulated one returns the green answer
+
+- Question: the review of `#264` reports that the two `find` assignments `H-0081` added carry the
+  failure mode this file documents two lines above them -- under `set -euo pipefail` a `find` that
+  cannot open its directory makes the assignment fail and the script die (marker missing: exit 1,
+  the next line never runs, the trap eats the fixture, no tally printed) -- and asks for `|| true`,
+  noting it cannot fire today because the marker is created near the top of the file. Put it on the
+  two assignments the review names, on every count in both box legs, on every count plus a leg that
+  proves it, or leave the code and record the exposure?
+- Options: `|| true` on the two assignments the review names | on every count in both box legs, with
+  no new leg | on every count in both box legs and a leg that runs both arms, insulated and bare |
+  leave the code alone and write the exposure into this entry
+- Chose: on every count in both box legs and a leg that runs both arms, insulated and bare
+- Why: measured before anything was edited, on a standalone probe rather than in this tree. The
+  shipped shape -- the assignment under `set -euo pipefail`, box absent and marker absent -- printed
+  nothing after the assignment and exited 1; the same line with `|| true` printed `real=0` and
+  continued. So the reviewer's failure mode reproduces on this box, and so does what the insulation
+  costs: the insulated answer is `0`, and `0` is exactly what makes the box leg print ok. Insulation
+  trades a loud death for a silent green, and the only honest price for that is making the green
+  answer falsifiable. Two things do. `at_risk_predicate_provable` already requires 2 / 1 / 1, so a
+  masked 0 *there* goes red -- which is what makes a masked 0 in the box leg affordable rather than
+  merely convenient, and the asymmetry (an ignored failure is safe where the expected answer is
+  non-zero, dangerous where it is zero) is now written at the plant. The new leg
+  `a count survives a box it cannot open` runs the same assignment against the same two absent paths
+  both ways: insulated must return 0 and stay alive, bare must die. Without the bare arm the ok
+  proves nothing, because a `find` that simply succeeded prints the same 0. Tie-break 3 -- refuse
+  rather than proceed on bad input -- is the reason this is not option one: a bare `|| true` on the
+  two named lines is tie-break 4's cheapest answer and it leaves the suite quiet about a box it
+  cannot read, which is the shape this repository calls a failure left unspoken. The leg is what
+  converts the insulation from silencing into testing, so widening the scope costs nothing the
+  cheapest option would not have cost anyway -- and the wider scope is the point: the same shape is
+  at `stray=` and in the predicate's three counts, and a half-insulated function dies on whichever
+  line the reviewer did not name. What lost: the counts can now report 0 where the truth is unknown,
+  which is strictly worse than before for anyone who reads a 0 as a measurement instead of an
+  answer; the leg defends that only on this file's own terms. The `-newer` comparison has a second
+  half no `|| true` reaches, priced in the comment rather than fixed: a rescue carried in with its
+  original mtime (`cp -p`, `tar -x` without `-m`, a restore out of the box itself) counts as
+  "already there, left alone" and can never redden the leg. It stays a disclosure because the fix
+  for it is counting everything in the box, which is the unpassable gate `H-0081` exists to end.
+- Checkpoint: 8b8fb91
+- Effect: `factory/selftest.sh` -- `|| true` on all five counts (the box leg's `stray`, `real`,
+  `kept`; the predicate's `wrote`, `kept`, `total`), the priced `-newer` disclosure, the new leg
+  `a count survives a box it cannot open`, and the stale citation: what read
+  ``set -euo pipefail` (line 59)' now says "at the top of this file, not at a line number somebody
+  has to re-derive" (the review's non-blocking 5 -- the line was 63 at `450a628` and is 63 here, so
+  the drift predates this branch and a number is the wrong thing to write). Measured on this tree
+  after the change, both read back before this commit: `bash factory/selftest.sh` -> `358 passed,
+  0 failed` (one leg above the merge's 357, none lost), `make check-shell` -> `check-shell: 0.10.0
+  over 28 scripts`, exit 0. The checkpoint here was taken after the edits were drafted in the
+  working tree, and its tree is the pre-edit state; the measurement that decided this was taken in
+  `/tmp/opencode`, not in this tree, so the rollback target is the state the decision was made
+  against.
+
+## H-0088 · A leg line that names a function promises nothing, and a cost with no host is not a measurement
+
+- Question: the review's non-blocking 3 and 4 are one defect at two heights. `proc_leg` ends every ok
+  with the shell function it called, so ten sentences about what ten legs require live in the
+  pull-request body and not in the output a person reads at 3 a.m.; and the section's cost comment
+  quotes "1.8 s for twelve legs" from an unnamed host where the review's box measures 11 legs at
+  +6.1 s. Print the requirement where the name is, keep every measured number with the box it came
+  from beside it, print the sentence and keep the name on the line too, or answer on the thread and
+  change neither?
+- Options: print the requirement in place of the function name and keep every measured pair with the
+  box it came from named beside it | print the requirement and keep the function name printed on the
+  line as well | keep the name and move the sentences into each predicate's failure detail | answer
+  the review thread and change neither
+- Chose: print the requirement in place of the function name and keep every measured pair with the box
+  it came from named beside it
+- Why: measured on both halves before writing. Ten call sites, `grep -c '^proc_leg '` = 10, every one
+  now naming what it requires, and no `$*` left in the runner so a name cannot creep back. The
+  argument is positional rather than a comment or an env var because a missing argument is then
+  detectable: `proc_leg 'label' cmd` leaves `"$#" -eq 0` and the leg fails as "no command given, so
+  this leg asked nothing at all", which is the file's own vacuity rule applied to its own plumbing.
+  The name is not lost -- it is on the same source line as its sentence, and a failing predicate
+  already prints its own detail under the FAIL, so nothing became harder to trace; what was
+  untraceable was the promise. On the cost, three pairs on this box (`rodney-9950x`, btrfs,
+  `~/prj/at-risk` present with 20 entries; the two bases timed in a throwaway clone checked out at
+  each sha, since a base has to be timed in a tree holding a base's files): `450a628` 337 passed /
+  1 failed at 10.67-10.71 s, `adbe6e3` 345 / 1 at 11.45-11.54 s, this head 358 / 0 at 13.13-13.32 s
+  over six runs -- 12 legs and about +1.7 s over the main it merges into. The review's box: 337 / 0
+  at 28.8 s to 348 / 0 at 34.9 s, +6.1 s for 11 legs, its totals one leg lower on both sides. That is
+  0.14 s per leg here against 0.55 s there, four times the cost for one fixture, on a suite 2.7 times
+  slower: exactly the variable `H-0048` says decides whether a quoted number means anything, and this
+  paragraph had quoted one as a property of the code. The run-to-run spread on one tree is 0.2 s, a
+  ninth of the effect being claimed, which is why the rows above are ranges -- the old line quoted
+  12.565 s, three decimals on a quantity with a 0.2 s floor. The count is the same disease one floor
+  down: the review's "+11" was right for the branch it read and the twelfth leg is `H-0087`'s, so
+  "twelve legs" and "11 legs at +6.1 s" were both true of different trees and neither sentence said
+  which, which is how two correct counts read as a contradiction. Corrected 10 Nov by `H-0089`, which
+  is about this sentence most: `12 legs and about +1.7 s` subtracts main's `passed` column (345) from
+  the merge's (357) rather than its leg TOTAL (346), and both bases carry a red leg -- the box leg,
+  `H-0081`'s subject -- so the section is ELEVEN legs and twelve is only what this head is above main,
+  over totals. The count inside the paragraph whose subject was quoted numbers decaying had itself
+  decayed. The base's single failure is now
+  identified rather than hedged: on a host that has the box, `the mirror box is the fixture's` reads
+  the real 15:12Z rescue as this file's crime (`FAIL ... 1 quarantine patch(es) in
+  /home/rodney/prj/at-risk`), so the author's base pair reproduces on a second such box -- 337 / 1,
+  10.67 s against their 10.727 s -- and the review's 0-failed base is a fact about a host without it.
+  Both were always true; the sentence had room for neither. What lost: `%-36s` lets two labels run
+  into their requirements, because the labels are 39 to 46 characters, and a clipped column reads like
+  a badly written sentence rather than a narrow field -- wrapping each requirement to its own line
+  would double the section's output for ten lines, and that trade was taken deliberately. Deeper: the
+  requirement is prose no gate can read. `bash -n` and shellcheck cannot tell a sentence from a shell
+  word, so a future leg added with a placeholder in that column prints confident nonsense beside the
+  real ones and nothing objects; the positional guard catches a missing argument, never a meaningless
+  one. The checkpoint here, like `H-0087`'s, was taken after the edits were drafted, and its tree is
+  the pre-edit state; the measurements that decided this were taken in a clone, not in this tree.
+- Checkpoint: 0c1a6a8
+- Effect: `factory/selftest.sh` -- `proc_leg` now takes `<label> <requires> <command...>` with a guard
+  that fails a leg given no command, ten call sites each naming what they require, and the cost
+  comment rewritten as the two-host table above. Read back on this tree before this commit: `bash -n`
+  clean, `make check-shell` -> `check-shell: 0.10.0 over 28 scripts` exit 0, `bash
+  factory/selftest.sh` -> `358 passed, 0 failed`, and `python3 scripts/check-decisions.py` -> 122
+  entries, gate OK. Not in this commit: the review's non-blocking 5, the stale `(line 59)`, went in
+  with `H-0087`, and the pull-request body -- still carrying "Twelve legs for 1.8 s", "Nothing here
+  conflicts" and "four comments" -- is a status claim corrected by the next push, whose read-back
+  lives in the pull request and not here.
+
+## H-0089 · An eleven-leg section, counted as twelve by subtracting two `passed` columns
+
+- Question: the cost paragraph and `H-0088` both carry the section as "12 legs and about +1.7 s",
+  derived as 357 minus 345. The tallies on this box are 338 legs at the base (337 passed, 1 failed),
+  346 at main (345 passed, 1 failed), 357 at the merge and 358 at this head, so the section is eleven
+  and twelve is only what this head is above main, over totals. Re-derive over totals in the comment
+  and annotate `H-0088` with a dated correction | rewrite `H-0088`'s sentence to read eleven and
+  change nothing else | leave the comment and answer on the review thread | count the section's legs
+  out of the source instead of subtracting two tallies?
+- Options: re-derive over totals in the comment and annotate `H-0088` with a dated correction |
+  rewrite `H-0088`'s sentence to read eleven and change nothing else | leave the comment and answer on
+  the review thread | count the section's legs out of the source instead of subtracting two tallies
+- Chose: re-derive over totals in the comment and annotate `H-0088` with a dated correction
+- Why: the mechanism is worth more than the number it produced. This file prints one line,
+  `N passed, M failed`, and the subtraction a person reaches for is over the first column -- but the
+  first column is not the number of legs. Both bases here carry exactly one red leg (`the mirror box
+  is the fixture's`, which #267 is now about), so every `passed` figure on that page sits one below its
+  total and the error is invisible in the line that produced it, because the two columns are printed
+  side by side with no total anywhere. The repair is therefore not "write 11": it is to put both
+  operands and the subtraction in the sentence, `358 minus 346`, so a reader can redo it and see which
+  column was used. Tie-break 6 carried the shape of the repair: `H-0086` is two commits old and did
+  precisely this -- an `Effect:` that had reused a count measured over one set as a count over a
+  subset, corrected by an annotation plus a new entry while the original words stayed standing. Same
+  defect family, a denominator read off the wrong set, so same repair, which is what keeps the log a
+  history instead of a draft. Rewriting `H-0088` to read eleven is the silent edit `#1180` was written
+  for, and it costs something specific here: the wrong count is the evidence for the thing that
+  paragraph argues, that a quoted number decays, and deleting it removes the demonstration. Answering
+  only on the thread leaves a comment that says twelve next to a table whose rows add to eleven, which
+  is the state the review of this pull request was filed against. Counting legs out of the source is
+  better arithmetic aimed at a different question: the cost being quoted is the whole suite's wall
+  clock, so the divisor has to be the legs the suite gained, and `grep -c '^proc_leg '` cannot see the
+  box legs or the controls that live elsewhere in the file. What lost: a comment that shows its
+  arithmetic is longer than the number it carries -- the paragraph grew by about six lines to hold two
+  subtractions and their operands, and the next person with a stopwatch will probably write `+1.7 s`
+  anyway. And the noise ratio moved with the re-derivation: 0.2 s of run-to-run spread is an eighth of
+  +1.73 s, not the ninth of +1.7 s that `H-0088` said, so a correction bought another correction one
+  decimal over.
+- Checkpoint: 414a0f2
+- Effect: `factory/selftest.sh`'s cost paragraph -- rows now name their totals with the pass/fail split
+  beside them (338 at the base, 346 at main, 358 here), the delta reads `358 minus 346`, `two timed
+  runs each` became `two at each base, six at this head`, the reviewer's rows read `337 legs` and `348
+  legs` with its branch tip labelled as predating three commits of review fixes rather than compared
+  as if it were this head, and the per-leg sentence now says 0.14 s against 0.55 s instead of dividing
+  a delta by legs it had not derived. `H-0088` carries the dated annotation; its words are untouched.
+  Read back on this tree before this commit: `bash -n` clean, `make check-shell` -> `check-shell:
+  0.10.0 over 28 scripts`, `bash factory/selftest.sh` -> `358 passed, 0 failed`,
+  `python3 scripts/check-decisions.py` -> 123 entries, gate OK. Comments and this log only: two files,
+  no `.go`, no recipe, no shipped script. `make verify` is being re-run on the resulting tip because
+  the tip it passed (`4bfbf08`) is not this tip, and its number goes in the pull-request body only if
+  it comes back green.
+
+## H-0090 · Both sides rewrote the same box leg: the snapshot decides, the marker annotates
+
+- Question: this branch merged `adbe6e3` at `e74d94b` and `main` moved again after that, so the second
+  merge brings `H-0083` and `H-0084`. The log conflict is mechanical, but `H-0084` rewrites
+  `quarantine_stays_in_the_fixture` -- the same leg `H-0081` rewrote, for the same hazard, with a
+  different instrument: `main` compares the box against a snapshot taken at the top of the file
+  (`at_risk_at_start` + `at_risk_diff`), this branch counts patches newer than a marker (`at_risk_mark`
+  + `-newer`). Which one decides, and what becomes of the other, when the merge has to keep both
+  intents and every id on both sides is already a durable citation?
+- Options: `main`'s comparison as the verdict and the marker as a printed cross-check | the marker as
+  the verdict and the comparison as the extra check | keep `main`'s arm only and delete the marker
+  machinery with its two control legs | keep both as verdicts and fail on either | hand the conflict
+  back as `needs-human`
+- Chose: `main`'s comparison as the verdict and the marker as a printed cross-check
+- Why: tie-break 3 -- refuse rather than proceed on ambiguous input -- separates them, and it does so
+  against this branch's own evidence. The comparison is mtime-blind: it names a patch that appeared
+  whether or not its stamp moved, and it goes red in both directions, so a box this suite *emptied* is
+  caught by the same arm. The marker cannot decide without re-opening the exact false accusation
+  `H-0084` was filed for: a rescue that predates the run but carries a stamp newer than the marker makes
+  the marker arm print "this file has written to the directory that holds the only copies of real
+  work". This branch priced that hole itself for the review's non-blocking 2 -- a `cp -p`, a `tar -x`
+  without `-m`, or a restore out of the box keeps its ORIGINAL mtime -- and wrote that the leg
+  "cannot go red on it" as though that were acceptable. It is acceptable only once something else can,
+  and the arm beside it is that something. So the merge does not pick a winner and discard a loser: the
+  comparison closes the priced hole and the marker's own failure mode is printed below the leg instead
+  of failed on, which is #1748 read the other way round -- a signal someone else can influence may
+  annotate the trail, it may never decide when enforcement stops. Keeping both as verdicts is refused
+  for the same reason: two assertions that can disagree produce a red gate that blames the wrong party,
+  and blaming the wrong party is the defect both entries were filed for. Deleting the marker machinery
+  is `#1180`'s silent edit with extra steps -- `H-0081`, `H-0087` and `H-0089` record it, and
+  `at_risk_predicate_provable` and `the_insulation_is_load_bearing` are two legs that would have to
+  vanish from the tally in a commit whose body says the merge changed no behaviour. Escalating is
+  refused because none of the four never-an-agent's calls is in play: no dependency, no permission, no
+  publish, no deletion -- two arms of test code that a tie-break separates. `main`'s `stray=`
+  assignment inherits this branch's `|| true` (`H-0087`, review non-blocking 1), because it is the same
+  assignment shape under the same `pipefail`; and the log is re-ordered by id with no id moved on either
+  side, because `H-0085`..`H-0089` are cited by the unpushed commits `e74d94b`..`59f4c5c` exactly as
+  `H-0079` yielded an id once in `H-0085`.
+- Checkpoint: aceac33
+- Effect: `factory/selftest.sh`'s `quarantine_stays_in_the_fixture` -- locals now
+  `stray real by_mark where now changed`; `main`'s `now`/`changed` and its FAIL-then-return block kept
+  verbatim as the verdict; the count of what is in the box is `real` in `main`'s meaning and this
+  branch's marker count is renamed `by_mark`, because one name carrying two meanings is exactly what the
+  auto-merge handed back -- it had kept `real=` from `main` and `real=` from here, three lines apart,
+  answering two different questions; the `ok` lines are `main`'s, since the comparison is what earned
+  them; `kept` leaves this leg (the predicate control leg keeps its own); a three-line `note:` prints
+  when `by_mark` and the comparison disagree; `|| true` on `stray=`, `now=` and `by_mark=`.
+  `factory/DECISIONS.md` takes `H-0083` and `H-0084` between `H-0082` and `H-0085` byte for byte. One
+  citation is corrected because this merge is what broke it: the snapshot's own comment read
+  `at line ~92` when the assignment sat at 100 on `main` and sits at 110 here, so it now names its
+  position in words and says why no number is quoted (the review's non-blocking 5, applied to the line
+  the merge actually touched).
+  Read back on this tree before this commit: `bash -n` clean on `selftest.sh`, `factory.sh`,
+  `common.sh`, `install-timer.sh`; the three mutant anchors occur 1, 1, 1 in `common.sh`/`factory.sh`;
+  `python3 scripts/check-decisions.py` -> 125 entries, gate OK; `bash factory/selftest.sh` ->
+  **368 passed, 0 failed**, exit 0. The tally is accounted for rather than assumed: 358 at `59f4c5c`,
+  and `main` added exactly 10 `claim_leg` calls (`git diff adbe6e3 origin/main -- factory/selftest.sh |
+  grep -c '^+claim_leg '`), one `pass` increment each, so all ten are #265's and none of this section's
+  legs changed count -- corroborated statically by the pass-increment sites, 47 here + 45 on `main`
+  − 44 at the base = 48 in the merge. The new arms measured on their own: with `by_mark=1` the three
+  `note:` lines print with no missing argument; `now=$(find /nope ... | sort) || true` survives
+  `set -euo pipefail` at `rc=0` with an empty list while the same assignment without `|| true` dies at
+  `rc=1` printing nothing; `at_risk_diff '' '/a/two.patch'` -> `+ /a/two.patch (mtime unreadable)` and
+  `at_risk_diff '/a/three.patch' ''` -> `- /a/three.patch (gone)`, so the verdict still names both
+  directions. A trap for whoever next merges into a conflicted tree, measured here: the same suite run
+  while the index still held the three conflict stages printed `367 passed, 1 failed` with
+  `the timer's scripts are executable ... not 100755 in the index: selftest.sh(100755 100755 100755)`
+  -- `git ls-files -s` answers three rows for one unmerged path, so that leg reads the index and not
+  the code, and the gate has to be run after `git add`.
+  What lost: `main`'s `stray=` had no insulation and now carries it, so `the_insulation_is_load_bearing`
+  is load-bearing for `main`'s line too; this branch's `ok` wording -- "none written by this run …
+  (N rescue(s) already there from before this run, left alone)" -- gives way to `main`'s, which makes
+  the box-leg output quoted in the pull-request body stale, and that body is what blocking 1 is about
+  anyway; `H-0084` has no blank line before its heading on `main` and it is kept that way rather than
+  tidied, because a merge commit is not where another decision's entry gets reformatted
+  (`check-decisions.py` reads both shapes); and the marker arm no longer decides anything, so a case it
+  used to fail is now a sentence an operator has to read rather than a gate that stops them.

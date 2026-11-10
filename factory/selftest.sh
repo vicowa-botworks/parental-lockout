@@ -71,6 +71,18 @@ pass=0
 fail=0
 reached_verdict=0
 work=$(mktemp -d "${TMPDIR:-/tmp}/plock-factoryselftest-XXXXXX")
+# Timestamp zero for the at-risk box. The leg that checks the suite never mirrored fixture dirt into
+# the operator's real box has to ask *this run* the question, not the box: `$FACTORY_AT_RISK`'s default
+# is where the supervisor puts the only copy of work it rescued from a dead tick, so on the machine
+# that runs the timer the box is legitimately non-empty -- and it gets more so every time the harness
+# does its job. Measured at 450a628: the supervisor quarantined this very unit's half-finished file at
+# 15:12:15Z and wrote `issue-263-quarantine-…-2008e6100.patch` there, and `make verify` on the next
+# tick in that tree failed with "1 quarantine patch(es) in ~/prj/at-risk". A leg that goes red because
+# a rescue happened is a leg someone will make green by moving the rescue out of the way -- and the
+# thing it moves is, by definition, work that exists nowhere else. So the assertion is about the run:
+# nothing NEWER than this marker may appear in the box.
+at_risk_mark=$work/at-risk-marker
+: >"$at_risk_mark"
 # The tally at the bottom of this file is the only line that says how many legs ran, and a run that
 # dies on its way there never prints it. Measured 9 Nov on CI: a fixture that needed the host's git
 # identity (H-0059) ended the script at its own command, this trap wiped the fixture, and the log
@@ -91,7 +103,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # The real mirror box, as it stands BEFORE this file can write anywhere. `quarantine_stays_in_the_fixture`
-# compares against this. Taken here, at line ~92 and not at the leg two thousand lines later, because the
+# compares against this. Taken here, at the top of this file beside the marker and not at the leg two
+# thousand lines later -- and with no line number quoted for it, because the one this comment carried
+# (`at line ~92`) was eight off the day it was written on `main` and eighteen off after this merge. The
 # half being recorded is the half this suite could damage: by the time the leg runs, the quarantine legs
 # have each written a mirror and the box can no longer be distinguished from what they did. A global on
 # purpose -- it is a reading of the machine, not of a fixture.
@@ -1857,12 +1871,22 @@ at_risk_diff() {
 }
 
 quarantine_stays_in_the_fixture() {
-	local label="the mirror box is the fixture's" stray real where now changed
-	stray=$(find "$FACTORY_AT_RISK" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
+	local label="the mirror box is the fixture's" stray real by_mark where now changed
+	# `|| true` on every count in this function and the one below it, and it is load-bearing rather
+	# than tidy: `find` exits 1 on a directory it cannot open, a command substitution propagates the
+	# pipeline's status under `pipefail`, and an assignment that fails under `set -e` ends the script
+	# -- no tally, the trap eats the fixture, and the CI symptom this comment block is about. Measured
+	# on this box with the marker missing, the shipped shape: `rc=1` and every line after the
+	# assignment never ran. What the insulation buys is not nothing, though: it turns "the suite dies"
+	# into "the count comes back 0", and 0 is the GREEN answer here. That trade is only affordable
+	# because `at_risk_predicate_provable` below asks the same expression to separate two files it can
+	# see, and requires 2/1/1 -- a masked 0 there goes red, so a masked 0 here means something.
+	stray=$(find "$FACTORY_AT_RISK" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]') || true
 	# Ask whether the box is there before counting what is in it. Two reasons, one of which this line
 	# paid for: a GitHub runner has no ~/prj/at-risk, and `find` exits 1 on a directory that does not
 	# exist, so the assignment below -- a command substitution whose pipeline is under
-	# `set -euo pipefail` (line 59) -- took the whole suite down with it. Measured on the runner at
+	# `set -euo pipefail` at the top of this file, not at a line number somebody has to re-derive --
+	# took the whole suite down with it. Measured on the runner at
 	# this commit: the last quarantine leg printed at 17:08:12.47Z, `Makefile:103: verify] Error 1`
 	# followed 30ms later, and no `N passed, M failed` summary was ever reached, while the same commit
 	# here read 242 passed / 0 failed because this machine has the directory. It is the same trap this
@@ -1883,7 +1907,24 @@ quarantine_stays_in_the_fixture() {
 		# THIS RUN did not touch the box, compared against the snapshot taken before any leg could write.
 		# It is the stronger claim as well. A box this suite emptied is as much a bug as one it littered,
 		# and "empty" passed that while "unchanged" goes red on both directions.
-		now=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' 2>/dev/null | sort)
+		#
+		# Two mechanisms ask about the box here and only one of them decides. The list comparison below
+		# is the verdict, and it is the arm main brought: it is mtime-blind, so it sees a patch appear
+		# whether or not its stamp moved. `-newer` the marker taken at the top of this file is kept as the
+		# cross-check, because it answers something the diff cannot -- of what is in the box, what carries
+		# a stamp from after this run started. Neither of them asks the box whether it is EMPTY, which is
+		# the question H-0081 records as unanswerable on any machine where the loop is live. See the
+		# marker's own note above `cleanup()`.
+		#
+		# What `-newer` cannot see, priced: it compares mtimes, so its count is only as honest as the
+		# stamps. The shipped writer creates the patch with a fresh `>`, so a rescue this run made is
+		# always newer than the marker. A rescue carried in some other way -- `cp -p`, `tar -x` without
+		# `-m`, a restore out of the box itself -- keeps its ORIGINAL mtime and the marker counts it as
+		# "already there, left alone". That is the case the comparison is the verdict FOR: it sees the
+		# file appear with the old stamp and goes red. So the priced hole is closed by the arm beside it
+		# rather than left to the reader, and the marker's own failure mode -- a stamp newer than the
+		# marker on a file that predates the run -- is printed below instead of failed on.
+		now=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' 2>/dev/null | sort) || true
 		where="$HOME/prj/at-risk"
 		changed=$(at_risk_diff "$at_risk_at_start" "$now")
 		if [ -n "$changed" ]; then
@@ -1896,8 +1937,11 @@ quarantine_stays_in_the_fixture() {
 			return 0
 		fi
 		real=$(printf '%s\n' "$now" | grep -c . || true)
+		# The cross-check, not the verdict: what in the box is stamped from after this run started?
+		by_mark=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' -newer "$at_risk_mark" 2>/dev/null | wc -l | tr -d '[:space:]') || true
 	else
 		real=0
+		by_mark=0
 		where="$HOME/prj/at-risk (no box on this host)"
 	fi
 	if [ "$stray" -lt 1 ]; then
@@ -1911,6 +1955,16 @@ quarantine_stays_in_the_fixture() {
 	else
 		pass=$((pass + 1))
 		printf '  ok    %-34s %s patch(es) in the fixture, none in %s\n' "$label" "$stray" "$where"
+	fi
+	# The two ways of asking, required to agree. The verdict above is the list comparison; this is
+	# the mtime question. They disagree when a patch predates the run yet carries a stamp from after
+	# the marker -- so the marker leg alone would have called someone else's rescue this suite's
+	# work, the false blame H-0084 was filed for. Printed, not failed on: a weaker signal may
+	# annotate the report, it may not decide when enforcement stops. Silence is agreement.
+	if [ "${by_mark:-0}" != 0 ]; then
+		printf '        note: the marker says %s patch(es) in %s are newer than this run\n' "$by_mark" "$where"
+		printf '        started, and the snapshot says the box never changed -- so they were already\n'
+		printf '        there with a later stamp, and `-newer` alone would have blamed this file.\n'
 	fi
 	# The control on the comparison itself, on synthetic lists so it runs on a runner with no
 	# ~/prj/at-risk as well. Every `ok` above is a claim about `at_risk_diff`, and an ok from a
@@ -1937,6 +1991,75 @@ quarantine_stays_in_the_fixture() {
 	return 0
 }
 quarantine_stays_in_the_fixture
+
+# The predicate the leg above now rests on, tried on a box this file owns. It has to be run: with the
+# box empty by definition on a runner, the only way `real` can come back wrong is by coming back 0 from
+# a `find` that matched nothing -- a mistyped marker path does exactly that, and 0 is the green answer.
+# So this plants one rescue from before the run and one written during it, dated a decade apart on
+# either side of the marker so no clock granularity is involved, and asks the same expression to tell
+# them apart. If it cannot separate two files it can see, its silence about the real box means nothing.
+at_risk_predicate_provable() {
+	local label='the box check can say the other word' box wrote kept total
+	box=$(mktemp -d "$work/at-risk-predicate-XXXX")
+	printf 'rescued before this run started\n' >"$box/issue-1-quarantine-20000101T000000Z-aaa.patch"
+	touch -d '2000-01-01 00:00:00' "$box/issue-1-quarantine-20000101T000000Z-aaa.patch"
+	touch -d '2010-01-01 00:00:00' "$box/marker"
+	printf 'written by the run itself\n' >"$box/issue-2-quarantine-20200101T000000Z-bbb.patch"
+	touch -d '2020-01-01 00:00:00' "$box/issue-2-quarantine-20200101T000000Z-bbb.patch"
+	# Same `|| true` as the box leg, and here it costs nothing to be uniform: this leg requires
+	# 2 / 1 / 1, so a `find` that was stopped from looking returns 0 and goes RED. That is the asymmetry
+	# the box leg's insulation leans on -- an ignored failure is safe where the expected answer is
+	# non-zero, and dangerous where it is zero.
+	wrote=$(find "$box" -name '*-quarantine-*.patch' -newer "$box/marker" 2>/dev/null | wc -l | tr -d '[:space:]') || true
+	kept=$(find "$box" -name '*-quarantine-*.patch' ! -newer "$box/marker" 2>/dev/null | wc -l | tr -d '[:space:]') || true
+	total=$(find "$box" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]') || true
+	if [ "$total" = 2 ] && [ "$wrote" = 1 ] && [ "$kept" = 1 ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-34s planted 2, the check counts %s as this run and %s as earlier, so\n' "$label" "$wrote" "$kept"
+		printf '          the ok above is the predicate answering and not a find that matched nothing.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s planted 2 (one dated 2000, one 2020, marker 2010); the check\n' "$label"
+		printf '          answered total=%s this-run=%s earlier=%s. The leg above reads that as clean.\n' \
+			"$total" "$wrote" "$kept"
+	fi
+	return 0
+}
+at_risk_predicate_provable
+
+# The insulation, asked whether it does anything. Every count in the two legs above ends in `|| true`,
+# which the last paragraph explains as the difference between "the suite dies mid-file" and "the count
+# comes back 0". An `ok` on the insulated arm alone would prove nothing -- a `find` that simply
+# succeeded would print the same 0 -- so this leg runs both arms, the same assignment with and without
+# the `|| true`, against the same two absent paths: a box that is not there and a marker that was never
+# created. The insulated arm has to return 0 and stay alive; the uninsulated one has to die. If the
+# second arm ever comes back alive, the first arm's 0 has stopped meaning that `|| true` saved it, and
+# the note printed by the failure is the same one this file prints everywhere else: the ok is the check
+# working, not the check being blind.
+the_insulation_is_load_bearing() {
+	local label='a count survives a box it cannot open' w2 alive dead
+	w2=$(mktemp -d "$work/insulation-XXXX")
+	alive=$(bash -c 'set -euo pipefail
+		x=$(find "$1" -name "*-quarantine-*.patch" -newer "$2" 2>/dev/null | wc -l | tr -d "[:space:]") || true
+		printf "%s" "$x"' _ "$w2/no-such-box" "$w2/no-such-marker") || alive='(died)'
+	dead=$(bash -c 'set -euo pipefail
+		x=$(find "$1" -name "*-quarantine-*.patch" -newer "$2" 2>/dev/null | wc -l | tr -d "[:space:]")
+		printf "%s" "$x"' _ "$w2/no-such-box" "$w2/no-such-marker") || dead='(died)'
+	if [ "$alive" = 0 ] && [ "$dead" = '(died)' ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-34s insulated: rc=0 and the count is 0, and the shell lives; the\n' "$label"
+		printf '          same assignment without `|| true` dies right there (rc non-zero, nothing\n'
+		printf '          printed), which is what makes the 0 above an answer and not a rescue.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s insulated=%s uninsulated=%s. Expected 0 and (died): if the bare\n' "$label" "$alive" "$dead"
+		printf '          form survives too, the `|| true` above is decoration and the counts may be\n'
+		printf '          silently 0 for a reason nobody is testing for.\n'
+	fi
+	rm -rf "$w2"
+	return 0
+}
+the_insulation_is_load_bearing
 
 # The leg the review of #250 asked for by name -- "whatever lands, please add the leg that composes the
 # two calls" -- and the reason it exists: the streak legs above call `factory_tree_stop` twice with
@@ -2377,6 +2500,809 @@ notice_legs() {
 	return 0
 }
 notice_legs
+
+# --------------------------------------- the pass, run as a process, past the quarantine (#263)
+#
+# Every leg above drives a *function*. `expect_quarantine` calls `factory_tree_stop`, the mirror legs
+# call `factory_tree_quarantine`, `stop_wiring` greps `factory.sh` for its call sites. None of them
+# starts `factory/factory.sh`, and #263 measured what that costs: 54 mentions of `factory.sh` in this
+# file at the tip this section was written against, every one of them a read of the text, and
+#
+#   asked of this file at 450a628, the tip this section was written against:
+#     grep -c 'factory\.sh'                                                →  54
+#     grep -cE '(bash|sh|exec|env)[[:space:]]+"?\$[A-Za-z_/]*factory\.sh'  →  0
+#
+# With the section in, the second one answers 1 once its own comments are out of the count
+# (`grep -v '^[[:space:]]*#'`), and the one row is the `bash "$proc_dir/factory.sh"` inside `proc_run`
+# below -- the thing this section adds. Asked with comments it answers 2, because the sentence you are
+# reading quotes the pattern; that is why the honest form is written here rather than the bare grep.
+# Every claim of the shape "factory.sh does X" was a claim about source text. The one property
+# #248 was filed for is exactly such a claim -- a dirty tree is mirrored and the *pass carries on*,
+# rather than writing `$FACTORY_HALT` and freezing 22 units for 15h57m -- and it lives in one line,
+# `factory_tree_stop TICK-HALTED "$unit" "$tree" || return $?` above the `TICK-START` it lets happen.
+#
+# `--dry-run` cannot stand in for this, which is why the dry-run legs in the ask section do not
+# already cover it: the dispatcher prints `DRY-RUN  tick unit=` and `continue`s before `factory_tick`
+# is ever called, so a rehearsal never reaches `factory_tree_stop` at all. `factory_tree_stop`'s own
+# `--dry-run` arm says the same thing from the other side -- it refuses to rehearse a rescue. The
+# property is a property of the process, so it takes a process to test it.
+#
+# The fixture is the smallest queue that can express it: a throwaway trunk carrying the three shipped
+# scripts, a clone of it (the supervisor fetches `origin` and cuts unit trees from `origin/main`, so
+# it needs a real origin), issue 900 with a worktree planted dirty the way a killed tick leaves one,
+# and issue 901 clean behind it. `gh` is a shim answering from payload files and refusing every write
+# with 77; `opencode` is a stub that records which unit it was started for and exits 0, which is the
+# state every post-tick arm was written for. Everything the run can reach is redirected into `$work`:
+# `FACTORY_AT_RISK` included, because its default is the operator's real box holding the only copies
+# of real work, and a leg that mirrored fixture dirt in there would be a leg that tidied the thing it
+# exists to describe.
+#
+# Then the same fixture with one line of `common.sh` changed, twice over, because a green here is
+# worth nothing unless the same fixture can be made red: the halt restored to its pre-#248 shape, and
+# a quarantine that succeeds but reports failure. What those two measure is written where they run,
+# and one of them contradicts #263's own account of the blast radius -- said there, not here, so the
+# sentence is next to the number.
+#
+# What it costs, and on which machine it costs it. This is the first leg in the file to run the loop,
+# so it pays for a fetch, three `git worktree add`, and a supervisor process per activation -- seven
+# activations and three mutants. Two timed runs at each base, six at this head; every number below is
+# a whole `bash selftest.sh`, on the host named beside it, because the one variable that decides
+# whether a quoted cost means anything is the box it was taken on (H-0048's rule, and this paragraph is
+# the case it was written for):
+#
+#   rodney-9950x, btrfs, ~/prj/at-risk present with 20 entries -- measured 10 Nov. The two base rows
+#     were timed in a throwaway clone checked out at each sha (a base has to be timed in a tree that
+#     holds a base's files, and this worktree holds none of them); the head row is this checkout:
+#       450a628 (the section's base) . 338 legs, 337 passed 1 failed ... 10.67-10.71 s
+#       adbe6e3 (origin/main) ........ 346 legs, 345 passed 1 failed ... 11.45-11.54 s
+#       this head .................... 358 legs, all passed ........... 13.13-13.32 s, six runs
+#     This head is twelve legs above main -- 358 minus 346, not 358 minus 345 -- and about +1.73 s
+#     over it, so 0.14 s a leg. Eleven of those twelve are the section and the twelfth is `H-0087`'s
+#     control, and the subtraction is over TOTALS because both bases carry a red leg: reading the two
+#     `passed` columns against each other is how an eleven-leg section gets written down as twelve,
+#     which is precisely what this paragraph said until `H-0089` corrected it. The spread between two
+#     runs of the same tree is 0.2 s here, an eighth of the effect being claimed, so these are ranges
+#     on purpose: a difference quoted to three decimals is a difference nobody measured. The one
+#     failure at both bases is `the mirror box is the fixture's` reading the real 15:12Z rescue as this
+#     file's crime -- the leg `H-0081` exists to fix, and it can only fail on a host that has the box.
+#   the #264 reviewer's host, btrfs, no ~/prj/at-risk (one run each side, not two):
+#       450a628 ......... 337 legs, none failed ... 28.8 s
+#       that branch tip . 348 legs, none failed ... 34.9 s   (+6.1 s for the section's 11)
+#       its base total sits one leg below this box's -- the same fs-dependent split #238 and #257
+#       recorded on other legs, where the box leg has nothing to be red about -- and its branch tip
+#       predates three commits of review fixes, so its head row is not this head's row.
+#
+# 0.14 s a leg here against 0.55 s there, the same fixture: four times the cost per leg, on top of a
+# whole-suite run 2.7 times slower. Neither pair is the other's and neither is wrong, so the sentence
+# that quotes one has to say which. Where the section
+# came from: the tick before this one wrote it in 16 minutes and was stopped at its ceiling with the
+# file still uncommitted, and `factory_tree_quarantine` mirrored it to
+# `~/prj/at-risk/issue-263-quarantine-20261110T151215Z-2008e6100.patch` at 15:12:15Z; this is that file,
+# `git apply`-ed onto the same blob it was cut from (`89687df`) plus the third control below and the
+# numbers re-measured here. The mirror is the reason the paragraph says what it costs.
+
+proc_work=$work/supervisor
+proc_bin=$proc_work/bin
+proc_fix=$proc_work/fixture
+proc_rec=$proc_work/gh-calls
+proc_up=$proc_work/up
+mkdir -p "$proc_bin" "$proc_fix"
+
+# One trunk, one commit, holding the three shipped scripts and a file a leg can dirty. The scripts are
+# committed (not copied in afterwards) so the clone is clean the way a real checkout is: an untracked
+# file here would put `dirty=1` in every `SUPERVISOR-AT` line and make the pass look like it was
+# working in a tree somebody had left half-finished -- the very state the quarantine exists to refuse.
+mkdir -p "$proc_up/factory"
+git init -q "$proc_up"
+git -C "$proc_up" config user.email fixture@invalid
+git -C "$proc_up" config user.name fixture
+git -C "$proc_up" checkout -qb main
+cp "$HERE/common.sh" "$HERE/factory.sh" "$HERE/triage.sh" "$proc_up/factory/"
+chmod +x "$proc_up/factory/factory.sh" "$proc_up/factory/triage.sh"
+printf 'alpha\nbeta\ngamma\n' >"$proc_up/tracked.txt"
+git -C "$proc_up" add -A
+git -C "$proc_up" commit -qm 'fixture harness: the shipped scripts, and a file to leave uncommitted'
+
+# The queue, as the shim serves it: two open issues, no pull request in any state, nothing merged. So
+# `triage.sh` answers exactly two `unclaimed` rows, and the unit behind the quarantined one is a row
+# the pass has to reach on its own -- not a row this file planted as an expectation.
+printf '{"login":"supervisor"}\n' >"$proc_fix/user.json"
+printf '{"data":{"repository":{"pullRequests":{"nodes":[]},"issues":{"nodes":[{"number":900,"stateReason":"NONE"},{"number":901,"stateReason":"NONE"}]}}}}\n' >"$proc_fix/graphql.json"
+printf '[]\n' >"$proc_fix/pr-open.json"
+printf '[]\n' >"$proc_fix/pr-bodies.json"
+printf '[]\n' >"$proc_fix/pr-merged.json"
+printf '[{"number":900,"title":"unit A: the tree a dead tick left dirty","updatedAt":"2026-11-10T00:00:00Z"},{"number":901,"title":"unit B: the clean unit behind it","updatedAt":"2026-11-10T00:00:01Z"}]\n' >"$proc_fix/issues.json"
+# The tick's delivery read (`gh pr list --head <branch>`). It is not what any leg below asserts; it
+# is answered so a tick ends the way a delivered tick ends, and the journal carries only the property
+# under test rather than `TICK-UNDELIVERED` and a bundle write for a unit that never existed.
+printf '[{"number":9001}]\n' >"$proc_fix/pr-head.json"
+
+cat >"$proc_bin/gh" <<'PROCGH'
+#!/usr/bin/env bash
+# Fixture gh for the process legs. One recorded line per call, payloads from $PROC_FIXTURE, and two
+# refusals: an unhandled read exits 9 (a shim that shrugs and prints `[]` turns a leg green without
+# exercising anything -- CLAIMSHIM's rule), and a write to the queue exits 77 except the two verbs a
+# supervisor uses to *talk* rather than to change state.
+#
+# `issue comment` is allowed and recorded rather than refused, and it is allowed only because this
+# `gh` is a file: it cannot reach GitHub. The halt control below needs the notice to succeed, because
+# the halt-notice legs already own what a failed notice does, and a control whose journal reads
+# `HALT-NOTICE-FAILED` is measuring the shim instead of measuring the halt.
+set -eu
+here=${PROC_FIXTURE:?PROC_FIXTURE names the payload directory}
+rec=${PROC_GH_REC:?PROC_GH_REC names the record file}
+printf '%s\n' "$*" >>"$rec"
+
+case "$1:$2" in
+'pr:merge' | 'pr:review' | 'pr:edit' | 'pr:request-reviewers' | 'issue:close' | 'issue:reopen' | 'issue:edit')
+	printf 'proc-shim: a leg tried to CHANGE THE QUEUE: %s\n' "$*" >&2
+	exit 77 ;;
+esac
+
+jqprog=''
+state=''
+jsonf=''
+head=''
+args=("$@")
+i=0
+while [ "$i" -lt "${#args[@]}" ]; do
+	case "${args[$i]}" in
+	--jq) jqprog=${args[$((i + 1))]} ;;
+	--state) state=${args[$((i + 1))]} ;;
+	--json) jsonf=${args[$((i + 1))]} ;;
+	--head) head=${args[$((i + 1))]} ;;
+	esac
+	i=$((i + 1))
+done
+
+emit() { # emit <payload> -> through the caller's own --jq, run by the real jq
+	local file=$1
+	if [ ! -f "$file" ]; then
+		printf 'proc-shim: no payload for this call: %s\n' "$file" >&2
+		exit 8
+	fi
+	if [ -n "$jqprog" ]; then jq -r "$jqprog" <"$file"; else cat "$file"; fi
+}
+
+case "$1 $2" in
+'auth status') exit 0 ;;
+'api user') emit "$here/user.json" ;;
+'api graphql') emit "$here/graphql.json" ;;
+'issue list') emit "$here/issues.json" ;;
+'issue comment') exit 0 ;;
+'pr list')
+	# One read, three payloads, told apart by the flag that differs between them -- the same rule
+	# CLAIMSHIM records and for the same reason: a shim that serves the body payload to the field
+	# read makes a claim list silently empty.
+	if [ -n "$head" ]; then emit "$here/pr-head.json"; exit 0; fi
+	case "$state" in
+	open)
+		case "$jsonf" in
+		*body*) emit "$here/pr-bodies.json" ;;
+		*) emit "$here/pr-open.json" ;;
+		esac ;;
+	merged) emit "$here/pr-merged.json" ;;
+	*)
+		printf 'proc-shim: unhandled pr list --state %s\n' "$state" >&2
+		exit 9 ;;
+	esac ;;
+*)
+	printf 'proc-shim: unhandled call: %s\n' "$*" >&2
+	exit 9 ;;
+esac
+PROCGH
+chmod +x "$proc_bin/gh"
+
+# The model runtime. `factory_preflight` asks for `$FACTORY_OPENCODE` on PATH and `factory_tick` execs
+# it through `timeout … env PWD=…`, so this stub is the thing the tick's exit status comes from. It
+# records the unit it was started for -- which is the second, independent proof that a tick started:
+# the journal line says the supervisor decided to, this file says a session was actually opened.
+cat >"$proc_bin/opencode" <<'PROCRT'
+#!/usr/bin/env bash
+set -eu
+title=''
+prev=''
+for a in "$@"; do
+	[ "$prev" = --title ] && title=$a
+	prev=$a
+done
+tree=$(printf '%s' "$*" | sed -n 's/.*Work only in this directory: \([^ ]*\).*/\1/p')
+printf 'tick title=%s tree=%s\n' "${title:-none}" "${tree:-none}" >>"${PROC_TICKS:?PROC_TICKS names the tick record}"
+# A control needs a session that FAILS. The title carries the unit (`factory unclaimed:900`), the same
+# string the journal's TICK-START names, so this refuses one named unit's session and not a coin flip.
+if [ -n "${PROC_TICK_FAILS:-}" ] && printf '%s' "$title" | grep -qF -- "$PROC_TICK_FAILS"; then
+	printf 'fixture tick: %s fails, which is what the dispatcher is being asked about\n' "$PROC_TICK_FAILS"
+	exit 1
+fi
+exit 0
+PROCRT
+chmod +x "$proc_bin/opencode"
+
+# proc_new <name> -> a fresh clone of the fixture trunk in its own box, with every FACTORY_* path
+# beside it. A fixture per activation set, because the control has to be the same fixture as the
+# shipped run with ONE line different -- not a different queue, a different tree, a different shim.
+proc_repo=''
+proc_dir=''
+proc_trees=''
+proc_risk=''
+proc_log=''
+proc_stash=''
+proc_rundir=''
+proc_halt=''
+proc_ticks=''
+proc_out=''
+proc_journal=''
+proc_rc=0
+proc_new() {
+	local name=$1
+	proc_repo=$proc_work/$name
+	proc_dir=$proc_repo/factory
+	proc_trees=$proc_work/trees-$name
+	proc_risk=$proc_work/at-risk-$name
+	proc_log=$proc_work/log-$name
+	proc_stash=$proc_work/ledger-$name
+	proc_rundir=$proc_work/run-$name
+	proc_halt=$proc_work/HALT-$name
+	proc_ticks=$proc_work/ticks-$name.log
+	git clone -q "$proc_up" "$proc_repo"
+	git -C "$proc_repo" config user.email fixture@invalid
+	git -C "$proc_repo" config user.name fixture
+	mkdir -p "$proc_trees" "$proc_risk" "$proc_log" "$proc_stash" "$proc_rundir"
+	: >"$proc_ticks"
+	: >"$proc_rec"
+}
+
+# Unit A's tree, planted the way the outage was found: a tree that exists, on its own branch, with a
+# tracked edit and an untracked file nobody else holds. It exists before the pass so `factory_worktree`
+# returns it instead of cutting a clean one -- that is the state, and the ledger of the pass is that it
+# must be mirrored and cleaned, not that this file gets to say it is clean.
+proc_plant() { # -> the planted tree, and $proc_planted counts the paths git agrees are dirty
+	local tree=$proc_trees/issue-900
+	git -C "$proc_repo" worktree add -q -b issue-900 "$tree" origin/main
+	printf 'the work a tick died with\n' >>"$tree/tracked.txt"
+	printf 'untracked and nowhere else\n' >"$tree/scratch-notes.txt"
+	proc_planted=$(git -C "$tree" status --porcelain 2>/dev/null | grep -c . || true)
+}
+
+# proc_run <tag> -> the shipped supervisor, as a process, over the fixture. `timeout` because a hung
+# pass must arrive as a failed leg, not as a wedged suite: this is the first leg here that can hang,
+# and the file has a trap and a tally that a wedged run never reaches.
+proc_run() {
+	local tag=$1
+	: >"$proc_log/supervisor.log"
+	# One tick record per activation. Both activations of a fixture append to one file otherwise, and a
+	# leg that counts sessions for "the pass" would then be counting two passes.
+	proc_ticks=$proc_work/ticks-$tag.log
+	: >"$proc_ticks"
+	proc_rc=0
+	env PATH="$proc_bin:$PATH" \
+		PROC_FIXTURE="$proc_fix" PROC_GH_REC="$proc_rec" PROC_TICKS="$proc_ticks" \
+		PROC_TICK_FAILS="${proc_tick_fails:-}" \
+		FACTORY_DIR="$proc_dir" FACTORY_ROOT="$proc_repo" FACTORY_HARNESS="$proc_repo" \
+		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
+		FACTORY_OPENCODE=opencode FACTORY_AGENT=factory \
+		FACTORY_LOG="$proc_log" FACTORY_LEDGER="$proc_stash" FACTORY_RUN="$proc_rundir" \
+		FACTORY_TREES="$proc_trees" FACTORY_AT_RISK="$proc_risk" FACTORY_HALT="$proc_halt" \
+		FACTORY_BASE=main FACTORY_MAX_TICKS=4 FACTORY_BUDGET=120 \
+		FACTORY_TICK_TIMEOUT=30 FACTORY_FETCH_TIMEOUT=10 \
+		timeout --signal=TERM --kill-after=10 180 bash "$proc_dir/factory.sh" \
+		>"$proc_work/$tag.out" 2>&1 || proc_rc=$?
+	proc_journal=$proc_work/$tag.journal
+	cp -- "$proc_log/supervisor.log" "$proc_journal" 2>/dev/null || : >"$proc_journal"
+	proc_out=$proc_work/$tag.out
+}
+
+# proc_mutate <anchor> <line> -> the fixture's common.sh with one line after the shipped one. It
+# refuses unless the anchor occurs exactly once, because a mutant planted on the wrong line is a
+# control that measures nothing while printing the loudest sentence in the section.
+proc_mutate() {
+	local anchor=$1 line=$2 hits
+	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/common.sh")
+	[ "$hits" = 1 ] || {
+		printf '            the mutant anchor occurs %s time(s) in factory/common.sh, so it would\n' "$hits" >&2
+		printf '            not be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
+		return 1
+	}
+	awk -v line="$line" -v a="$anchor" '{ print } index($0, a) { print line }' \
+		"$HERE/common.sh" >"$proc_dir/common.sh" || return 1
+	grep -qF -- "$line" "$proc_dir/common.sh" || {
+		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
+		return 1
+	}
+	return 0
+}
+
+proc_journal_line() { # <journal> <needle> -> the first line carrying needle, empty when there is none
+	awk -v n="$2" 'index($0, n) { print; exit }' "$1"
+}
+
+# The legs. Each one asks about the shipped run: fixture `shipped`, activation 1 with unit A dirty.
+#
+# A leg prints what it REQUIRES, not the name of the function that asked. The first version printed
+# `$*`, so every one of these lines ended in `proc_did_run` and the sentences lived only in the pull
+# request -- the wrong artifact for the thing a person reads at 3 a.m., which is this output. A name
+# says a function ran; it does not say two units had to be ticked. The name is still one line above
+# every sentence in the source, and a failing predicate prints its own detail under the FAIL line, so
+# nothing became harder to find; what was impossible to find from the log was the promise.
+proc_leg() { # proc_leg <label> <requires> command...
+	local label=$1 requires=$2
+	shift 2
+	if [ "$#" -eq 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-36s %s\n' "$label" 'no command given, so this leg asked nothing at all'
+		return 0
+	fi
+	if "$@"; then
+		pass=$((pass + 1))
+		printf '  ok    %-36s %s\n' "$label" "$requires"
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-36s %s\n' "$label" "$requires"
+	fi
+	return 0
+}
+
+proc_new shipped
+proc_plant
+proc_p1=$proc_planted
+proc_run shipped-1
+proc_j1=$proc_journal
+proc_t1=$proc_ticks
+proc_rc1=$proc_rc
+proc_out1=$proc_out
+proc_run shipped-2
+
+# The legs name the activation they read, because the second activation sees the tree the first one
+# rescued: by then it is clean, and a leg that asks that pass whether a quarantine happened is asking
+# the wrong pass. The first version of this section did exactly that and printed five failures over a
+# run in which activation one had quarantined, mirrored and carried on correctly -- the journal of the
+# activation *after* the accident says nothing about the accident, which is the same trap the section
+# exists to keep the harness out of, arriving at the fixture instead of the production code.
+proc_did_run() {
+	local sessions
+	# The fixture before the mutant: a tree nobody dirtied reaches the same `TREE-CLEAN` the failure
+	# being controlled for reaches, and the journal cannot tell the two apart. `proc_plant` asks git how
+	# many paths it left dirty, so this is a second opinion and not the leg restating its own wish.
+	if [ "${proc_p1:-0}" != 2 ]; then
+		printf '            the fixture tree has %s dirty path(s), not the two this section plants, so
+' "${proc_p1:-nothing}" >&2
+		printf '            every line below describes a clean tree instead of the state under test.
+' >&2
+		return 1
+	fi
+	sessions=$(grep -c '^tick ' "$proc_t1" 2>/dev/null || true)
+	[ "$proc_rc1" = 0 ] || {
+		printf '            the supervisor exited %s rather than 0 (124 is the timeout refusing to\n' "$proc_rc1" >&2
+		printf '            let a hung pass wedge this suite). Its output:\n' >&2
+		tail -n 12 "$proc_out1" | sed 's/^/              /' >&2
+		return 1
+	}
+	[ -s "$proc_j1" ] || {
+		printf '            no journal at all, which is the quietest failure in this harness and the\n' >&2
+		printf '            one the tally above would have printed as an ok three legs down.\n' >&2
+		return 1
+	}
+	case "$(proc_journal_line "$proc_j1" ' PASS ')" in
+	*'units=2'*) : ;;
+	*) printf '            the queue was not two units, so a TICK-START for 901 below would prove\n' >&2
+		printf '            nothing about a queue this pass was actually walking:\n              %s\n' \
+			"$(proc_journal_line "$proc_j1" ' PASS ')" >&2
+		return 1 ;;
+	esac
+	[ "${sessions:-0}" = 2 ] || {
+		printf '            %s session(s) were opened for a 2-unit queue, so the runtime stub and the\n' "${sessions:-0}" >&2
+		printf '            journal disagree about whether a tick ran:\n' >&2
+		sed 's/^/              /' "$proc_t1" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the pass runs, over two units' 'two units dispatched, one session opened for each' proc_did_run
+
+proc_quarantined_and_mirrored() {
+	local line mirror
+	line=$(proc_journal_line "$proc_j1" 'TREE-QUARANTINED unclaimed:900')
+	[ -n "$line" ] || {
+		printf '            unit A was never quarantined. That activation'"'"'s journal:\n' >&2
+		sed 's/^/              /' "$proc_j1" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	*'attempt=1'*) : ;;
+	*) printf '            the first quarantine of a unit that has never been quarantined is not\n' >&2
+		printf '            attempt=1, so the streak arithmetic the halt depends on is wrong here:\n' >&2
+		printf '              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	# The journal's finding is the sentence an operator acts on, so it has to name what was planted --
+	# the verdict's own words, not a count (#228's rule about asking git the stat-cache question).
+	case "$line" in
+	*'modified: tracked.txt'*'scratch-notes.txt'*) : ;;
+	*) printf '            the finding does not name both planted paths, so it sends a reader looking\n' >&2
+		printf '            for one file where the tree left two:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	mirror=${line##*mirror=}
+	[ -s "$mirror" ] || {
+		printf '            the journal names a mirror that is not there: %s\n' "${mirror:-nothing}" >&2
+		printf '            A `mirror=` that restores nothing is the #250 failure, and it is the one\n' >&2
+		printf '            thing that makes this pass allowed to clean the tree at all.\n' >&2
+		return 1
+	}
+	# The rescue has to land in the box this leg owns. `FACTORY_AT_RISK`'s default is the operator's
+	# real `~/prj/at-risk`, holding the only copies of work that is not this suite's to duplicate.
+	case "$mirror" in
+	"$proc_risk"/*) : ;;
+	*) printf '            the mirror left the fixture: %s is not under %s\n' "$mirror" "$proc_risk" >&2
+		return 1 ;;
+	esac
+	# And the mirror is the dirt, not a file git wrote and emptied: one edited path and one new path
+	# render two hunks in `stash show -p --include-untracked`, measured. A mirror of one of the two is
+	# a half rescue that journals as a whole one.
+	if [ "$(grep -c '^diff --git' "$mirror")" != 2 ]; then
+		printf '            the mirror holds %s file(s); the tree left two behind, so it is a half\n' \
+			"$(grep -c '^diff --git' "$mirror")" >&2
+		printf '            rescue: %s\n' "$mirror" >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'quarantines A, mirrors both paths' 'A at attempt=1, both paths named, the mirror on disk' proc_quarantined_and_mirrored
+
+proc_no_halt() {
+	[ ! -e "$proc_halt" ] || {
+		printf '            the pass wrote %s: %s\n' "$proc_halt" "$(tr -d '\n' <"$proc_halt")" >&2
+		printf '            That file is read before triage, so writing it is how one dirty unit\n' >&2
+		printf '            becomes every other unit'"'"'s outage -- the 15h57m #248 was filed for.\n' >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_j1" 'TICK-HALTED ')" ]; then
+		printf '            it halted without writing the marker, which halts nothing and reads as\n' >&2
+		printf '            a halt in every later reading of the journal:\n              %s\n' \
+			"$(proc_journal_line "$proc_j1" 'TICK-HALTED ')" >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg '…and leaves no halt file' 'no halt marker, and no TICK-HALTED line either' proc_no_halt
+
+# The clause #262's acceptance leg has been carrying unpinned since it was written: "still starts a
+# tick for unit B". Two observables, because the journal line alone is #263's text scan one level up --
+# the supervisor's own word for its decision. The stub's record is that decision's effect.
+proc_ticked_b() {
+	local started
+	started=$(proc_journal_line "$proc_j1" 'TICK-START unclaimed:901')
+	[ -n "$started" ] || {
+		printf '            no TICK-START for the clean unit behind the quarantined one. Journal:\n' >&2
+		sed 's/^/              /' "$proc_j1" | cut -c1-150 >&2
+		return 1
+	}
+	case "$(cat "$proc_t1")" in
+	*issue-901*) : ;;
+	*) printf '            the journal says a tick started and no session was opened for it:\n' >&2
+		printf '              %s\n' "$started" >&2
+		sed 's/^/              /' "$proc_t1" >&2
+		return 1 ;;
+	esac
+	# TICK-START has to come after the quarantine, or "past the quarantine" is a story about two
+	# unrelated lines -- a pass that quarantined A last week would print both.
+	awk '
+		index($0, "TREE-QUARANTINED unclaimed:900") { q = NR }
+		index($0, "TICK-START unclaimed:901") { t = NR }
+		END { exit (q && t && t > q) ? 0 : 1 }' "$proc_j1" || {
+		printf '            the TICK-START is not after the TREE-QUARANTINED, so the pass did not go\n' >&2
+		printf '            past anything: quarantine at line %s, tick at line %s.\n' \
+			"$(awk 'index($0,"TREE-QUARANTINED unclaimed:900"){print NR; exit}' "$proc_j1")" \
+			"$(awk 'index($0,"TICK-START unclaimed:901"){print NR; exit}' "$proc_j1")" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…then starts a tick for unit B' 'B ticked after the quarantine, with a session for it' proc_ticked_b
+
+# The other half of "the pass continued", and the half #263 did not ask for. A first quarantine
+# returns 0 -- the tree is mirrored and clean, so the unit whose tree was rescued gets its turn in the
+# same pass. Make `factory_tree_stop` report that success as a failure, which is the mutation #263 names
+# first, and this is the assertion that notices.
+proc_quarantined_unit_got_its_turn() {
+	awk '
+		index($0, "TREE-QUARANTINED unclaimed:900") { q = NR }
+		index($0, "TICK-START unclaimed:900") { t = NR }
+		END { exit (q && t && t > q) ? 0 : 1 }' "$proc_j1" || {
+		printf '            unit A was rescued and then left without a turn: the quarantine is at\n' >&2
+		printf '            line %s and its TICK-START is at line %s (0 means never).\n' \
+			"$(awk 'index($0,"TREE-QUARANTINED unclaimed:900"){print NR; exit}' "$proc_j1")" \
+			"$(awk 'index($0,"TICK-START unclaimed:900"){print NR; exit}' "$proc_j1")" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and gives the rescued unit its turn' 'A ticked again, after its own quarantine' proc_quarantined_unit_got_its_turn
+
+# A quarantine that survives its own activation and then freezes the queue tomorrow is the same outage
+# wearing a delay, so the second activation is part of the claim rather than a bonus. Its tree is clean
+# by now -- activation one rescued it -- so what this pass proves is that nothing was left armed: no
+# halt file, no streak, and both units ticked again.
+proc_next_activation_runs() {
+	if [ "$proc_rc" != 0 ]; then
+		printf '            the second activation exited %s, not 0.\n' "$proc_rc" >&2
+		return 1
+	fi
+	if [ -n "$(proc_journal_line "$proc_journal" 'HALTED ')" ]; then
+		printf '            the second activation halted: %s\n' \
+			"$(proc_journal_line "$proc_journal" 'HALTED ')" >&2
+		return 1
+	fi
+	if [ -n "$(proc_journal_line "$proc_journal" 'TREE-STREAK ')" ]; then
+		printf '            a clean second activation, with a tick between them, armed the streak:\n' >&2
+		printf '              %s\n' "$(proc_journal_line "$proc_journal" 'TREE-STREAK ')" >&2
+		return 1
+	fi
+	awk '/TICK-START unclaimed:900/ { a = 1 } /TICK-START unclaimed:901/ { b = 1 }
+		END { exit (a && b) ? 0 : 1 }' "$proc_journal" || {
+		printf '            the queue was alive but no tick ran for both units on the next activation.\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	if [ "$(cat "$proc_stash/unclaimed:900.quarantine-count" 2>/dev/null)" != 0 ]; then
+		printf '            the streak is still armed at %s after a tick that ended clean, so the\n' \
+			"$(tr -d '\n' <"$proc_stash/unclaimed:900.quarantine-count" 2>/dev/null || printf 'nothing')" >&2
+		printf '            next honest accident halts every unit for a counter nobody reset.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
+
+# An observation this section did not go looking for, and prints rather than asserts, because a process
+# leg reads journals and a text scan never would have noticed it. Unit B's tree is cut by
+# `factory_worktree` minutes earlier and nothing ever writes to it -- and still the journal says of it:
+#
+#   TREE-CLEAN unclaimed:901 <tree> was found dirty and is clean now; nothing was quarantined
+#
+# `factory_tick` calls `factory_tree_stop` on every tree before every tick, `factory_tree_quarantine`
+# answers 1 for a tree with nothing to stash, and that arm's sentence is written for the case where the
+# verdict and the action disagreed. So the ordinary, healthy path prints a line whose words say a person
+# or a dead tick had dirt in it and no longer does. Nothing here asserts the wording -- pinning it would
+# make the fix harder to land, not easier -- but the harness's own rule is that a failure left unspoken
+# reads as success, and this is the same shape wearing the opposite sign: a sentence that reports an
+# event that did not happen, in the log an operator is told to read. Worth an issue; it is not this
+# unit's change to make, and a leg that asserts it would be a leg that refuses the fix.
+if [ -n "$(proc_journal_line "$proc_j1" 'TREE-CLEAN unclaimed:901')" ]; then
+	printf '        note: unit B was never dirty, and the pass still journalled "was found dirty and is\n'
+	printf '        clean now" for it -- `factory_tree_stop` runs before every tick, and a clean tree\n'
+	printf '        takes the disagreement arm of the quarantine. Asserted nowhere here; said out loud\n'
+	printf '        because a reader of this file should know the journal says it.\n'
+fi
+
+# ------------------------------------------------------------------ the two controls
+#
+# Control one: the halt as it was before #248. One line, inserted into the fixture's copy of
+# `factory_tree_stop` ahead of the quarantine, so a dirty tree writes the marker and returns the halt's
+# answer instead of mirroring and continuing. Everything else -- the same fixture layout, the same
+# queue, the same shims -- is the run above.
+proc_new halt-restored
+proc_mutate 'qerr_file="$FACTORY_RUN/quarantine-error.$$"' \
+	'	if [ -n "$dirt" ]; then factory_tree_halt "$verb" "$unit" "$tree" || return $?; fi # MUTANT-263A' ||
+	proc_halt_control_planted=0
+proc_plant
+proc_ph=$proc_planted
+proc_run halt-1
+proc_jh=$proc_journal
+proc_run halt-2
+
+proc_halt_freezes() {
+	if [ "${proc_ph:-0}" != 2 ]; then
+		printf '            the halting control'"'"'s fixture tree has %s dirty path(s), not two, so it
+' "${proc_ph:-nothing}" >&2
+		printf '            halts for the wrong reason -- a tree that was never dirtied halts nothing.
+' >&2
+		return 1
+	fi
+	if [ "${proc_halt_control_planted:-1}" = 0 ]; then
+		printf '            the mutant was never planted, so this leg ran shipped code and proves\n' >&2
+		printf '            nothing about the halt.\n' >&2
+		return 1
+	fi
+	# The halt is the first activation's act; the freeze is the second activation's consequence. Asked
+	# out of one journal they are the same sentence, and the outage #248 was filed for is exactly the
+	# difference between them: 15h57m of passes that refused to start anything.
+	if [ -z "$(proc_journal_line "$proc_jh" 'TICK-HALTED ')" ]; then
+		printf '            the halting control did not halt, so nothing below it can show what the\n' >&2
+		printf '            shipped pass above is not doing. Its journal:\n' >&2
+		sed 's/^/              /' "$proc_jh" | cut -c1-150 >&2
+		return 1
+	fi
+	if [ ! -e "$proc_halt" ]; then
+		printf '            it halted without leaving the marker, so the next activation would not\n' >&2
+		printf '            have stopped -- which is the whole of why the marker, not the log line,\n' >&2
+		printf '            is what freezes a queue.\n' >&2
+		return 1
+	fi
+	[ "$proc_rc" = 8 ] || {
+		printf '            the activation after the halt exited %s; 8 is the halt'"'"'s own code, the\n' "$proc_rc" >&2
+		printf '            one the installed unit lists in SuccessExitStatus.\n' >&2
+		return 1
+	}
+	if [ -z "$(proc_journal_line "$proc_journal" 'HALTED ')" ]; then
+		printf '            the second activation did not report the halt:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	awk '/TICK-START/ { found = 1 } END { exit found ? 1 : 0 }' "$proc_journal" || {
+		printf '            and it started a tick anyway, so the halt is not the freeze this suite\n' >&2
+		printf '            exists to refuse:\n' >&2
+		sed -n 's/^/              /p' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: the halt restored freezes it' 'exit 8, marker on disk, next run reports it, no tick' proc_halt_freezes
+
+# What the halting pass itself did with unit B, printed rather than asserted, because it is the
+# sentence #263 gets wrong and a reader should see the number next to the claim: the dispatcher
+# survives a tick's non-zero return (`case $rc_tick` falls through to `started++ ; rc=4`), so the unit
+# behind a halted one still got its turn *in that activation*. The outage is every activation AFTER it,
+# which is what the leg above asserts. #263 blames "every unit behind the quarantined one" on the
+# strength of one return code; the halt file, read before triage, is the mechanism.
+if [ -n "$(proc_journal_line "$proc_jh" 'TICK-START unclaimed:901')" ]; then
+	printf '        note: the halting pass still ticked unit B -- the freeze is the NEXT activation'"'"'s,\n'
+	printf '        which started nothing at all (exit %s). The halt file, not the return code.\n' "$proc_rc"
+fi
+
+# Control two: the quarantine succeeds -- the mirror is written, the tree is cleaned -- and then
+# reports failure, which is the mutation #263 names first. Same fixture, one inserted line after the
+# shipped `TREE-QUARANTINED` log.
+proc_new stop-returns-4
+proc_mutate 'log_event "TREE-QUARANTINED $unit' \
+	'		if [ "$n" -lt 2 ]; then return 4; fi # MUTANT-263B a rescued tree reported as a halt' ||
+	proc_stop_control_planted=0
+proc_plant
+proc_ps=$proc_planted
+proc_run stop-1
+
+
+proc_costs_its_own_unit_its_turn() {
+	if [ "${proc_ps:-0}" != 2 ]; then
+		printf '            this control'"'"'s fixture tree has %s dirty path(s), not two. A clean tree
+' "${proc_ps:-nothing}" >&2
+		printf '            reaches `TREE-CLEAN` for the same reason the mutant fails to reach it, and
+' >&2
+		printf '            the journal below cannot tell those apart: one is the control, one is nothing.
+' >&2
+		return 1
+	fi
+	if [ "${proc_stop_control_planted:-1}" = 0 ]; then
+		printf '            the mutant was never planted, so this leg ran shipped code.\n' >&2
+		return 1
+	fi
+	if [ -z "$(proc_journal_line "$proc_journal" 'TREE-QUARANTINED unclaimed:900')" ]; then
+		printf '            the mutant did not quarantine, so it is not the mutant described:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	awk '/TICK-START unclaimed:900/ { found = 1 } END { exit found ? 1 : 0 }' "$proc_journal" || {
+		printf '            a successful quarantine that returns non-zero still got its tick, so the\n' >&2
+		printf '            leg above that requires one is not pinning the return code after all.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: a false failure costs its turn' 'B ticked, A quarantined, A got no tick' proc_costs_its_own_unit_its_turn
+
+# Its blast radius too, measured rather than repeated from the issue: with the halt file never written,
+# the dispatcher's `case $rc_tick` absorbs the failure and unit B is reached. So this mutant costs one
+# unit one turn -- real, and smaller than the outage #263 describes. Saying so here is what keeps the
+# section's other numbers worth reading.
+if [ -n "$(proc_journal_line "$proc_journal" 'TICK-START unclaimed:901')" ]; then
+	printf '        note: that mutant stopped only its own unit -- the clean unit behind it still\n'
+	printf '        started (exit %s). The dispatcher treats a failed tick as a spent tick, not a\n' "$proc_rc"
+	printf '        stopped pass; only the halt file ends the queue, and only for later activations.\n'
+fi
+
+# ------------------------------------------------------------------ the third control, unasked for
+#
+# Both controls above end with the clean unit STILL TICKED, which contradicts the blast radius #263
+# describes ("every unit behind the quarantined one"). Left there, the section's central leg — "then
+# starts a tick for unit B" — would be a leg that can only say yes, which is the thing this whole file
+# exists to refuse. So the question is which edit to the shipped code actually stops B, and the answer
+# is one line below `factory_tree_stop`: the dispatcher's `factory_tick … || rc_tick=$?`. Under
+# `set -e` the bare call ends the pass on the spot; factory.sh carries the scar ("Measured: a tick that
+# exits 124 … ended the whole pass on the spot, so the units behind it were never reached and the
+# supervisor exited 5 with eight units still queued"). Make unit A's session fail — the state the guard
+# was written for — and run it twice, once shipped and once with the guard taken, so the one variable
+# is the guard and not the failure.
+proc_mutate_factory() { # <anchor> <line> -> the fixture's factory.sh with the anchor line replaced
+	local anchor=$1 line=$2 hits
+	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/factory.sh")
+	[ "$hits" = 1 ] || {
+		printf '            the mutant anchor occurs %s time(s) in factory/factory.sh, so it would not\n' "$hits" >&2
+		printf '            be planted where it is described. Anchor:\n              %s\n' "$anchor" >&2
+		return 1
+	}
+	awk -v line="$line" -v a="$anchor" '{ if (index($0, a)) print line; else print }' \
+		"$HERE/factory.sh" >"$proc_dir/factory.sh" || return 1
+	grep -qF -- "$line" "$proc_dir/factory.sh" || {
+		printf '            the mutant line is not in the copy, so the control ran shipped code\n' >&2
+		return 1
+	}
+	return 0
+}
+
+# A failing session for unit A only. Everything else is the shipped fixture.
+proc_new fail-shipped
+proc_plant
+proc_pf=$proc_planted
+proc_tick_fails=unclaimed:900
+proc_run fail-1
+proc_jf=$proc_journal
+proc_tick_fails=''
+
+proc_failed_tick_alive() {
+	[ "${proc_pf:-0}" = 2 ] || {
+		printf '            the failing fixture tree has %s dirty path(s), not the two this section\n' "${proc_pf:-nothing}" >&2
+		printf '            plants, so this is not the state the dispatcher was written for.\n' >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jf" 'TICK-FAILED unclaimed:900')" ] || {
+		printf '            unit A'"'"'s session did not fail, so nothing below asks the question:\n' >&2
+		sed 's/^/              /' "$proc_jf" | cut -c1-150 >&2
+		return 1
+	}
+	[ -n "$(proc_journal_line "$proc_jf" 'TICK-START unclaimed:901')" ] || {
+		printf '            a FAILED tick stopped the pass dead: the unit behind it never started,\n' >&2
+		printf '            which is the outage #263 describes and the guard exists to refuse.\n' >&2
+		sed 's/^/              /' "$proc_jf" | cut -c1-150 >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'a failed tick spends its unit, not the pass' "A's session exits 1, and B still gets its TICK-START" proc_failed_tick_alive
+
+proc_new unguarded-dispatch
+proc_mutate_factory \
+	'factory_tick "$bclass" "$bkey" "$bdetail" "$bbranch" "$bissue" "$bask" || rc_tick=$?' \
+	'	factory_tick "$bclass" "$bkey" "$bdetail" "$bbranch" "$bissue" "$bask" # MUTANT-263C' ||
+	proc_dispatch_control_planted=0
+proc_plant
+proc_pg=$proc_planted
+proc_tick_fails=unclaimed:900
+proc_run unguard-1
+proc_jg=$proc_journal
+proc_tick_fails=''
+
+proc_guard_is_the_difference() {
+	if [ "${proc_pg:-0}" != 2 ] || [ "${proc_dispatch_control_planted:-1}" = 0 ]; then
+		printf '            the third control did not reach its state (tree %s dirty path(s), mutant\n' "${proc_pg:-nothing}" >&2
+		printf '            planted %s), so its silence about unit B means nothing.\n' \
+			"$([ "${proc_dispatch_control_planted:-1}" = 0 ] && printf 'no' || printf 'yes')" >&2
+		return 1
+	fi
+	[ -n "$(proc_journal_line "$proc_jg" 'TICK-FAILED unclaimed:900')" ] || {
+		printf '            the mutant did not fail unit A either, so it is not the same fixture:\n' >&2
+		sed 's/^/              /' "$proc_jg" | cut -c1-150 >&2
+		return 1
+	}
+	if [ -n "$(proc_journal_line "$proc_jg" 'TICK-START unclaimed:901')" ]; then
+		printf '            and the guard-taken pass still reached unit B, so the leg above that needs\n' >&2
+		printf '            the guard is pinning something else:\n' >&2
+		sed 's/^/              /' "$proc_jg" | cut -c1-150 >&2
+		return 1
+	fi
+	# The pair, in one place: same failing unit, same queue, the guard the only difference.
+	[ "$proc_rc" != 0 ] || {
+		printf '            the guard-taken pass exited 0; the shipped one exits %s, and 0 here means\n' "$proc_rc1" >&2
+		printf '            set -e never saw the failure, so the two runs are not the pair described.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'control: the guard off, and B is never reached' 'the same fixture without the guard: B is never reached' proc_guard_is_the_difference
+
+printf '        note: the third control is the one #263 described. Its journal ends at A (exit %s),\n' "$proc_rc"
+printf '        while the shipped dispatcher reaches B with the same failing session. So the property\n'
+printf '        "the pass continued past the quarantine" is held by TWO lines -- tree_stop returning 0\n'
+printf '        on a rescue, and the `|| rc_tick=$?` that keeps a spent tick from ending the pass.\n'
 
 # ---------------------------------------------------------------- one verdict: is the loop doing anything
 #
