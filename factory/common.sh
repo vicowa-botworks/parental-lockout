@@ -1325,6 +1325,7 @@ factory_tree_halt() {
 factory_tree_quarantine() {
 	local unit=$1 tree=$2
 	local dirt_rc=0 err="" sha="" subject="" patch="" tmp="" restore="" confirm="" confirm_rc=0
+	local why=""
 
 	if [ -z "$unit" ] || [ -z "$tree" ]; then
 		printf 'quarantine refused: wants a unit and a tree, got %s/%s\n' "${unit:-nothing}" "${tree:-nothing}" >&2
@@ -1414,9 +1415,30 @@ factory_tree_quarantine() {
 	fi
 	patch="$FACTORY_AT_RISK/$(basename -- "$tree")-quarantine-$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:9}.patch"
 	tmp="$patch.tmp.$$"
-	if ! err=$(git -C "$tree" stash show -p --binary --include-untracked "$sha" >"$tmp" 2>&1) || [ ! -s "$tmp" ]; then
-		printf 'quarantine refused: no mirror could be written to %s :: %s\n' "$patch" \
-			"$(printf '%s' "$err" | tr '\n\r' '  ' | cut -c1-140)" >&2
+	# Redirect ORDER is the sentence. `>"$tmp" 2>&1` points stderr at the FILE -- the copy this arm
+	# deletes two lines later -- and leaves the capture empty, so every mirror refusal printed `… :: `
+	# with nothing after the colon. Measured 10 Nov against the shipped function, with `git stash show`
+	# refusing: the journal read `no mirror could be written to /…/repo-quarantine-….patch :: `. The
+	# worse half is the other direction: with stderr merged into the mirror, a read that exits 0 while
+	# writing nothing to stdout still fills `$tmp` with its warning, the `[ ! -s ]` guard calls that a
+	# patch, and the run journals a mirror that restores nothing -- H-0063's hazard, arriving through the
+	# merge instead of through a binary. `2>&1 >"$tmp"` sends stderr to this command substitution's pipe,
+	# where the printf can quote it, and stdout to the file, where only the patch belongs.
+	if ! err=$(git -C "$tree" stash show -p --binary --include-untracked "$sha" 2>&1 >"$tmp"); then
+		printf 'quarantine refused: rendering stash %s failed :: %s\n' "${sha:0:9}" \
+			"$(printf '%s' "${err:-git exited non-zero and said nothing}" | tr '\n\r' '  ' | cut -c1-140)" >&2
+		rm -f -- "$tmp"
+		restore=$(factory_tree_unstash "$tree" "$sha")
+		[ -z "$restore" ] || printf 'quarantine: %s\n' "$restore" >&2
+		return 2
+	elif [ ! -s "$tmp" ]; then
+		# A different cause, and it used to share one sentence with the arm above: git answered with its
+		# success status and produced no bytes. That is a stash that holds nothing this rendering can
+		# carry, not a git that refused, and the fix for the two is not the same command. Say which.
+		why='git exited 0 and wrote no bytes'
+		[ -z "$err" ] ||
+			why="$why; it said: $(printf '%s' "$err" | tr '\n\r' '  ' | cut -c1-120)"
+		printf 'quarantine refused: stash %s rendered an empty mirror :: %s\n' "${sha:0:9}" "$why" >&2
 		rm -f -- "$tmp"
 		restore=$(factory_tree_unstash "$tree" "$sha")
 		[ -z "$restore" ] || printf 'quarantine: %s\n' "$restore" >&2
