@@ -473,10 +473,19 @@ shapes a sibling arrives in do not behave the same way:
 | pushed from **another clone** | missed: `D-0002`, while origin holds `D-0007` | seen: `D-0008` | a push moves `refs/heads` there; `refs/remotes` here moves on a fetch only |
 
 So the skill's re-read immediately before the entry commit closes the same-machine window and nothing
-else, and the refresh closes the other -- `git fetch --prune origin`, then merge or fast-forward the
-unit's trunk as the harness instructs. One machine can lean on the re-read; a queue that runs on two
-must fetch before it allocates. Nothing in the harness fetches on a tick's behalf, which is `H-0056`
-again.
+else. The second row is closed by the activation itself (H-0075): `factory.sh` fetches origin -- every
+branch, once, bounded by `FACTORY_FETCH_TIMEOUT`, before it reads the queue -- so `refs/remotes` is
+current by the time the allocator runs in a tick's shell. The command an operator types is still
+`git fetch --prune origin`, and the shape matters more than it looks: measured in a fixture,
+`git fetch --prune origin main` updates the trunk only, leaves the allocator on its stale answer, and
+still prints a line with `->` in it. A sibling's ids are on the branch it pushed.
+
+Two things the fetch cannot do. It does not make the id *reserved*: two ticks that allocate in the
+same second still agree, and only the re-read immediately before the entry commit narrows that. And it
+is bounded, so on an origin that accepts the connection and never answers the activation proceeds on
+stale refs and says so -- `REFRESH-TIMEOUT`, with how old `origin/<trunk>` is -- rather than holding
+`factory/run/lock` while the queue freezes behind a read. A clone whose refspec names one branch
+cannot learn a sibling's branch at all, and the activation says that too, as `REFRESH-BLIND`.
 
 `scripts/check-decisions.py` remains the last-resort gate for the consequences: it refuses a repeated
 id in one log and one id claimed by both logs, but it is deliberately offline and cannot reserve an
@@ -497,6 +506,7 @@ Everything is an environment override with a default, in `factory/common.sh`.
 | `FACTORY_TREES` | `../wt` | where per-unit worktrees live; deliberately not under `/tmp` |
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
+| `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on the one `git fetch` an activation does (H-0075); hit it and the pass dispatches on the refs it has, and says so |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |

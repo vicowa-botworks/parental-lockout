@@ -70,6 +70,14 @@ FACTORY_MAX_TICKS=${FACTORY_MAX_TICKS:-3}
 # Supervisor wall-clock budget for one invocation, so a systemd `oneshot` cannot overlap the
 # next activation of its own timer.
 FACTORY_BUDGET=${FACTORY_BUDGET:-5400}
+# How long the pass's one `git fetch` (H-0075) may hold the lock before it is called a hung
+# connection and abandoned. Steady state is not the case this bounds: measured 9 Nov on this clone,
+# a no-op `git fetch --prune origin` over 9 remote refs costs 0.68s. It bounds the pathological one,
+# where the remote accepts the connection and says nothing, and #879 is the precedent for what a
+# read that parks costs. A fifth of the timer's 600s cadence, so the worst case the bound allows is
+# one activation that finds the lock held and exits 7 -- and the pass continues either way, because
+# a queue that stops running is indistinguishable from a queue with nothing in it.
+FACTORY_FETCH_TIMEOUT=${FACTORY_FETCH_TIMEOUT:-120}
 
 # Where per-unit worktrees live. Deliberately outside /tmp: six abandoned trees were found in
 # /tmp/opencode on 4 Nov, and a tree that a reboot can delete can also delete unmerged work.
