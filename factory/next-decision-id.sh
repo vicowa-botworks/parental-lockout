@@ -179,9 +179,17 @@ fi
 
 highest=$(
 	{
-		# An `if`, not `[ -f ] && cat`: a log that is in HEAD but not in the working tree makes that
-		# AND-list false, and under `set -e` a false list is a status, which is the same trap the
-		# prefix inference above documents.
+		# An `if`, not `[ -f ] && cat` -- and not because the AND-list was ever fatal. That claim
+		# shipped in this branch's first draft and is corrected in H-0073: bash exempts a failing
+		# command inside an `&&` list from `set -e` (`bash -c 'set -euo pipefail; out=$( { [ -f /nope
+		# ] && cat /nope; echo AFTER; } | cat ); echo $out'` prints `AFTER`), and measured on `91d992d`
+		# a fixture whose DECISIONS.md is in HEAD and deleted from the working tree answered `D-0008`
+		# with status 0. The `if` is kept because it is the shape that says what it does -- read the
+		# file when it is there, skip it when it is not -- and a leg in `selftest.sh` pins that answer
+		# now instead of a rumour about it. The `sed` above this block is the command that really died:
+		# under `pipefail` a pipeline hands its status to the assignment, so a missing log ended the
+		# script before any message (measured on `91d992d`, the same fixture without `--prefix`: status
+		# 2, stdout and stderr both empty).
 		if [ -f "$target" ]; then cat -- "$target"; fi
 
 		# HEAD first, then every branch. A remote-tracking ref may name a commit the local

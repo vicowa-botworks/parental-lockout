@@ -5143,7 +5143,7 @@ alloc_boundary() { # <label> <repo> <log path> <prefix> <stale id> <fresh id> <w
 
 decision_ids() {
 	local base current multi repo wt bad alloc_empty alloc_nolog alloc_nopfx alloc_bleed
-	local alloc_notlog alloc_dirlog
+	local alloc_notlog alloc_dirlog alloc_headonly
 
 	if [ ! -f "$alloc_script" ]; then
 		printf '  SKIP  %-40s next-decision-id.sh is not in this tree\n' \
@@ -5384,6 +5384,22 @@ decision_ids() {
 
 	alloc_refuse 'a repository with no log refuses' "$alloc_nolog" DECISIONS.md D \
 		'so a bare checkout is never answered out of the tree the command was invoked from'
+
+	# The shape H-0073's `Effect:` claimed was fatal and was not: the log is in HEAD and gone from the
+	# working tree. Pinned as an answer rather than as a refusal, because that is what it is -- the
+	# guard passes on the blob in HEAD, the `if` skips a file that is not there, and the union reads
+	# HEAD. Measured on `91d992d` before it was written, and it answered `D-0008` with status 0 there
+	# too: no leg planted this shape, which is exactly why a claim about it survived one review.
+	alloc_headonly=$alloc_work/log-in-head-not-in-tree
+	if ! alloc_fixture "$alloc_headonly" DECISIONS.md '## D-0007 · the entry only HEAD still holds' ||
+		! rm -f -- "$alloc_headonly/DECISIONS.md"; then
+		printf '  SKIP  %-40s the deleted-from-the-tree fixture could not be\n' 'the HEAD-only log leg'
+		printf '          written; the leg below is about a tree that does not exist.\n'
+	else
+		alloc_leg 'a log in HEAD but not in the tree answers from HEAD' "$alloc_headonly" \
+			DECISIONS.md D D-0008 \
+			'the union reads HEAD; the AND-list was never the trap H-0073 said it was'
+	fi
 
 	# ---- a path that exists and is still not the log (PR #257's review of the guard above) -------
 	#

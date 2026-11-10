@@ -1758,6 +1758,22 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   naming the path; the calls that worked are unchanged (`D-0052` and `H-0073` here, a fixture at
   `D-0001` answers `D-0002`, a fresh uncommitted log answers `D-0001`, a heading-less
   `factory/DECISIONS.md` answers `H-0001` with no `--prefix`).
+- Correction (`H-0073`, 10 Nov, on #257's review): one clause of this `Effect:` is false, and so is the
+  code comment that came with it. The union's `[ -f ] && cat` did not become an `if` because "a log
+  present in `HEAD` but not in the tree" could "trip the same trap" -- it could not. Bash exempts a
+  failing command inside an `&&` list from `set -e`: `bash -c 'set -euo pipefail; out=$( { [ -f /nope ]
+  && cat /nope; echo AFTER; } | cat ); echo $out'` prints `AFTER`, and measured on `91d992d` with
+  `--prefix D`, a fixture whose `DECISIONS.md` is in `HEAD` and deleted from the working tree answered
+  `D-0008` with status 0. The `sed` half of the same sentence is real and reproduces -- the same
+  fixture, no `--prefix`, status 2 with both streams empty, because `pipefail` gives the pipeline's
+  status to the command-substitution assignment -- and that is what the branch actually fixed. The `if`
+  stays because it says what it does, not because it closes a failure mode; the claim was written before
+  it was measured, the same hazard the entry two numbers later records about its own `Effect:` line.
+  Nothing in the suite planted the deleted-from-the-tree shape either, so nothing could have
+  contradicted it: `factory/selftest.sh` now answers it
+  (`a log in HEAD but not in the tree answers from HEAD`, `D-0008`). This entry is corrected in a dated
+  line rather than rewritten, because it is cited as evidence and a silently corrected decision log is
+  indistinguishable from one that was always right.
 
 
 ## H-0074 · Two sessions can still take the same id, so the merge arbitrates it and the yield rule is written down
