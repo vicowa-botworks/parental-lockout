@@ -3216,3 +3216,35 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
     `chore(checkpoint): pre-H-0096`, because retaking it after the merge would record the state this
     decision produced -- the thing the log already had -- and `H-0090` settled that a checkpoint is the
     tree the allocator was asked about, not the number the entry ended up with.
+  - A previous tick reached the same rule from the same measurements and is parked, unmerged, in the
+    supervisor's own quarantine. The activation that opened this tick found the tree dirty and wrote, in
+    `/home/rodney/prj/parental-lockout/factory/log/supervisor.log`:
+
+    ```
+    2026-11-10T20:18:23Z TREE-QUARANTINED unclaimed:272 modified: docs/factory.md factory/selftest.sh factory/triage.sh  attempt=1 stash=d67d04599 mirror=/home/rodney/prj/at-risk/issue-272-quarantine-20261110T201823Z-d67d04599.patch
+    ```
+
+    That stash is 261 lines over the same three files -- `git diff d67d0459^ d67d0459` and the mirror patch
+    each hold it whole -- written on top of `8ac3eed` and never committed, so it is in no queue any sweep
+    reads. It is named here and in a comment on the pull request (`#273`, posted 20:32:31Z) rather than
+    left in `git stash list`, because the failure this repository has written up most often is work that
+    exists only where nobody looks: `AGENTS.md` calls the branch-shaped case `branch_without_pr` and this is
+    the same defect with a filename on it. Whoever reads it next should read the bullet below first.
+  - The one judgement the parked attempt and this entry do not share, recorded rather than quietly won. It
+    counts a verdict as anything that is not `DISMISSED`, so a `COMMENTED` row stands and nobody is
+    re-asked, and it pins that with a leg named `a comment is a review that stands, so nobody is re-asked`;
+    this entry counts `APPROVED` or `CHANGES_REQUESTED`, so comments-only re-asks as well. **No measurement
+    here decides it, and none is claimed:** the census is complete rather than sampled --
+    `gh pr list --state all --limit 250 --json number,reviewDecision,reviews` answers 150 rows, which is every
+    pull request this repository has ever had, 29 of them carry a `COMMENTED` row, and all 29 read
+    `reviewDecision=APPROVED` because each also carries an approval. The comments-only-plus-`REVIEW_REQUIRED`
+    state has never occurred on this account. What the choice rests on is the asymmetry of cost, and it is
+    stated so a reader can weigh it: asking costs one throttled poke per `FACTORY_REVIEW_POKES` and GitHub
+    answers 422 when a request is already outstanding, while not asking is the unbounded silence every arm
+    above exists to prevent. **One premise of the widening is not measured here and is not presented as if
+    it were:** that submitting a comment review clears that reviewer's outstanding request, which is what
+    would make the parked reading a wait nobody owes rather than one somebody is still answering. No pull
+    request on this account has ever been in that state, so there is nothing to read back -- the claim is
+    GitHub's documented behaviour carried in, not a measurement, and the legs pin only what the classifier
+    answers. A reviewer who prefers the narrower predicate changes one `select` and one leg; both fixtures
+    exist, in two copies now.
