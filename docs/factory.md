@@ -463,10 +463,21 @@ so "first free" is not "smallest missing number".
 
 It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
 verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
-That makes the answer a collision-free *read*, not a lock. The operator refreshes it explicitly --
-`git fetch --all --prune` -- then merges or fast-forwards the unit's trunk as the harness instructs.
-The skill requires a second allocator read immediately before the entry commit. If a sibling lands in
-that window, the second read sees its ref and the entry moves before it is written.
+That makes the answer a collision-free *read*, not a lock, and the read has a boundary. It is stated as
+a measurement here because the skill's second read is only worth what it can see (H-0071), and the two
+shapes a sibling arrives in do not behave the same way:
+
+| A sibling that… | Unfetched | After `git fetch` | Why |
+|---|---|---|---|
+| committed in another worktree of **this clone** | seen: `D-0002` → `D-0010` | seen | every unit tree is a worktree, and worktrees share `refs/heads` |
+| pushed from **another clone** | missed: `D-0002`, while origin holds `D-0007` | seen: `D-0008` | a push moves `refs/heads` there; `refs/remotes` here moves on a fetch only |
+
+So the skill's re-read immediately before the entry commit closes the same-machine window and nothing
+else, and the refresh closes the other -- `git fetch --prune origin`, then merge or fast-forward the
+unit's trunk as the harness instructs. One machine can lean on the re-read; a queue that runs on two
+must fetch before it allocates. Nothing in the harness fetches on a tick's behalf, which is `H-0056`
+again.
+
 `scripts/check-decisions.py` remains the last-resort gate for the consequences: it refuses a repeated
 id in one log and one id claimed by both logs, but it is deliberately offline and cannot reserve an
 id in advance.

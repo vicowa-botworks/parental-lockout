@@ -144,8 +144,14 @@ When you reach a decision point, do this instead, in this order:
    `refs/remotes`, then returns the first free id above that ceiling. Never take the highest heading in
    the current file as the whole answer: a sibling branch's entry is already a durable citation and a
    merge target even though this checkout has never seen it (#253). Re-run the allocator immediately
-   before the entry commit. It is a read, not a reservation, and the second read catches a sibling
-   merged or pushed while the session worked.
+   before the entry commit. It is a read, not a reservation, and the second read sees only what moved
+   **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
+   `refs/heads` (measured: `D-0002` before the sibling commits, `D-0010` after, with no fetch), while
+   a sibling that pushed from a different clone does not, because an unfetched push never moves
+   `refs/remotes` (measured: the same call answers `D-0002` while origin already holds `D-0007`, and
+   `D-0008` one `git fetch` later). Nothing in the harness fetches on a tick's behalf -- that is
+   `H-0056`, the same verdict `factory/common.sh` records beside the staleness check -- so if this
+   queue runs on more than one machine, run `git fetch --prune origin` before that second read.
 2. **Checkpoint next**, always before the decision, never after:
    `git commit --allow-empty -m "chore(checkpoint): pre-D-<NNNN> <why>"`. That commit is the
    rollback target, and it is worthless if it is taken after the change.

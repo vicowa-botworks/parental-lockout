@@ -1585,3 +1585,55 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   counted controls. Re-measured after the write: `bash factory/selftest.sh` moved from the pre-change
   `275 passed, 0 failed` to `282 passed, 0 failed`; `factory/next-decision-id.sh factory/DECISIONS.md`
   printed H-0070, and `make check-shell` reported 28 scripts.
+
+
+## H-0071 · The allocator's re-read is written as what it can see: a sibling worktree is visible, an unfetched push is not
+
+- Question: H-0070 shipped the allocator and the skill's new step closed with "the second read catches
+  a sibling merged or pushed while the session worked". One half of that sentence is true and one is
+  not. Which half does the re-read actually cover, and what goes in the claim?
+- Options: leave the sentence as written | rewrite the skill and `docs/factory.md` to the measured
+  boundary and pin both halves in `factory/selftest.sh` | make the allocator fetch, so the claim
+  becomes true | give the allocator an opt-in `--refresh` and tell the tick to use it | have
+  `factory.sh` fetch the trunk before every dispatch
+- Chose: rewrite the skill and `docs/factory.md` to the measured boundary and pin both halves in
+  `factory/selftest.sh`
+- Why: measurements first, in two fixtures under the selftest's own temp tree. Same clone, second
+  worktree: the sibling commits `D-0009` in its own worktree, and the primary answers `D-0002` before
+  that commit and `D-0010` after it, with no fetch anywhere in between -- worktrees share
+  `refs/heads`, and every unit tree this harness makes is a worktree (`common.sh`'s `git worktree
+  add`), so for the concurrency this machine actually runs, the re-read is real. Two clones: origin
+  holds `D-0007` on a branch delivered by a second copy, and the first copy answers `D-0002` -- its own
+  stale ceiling, while origin is already at `D-0007` -- then `D-0008` after one `git fetch`. An
+  unfetched push never moves `refs/remotes`, so `merged` was true and `pushed` was not. The two
+  documents also disagreed with each other: `docs/factory.md` already told the operator to refresh
+  while the skill said the window was shut. What the false half costs: a session that believes it
+  re-reads, gets the same number back, and concludes no sibling exists -- on a queue that runs on two
+  machines that is issue #253's failure again, this time with a green allocator behind it. Tie-break:
+  fewest files, reversible by `git revert` alone, and the shape the surrounding code already takes --
+  `factory/common.sh`'s staleness verdict reads refs as this checkout last learned them and says so
+  beside the code, and the conflict path fetches explicitly where it must (`git fetch origin "$base"`
+  in `factory/factory.sh`). Why the four alternatives lose. **Leave the sentence** is the defect.
+  **Fetch in the allocator** and **`--refresh`** both put a blocking network read in front of a per-tick
+  budget, the hazard H-0013, H-0056 and #879 price, and the only use of an opt-in flag is that ticks
+  opt in. **A fetch before every dispatch** reopens H-0056, a standing decision about the supervisor's
+  ref policy, to shrink a window this entry documents instead; it is the follow-up named in the pull
+  request, not this commit. The selftest now carries both shapes as behaviour instead of prose:
+  `a sibling worktree is refused its id` answers `D-0010` off the sibling's own commit, with the
+  narrower-read control falling back to `D-0002`, and `an unfetched sibling push is invisible` asserts
+  both the blind answer and the fetched one -- the second half is what stops the first from being a
+  fixture that never met origin at all. `the shared allocator is documented` now requires the refresh
+  command in both documents as well as the path, and its control deletes every line naming the refresh
+  and demands a refusal. What lost, as measured: the cross-machine window is still open until someone
+  fetches -- this commit makes it legible, not shut; the fixture's origin is a local bare repository,
+  so no leg measures real network latency or a fetch that hangs; and an allocator on a machine that has
+  never contacted this origin still cannot see a sibling there, which is the same read-not-lock limit
+  H-0070 recorded.
+- Checkpoint: 5416659a40a4fe9ef0d1b5d84f9fb0f9e269e71b
+- Effect: `.opencode/skills/factory/SKILL.md` step 1 states the boundary with both measurements and
+  names `git fetch --prune origin` for a multi-machine queue; `docs/factory.md` gains the two-row table
+  of what is seen and what is missed; `factory/selftest.sh` gains two counted legs and two counted
+  controls, and its allocator doc-check now reads the refresh as well as the path. Re-measured after
+  the write, from the files as committed: `bash factory/selftest.sh` moved from `282 passed, 0 failed`
+  to `284 passed, 0 failed`; `make check-shell` reported 28 scripts with 0 findings; both documents read
+  back with the sentences named above in them before this entry was written.
