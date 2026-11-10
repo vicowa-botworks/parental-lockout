@@ -2211,3 +2211,59 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   arm costs the two legs that own it. Wiring that clear into `pos_install` instead was tried and is
   wrong: the install legs' subject is the state the previous leg left, and clearing it produced `344
   passed, 12 failed` with `install refuses a stale tree` no longer holding a stale tree.
+## H-0084 · The mirror-box leg asserted the real box was empty, so a live supervisor made the gate unpassable and was blamed for it
+
+- Question: `quarantine_stays_in_the_fixture` passes when `$HOME/prj/at-risk` holds no
+  `*-quarantine-*.patch`. On 10 Nov `make verify` on this box read `1 quarantine patch(es) in
+  /home/rodney/prj/at-risk -- this file has written to the directory that holds the only copies of
+  real work`, about `issue-263-quarantine-20261110T151215Z-2008e6100.patch`. Its name stamps
+  `20261110T151215Z`, `ls --time-style=full-iso` gives its mtime as `2026-11-10 10:12:15.85 -0500`, and
+  the legs this file prints journal timestamps for ran at `15:56:41Z`-`15:56:48Z` in that very log --
+  44 minutes after the patch was written, by a supervisor quarantining unit issue-263.
+  `find /home/rodney/prj/at-risk -newermt '2026-11-10 15:40' -printf '%p\n'` returns nothing, so
+  nothing in the box is newer than that write and this suite put nothing there. Should the gate assert
+  the box is empty, or that this run did not change it?
+- Options: leave it and have operators clear the box before `make verify` | narrow it to files whose
+  mtime falls inside the run | snapshot the box at suite start and assert the set is unchanged |
+  delete the leg
+- Chose: snapshot the box at suite start and assert the set is unchanged
+- Why: each rejected option breaks the thing the leg is for. Clearing the box is deleting mirrors to
+  pass a test, and those patches are the only copies of work that exists nowhere else -- the object
+  `H-0078` derives the box to protect and `H-0076` refuses the trees for the same reason. An mtime
+  window is not identity: `factory_tree_quarantine` stamps the *sha* it mirrored into the filename, so
+  a tick that re-mirrors an old dirty stop produces a name inside the window whose bytes are not this
+  run's, and the window reads that as innocent; `H-0043`'s bargain is to measure and assert what the
+  measurement answered, never to infer from a timestamp. Deleting the leg removes the only proof that
+  the fixture's `$FACTORY_AT_RISK` override is honoured, which is what makes the `ok`s of the `q_arm`
+  legs above it mean anything -- and this file's own history is a list of legs that passed while
+  measuring nothing (`H-0054`'s `gh`-absent section, `H-0059`'s identity-starved fixture, `H-0079`'s
+  `344 passed, 0 failed` with the push arm inert). `unchanged` is the stronger claim in both
+  directions, which is the part to keep: a box this suite *emptied* is as much a bug as one it
+  littered, and `empty` passed that silently while `unchanged` goes red on either. Naming each file
+  with its own mtime is what lets the next reader separate "the supervisor wrote this during the gate"
+  from "this suite wrote this" -- the ambiguity that produced the wrong accusation here -- and the
+  `grep -h TREE-QUARANTINE ~/prj/*/factory/log/supervisor.log | tail` it prints is the command that
+  names the unit.
+- Checkpoint: f4f774f
+- Effect: `factory/selftest.sh` — `quarantine_stays_in_the_fixture` now compares the box against a
+  snapshot taken at line ~99, immediately after `trap cleanup`, and says so in its own ok line when the
+  box already holds patches; the comparison is its own function, `at_risk_diff`, because the control
+  needs something to hand a doctored input and the real box must never be doctored to test a guard
+  whose job is that nothing moves work into it; the failure names each file with its own mtime in both
+  directions and prints `grep -h TREE-QUARANTINE ~/prj/*/factory/log/supervisor.log | tail` as the
+  command that identifies the unit that wrote it. `docs/factory.md` gains no line: the doc never
+  claimed the box was empty, only that the legs mirror into the fixture.
+  What lost, stated as measured: the leg no longer refuses a box that was already dirty when the suite
+  started, so a run that begins with real patches present cannot tell an old patch apart from a
+  same-name patch this suite wrote — mtime and name are printed for a human to make that call, which
+  is strictly more than the old leg's accusation and less than a proof. Discrimination, mutants applied
+  to the working tree from a backup and restored, every tally from `bash factory/selftest.sh`: the
+  shipped assertion on this box -> `355 passed, 1 failed`, the failure the false accusation recorded in
+  the Question above; the fixed leg -> `356 passed, 0 failed`; `at_risk_diff` blinded with an early
+  `return 0` -> `356 passed, 2 failed`, both under `control: the diff sees a change`, one per
+  direction; `printf --` reduced to `printf` in the vanished-file arm -> `printf: - : invalid option`
+  on stderr and `356 passed, 1 failed`, the control catching a bash builtin rule that had already eaten
+  the line on the leg's first draft. No leg writes into the real box on purpose, so the `+` direction
+  is proven against synthetic lists in the control rather than by moving real work, and that limit is
+  stated here rather than left implied: what is verified live is that this suite's own writes land in
+  `$FACTORY_AT_RISK`, and that the box is the same set of paths at the end of a run as at its start.

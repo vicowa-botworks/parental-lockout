@@ -90,6 +90,16 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# The real mirror box, as it stands BEFORE this file can write anywhere. `quarantine_stays_in_the_fixture`
+# compares against this. Taken here, at line ~92 and not at the leg two thousand lines later, because the
+# half being recorded is the half this suite could damage: by the time the leg runs, the quarantine legs
+# have each written a mirror and the box can no longer be distinguished from what they did. A global on
+# purpose -- it is a reading of the machine, not of a fixture.
+at_risk_at_start=''
+if [ -d "${HOME:-/var/tmp}/prj/at-risk" ]; then
+	at_risk_at_start=$(find "${HOME}/prj/at-risk" -name '*-quarantine-*.patch' 2>/dev/null | sort)
+fi
+
 # The verdict under test, as `verb<TAB>detail`.
 verdict() {
 	local out rc=0
@@ -1823,8 +1833,31 @@ done
 # directory whose whole contents are work that exists nowhere else, so a leg that inherited the
 # default would tidy the thing it is describing -- and would do it quietly, because the file it moves
 # is by definition a file nobody was watching.
+# at_risk_diff <before> <after> -> one line per patch that appeared (`+`, with its mtime) or vanished
+# (`-`) between two listings of the mirror box. Its own function because the leg needs a control, and a
+# control needs something to hand a doctored input: the box itself cannot be doctored without moving real
+# work, which is the one thing this suite exists to forbid. A file the box is hiding -- unreadable, or
+# gone between the listing and the question -- prints `mtime unreadable` rather than nothing, so the
+# line never disappears from the report. The `- ` half needs `printf --`: without the separator bash
+# reads the format string as an option and prints nothing at all (`printf: - : invalid option`, to
+# stderr, and an empty string where the whole point of the line was the vanished file) -- found by the
+# control below on the first run, which is the argument for it.
+at_risk_diff() {
+	local before=$1 after=$2 f
+	printf '%s\n' "$after" | while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		printf '%s\n' "$before" | grep -qxF -- "$f" ||
+			printf '+ %s (mtime %s)\n' "$f" "$(date -u -r "$f" +%Y-%m-%dT%TZ 2>/dev/null || printf 'unreadable')"
+	done
+	printf '%s\n' "$before" | while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		printf '%s\n' "$after" | grep -qxF -- "$f" || printf -- '- %s (gone)\n' "$f"
+	done
+	return 0
+}
+
 quarantine_stays_in_the_fixture() {
-	local label="the mirror box is the fixture's" stray real where
+	local label="the mirror box is the fixture's" stray real where now changed
 	stray=$(find "$FACTORY_AT_RISK" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
 	# Ask whether the box is there before counting what is in it. Two reasons, one of which this line
 	# paid for: a GitHub runner has no ~/prj/at-risk, and `find` exits 1 on a directory that does not
@@ -1837,8 +1870,32 @@ quarantine_stays_in_the_fixture() {
 	# The other reason is honesty: where the box does not exist the second half of this assertion
 	# cannot fail, so the line says which of the two it checked rather than claiming both.
 	if [ -d "$HOME/prj/at-risk" ]; then
-		real=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
+		# NOT "the box is empty". The box is the machine's, and this suite is not the only thing that
+		# writes into it: `factory/factory.sh` mirrors a second dirty stop there for real, and the timer
+		# that runs `factory/factory.sh` is installed on the same box this gate runs on. Measured 10 Nov:
+		# `make verify` went red with `1 quarantine patch(es) in /home/rodney/prj/at-risk -- this file has
+		# written to the directory that holds the only copies of real work`, about a patch named
+		# `issue-263-quarantine-20261110T151215Z-2008e6100.patch` -- written at 15:12:15Z by the
+		# supervisor quarantining a real unit, 37 minutes before this file's first run at 15:49Z, with
+		# nothing in the box newer than that. Two failures at once: the sentence blamed this suite for an
+		# event it did not cause, and the gate became unpassable on exactly the machines where the loop is
+		# live -- which is every machine the loop matters on. So the assertion is the one it always meant:
+		# THIS RUN did not touch the box, compared against the snapshot taken before any leg could write.
+		# It is the stronger claim as well. A box this suite emptied is as much a bug as one it littered,
+		# and "empty" passed that while "unchanged" goes red on both directions.
+		now=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' 2>/dev/null | sort)
 		where="$HOME/prj/at-risk"
+		changed=$(at_risk_diff "$at_risk_at_start" "$now")
+		if [ -n "$changed" ]; then
+			fail=$((fail + 1))
+			printf '  FAIL  %-34s the real box changed while this file ran:\n' "$label"
+			printf '%s\n' "$changed" | sed 's#^#          #'
+			printf '          A `+` this suite did not write means the supervisor mirrored real work\n'
+			printf '          during the gate. The command that names the unit is:\n'
+			printf '            grep -h TREE-QUARANTINE ~/prj/*/factory/log/supervisor.log | tail\n'
+			return 0
+		fi
+		real=$(printf '%s\n' "$now" | grep -c . || true)
 	else
 		real=0
 		where="$HOME/prj/at-risk (no box on this host)"
@@ -1848,12 +1905,34 @@ quarantine_stays_in_the_fixture() {
 		printf '  FAIL  %-34s no mirror was ever written to %s, so the legs above never\n' "$label" "$FACTORY_AT_RISK"
 		printf '          proved a mirror exists -- their ok means nothing.\n'
 	elif [ "$real" != 0 ]; then
-		fail=$((fail + 1))
-		printf '  FAIL  %-34s %s quarantine patch(es) in %s -- this file has written to\n' "$label" "$real" "$HOME/prj/at-risk"
-		printf '          the directory that holds the only copies of real work.\n'
+		pass=$((pass + 1))
+		printf '  ok    %-34s %s patch(es) in the fixture; the %s already in %s are the\n' "$label" "$stray" "$real" "$where"
+		printf '          same set this file started with, so none of them came from this run.\n'
 	else
 		pass=$((pass + 1))
 		printf '  ok    %-34s %s patch(es) in the fixture, none in %s\n' "$label" "$stray" "$where"
+	fi
+	# The control on the comparison itself, on synthetic lists so it runs on a runner with no
+	# ~/prj/at-risk as well. Every `ok` above is a claim about `at_risk_diff`, and an ok from a
+	# comparison that cannot see a change is the check being blind -- the failure mode this file already
+	# names in its own comments more than any other. Three independent arms, not an if/elif chain: an
+	# `elif` after the first failure skips the other two, so a single mutant hid two of the three
+	# directions (measured 10 Nov, blinding the comparator: `356 passed, 1 failed` with only the
+	# `appeared` arm reported, the `gone` arm never reached).
+	if [ -n "$(at_risk_diff '/a/one.patch' '/a/one.patch')" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s an unchanged box was reported as changed:\n' 'control: the diff sees a change'
+		printf '          %s\n' "$(at_risk_diff '/a/one.patch' '/a/one.patch')"
+	fi
+	if [ "$(at_risk_diff '' '/a/two.patch')" != '+ /a/two.patch (mtime unreadable)' ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a patch that appeared was not named:\n' 'control: the diff sees a change'
+		printf '          %s\n' "$(at_risk_diff '' '/a/two.patch')"
+	fi
+	if [ "$(at_risk_diff '/a/three.patch' '')" != '- /a/three.patch (gone)' ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a patch that vanished was not named:\n' 'control: the diff sees a change'
+		printf '          %s\n' "$(at_risk_diff '/a/three.patch' '')"
 	fi
 	return 0
 }
