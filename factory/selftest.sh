@@ -4425,25 +4425,25 @@ unit_name_resolution_arms() {
 	# survives `install-timer.sh --name other`, because a name chosen on a command line leaves no
 	# other trace a later activation can read.
 	rc=0
-	got=$(FACTORY_UNITS_DIR=$dir FACTORY_SERVICE_UNIT=renamed-factory.service FACTORY_NAME=fromrepo \
+	got=$(FACTORY_UNITS_DIR="$dir" FACTORY_SERVICE_UNIT=renamed-factory.service FACTORY_NAME=fromrepo \
 		factory_installed_tree) || rc=$?
 	{ [ "$rc" -eq 0 ] && [ "$got" = "$pos_current" ]; } || {
 		pos_say "FACTORY_SERVICE_UNIT did not win the name (rc=$rc, answer '$got')"; return 1; }
 	# arm 2: the repository's name, when the unit says nothing about itself.
 	rc=0
-	got=$(FACTORY_UNITS_DIR=$dir FACTORY_SERVICE_UNIT= FACTORY_NAME=fromrepo factory_installed_tree) || rc=$?
+	got=$(FACTORY_UNITS_DIR="$dir" FACTORY_SERVICE_UNIT='' FACTORY_NAME=fromrepo factory_installed_tree) || rc=$?
 	{ [ "$rc" -eq 0 ] && [ "$got" = "$pos_current" ]; } || {
 		pos_say "the repository's name did not resolve (rc=$rc, answer '$got')"; return 1; }
 	# arm 3: the checkout's own directory, with neither set -- the `--status` case, which answers
 	# before `factory_preflight` has read the remote. `$pos_current`'s directory is `tree-current`.
 	rc=0
-	got=$(FACTORY_UNITS_DIR=$dir FACTORY_SERVICE_UNIT= FACTORY_NAME= FACTORY_ROOT=$pos_current \
+	got=$(FACTORY_UNITS_DIR="$dir" FACTORY_SERVICE_UNIT='' FACTORY_NAME='' FACTORY_ROOT="$pos_current" \
 		factory_installed_tree) || rc=$?
 	{ [ "$rc" -eq 0 ] && [ "$got" = "$pos_current" ]; } || {
 		pos_say "the checkout's own directory did not resolve (rc=$rc, answer '$got')"; return 1; }
 	# The control: a name with no file behind it answers "nothing armed", not the nearest neighbour.
 	rc=0
-	got=$(FACTORY_UNITS_DIR=$dir FACTORY_SERVICE_UNIT=nope-factory.service factory_installed_tree) || rc=$?
+	got=$(FACTORY_UNITS_DIR="$dir" FACTORY_SERVICE_UNIT=nope-factory.service factory_installed_tree) || rc=$?
 	{ [ "$rc" -eq 1 ] && [ -z "$got" ]; } || {
 		pos_say "a name with no unit file answered rc=$rc with '$got', want 1 and nothing"; return 1; }
 	return 0
