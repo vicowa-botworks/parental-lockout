@@ -42,12 +42,22 @@ capture_begin "$RUN_NAME" "$RUN_PORT" "$RUN_CDP"
 # transcript prints which way it went.
 #
 # What that bought, measured 6 Nov as four runs of these two fixtures (both arms, both fixtures):
-# `PLOCK_CAPTURE_SCRIPTS=on` and the default produce ONE PNG each — `lock.png` `b59bb2be…`,
-# `testlock.png` `acc5ba4d…`, both equal to the committed files. They have to. Neither page renders a
-# `time[data-unix]` element, and rewriting those nodes is the only load-time DOM write in
+# `PLOCK_CAPTURE_SCRIPTS=on` and the default produce ONE PNG each, and they have to. Neither page renders
+# a `time[data-unix]` element, and rewriting those nodes is the only load-time DOM write in
 # `static/app.js`, so these renders hold nothing the page's scripts could change. The control is
 # `/dashboard`: with the scripts running its casey row reads `locked out until 7h 46m` instead of the
 # server's `until 00:00`, and `pages.py` refuses that frame on its declared state.
+#
+# The digests this block quoted for that pair — `lock.png` `b59bb2be…`, `testlock.png` `acc5ba4d…`, "both
+# equal to the committed files" — were not the committed files when they were written. Read out of the
+# blobs: `38578aa` (19 Oct) `b59bb2be`/`acc5ba4d`; `a2ccac0` and `9e07dde` (5 Nov) `4ad6d2b0`/`2c87c1b7`
+# and `7ec1a664`/`d008fdf9`; `b9eeec3` (6 Nov) `712ee631`/`ae25abeb`; `3bcbfdd` (8 Nov)
+# `df499589`/`d285d1cd`, which is what is committed now. So the sentence was true of the branch it was
+# measured on and stopped being true of `main` the day the masthead frames landed, and it sat in this
+# file for four days saying "equal to the committed files" about two digests no head publishes. The pair
+# was run again 10 Nov and both arms give one file apiece again — `df49958928685fa0…` and
+# `d285d1cd0d0389b6…`, equal to the committed frames. That is the conclusion the arms support; the
+# digests are only re-measurable the day they are quoted, which is #213 in one sentence.
 #
 # So the sentence this file carried until now — "all nine artifacts reproduced the committed digests,
 # therefore these pixels ARE the scripts-off pixels" — inferred a condition from a byte comparison that
@@ -105,6 +115,20 @@ capture_admin
 # probe page must have written lock.probed and nothing that claims a lock. Pre-loading events
 # would let either pass on someone else's audit line.
 : > "$AUDIT"
+
+# How many lockable sessions the target account holds on this machine right now, taken before the
+# browser starts and declared as a condition of the frame (#213). Both POST pages render one row per
+# lockable session of `$CAPTURE_TARGET`, so this number is the page's shape: it decides the row count
+# and therefore the height, and until now nothing anywhere said what it was. Asking the product
+# rather than counting logind rows here is deliberate — see the note on `capture_declare_census` in
+# fixture.sh for the measurements behind it.
+#
+# An operator declaration wins, and that is the negative control: `PLOCK_CAPTURE_SESSIONS=1` in front
+# of this script describes a census this machine does not have, and the driver has to refuse the frame
+# it would otherwise write.
+if [ -z "$CAPTURE_SESSIONS" ]; then
+  capture_declare_census "$PLOCK_BIN" "$CONFIG"
+fi
 
 capture_env
 capture_done

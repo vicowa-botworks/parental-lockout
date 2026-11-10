@@ -2,21 +2,38 @@
 # shellcheck shell=bash disable=SC2016
 # triage.sh -- what is stopping this repository's queue, read from GitHub and git.
 #
-# Prints one tab-separated row per thing that needs something:
+# Prints one U+001F-separated row per thing that needs something, seven columns:
 #
-#   kind    key       class                detail                         branch  issue
-#   pr      206       merge_now            approved, clean, checks pass   …       216
-#   pr      215       conflict             CONFLICTING/DIRTY              …       213
-#   pr      214       needs_reviewer       no review, nobody asked        …       211
-#   pr      206       awaiting_review      answered, requested of …       …       216
-#   issue   213       unclaimed            <title>                        -       213
-#   issue   232       delivered            delivered by merged PR #234 …  -       232
-#   branch  fix/x     branch_without_pr    2 ahead of main, no open PR    fix/x   -
+#   kind    key       class                detail                         branch  issue  ask
+#   pr      206       merge_now            approved, clean, checks pass   …       216    -
+#   pr      215       conflict             CONFLICTING/DIRTY              …       213    -
+#   pr      214       needs_reviewer       no review, nobody asked        …       211    -
+#   pr      206       awaiting_review      answered, requested of …       …       216    -
+#   pr      240       address_review       review asked for changes …     …       240    <the ask>
+#   pr      240       review_unreadable    21 bytes of body, no ask       …       240    -
+#   issue   213       unclaimed            <title>                        -       213    -
+#   issue   232       delivered            delivered by merged PR #234 …  -       232    -
+#   branch  fix/x     branch_without_pr    2 ahead of main, no open PR    fix/x   -      -
 #
 # `class` is a verdict, not a field. The classes factory.sh calls workable are the ones worth a
 # model; the rest are waits, and a wait costs no tokens. `delivered` is neither: it is a report
 # about an issue the queue is about to hand out again for no reason, and it is the one class whose
-# whole job is to make factory.sh start nothing (#235).
+# whole job is to make factory.sh start nothing (#235). `review_unreadable` is the second of those,
+# and it exists because the class next to it used to dispatch a tick at a review whose body had
+# never arrived (#242) -- see the block in the CHANGES_REQUESTED arm.
+#
+# `ask` is the seventh column and the only one a reviewer writes. It is the reviewer's own words,
+# bounded, carried in the row so the tick dispatched to answer them is dispatched WITH its input
+# instead of having to go and find it -- the finding of it was the step that failed silently, because
+# a tick that cannot read the ask cannot distinguish "the reviewer asked for nothing" from "the
+# reviewer asked for something I cannot see". It is empty for every class that is not an ask, and it
+# is empty for `review_unreadable` on purpose: that is the class that says there is no ask here.
+#
+# It is a column and not part of `detail` for one reason: `detail` is printed by the journal on
+# every pass (`NEXT <class> <key> age=… (<detail>)`) and by `--table` for a person, and a measured
+# ask here runs to 1002-14863 bytes (8 Nov, 86 change requests read off this repository's own
+# history). A queue log whose busiest line is 14 KB of review prose is a queue log nobody reads, and
+# the journal is the one place this harness assumes anybody looks.
 #
 # Everything here is derived from the API on this run and nothing else -- no cached queue, no
 # remembered state. That is deliberate: the failure this repository keeps hitting is a claim about
@@ -42,13 +59,18 @@ thing that needs something (or, for `delivered`, one row per thing that needs no
   kind   one of pr | issue | branch
   key    the number, or the branch name
   class  merge_now | conflict | checks_failing | checks_pending | address_review |
-         needs_reviewer | awaiting_review | awaiting_merge | draft | unclaimed |
-         delivered | branch_without_pr
+         review_unreadable | needs_reviewer | awaiting_review | awaiting_merge | draft |
+         unclaimed | delivered | branch_without_pr
   detail why that class, with the timestamps the verdict was made from
   branch the PR head / orphan branch
   issue  the issue GitHub says the PR closes, when there is one
+  ask    the reviewer's own words for `address_review`, bounded at
+         FACTORY_ASK_MAX_BYTES with a named cut when the body is longer; empty for every
+         other class, including `review_unreadable`, whose whole point is that there is
+         no ask to carry
 
---table  same rows, aligned for a person instead of a pipe.
+--table  same rows, aligned for a person instead of a pipe. It stays four columns wide; a row with
+         an ask prints it under itself as an indented `ask:` line.
 --pr N   the one PR, for "why is this one sitting there".
 USAGE
 }
@@ -79,12 +101,15 @@ done
 
 factory_preflight
 
-emit() { printf '%s\037%s\037%s\037%s\037%s\037%s\n' "$1" "$2" "$3" "$4" "${5:--}" "${6:--}"; }
+# Seven fields. The seventh is the reviewer's ask -- see the header -- and it is empty for every
+# class that is not one. An empty LAST field survives `IFS=$'\037' read` exactly: U+001F is not IFS
+# whitespace, so nothing collapses and nothing slides.
+emit() { printf '%s\037%s\037%s\037%s\037%s\037%s\037%s\n' "$1" "$2" "$3" "$4" "${5:--}" "${6:--}" "${7:-}"; }
 
 # U+001F between fields, for the reason recorded at the read loop below: a tab is IFS whitespace,
 # and `read` collapses runs of those, so an empty field silently shifts every column after it.
-header=$'kind\tkey\tclass\tdetail\tbranch\tissue'
-mheader=$'kind\037key\037class\037detail\037branch\037issue'
+header=$'kind\tkey\tclass\tdetail\tbranch\tissue\task'
+mheader=$'kind\037key\037class\037detail\037branch\037issue\037ask'
 
 # --------------------------------------------------------------------- pull requests
 #
@@ -258,15 +283,56 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 		continue
 	fi
 
-	# Two facts the list payload does not carry, and both of them decide a class:
-	#   /reviews              -- when the newest change request was filed
+	# Three facts the list payload does not carry, and all of them decide a class:
+	#   /reviews              -- when the newest change request was filed, who filed it, and WHAT
+	#                            IT ASKED FOR. The third one is new, and its absence is #242: the
+	#                            projection below used to be `[.[]|{u,s,t}]`, so the ask was thrown
+	#                            away here and the row could only say that a verdict existed.
 	#   /requested_reviewers  -- whether anybody was asked at all. This is read from REST rather
 	#                            than from `reviewRequests`, which lists only OUTSTANDING requests
 	#                            and so cannot tell "never asked" from "asked and already answered".
-	reviews=$(api_get "pulls/$number/reviews" \
-		'[.[]|{u:(.user.login//""),s:.state,t:.submitted_at}]' '[]')
-	newest_change=$(printf '%s' "$reviews" | jq -r '[.[]|select(.s=="CHANGES_REQUESTED")]|max_by(.t)|.t // empty' 2>/dev/null || true)
+	#
+	# The whole review array is kept, unprojected, for one pass into factory_newest_ask. Projecting
+	# it here was the bug, so the projection is gone rather than widened: a filtered copy that names
+	# four fields is one more thing that can silently stop naming the fifth.
+	reviews=$(api_get "pulls/$number/reviews" '.' '[]')
+	# `id<TAB>when<TAB>user<TAB>verdict<TAB>body`, or empty when there is no change request. The
+	# verdict and the timestamp come from the SAME read, which is what makes the arms below
+	# exhaustive: a payload that could not be read leaves `newest_change` empty as well as the
+	# verdict `none`, so there is no state that has a timestamp to compare and no body to judge.
+	ask_rec=$(factory_newest_ask "$reviews" 2>/dev/null) || ask_rec=''
+	ask_id='' newest_change='' ask_user='' ask_verdict='none' ask_flat='' ask_bytes=''
+	if [ -n "$ask_rec" ]; then
+		IFS=$'\t' read -r ask_id newest_change ask_user ask_verdict ask_flat <<<"$ask_rec"
+		ask_bytes=${ask_verdict##* }
+		ask_verdict=${ask_verdict%% *}
+	fi
+	# A review ROW is not a verdict, and counting rows is the wrong question. `DISMISSED` is what every
+	# approval on a pull request becomes the moment anybody pushes to it -- this repository does not carry
+	# a stale approval across a new head -- and `COMMENTED` was never a verdict whatever the endpoint
+	# calls it. Measured on #269 (10 Nov) across one fast-forward push: one `DISMISSED` row and an empty
+	# `/requested_reviewers` printed `WAIT pr:269 awaiting_review` in the supervisor's journal at
+	# 19:17:23Z, where the never-reviewed case had printed `POKED pr:269` at 17:58:17Z. The row survived
+	# the push; the review did not. #272.
+	#
+	# A payload that cannot be read leaves all three at their refusal values, and the refusal asks: an
+	# unreadable `/reviews` answers `verdicts=0` and lands in the arm below, which costs one throttled
+	# `gh` call. The other direction is the silence every arm above exists to prevent.
 	any_review=$(printf '%s' "$reviews" | jq -r 'length' 2>/dev/null || printf '0')
+	verdicts=$(printf '%s' "$reviews" |
+		jq -r '[.[] | select((.state // "") == "APPROVED" or (.state // "") == "CHANGES_REQUESTED")] | length' \
+			2>/dev/null || printf '0')
+	# The newest voided verdict, in the shape a person reads off a journal line: who filed it and the
+	# commit it was filed against, at the seven characters every other sha in this file uses.
+	# `commit_id` is REST's field for `gh pr view --json reviews`'s `commit.oid`, and it is the reviewed
+	# commit, NOT the moment of the dismissal -- there is no dismissal timestamp anywhere in the payload,
+	# and `submitted_at` on a voided row is still the approval's own stamp, twenty minutes before the
+	# push that voided it on #269. So the sentence names the push and never a time.
+	voided=$(printf '%s' "$reviews" |
+		jq -r '[.[] | select((.state // "") == "DISMISSED")] | max_by(.submitted_at // "")
+			| if . == null then ""
+			  else "\(.user.login // "someone") at \(if .commit_id then (.commit_id[0:7]) else "an unreadable commit" end)"
+			  end' 2>/dev/null || printf '')
 	requested=$(api_get "pulls/$number/requested_reviewers" '[.users[].login]|join(",")' '')
 	head_date=$(api_get "commits/$oid" '.commit.committer.date' '')
 
@@ -299,7 +365,37 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 		# already been answered.
 		if [ -n "$newest_change" ] && [ -n "$head_date" ] &&
 			[ "$(date -u -d "$newest_change" +%s)" -gt "$(date -u -d "$head_date" +%s)" ]; then
-			rows+="$(emit pr "$number" address_review "review asked for changes at $newest_change, after the head commit at $head_date" "$branch" "$issue")"$'\n'
+			# Two things this arm used to treat as one: a change request whose body arrived, and one
+			# whose body did not (#242). The first is a tick's job. The second is not a tick's job at
+			# any price, because the tick's only two moves are to read a file that was never uploaded
+			# or to invent the ask -- and inventing is what this repository has measured over and over
+			# (#1180's invented read-backs, D-0046's five invented citations in three published
+			# artifacts). A human re-posts a missing ask in one command; a tick cannot synthesise one,
+			# and it will not report that it did.
+			#
+			# There is no third arm here for "verdict none", and that is by construction rather than
+			# by luck: `ask_verdict` and `newest_change` are read out of the one record
+			# `factory_newest_ask` returns, so a payload that could not be read leaves the timestamp
+			# empty as well as the verdict, and the guard above has already sent that row down to the
+			# wait arms. A verdict always comes with the timestamp that made it reachable.
+			case "$ask_verdict" in
+			readable)
+				# The ask rides in the row's seventh column so the dispatch carries its own input.
+				# It is quoted material, not instructions: the sentence that says so is in the tick's
+				# prompt (factory.sh), because the column is reviewer-controlled text arriving inside
+				# a model's instructions and it should not have to be obvious that that needs saying.
+				ask_carry=$(factory_ask_bound "$ask_flat" "$number")
+				rows+="$(emit pr "$number" address_review "review asked for changes at $newest_change, after the head commit at $head_date (review $ask_id by ${ask_user:-someone}, $ask_bytes bytes; the ask is in the row's ask column)" "$branch" "$issue" "$ask_carry")"$'\n'
+				;;
+			unreadable:*)
+				# The literal body, because "21 bytes" is the symptom and `@/tmp/pr240-review.md` is
+				# the diagnosis, and the second one is what tells a person which mistake was made. Cut
+				# at 160 bytes: `below-floor` bodies are under 40 by definition and a `reference` is
+				# one token, so this bound only ever clips a pathological body.
+				ask_lit=$(printf '%s' "$ask_flat" | cut -b1-160)
+				rows+="$(emit pr "$number" review_unreadable "the newest change request (review $ask_id by ${ask_user:-someone} at $newest_change, after the head commit at $head_date) carries $ask_bytes bytes of body, which is ${ask_verdict#unreadable:} -- its whole text is [$ask_lit]; nobody can answer a review that was never uploaded, so no tick was started: re-post it with gh pr review $number --request-changes --body-file <file>" "$branch" "$issue")"$'\n'
+				;;
+			esac
 		elif [ -z "$requested" ]; then
 			rows+="$(emit pr "$number" needs_reviewer "answered by the head commit $head_date; nobody holds a request" "$branch" "$issue")"$'\n'
 		else
@@ -309,11 +405,22 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 		;;
 	esac
 
-	# No decision at all. Measured 4 Nov: #212, #214 and #215 had zero rows in /reviews and zero
+	# No verdict that still stands. Measured 4 Nov: #212, #214 and #215 had zero rows in /reviews and zero
 	# entries in /requested_reviewers three days after opening. That is not a slow reviewer, it is
 	# an unaddressed PR, and the two look identical to anything that reads only reviewDecision.
-	if [ "$any_review" = "0" ] && [ -z "$requested" ]; then
-		rows+="$(emit pr "$number" needs_reviewer "no review and nobody asked since it opened ($updated)" "$branch" "$issue")"$'\n'
+	#
+	# The question is now "is there a verdict", not "are there rows", and the three details are the three
+	# ways to have no answer: never reviewed (the 4 Nov shape, whose sentence the legs pin unchanged),
+	# reviewed without approving (`COMMENTED`, which `reviewDecision` reads as REVIEW_REQUIRED exactly as
+	# it reads a dismissal), and reviewed then voided by a push -- the last one printed a wait until #272.
+	if [ "$verdicts" = "0" ] && [ -z "$requested" ]; then
+		if [ -n "$voided" ]; then
+			rows+="$(emit pr "$number" needs_reviewer "every verdict voided by a push ($voided); nobody holds a request" "$branch" "$issue")"$'\n'
+		elif [ "$any_review" != "0" ]; then
+			rows+="$(emit pr "$number" needs_reviewer "no verdict, $any_review comment row(s); nobody holds a request since it opened ($updated)" "$branch" "$issue")"$'\n'
+		else
+			rows+="$(emit pr "$number" needs_reviewer "no review and nobody asked since it opened ($updated)" "$branch" "$issue")"$'\n'
+		fi
 	elif [ "$checks" = "pending" ]; then
 		rows+="$(emit pr "$number" checks_pending "checks running; request outstanding with ${requested:-nobody}" "$branch" "$issue")"$'\n'
 	else
@@ -478,16 +585,14 @@ if [ "$CLOSING_OK" = "1" ]; then
 		if [ -n "$claim" ]; then
 			# The row is the deliverable, so it carries what a person needs to check it without
 			# re-running anything: the PR, the moment it merged, its words, and the window it was
-			# found inside. It is written to be checkable at a glance, which is not the same claim
-			# as fitting a cap -- nothing truncates a field here. `emit` is the six-field printf at
-			# the top of this file and the only length the phrase inherits is the one the claim
-			# itself has: one distinct number, at most 20 characters of prose ahead of it, and a
-			# list tail that can repeat that SAME number as often as a body likes, because the
-			# sole-claim rule counts distinct issues, not characters. Measured with a planted body
-			# repeating `#232` forty times: a 302-column detail, printed whole, `(window 100)` and
-			# all, and the row still `delivered`. factory/selftest.sh 12d keeps that honest with a
-			# leg rather than a sentence, since a comment that invents a bound is how the next
-			# author sizes text against a limit that does not exist.
+			# found inside. Nothing caps the detail -- `emit` prints its fields with `printf '%s'`,
+			# and the sentence shipped here claimed an 80-column cap that does not exist in this file
+			# or in `emit` (measured 8 Nov at this commit: `grep -n 'cut -c' factory/triage.sh` finds
+			# no such thing, and `emit` is seven `%s` and a newline). The length rule for a detail is
+			# the journal's, not a cap's: `NEXT <class> <key> age=… (<detail>)` is printed every pass
+			# and is the line a person actually reads, so this one is a number and an instant rather
+			# than a sentence about them, and the prose that cannot fit in a journal line is the ask
+			# column's job (H-0055).
 			rows+="$(emit issue "$number" delivered "$claim (window $FACTORY_DELIVERED_WINDOW)" '' "$number")"$'\n'
 		else
 			rows+="$(emit issue "$number" unclaimed "$title" '' "$number")"$'\n'
@@ -549,8 +654,15 @@ rows=${rows%$'\n'}
 
 if [ "$TABLE" = "1" ]; then
 	printf '%s\n' "$header" | awk -F'\t' '{printf "%-6s %-36s %-18s %s\n", $1, $2, $3, $4}'
+	# The ask gets its own line under its row rather than a fifth column: it is measured in
+	# kilobytes on this repository's own reviews, and a column is only as wide as the widest thing
+	# a terminal has to scroll for. It is a continuation line, so `--table` stays four columns wide
+	# for everything that parses it, and the row above still says how many bytes are below it.
 	printf '%s\n' "$rows" | tr '\037' '\t' |
-		awk -F'\t' 'NF{printf "%-6s %-36s %-18s %s\n", $1, $2, $3, $4}'
+		awk -F'\t' 'NF {
+			printf "%-6s %-36s %-18s %s\n", $1, $2, $3, $4
+			if (NF >= 7 && $7 != "") printf "        ask: %s\n", $7
+		}'
 else
 	printf '%s\n' "$mheader"
 	[ -n "$rows" ] && printf '%s\n' "$rows"

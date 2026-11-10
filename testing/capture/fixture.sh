@@ -150,6 +150,109 @@ CAPTURE_AUDIT_ROWS="${PLOCK_CAPTURE_AUDIT_ROWS:-}"
 # why one account holds a session and the other holds none.
 CAPTURE_PATH_PREPEND="${PLOCK_CAPTURE_PATH_PREPEND:-}"
 
+# How many lockable sessions the photographed page has to show (#213).
+#
+# Up to D-0052 the number was written down in README.md, for the `pages` fixture only. The two POST
+# fixtures — the ones that click, and the only two pages that render a live census — declared
+# nothing, so nothing could notice the machine's census moving underneath them: the committed
+# `docs/screenshots/360/lock.png` is a 2-session page while the README that is the artifact's only
+# description of its own state still quotes `rows=1 cells=3 height=1142` from the 1-session box of
+# 27 Oct. So the count is declared here, checked by the driver against the census the page actually
+# rendered (`cdp.require_declared_sessions`), and published in the manifest beside `stamp`, `zone`
+# and `scripts`.
+#
+# Like every other condition in this file, it belongs to the setup script and reaches the driver
+# through `fixture.env` — `cdp.declared_sessions` reads the file, never the environment, so the
+# declaration that governs a frame is the one that was in force when the fixture was built and
+# anybody who reads the run directory can see it. Empty means "not declared", which is what the
+# `pages` fixture leaves it at: its census comes from the stub above and needs no second statement.
+# The two POST fixtures fill it in by asking the machine (`capture_declare_census` below) unless the
+# operator declared a number themselves — that override is how the negative control in README.md
+# makes a driver refuse, and how a fixture is pinned to a census this machine cannot produce.
+CAPTURE_SESSIONS="${PLOCK_CAPTURE_SESSIONS-}"
+# How the census was taken, when the fixture took it from the machine rather than being told. These
+# three decide the answer; `capture_declare_census` says why they are not the two you might expect.
+CAPTURE_CENSUS_LOGINCTL=""
+CAPTURE_CENSUS_UID=""
+CAPTURE_CENSUS_SYSTEM_BUS=""
+
+# capture_declare_census <binary> <config> [state-dir] [admin-file]
+#
+# Ask the product how many lockable sessions the target account holds right now, and declare that as
+# a condition of the frame.
+#
+# The answer comes from `plock status --json`, not from a second counting program. Its per-session
+# `lockable` field IS the daemon's predicate — `internal/platform/platform.go`'s `isLockable`, the
+# same five clauses that decide whether a row appears on the page being photographed — so a census
+# counted any other way would be a second copy of a rule that already has one load-bearing copy.
+# That is #211's shape one layer down: a count that disagrees with the page is the bug, and a
+# re-implementation is how you arrive at one without noticing.
+#
+# What the census actually rides, measured 10 Nov on the box these frames were last taken:
+#
+#   env -u DBUS_SESSION_BUS_ADDRESS -u XDG_RUNTIME_DIR loginctl list-sessions --json=short
+#     -> exit 0, the census intact
+#   env DBUS_SYSTEM_BUS_ADDRESS=unix:path=/nonexistent/bus loginctl list-sessions --json=short
+#     -> exit 1, "Failed to connect to system scope bus via local transport"
+#   the same broken bus through `plock status --json`
+#     -> "sessions": [] plus a warning quoting loginctl's own sentence
+#
+# So the census comes off the SYSTEM bus: unset `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR`
+# together and the count is unchanged, which is what #213 asked to be settled. Recording that pair
+# as a condition would repeat the defect this issue is about — `PLOCK_CAPTURE_SCRIPTS` was a
+# condition of exactly that kind until `cdp.scripts_disabled` started reading it. What is recorded
+# instead is what the measurements above show decides the answer: which `loginctl` was resolved (the
+# `pages` fixture is the proof this one matters — its stub is what makes its frames reproducible
+# elsewhere), the uid the census was taken as (an unprivileged caller sees only its own sessions),
+# and the system-bus address when the operator set one.
+#
+# A census of zero is refused rather than declared: a page with no session rows is a different page,
+# and both drivers already refuse it on their own ("no session rows", "an empty diagnostic").
+# Refusing here says so before the browser starts, and names the cause in loginctl's words. An
+# *unreadable* census is refused the same way, and the two are told apart by `status`' own
+# `warnings` — an empty list plus a warning is "could not read", an empty list with no warning is
+# genuinely nobody logged in.
+capture_declare_census() {
+  local bin="$1" conf="$2"
+  local out rc=0
+  out="$("$bin" status --json --config "$conf" 2>&1)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "REFUSED: the session census could not be taken — \`$bin status\` exited $rc:" >&2
+    printf '%s\n' "$out" >&2
+    echo "  A condition that could not be read is not a condition of any value, and this frame is" \
+         "about a real census on a real machine. Fix the read, or declare the count yourself with" \
+         "PLOCK_CAPTURE_SESSIONS=<n> if this machine's logind is not what the frame is about." >&2
+    exit 1
+  fi
+
+  local counted
+  counted="$(printf '%s' "$out" | python3 -c '
+import json, sys
+target, report = sys.argv[1], json.load(sys.stdin)
+warnings = report.get("warnings") or []
+if warnings:
+    sys.exit("the census could not be read: " + "; ".join(warnings))
+print(sum(1 for s in report.get("sessions", [])
+          if s.get("username") == target and s.get("lockable")))' "$CAPTURE_TARGET" 2>&1)" || {
+    echo "REFUSED: $counted" >&2
+    echo "  The two POST fixtures photograph the live session table, so they refuse rather than" \
+         "photograph whatever a broken logind leaves on the page." >&2
+    exit 1
+  }
+  if [ "$counted" = "0" ]; then
+    echo "REFUSED: $CAPTURE_TARGET holds no lockable session on this machine right now." >&2
+    echo "  The lock-result page renders one row per lockable session, so with none the capture" \
+         "would photograph the empty case — the case both drivers refuse on purpose. Sign the" \
+         "target account in at a seat, or aim the fixture at an account that is logged in." >&2
+    exit 1
+  fi
+
+  CAPTURE_SESSIONS="$counted"
+  CAPTURE_CENSUS_LOGINCTL="$(command -v loginctl 2>/dev/null || echo "not on PATH")"
+  CAPTURE_CENSUS_UID="$(id -u)"
+  CAPTURE_CENSUS_SYSTEM_BUS="${DBUS_SYSTEM_BUS_ADDRESS-}"
+}
+
 # The zone the *reader* is in (#207's seventh cause, measured here rather than assumed).
 # internal/web/templates/audit.tmpl used to format each row with `MST`, and Go's `time.Parse` adopts
 # the process's local Location when a row's offset matches it -- so one and the same trail rendered
@@ -237,6 +340,14 @@ capture_env() {
     if [ -n "$CAPTURE_PATH_PREPEND" ]; then echo "PLOCK_CAPTURE_PATH_PREPEND=$CAPTURE_PATH_PREPEND"; fi
     if [ -n "$CAPTURE_TZ" ]; then echo "PLOCK_CAPTURE_TZ=$CAPTURE_TZ"; fi
     if [ -n "$CAPTURE_SCRIPTS" ]; then echo "PLOCK_CAPTURE_SCRIPTS=$CAPTURE_SCRIPTS"; fi
+    if [ -n "$CAPTURE_SESSIONS" ]; then echo "PLOCK_CAPTURE_SESSIONS=$CAPTURE_SESSIONS"; fi
+    if [ -n "$CAPTURE_CENSUS_LOGINCTL" ]; then
+      echo "PLOCK_CAPTURE_CENSUS_LOGINCTL=$CAPTURE_CENSUS_LOGINCTL"
+    fi
+    if [ -n "$CAPTURE_CENSUS_UID" ]; then echo "PLOCK_CAPTURE_CENSUS_UID=$CAPTURE_CENSUS_UID"; fi
+    if [ -n "$CAPTURE_CENSUS_SYSTEM_BUS" ]; then
+      echo "PLOCK_CAPTURE_CENSUS_SYSTEM_BUS=$CAPTURE_CENSUS_SYSTEM_BUS"
+    fi
   } > "$ENVFILE"
   # The last line is not decoration: every line above is a condition, and the setup scripts run
   # under `set -euo pipefail` (fixture.sh is sourced, so it inherits that). A `[ -n ] && echo` list
@@ -261,5 +372,18 @@ capture_done() {
   echo "wrote $CONFIG and $AUDIT ($events events); fixture.env names port $RUN_PORT"
   if [ -n "$CAPTURE_PATH_PREPEND" ]; then
     echo "census: $CAPTURE_PATH_PREPEND on the daemon's PATH, not this machine's loginctl"
+  fi
+  # Said out loud because it is a condition of the frame and the operator cannot recover it from the
+  # pixels afterwards (#213). The loginctl and the uid are named with it: those two, plus
+  # DBUS_SYSTEM_BUS_ADDRESS when the operator set one, are what decided the number — measured, not
+  # assumed, and the note on `capture_declare_census` carries the measurements.
+  if [ -n "$CAPTURE_SESSIONS" ]; then
+    echo "census: $CAPTURE_SESSIONS lockable session(s) for $CAPTURE_TARGET"
+    if [ -n "$CAPTURE_CENSUS_LOGINCTL" ]; then
+      echo "        taken as uid $CAPTURE_CENSUS_UID through $CAPTURE_CENSUS_LOGINCTL"
+      if [ -n "$CAPTURE_CENSUS_SYSTEM_BUS" ]; then
+        echo "        DBUS_SYSTEM_BUS_ADDRESS=$CAPTURE_CENSUS_SYSTEM_BUS"
+      fi
+    fi
   fi
 }

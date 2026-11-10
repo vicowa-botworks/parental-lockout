@@ -964,6 +964,218 @@ def require_nav_distinguishable(got, what, nav):
                 "(#229, D-0035).")
 
 
+# The words the pages use to report a state the daemon reached (#199).
+#
+# This is a census of the templates, not a wish list: every name here is one a `.tmpl` file puts on
+# an element, and `every_state_class_the_pages_render_is_in_the_census` below refuses the day one of
+# them stops being rendered -- a guard that measures a class nobody emits passes on nothing. The
+# matching seam on the Go side is `TestEveryStateClassTheTemplatesNameIsDrawn` in internal/web, which
+# refuses the other direction: a word the pages say and app.css never mentions. Since #239 that seam
+# reads the whole vocabulary named here, not only the `state-` prefixed half of it.
+#
+# `state-free` is deliberately absent. app.css has drawn it since before this folder existed and no
+# template has ever rendered it, so it is the one entry in the stylesheet's state block a browser
+# could not be asked about; the Go test asserts both halves of that sentence stay true.
+#
+# #239 moved two names in and moved no pixels out. `.problem` was carrying six jobs at once -- a
+# refused write, a per-account fact, a backend's detail, the standing "enforcement is switched off"
+# sentence, one paragraph of help prose and a missing value -- and `.override` carried both the open
+# hold and the self-session sentence whose whole content is that nothing is held. Two of those jobs had
+# no name, so they are in this census: `refusal` (the write that did not happen, the evaluator's
+# complaint) and `exempt` (the session the daemon runs inside, which no schedule will lock). The other
+# three went to names already listed here or to no state at all -- the mode notice to `disabled`, the
+# missing value to `state-gap`, the help prose to `muted`, which is not a state and stays out. A name
+# this list gains is a name Chrome is now asked about on every photographed page, which is the half of
+# the guard a rename cannot quietly opt out of.
+# The four row-level state names, named separately because nothing outside this file can find them.
+#
+# They are the finding the coverage rule in `pages.py --self-test` produced the first time it was run,
+# and the reason that rule's first version was wrong. `dashboard.tmpl:33` writes
+# `class="{{if .LockedOutNow}}held{{end}}{{if .CannotEvaluate}}unreadable{{end}}"` and `users.tmpl:43`
+# writes `class="{{if .Stale}}stale{{end}}{{if not .Configured}}unmanaged{{end}}"`, so the four names
+# exist only as the text BETWEEN template actions and carry none of the `state-` prefix. A reader that
+# scans class attributes for literal words finds them; a reader that requires the prefix does not; and
+# `app.css` on the head this branch started from had no rule for any of the four -- measured with
+# `grep -n "tr\.\|tbody tr" internal/web/static/app.css`, which answered nothing at all. So a row whose
+# account is switched off, unreadable, stale or unmanaged was marked only by whichever word one of its
+# cells happened to hold, and the row -- the thing a parent's eye travels down when it is not reading --
+# said nothing. That is #199's report one level above the sentence. The list is here by name because the
+# browser is the only reader that can see a composed class on a page, and a census that silently omits
+# four names is a census that passes on them.
+ROW_STATE_CLASSES = ("held", "unreadable", "stale", "unmanaged")
+
+STATE_CLASSES = ("state-held", "state-unknown", "state-gap", "problem", "refusal", "override",
+                 "override-expired", "exempt", "disabled", "flag", "banner") + ROW_STATE_CLASSES
+
+
+# The state census (#199): every element on the page carrying one of those classes, with the four
+# properties that travel to it from the sentence it sits in -- computed for the element AND for its
+# own parent -- plus the two that belong to its box.
+#
+# The parent is the whole point. #199's report is that the UI "is very basic", and the located cause
+# on the pages a parent actually reads is that the stylesheet wrote a rule for one of these classes
+# and left the rest. Measured in Chrome on the pre-fix tree, `/users` at both viewports: six state
+# words on the page, ZERO drawn differently from the prose around them -- "in the configuration, not
+# on the machine" (`state-unknown`), "not managed" (`state-gap`), "the account no longer exists"
+# (`problem`) and the page's own banner paragraph. `/` drew one of its four, the red bold "locked
+# out", beside a "no desktop session" in the same ink and weight as the sentence next to it.
+#
+# A class can be in the DOM, and named in the stylesheet's prose, and do nothing at all -- so the
+# question is not "does app.css mention `.state-gap`", it is "does the browser draw this word
+# differently from the sentence it is sitting in".
+STATE_JS = (
+    "'states':(function(){var out=[];"
+    "[" + ",".join(f"'{c}'" for c in STATE_CLASSES) + "].forEach(function(c){"
+    "Array.prototype.forEach.call(document.querySelectorAll('.'+c),function(e){"
+    "var s=getComputedStyle(e),p=e.parentElement,ps=p?getComputedStyle(p):s;"
+    "out.push({cls:c,text:(e.textContent||'').replace(/\\s+/g,' ').trim().slice(0,48),"
+    "color:s.color,weight:s.fontWeight,style:s.fontStyle,dec:s.textDecorationLine,"
+    "bw:s.borderLeftWidth,bg:s.backgroundColor,"
+    "pcolor:ps.color,pweight:ps.fontWeight,pstyle:ps.fontStyle,pdec:ps.textDecorationLine,"
+    "vis:e.checkVisibility===undefined?true:e.checkVisibility({visibilityProperty:true})});});});"
+    "return out;})()"
+)
+
+# The four properties that travel from the text an element sits in, as
+# (the name a refusal prints, the element's own key, its parent's key), and the two that are the
+# element's own paint.
+#
+# The split is the whole rule. Colour, weight, style and decoration are INHERITED: an element that
+# does not change them is being drawn in the voice of the sentence around it, and the parent's value
+# is the right thing to compare against. A border and a background are not inherited -- they belong
+# to the box -- so the honest question about them is what THIS element has, never what its parent
+# has. Comparing them against the parent was the first version of this guard and it was wrong in the
+# direction that matters: the `.problem` paragraph in `/settings` sits inside a `fieldset`, whose own
+# border makes the child's `border-left-width` differ from it, so the guard called a rule-less
+# `<p class="problem">` "drawn as a state" on a stylesheet that never mentioned the class. Measured
+# on the pre-fix tree, 360 px and 1024 px alike.
+STATE_PROPS = (("color", "color", "pcolor"), ("font-weight", "weight", "pweight"),
+               ("font-style", "style", "pstyle"),
+               ("text-decoration-line", "dec", "pdec"))
+
+# What a box reports when nothing paints it: Chrome's answer for `background-color` at its initial
+# value, and a border whose width is zero is not drawn whatever colour it is given.
+STATE_NO_PAINT = ("rgba(0, 0, 0, 0)", "transparent")
+
+
+# What a page that has its states drawn answers, transcribed from the measured `/` frame at 360 px
+# after #199's block went into app.css (the values are Chrome's `getComputedStyle` output for the
+# stylesheet as shipped, not a design sketch). `_fake_browser` in pages.py defaults this key the way
+# it defaults `CLEAN_CENSUS` and `clean_nav`, so a rule about something else is not defeated by a
+# guard it was never about -- and a rule that wants a defect passes its own `states` and wins.
+CLEAN_STATES = [{"cls": "state-held", "text": "locked out", "color": "rgb(179, 38, 30)",
+                 "weight": "600", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "state-unknown", "text": "no desktop session", "color": "rgb(91, 98, 112)",
+                 "weight": "400", "style": "italic", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "disabled", "text": "account switched off", "color": "rgb(132, 86, 0)",
+                 "weight": "400", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "banner", "text": "casey is locked out now", "color": "rgb(26, 28, 32)",
+                 "weight": "600", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True}]
+
+
+def _state_painted(r):
+    """True when the element carries a mark of its own -- a border drawn, or a background painted."""
+    return (_border_px(r["bw"]) or 0) > 0 or r["bg"].strip().lower() not in STATE_NO_PAINT
+
+
+def _state_rows(got, what):
+    """The state census, or a refusal naming the census that was never taken.
+
+    The same shape as `_nav_rows` and the #202 guards: a check that reads a key nobody measured does
+    not pass because the page is fine, it passes because nothing was compared.
+    """
+    rows = (got or {}).get("states")
+    if rows is None:
+        raise SystemExit(f"{what}: asked whether the page's states are drawn as states when no "
+                         "state census was taken for it. The census has to be spliced into the "
+                         "measurement (cdp.STATE_JS), and a check that reads a key nobody measured "
+                         "is a check that always passes (#199).")
+    return rows
+
+
+def state_census_line(got):
+    """`states=4 drawn=1` on the driver's measurement line, zeros included.
+
+    `states=0` is a legitimate reading of a page that renders no state word -- `/audit` with rows in
+    it is one -- and this folder's house rule is that a guard which examined nothing says so on the
+    line instead of reporting a silence as a pass (see `census_line`). `drawn` is the number the
+    guard was willing to accept, so `states=6 drawn=0` reads as what it is: six words reporting six
+    states, none of them drawn differently from the prose around them.
+    """
+    rows = (got or {}).get("states") or []
+    seen = [r for r in rows if r.get("vis")]
+    return f"states={len(seen)} drawn={len(seen) - len(_state_lookalikes(seen))}"
+
+
+def _state_lookalikes(rows):
+    """The state elements the browser draws in exactly the voice of the text they sit in.
+
+    An element passes when one inherited property differs from its parent's, or when it carries a
+    border or a background of its own. Any one of those is something a parent can see, and the point
+    of the rule is that a reader can tell the word apart from the sentence -- so this refuses the
+    case where the stylesheet said nothing about the class, and prescribes nothing about which of
+    the four channels a design should move.
+    """
+    bad = []
+    for r in rows:
+        inherited = [name for name, mine, parent in STATE_PROPS if r[mine] != r[parent]]
+        if not inherited and not _state_painted(r):
+            bad.append(r)
+    return bad
+
+
+def require_state_legible(got, what):
+    """Every word the page uses to report a state has to look like a state.
+
+    The refusal is the defect #199 reported, measured rather than read out of the stylesheet. On the
+    pre-fix tree, at both viewports: `/users` reported six state words and drew none of them --
+    "in the configuration, not on the machine" (`state-unknown`), "not managed" (`state-gap`), "the
+    account no longer exists" (`problem`) and the page's own banner paragraph each computed the same
+    colour, weight, style and decoration as the prose they sat in, with no border or background of
+    their own. `/` drew one of its four: the red bold `state-held` "locked out", beside an italic-less
+    muted-less "no desktop session" that a parent reads as the same kind of sentence.
+
+    Nothing here says WHICH treatment a state gets. Colour-blindness, dark mode, and the difference
+    between "cannot be decided" and "locked out" are all arguments about specific properties, and the
+    last time this repository put one designer's answer into a guard -- `nav a:hover` above the
+    current-page rule, #229 -- the guard had to grow three more properties to stay honest. The choice
+    lives in app.css, where the person editing it reads it; the guard only refuses the case where the
+    browser was told nothing.
+
+    An element the browser does not draw is skipped, for the same reason #204 counted only visible
+    links: a state the page is not showing cannot be looked at, and refusing it would mean the next
+    template that renders a row conditionally has to style the case nobody sees.
+    """
+    rows = _state_rows(got, what)
+    visible = [r for r in rows if r.get("vis")]
+    bad = _state_lookalikes(visible)
+    if not bad:
+        return
+    shown = ", ".join(f"{r['cls']!r} {r['text']!r}" for r in bad[:4])
+    more = "" if len(bad) <= 4 else f", and {len(bad) - 4} more"
+    one = bad[0]
+    raise SystemExit(
+        f"{what} reports {len(bad)} of {len(visible)} state(s) the stylesheet never drew "
+        f"({shown}{more}). {one['cls']!r} computes color {one['color']}, weight {one['weight']}, "
+        f"style {one['style']} and decoration {one['dec']} -- every one of them the same as the text "
+        f"it is sitting in, and it carries no border or background of its own (border-left "
+        f"{one['bw']}, background {one['bg']}). The class is in the markup and nothing in app.css "
+        "turns it into something a parent can see, which is what #199 measured: `.state-held` was "
+        "red and bold and every other state word on the page was ordinary prose, so \"no desktop "
+        "session\" and \"locked out\" read as the same kind of sentence. "
+        f"{len(rows) - len(visible)} element(s) carried a state class the browser was not showing "
+        "and were skipped."
+    )
+
+
 def session_rows(session):
     """Every row of every `table.rows` table, as (data-label, text) pairs.
 
@@ -981,6 +1193,49 @@ def session_rows(session):
 # The first words of the self-session note, as one string in one place. Both result pages render
 # the same Detail cell, and the check below is about the seam between that cell's two sentences.
 SELF_SESSION_NOTE = "This is the session the daemon runs"
+
+
+def session_census(rows):
+    """How many of `rows` are the account's own session rows.
+
+    Both POST pages draw the census as a `table.rows` table whose rows carry a `Where` cell, and
+    `testlock` draws a second `table.rows` table above it — one row per configured backend, labelled
+    `Can lock` and `Detail`. Counting `tbody tr` over the whole page therefore counts two different
+    things on the two pages, which is the mistake this function exists to make impossible: the census
+    is the rows with a `Where`, on both pages, whatever else the page has grown beside them.
+    """
+    return sum(1 for r in rows if "Where" in [str(x) for x in (r.get("result") or [])])
+
+
+def require_declared_sessions(rows, declared, what):
+    """The page shows exactly the number of lockable sessions the fixture declared (#213).
+
+    The sibling of `pages.py`'s `require_declared_rows`, one layer down: that one pins a row count to
+    a seeded file, this one pins a row count to a census the machine was asked for before the browser
+    started. Both exist because the alternative is a frame whose shape belongs to whatever the
+    capturing machine happened to be, and both are checks of the *page* rather than of the source
+    they were declared from — the reader of the artifact is counting rows on paper.
+
+    What this catches that `scrollWidth` never could: the census is what decides how tall these two
+    pages are. `lock.png` was re-taken on 8 Nov on a machine holding two lockable sessions for the
+    target — `tty` plus `x11`, both of them `isLockable` at `internal/platform/platform.go:241-258` —
+    and the artifact changed shape by 394 px while every guard in this file stayed green, because
+    nothing anywhere said how many rows the frame was supposed to have. The README that describes
+    these two frames still quotes the 1-session transcript from 27 Oct.
+
+    A refusal here is not a broken page. It is a different page: the same template over another
+    machine's logins. Re-take it deliberately, on a machine whose census is the one the artifact is
+    meant to show, and let the manifest say which that was.
+    """
+    shown = session_census(rows)
+    if shown != declared:
+        raise SystemExit(
+            f"{what}: the page renders {shown} lockable session row(s) and the fixture declared "
+            f"{declared}. The census decides this artifact's height, so a frame taken over a "
+            f"different census is a different page — re-run the setup script on a machine whose "
+            f"census is the one you mean to publish, or declare PLOCK_CAPTURE_SESSIONS={shown} if "
+            f"this one is right and the fixture is out of date (#213).")
+    return shown
 
 
 def require_detail_terminated(rows, what):
@@ -1300,6 +1555,27 @@ class Capture:
             # are the thing a reader of the artifact cannot recover from the pixels afterwards.
             print(f"page scripts: {'off' if scripts_off else 'ON'} for this frame "
                   f"(PLOCK_CAPTURE_SCRIPTS in {op.basename(self.dir)}/fixture.env)", flush=True)
+            # #213, in the same breath: the census is the condition these two frames' height comes
+            # from, and the three things that decided it are named with it. Not the session bus and
+            # not the timezone — `fixture.sh`'s note on `capture_declare_census` carries the
+            # measurements that show why it is the system bus and the loginctl that matter here.
+            if self.env.get("PLOCK_CAPTURE_SESSIONS"):
+                uid = self.env.get("PLOCK_CAPTURE_CENSUS_UID")
+                through = self.env.get("PLOCK_CAPTURE_CENSUS_LOGINCTL")
+                if uid and through:
+                    line = (f"session census: {self.env['PLOCK_CAPTURE_SESSIONS']} lockable "
+                            f"session(s), as uid {uid} through {through}")
+                    if self.env.get("PLOCK_CAPTURE_CENSUS_SYSTEM_BUS"):
+                        line += (f" on DBUS_SYSTEM_BUS_ADDRESS="
+                                 f"{self.env['PLOCK_CAPTURE_CENSUS_SYSTEM_BUS']}")
+                else:
+                    # No loginctl and no uid with it: nobody asked the machine, so the number came
+                    # from a person. Said as plainly as the measured case, because the two support
+                    # different sentences about the frame (#213).
+                    line = (f"session census: {self.env['PLOCK_CAPTURE_SESSIONS']} lockable "
+                            "session(s), declared by the operator rather than taken from the machine")
+                print(f"{line} (PLOCK_CAPTURE_SESSIONS in "
+                      f"{op.basename(self.dir)}/fixture.env)", flush=True)
         except BaseException:
             self.close()
             raise
@@ -1340,6 +1616,32 @@ class Capture:
                 "count. The fixture's declared number is what the audit page's row count is compared "
                 "against, so it has to be a plain integer.")
         return raw
+
+    def declared_sessions(self):
+        """The session census this fixture declares, or a refusal that says where the number comes from.
+
+        #213, and the reason it is a refusal rather than a default: these two pages render one row per
+        lockable session of the target account, so the count is the shape of the artifact — its height
+        with it. `0` read out of an absent key would be a fixture confidently photographing the empty
+        case, and a default of "whatever the page shows" is the check not happening, which is the state
+        the two frames were in until now: the committed `lock.png` is a 2-session page and the README
+        that describes it still quotes the 1-session transcript.
+
+        There is one way for this to be missing legitimately: a `runs/<fixture>/fixture.env` written by
+        a setup script older than the census. The message says so, because the alternative reading —
+        that this file is where the number belongs — would put a second copy of a machine's logins in
+        the driver.
+        """
+        raw = self.env.get("PLOCK_CAPTURE_SESSIONS", "")
+        if not raw.isdigit():
+            raise SystemExit(
+                f"{op.basename(self.dir)} declares PLOCK_CAPTURE_SESSIONS={raw!r}, which is not a "
+                "count. The census decides how many rows this page has and therefore how tall the "
+                "artifact is, so it is declared before the browser starts and checked against the "
+                "page. `capture_declare_census` in fixture.sh writes it into fixture.env from the "
+                "machine's own census: re-run the setup script, or name the count yourself with "
+                "PLOCK_CAPTURE_SESSIONS=<n> in front of it.")
+        return int(raw)
 
     def require_running(self):
         """The daemon and the browser this fixture started must still be the ones in use.
