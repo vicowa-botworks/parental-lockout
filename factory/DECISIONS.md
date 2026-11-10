@@ -3248,3 +3248,168 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
     GitHub's documented behaviour carried in, not a measurement, and the legs pin only what the classifier
     answers. A reviewer who prefers the narrower predicate changes one `select` and one leg; both fixtures
     exist, in two copies now.
+
+## H-0099 · One `qrc=1` carries three histories, and the healthy one was journalled as a rescue (#267)
+
+- Question: `factory_tree_stop` calls `factory_tree_quarantine` before every tick with no dirty test in
+  front of it, and that function answers `1` for "nothing to stash" -- the same answer for "the verdict
+  said dirty and the action found nothing" and for "nothing was ever dirty". One sentence covered both,
+  so the ordinary path journalled a rescue. Measured on the live journal at the time of writing, read
+  read-only out of `/home/rodney/prj/parental-lockout/factory/log/supervisor.log`: **19** lines carrying
+  `was found dirty and is clean now`, every one of them dated 10 Nov, against **0** lines matching
+  `TREE-DIRTY|SUPERVISOR-AT.*dirty=1` and **3** `TREE-QUARANTINED` events (`unclaimed:263`, `:267`,
+  `:272`) -- three, not the four #267 reports; nothing here turns on which, and the count is quoted
+  because the ratio is the whole finding. Line 332 is the cleanest of the nineteen: `21:14:17Z
+  TREE-CLEAN unclaimed:267 /home/rodney/prj/wt/issue-267`, and the journal's own next line for that tree
+  is `TICK-START`; the first dirt the file records for unit 267 is `TREE-AFTER-TICK … streak=armed the
+  tick left modified: factory/common.sh factory/selftest.sh` eight minutes later, produced BY that tick.
+  So the sentence was written about a tree with nothing in it, in the log #237 tells an operator to read.
+  What has to be decided is what separates the histories and what each arm is allowed to claim.
+- Options: split on `[ -z "$dirt" ]`, two arms (the fix direction #267 itself names) | split on the
+  verdict's exit code, three arms | journal nothing on the healthy path and let the disagreement arm
+  quote `$dirt` verbatim | reword the one sentence so it claims less | keep it and append a path count
+- Chose: split on the verdict's exit code, three arms
+- Why: the arm is named in the journal as `cause=never-dirty`, `cause=verdict-disagreed` and
+  `cause=verdict-unreadable`, the shipped disagreement sentence is kept verbatim for the one state it is
+  true of, and the finding is named inside it.
+  **`$?` is the discriminator, not `$dirt`.** Two states break the ticket's own test. (a) An rc-0
+  verdict can return no paths, and `[ -z "$dirt" ]` calls that "never dirty" -- the fallback
+  `${dirt:-no finding returned}` in the success arm three lines away exists precisely because that state
+  is expected. (b) The unreadable verdict (rc 2) prints its reason on stdout, so it is NON-empty and
+  `[ -z "$dirt" ]` sends it to the DISAGREEMENT arm: "was found dirty", about a verdict that never
+  answered. That is a new false line of the exact class being deleted, shipped from inside the fix.
+  `factory_tree_dirt_read`'s `its state could not be read` / `return 2` is the producer, and it is now
+  both true and legged. **The cheap tie-breaks do not separate the options**: two and three arms touch
+  the same two files, none of the five adds a dependency or decodes a key (tie-breaks 1 and 2 are
+  silent), all are one `git revert` (4), and 1 and 2 change the same arm (3). Tie-break 3 -- refuse
+  rather than proceed on input you cannot read -- is what beats option 1: only the three-arm split says
+  nothing untrue about a verdict that failed. Tie-break 6 beats option 3: the loop already journals a
+  healthy-path verdict for every tree, `TREE-AFTER-TICK … streak=cleared` (`common.sh:1607`), so silence
+  is not what the surrounding code does; and a named arm can be asserted, while silence can only ever be
+  asserted as the absence of a string.
+  **The ticket's premise was incomplete, and the gap is where the work was.** #267 says the behaviour
+  "is asserted nowhere" and cites the print-only note in the process section. It was asserted -- at
+  `factory/selftest.sh:1675`, `expect_quarantine`'s `PROCEED` arm, `q_journal_has 'TREE-CLEAN'`, on the
+  leg labelled `[primary] nothing was dirty`. The healthy path was pinned TO the disagreement arm, so the
+  real blocker was a leg in the unit-level section the ticket never named. Measured: forcing every
+  `qrc=1` down the disagreement arm (`case "$dirt_rc" in` -> `case "0" in`) turns
+  `[primary] nothing was dirty`, `[worktree] nothing was dirty` and `the clean unit is not credited with
+  a rescue` red, exit 1.
+  **Arms pinned, not prose.** Each arm carries a `cause=` token -- the house shape for a reason a leg
+  must pin (`attempt=`, `streak=`, `mirror=`) -- so the sentences stay rewritable. Five mutants of
+  `factory/common.sh`, each planted in the working tree from a `/tmp` copy and restored by `cp`:
+  `case "1"` (nothing may claim a disagreement) reddens ONLY `the disagreement arm still fires when it is
+  true`, which is the load-bearing result -- the healthy-path legs stay green when the arm is deleted,
+  exactly the vacuity the note's own comment described, and exactly what the control exists to refuse;
+  `case "0"` (the shipped bug) reddens four legs; replacing the disagreement sentence with the
+  never-dirty one reddens only the control; stripping the finding from the disagreement line reddens only
+  the control; stripping the reason from the unreadable line reddens the two `verdict unreadable, action
+  clean` legs.
+  **The last of those five first found the ATTACK broken, not the code.** The reason-check searched the
+  journal for `could not be read` -- which the shipped sentence itself contained -- so the leg passed
+  with the reason deleted from the line: measured, that mutant exited 0 at `374 passed, 0 failed`. The
+  needle is now the verdict's own words, `its state could not be read`, and the sentence says
+  `was unreadable` so the two can never be conflated again. It is the same failure every `HALT` leg in
+  this file names its arm to avoid, re-imported by a fresh leg and caught by attacking the leg instead
+  of reading it.
+  **The third arm is reachable, so it is not left as a disclosure.** No on-disk fixture reaches it: the
+  state is a difference between two reads of ONE tree, `factory_tree_quarantine` answering 1 solely on
+  its own verdict (`common.sh:1366`). `shim_install_first` refuses the first `git update-index --refresh`
+  with 128 and words -- the words are what make it UNKNOWN rather than clean since #232, and they are why
+  this shim is written rather than calling `shim_install` with exit 1. The helper then failed its own
+  first run: the one-shot marker survived the previous install, so the `[worktree]` copy of the leg
+  answered `never-dirty` -- 1 failure of 374, reported here rather than fixed quietly, and the helper now
+  `rm -rf`s its own directory the way `q_arm` resets the tree.
+  What lost. **Silence on the healthy path is a real alternative with a body on disk, and this entry is
+  where it is recorded**: the first attempt at #267 is in `FACTORY_AT_RISK` as
+  `issue-267-quarantine-20261110T213522Z-efa97d027.patch` (stash `efa97d027`), quarantined by the
+  supervisor at 21:35:22Z when that tick was found dirty and a new one was started into the same tree. It
+  reaches the same diagnosis independently, splits the same arm, moves the same `PROCEED` pin, and chose
+  to journal nothing on the healthy path -- with an argument this entry owes: the pass is already on the
+  record for that tree in the `TICK-START` that follows and the `TREE-AFTER-TICK` after the tick, so the
+  line is not the only evidence. Its one design idea this branch had not had is taken, credited in the leg
+  that now implements it: ask the SECOND activation as well, where both trees are clean and both units
+  have ticked, because that is the pass with the least excuse for a rescue line. What is lost against it
+  is the journal volume argument -- this fix writes exactly one `TREE-CLEAN` line per healthy tick as
+  before, so nothing about the size of the log improved, only its truth -- and an operator grepping
+  `TREE-CLEAN` now finds three causes and must read the token; the search for a real event is
+  `cause=verdict-disagreed`. Also lost: the note at `factory/selftest.sh:3057-3076`, whose observation is
+  now a `FAIL` instead of a sentence on a green run; and the single-needle `q_journal_has 'TREE-CLEAN'`,
+  replaced by two `cause=` needles in the `PROCEED` arm.
+  What this commit does NOT do. The 19 lines already in `factory/log/supervisor.log` are left exactly as
+  they are -- nothing here rewrites a journal, and the only annotation of them is this entry.
+  `docs/factory.md` never documented `TREE-CLEAN` at all (`grep -rn "TREE-CLEAN" docs/` answers 0 lines),
+  so there is no page to correct, but there is also still no page telling an operator what these lines
+  mean; #237's advice to read them still has nothing behind it, and that is a ticket, not this one.
+  The checkpoint named below was taken by the tick that allocated this id, before a word of the above was
+  written, and the commit carrying this entry is the one `git revert` points at.
+- Effect: `factory/common.sh` `factory_tree_stop` (the verdict's rc kept, one arm split into three) and
+  `factory/selftest.sh` (the `PROCEED` pin moved, `UNREADABLE` added to `expect_quarantine`,
+  `shim_install_first`/`q_unreadable` added, four legs in the quarantine loop, two in the process section,
+  the `proc_did_run` and `proc_costs_its_own_unit_its_turn` comments corrected). `bash factory/selftest.sh`
+  -> `374 passed, 0 failed` against `368 passed, 0 failed` on this same box before the change (totals are
+  box-dependent and this is not another box's number); `make verify` -> `verify: OK`. No mutant set covers
+  shell: across `scripts/mutations/*.json` the 80 distinct `"file"` values are all `.go` or `.tmpl`, so
+  `#1048` has no surface here. Three lines read back off the fixtures after the change, not predicted:
+  `TREE-CLEAN unclaimed:901 <tree> cause=never-dirty nothing was dirty; nothing was quarantined`,
+  `TREE-CLEAN unclaimed:900 <tree> cause=verdict-disagreed was found dirty and is clean now; nothing was
+  quarantined (modified: tracked.txt ; untracked: scratch-notes.txt )`, and `TREE-CLEAN selftest <tree>
+  cause=verdict-unreadable … (its state could not be read (git update-index --refresh exited 128; git
+  said: shim: update-index --refresh said something and exited 128))`.
+- Checkpoint: 34663d76fae9bb7f2a4396db33fd093880f02858
+
+## H-0100 · The log collides with the same neighbour a fourth time, and this time both sides' lines are counted instead of eyeballed
+
+- Question: #275 opened `CONFLICTING` through nothing it had done -- `origin/main` moved to
+  `d34c85c` (`#273`, carrying `H-0095`, `H-0096`, `H-0097`) while this unit was in flight.
+  `factory/DECISIONS.md` is the one conflicted file: both sides appended at the same offset, base
+  line 3066. The fourth occurrence of the class `H-0085` settled and `H-0093` and `H-0096`
+  re-settled. What `H-0096` established is that the conflict is the cheap half -- `factory/selftest.sh`
+  was edited by both sides and git merged it without a word, and a silently retired leg is a green
+  suite that no longer checks the thing it was written to check. So the decision is not only which
+  order the entries go in, but what counts as proof that the silent half survived.
+- Options: take git's conflict layout and let CI notice | renumber `H-0099` above `H-0097` | rebase
+  onto `origin/main` | keep both sides' entries ordered by id and count both sides' lines in the
+  merged tree
+- Chose: keep both sides' entries ordered by id and count both sides' lines in the merged tree
+- Why: the ordering is what the allocator already asserted rather than what the merge invented -- it
+  refused to hand this branch `H-0095`/`H-0097` because `issue-272` held them in the `refs/heads`
+  union, so `H-0097 < H-0099` is the order the ids arrived in. `H-0096`'s reason carries over and is
+  not re-litigated: git's own layout is red, because it appends this branch's entry where `main` put
+  its own, and renumbering would edit the other side's citations. Rebasing is forbidden on an
+  in-flight branch here. **What is new is the proof.** `H-0096` attacked each side's leg in the
+  merged tree by hand, one mutant per arm; this time every line either side added is tested
+  mechanically, because the failure being guarded is a line that vanished without leaving a conflict
+  marker, and a hand-picked arm only finds the arms you thought to pick. Over the four files `main`
+  touched, each diffed against the merge base `1d66965` and compared against the merged working tree:
+  `factory/selftest.sh` -- main added 218 lines, **0 missing**; this branch added 265, **0 missing**.
+  `factory/triage.sh` 39 added, 0 missing, none of mine; `SKILL.md` 41/0; `docs/factory.md` 42/0. No
+  `.go` file is in `main`'s change set, so no mutant anchor can have been retired and
+  `scripts/check-mutations.py` is not the gate this merge needs -- #1048's surface is `.go` and
+  `.tmpl` only, measured across all 80 distinct `"file"` values.
+  **The checkpoint below names a sha that is not the other parent, and that is recorded rather than
+  quietly fixed.** Its message says `origin/main` moved to `a97ef21`; measured at the merge,
+  `git rev-parse origin/main` is `d34c85c2f5478e0419af8c57704541d82d47bbc2`, and `a97ef21` is the tip
+  of the *local* `main` in the primary checkout, **54 behind** `origin/main` and 0 ahead
+  (`git rev-list --left-right --count main...origin/main` answers `0  54`). The claim was read off
+  `git worktree list` -- a command that reports what a working tree has checked out, not what the
+  remote holds -- instead of off `git rev-parse origin/main`. The checkpoint still does its job, which
+  is to hold the tree state from before the judgement call, and rewriting its message would cost a
+  force-push on an in-flight branch, which this repository forbids; so the correction lives here,
+  dated, which is what separates a corrected record from one that was always right. The lesson is the
+  same one #1180 keeps teaching in a new costume: the read that answers "where is the remote" is
+  `git rev-parse origin/main`, and `git worktree list` is not it.
+  What lost. Neither side's entry moved, so no citation broke; what lost is the empty checkpoint
+  commit itself -- a real commit on the branch, standing for a tree state nothing can rebuild -- and
+  whatever linearity a rebase would have bought, which is not on the table here.
+- Effect: `factory/DECISIONS.md` is the only file this merge resolved by hand; `factory/selftest.sh`
+  took git's auto-merge and was then counted, not read. After the merge the log reads `H-0095`,
+  `H-0096`, `H-0097`, `H-0099` in id order, and `python3 scripts/check-decisions.py` answers
+  `check-decisions: 135 entries across 2 log(s)` -- 132 on this branch before the merge, plus the two
+  `main` brought and this entry. The merged tree then ran the whole gate: `make verify` ->
+  `verify: OK`, exit 0, with `factory/selftest.sh: 387 passed, 0 failed` against the 374 this branch
+  reported before the merge. The delta is not attributed to a count of legs -- `grep -c 'proc_leg '`
+  reads 13 in this branch's file, 11 in `main`'s and 13 in the merged one, because `main`'s new legs
+  are not `proc_leg` rows, so a total is the only honest number here. The per-line test above is the
+  evidence that nothing stopped running: every line either side added is present in the merged tree.
+- Checkpoint: 3e135a78e80039c95041dca376073fb48f575180
