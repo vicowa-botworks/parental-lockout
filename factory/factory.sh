@@ -116,6 +116,34 @@ EOF
 			;;
 		esac
 		printf 'repo:    %s\n' "$(git -C "$FACTORY_ROOT" remote get-url origin 2>/dev/null)"
+		# Which checkout the timer is armed to exec (#260). `code:` above answers for the tree you are
+		# standing in, and that is a different question: the incident this line is the answer to was a
+		# unit installed from one checkout while the guard reported on another, and the person holding
+		# the ticket had to read `systemctl --user cat` by hand to find out which tree ran.
+		unit_rc=0
+		unit_tree=$(factory_installed_tree) || unit_rc=$?
+		case "$unit_rc" in
+		0)
+			if [ "$unit_tree" = "$FACTORY_HARNESS" ]; then
+				unit_says='this tree'
+			else
+				unit_says="NOT the tree running this (--status reads $FACTORY_HARNESS)"
+			fi
+			printf 'unit:    %s -- %s\n' "$unit_tree" "$unit_says"
+			;;
+		1)
+			printf 'unit:    none armed at %s -- the loop is not started by systemd on this box\n' \
+				"$(factory_units_dir)/$(factory_service_unit)"
+			;;
+		4)
+			printf 'unit:    %s cannot be read, so what the timer would exec is unknown\n' \
+				"$(factory_units_dir)/$(factory_service_unit)"
+			;;
+		*)
+			printf 'unit:    %s execs %s, which is not this harness'"'"'s script\n' \
+				"$(factory_units_dir)/$(factory_service_unit)" "$unit_tree"
+			;;
+		esac
 		printf 'trees:   %s\n' "$FACTORY_TREES"
 		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
 		printf '\nledger:\n'
@@ -927,7 +955,7 @@ factory_refresh_origin() {
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
-	local rows rc=0 started=0
+	local rows rc=0 started=0 unit_line
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
 	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
 	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before
@@ -944,6 +972,17 @@ factory_body() {
 	# answer. It runs inside `factory/run/lock` on purpose: `flock -n` means a second activation is
 	# never waiting here, it reports 7 and leaves, so the worst a parked fetch costs is one missed
 	# activation and one sentence in the journal.
+	# Which checkout the timer is armed to exec, and which one this pass is running from (#260). Read
+	# from the installed unit, because every other claim this harness made about the unit was composed
+	# from `$FACTORY_ROOT` and on 10 Nov was false: the installer refused a tree saying the unit execed
+	# it while the unit execed another checkout 38 commits behind, and the staleness line that would
+	# have said so printed zero times in that tree's 3,861-line journal. Before triage, not after --
+	# a pass that cannot reach GitHub is exactly the pass an operator goes looking for, and on 9 Nov
+	# the queue was unreachable for 3h13m.
+	while IFS= read -r unit_line; do
+		[ -n "$unit_line" ] || continue
+		log_event "$unit_line"
+	done < <(factory_unit_lines "$FACTORY_HARNESS")
 	factory_refresh_origin "$(factory_main_checkout)"
 	if ! rows=$("$FACTORY_DIR/triage.sh"); then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"

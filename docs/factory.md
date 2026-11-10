@@ -390,17 +390,19 @@ what it is missing. `git log --oneline HEAD..origin/main` is the list it counts.
 Two trees can be "the code under test" and they are different directories, which is why the branch is
 never asked of a global: `$FACTORY_HARNESS` is where the running script was read from -- what `--status`
 and the pass report, because it is what is actually executing -- and `$FACTORY_ROOT` is what `@REPO@`
-becomes, so `--install` judges that one, because it is what the unit will exec. They are equal only
-while the harness lives in the primary checkout, which is the arrangement `H-0009` rejects.
+becomes, so `--install` judges that one, because it is the tree this install would arm. They are equal
+only while the harness lives in the primary checkout, which is the arrangement `H-0009` rejects. What the
+loop runs *today* is neither of those globals: it is the `ExecStart=` of the unit already installed, and
+since #260 that is read (`factory_installed_tree`, `factory/common.sh`) instead of inferred.
 
 This is what a reinstall of that tree now prints, verbatim:
 
 ```
 install-timer: refusing to install a tree that is not the trunk.
-  /tmp/opencode/demo-ff is at 3962919 on detached: 3 commits behind origin/main.
-  The unit execs /tmp/opencode/demo-ff/factory/factory.sh, so this tree IS the supervisor: every merge
-  since its checkout is invisible to the loop that exists to act on them, and every other
-  check in this harness reads healthy while that is true (#249).
+  /tmp/opencode/demo-ff is at 82b37c3 on main: 3 commits behind origin/main.
+  The installed unit execs this checkout, so this tree IS the supervisor: every merge
+  since its checkout is invisible to the loop that exists to act on them, and every
+  other check in this harness reads healthy while that is true (#249).
 
       git -C /tmp/opencode/demo-ff fetch origin main && git -C /tmp/opencode/demo-ff merge --ff-only origin/main
 
@@ -412,10 +414,10 @@ command is different and the message has to be the one that is true:
 
 ```
 install-timer: refusing to install a tree that is not the trunk.
-  /tmp/opencode/demo-fork is at 5e32220 on detached: 3 commits behind origin/main, 1 ahead of it.
-  The unit execs /tmp/opencode/demo-fork/factory/factory.sh, so this tree IS the supervisor: every merge
-  since its checkout is invisible to the loop that exists to act on them, and every other
-  check in this harness reads healthy while that is true (#249).
+  /tmp/opencode/demo-fork is at 9a81476 on detached: 3 commits behind origin/main, 1 ahead of it.
+  The installed unit execs this checkout, so this tree IS the supervisor: every merge
+  since its checkout is invisible to the loop that exists to act on them, and every
+  other check in this harness reads healthy while that is true (#249).
 
   This tree's branch (detached) holds 1 commit origin/main does not have, so a fast-forward is
   not available. Merge it or rebase it onto the trunk, or arm a checkout the trunk
@@ -425,6 +427,79 @@ install-timer: refusing to install a tree that is not the trunk.
 
   Then re-run --install. --force installs this tree anyway, and says so in the journal.
 ```
+
+Neither of those two sentences about the unit was *earned* until #260. Both read `The unit execs
+<FACTORY_ROOT>/factory/factory.sh`, composed from the `ExecStart=` line this script is about to
+**write** -- and a refusal is exactly the case where nothing is written, so the sentence described a
+unit that did not exist yet and was false whenever the unit that did exist pointed somewhere else.
+Measured 10 Nov: the installed unit execed `~/prj/wt/factory-harness` while `--install` from
+`~/prj/parental-lockout` printed that it execed `~/prj/parental-lockout`; the guard checked the
+position of the second tree, the operator was sent to fast-forward it, and the tree the loop actually
+ran sat 38 commits behind without ever being named. So the refusal now prints what the unit says,
+including where **that** tree stands:
+
+```
+install-timer: refusing to install a tree that is not the trunk.
+  /tmp/opencode/demo-ff is at 82b37c3 on main: 3 commits behind origin/main.
+  Two trees are in play. The loop runs today from the one the unit execs: /tmp/opencode/demo-fork
+  The unit execs /tmp/opencode/demo-fork/factory/factory.sh, NOT /tmp/opencode/demo-ff/factory/factory.sh (#260).
+  That tree is at 9a81476 on detached: 3 commits behind origin/main, 1 ahead of it.
+
+  The tree above is the code the queue is running right now. This install replaces
+  the unit, so after it the loop moves to:
+    /tmp/opencode/demo-ff
+  Fix both, or read the journal the way it will read: a healthy-looking pass, from a
+  stale tree nothing here reported as stale.
+
+      git -C /tmp/opencode/demo-ff fetch origin main && git -C /tmp/opencode/demo-ff merge --ff-only origin/main
+
+  Then re-run --install. --force installs this tree anyway, and says so in the journal.
+```
+
+Three other arms print instead when the reading does not answer -- no unit at that path, a unit whose
+`ExecStart` is not this harness's script, a file that cannot be read -- and each names the file it
+looked at. The third is not a synonym of the first: "I could not read it" and "nothing is armed" are
+different statements about the machine, and the second one is reassuring (#228 is the same polarity in
+`triage.sh`).
+
+A **successful** install moves the loop the same way, and that is the moment a healthy-looking journal
+goes quiet, because the journal lives inside the tree (`factory/log/supervisor.log`) along with the
+HALT path and the working tree a tick may dirty. On 10 Nov it was invisible: `TIMER-INSTALLED` at
+13:39:05Z in one tree's log, the next `PASS` in another's, nothing in the old file to explain the gap.
+So the move gets a sentence in the block a person reads, and its own journal line:
+
+```
+2026-11-10T15:58:20Z UNIT-TREE old=/tmp/opencode/demo-fork new=/tmp/opencode/demo-ff unit=demo-factory
+2026-11-10T15:58:20Z TIMER-INSTALLED demo-factory interval=10m repo=/tmp/opencode/demo-ff
+
+Installed:
+  /tmp/opencode/refusals/units/systemd/user/demo-factory.service
+  /tmp/opencode/refusals/units/systemd/user/demo-factory.timer
+
+  The loop MOVES. The unit installed today execs:
+    /tmp/opencode/demo-fork
+  this install replaces it with one that execs:
+    /tmp/opencode/demo-ff
+
+  That changes the journal, the HALT path, and which working tree a tick may dirty. An
+  operator tailing the old journal will watch a healthy queue go silent at this moment:
+
+    /tmp/opencode/demo-fork/factory/log/supervisor.log
+```
+
+Every block on this page was printed by the shipped script, not composed by hand: clone a fixture
+trunk, `git reset --hard HEAD~3` for the stale tree, plant the unit named by `--name` under a scratch
+`XDG_CONFIG_HOME`, then run `install-timer.sh --install` with `PATH` holding a `systemctl` shim so the
+fixture never touches the operator's manager. The lines that are *not* the script's own -- the
+`systemctl` calls and the `list-timers` table -- are elided from the quotes above. Where a block prints
+a path to `install-timer.sh` -- the `FACTORY_ROOT=` example, the `Remove:` line -- that is `$0`, so it
+reads as whatever path the script was invoked by; the demo path is kept here for readability.
+
+`--status` answers the same question on its `unit:` line, because that command is what someone types
+when they suspect this; until #260 it described only the tree they were standing in. A unit also
+records its own name (`Environment=FACTORY_SERVICE_UNIT=<name>.service`) for the same reason: `--name`
+is chosen on a command line and is recorded nowhere else, so a pass reading the default name would be
+describing a unit that does not exist.
 
 What the check deliberately does **not** do:
 
