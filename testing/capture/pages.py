@@ -1055,7 +1055,7 @@ def main(shoot_fn=None, record_fn=None):
 # on a border the browser is not drawing.
 # The two canaries are registered like every other rule and deliberately not counted: they exist to
 # prove the helper is not hollow.
-EXPECTED_RULES = 69
+EXPECTED_RULES = 70
 
 
 class _FakeSession:
@@ -3200,6 +3200,51 @@ def self_test():
     rule("a tick box outside its words refuses", a_tick_box_outside_its_words_refuses)
     rule("the census a page was shown is printed", a_census_is_printed_for_every_page)
     rule("a census that was never taken refuses", a_census_that_was_never_taken_refuses)
+
+    def a_frame_over_the_wrong_census_refuses(problems):
+        """#213: the two POST frames refuse a page whose session census is not the declared one.
+
+        The guard lives in cdp.py because both POST drivers share it, and it is pinned here because
+        this is the suite `make verify` runs for the capture contract. Three arms, and the third is
+        the one this page shape makes easy to get wrong: `testlock` draws TWO `table.rows` tables, so
+        a census that counts `tbody tr` over the page counts the backend table too and moves when a
+        backend is added — a condition that changes for a reason that has nothing to do with logins.
+        Rows are transcribed from the two pages as measured on 10 Nov (2 lockable sessions; 1 backend).
+        """
+        def row(labels):
+            return {"result": list(labels), "vals": ["x"] * len(labels)}
+        sessions = [row(["Where", "Result", "Detail"]), row(["Where", "Result", "Detail"])]
+        backends = [row(["Can lock", "Detail"])]
+        probe = backends + [row(["Where", "Would lock", "Detail"])]
+        if cdp.require_declared_sessions(sessions, 2, "the lock result page") != 2:
+            problems.append("a matching census did not pass, and did not return the count the "
+                            "driver prints with it")
+        try:
+            cdp.require_declared_sessions(sessions, 1, "the lock result page")
+            problems.append("a 2-session page passed against a census of 1 — the exact shape #213 "
+                            "measured: the committed frame is a 2-session page the README describes "
+                            "as 1 session")
+        except SystemExit as exc:
+            said = str(exc)
+            if "2 lockable session row(s)" not in said or "declared 1" not in said:
+                problems.append(f"the refusal does not name both numbers, so the reader cannot "
+                                f"tell which side moved: {said[:160]!r}")
+        if cdp.session_census(probe) != 1:
+            problems.append(f"the probe page's census counted {cdp.session_census(probe)} of "
+                            f"{len(probe)} rows: the backend table has a row per backend and is not "
+                            "part of the session census")
+        try:
+            cdp.require_declared_sessions(probe, 2, "the probe result page")
+            problems.append("a probe page with one session row passed a census of 2, so the census "
+                            "is counting backend rows")
+        except SystemExit:
+            pass
+        if cdp.require_declared_sessions([], 0, "the lock result page") != 0:
+            problems.append("an empty census refused: 0 is a count the fixture may declare, and a "
+                            "refusal here would be indistinguishable from the guard not running")
+
+    rule("a frame photographed over the wrong session census refuses",
+         a_frame_over_the_wrong_census_refuses)
     # #204's nine. The first is the splice; the next six are one refusal each for one of the
     # report's criteria; the last two are the census's own absence and its own line in the log.
     rule("the navigation census is asked for, at both viewports",

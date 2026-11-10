@@ -1574,14 +1574,21 @@ q_journal_has() { # needle -> 0 when the fixture journal carries it
 	grep -qF -- "$1" "$FACTORY_LOG/supervisor.log"
 }
 
-# expect_quarantine LABEL TREE WANT [UNIT] [NEEDLES] [ATTEMPT]
+# expect_quarantine LABEL TREE WANT [UNIT] [NEEDLES] [ATTEMPT] [WHY]
 #   NEEDLES is a comma-separated list of paths the mirror has to contain -- the edit-and-untracked leg
 #   asks for both, the untracked-only leg for one. Hard-coding both in the arm made that leg fail for
 #   the wrong reason: it is the leg whose whole subject is a tree with nothing tracked to diff.
 #   ATTEMPT is the value the streak counter is expected to hold afterwards.
-expect_quarantine() { # label tree want [unit] [needles] [attempt]
+#   WHY is for the HALT expectation only: a comma-separated list of substrings the journal's
+#   `TREE-QUARANTINE-REFUSED` line has to carry, and therefore the name of the ARM that refused. With
+#   nothing here a HALT leg asserts only that some refusal happened, and five of the six refusal arms
+#   in `factory_tree_quarantine` catch each other's fall -- measured 10 Nov: making the
+#   `cannot be created` arm inert left `no mirror, so no clean` printing ok, because the render arm two
+#   lines below refused instead. Commas split, not spaces: the sentences carry spaces on purpose.
+expect_quarantine() { # label tree want [unit] [needles] [attempt] [why]
 	local label=$1 tree=$2 want=$3 unit=${4:-selftest} needles=${5:-tracked.txt} want_n=${6:-1}
-	local rc=0 out="" before="" after_mirrors=0 before_mirrors=0 bad="" m="" want_rc=0 needle
+	local why=${7:-}
+	local rc=0 out="" before="" after_mirrors=0 before_mirrors=0 bad="" m="" want_rc=0 needle rest=""
 
 	before=$(q_dirt "$tree")
 	before_mirrors=$(q_mirror_count)
@@ -1621,6 +1628,16 @@ expect_quarantine() { # label tree want [unit] [needles] [attempt]
 		[ -e "$FACTORY_HALT" ] || bad="${bad:+$bad; }no HALT file, so factory_halted() would not stop the pass"
 		q_journal_has 'TREE-QUARANTINE-REFUSED' ||
 			bad="${bad:+$bad; }the journal never says the quarantine was refused, so the halt looks like the old one"
+		# Which arm refused, in its own words. The generic marker above says only that the function
+		# stopped, and five of the six refusal arms refuse with the same shape -- so without this the
+		# leg cannot tell that the arm it was written for was deleted and a later one caught the fall.
+		rest=$why
+		while [ -n "$rest" ]; do
+			needle=${rest%%,*}
+			if [ "$needle" = "$rest" ]; then rest=''; else rest=${rest#*,}; fi
+			q_journal_has "$needle" ||
+				bad="${bad:+$bad; }the refusal line names no '$needle', so any refusal would satisfy this leg"
+		done
 		[ "$after_mirrors" = "$before_mirrors" ] ||
 			bad="${bad:+$bad; }it wrote a mirror anyway, so a refusal is not the honest arm"
 		[ "$(q_dirt "$tree")" = "$before" ] ||
@@ -1672,6 +1689,33 @@ expect_quarantine() { # label tree want [unit] [needles] [attempt]
 	pass=$((pass + 1))
 	printf '  ok    %-34s %-10s exit=%s dirt=%s %s\n' "$label" "$want" "$rc" "$(q_dirt "$tree")" \
 		"${m:+mirror=$(basename -- "$m")}"
+	return 0
+}
+
+# A refusal arm, planted rather than hoped for. `shim_install` (near the top of this file, written for
+# #228's five unreadable reads) answers exactly one git invocation and hands every other argument list
+# to the real binary. Three of `factory_tree_quarantine`'s refusal arms have no on-disk shape that
+# reaches them -- git will `stash push` into any tree a fixture can build -- so the failure is made
+# rather than searched for. The plant is inside the helper on purpose: a leg that asserts a refusal
+# must not be able to pass on the dirt the previous leg left behind.
+#
+# `want` routes NEEDLES twice: HALT asks the journal for the refusing arm's own words, QUARANTINE asks
+# the mirror for the paths the patch has to carry. The control is the same helper with a match naming
+# nothing git ever runs, because three refusals prove nothing unless an inert shim is shown quarantining
+# -- otherwise every one of them is satisfied by a shim that stops everything it sees.
+q_arm() { # label tree want match exit needles
+	local label=$1 tree=$2 want=$3 match=$4 code=$5 needles=$6 shim="" saved=$PATH
+	q_reset "$tree"
+	q_dirty "$tree"
+	shim=$(shim_install "$match" "$code")
+	PATH="$shim:$PATH"
+	hash -r
+	case "$want" in
+	HALT) expect_quarantine "$label" "$tree" HALT selftest '' 1 "$needles" ;;
+	*) expect_quarantine "$label" "$tree" QUARANTINE selftest "$needles" 1 ;;
+	esac
+	PATH=$saved
+	hash -r
 	return 0
 }
 
@@ -1742,9 +1786,49 @@ for tree in "$repo" "$wt"; do
 	# worked and proved nothing about the refusal arm.
 	: >"$work/blocker"
 	FACTORY_AT_RISK=$work/blocker/underneath \
-		expect_quarantine "[$where] no mirror, so no clean" "$tree" HALT
+		expect_quarantine "[$where] no mirror, so no clean" "$tree" HALT selftest '' 1 'cannot be created'
 	q_reset "$tree"
 	FACTORY_AT_RISK=$work/at-risk
+
+	# --------------------------------------------- the refusal arms no on-disk state can reach (H-0079)
+	#
+	# Two measurements, both taken on 10 Nov against the code as shipped, both of them the reason these
+	# legs exist rather than those.
+	#
+	# (1) With the `git stash failed` guard taken out and the `git stash push` call left in place -- the
+	# exact deletion this repository's own rule calls a retired arm (the condition became `… && false`,
+	# so the push still ran and only the refusal went blind) -- the suite reported `344 passed, 0 failed`
+	# at `450a628` plus this commit. Issue #248's second acceptance leg, "make the stash fail… and assert
+	# BOTH halves: the tree is still dirty AND the halt is written", had never been written at all:
+	# nothing in the file reaches an arm whose failure only git can produce. That is what the shim is for,
+	# and the three legs below are the three arms it plants. The first run of this measurement reported
+	# `286 passed, 0 failed` on the tree the fix was written in, which was 22 commits behind `main`; the
+	# number here is the one this branch reproduces, and a measurement nobody can re-run on the delivered
+	# base is not a measurement.
+	#
+	# (2) With the `cannot be created` arm above made inert, that leg still printed `ok`, because the
+	# render arm two lines below caught the fall and refused with its own sentence. A HALT leg that
+	# asserts only `TREE-QUARANTINE-REFUSED` therefore measures "something refused", not "the arm I came
+	# for refused" -- which is why every leg here, including the one above, now names its arm.
+	#
+	# `git refuses to stash` is the leg #248 asked for by name, and the one measurement (1) above is
+	# what says it was missing: it is the only leg that plants a failing `git stash push`, and the push
+	# arm is the one that decides whether the queue halts with the work still in the tree. The two render
+	# legs are also the pair that pins the refusal's REASON. The arm used to run
+	# `git stash show -p … >"$tmp" 2>&1` inside a capture: stderr pointed at the file the arm deletes,
+	# the captured variable was always empty, and every mirror refusal printed `… :: ` and nothing after
+	# the colon (measured against the shipped function: `no mirror could be written to
+	# /…/repo-quarantine-….patch :: `). The first leg asks for git's own sentence in the journal line and
+	# goes red the day the redirect order is put back; the second distinguishes the half where git
+	# SUCCEEDED and produced no bytes, which is a different cause and was reported with one sentence.
+	q_arm "[$where] git refuses to stash" "$tree" HALT 'stash push' 128 \
+		'git stash failed,shim: stash push'
+	q_arm "[$where] git refuses to render" "$tree" HALT 'stash show -p' 128 \
+		'rendering stash,shim: stash show -p'
+	q_arm "[$where] the render comes back empty" "$tree" HALT 'stash show -p' 0 \
+		'rendered an empty mirror'
+	q_arm "[$where] an inert shim still quarantines" "$tree" QUARANTINE 'definitely-not-a-git-subcommand' 128 \
+		'tracked.txt,scratch-notes.txt'
 done
 
 # The mirror has to land in the fixture box and nowhere else. `FACTORY_AT_RISK` defaults to a real

@@ -2060,6 +2060,93 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   gained the leg `the mirror never lands where a reboot can`. Measured on this tree:
   `bash factory/selftest.sh` -> `338 passed, 0 failed` (one leg above the merge's 337, none lost).
 
+## H-0079 · A mirror refusal keeps its reason, and a render that wrote nothing stops being a rescue
+
+- Question: `factory_tree_quarantine` renders the mirror inside a capture, as
+  `err=$(git stash show -p --binary --include-untracked "$sha" >"$tmp" 2>&1)`. That order points stderr
+  at the FILE -- the copy the arm deletes three lines later -- so `err` is always empty and the refusal
+  prints `… :: ` with nothing after the colon. H-0063 shipped it that way knowing: its entry and #250's
+  body both disclose the empty reason as "known and disclosed, not fixed here". Is the reason worth
+  recovering, and by which shape, without losing the payload or the emptiness guard?
+- Options: capture stderr into its own file and read it back with `factory_git_said`, as
+  `factory_tree_dirt` and `factory_tree_stop` already do | reorder the redirects so stderr reaches the
+  capture and stdout reaches the file | read the reason out of `$tmp` itself before the arm deletes it |
+  leave the code alone and pin the dangling `::` shape with a text scan over the shipped file | reorder
+  the redirects and split the conjoined guard into the two causes it conflates
+- Chose: reorder the redirects and split the conjoined guard into the two causes it conflates
+- Why: the merged stream is not only losing a sentence, it is capable of forging the rescue. Measured
+  10 Nov against the shipped function with a fixture repo and a `git` that answers `stash show -p` with
+  a sentence on stderr and exit 0 -- a read that succeeds and complains, exactly #232's shape: stdout
+  empty, so `$tmp` should be empty; stderr merged, so `$tmp` holds the warning; `[ ! -s "$tmp" ]`
+  therefore PASSES, the function returns 0, the tree is cleaned, and the journal advertises
+  `TREE-QUARANTINED … mirror=/…/repo-quarantine-….patch` for a file whose bytes are a complaint and not
+  a patch. The new leg says it in its own words: `it wrote a mirror anyway, so a refusal is not the
+  honest arm; a refusal changed the tree: 2 path(s) before, 0 after`. That is H-0063's hazard -- a
+  mirror that restores nothing -- arriving through the merge instead of through a binary, and the size
+  guard cannot see it because the bytes it counts are the wrong bytes. With the order reversed, stderr
+  goes to the command substitution's pipe where the printf can quote it and stdout goes to the file
+  where only the patch belongs; nothing else about the read changes, and a rendering that works still
+  writes the same bytes. Why the four alternatives lose. **An errfile of its own** is the option the
+  tie-break order names first (it is what the surrounding code already takes, twice), and it is the one
+  that lost: it buys a second scratch file whose removal has to be remembered on every exit of the arm,
+  and `quarantine-error.$$` leaked one file per pass for exactly that reason until H-0064 found it. The
+  reorder adds no file and leaves the arm shaped like the `git stash failed` arm two screens above,
+  which already captures with `err=$(git … 2>&1)`. **Reading the reason out of `$tmp`** works only when
+  git wrote something, and it cannot tell git's sentence from the first line of a half-written patch --
+  reason and payload share one file, which is the defect being fixed. **The text scan** pins the symptom
+  (`:: ` at end of line) and not the property; the leg that asks the journal for git's own words goes
+  red on the redirect order AND on a deleted printf, and the scan goes red on neither of the two.
+  **One conjoined guard** keeps reporting a refusal that exited 0 with no bytes using a sentence about
+  not being able to write, and the two causes need different repairs -- a git that refused, and a stash
+  that renders nothing. What lost, as measured: the reordered form rests on a redirect rule (`2>&1`
+  binds whatever stdout points at at that moment) that reads like a typo to the next person, so the
+  comment says so out loud and `git refuses to render` is the leg that reddens the day it is tidied
+  back; the empty-render sentence no longer prints the patch path, because the arm deletes that file and
+  a path to nothing is not diagnosis (the box is named by the successful arm's line); and
+  `factory_git_said` keeps only the FIRST line of the refusal, so when the arm unhooks, `factory_tree_unstash`'s
+  sentence -- where the work actually is -- is still dropped from the journal. That last one predates
+  this commit and is written here because the measurement walked into it.
+- Checkpoint: a4304b6
+- Effect: `factory/common.sh` -- the render arm is two arms: `rendering stash <sha9> failed :: <git's
+  own line>` and `stash <sha9> rendered an empty mirror :: git exited 0 and wrote no bytes[; it said:
+  …]`, with `why=""` added to the function's locals. `factory/selftest.sh` -- `expect_quarantine` gains
+  a seventh argument, WHY, asserted in the HALT arm as substrings the `TREE-QUARANTINE-REFUSED` line has
+  to carry (commas split, not spaces: the sentences carry spaces); `no mirror, so no clean` now names
+  `cannot be created`, which it did not use to; new helper `q_arm` plants the dirt, installs one poisoned
+  subcommand through `shim_install`, runs the expectation and puts `PATH` back; four legs run in both
+  trees -- `git refuses to stash`, `git refuses to render`, `the render comes back empty`, `an inert
+  shim still quarantines`. `git refuses to stash` was added on this branch, not by the tick that wrote
+  the entry above: with the entry written, the push arm was re-probed at `450a628` and `344 passed,
+  0 failed` came back with its refusal made inert (`… 2>&1) && false`), so #248's own second acceptance
+  leg -- "make the stash fail… and assert BOTH halves" -- was still unpinned by the six render legs
+  alone. The third arm needed no code change: unlike stderr, a failing `git stash push` is captured by
+  `err=$(… 2>&1)` already, so its sentence was intact and only the leg was missing.
+  Provenance, because the branch moved and two ids changed. The fix was written 22 commits behind
+  `main`, in a tree whose allocator predated H-0074/H-0075, and opened as `## H-0073` -- an id
+  `origin/main` already publishes at line 1700 (the allocator entry), whose log now runs to H-0078.
+  The unmerged side yields: `factory/next-decision-id.sh` answers H-0079 here, so this entry is H-0079
+  and nothing on either side moves; the same collision #253 and H-0074 exist to end, and `check-decisions.py`
+  would have refused the duplicate rather than the rebase catching it. Rebased onto `450a628` (local-only
+  branch, no pull request, so no in-flight history was rewritten); `Checkpoint: a4304b6` is that
+  checkpoint as it now stands, the rebased form of `36da883`, and the subject it carries still reads
+  `pre-H-0073` because retitling a checkpoint is rewriting what the earlier tick believed. Both
+  originals, `36da883` and `c997ff6`, are held in
+  `~/prj/at-risk/branch-issue-248-c997ff6-20261110T141909Z.bundle` -- the 08:38 bundle named in the
+  wip commit's own message covers only `36da883`, so the work commit itself had no copy off-box until
+  this one was made.
+  Measured on the delivered base (`450a628` + this commit), each with `bash factory/selftest.sh`, and
+  each plant undone by `cp` from a `/tmp` backup rather than `git restore`: fixed tree -> `346 passed,
+  0 failed`; the shipped render arm put back (`>"$tmp" 2>&1`, conjoined guard) -> `342 passed, 4 failed`,
+  two legs for the refusal line that names no cause and two for the forged mirror, one of them printing
+  `it wrote a mirror anyway, so a refusal is not the honest arm; a refusal changed the tree: 2 path(s)
+  before, 0 after`; the `git stash failed` arm inert with this leg present -> `344 passed, 2 failed`,
+  both naming `git stash failed`; the same arm inert WITHOUT this leg -> `344 passed, 0 failed`, which is
+  the number that leg exists to make impossible. The redirect rule itself was checked apart from the
+  function on a stand-in that writes a payload to stdout and a complaint to stderr and exits 0: shipped
+  order captures nothing and leaves the file holding `payload` plus `fatal: cannot apply binary patch`
+  -- the complaint inside the mirror, contaminating a patch that would otherwise have applied -- while
+  the fixed order captures the complaint and leaves the file holding only the payload.
+
 ## H-0080 · The quarantined section is the work, and the ticket's blast radius is one line off
 
 - Question: the tick before this one spent its whole life on #263 and was stopped at its ceiling with
@@ -2154,3 +2241,59 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: `factory/DECISIONS.md` `H-0080` and four comments in `factory/selftest.sh` now read
   `450a628`; this entry is the trace. `e334f4f`'s message still says `a7a656d`, permanently, and
   PR #264's body says so. `bash factory/selftest.sh` re-run on this commit: same 349 legs.
+
+## H-0085 · The log conflict was the cheap half: main had rewritten the function two of the three mutants are anchored on
+
+- Question: PR #264 reads `CONFLICTING`/`DIRTY` against `adbe6e3` -- six commits of drift since
+  `450a628`, and both sides appended to `factory/DECISIONS.md` at the same offset: main took
+  `H-0079`, this branch took `H-0080`-`H-0082`. Inside that drift is #262's `08550d6`, which
+  rewrites the mirror render inside `factory_tree_quarantine` and adds `why=""` to that function's
+  locals -- the same function two of this section's three controls cut into, at the lines
+  `qerr_file="$FACTORY_RUN/quarantine-error.$$"` and `log_event "TREE-QUARANTINED $unit`. Take
+  git's conflict layout and let CI notice, keep one side's log text, renumber this side below
+  `H-0079`, rebase onto main, or keep both sides' entries, ordered by id, and re-run the section
+  against the merged tree?
+- Options: take git's conflict layout and let CI notice | keep only the longer side's entries |
+  renumber this side's three ids below `H-0079` | rebase onto `origin/main` | keep both sides'
+  entries, ordered by id, and re-run the section against the merged tree
+- Chose: keep both sides' entries, ordered by id, and re-run the section against the merged tree
+- Why: no id moves on either side. `H-0080`-`H-0082` are cited by the pushed commits `e334f4f` and
+  `d7d370d`, by this pull request's body, and by each other, so renumbering would turn every one of
+  those citations into a pointer at a different entry -- the exact defect `H-0082` exists to record,
+  one entry after it was written. `H-0079` has already paid the other version of this bill: its own
+  entry records that it opened as `H-0073`, found the id taken on `origin/main`, and yielded the id.
+  A position, unlike an id, is free to move, and it has to: `scripts/check-decisions.py` reads the
+  order. Taking git's layout verbatim -- the first resolution made here, left in place and measured
+  rather than guessed at -- answers `factory/DECISIONS.md:2159: H-0079 is out of order (D-0082 came
+  before it); the log is a history and a history that jumps around cannot be bisected`. Ordering by
+  id is what the allocator's contract already asserts: both sides numbered against the union of
+  `refs/heads` and `refs/remotes`, so the numbers are the history's order and only the text
+  disagreed. (That message names `D-0082`, which lives in the other log: `check-decisions.py:136`
+  formats the predecessor as `"D-%04d" % prev_num` whichever log it is reading. Location and verdict
+  are right, so no gate is bypassed and nothing here depends on it -- but a refusal that sends the
+  reader to the wrong file is a real papercut, and it is filed rather than fixed under a review that
+  asked for two named things.) What makes this more than a text merge is the anchor problem this
+  repository has already been bitten by (#1048): `proc_mutate` and `proc_mutate_factory` each require
+  their anchor to occur exactly once, so a retargeted line is a control that reports itself unplanted
+  -- and a control that reports itself unplanted is only caught because the leg asks. So the merge
+  was run, not read. On the merged tree: both `common.sh` anchors and the `factory.sh` anchor occur
+  once each (`grep -c` = 1, 1, 1), `python3 scripts/check-decisions.py` -> `118 entries across 2
+  log(s)` over the two sides' entries and `119` with this one added, and `bash factory/selftest.sh`
+  -> `357 passed, 0 failed` in 13.5 s. Totals are
+  box-dependent and this one is not the review's: this box's base is 349 and main contributes 8
+  legs; the review's box reads 345 + 11 = 356. The same fs-dependent split #238 and #257 recorded --
+  neither number is the other's, and both read 0 failed. That both sides survived intact was checked
+  in both directions rather than assumed: `git diff HEAD -- factory/selftest.sh` deletes only the
+  four lines this branch had already replaced with main's 7-argument `expect_quarantine`, and
+  `git diff origin/main -- factory/selftest.sh` deletes only the four lines this branch had already
+  replaced with `H-0081`'s marker -- each side loses its own superseded text and nothing of the
+  other's. Rebase loses three ways: `allow_rebase_merge=false` on this repository, force-push is
+  denied to a tick, and a `CHANGES_REQUESTED` review was submitted against `d7d370d` at 16:09:54Z,
+  so rewriting the head would delete the artifact the review is about.
+- Checkpoint: 2b3bfe6
+- Effect: `factory/DECISIONS.md` reads `H-0078`, `H-0079` (main), `H-0080`-`H-0082` (this branch),
+  `H-0085` (this entry); no id changed on either side. Each number above was read back before this
+  line was written, per `#1180`: the gate printed 118 entries, the suite printed 357/0, and the
+  three anchors printed 1/1/1. What this commit does NOT do: `#264`'s body still asserts "Nothing
+  here conflicts", which was true of main at `79b4757` and is false of `adbe6e3`. That sentence is a
+  status claim, so it is corrected in the body itself, not by editing an entry.

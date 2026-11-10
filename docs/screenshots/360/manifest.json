@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-08T21:35:45Z",
-  "head": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
+  "captured_at": "2026-11-10T13:59:03Z",
+  "head": "cff128e5b08e0b117f6c9ad36f021107973d5eb4",
   "pages": [
     {
       "capture": {
@@ -18,6 +18,7 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/audit",
       "png": "audit.png",
       "png_sha256": "fc37cd9adcc5d0a87c77a903b8a93453a18a638575673e70a4c7c1ea726d7902",
@@ -61,6 +62,7 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/",
       "png": "dashboard.png",
       "png_sha256": "d4d7ed12f2b8fc0ca6018a74d9e6a2a5dcc5a3da1ec76113c4aba29cd95ecbb2",
@@ -76,6 +78,7 @@
       "capture": {
         "fixture": "lock",
         "scripts": "off",
+        "sessions": "2",
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
@@ -100,6 +103,7 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/profiles",
       "png": "profiles-refused.png",
       "png_sha256": "9a62a2cd948101b23e62c9e8bf3f3509c0c0b635c54d2c22317114d3aed22101",
@@ -121,6 +125,7 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/profiles",
       "png": "profiles.png",
       "png_sha256": "a2bede881152d65e5f55e1a8daa39cd46549895291d6b5612c234d3fd8797944",
@@ -142,6 +147,7 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/settings",
       "png": "settings.png",
       "png_sha256": "c47e16d6de93c4be756c470b15aa1730d4837079dfc7f98cf0925c1c83569b80",
@@ -157,6 +163,7 @@
       "capture": {
         "fixture": "testlock",
         "scripts": "off",
+        "sessions": "2",
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
@@ -178,6 +185,7 @@
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/users",
       "png": "users-no-profiles.png",
       "png_sha256": "4f505c2e37a6f155e104d240528a600f3c8df33d915e3fa80b078963e17768d0",
@@ -199,6 +207,7 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/users",
       "png": "users.png",
       "png_sha256": "b1974aaa29c841c3820a89d4ee7de9f1e979ce10cb5985c22f8b86256cd21e7e",
