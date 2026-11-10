@@ -5500,6 +5500,353 @@ decision_ids() {
 }
 decision_ids
 
+# --------------------------------------------------------------------------- the refs the pass reads
+#
+# H-0075 (#256). Everything the pass decides is a reading of refs: `triage.sh` reports this tree's
+# position against `origin/main`, `factory_worktree` cuts a new unit's branch from `origin/main`, and
+# the allocator pinned by the section above reads every `refs/heads` and `refs/remotes` blob. Nothing
+# in the harness fetched, so all three read the last time this clone looked, and `H-0071`'s second row
+# -- a sibling pushed from another clone -- stayed open with only an operator's command to close it.
+# The legs here pin the closing, and they pin the *shape* the closing needs, which is the part no
+# prose would have caught: measured in a fixture, `git fetch --prune origin trunk` leaves the
+# allocator at its stale answer while `git fetch --prune origin` moves it, because the sibling's ids
+# are on the branch it pushed and not on the trunk. #256 asked for the trunk-limited form, so a leg
+# that only asked "is there a fetch?" would have passed the command that fixes nothing.
+#
+#   the shape     the fetch is unrefspec'd, so it updates every branch ref (control: the trunk-only
+#                 plant, which fetches successfully, learns nothing, and must leave the id stale).
+#   the tree      the one fetch in the primary checkout moves the answer in a linked *unit worktree*,
+#                 because `refs/remotes` is the common dir -- so a tick gets the refresh it never
+#                 asked for. That is the leg's measurement, not an assumption beside it.
+#   the bound     `timeout` with the config value, TERM first and a kill-after behind it (control: the
+#                 same function with `timeout` taken out, which must be refused). Measured 9 Nov
+#                 against an origin that accepts the connection and never answers: 124 at the bound,
+#                 no `.lock` file left in `.git`, and the clone usable afterwards.
+#   the polarity  a fetch that fails is one journal line and a return of 0, because the pass holds
+#                 `factory/run/lock` (control: the same function with a `die` planted in the failure
+#                 arm, which must be refused).
+#   the cadence   one fetch call per activation, ahead of the triage read (control: a second call
+#                 planted after the triage read, which must be refused on both counts).
+#
+# The legs source the shipped function out of `factory/factory.sh` rather than calling the script: a
+# whole pass reads GitHub and starts ticks, which no leg may do. Sourcing an extraction keeps the
+# subject the shipped code -- a copy of it would be a second source that drifts, which is why every
+# other leg in this file extracts too.
+
+refsh_work=$work/pass-refresh
+refsh_script=$HERE/factory.sh
+refsh_common=$HERE/common.sh
+refsh_err=$work/pass-refresh.err
+
+# shellcheck disable=SC2317  # reached through the command substitutions below
+refsh_fn() { # <dir> [sed expr] -> a sourceable copy of the shipped factory_refresh_origin
+	local dir=$1 expr=${2:-}
+	mkdir -p -- "$dir" || return 1
+	awk '/^factory_refresh_origin\(\)/,/^}/' "$refsh_script" >"$dir/shipped" || return 1
+	grep -q 'fetch --prune origin >' "$dir/shipped" || {
+		pos_say 'factory_refresh_origin is not in the shipped file, or no longer fetches'
+		return 1
+	}
+	if [ -n "$expr" ]; then
+		sed "$expr" "$dir/shipped" >"$dir/fn.sh" || return 1
+		cmp -s "$dir/fn.sh" "$dir/shipped" && return 1
+	else
+		cp -- "$dir/shipped" "$dir/fn.sh" || return 1
+	fi
+	printf '%s' "$dir/fn.sh"
+}
+
+# The fixture #256 describes: a clone with a unit worktree, asleep, and a sibling that pushed an entry
+# from a second clone. The entry is D-0007 so the two answers are far apart -- a blind `D-0002` and a
+# refreshed `D-0008` -- and the trunk carries nothing above D-0001, so only a branch ref can move it.
+# shellcheck disable=SC2317  # reached from the legs below
+refsh_repo() { # <dir> -> 0 when the fixture is standing
+	local d=$1
+	mkdir -p -- "$d" || return 1
+	# The bare origin authors no commits and it still carries an identity: a fixture that inherits the
+	# host's is H-0059, and the scan over this file cannot tell a repo that will never commit from one
+	# that will. The two config lines are inside the three lines the scan reads after the init.
+	git init -q --bare "$d/origin.git" || return 1
+	git --git-dir="$d/origin.git" config user.email fixture@invalid || return 1
+	git --git-dir="$d/origin.git" config user.name fixture || return 1
+	git clone -q "$d/origin.git" "$d/main" >/dev/null 2>&1 || return 1
+	git -C "$d/main" config user.email fixture@invalid || return 1
+	git -C "$d/main" config user.name fixture || return 1
+	git -C "$d/main" checkout -qb trunk || return 1
+	printf '## D-0001 · fixture trunk\n' >"$d/main/DECISIONS.md" || return 1
+	git -C "$d/main" add -A >/dev/null || return 1
+	git -C "$d/main" commit -qm 'fixture: the trunk a queue runs from' || return 1
+	git -C "$d/main" push -q -u origin trunk || return 1
+	# The tree a tick is actually started in. `common.sh` makes every unit tree with
+	# `git worktree add`, so this is the shape the refresh has to reach.
+	git -C "$d/main" worktree add -qb unit "$d/unit" trunk >/dev/null 2>&1 || return 1
+	git clone -q "$d/origin.git" "$d/other" >/dev/null 2>&1 || return 1
+	git -C "$d/other" config user.email fixture@invalid || return 1
+	git -C "$d/other" config user.name fixture || return 1
+	git -C "$d/other" checkout -qb issue-z origin/trunk || return 1
+	printf '\n## D-0007 · an entry pushed from a second clone\n' >>"$d/other/DECISIONS.md" || return 1
+	git -C "$d/other" add -A >/dev/null || return 1
+	git -C "$d/other" commit -qm 'fixture: a sibling pushed while the first machine slept' || return 1
+	git -C "$d/other" push -q origin issue-z || return 1
+	return 0
+}
+
+# Runs one copy of the function the way the pass runs it, in the fixture's environment. `log_event`
+# echoes as it journals, so stdout is the sentence a reader would see.
+# shellcheck disable=SC2317  # reached from the legs below
+refsh_run() { # <fn file> <tree> <fixture> -> the refresh's journal line
+	local fn=$1 tree=$2 fx=$3
+	FACTORY_DIR=$fx/harness FACTORY_ROOT=$tree FACTORY_BASE=trunk \
+		FACTORY_LOG=$fx/harness/log FACTORY_LEDGER=$fx/harness/ledger \
+		FACTORY_RUN=$fx/harness/run FACTORY_FETCH_TIMEOUT=30 DRY_RUN=0 \
+		bash -c '. "$1"; . "$2"; factory_refresh_origin "$3"' sh \
+		"$refsh_common" "$fn" "$tree" 2>"$refsh_err"
+}
+
+# shellcheck disable=SC2317  # reached from the legs below
+refsh_alloc() { # <tree> -> the id a tick standing there would allocate
+	bash "$alloc_script" --repo "$1" --prefix D DECISIONS.md 2>"$refsh_err"
+}
+
+pass_refresh_reaches_the_unit_tree() {
+	local fx=$refsh_work/tree fn before after out rc=0
+	refsh_repo "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	fn=$(refsh_fn "$fx/plain") || { pos_say 'the shipped function could not be extracted'; return 1; }
+	before=$(refsh_alloc "$fx/unit")
+	# Half one is the fixture's own honesty test: a clone that already knew about the push would make
+	# the after answer worth nothing (the reason `alloc_boundary` asserts the blind half, same file).
+	[ "$before" = "D-0002" ] || {
+		pos_say "the unfetched unit tree already answered $before, not D-0002 -- the fixture is"
+		pos_say 'not blind, so the moved answer below would certify the fixture, not the fetch'
+		return 1
+	}
+	out=$(refsh_run "$fn" "$fx/main" "$fx") || rc=$?
+	[ "$rc" -eq 0 ] || {
+		pos_say 'the shipped refresh returned non-zero, which is a pass stopped by a fetch:'
+		pos_say "$out"
+		pos_say "$(cat "$refsh_err" 2>/dev/null)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'REFRESH origin' || {
+		pos_say "the refresh returned 0 without saying what it did: $out"
+		return 1
+	}
+	after=$(refsh_alloc "$fx/unit")
+	[ "$after" = "D-0008" ] || {
+		pos_say "a tick in the unit worktree still allocates $after, not D-0008."
+		pos_say 'One fetch in the primary checkout has to move the answer there, because'
+		pos_say 'refs/remotes is the common dir -- or the refresh never reaches the process it was'
+		pos_say 'bought for. Its own line said:'
+		pos_say "$out"
+		return 1
+	}
+	return 0
+}
+
+# The control the leg above is only worth reading against: the command #256 asked for. It fetches, it
+# succeeds, it reports zero moved, and the unit tree is exactly as blind as it was -- so the ok above
+# is the shape of the fetch and not the presence of one.
+pass_refresh_trunk_only_control() {
+	local label='a trunk-limited fetch' fx=$refsh_work/ctrl-trunkonly fn out rc=0 got
+	fn=$(refsh_fn "$fx/plant" 's#fetch --prune origin >#fetch --prune origin "$FACTORY_BASE" >#') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the fetch shape.\n'
+		return 0
+	}
+	refsh_repo "$fx" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the fixture could not be built\n' "control: $label"
+		return 0
+	}
+	out=$(refsh_run "$fn" "$fx/main" "$fx") || rc=$?
+	got=$(refsh_alloc "$fx/unit")
+	# `0 moved` and a zero status: the trunk-only fetch has to *succeed* for this to discriminate. A
+	# plant that failed would leave the id stale for the wrong reason and read as a pass.
+	if [ "$rc" -ne 0 ] || ! printf '%s\n' "$out" | grep -q '0 moved'; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted fetch did not run and report nothing\n' "control: $label"
+		printf '          moved (status %s), so the stale id below proves nothing:\n' "$rc"
+		printf '          %s\n' "$out"
+		return 0
+	fi
+	if [ "$got" != "D-0002" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the trunk-limited fetch moved the answer to %s,\n' "control: $label" "$got"
+		printf '          so the ok above would not be the refspec being pinned.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it fetches cleanly, learns nothing, and leaves\n' "control: $label"
+	printf '          the unit tree at D-0002 -- the leg above pins the refspec.\n'
+	return 0
+}
+
+pass_refresh_is_bounded() { # [file] -> 0 when the shipped fetch is bounded by the config value
+	local script=$refsh_script body
+	[ -z "${1:-}" ] || script=$1
+	body=$(awk '/^factory_refresh_origin\(\)/,/^}/' "$script")
+	[ -n "$body" ] || { pos_say "no factory_refresh_origin in $script"; return 1; }
+	printf '%s\n' "$body" |
+		grep -qE 'timeout --signal=TERM --kill-after=[0-9]+ "\$FACTORY_FETCH_TIMEOUT"' || {
+		pos_say 'the fetch is not wrapped in timeout carrying the config value, TERM first.'
+		pos_say 'The bound is the whole answer to a hung fetch holding factory/run/lock.'
+		return 1
+	}
+	grep -q 'FACTORY_FETCH_TIMEOUT=${FACTORY_FETCH_TIMEOUT:-' "$refsh_common" || {
+		pos_say 'FACTORY_FETCH_TIMEOUT has no default in common.sh, so the bound is unset for'
+		pos_say 'every pass that does not export one.'
+		return 1
+	}
+	return 0
+}
+
+pass_refresh_unbounded_control() {
+	local label='a fetch with no timeout' dir=$refsh_work/ctrl-no-timeout fn body
+	fn=$(refsh_fn "$dir" 's#timeout --signal=TERM --kill-after=5 "\$FACTORY_FETCH_TIMEOUT"#env#') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the bound.\n'
+		return 0
+	}
+	body=$(awk '/^factory_refresh_origin\(\)/,/^}/' "$fn")
+	if printf '%s\n' "$body" |
+		grep -qE 'timeout --signal=TERM --kill-after=[0-9]+ "\$FACTORY_FETCH_TIMEOUT"'; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the scan still passes a function with no timeout\n' "control: $label"
+		printf '          in it, so the ok above is the scan being blind.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses the same function with timeout taken\n' "control: $label"
+	printf '          out, so the ok above is a reading of the shipped text.\n'
+	return 0
+}
+
+pass_failure_is_not_fatal() { # [file] -> 0 when a failed fetch can only leave a sentence behind
+	local script=$refsh_script body
+	[ -z "${1:-}" ] || script=$1
+	body=$(awk '/^factory_refresh_origin\(\)/,/^}/' "$script")
+	[ -n "$body" ] || { pos_say "no factory_refresh_origin in $script"; return 1; }
+	printf '%s\n' "$body" | grep -qE '(^|[^[:alnum:]_])(die|exit)[[:space:]]' && {
+		pos_say 'the refresh ends the process on some path. It runs inside the lock, so that is a'
+		pos_say 'queue stopped by a fetch: a refusal here is a journal line and a return of 0.'
+		return 1
+	}
+	printf '%s\n' "$body" | grep -qE 'return [1-9]' && {
+		pos_say 'the refresh returns non-zero on some path, and the pass would treat it as a'
+		pos_say 'failure the way every other call site does. It must not.'
+		return 1
+	}
+	printf '%s\n' "$body" | grep -q 'REFRESH-TIMEOUT' || {
+		pos_say 'nothing names the bound being hit -- 124 and 128 have to read differently in'
+		pos_say 'the journal, because only one of them is a parked connection.'
+		return 1
+	}
+	printf '%s\n' "$body" | grep -q 'REFRESH-FAILED' || {
+		pos_say 'nothing names a plain fetch failure.'
+		return 1
+	}
+	return 0
+}
+
+pass_fatal_failure_control() {
+	local label='a fetch that ends the pass' dir=$refsh_work/ctrl-fatal fn body
+	fn=$(refsh_fn "$dir" 's#^\t\twhy=\$(grep -m1#		die "origin unread"\n\t\twhy=$(grep -m1#') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the polarity.\n'
+		return 0
+	}
+	body=$(awk '/^factory_refresh_origin\(\)/,/^}/' "$fn")
+	if ! printf '%s\n' "$body" | grep -qE '(^|[^[:alnum:]_])(die|exit)[[:space:]]'; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the scan accepted a function whose failure arm\n' "control: $label"
+		printf '          dies, so the ok above is the scan being blind.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses the same function with a die planted\n' "control: $label"
+	printf '          in the failure arm, which is the halt H-0056 refuses here.\n'
+	return 0
+}
+
+pass_one_fetch_per_activation() { # [file] -> 0 when one unrefspec'd fetch runs, once, before triage
+	local script=$refsh_script calls sites triage
+	[ -z "${1:-}" ] || script=$1
+	calls=$(grep -cE '^[[:space:]]*[^#].*fetch --prune origin >' "$script" || true)
+	[ "${calls:-0}" -eq 1 ] || {
+		pos_say "$calls lines fetch the whole remote in $script; the pass wants exactly one fetch"
+		pos_say 'per activation, and a second one is either per-unit or inside a verdict.'
+		return 1
+	}
+	sites=$(grep -c 'factory_refresh_origin "\$(factory_main_checkout)"' "$script" || true)
+	[ "${sites:-0}" -eq 1 ] || {
+		pos_say "$sites call sites for factory_refresh_origin in $script -- one fetch per"
+		pos_say 'activation, not one per unit.'
+		return 1
+	}
+	sites=$(grep -n 'factory_refresh_origin "\$(factory_main_checkout)"' "$script" |
+		head -n 1 | cut -d: -f1)
+	triage=$(grep -n 'rows=\$("\$FACTORY_DIR/triage.sh")' "$script" | head -n 1 | cut -d: -f1)
+	if [ -z "$sites" ] || [ -z "$triage" ]; then
+		pos_say 'no call site for factory_refresh_origin, or no triage read to be ahead of.'
+		return 1
+	fi
+	[ "$sites" -lt "$triage" ] || {
+		pos_say "the call is on line $sites and the queue is read on line $triage -- behind the"
+		pos_say 'read, the refresh only reports on the refs instead of dispatching against them.'
+		return 1
+	}
+	return 0
+}
+
+pass_second_fetch_control() {
+	local label='a fetch behind the triage read' dir=$refsh_work/ctrl-twice copy
+	mkdir -p -- "$dir" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the directory could not be written\n' "control: $label"
+		return 0
+	}
+	copy=$dir/factory.sh
+	sed -e '/triage.sh"); then/a\	factory_refresh_origin "$(factory_main_checkout)"' \
+		"$refsh_script" >"$copy" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the copy could not be written\n' "control: $label"
+		return 0
+	}
+	[ "$(grep -c 'factory_refresh_origin "\$(factory_main_checkout)"' "$copy")" -gt 1 ] || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant landed nowhere, so the leg above was\n' "control: $label"
+		printf '          never aimed at a second call.\n'
+		return 0
+	}
+	if pass_one_fetch_per_activation "$copy"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the leg accepted a copy with a second fetch\n' "control: $label"
+		printf '          behind the queue read, so its ok counts for nothing.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses a copy with a second call behind\n' "control: $label"
+	printf '          the triage read, so the ok above is cadence and position.\n'
+	return 0
+}
+
+mkdir -p -- "$refsh_work"
+gen_leg 'the pass refreshes before it dispatches' \
+	'a sibling pushed from another clone is allocated against, in the unit worktree' \
+	pass_refresh_reaches_the_unit_tree
+pass_refresh_trunk_only_control
+gen_leg 'the refresh is bounded by a timeout' \
+	'timeout with the config value wraps the one fetch' \
+	pass_refresh_is_bounded
+pass_refresh_unbounded_control
+gen_leg 'a failed fetch never stops the pass' \
+	'no die, no non-zero return, both failure arms named' \
+	pass_failure_is_not_fatal
+pass_fatal_failure_control
+gen_leg 'one fetch per activation' \
+	'one fetch, one call site, ahead of the triage read' \
+	pass_one_fetch_per_activation
+pass_second_fetch_control
+
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 reached_verdict=1
 if [ "$fail" -ne 0 ]; then

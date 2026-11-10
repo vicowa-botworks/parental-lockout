@@ -1835,6 +1835,106 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   control's two plants each make the leg refuse, which is what proves the leg reads both halves.
 
 
+## H-0075 · The activation fetches origin once, ahead of the queue read, so the pass dispatches against refs it has actually refreshed
+
+- Question: `H-0056` forbids a fetch inside a verdict, and #256 asks for a refresh before the
+  allocator runs. Where does the refresh go?
+- Options: inside the verdicts that read refs | one unrefspec'd fetch per activation, ahead of the
+  queue read | one fetch per unit, in `factory_tick` | operator discipline only, as the skill says today
+- Chose: one unrefspec'd fetch per activation, ahead of the queue read
+- Why: Every judgement the pass makes is a reading of refs, and nothing in the harness had ever
+  fetched. `factory/triage.sh:538` takes `main_sha` from `git rev-parse origin/main` and `:563` counts
+  `git rev-list --count "$main_sha..$sha"` for every branch with no open pull request -- that is the
+  `$ahead` number in the `branch_without_pr` detail line, so an unfetched clone reports an orphan as
+  further behind or ahead than it is; `factory_worktree` (`factory/common.sh`) cuts a unit with
+  `git worktree add -b "$branch" "$path" origin/main`; `next-decision-id.sh` takes its ceiling from
+  every `refs/heads` and `refs/remotes` blob. All three therefore read the last time this
+  clone looked. That is not hypothetical here: taking this branch, `git for-each-ref` in the primary
+  clone listed `origin/issue-253` carrying `H-0073` and `H-0074` while `origin/main` stopped at
+  `H-0072`, and the file in the checkout ends at `H-0072` -- so a clone that had not fetched would
+  allocate `H-0073`, the fourth entry under three numbers, which is exactly the shape `H-0070` was
+  bought to stop. The allocator's answer in this tree was right (`H-0075`) only because some earlier
+  person had fetched; nothing guaranteed it, and `docs/factory.md` told the operator to type the fetch
+  themselves on a second machine.
+  It is not `H-0056` to do this here, and the distinction is the decision. #256's own reasoning is
+  correct about a *verdict*: `H-0072` keeps `scripts/check-decisions.py` ref-blind, `H-0074` measured
+  one commit reporting `1 decision-log problem` in a clone holding every branch and none in a
+  single-branch clone of the same commit, and a verdict whose answer depends on which refs a tree
+  happens to hold gets re-run until it agrees. A gate must not read refs; a *dispatch* already does,
+  unavoidably, because it is the thing that chooses which branch to cut. The supervisor is also already
+  a network path -- every triage, review-poke and merge in `factory.sh` is a `gh` call -- so one `git
+  fetch` per activation adds a call to a pass that spends minutes on the network already, and it adds
+  it in the one place where the refs are about to be used.
+  The shape is a measurement, not a guess, because the ticket asked for the wrong one. A fixture with a
+  local bare origin, a clone holding a unit worktree, and a sibling that pushed `D-0007` from a second
+  clone: `git fetch --prune origin trunk` -- the trunk-limited form #256 names -- returns 0 and the
+  unit tree still allocates `D-0002`; `git fetch --prune origin` returns 0 and it allocates `D-0008`.
+  The sibling's entry is on the branch it pushed, and a refspec-limited fetch updates the trunk only.
+  Worse, the trunk-limited fetch *reports* `1 moved` when counted on `->`, because git prints
+  `* branch trunk -> FETCH_HEAD` for an explicit refspec: the useless form looks in the journal like
+  the useful one. Hence the counter reads `-> origin/`, and hence `factory/selftest.sh` ships the
+  trunk-only plant as a counted control that must leave the id stale.
+  Which tree: one fetch in the primary checkout moved the allocator's answer in a linked unit worktree
+  of the same clone (`D-0002` in both trees before, `D-0008` in both after), because `refs/remotes`
+  lives in the common directory -- the same sharing `H-0074` cites for the worktree half of the
+  boundary, read the other way. So the argument is `factory_main_checkout` and a tick gets a refresh it
+  never asks for; a fetch in the unit tree alone would have been the tick's, not the pass's.
+  The bound is the answer to #256's counter-argument rather than a dismissal of it: the pass runs under
+  `flock -n factory/run/lock`, so a fetch that parks does freeze the queue. Measured against an origin
+  that accepts the connection and never answers -- `GIT_SSH_COMMAND='bash -c "exec sleep 60"'`,
+  `FACTORY_FETCH_TIMEOUT=4` -- the call returns at the bound, leaves no `.lock` file in `.git`, and the
+  clone works afterwards; the same holds under `SIGKILL`, which git cannot clean up after. `--prune`
+  with a single-branch refspec does not destroy the union the allocator reads (a planted
+  `refs/remotes/origin/ghost` survived it). The default, 120s, is a fifth of the timer's
+  `OnUnitInactiveSec=600`, so the worst case the bound permits is one activation that finds the lock
+  held, prints `supervisor: another pass holds the lock, skipping`, exits 7, and is over. And the
+  function returns 0 whatever the fetch did, because the alternative -- a halt because origin was
+  unreadable -- is the bug #248, 115 `HALTED` lines and a frozen queue. What a failed fetch costs is
+  one journal line naming how blind the pass is: `REFRESH-TIMEOUT`/`REFRESH-FAILED` with the trunk
+  ref's own age, and `REFRESH-BLIND` for a refspec that can never see a sibling's branch.
+  The fixture also caught a real ordering fault, which is the reason it is a fixture and not prose: the
+  first version aimed `>"$FACTORY_LOG/refresh.log"` at a directory nothing had created yet, because
+  `log_event` is what calls `factory_paths`. The redirect fails as status 1 with an empty file, so a
+  pristine tree reported `REFRESH-FAILED (1)` over an empty log -- a missing directory wearing the
+  sound of a refused origin. `factory_paths` now runs first.
+  Tie-break: reversible by `git revert` alone (one function, one call site, one config default), and
+  the option that leaves every verdict's answer exactly where `H-0072` and `H-0074` pinned it.
+  What lost, as measured: one network call per activation on the critical path *inside* the lock, and
+  its whole cost lands on a slow or dead network -- that is the option's real price and the reason it
+  is bounded rather than trusted. It makes the dispatch refs-dependent, so two clones can still choose
+  differently inside the window between activations: the allocator is still a read and not a
+  reservation (`H-0070`), and `H-0071`'s re-read before the entry commit is still the last line of
+  defence, unchanged. A machine with no reachable origin now writes one `REFRESH-FAILED` every ten
+  minutes, which is honest and noisy. `REFRESH-BLIND` exists because a single-branch clone cannot be
+  fetched into seeing a sibling -- that is the residual the fetch cannot close.
+  Why the alternatives lose. **Inside the verdicts** is what `H-0072` refuses, and the two legs that
+  say so (`the gate reads no branch refs`, `the verdict never fetches`) would have to be inverted for
+  it, trading a gate with one answer for `H-0074`'s measured two-clone divergence; it also puts a
+  blocking read in front of `install-timer.sh --install`, a function with no budget of its own. **Per
+  unit** costs up to three fetches a pass inside the tick ceilings, and fixes the smaller half: the
+  tick's allocator would be current while `triage.sh`'s rows and the branch the worktree was cut from
+  -- both decided before any tick exists -- stay stale. **Operator discipline only** is what shipped
+  until now, and its measurement is the first paragraph: a live collision on an open branch with a
+  sentence in `docs/factory.md` as the only remedy.
+- Checkpoint: 96c54a1dc7d73b2c6ed750f2705c865b09a81313
+- Effect: read back from `git diff --stat origin/main...HEAD` on this branch rather than restated from
+  memory, because restating it is what made the first version of this entry name a `triage.sh` command
+  that does not exist as written -- corrected by the follow-up commit on this branch, which touches only
+  this paragraph and the matching comment in `factory/factory.sh`.
+  `factory/factory.sh` gains `factory_refresh_origin` and one call in `factory_body`
+  before the `triage.sh` read. `factory/common.sh` gains `FACTORY_FETCH_TIMEOUT` (default 120).
+  `factory/selftest.sh` gains four counted legs (`the pass refreshes before it dispatches`,
+  `the refresh is bounded by a timeout`, `a failed fetch never stops the pass`,
+  `one fetch per activation`) and four controls, two of them planted outside the tree;
+  `bash factory/selftest.sh` moved from `286 passed, 0 failed` to `290 passed, 0 failed`, and
+  `make check-shell` reports `0.10.0 over 28 scripts` with no finding. `docs/factory.md`'s
+  decision-id section closes the second row of `H-0071`'s table instead of assigning it to an
+  operator, and the configuration table gains the timeout row.
+  `.opencode/skills/factory/SKILL.md`'s allocator bullet no longer says nothing fetches on a tick's
+  behalf. Not touched: `factory_supervisor_position`, `factory/next-decision-id.sh`,
+  `scripts/check-decisions.py`, the Makefile.
+
+
 ## H-0076 · The guard asked whether the path exists, so every wrong path that exists was still answered
 
 - Question: #257's review measured the guard H-0073 shipped, at `c5aa1eb`, and found it answering a

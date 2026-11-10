@@ -156,9 +156,14 @@ When you reach a decision point, do this instead, in this order:
    `refs/heads` (measured: `D-0002` before the sibling commits, `D-0010` after, with no fetch), while
    a sibling that pushed from a different clone does not, because an unfetched push never moves
    `refs/remotes` (measured: the same call answers `D-0002` while origin already holds `D-0007`, and
-   `D-0008` one `git fetch` later). Nothing in the harness fetches on a tick's behalf -- that is
-   `H-0056`, the same verdict `factory/common.sh` records beside the staleness check -- so if this
-   queue runs on more than one machine, run `git fetch --prune origin` before that second read.
+   `D-0008` one `git fetch` later). The supervisor now fetches origin once per activation, ahead of
+   the queue read (`H-0075`), which is what makes a second machine's ids reachable at all -- but that
+   is one fetch at one moment, and your tree may have been cut before it. So fetch it yourself as
+   well, unrefspec'd: `git fetch --prune origin` updates every branch, while
+   `git fetch --prune origin main` updates the trunk only and leaves the allocator blind to the branch
+   a sibling pushed. When the journal holds `REFRESH-TIMEOUT` or `REFRESH-BLIND` for your tree, that
+   activation dispatched on refs it could not check, and the re-read immediately before the entry
+   commit is the only thing left between you and a duplicate id.
 2. **Checkpoint next**, always before the decision, never after:
    `git commit --allow-empty -m "chore(checkpoint): pre-D-<NNNN> <why>"`. That commit is the
    rollback target, and it is worthless if it is taken after the change.
