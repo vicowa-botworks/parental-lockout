@@ -1531,3 +1531,57 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   nothing, to `275 passed, 0 failed`, eight to the tally -- the identity leg the merge broke and the
   seven this section prints now that it renders. The section itself prints fourteen `ok` lines, seven
   legs and seven controls, the controls not counted in the tally.
+
+
+## H-0070 · The decision-id allocator reads every local branch ref, so a sibling's number is taken before this checkout meets it
+
+- Question: the skill told every session to "number from the highest id in the file you are writing
+  to," and `check-decisions.py` only judged the merged result. Three sessions followed that sentence
+  literally, saw the same H-0060, and all wrote H-0061; the notice filed at H-0068 says plainly that
+  "the allocator is untouched" and that a fourth branch can take the same number. What shared
+  allocator replaces prose without turning decision numbering into a second delivery queue?
+- Options: add `factory/next-decision-id.sh`, document it as the one allocation command, and pin its
+  ref union and gap rule in `factory/selftest.sh` | move allocation into `scripts/check-decisions.py`
+  so the existing gate also chooses the id | keep the prose and merely add "fetch and inspect every
+  branch" | give each branch its own id range by changing the gate's id grammar | do nothing and keep
+  renumbering after a collision is discovered
+- Chose: add `factory/next-decision-id.sh`, document it as the one allocation command, and pin its
+  ref union and gap rule in `factory/selftest.sh`
+- Why: the defect is a read with the wrong scope. The old prose was accurate about one checkout and
+  blind to the queue: `check-decisions.py` correctly refuses an id twice in a log and one id in both
+  logs, but it reads the two working logs at the end of a session, when a branch's own new entry has
+  already been written. H-0068 measured the cost -- H-0065/H-0066's renumbering, then this branch's
+  H-0068/H-0069 renumbering -- and said the missing piece was a shared allocator. The new command asks
+  git for the working file, `HEAD`, every `refs/heads` and every `refs/remotes` blob, then returns one
+  above the selected prefix's highest id. The selftest proves the union rather than trusting the
+  phrase: the current checkout remains at D-0001/H-0010 while local and remote refs hold D-0003/H-0011;
+  the allocator answers D-0004/H-0012. It then plants exactly D-0004/H-0012 on a second remote-only ref
+  and the answer moves to D-0005/H-0013, the H-0061 race caught locally. A planted allocator that drops
+  all branch refs falls back to D-0002/H-0011, and one that drops `refs/remotes` falls back to the
+  colliding D-0004/H-0012 -- so neither ok is the fixture agreeing by accident. D-0002 stays absent in
+  the first fixture and is deliberately not chosen: retired and renumbered ids are permanent
+  reservations, so "first free" means above the ceiling rather than the smallest gap. The command reads
+  refs already on the machine and fetches nothing, following #249's staleness verdict: H-0013 and
+  H-0056 already price a blocking read in a tick budget. Why the four alternatives lose. **Move
+  allocation into `check-decisions.py`** puts a write-shaped question in a shape gate and still runs
+  too late; an allocator must be callable before the checkpoint named in the entry. **Fetch in the
+  allocator** makes an ordinary harness command depend on network timing and recreates the parked-read
+  hazard the harness explicitly rejects. **Per-branch ranges** requires a new identity scheme and
+  changes what every historical `H-NNNN` citation means -- larger than this ticket, as H-0061 and
+  H-0068 both concluded. **Keep the prose** was measured to fail three times. What lost, as measured:
+  this is a collision-free read, not a reservation -- two processes can still call it before either
+  commits and receive the same answer, so the skill must re-run it immediately before the entry commit;
+  refs that have never been fetched are invisible, so the unit still needs an up-to-date trunk (the
+  allocator says so in its help and docs/factory.md names the operator's `git fetch --all --prune`);
+  it now reads every ref blob, so allocation costs one `git show` per local ref rather than one
+  heading scan; and `make verify` cannot close
+  the cross-branch race on its own because the same two ids may each pass independently in separate
+  worktrees. The selftest's local collision pins detection of a stale read, not prevention of a
+  same-instant race.
+- Checkpoint: 38ddd0bddcb47bd5151eec3e44951b385b76ecd0
+- Effect: new `factory/next-decision-id.sh` (executable); `.opencode/skills/factory/SKILL.md` step 3
+  now allocates before checkpointing and re-reads before committing; `docs/factory.md` gains "Decision
+  ids are allocated against refs, not prose"; `factory/selftest.sh` gains seven counted legs and four
+  counted controls. Re-measured after the write: `bash factory/selftest.sh` moved from the pre-change
+  `275 passed, 0 failed` to `282 passed, 0 failed`; `factory/next-decision-id.sh factory/DECISIONS.md`
+  printed H-0070, and `make check-shell` reported 28 scripts.

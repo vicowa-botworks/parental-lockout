@@ -444,6 +444,33 @@ fast-forward is *not* available and names the three real choices. A stale tree c
 *removed*: `--remove` runs before the check, because the wrong reason to be unable to stop a broken
 loop is that it is broken.
 
+## Decision ids are allocated against refs, not prose
+
+`DECISIONS.md` and `factory/DECISIONS.md` are append-only references. A tick that numbers from the
+highest heading in *its checkout* is correct about the trunk and blind to the two siblings already
+pushed against it. That is what produced three `H-0061` entries and the hand renumberings recorded at
+`H-0065` and `H-0068`.
+
+```bash
+factory/next-decision-id.sh DECISIONS.md
+factory/next-decision-id.sh factory/DECISIONS.md
+```
+
+The command reads the working log, `HEAD`, every `refs/heads` ref and every `refs/remotes` ref. Its
+answer is one above the highest id of the selected prefix anywhere in that union. Gaps below the
+ceiling are closed forever: a retired or renumbered id remains the thing a historical citation means,
+so "first free" is not "smallest missing number".
+
+It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
+verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
+That makes the answer a collision-free *read*, not a lock. The operator refreshes it explicitly --
+`git fetch --all --prune` -- then merges or fast-forwards the unit's trunk as the harness instructs.
+The skill requires a second allocator read immediately before the entry commit. If a sibling lands in
+that window, the second read sees its ref and the entry moves before it is written.
+`scripts/check-decisions.py` remains the last-resort gate for the consequences: it refuses a repeated
+id in one log and one id claimed by both logs, but it is deliberately offline and cannot reserve an
+id in advance.
+
 ## Configuration
 
 Everything is an environment override with a default, in `factory/common.sh`.

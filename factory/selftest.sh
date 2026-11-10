@@ -4643,6 +4643,219 @@ unit_deadlines() {
 }
 unit_deadlines
 
+# ------------------------------------------------------------ decision ids across refs (#253)
+#
+# The allocator used to be prose: "number from the highest id in the file you are writing to." Three
+# branches cut from the same trunk followed that sentence literally, saw the same H-0060, and all
+# wrote H-0061. H-0065, H-0066 and H-0068 later had to move. The sentence is not wrong about the
+# trunk; it is wrong about the concurrency. A decision id is a durable citation and a merge target,
+# so an id that exists on an open sibling is already taken even when this checkout has never seen it.
+#
+# What gets pinned:
+#
+#   the union      a local branch and a remote-tracking branch each add one id. The current file stays
+#                  at the trunk value, so a result above it can only come from a ref read.
+#   the collision  add the allocator's own next answer to a second remote-only ref. The next call has
+#                  to refuse that id and move one further -- this is the H-0061 race, made local.
+#   the prefix     DECISIONS.md and factory/DECISIONS.md share the allocator without sharing a line
+#                  count, which is what H-0068 had to repair by hand.
+#   the ceiling    D-0002 is deliberately absent. The allocator returns D-0004, not D-0002: retired
+#                  and renumbered ids are permanent reservations, not vacancies.
+#   the current tree an uncommitted entry has to count before the commit exists, because the allocator
+#                  is called immediately before the entry is written.
+#   the boundary   it reads refs already on the machine and fetches nothing. A blocking network read
+#                  in a per-tick budget is a hazard this harness already paid for (H-0013, H-0056).
+#
+# Both controls plant a narrower read than the shipped allocator has. If either control still returned
+# the correct answer, the ok above would be proof of nothing: the test would pass because the fixture
+# happens to agree, not because the allocator looked at the branch it was written for.
+
+alloc_script=$HERE/next-decision-id.sh
+alloc_work=$work/decision-id
+alloc_err=$work/alloc-stderr
+
+# shellcheck disable=SC2317  # reached through the command substitution in alloc_leg
+alloc_run() { # <repo> <log path> <prefix> -> the allocator's stdout
+	bash "$alloc_script" --repo "$1" --prefix "$3" "$2" 2>"$alloc_err"
+}
+
+# shellcheck disable=SC2317  # reached through the command substitution in alloc_leg
+alloc_leg() { # <label> <repo> <log path> <prefix> <expected id> <what an ok proves>
+	local label=$1 repo=$2 path=$3 prefix=$4 expected=$5 fact=$6 got rc=0
+	if ! got=$(alloc_run "$repo" "$path" "$prefix"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" = "$expected" ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "$fact"
+		return 0
+	fi
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s got %s, expected %s.\n' "$label" "$got" "$expected"
+	printf '          The fixture is deliberately a ceiling above a lower gap: an allocator that\n'
+	printf '          recycles missing numbers, reads only the current file, or misses one ref\n'
+	printf '          returns the lower id here. %s\n' "$fact"
+	return 0
+}
+
+alloc_plant() { # <dir> <sed expr> -> a copy of the shipped allocator with one thing taken out
+	local dir=$1 expr=$2
+	mkdir -p -- "$dir" || return 1
+	if ! sed "$expr" "$alloc_script" >"$dir/new"; then
+		return 1
+	fi
+	cmp -s "$dir/new" "$alloc_script" && return 1
+	mv -- "$dir/new" "$dir/next-decision-id.sh" || return 1
+	printf '%s' "$dir/next-decision-id.sh"
+}
+
+# The shipped allocator returns the right answer. A control passes only when the same call, aimed at
+# the same fixture with one ref class missing, returns the older answer -- the one the bug would give.
+# If it still returns the right one, the plant did not narrow this allocator and the ok is the test
+# certifying its own fixture.
+alloc_control() { # <label> <dir> <sed expr> <repo> <path> <prefix> <wrong answer> <what it missed>
+	local label=$1 dir=$2 expr=$3 repo=$4 path=$5 prefix=$6 wrong=$7 fact=$8 bad got rc=0
+	bad=$(alloc_plant "$dir" "$expr" || true)
+	if [ -z "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the check has stopped pinning the read it names.\n'
+		return 0
+	fi
+	if ! got=$(bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator refused:\n' "control: $label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$wrong" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the narrowed allocator still said %s,\n' "control: $label" "$got"
+		printf '          not the %s its missing read would produce. %s\n' "$wrong" "$fact"
+		return 0
+	fi
+	printf '  ok    %-40s it falls back to %s, so the ok above is the\n' \
+		"control: $label" "$wrong"
+	printf '          ref being read, not the fixture agreeing by accident.\n'
+	return 0
+}
+
+alloc_no_fetch() {
+	! grep -Eq '^[[:space:]]*(env[[:space:]]+[^[:space:]]+[[:space:]]+)?git[[:space:]]+fetch' \
+		"$alloc_script"
+}
+
+alloc_docs_reference() {
+	local root=$HERE/.. skill=$HERE/../.opencode/skills/factory/SKILL.md guide=$HERE/../docs/factory.md
+	[ -f "$skill" ] && [ -f "$guide" ] || return 2
+	grep -q 'factory/next-decision-id\.sh' "$skill" &&
+		grep -q 'factory/next-decision-id\.sh' "$guide"
+}
+
+decision_ids() {
+	local base repo current bad
+
+	if [ ! -f "$alloc_script" ]; then
+		printf '  SKIP  %-40s next-decision-id.sh is not in this tree\n' \
+			'decision ids across refs'
+		return 0
+	fi
+	if ! mkdir -p -- "$alloc_work"; then
+		printf '  SKIP  %-40s the fixture directory could not be created\n' \
+			'decision ids across refs'
+		return 0
+	fi
+
+	# A trunk at D-0001/H-0010, a sibling that advanced it by one, and no collision yet. The checkout
+	# is then returned to the trunk, so a high answer necessarily came from branch refs.
+	repo=$alloc_work/repo
+	git init -q -- "$repo" || return 0
+	git -C "$repo" config user.email fixture@invalid || return 0
+	git -C "$repo" config user.name fixture || return 0
+	git -C "$repo" checkout -qb main || return 0
+	mkdir -p -- "$repo/factory" || return 0
+	printf '## D-0001 · fixture trunk\n' >"$repo/DECISIONS.md" || return 0
+	printf '## H-0010 · fixture trunk\n' >"$repo/factory/DECISIONS.md" || return 0
+	git -C "$repo" add -A || return 0
+	git -C "$repo" commit -qm 'fixture: the trunk ceiling' || return 0
+
+	git -C "$repo" checkout -qb feature-a || return 0
+	{
+		printf '\n## D-0003 · a sibling id below the ceiling\n'
+	} >>"$repo/DECISIONS.md" || return 0
+	{
+		printf '\n## H-0011 · a sibling id below the ceiling\n'
+	} >>"$repo/factory/DECISIONS.md" || return 0
+	git -C "$repo" add -A || return 0
+	git -C "$repo" commit -qm 'fixture: sibling refs claim the next id' || return 0
+	git -C "$repo" update-ref refs/remotes/origin/feature-a HEAD || return 0
+	git -C "$repo" checkout -q main || return 0
+
+	# This control is before the collision, while the missing branch ref is the only reason a narrower
+	# allocator could ever be wrong. It reads D-0002/H-0011: the current tree's gap rather than the
+	# union's ceiling.
+	alloc_control 'only the current checkout is read' "$alloc_work/ctrl-no-refs" \
+		's|git -C "$root" for-each-ref|true #|' \
+		"$repo" DECISIONS.md D D-0002 'it missed the sibling branch'
+	alloc_control 'only the current checkout is read' "$alloc_work/ctrl-no-refs-h" \
+		's|git -C "$root" for-each-ref|true #|' \
+		"$repo" factory/DECISIONS.md H H-0011 'it missed the sibling branch'
+
+	alloc_leg 'refs/heads choose the product id' "$repo" DECISIONS.md D D-0004 \
+		"D-0004, not the current checkout's D-0002"
+	alloc_leg 'refs/heads choose the harness id' "$repo" factory/DECISIONS.md H H-0012 \
+		"H-0012, not the current checkout's H-0011"
+
+	# Now plant exactly the id each allocator has just returned onto a second remote-only ref. The
+	# local checkout remains unchanged, so if the next answer does not move, the allocator ignored
+	# refs/remotes -- the precise way a sibling that has been pushed is missed.
+	git -C "$repo" checkout -qb remote-collision main || return 0
+	{
+		printf '\n## D-0004 · a collision planted on a remote-only ref\n'
+	} >>"$repo/DECISIONS.md" || return 0
+	{
+		printf '\n## H-0012 · a collision planted on a remote-only ref\n'
+	} >>"$repo/factory/DECISIONS.md" || return 0
+	git -C "$repo" add -A || return 0
+	git -C "$repo" commit -qm 'fixture: the second ref takes the next id' || return 0
+	git -C "$repo" update-ref refs/remotes/origin/collision HEAD || return 0
+	git -C "$repo" checkout -q main || return 0
+	git -C "$repo" branch -q -D remote-collision || return 0
+
+	alloc_control 'only refs/heads is read' "$alloc_work/ctrl-no-remotes" \
+		's|refs/heads refs/remotes|refs/heads|' \
+		"$repo" DECISIONS.md D D-0004 'it missed the remote-only collision'
+	alloc_control 'only refs/heads is read' "$alloc_work/ctrl-no-remotes-h" \
+		's|refs/heads refs/remotes|refs/heads|' \
+		"$repo" factory/DECISIONS.md H H-0012 'it missed the remote-only collision'
+
+	alloc_leg 'a remote-only collision is refused' "$repo" DECISIONS.md D D-0005 \
+		'D-0005, because D-0004 is already on origin/collision'
+	alloc_leg 'a remote-only collision is refused' "$repo" factory/DECISIONS.md H H-0013 \
+		'H-0013, because H-0012 is already on origin/collision'
+
+	# A fresh repo with no commits and no branch refs. The only id there is the working file's entry
+	# about to be committed; if this returns D-0001, the allocator was only reading git's committed
+	# copies and each new session would be invited to take the same number.
+	current=$alloc_work/current-checkout
+	git init -q -- "$current" || return 0
+	git -C "$current" config user.email fixture@invalid || return 0
+	git -C "$current" config user.name fixture || return 0
+	printf '## D-0009 · an uncommitted candidate\n' >"$current/DECISIONS.md" || return 0
+	alloc_leg 'the current file counts before it is committed' "$current" DECISIONS.md D D-0010 \
+		'D-0010, because the uncommitted working entry is already D-0009'
+
+	gen_leg 'the allocator never fetches' 'no git fetch is reachable from its code' \
+		alloc_no_fetch
+	gen_leg 'the shared allocator is documented' 'the skill and factory guide both name its path' \
+		alloc_docs_reference
+
+	return 0
+}
+decision_ids
 
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 reached_verdict=1
