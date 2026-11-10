@@ -2146,3 +2146,124 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   order captures nothing and leaves the file holding `payload` plus `fatal: cannot apply binary patch`
   -- the complaint inside the mirror, contaminating a patch that would otherwise have applied -- while
   the fixed order captures the complaint and leaves the file holding only the payload.
+## H-0083 · Which checkout the timer execs is read from the unit, not composed from the tree standing in front of the script
+
+- Question: `install-timer.sh` printed `The unit execs <FACTORY_ROOT>/factory/factory.sh` inside the
+  very refusal that stops an install, and neither the pass nor `--status` said anything about the unit
+  at all. #260 measured the two disagreeing on this box on 10 Nov: the installed unit execed
+  `~/prj/wt/factory-harness` while `--install` from `~/prj/parental-lockout` printed that it execed
+  `~/prj/parental-lockout`, so `H-0055`'s guard reported the position of a tree the loop never ran and
+  sent the operator to fast-forward a checkout nothing executes. Where does the answer to "which
+  checkout does the loop run today" come from, and what prints when it cannot be read?
+- Options: keep composing it from `$FACTORY_ROOT` and add a caveat line | ask the manager with
+  `systemctl --user cat` at every reading | read the unit file and give the four answers four
+  sentences | escalate
+- Chose: read the unit file and give the four answers four sentences
+- Why: the file is what systemd reads at activation, so it answers on a machine with no running
+  manager *and* inside `factory/selftest.sh`, which cannot call `systemctl` -- that file has faked it
+  with a `pos-shim` since before this change for exactly that reason, and `H-0054` is the standing
+  rule: a section needing a binary the gate does not install reads green on every box in the loop and
+  red on CI. The cost is named rather than hidden: the harness now owns a parser for one key. It takes
+  `ExecStart=` and systemd's execution prefixes (`-`, `@`, `+`, `!`, `:`) and does not interpret
+  quoting -- a unit whose command is quoted is not this generator's, so it lands in the foreign arm
+  carrying its raw text instead of being guessed at. Four sentences because of `#228`: "I could not
+  read it" and "nothing is armed" are different claims about the machine and the second is reassuring,
+  so collapsing them turns an unknown into a clean report. No fetch anywhere (`H-0056`, `H-0013`): the
+  installed tree's position is asked of `factory_supervisor_position`, which reads `.git` and nothing
+  else. The fourth option is refused by its own test -- nothing here changes what a tick is permitted
+  to do; it changes a sentence the installer prints and the guard reads.
+- Checkpoint: 20150cd
+- Effect: `factory/common.sh` gains `factory_units_dir` (the `XDG_CONFIG_HOME` formula `install-timer.sh`
+  kept a second copy of, which is `H-0077`'s two-definitions class), `factory_service_unit`,
+  `factory_installed_tree` and `factory_unit_lines`; `factory/factory.sh` logs one `UNIT-*` line per
+  activation and answers on `--status`'s `unit:` line; `factory/install-timer.sh` takes its refusal's
+  two sentences from the unit, prints three further arms (nothing armed, a unit that does not exec this
+  harness, a file that cannot be read), journals `UNIT-TREE old=… new=…` and says so in the block a
+  person reads when an install moves the exec path, and renders `Environment=FACTORY_SERVICE_UNIT=` so
+  a unit names itself; `factory/selftest.sh` gains ten legs and the `status_arm` scanner;
+  `docs/factory.md` re-prints the refusal and the move notice from the shipped script.
+  What lost, stated as measured: the reading answers "which checkout the timer WILL exec", not "which
+  one is running now" -- a pass started before a reinstall still reports the old unit, because the new
+  one has not been activated yet and nothing in a unit file says when systemd last read it. Discrimination,
+  each mutant applied to the working tree from backups and restored before the next, every tally from
+  `bash factory/selftest.sh` on this commit, and each `failed` count below including the `at-risk` leg
+  that `H-0084` fixes: composing the answer from `$FACTORY_ROOT` (the shipped bug) -> `347 passed,
+  9 failed`, eight legs naming the unit; an unreadable unit answered like an uninstalled one -> `353
+  passed, 3 failed`; the render drops the recorded name -> `354 passed, 2 failed`; the pass stops
+  calling the renderer -> `354 passed, 2 failed`; the false sentence restored in the refusal -> `353
+  passed, 3 failed`, both installer legs red; every `unit:` printf in `--status` deleted -> `354
+  passed, 2 failed`. Two probes found legs that were not legs. (1) Deleting ONLY the matched arm's
+  `unit:` printf left `355 passed, 1 failed` -- "does the arm contain `unit:`" is satisfied by any
+  three of four printfs, so the line a person reads on a healthy box was unpinned; the predicate is now
+  one per arm, each named by the phrase only it prints, with a control that deletes one arm's sentence
+  at a time and requires the scan to go blind for that arm alone (that control re-measured: deleting
+  the matched arm is now `354 passed, 2 failed`). (2) The `status_arm` scanner shipped as a one-liner
+  that stopped at the first `;;` it saw, which is inside the arm's own nested `case`, so the leg read
+  eight lines of a forty-line arm: the same tree read `both consumers ask the unit FAIL` at 15:55:34Z
+  and `ok` at 15:57Z with only the scanner widened. That is also why `unit_call_sites` reads a function
+  body rather than trusting `grep -c 'unit:'`. The same probe exposed a fixture defect worth its own
+  sentence, because it produced false accusations rather than a verdict: two legs plant an empty
+  directory at the unit path to stand for an unreadable file and remove it only when their assertion
+  passes, so one early return left the directory there and every later `>"$pos_unit_file"` died with
+  `Is a directory` -- six legs red, four reporting `installing a current tree over a moved unit failed
+  (rc=1)` about an installer that had done nothing. `pos_unit_exec` now clears the path first (file,
+  symlink, or empty directory; a NON-empty directory is refused rather than deleted), and the collapsed
+  arm costs the two legs that own it. Wiring that clear into `pos_install` instead was tried and is
+  wrong: the install legs' subject is the state the previous leg left, and clearing it produced `344
+  passed, 12 failed` with `install refuses a stale tree` no longer holding a stale tree.
+## H-0084 · The mirror-box leg asserted the real box was empty, so a live supervisor made the gate unpassable and was blamed for it
+
+- Question: `quarantine_stays_in_the_fixture` passes when `$HOME/prj/at-risk` holds no
+  `*-quarantine-*.patch`. On 10 Nov `make verify` on this box read `1 quarantine patch(es) in
+  /home/rodney/prj/at-risk -- this file has written to the directory that holds the only copies of
+  real work`, about `issue-263-quarantine-20261110T151215Z-2008e6100.patch`. Its name stamps
+  `20261110T151215Z`, `ls --time-style=full-iso` gives its mtime as `2026-11-10 10:12:15.85 -0500`, and
+  the legs this file prints journal timestamps for ran at `15:56:41Z`-`15:56:48Z` in that very log --
+  44 minutes after the patch was written, by a supervisor quarantining unit issue-263.
+  `find /home/rodney/prj/at-risk -newermt '2026-11-10 15:40' -printf '%p\n'` returns nothing, so
+  nothing in the box is newer than that write and this suite put nothing there. Should the gate assert
+  the box is empty, or that this run did not change it?
+- Options: leave it and have operators clear the box before `make verify` | narrow it to files whose
+  mtime falls inside the run | snapshot the box at suite start and assert the set is unchanged |
+  delete the leg
+- Chose: snapshot the box at suite start and assert the set is unchanged
+- Why: each rejected option breaks the thing the leg is for. Clearing the box is deleting mirrors to
+  pass a test, and those patches are the only copies of work that exists nowhere else -- the object
+  `H-0078` derives the box to protect and `H-0076` refuses the trees for the same reason. An mtime
+  window is not identity: `factory_tree_quarantine` stamps the *sha* it mirrored into the filename, so
+  a tick that re-mirrors an old dirty stop produces a name inside the window whose bytes are not this
+  run's, and the window reads that as innocent; `H-0043`'s bargain is to measure and assert what the
+  measurement answered, never to infer from a timestamp. Deleting the leg removes the only proof that
+  the fixture's `$FACTORY_AT_RISK` override is honoured, which is what makes the `ok`s of the `q_arm`
+  legs above it mean anything -- and this file's own history is a list of legs that passed while
+  measuring nothing (`H-0054`'s `gh`-absent section, `H-0059`'s identity-starved fixture, `H-0079`'s
+  `344 passed, 0 failed` with the push arm inert). `unchanged` is the stronger claim in both
+  directions, which is the part to keep: a box this suite *emptied* is as much a bug as one it
+  littered, and `empty` passed that silently while `unchanged` goes red on either. Naming each file
+  with its own mtime is what lets the next reader separate "the supervisor wrote this during the gate"
+  from "this suite wrote this" -- the ambiguity that produced the wrong accusation here -- and the
+  `grep -h TREE-QUARANTINE ~/prj/*/factory/log/supervisor.log | tail` it prints is the command that
+  names the unit.
+- Checkpoint: f4f774f
+- Effect: `factory/selftest.sh` — `quarantine_stays_in_the_fixture` now compares the box against a
+  snapshot taken at line ~99, immediately after `trap cleanup`, and says so in its own ok line when the
+  box already holds patches; the comparison is its own function, `at_risk_diff`, because the control
+  needs something to hand a doctored input and the real box must never be doctored to test a guard
+  whose job is that nothing moves work into it; the failure names each file with its own mtime in both
+  directions and prints `grep -h TREE-QUARANTINE ~/prj/*/factory/log/supervisor.log | tail` as the
+  command that identifies the unit that wrote it. `docs/factory.md` gains no line: the doc never
+  claimed the box was empty, only that the legs mirror into the fixture.
+  What lost, stated as measured: the leg no longer refuses a box that was already dirty when the suite
+  started, so a run that begins with real patches present cannot tell an old patch apart from a
+  same-name patch this suite wrote — mtime and name are printed for a human to make that call, which
+  is strictly more than the old leg's accusation and less than a proof. Discrimination, mutants applied
+  to the working tree from a backup and restored, every tally from `bash factory/selftest.sh`: the
+  shipped assertion on this box -> `355 passed, 1 failed`, the failure the false accusation recorded in
+  the Question above; the fixed leg -> `356 passed, 0 failed`; `at_risk_diff` blinded with an early
+  `return 0` -> `356 passed, 2 failed`, both under `control: the diff sees a change`, one per
+  direction; `printf --` reduced to `printf` in the vanished-file arm -> `printf: - : invalid option`
+  on stderr and `356 passed, 1 failed`, the control catching a bash builtin rule that had already eaten
+  the line on the leg's first draft. No leg writes into the real box on purpose, so the `+` direction
+  is proven against synthetic lists in the control rather than by moving real work, and that limit is
+  stated here rather than left implied: what is verified live is that this suite's own writes land in
+  `$FACTORY_AT_RISK`, and that the box is the same set of paths at the end of a run as at its start.
