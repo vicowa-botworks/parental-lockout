@@ -1817,3 +1817,71 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   ids`). Re-measured after the write: `bash factory/selftest.sh` moved from `292 passed, 0 failed` to
   `293 passed, 0 failed` -- one leg counted, one control line printed and not counted -- and the
   control's two plants each make the leg refuse, which is what proves the leg reads both halves.
+
+
+## H-0076 · The guard asked whether the path exists, so every wrong path that exists was still answered
+
+- Question: #257's review measured the guard H-0073 shipped, at `c5aa1eb`, and found it answering a
+  different question than the one this command exists to ask. `[ -e "$target" ] || git cat-file -e
+  "HEAD:$rel"` is true of anything that is *there*, and every wrong path in a real checkout is there.
+  Re-measured on this branch's own head after the review, with `--prefix H`: `docs/factory.md`,
+  `README.md`, `AGENTS.md`, `factory` and `factory/` each printed `H-0001` and exited 0 -- the
+  collision, with exit 0. At the head this entry ships, the same five exit 2 naming the path while
+  `DECISIONS.md` answers `D-0052` and `factory/DECISIONS.md` answers `H-0076`, both unchanged. Two
+  things make it blocking rather than tidy. `docs/factory.md` is not a typo a session has to invent: it
+  is the 842-line guide carrying the section that tells a session to run this command, so it is what a
+  session has open at the moment it reaches for the allocator. And the text #255 wrote makes the
+  residual worse instead of neutral -- `SKILL.md`'s step 3 and this guide both reframe a refusal as
+  *your path is wrong*, so a session handed `H-0001` for a file that exists reads it as "my log was
+  read" and writes the duplicate heading: a silent collision where an error message would have been
+  visible. No leg can see the shape, either -- every path named in the whole `decision_ids` section is
+  `DECISIONS.md`, `factory/DECISIONS.md` or `factory/DECISION.md`, all three absent, so an existence
+  predicate and a log predicate agree on every fixture the suite owns. What is the predicate, and where
+  does it have to live for a control to be able to falsify it?
+- Options: fold the name and type tests inside `log_is_here`, and give each arm its own leg and its own
+  plant | put the name test beside the function, ahead of the call site | keep the existence predicate
+  and widen it to `! -d`, so a directory is refused | leave the allocator alone and let
+  `check-decisions.py` catch the duplicate heading at the gate
+- Chose: fold the name and type tests inside `log_is_here`, and give each arm its own leg and its own
+  plant
+- Why: the tie-break's third rung is the one H-0073 itself stopped at -- "refuse rather than proceed
+  when input is missing or empty" -- and it settles this the same way, because `docs/factory.md` is the
+  same *input* as `factory/DECISION.md`: a path that is not the log. The second option was measured,
+  not dismissed: with the `case` in front of the function, the shipped control's plant
+  (`s,^log_is_here ||,: log_is_here ||,`, which neuters `log_is_here` and nothing else) leaves a script
+  that still refuses, and `control: a mistyped log path refuses` fails with "the planted allocator
+  refused". A check the plant cannot reach is a check no control can falsify, so beside-the-function is
+  not merely clumsier -- it is unleggable, which is the thing this suite refuses to ship. The `! -d`
+  option closes one shape and admits the one that matters: it still answers `docs/factory.md`, and it
+  leaves the guard and the read disagreeing about what counts as the log, which is how a later shape --
+  a FIFO, a socket -- becomes a `cat` that parks the caller. Both tests are needed, not one: the name
+  alone admits a directory named `DECISIONS.md` (a tree in `HEAD`, and `cat-file -e` is true of a tree),
+  the type alone admits `docs/factory.md`, so each gets a fixture where only it can refuse. The fourth
+  option moves a read into the gate H-0072 keeps ref-blind on purpose, and still answers the wrong file
+  first. What lost: one `git cat-file` per call becomes `-t` instead of `-e` -- still a question about
+  an object, never about a ref, so H-0072's boundary holds and the allocator stays off every fetch path;
+  and a caller aiming at a file that exists but is not the log is now stopped instead of answered, so
+  anything that depended on that fails loudly (the only callers in this repository are the skill, this
+  guide, and the legs, and all three name a log that exists); and the refusal now carries two possible
+  reasons, which is one more sentence to keep true in `docs/factory.md`.
+- Checkpoint: 82a4acd526796b2292f1692c3acc951a91c0faed
+- Effect: `factory/next-decision-id.sh` -- `log_is_here` asks for a basename of `DECISIONS.md` and then
+  for a regular file in the tree or `git cat-file -t "HEAD:$rel"` equal to `blob`, and it records which
+  of the two refused in `$why`, because the shipped message asserted "not in the working tree, not in
+  HEAD" even when the file was sitting there. The header block and `--help` now say the log itself is
+  what gets answered, not any path. `factory/selftest.sh` -- three legs and two controls over two
+  fixtures built so each arm decides alone: a checkout holding `docs/factory.md` and a `factory/`
+  directory and no log at all (refused by name, `factory` as a directory with it), and a checkout where
+  `DECISIONS.md` is a *directory* (the name matches; only the type can refuse it). Each control's plant
+  was run against the other fixture to prove it narrow: the name plant still refuses the tree, and the
+  type plant -- which writes back `git cat-file -e`, the predicate this entry replaces -- still refuses
+  the mistyped name. `docs/factory.md` carries the five `c5aa1eb` calls and why the "your path is
+  wrong" wording made that shape worse than the typo; `.opencode/skills/factory/SKILL.md` step 3 says
+  the same thing in the text a session is reading when it runs the command. Re-measured after the
+  write: `bash factory/selftest.sh` moved from `293 passed, 0 failed` on the checkpoint's tree to `296
+  passed, 0 failed` here, and the two runs' `ok`/`FAIL` line lists were diffed -- five lines added,
+  three counted legs and two control lines printed without touching the tally, no leg lost, the only
+  other differences the fixture tmpdir names and one quarantine count this suite already treats as
+  run-dependent. This tree's baseline reads one above the review's `292` because the environmental
+  `install-timer` leg FAILs without `go`/`gofmt` first on its stub PATH and passes here; the delta is
+  three legs on either box.

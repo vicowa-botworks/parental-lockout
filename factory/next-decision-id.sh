@@ -15,12 +15,15 @@
 # renumbering. A "smallest gap" allocator would recycle those numbers and turn every historical
 # citation into an alias.
 #
-# What is never allocated. An id is printed only for a log this repository can point at: the named
-# path has to be in the working tree or in HEAD. A union with no headings in it is not an empty log,
-# it is a wrong path, and answering it prints <prefix>-0001 -- the most-cited number in either log, so
-# a typo would be answered with a guaranteed collision (issue #253, measured: `--prefix H
-# factory/DECISION.md` printed H-0001 and exited 0). A fresh adoption is one `touch` away and still
-# gets its honest D-0001, from headings the log does not have yet rather than from silence.
+# What is never allocated. An id is printed only for a path that IS a decision log: named
+# DECISIONS.md, and a regular file in the working tree or a blob in HEAD. A union with no headings in
+# it is not an empty log, it is a wrong path, and answering it prints <prefix>-0001 -- the most-cited
+# number in either log, so a typo would be answered with a guaranteed collision (issue #253, measured:
+# `--prefix H factory/DECISION.md` printed H-0001 and exited 0). Existence is not the test, because
+# every wrong path in a checkout exists: at `c5aa1eb` `--prefix H docs/factory.md`, `README.md`,
+# `AGENTS.md`, `factory` and `factory/` each printed H-0001 and exited 0 (H-0076). A fresh adoption is
+# one `touch` away and still gets its honest D-0001, from headings the log does not have yet rather
+# than from silence.
 #
 # This is a collision-free read, not a lock. Two processes running at the same instant can still see
 # the same ceiling and receive the same id; the harness fixes that by cutting each unit from an
@@ -39,8 +42,9 @@ The union read is the working file, HEAD, refs/heads and refs/remotes. Blobs tha
 named log, and refs git cannot read, are ignored. The result is the first free id ABOVE every id seen;
 gaps below the ceiling stay closed. No fetch is performed.
 
-A log path found in neither the working tree nor HEAD is refused. Allocating from an empty union means
-answering <prefix>-0001, which is a taken id in every log this repository has.'
+Only the decision log itself is answered: DECISIONS.md or factory/DECISIONS.md, as a regular file in the
+working tree or a blob in HEAD. Any other path is refused, including one that exists -- allocating from
+an empty union means answering <prefix>-0001, a taken id in every log this repository has.'
 
 die() {
 	printf 'next-decision-id: %s\n' "$*" >&2
@@ -122,11 +126,40 @@ esac
 # guaranteed collision, the thing this command exists to refuse. Asking for a fresh log is one `touch`
 # and a title line, and it still gets its honest D-0001. `git cat-file` asks about an object and never
 # about a ref, so this stays true of the tree as it sits on disk and off every fetch path (H-0056).
-log_is_here() { # -> 0 when the named log is in the working tree or in HEAD
-	[ -e "$target" ] || git -C "$root" cat-file -e "HEAD:$rel" 2>/dev/null
+#
+# Two tests, and the question is "is this the log", not "is anything sitting there" (H-0076). The name
+# first: `docs/factory.md` -- the file this command's own documentation lives in -- `README.md` and
+# `AGENTS.md` are regular files, and `factory` is a directory in the tree and a tree in HEAD, and at
+# `c5aa1eb` each of those four was answered `H-0001` with exit 0. Then the type, because a name alone
+# still admits a directory: `git cat-file -e` is true of a tree, so a checkout holding `DECISIONS.md/`
+# as a directory would be answered too.
+#
+# Both tests are inside this function rather than beside it, and that is the control's requirement, not
+# a style choice. The shipped control neuters the guard by rewriting its call site (`selftest.sh`'s
+# `s,^log_is_here ||,: log_is_here ||,`); a name test written in front of the function is therefore
+# invisible to every plant the suite has, and the leg that pins it would be an ok nothing can falsify.
+log_is_here() { # -> 0 when the named path IS a decision log; sets $why to the reason it is not
+	why=''
+	case ${rel##*/} in
+	DECISIONS.md) ;;
+	*)
+		why="that is not a decision log's name -- this repository keeps its ids in DECISIONS.md and factory/DECISIONS.md and reads nothing else"
+		return 1
+		;;
+	esac
+	# The type HEAD holds at that path: `blob` for a file, `tree` for a directory, empty for nothing.
+	# Comparing it is the whole second test -- the predicate this branch replaced asked only whether
+	# *anything* was there (`cat-file -e`), which a directory named DECISIONS.md satisfies. The suite's
+	# type control plants that predicate back, so the leg is known to be decided by the verdict.
+	head_kind=$(git -C "$root" cat-file -t "HEAD:$rel" 2>/dev/null || true)
+	if [ -f "$target" ] || [ "$head_kind" = blob ]; then
+		return 0
+	fi
+	why='it is neither a regular file in the working tree nor a blob in HEAD'
+	return 1
 }
 log_is_here ||
-	die "no log named $rel in $root: not in the working tree, not in HEAD. An empty union is a wrong path, not a free log: it answers with the first id of the range (D-0001 or H-0001), which every log this repository has already used. Name DECISIONS.md or factory/DECISIONS.md, or create the file first."
+	die "no decision log at $rel in $root: ${why:-it is not the decision log}. An empty union is a wrong path, not a free log: it answers with the first id of the range (D-0001 or H-0001), which every log this repository has already used. Name DECISIONS.md or factory/DECISIONS.md, or create the file first."
 
 # The file's name is the normal selector. If it has no headings yet -- a fresh harness adoption -- D is
 # the product default; H is only inferred from factory/DECISIONS.md rather than from a prefix found in

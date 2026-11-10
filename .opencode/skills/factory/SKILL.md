@@ -142,7 +142,8 @@ When you reach a decision point, do this instead, in this order:
 
    Use exactly what it prints. It takes the union of the current checkout, `HEAD`, `refs/heads` and
    `refs/remotes`, then returns the first free id above that ceiling. If it refuses, **your path is
-   wrong, not the tool**: it answers only for a log that is in the working tree or in `HEAD`, because
+   wrong, not the tool**: it answers only for the decision log itself -- a path whose name is
+   `DECISIONS.md`, holding a regular file in the working tree or a blob in `HEAD` -- because
    an empty union has exactly one answer available -- `D-0001`/`H-0001`, the number both logs opened
    with -- and handing that out is the collision this command exists to refuse (`H-0073`). Read its
    message and name the log you mean; never fall back to numbering by eye. A relative path resolves

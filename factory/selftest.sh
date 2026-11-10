@@ -5143,6 +5143,7 @@ alloc_boundary() { # <label> <repo> <log path> <prefix> <stale id> <fresh id> <w
 
 decision_ids() {
 	local base current multi repo wt bad alloc_empty alloc_nolog alloc_nopfx alloc_bleed
+	local alloc_notlog alloc_dirlog
 
 	if [ ! -f "$alloc_script" ]; then
 		printf '  SKIP  %-40s next-decision-id.sh is not in this tree\n' \
@@ -5322,8 +5323,9 @@ decision_ids() {
 	# ---- what the allocator does when there is nothing to read (issue #253, the half #255 left) ----
 	#
 	# Every leg above writes its fixture's log before the leg runs and passes --prefix, so not one of
-	# them ever reached the two arms a mistyped path falls into. All three below were measured on the
-	# shipped script before this branch touched it:
+	# them ever reached the two arms a mistyped path falls into. All three refusals below were
+	# measured on the shipped script before this branch touched it, and the block that follows them
+	# adds the four paths #257's review measured at `c5aa1eb`:
 	#
 	#   --prefix H factory/DECISION.md    printed H-0001 and exited 0. A union with no headings in it
 	#                                     has exactly one answer available, and H-0001 is the first
@@ -5382,6 +5384,74 @@ decision_ids() {
 
 	alloc_refuse 'a repository with no log refuses' "$alloc_nolog" DECISIONS.md D \
 		'so a bare checkout is never answered out of the tree the command was invoked from'
+
+	# ---- a path that exists and is still not the log (PR #257's review of the guard above) -------
+	#
+	# That guard asks whether the named path exists, and every wrong path in a real checkout exists.
+	# Measured on `c5aa1eb`, in this repository, each of these printed `H-0001` and exited 0 when
+	# called with `--prefix H`:
+	#
+	#   docs/factory.md   the 842-line guide that tells a session to run this command (its line 455)
+	#                     -- the file a session is reading at the moment it reaches for the allocator
+	#   README.md, AGENTS.md   the two other markdown files at the trunk
+	#   factory, factory/      a directory in the working tree, a tree in HEAD, and `cat-file -e` is
+	#                     true of a tree
+	#
+	# Worse than the mistyped name above, not merely different: the refusal this branch shipped says
+	# *your path is wrong*, so a session handed `H-0001` for `docs/factory.md` reads that as "my log
+	# was read" and writes a duplicate heading -- the silent collision, where an error message would
+	# have been visible. And no leg could have seen the shape: every path named in this whole section
+	# is `DECISIONS.md`, `factory/DECISIONS.md` or `factory/DECISION.md`, and all three are absent, so
+	# an existence predicate and a log predicate agree on every fixture the suite owns (H-0076).
+	#
+	# Two fixtures, one per arm of the predicate, because the arms fail differently and one fixture
+	# that trips both would prove neither: `$alloc_notlog` has the wrong name and the right type, and
+	# `$alloc_dirlog` the right name and the wrong type.
+	alloc_shapes() { # <dir holding docs and a factory/ dir> <dir where DECISIONS.md is a directory>
+		local n=$1 d=$2
+		git init -q "$n" 2>/dev/null || return 1
+		git -C "$n" config user.email fixture@invalid || return 1
+		git -C "$n" config user.name fixture || return 1
+		mkdir -p -- "$n/docs" "$n/factory" || return 1
+		printf '# The factory guide\n' >"$n/docs/factory.md" || return 1
+		printf '# A harness note\n' >"$n/factory/guide.md" || return 1
+		git -C "$n" add -A || return 1
+		git -C "$n" commit -q -m 'fixture: a checkout with documents and no decision log' || return 1
+		git init -q "$d" 2>/dev/null || return 1
+		git -C "$d" config user.email fixture@invalid || return 1
+		git -C "$d" config user.name fixture || return 1
+		mkdir -p -- "$d/DECISIONS.md" || return 1
+		printf '# notes, not a log\n' >"$d/DECISIONS.md/notes.md" || return 1
+		git -C "$d" add -A || return 1
+		git -C "$d" commit -q -m 'fixture: DECISIONS.md is a directory' || return 1
+	}
+
+	alloc_notlog=$alloc_work/path-that-exists
+	alloc_dirlog=$alloc_work/directory-named-decisions-md
+	if ! alloc_shapes "$alloc_notlog" "$alloc_dirlog"; then
+		printf '  SKIP  %-40s the two not-a-log fixtures could not be\n' 'the not-a-log refusals'
+		printf '          written; every leg below is about a tree that does not exist.\n'
+	else
+		alloc_refuse 'a document that exists is not the log' "$alloc_notlog" docs/factory.md H \
+			'the guide that documents this command is not a log, and the refusal names it'
+		alloc_refuse 'a directory is not the log' "$alloc_notlog" factory H \
+			'the directory that holds both logs is neither of them'
+		alloc_refuse 'a DECISIONS.md directory is not the log' "$alloc_dirlog" DECISIONS.md D \
+			'the name matches, and a tree in HEAD is still not the log'
+		# One plant per arm, each leaving the other arm standing -- both were run against the other
+		# fixture to confirm exactly that: the name plant still refuses the tree, and the type plant
+		# still refuses the mistyped name. The name plant opens the arm to every basename; the type
+		# plant writes back the predicate this branch replaced, `git cat-file -e`, which a directory
+		# named DECISIONS.md satisfies.
+		alloc_control 'a document that exists is not the log' "$alloc_work/ctrl-no-name-test" \
+			's|DECISIONS.md) ;;|*) ;;|' \
+			"$alloc_notlog" docs/factory.md H H-0001 \
+			'without the name test a guide, a README and an AGENTS file are all decision logs'
+		alloc_control 'a DECISIONS.md directory is not the log' "$alloc_work/ctrl-any-type" \
+			's|\[ "$head_kind" = blob \]|git -C "$root" cat-file -e "HEAD:$rel" 2>/dev/null|' \
+			"$alloc_dirlog" DECISIONS.md D D-0001 \
+			'asking only whether anything sits at that path in HEAD is the predicate this replaced'
+	fi
 
 	alloc_reads_its_repo '--repo reads the repo it was aimed at' "$alloc_bleed" D-0004 \
 		'the answer is the fixture ceiling, never the caller tree'

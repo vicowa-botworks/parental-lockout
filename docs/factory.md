@@ -461,11 +461,11 @@ answer is one above the highest id of the selected prefix anywhere in that union
 ceiling are closed forever: a retired or renumbered id remains the thing a historical citation means,
 so "first free" is not "smallest missing number".
 
-It answers only for a log that exists. The named path has to be in the working tree or in `HEAD`,
-because a union with no headings in it has exactly one answer available -- `<prefix>-0001`, the first
-heading both logs have carried since entry one -- so an empty union is a mistyped path, and answering
-it is the collision this command exists to refuse. Measured on the version #255 shipped, on three
-calls a session really makes:
+It answers only for the decision log itself. The named path has to be named `DECISIONS.md` and be a
+regular file in the working tree or a blob in `HEAD`, because a union with no headings in it has
+exactly one answer available -- `<prefix>-0001`, the first heading both logs have carried since entry
+one -- so an empty union is a mistyped path, and answering it is the collision this command exists to
+refuse. Measured on the version #255 shipped, on three calls a session really makes:
 
 | The call | It printed | It prints now |
 |---|---|---|
@@ -484,6 +484,21 @@ about. A fresh log is one `touch` and a title line away, and its first entry sti
 `D-0001` or `H-0001`, inferred from the path rather than from a heading that does not exist yet. Six
 legs and two controls in `factory/selftest.sh` plant each row; the controls are what prove the
 refusals are the guard and not a fixture that agrees by accident.
+
+Existence turned out to be the wrong question, and asking it is how a wrong path gets the same answer
+as a missing one. The version reviewed at `c5aa1eb` asked whether the named path was *there*, and every
+wrong path in a checkout is there: `--prefix H docs/factory.md` printed `H-0001` and exited 0, and so
+did `README.md`, `AGENTS.md`, `factory` and `factory/` -- the last a directory in the tree and a tree in
+`HEAD`, which `git cat-file -e` answers true for. `docs/factory.md` is this guide, the file carrying the
+paragraph you are reading, so it is what a session has open at the moment it reaches for the allocator.
+That hole is worse than the typo above, not merely different: the refusal `c5aa1eb` ships tells the
+caller *your path is wrong*, so a session handed `H-0001` for `docs/factory.md` reads it as "my log was
+read" and writes a duplicate heading -- the silent collision, where an error message would have been
+visible. The guard now asks whether the path *is* the log: the basename must be `DECISIONS.md`, and
+what is behind it must be a regular file or a blob in `HEAD`. A guide, a README, a directory, and a
+directory named `DECISIONS.md` are each refused and each is told why (`H-0076`); three more legs and two
+more controls join the six and two above, one plant per arm of the predicate, so neither test can be
+retired without a leg going red.
 
 It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
 verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
