@@ -1837,11 +1837,21 @@ done
 # is by definition a file nobody was watching.
 quarantine_stays_in_the_fixture() {
 	local label="the mirror box is the fixture's" stray real where
-	stray=$(find "$FACTORY_AT_RISK" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
+	# `|| true` on every count in this function and the one below it, and it is load-bearing rather
+	# than tidy: `find` exits 1 on a directory it cannot open, a command substitution propagates the
+	# pipeline's status under `pipefail`, and an assignment that fails under `set -e` ends the script
+	# -- no tally, the trap eats the fixture, and the CI symptom this comment block is about. Measured
+	# on this box with the marker missing, the shipped shape: `rc=1` and every line after the
+	# assignment never ran. What the insulation buys is not nothing, though: it turns "the suite dies"
+	# into "the count comes back 0", and 0 is the GREEN answer here. That trade is only affordable
+	# because `at_risk_predicate_provable` below asks the same expression to separate two files it can
+	# see, and requires 2/1/1 -- a masked 0 there goes red, so a masked 0 here means something.
+	stray=$(find "$FACTORY_AT_RISK" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]') || true
 	# Ask whether the box is there before counting what is in it. Two reasons, one of which this line
 	# paid for: a GitHub runner has no ~/prj/at-risk, and `find` exits 1 on a directory that does not
 	# exist, so the assignment below -- a command substitution whose pipeline is under
-	# `set -euo pipefail` (line 59) -- took the whole suite down with it. Measured on the runner at
+	# `set -euo pipefail` at the top of this file, not at a line number somebody has to re-derive --
+	# took the whole suite down with it. Measured on the runner at
 	# this commit: the last quarantine leg printed at 17:08:12.47Z, `Makefile:103: verify] Error 1`
 	# followed 30ms later, and no `N passed, M failed` summary was ever reached, while the same commit
 	# here read 242 passed / 0 failed because this machine has the directory. It is the same trap this
@@ -1853,8 +1863,16 @@ quarantine_stays_in_the_fixture() {
 		# wrote. Asked without it the leg fails on any machine where the supervisor has ever rescued
 		# a tick -- which is the machine that runs it -- and the only way to make it green again is to
 		# move a rescue that has no other copy. See the marker's own note above `cleanup()`.
-		real=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' -newer "$at_risk_mark" 2>/dev/null | wc -l | tr -d '[:space:]')
-		kept=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' ! -newer "$at_risk_mark" 2>/dev/null | wc -l | tr -d '[:space:]')
+		#
+		# What `-newer` cannot see, priced: it compares mtimes, so the count is only as honest as the
+		# stamps. The shipped writer creates the patch with a fresh `>`, so a rescue this run made is
+		# always newer than the marker. A rescue carried in some other way -- `cp -p`, `tar -x` without
+		# `-m`, a restore out of the box itself -- keeps its ORIGINAL mtime and is counted as "already
+		# there, left alone", so this leg cannot go red on it. That direction is chosen, not missed:
+		# the alternative is counting the box's absolute contents, which is the gate nobody can turn
+		# green except by moving a rescue that has no other copy (H-0081).
+		real=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' -newer "$at_risk_mark" 2>/dev/null | wc -l | tr -d '[:space:]') || true
+		kept=$(find "$HOME/prj/at-risk" -name '*-quarantine-*.patch' ! -newer "$at_risk_mark" 2>/dev/null | wc -l | tr -d '[:space:]') || true
 		where="$HOME/prj/at-risk"
 	else
 		real=0
@@ -1892,9 +1910,13 @@ at_risk_predicate_provable() {
 	touch -d '2010-01-01 00:00:00' "$box/marker"
 	printf 'written by the run itself\n' >"$box/issue-2-quarantine-20200101T000000Z-bbb.patch"
 	touch -d '2020-01-01 00:00:00' "$box/issue-2-quarantine-20200101T000000Z-bbb.patch"
-	wrote=$(find "$box" -name '*-quarantine-*.patch' -newer "$box/marker" 2>/dev/null | wc -l | tr -d '[:space:]')
-	kept=$(find "$box" -name '*-quarantine-*.patch' ! -newer "$box/marker" 2>/dev/null | wc -l | tr -d '[:space:]')
-	total=$(find "$box" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]')
+	# Same `|| true` as the box leg, and here it costs nothing to be uniform: this leg requires
+	# 2 / 1 / 1, so a `find` that was stopped from looking returns 0 and goes RED. That is the asymmetry
+	# the box leg's insulation leans on -- an ignored failure is safe where the expected answer is
+	# non-zero, and dangerous where it is zero.
+	wrote=$(find "$box" -name '*-quarantine-*.patch' -newer "$box/marker" 2>/dev/null | wc -l | tr -d '[:space:]') || true
+	kept=$(find "$box" -name '*-quarantine-*.patch' ! -newer "$box/marker" 2>/dev/null | wc -l | tr -d '[:space:]') || true
+	total=$(find "$box" -name '*-quarantine-*.patch' 2>/dev/null | wc -l | tr -d '[:space:]') || true
 	if [ "$total" = 2 ] && [ "$wrote" = 1 ] && [ "$kept" = 1 ]; then
 		pass=$((pass + 1))
 		printf '  ok    %-34s planted 2, the check counts %s as this run and %s as earlier, so\n' "$label" "$wrote" "$kept"
@@ -1908,6 +1930,40 @@ at_risk_predicate_provable() {
 	return 0
 }
 at_risk_predicate_provable
+
+# The insulation, asked whether it does anything. Every count in the two legs above ends in `|| true`,
+# which the last paragraph explains as the difference between "the suite dies mid-file" and "the count
+# comes back 0". An `ok` on the insulated arm alone would prove nothing -- a `find` that simply
+# succeeded would print the same 0 -- so this leg runs both arms, the same assignment with and without
+# the `|| true`, against the same two absent paths: a box that is not there and a marker that was never
+# created. The insulated arm has to return 0 and stay alive; the uninsulated one has to die. If the
+# second arm ever comes back alive, the first arm's 0 has stopped meaning that `|| true` saved it, and
+# the note printed by the failure is the same one this file prints everywhere else: the ok is the check
+# working, not the check being blind.
+the_insulation_is_load_bearing() {
+	local label='a count survives a box it cannot open' w2 alive dead
+	w2=$(mktemp -d "$work/insulation-XXXX")
+	alive=$(bash -c 'set -euo pipefail
+		x=$(find "$1" -name "*-quarantine-*.patch" -newer "$2" 2>/dev/null | wc -l | tr -d "[:space:]") || true
+		printf "%s" "$x"' _ "$w2/no-such-box" "$w2/no-such-marker") || alive='(died)'
+	dead=$(bash -c 'set -euo pipefail
+		x=$(find "$1" -name "*-quarantine-*.patch" -newer "$2" 2>/dev/null | wc -l | tr -d "[:space:]")
+		printf "%s" "$x"' _ "$w2/no-such-box" "$w2/no-such-marker") || dead='(died)'
+	if [ "$alive" = 0 ] && [ "$dead" = '(died)' ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-34s insulated: rc=0 and the count is 0, and the shell lives; the\n' "$label"
+		printf '          same assignment without `|| true` dies right there (rc non-zero, nothing\n'
+		printf '          printed), which is what makes the 0 above an answer and not a rescue.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s insulated=%s uninsulated=%s. Expected 0 and (died): if the bare\n' "$label" "$alive" "$dead"
+		printf '          form survives too, the `|| true` above is decoration and the counts may be\n'
+		printf '          silently 0 for a reason nobody is testing for.\n'
+	fi
+	rm -rf "$w2"
+	return 0
+}
+the_insulation_is_load_bearing
 
 # The leg the review of #250 asked for by name -- "whatever lands, please add the leg that composes the
 # two calls" -- and the reason it exists: the streak legs above call `factory_tree_stop` twice with

@@ -2346,3 +2346,56 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   are separated in `#264`'s rewrite -- three comments, four locations -- and that rewrite lands in a
   later push, so its read-back lives in the pull request and not here; if the rewrite does not
   arrive, this paragraph is the claim that failed, not the entry above.
+
+## H-0087 · A count that cannot be taken ends the suite; an insulated one returns the green answer
+
+- Question: the review of `#264` reports that the two `find` assignments `H-0081` added carry the
+  failure mode this file documents two lines above them -- under `set -euo pipefail` a `find` that
+  cannot open its directory makes the assignment fail and the script die (marker missing: exit 1,
+  the next line never runs, the trap eats the fixture, no tally printed) -- and asks for `|| true`,
+  noting it cannot fire today because the marker is created near the top of the file. Put it on the
+  two assignments the review names, on every count in both box legs, on every count plus a leg that
+  proves it, or leave the code and record the exposure?
+- Options: `|| true` on the two assignments the review names | on every count in both box legs, with
+  no new leg | on every count in both box legs and a leg that runs both arms, insulated and bare |
+  leave the code alone and write the exposure into this entry
+- Chose: on every count in both box legs and a leg that runs both arms, insulated and bare
+- Why: measured before anything was edited, on a standalone probe rather than in this tree. The
+  shipped shape -- the assignment under `set -euo pipefail`, box absent and marker absent -- printed
+  nothing after the assignment and exited 1; the same line with `|| true` printed `real=0` and
+  continued. So the reviewer's failure mode reproduces on this box, and so does what the insulation
+  costs: the insulated answer is `0`, and `0` is exactly what makes the box leg print ok. Insulation
+  trades a loud death for a silent green, and the only honest price for that is making the green
+  answer falsifiable. Two things do. `at_risk_predicate_provable` already requires 2 / 1 / 1, so a
+  masked 0 *there* goes red -- which is what makes a masked 0 in the box leg affordable rather than
+  merely convenient, and the asymmetry (an ignored failure is safe where the expected answer is
+  non-zero, dangerous where it is zero) is now written at the plant. The new leg
+  `a count survives a box it cannot open` runs the same assignment against the same two absent paths
+  both ways: insulated must return 0 and stay alive, bare must die. Without the bare arm the ok
+  proves nothing, because a `find` that simply succeeded prints the same 0. Tie-break 3 -- refuse
+  rather than proceed on bad input -- is the reason this is not option one: a bare `|| true` on the
+  two named lines is tie-break 4's cheapest answer and it leaves the suite quiet about a box it
+  cannot read, which is the shape this repository calls a failure left unspoken. The leg is what
+  converts the insulation from silencing into testing, so widening the scope costs nothing the
+  cheapest option would not have cost anyway -- and the wider scope is the point: the same shape is
+  at `stray=` and in the predicate's three counts, and a half-insulated function dies on whichever
+  line the reviewer did not name. What lost: the counts can now report 0 where the truth is unknown,
+  which is strictly worse than before for anyone who reads a 0 as a measurement instead of an
+  answer; the leg defends that only on this file's own terms. The `-newer` comparison has a second
+  half no `|| true` reaches, priced in the comment rather than fixed: a rescue carried in with its
+  original mtime (`cp -p`, `tar -x` without `-m`, a restore out of the box itself) counts as
+  "already there, left alone" and can never redden the leg. It stays a disclosure because the fix
+  for it is counting everything in the box, which is the unpassable gate `H-0081` exists to end.
+- Checkpoint: 8b8fb91
+- Effect: `factory/selftest.sh` -- `|| true` on all five counts (the box leg's `stray`, `real`,
+  `kept`; the predicate's `wrote`, `kept`, `total`), the priced `-newer` disclosure, the new leg
+  `a count survives a box it cannot open`, and the stale citation: what read
+  ``set -euo pipefail` (line 59)' now says "at the top of this file, not at a line number somebody
+  has to re-derive" (the review's non-blocking 5 -- the line was 63 at `450a628` and is 63 here, so
+  the drift predates this branch and a number is the wrong thing to write). Measured on this tree
+  after the change, both read back before this commit: `bash factory/selftest.sh` -> `358 passed,
+  0 failed` (one leg above the merge's 357, none lost), `make check-shell` -> `check-shell: 0.10.0
+  over 28 scripts`, exit 0. The checkpoint here was taken after the edits were drafted in the
+  working tree, and its tree is the pre-edit state; the measurement that decided this was taken in
+  `/tmp/opencode`, not in this tree, so the rollback target is the state the decision was made
+  against.
