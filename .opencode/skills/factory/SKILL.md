@@ -330,7 +330,9 @@ a tick on gh 2.46.0, and the `state` field is one glance at the rows.
 
 When a row that read `APPROVED` or `CHANGES_REQUESTED` now reads `DISMISSED`, one line goes on the pull
 request: who, the commit that review was filed against, and that `mergeStateStatus` reads `BLOCKED`
-until a reviewer is asked again. If the pull request already exists, the body is rewritten with
+until a reviewer is asked again. The supervisor re-asks on its next activation -- ten minutes at the shipped
+`FACTORY_INTERVAL`, bounded by the `FACTORY_REVIEW_POKES` floor, and `docs/factory.md` carries the
+arithmetic -- which is why the sentence below says *yet*. If the pull request already exists, the body is rewritten with
 `gh issue edit "$PR" --body-file <file>` -- `gh pr edit` fails on this account's retired
 `projectCards` field while looking like it worked, the same failure as `--add-reviewer` above -- and
 the read-back after a body write is the sentence being there, not the call returning. Do not ask the

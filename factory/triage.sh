@@ -279,7 +279,32 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 		ask_bytes=${ask_verdict##* }
 		ask_verdict=${ask_verdict%% *}
 	fi
+	# A review ROW is not a verdict, and counting rows is the wrong question. `DISMISSED` is what every
+	# approval on a pull request becomes the moment anybody pushes to it -- this repository does not carry
+	# a stale approval across a new head -- and `COMMENTED` was never a verdict whatever the endpoint
+	# calls it. Measured on #269 (10 Nov) across one fast-forward push: one `DISMISSED` row and an empty
+	# `/requested_reviewers` printed `WAIT pr:269 awaiting_review` in the supervisor's journal at
+	# 19:17:23Z, where the never-reviewed case had printed `POKED pr:269` at 17:58:17Z. The row survived
+	# the push; the review did not. #272.
+	#
+	# A payload that cannot be read leaves all three at their refusal values, and the refusal asks: an
+	# unreadable `/reviews` answers `verdicts=0` and lands in the arm below, which costs one throttled
+	# `gh` call. The other direction is the silence every arm above exists to prevent.
 	any_review=$(printf '%s' "$reviews" | jq -r 'length' 2>/dev/null || printf '0')
+	verdicts=$(printf '%s' "$reviews" |
+		jq -r '[.[] | select((.state // "") == "APPROVED" or (.state // "") == "CHANGES_REQUESTED")] | length' \
+			2>/dev/null || printf '0')
+	# The newest voided verdict, in the shape a person reads off a journal line: who filed it and the
+	# commit it was filed against, at the seven characters every other sha in this file uses.
+	# `commit_id` is REST's field for `gh pr view --json reviews`'s `commit.oid`, and it is the reviewed
+	# commit, NOT the moment of the dismissal -- there is no dismissal timestamp anywhere in the payload,
+	# and `submitted_at` on a voided row is still the approval's own stamp, twenty minutes before the
+	# push that voided it on #269. So the sentence names the push and never a time.
+	voided=$(printf '%s' "$reviews" |
+		jq -r '[.[] | select((.state // "") == "DISMISSED")] | max_by(.submitted_at // "")
+			| if . == null then ""
+			  else "\(.user.login // "someone") at \(if .commit_id then (.commit_id[0:7]) else "an unreadable commit" end)"
+			  end' 2>/dev/null || printf '')
 	requested=$(api_get "pulls/$number/requested_reviewers" '[.users[].login]|join(",")' '')
 	head_date=$(api_get "commits/$oid" '.commit.committer.date' '')
 
@@ -352,11 +377,22 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 		;;
 	esac
 
-	# No decision at all. Measured 4 Nov: #212, #214 and #215 had zero rows in /reviews and zero
+	# No verdict that still stands. Measured 4 Nov: #212, #214 and #215 had zero rows in /reviews and zero
 	# entries in /requested_reviewers three days after opening. That is not a slow reviewer, it is
 	# an unaddressed PR, and the two look identical to anything that reads only reviewDecision.
-	if [ "$any_review" = "0" ] && [ -z "$requested" ]; then
-		rows+="$(emit pr "$number" needs_reviewer "no review and nobody asked since it opened ($updated)" "$branch" "$issue")"$'\n'
+	#
+	# The question is now "is there a verdict", not "are there rows", and the three details are the three
+	# ways to have no answer: never reviewed (the 4 Nov shape, whose sentence the legs pin unchanged),
+	# reviewed without approving (`COMMENTED`, which `reviewDecision` reads as REVIEW_REQUIRED exactly as
+	# it reads a dismissal), and reviewed then voided by a push -- the last one printed a wait until #272.
+	if [ "$verdicts" = "0" ] && [ -z "$requested" ]; then
+		if [ -n "$voided" ]; then
+			rows+="$(emit pr "$number" needs_reviewer "every verdict voided by a push ($voided); nobody holds a request" "$branch" "$issue")"$'\n'
+		elif [ "$any_review" != "0" ]; then
+			rows+="$(emit pr "$number" needs_reviewer "no verdict, $any_review comment row(s); nobody holds a request since it opened ($updated)" "$branch" "$issue")"$'\n'
+		else
+			rows+="$(emit pr "$number" needs_reviewer "no review and nobody asked since it opened ($updated)" "$branch" "$issue")"$'\n'
+		fi
 	elif [ "$checks" = "pending" ]; then
 		rows+="$(emit pr "$number" checks_pending "checks running; request outstanding with ${requested:-nobody}" "$branch" "$issue")"$'\n'
 	else

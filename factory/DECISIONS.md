@@ -3000,10 +3000,15 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   input. Neither adds a dependency or touches the daemon, so the cheap tie-breaks do not separate
   them; what separates them is that the chosen one makes the tick *report the state it cannot fix*
   rather than proceed as though it could, and it is the one that touches the fewest files -- the
-  supervisor's other half of this finding is `H-0096`, in its own commit, because it is a different
-  file with a different blast radius. The bare comment (option five) is what this repository does not
+  supervisor's other half of this finding is `H-0097`, in its own commit, because it is a different
+  file with a different blast radius. Corrected by that entry on 10 Nov: this read `H-0096`, because the
+  allocator answered `H-0096` at checkpoint `f5dab5b` and `1d66965` put `main`'s own `## H-0096` -- the
+  third log collision, about something else entirely -- in front of this branch while its checkpoint sat
+  here. The citation is annotated rather than quietly rewritten: a corrected log that says nothing about
+  having been corrected cannot be told apart from one that was always right. The bare comment (option
+  five) is what this repository does not
   have, on the reasoning already in `Makefile`'s note above `verify:`: a rule nobody can watch go red
-  is a suggestion, which is why `H-0096`'s legs read both documents.
+  is a suggestion, which is why `H-0097`'s legs read both documents.
 - Checkpoint: f5dab5b
 - Effect: `.opencode/skills/factory/SKILL.md`. Step 1 gains the pointer -- the same read is owed again
   after the push -- so the pre-flight paragraph no longer reads as the whole obligation. Step 5 gains
@@ -3119,3 +3124,95 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   intents. So this entry is the record, and the three sentence-level annotations remain a forward commit
   for whoever takes them -- the pull-request body names them so the next tick inherits them as work, not
   as a discovery.
+
+## H-0097 · A voided verdict is not a review, so the queue re-asks instead of waiting on it
+
+- Question: what does the queue owe a pull request whose only verdict a push has just voided? `#272`
+  measured `#269` going `APPROVED` -> `REVIEW_REQUIRED` across one fast-forward, unforced conflict
+  resolution (`c149fe9..ec74cf5`), its single row turning `hermesvicowa APPROVED` -> `hermesvicowa
+  DISMISSED` at the same `c149fe9`, and `/requested_reviewers` empty on both sides of it. The
+  supervisor's own journal says what `triage.sh` then made of that state:
+
+  ```
+  17:58:17Z POKED pr:269 requested review from hermesvicowa    no rows at all: it asked
+  19:17:23Z WAIT  pr:269 awaiting_review                       one voided row: it did not
+  ```
+
+  `H-0095` made the tick see the dismissal and write it into the pull request. Nothing here made the
+  queue act on it, so the two documents would have disagreed by design: the guide's table promising an
+  ask, the classifier printing a wait, and `#269` moving only because a person read it -- re-approved
+  19:50:20Z against the new head, merged 20:18:19Z. A voided approval is not an edge case here: squash
+  and rebase merge are both disabled, force-push is denied to every agent, and reverting the base is not
+  an operation, so *every* conflict-resolution tick ends in this state.
+- Options: poke from `factory.sh`'s `awaiting_review` arm when `reviewDecision` reads `REVIEW_REQUIRED` | count only surviving verdicts in `triage.sh` and reuse `needs_reviewer` | add a `review_voided` class with its own arm and rank | leave the classifier alone and shorten `FACTORY_REVIEW_POKES` | widen the poke from one reviewer to the team while here (`#241`)
+- Chose: count only surviving verdicts in `triage.sh` and reuse `needs_reviewer`
+- Why: the handler-side poke is a second, weaker opinion in the path of a reviewer's verdict, which is
+  the shape `factory.sh` already refuses for the same reason in `review_unreadable`'s arm. Weaker in the
+  literal sense: by the time a row reaches `factory.sh` the reason has been flattened into a detail
+  string, so that arm would have to re-parse prose to tell a dismissal from a comment. The class is the
+  vocabulary this harness works in -- `docs/factory.md`'s table is the interface a person reads,
+  `factory_class_rank` orders on it, and a class that reaches the `*` arm halts the whole pass with
+  `UNKNOWN-CLASS`. `review_voided` is the same information with a new name: it costs a row in the table,
+  a rank, and an arm, and buys nothing the detail does not already say, because the journal prints the
+  detail -- `every verdict voided by a push (hermesvicowa at c149fe9); nobody holds a request` is the
+  line a human reads, and it names which of the three no-verdict states the row reached its answer from.
+  Shortening the poke floor misdiagnoses the throttle: `grep 'POKE-SKIPPED pr:269'` over the journal on
+  the box that runs the timer answers nothing, because a `WAIT` row never consults the throttle -- the
+  class that asks was never emitted, so a tighter floor only re-notices a silence faster. `#241` is a
+  different question, *who* is asked rather than *whether*, and stays open; the detail is written so that
+  widening has one place to change. What separates the two surviving options is tie-break 3, refusing
+  rather than proceeding on input that says nothing: a `DISMISSED` row is still a row, and the count
+  proceeded on it. The verdict question is `APPROVED` or `CHANGES_REQUESTED` -- somebody formed an
+  opinion about the code -- and neither `DISMISSED` nor `COMMENTED` is one. `COMMENTED` was swallowed by
+  the same count and `reviewDecision` reads `REVIEW_REQUIRED` over it exactly as over a dismissal, so the
+  widening arrives with the fix rather than as a later patch, and its cost is stated rather than buried:
+  a pull request whose reviewer commented without approving is now re-poked, at most once per
+  `FACTORY_REVIEW_POKES`, where it used to wait quietly. A comment does not satisfy a required review, so
+  asking is the honest reading of that state. Ambiguity resolves toward asking: an unreadable `/reviews`
+  payload leaves `verdicts=0` and lands in the ask, which costs one throttled `gh` call, while the other
+  direction is the silence every arm above exists to prevent -- the same direction `#873` fixed for the
+  daemon's config.
+  - Evidence, in both directions and in the same tree: with the thirteen legs in place and `triage.sh`
+    untouched, `bash factory/selftest.sh` answers `373 passed, 8 failed` -- the eight are the two voided
+    and comment-only states at the classifier, their four detail pins, and the two journal lines at the
+    supervisor -- and `381 passed, 0 failed` with the fix in. Thirteen legs, counted off the tally (368
+    before, 381 after) rather than off a printed column, which is `H-0089`'s lesson. Five were green
+    before the fix because they are the polarities the fix must not break: voided-but-somebody-holds-the-
+    request stays a wait, the never-reviewed sentence three `#212` legs pin arrives byte-identical, a
+    standing `APPROVED` is not swept into the new arm, and the document pair carries its four clauses.
+  - The fixture could not have been written this way before, and that is a finding: `/requested_reviewers`
+    was created empty and nothing ever wrote it, so "somebody already holds the request" -- the polarity
+    that separates a re-ask from noise at a reviewer who is already looking -- had no plant at all.
+    `claim_reviewers` is added for it. `voided_pr` now also refuses a plant that is not JSON, because the
+    first draft of the `COMMENTED` plant was a jq object literal: `reviews.json` held bytes `jq` could not
+    parse, `any_review` fell back to `0`, and that leg read GREEN off the never-reviewed arm with the
+    detail `no review and nobody asked since it opened`. A leg whose fixture does not parse measures the
+    empty state and reports the state it asked about.
+- Checkpoint: 7e30cb3
+- Effect: `factory/triage.sh` -- two reads beside `any_review` (`verdicts`, `voided`) and three details in
+  the arm; the class is unchanged, so `factory.sh`, `factory_class_rank` and the poke needed nothing.
+  `factory/selftest.sh` -- the `#272` group between the `#242` ask legs and the `delivered` arm,
+  `claim_reviewers` beside `claim_reviews`, `claim_reset` clearing it. `docs/factory.md` -- the
+  `needs_reviewer` row reads *no verdict that still stands*, the `awaiting_review` row says what a wait
+  now means, and a subsection "The approval a push voids" carries the two read-backs, the two journal
+  lines, the arithmetic of the silence that follows a dismissal (`FACTORY_INTERVAL`, then the
+  `FACTORY_REVIEW_POKES` floor), and what is not measured. `.opencode/skills/factory/SKILL.md` -- one
+  clause in the Step 5 subsection, so the tick's body says *not yet* rather than *never*; the leg
+  `the voided verdict is in both documents` reads SKILL's read and cadence against the guide's rule and
+  reason, with a control whose two copies each lose one clause from each document.
+  - What lost: the re-ask is not instant -- the next activation, ten minutes at the shipped interval or the
+    rest of the 30-minute poke floor -- and the pull-request body has to carry that gap until then, which
+    is `H-0095`'s half. Whether GitHub accepts `POST …/requested_reviewers` for a reviewer whose verdict
+    was just voided is **not measured**: `#269` was re-approved by hand at 19:50:20Z before any activation
+    could ask, so no such call exists anywhere. The legs assert the dispatch (`WOULD-POKE pr:269` in a dry
+    run) and not an acceptance; if the call is refused the arm logs `POKE-FAILED` and stamps the throttle,
+    which is a journal line naming a refusal in place of the silence, but still no ask. The poke asks one
+    reviewer (`FACTORY_REVIEWER`); `#241` owns the widening. And `mergeStateStatus` was `UNKNOWN` on both
+    the approved and the dismissed reads, so a merge is still only ever decided by a fresh read
+    (`H-0095`).
+  - This entry also corrects `H-0095`'s two forward citations, annotated in that entry rather than edited
+    quietly: the merge `7e44e8e` brought `main`'s `## H-0096` after `H-0095` was committed, and an entry
+    that changes what a sibling refers to says so in the log. The checkpoint keeps its name,
+    `chore(checkpoint): pre-H-0096`, because retaking it after the merge would record the state this
+    decision produced -- the thing the log already had -- and `H-0090` settled that a checkpoint is the
+    tree the allocator was asked about, not the number the entry ended up with.

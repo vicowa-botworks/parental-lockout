@@ -51,7 +51,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | class | what it means | who acts |
 |---|---|---|
 | `merge_now` | approved, `MERGEABLE`, `CLEAN`, every check passed | supervisor, in bash, after re-reading all four from the API |
-| `needs_reviewer` | no review **and** `/requested_reviewers` is empty | supervisor: request one, at most once per `FACTORY_REVIEW_POKES` |
+| `needs_reviewer` | no verdict that still stands -- no rows at all, or every `APPROVED`/`CHANGES_REQUESTED` row voided by a push, or comments only -- **and** `/requested_reviewers` is empty | supervisor: request one, at most once per `FACTORY_REVIEW_POKES` |
 | `conflict` | `CONFLICTING/DIRTY` | supervisor: `git merge origin/main`; a tick only if that conflicts |
 | `address_review` | newest `CHANGES_REQUESTED` is newer than the head commit, **and its body carries an ask** | a tick, and the ask rides in its instruction |
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
@@ -59,7 +59,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body | a tick |
 | `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected | nothing: the supervisor logs it, and closes nothing |
 | `branch_without_pr` | commits ahead of `main`, no open pull request | a tick, to adopt or refuse the stranded work |
-| `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure | nothing, except the throttle and the daily notice |
+| `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
 
 `delivered` is the fourth class the queue could not see, and it was measured twice in one day before
 it was written (#235). Both claim channels read *open* pull requests only, so a merged one claims
@@ -126,6 +126,54 @@ asked" from "asked and answered" -- measured, four pull requests had an empty li
 `/pulls/N/requested_reviewers`, three days after opening, with every check green. `branch_without_pr`
 exists because a branch with commits and no pull request is invisible to every queue that reads
 issues and pull requests; the first run of this script found five, one of them seven commits deep.
+
+### The approval a push voids
+
+`reviewDecision` is a fact about a pull request's head, not a record of its past. This repository does
+not carry a stale approval across a new commit, so a push into a reviewed pull request turns its
+approval into a `DISMISSED` row -- and a conflicting branch here cannot be moved any other way: squash
+and rebase merge are both disabled, force-push is denied to every agent in this repository, and
+reverting the base is not an operation. A voided approval is therefore the ordinary end state of a
+conflict-resolution tick, not an edge case. Measured on #269 on 10 Nov across one fast-forward push
+(`c149fe9..ec74cf5`) and nothing else:
+
+| | `reviewDecision` | the only row in `/pulls/269/reviews` |
+|---|---|---|
+| before the push | `APPROVED` | `hermesvicowa APPROVED` at `c149fe9` |
+| after the push | `REVIEW_REQUIRED` | `hermesvicowa DISMISSED` at `c149fe9` |
+
+A `DISMISSED` row is still a row, and `needs_reviewer` used to be decided by *how many* rows there
+were. So the queue watched the unit it had just asked about go unserved, in its own journal:
+
+```
+17:58:17Z POKED pr:269 requested review from hermesvicowa    no rows at all: it asked
+19:17:23Z WAIT  pr:269 awaiting_review                       one voided row: it did not
+```
+
+The second line is the defect. One `DISMISSED` row, an empty `/pulls/269/requested_reviewers`,
+`reviewDecision=REVIEW_REQUIRED`, and the count of rows answered "somebody has reviewed this". #269
+was re-approved at `19:50:20Z` against the new head and merged at `20:18:19Z` because a person looked
+at it; nothing in the queue asked, and nothing in either read-back says so.
+
+So the arm now asks *is there a verdict that still stands* rather than *are there rows*. A verdict is
+`APPROVED` or `CHANGES_REQUESTED` -- a state that says somebody formed an opinion about the code -- and
+neither `DISMISSED` nor `COMMENTED` is one. With no surviving verdict and nobody holding a request the
+row is `needs_reviewer`, and its detail names which of the three states it reached that conclusion
+from: never reviewed, comments only, or the reviewer and the commit a voided verdict was filed
+against. Asking is the cheap direction to err in -- the poke is throttled to one per
+`FACTORY_REVIEW_POKES` and GitHub answers 422 for a request that is already outstanding -- and it is
+the same `POST …/requested_reviewers` the web UI's *re-request review* button issues. Whether GitHub
+accepts that call for a reviewer whose verdict was just voided is **not measured here**: #269 was
+re-approved by hand before any activation could ask. If it is refused the arm logs `POKE-FAILED` and
+stamps the throttle, which is a journal line naming a refusal rather than the silence it replaces.
+
+What this does not do is make the re-ask instant, and the gap is worth knowing the shape of, because
+it reads as a stalled queue. A poke is a supervisor act, so it lands on the *next* activation: ten
+minutes at the shipped `FACTORY_INTERVAL`, or up to `FACTORY_REVIEW_POKES` (30m) when the pull request
+was poked recently and is still inside that throttle window. Until then the unit is genuinely
+unserved, and that is the tick's own half of this: `SKILL.md` Step 5 makes a tick read the review state
+back *after* its push and write the dismissal into the pull-request body, so whoever is reading the
+pull request learns in one line what the queue will not say for another ten minutes.
 
 ### The ask, and what happens when there is not one
 

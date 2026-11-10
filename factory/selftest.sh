@@ -3835,6 +3835,16 @@ claim_open() { # claim_open <json array of {number,title,body,claims,reviewDecis
 claim_reviews() { # claim_reviews <json array of review rows>
 	printf '%s' "${1:-[]}" >"$claim_fix/reviews.json"
 }
+# `/pulls/<n>/requested_reviewers`, in the same one-file-behind-one-endpoint arrangement. Nothing
+# wrote this file before #272: it was created empty and stayed empty, which is precisely the half the
+# dismissal arm needs. "nobody holds a request" and "somebody already does" are the two polarities of
+# that rule, and a fixture that can only say the first cannot tell a re-ask from a wait -- it would
+# print ok for a classifier that asked twice a day at a reviewer who is already looking.
+claim_reviewers() { # claim_reviewers <json payload for /requested_reviewers>
+	local payload=${1:-}
+	[ -n "$payload" ] || payload='{"users":[],"teams":[]}'
+	printf '%s' "$payload" >"$claim_fix/reviewers.json"
+}
 claim_reset() {
 	CLAIM_MERGED_FAIL=''
 	CLAIM_GRAPHQL_FAIL=''
@@ -3843,6 +3853,7 @@ claim_reset() {
 	claim_merged '.'
 	claim_issues '.'
 	claim_reviews '[]'
+	claim_reviewers
 	claim_open '[]'
 }
 claim_open '[]'
@@ -4545,6 +4556,220 @@ ask_dry_starts_nothing() {
 ask_pr240 "$(ask_iso '@/tmp/pr240-review.md')"
 ask_dispatch >/dev/null
 claim_leg 'a review_unreadable row starts no tick and is still reported' ask_dry_starts_nothing
+claim_reset
+
+# ================================= the verdict a push voided, and the ask that never fired (#272)
+#
+# The classifier used to count review ROWS to decide whether a pull request needed a reviewer. A push
+# into a reviewed pull request voids its approvals without deleting them -- this repository does not
+# carry a stale approval across a new head -- so the count said "reviewed" about a pull request whose
+# only verdict was `DISMISSED`, and the class that asks came out as the class that waits.
+#
+# This is not a hypothesis about GitHub. #269 was measured across one fast-forward, unforced push
+# (`c149fe9..ec74cf5`) on 10 Nov: `reviewDecision` `APPROVED` -> `REVIEW_REQUIRED`, the single row
+# `hermesvicowa APPROVED` -> `hermesvicowa DISMISSED` at the same `c149fe9`,
+# `/requested_reviewers` empty before and after. And the queue's own journal at
+# `factory/log/supervisor.log`, on the box that runs the timer, says what it did with that state:
+#
+#   17:58:17Z POKED pr:269 requested review from hermesvicowa    no rows at all: it asked
+#   19:17:23Z WAIT  pr:269 awaiting_review                        one voided row: it did not
+#
+# One activation visited #269 in the voided state and wrote the wait instead of the ask; the next saw
+# it conflicting again and dispatched a conflict tick, which asks nobody either. It was re-approved at
+# 19:50:20Z against the new head and merged at 20:18:19Z because a person read it, not because anything
+# in the queue noticed. A voided approval is the ordinary end state of every conflict-resolution tick
+# here -- squash and rebase merge are both disabled, force-push is denied, and reverting the base is
+# not an operation -- so the shape below is the shape every tick arrives at.
+#
+# A verdict is `APPROVED` or `CHANGES_REQUESTED`: a state that says somebody formed an opinion about
+# the code. `DISMISSED` and `COMMENTED` are not one, and the legs below are the rule at each polarity
+# -- voided with nobody asked, voided with somebody already asked, comments only, nothing at all, and
+# a verdict that still stands. The last two are the regressions: the never-reviewed sentence three legs
+# above already pin has to survive the new arm unchanged, and an `APPROVED` must not be swept into it.
+voided_pr() { # voided_pr <review rows> [requested_reviewers payload] [reviewDecision]
+	# The plant is checked for being JSON before anything reads it, and that is not ceremony. The first
+	# draft of the `COMMENTED` plant below was a jq object literal -- unquoted keys, which `jq -c` accepts
+	# and JSON does not -- so `reviews.json` held bytes `jq` could not parse, `any_review` fell back to
+	# `0`, and the leg that wanted "a comment is not a verdict" went GREEN off the never-reviewed arm with
+	# the detail `no review and nobody asked since it opened`. A plant that does not parse is a leg that
+	# measures the empty state and reports the state it asked about, which is the exact shape this suite
+	# calls a leg that cannot fail. The paired detail assertion is what made it visible; this is what
+	# stops it being visible only to whoever reads the failure text.
+	printf '%s' "${1:-}" | jq -e 'type == "array"' >/dev/null 2>&1 || {
+		printf '            voided_pr: the review plant is not a JSON array, so nothing can be concluded\n' >&2
+		printf '            from what the classifier answers over it: %s\n' "${1:-}" >&2
+		claim_reset # empty the fixture: a plant that failed to parse must not leave last leg's rows
+		return 3    # behind it, or the leg below can read green off a payload it never planted
+	}
+	claim_reset
+	# Two units, for the reason `ask_pr240` states: the live issue set holds seven unclaimed rows, the
+	# tick budget is three, and a dry run that spends it on issues DEFERS everything else -- so a leg
+	# that asks what the supervisor DID has to remove the interference first.
+	claim_issues '[.[] | select(.number == 232)]'
+	# `reviewDecision` is the third argument because the row set alone does not decide the arm: GitHub
+	# answers `REVIEW_REQUIRED` over a voided verdict and `APPROVED` over a standing one, and the last
+	# leg below needs the second to prove the new arm does not swallow it.
+	claim_open "[{\"number\":269,\"title\":\"A conflict-resolution push dismisses the approval it needed\",\"body\":\"no claim here\",\"claims\":[],\"reviewDecision\":\"${3:-REVIEW_REQUIRED}\"}]"
+	claim_reviews "$1"
+	claim_reviewers "${2:-}"
+}
+# GitHub's own row for the state #269 was measured in: the voided approval, still carrying the
+# `submittedAt` of the approval it was (the trap #272 names: reading that field as the dismissal moment
+# dates the dismissal twenty minutes BEFORE the push that caused it) and the commit it was filed
+# against. `commit_id` is REST's field for what `gh pr view --json reviews` prints as `commit.oid`.
+voided_row() {
+	jq -cn '[{id:5001,user:{login:"hermesvicowa"},state:"DISMISSED",
+		submitted_at:"2026-11-10T18:23:50Z",
+		commit_id:"c149fe9ab959dd3f253b744a847377a360ed02d4",
+		body:"an approval a push has voided"}]'
+}
+
+voided_pr "$(voided_row)"
+claim_rows >/dev/null
+claim_leg 'a voided approval is not a review' claim_class_is 269 needs_reviewer
+claim_leg '…and the row says what it concluded from' claim_detail_has 269 'voided by a push'
+claim_leg '…naming the verdict and the commit it was filed against' \
+	claim_detail_has 269 'hermesvicowa at c149fe9'
+claim_leg '…and that nobody holds the request' claim_detail_has 269 'nobody holds a request'
+
+# The polarity the fix must not lose: somebody already holds the request, so the queue waits. This is
+# the leg the fixture could not have been written for until `claim_reviewers` existed -- with
+# `/requested_reviewers` welded empty, a classifier that asked twice a day at a reviewer who is already
+# looking had no leg to catch it.
+voided_pr "$(voided_row)" '{"users":[{"login":"hermesvicowa"}],"teams":[]}'
+claim_rows >/dev/null
+claim_leg 'a voided verdict with an outstanding request is still a wait' claim_class_is 269 awaiting_review
+claim_leg '…and the wait names who holds it' claim_detail_has 269 'requested of hermesvicowa'
+
+# A comment is not a verdict either, and the same count swallowed it. `COMMENTED` is what GitHub leaves
+# behind when somebody reviews files without approving, and `reviewDecision` reads `REVIEW_REQUIRED`
+# over it exactly as it does over a dismissal.
+voided_pr "$(jq -cn '[{id:5002,user:{login:"someone-else"},state:"COMMENTED",
+	submitted_at:"2026-11-10T18:23:50Z",commit_id:"c149fe9ab959dd3f253b744a847377a360ed02d4",
+	body:"a drive-by comment, which is not an approval"}]')"
+claim_rows >/dev/null
+claim_leg 'a comment row is not a verdict either' claim_class_is 269 needs_reviewer
+claim_leg '…and says comments, not no review' claim_detail_has 269 'no verdict, 1 comment row'
+
+# Two regressions, one per arm the new rule reaches past. The never-reviewed sentence is the one the
+# #212/#214/#215 legs were written against and must arrive untouched; the standing `APPROVED` must not
+# be swept into the new arm, and the fixture's `mergeStateStatus` is `UNKNOWN`, so the honest answer for
+# an approved-but-not-clean pull request is the wait it always was.
+voided_pr '[]'
+claim_rows >/dev/null
+claim_leg 'never reviewed keeps the sentence the #212 legs pin' \
+	claim_detail_has 269 'no review and nobody asked since it opened'
+voided_pr "$(jq -cn '[{id:5003,user:{login:"hermesvicowa"},state:"APPROVED",
+	submitted_at:"2026-11-10T19:50:20Z",commit_id:"e4e2941f82d79aceb9cf2bb5773d4877e0b8db22",
+	body:"the re-approval, against the new head"}]')" '' APPROVED
+claim_rows >/dev/null
+claim_leg 'a verdict that still stands is not the new arm' claim_class_is 269 awaiting_merge
+
+# The row is only half of it: the class has to reach the arm that asks. `--dry-run` is the only way to
+# watch that without a model, and the two lines below are the two journal lines #272 is about -- the
+# one that must appear, and the one that must not.
+voided_asked() {
+	case "$(ask_journal)" in
+	*'WOULD-POKE pr:269 request review from someoneelse'*) return 0 ;;
+	esac
+	printf '            the supervisor took 269 somewhere other than a request. Its journal:\n' >&2
+	printf '%s\n' "$(ask_journal)" | sed 's/^/              /' | grep -v '^[[:space:]]*$' >&2
+	return 1
+}
+voided_not_a_wait() {
+	case "$(ask_journal)" in
+	*'WAIT pr:269'*)
+		printf '            the journal says WAIT for 269. That is the line #272 was opened with:\n' >&2
+		printf '            `19:17:23Z WAIT pr:269 awaiting_review`, written while the pull request\n' >&2
+		printf '            sat voided and unasked, on the one activation that saw it that way.\n' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+voided_pr "$(voided_row)"
+ask_dispatch >/dev/null
+claim_leg 'the voided row reaches the supervisor as an ask' voided_asked
+claim_leg '…and no activation takes it to a wait' voided_not_a_wait
+claim_reset
+
+# Both documents have to keep saying it, and neither one is the whole rule. #253's third instruction
+# was reported delivered by #255 and was not -- `grep -c yield` over `docs/factory.md` answered 0 at
+# `91d992d`, with no paragraph about it in the merge diff -- and #272 is deliberately written twice:
+# `SKILL.md` tells the tick to read the review state back after its push and names who re-asks and when,
+# `docs/factory.md` tells whoever reads the queue what the classifier counts and how long the silence
+# after a dismissal runs. A rule in only one of them is a rule the other half contradicts, and the
+# contradiction is invisible from either one alone. Four clauses, each a whole phrase: `grep -qF
+# 'DISMISSED'` over a 900-line guide is satisfied by any mention of the word anywhere in it, which is
+# how a leg goes on printing ok while reading a different sentence.
+voided_docs_say_it() { # [root] -> 0 when both documents carry their rule clause and their reason clause
+	local root=$HERE/.. skill guide
+	[ -z "${1:-}" ] || root=$1
+	skill=$root/.opencode/skills/factory/SKILL.md
+	guide=$root/docs/factory.md
+	[ -f "$skill" ] && [ -f "$guide" ] || return 2
+	# SKILL: the read the tick owes, and who closes the gap it discovers.
+	grep -qF 'The push may have spent the approval' "$skill" &&
+		grep -qF 'The supervisor re-asks on its next activation' "$skill" &&
+		# The guide: the class rule, and the reason a row count is the wrong question.
+		grep -qF 'no verdict that still stands' "$guide" &&
+		grep -qF 'A `DISMISSED` row is still a row' "$guide"
+}
+voided_docs_control() {
+	local ctrl=$claim_work/voided-docs
+	if ! mkdir -p "$ctrl/rules/docs" "$ctrl/rules/.opencode/skills/factory" \
+		"$ctrl/reasons/docs" "$ctrl/reasons/.opencode/skills/factory"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' \
+			'control: the voided verdict, both documents'
+		return 0
+	fi
+	if ! grep -vF 'The push may have spent the approval' "$HERE/../.opencode/skills/factory/SKILL.md" \
+		>"$ctrl/rules/.opencode/skills/factory/SKILL.md" ||
+		! grep -vF 'no verdict that still stands' "$HERE/../docs/factory.md" \
+			>"$ctrl/rules/docs/factory.md" ||
+		! grep -vF 'The supervisor re-asks on its next activation' \
+			"$HERE/../.opencode/skills/factory/SKILL.md" \
+			>"$ctrl/reasons/.opencode/skills/factory/SKILL.md" ||
+		! grep -vF 'A `DISMISSED` row is still a row' "$HERE/../docs/factory.md" \
+			>"$ctrl/reasons/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copies could not be written\n' \
+			'control: the voided verdict, both documents'
+		return 0
+	fi
+	if grep -qF 'The push may have spent the approval' \
+		"$ctrl/rules/.opencode/skills/factory/SKILL.md" ||
+		grep -qF 'no verdict that still stands' "$ctrl/rules/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the rule plant left a rule in place, so the\n' \
+			'control: the voided verdict, both documents'
+		printf '          leg above was never aimed at the clauses it names.\n'
+		return 0
+	fi
+	if grep -qF 'The supervisor re-asks on its next activation' \
+		"$ctrl/reasons/.opencode/skills/factory/SKILL.md" ||
+		grep -qF 'A `DISMISSED` row is still a row' "$ctrl/reasons/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reason plant left a reason in place, so\n' \
+			'control: the voided verdict, both documents'
+		printf '          the leg above does not need the reasons it claims to need.\n'
+		return 0
+	fi
+	if voided_docs_say_it "$ctrl/rules" || voided_docs_say_it "$ctrl/reasons"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a pair with one rule clause deleted\n' \
+			'control: the voided verdict, both documents'
+		printf '          from one document and one reason clause from the other, so the ok above is a\n'
+		printf '          phrase match and not the four halves it names.\n'
+		return 0
+	fi
+	printf '  ok    %-40s each copy loses one clause from each document\n' \
+		'control: the voided verdict, both documents'
+	printf '          and the leg says no; all four are read, not a word nearby.\n'
+	return 0
+}
+claim_leg 'the voided verdict is in both documents' voided_docs_say_it
+voided_docs_control
 claim_reset
 
 # --------------------------------------------------------------- the supervisor's arm
