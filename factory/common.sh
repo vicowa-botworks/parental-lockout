@@ -184,6 +184,24 @@ FACTORY_HALT=${FACTORY_HALT:-$FACTORY_DIR/HALT}
 # of the two intents silently stops applying, which is what the merge of #247 into #248's tree had to
 # resolve. `~/prj/at-risk/` is the surviving half of `wt-204` and `wt-206` for exactly this reason.
 
+# The installed unit, as a path. Every sentence this harness used to say about what the timer runs was
+# composed from `$FACTORY_ROOT` -- `install-timer.sh` renders `ExecStart=@REPO@/factory/factory.sh` and
+# then asserted the result -- and on 10 Nov that assertion was false about the unit that was installed
+# (#260, and the functions below). So the unit is now asked, which needs to know which file it is:
+#
+#   FACTORY_SERVICE_UNIT   the unit's own file name. The generated unit exports this about itself, and
+#                          it is the only answer that survives `install-timer.sh --name other`, because
+#                          a name chosen on a command line is recorded nowhere a later pass can read.
+#                          Units installed before #260 have no such line; the fallback in
+#                          `factory_service_unit` then names the same file the default install wrote.
+#   FACTORY_UNITS_DIR      an OVERRIDE for where user units live, empty by default. Empty rather than
+#                          pre-derived because the derivation belongs to `factory_units_dir` alone:
+#                          composing `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user` here as well is
+#                          two definitions of one path, the class of defect this whole file keeps
+#                          being edited for (H-0077). It exists so `factory/selftest.sh` can plant a
+#                          unit without reaching into the operator's `~/.config/systemd/user`.
+FACTORY_SERVICE_UNIT=${FACTORY_SERVICE_UNIT:-}
+FACTORY_UNITS_DIR=${FACTORY_UNITS_DIR:-}
 
 # The exit code a halted supervisor leaves behind. It is a code the *machine* reads: the generated unit
 # names it in `SuccessExitStatus=`, so the two files have to agree and one of them has to own it.
@@ -1856,6 +1874,149 @@ EOF
 		printf 'SUPERVISOR-FORKED %s holds %s %s %s does not have; a fast-forward is not available on a fork\n' \
 			"$branch" "$ahead" "$(factory_plural "$ahead")" "$base"
 	fi
+	return 0
+}
+
+# ------------------------------------------- the checkout the installed unit actually execs (#260)
+#
+# At 13:38Z on 10 Nov `--install` refused a tree, and the sentence it refused with was false about the
+# unit that was installed:
+#
+#     install-timer: refusing to install a tree that is not the trunk.
+#       /home/rodney/prj/parental-lockout is at b9b2e7c on main: 91 commits behind origin/main.
+#       The unit execs /home/rodney/prj/parental-lockout/factory/factory.sh, so this tree IS the supervisor
+#
+# `systemctl --user cat` answered `ExecStart=/home/rodney/prj/wt/factory-harness/factory/factory.sh`.
+# Nothing in the harness had ever read the installed unit -- `grep -nE "systemctl.*cat|systemctl.*show"`
+# over the three shipped scripts returned one hit, and it asked the *timer* for `ActiveState`. So the
+# staleness guard #252 shipped to shout about a stale loop checked a tree the loop never ran:
+# `SUPERVISOR-STALE` printed zero times in the 3,861-line journal of the tree that was actually running
+# (`e0d27d3`, 38 commits behind, `grep -c factory_tree_quarantine` = 0), while a 23-unit queue sat
+# halted for 5h02m10s on a dirty tree the merged code knows how to quarantine.
+#
+# Everything below is therefore a read of the file systemd reads, before anything says a word about it.
+
+# The directory user units live in. A function and not a global so a leg can point it at a fixture
+# directory instead of at the operator's own units; the default is what `install-timer.sh` writes to,
+# and the two have to agree or the pass reads a file the timer does not.
+factory_units_dir() {
+	printf '%s\n' "${FACTORY_UNITS_DIR:-${XDG_CONFIG_HOME:-${HOME:-/var/tmp}/.config}/systemd/user}"
+}
+
+# The service unit's file name, in the order the two authorities are known:
+#
+#   1. `$FACTORY_SERVICE_UNIT`, which the unit exports about itself -- the only answer that survives a
+#      custom `--name`, and the reason `install-timer.sh` now writes the line;
+#   2. the repository's name, which is what `install-timer.sh` derives when `--name` is not given;
+#   3. the checkout's own directory name, for `--status`, which answers before `factory_preflight` has
+#      resolved the remote.
+#
+# Arm 3 agrees with arm 2 for every checkout this repository has had. When it does not, the line that
+# results prints the path it looked at, which is what makes a wrong guess checkable rather than fatal.
+factory_service_unit() {
+	if [ -n "$FACTORY_SERVICE_UNIT" ]; then
+		printf '%s\n' "$FACTORY_SERVICE_UNIT"
+	elif [ -n "$FACTORY_NAME" ]; then
+		printf '%s-factory.service\n' "$FACTORY_NAME"
+	else
+		printf '%s-factory.service\n' "$(basename -- "${FACTORY_ROOT%/}")"
+	fi
+}
+
+# factory_installed_tree [UNIT_FILE]
+#   Reads the installed unit and prints the checkout its `ExecStart` script lives in.
+#
+#     exit 0  the tree. One `ExecStart=`, naming `<tree>/factory/factory.sh`.
+#     exit 1  no unit file at that path, or a file naming no command: nothing is armed.
+#     exit 4  something is there that cannot be read as a regular file. What would run is UNKNOWN, and
+#             unknown is never printed as "nothing is installed" -- the #228 polarity, a read that
+#             failed is not evidence of the clean state.
+#     exit 3  the file names something other than this harness's script, or carries more than one
+#             `ExecStart=` (a hand-written unit, a drop-in): the raw value(s) on stdout, comma-joined,
+#             because the sentence has to quote what is really there instead of guessing a tree.
+#
+#   Why the file and not `systemctl --user cat`/`show`, which is how the operator found it: the manager
+#   answers from the copy it loaded, so both are stale until `daemon-reload` -- and the installer writes
+#   the file and reloads in the same breath (`install-timer.sh`, `systemctl_user daemon-reload`), so on
+#   any tree this harness installed the two agree. The file is also the answer on a box with no user
+#   manager, where the bus call fails: a check that fails on the machine where the queue is broken is
+#   the check that was missing. `factory_timer_state` still asks the manager, because what it reports --
+#   when systemd will fire next -- is in no file.
+factory_installed_tree() {
+	local file=${1:-} values='' count=0 value='' tree=''
+	[ -n "$file" ] || file="$(factory_units_dir)/$(factory_service_unit)"
+	# A dangling symlink is not "nothing installed": it is a unit file that points nowhere, which is a
+	# different sentence and a different fix.
+	if [ -L "$file" ] && [ ! -e "$file" ]; then
+		return 4
+	fi
+	if [ ! -e "$file" ]; then
+		return 1
+	fi
+	if [ ! -r "$file" ] || [ ! -f "$file" ]; then
+		return 4
+	fi
+
+	# Every `ExecStart=` line, value only: `sub` takes the assignment away, then systemd's own execution
+	# prefixes (`-` ignore-failure, `@`, `+`, `:`) go so `/bin/sh` is not read as a prefix. Nothing here
+	# interprets quoting -- a unit whose ExecStart is quoted is not this generator's, and lands in the
+	# exit-3 arm with its raw text, which is the honest answer.
+	values=$(awk '/^[[:space:]]*ExecStart[[:space:]]*=/ { sub(/^[^=]*=/, ""); sub(/^[-@+!:]+/, ""); print }' \
+		"$file" 2>/dev/null) || return 4
+	count=$(printf '%s\n' "$values" | grep -c . || true)
+	if [ "$count" != 1 ]; then
+		printf '%s\n' "$values" | tr '\n' ',' | sed -e 's/,$//'
+		return 3
+	fi
+	value=$(printf '%s\n' "$values" | head -n 1)
+	case "$value" in
+	*/factory/factory.sh) tree=${value%/factory/factory.sh} ;;
+	esac
+	# `${value%/factory/factory.sh}` is empty only for a script at the filesystem root, which is not a
+	# checkout of anything; it falls through with the raw value rather than printing an empty tree.
+	if [ -z "$tree" ]; then
+		printf '%s\n' "$value"
+		return 3
+	fi
+	printf '%s\n' "$tree"
+	return 0
+}
+
+# factory_unit_lines <this-tree> [UNIT_FILE]
+#   The pass's sentences about the installed unit: one per fact, so a journal grep is the whole query,
+#   exactly as `factory_supervisor_lines` does it. Same polarity too -- it reports and never halts.
+#   Moving a tree the timer executes from is editing a script while bash is reading it, and #249 left
+#   that a human act; #260 changes only what gets said about it.
+#
+#   `UNIT-AT <tree>` is on every pass, the way `SUPERVISOR-AT` is: a read nobody prints is a read that
+#   cannot be told apart from a read that is not there.
+factory_unit_lines() {
+	local this=${1:-$FACTORY_HARNESS} file=${2:-} installed='' rc=0
+	[ -n "$file" ] || file="$(factory_units_dir)/$(factory_service_unit)"
+	rc=0
+	installed=$(factory_installed_tree "$file") || rc=$?
+	case "$rc" in
+	1)
+		printf 'UNIT-UNINSTALLED unit=%s this=%s -- nothing is armed at that path, so this pass was not started by the timer (#260)\n' \
+			"$file" "$this"
+		;;
+	4)
+		printf 'UNIT-UNREADABLE unit=%s -- something is there that this pass cannot read, so what the timer would exec is unknown (#260)\n' \
+			"$file"
+		;;
+	3)
+		printf 'UNIT-FOREIGN unit=%s exec=%s -- that ExecStart is not this harness'"'"'s script, so the unit does not name a tree a pass can name (#260)\n' \
+			"$file" "${installed:-<no ExecStart line>}"
+		;;
+	*)
+		if [ "$installed" = "$this" ]; then
+			printf 'UNIT-AT %s\n' "$installed"
+		else
+			printf 'UNIT-DIVERGED installed=%s this=%s -- the unit execs one checkout and this pass is running from another, so the code under test is not the code the loop will run next (#260)\n' \
+				"$installed" "$this"
+		fi
+		;;
+	esac
 	return 0
 }
 

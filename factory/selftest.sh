@@ -3769,6 +3769,31 @@ chmod +x "$pos_bin"/*
 # in $pos_out and whatever it wrote in $pos_units. Every path it can reach is redirected into the
 # fixture first: the real ~/.config/systemd/user and the user's own manager are not this file's to
 # touch, which is the same rule the rest of this suite runs by.
+pos_u=$pos_units/systemd/user
+pos_unit_file=$pos_u/posfix-factory.service
+mkdir -p "$pos_u"
+
+# Whatever a previous leg left at the unit path, gone: file, symlink, or the empty directory two legs
+# below plant on purpose. It is called from `pos_unit_exec`, and from nowhere else: the install legs
+# above deliberately arrive at whatever state the previous one left, which IS their subject, so a clear
+# inside `pos_install` turned `install refuses a stale tree` into a leg that no longer had a tree to
+# refuse -- measured at `344 passed, 12 failed` when this helper was wired into that function.
+pos_unit_clear() {
+	if [ -z "${pos_unit_file:-}" ]; then
+		[ -n "${pos_u:-}" ] || return 0
+		printf 'pos_unit_clear: %s is set and %s is not\n' "${pos_u}" 'pos_unit_file' >&2
+		return 1
+	fi
+	rm -f -- "$pos_unit_file" 2>/dev/null
+	rmdir -- "$pos_unit_file" 2>/dev/null
+	# A NON-EMPTY directory at that path is not this suite's doing and does not get deleted on a guess.
+	if [ -d "$pos_unit_file" ]; then
+		printf 'pos_unit_clear: %s is a directory that will not go away\n' "$pos_unit_file" >&2
+		return 1
+	fi
+	return 0
+}
+
 pos_install() {
 	local root=$1 harness=$2
 	shift 2
@@ -3995,7 +4020,12 @@ claim_leg '--force installs and says so, twice' install_force_installs
 install_current_silent() {
 	pos_install "$pos_current" "$pos_current" --install
 	[ "$pos_rc" -eq 0 ] || { pos_say "a current tree was refused (rc=$pos_rc):"; pos_say "$pos_out"; return 1; }
-	printf '%s' "$pos_out" | grep -qiE 'behind|stale|fork|force' && {
+	# Paths first. A leg that greps the whole output for the words `behind`, `stale` and `fork` is
+	# asking whether the installer said anything about the tree's *position*; it never meant to forbid
+	# naming a checkout, and naming one is now half of what #260 prints -- the fixture's trees are
+	# `tree-stale` and `tree-behind`, so the paths themselves carry the words.
+	printf '%s' "$pos_out" | sed -e "s#$pos_work/[^ ']*#<checkout>#g" |
+		grep -qiE 'behind|stale|fork|force' && {
 		pos_say 'a tree at the trunk was told something about its position:'; pos_say "$pos_out"; return 1; }
 	return 0
 }
@@ -4094,8 +4124,21 @@ claim_leg 'a checkout with no commits is refused' install_no_commit_refuses
 pos_verdict_calls() { # <factory.sh> -> every call site, with the tree each one asks of
 	grep -oE 'factory_supervisor_(lines|position) "\$FACTORY_[A-Z]+"' "$1" 2>/dev/null | sort -u
 }
-status_arm() { # <factory.sh> -> the `--status)` arm, from the pattern to its `;;`
-	awk '/^[[:space:]]*--status\)/{f=1} f{print} f&&/;;/{exit}' "$1" 2>/dev/null
+# The `--status)` arm, to the `;;` that CLOSES it -- not to the first `;;` anywhere. The two are not the
+# same text: the arm contains a `case` of its own, so the first `;;` is inside it, three tabs deep, and
+# everything the arm prints after that point is invisible to this scan. Measured the day it mattered:
+# the old one-liner stopped at the `;;` closing `case "$pos_rc" in` inside the `code:` arm, so a leg
+# grepping this for anything later in the arm -- the `unit:` line #260 adds -- read nothing and could
+# only ever fail. It is the same defect this section is about: a scan that cannot see the thing it
+# claims to check. The closing `;;` is found by indentation, which is what `gofmt`-like discipline buys
+# here: a nested arm is always deeper than the arm that owns it.
+status_arm() { # <factory.sh> -> the `--status)` arm, to the `;;` that closes it
+	awk '/^[[:space:]]*--status\)/{ f = 1; want = 1; print; next }
+		f{
+			if (want && $0 ~ /[^ \t]/) { ind = $0; sub(/[^ \t].*$/, "", ind); want = 0 }
+			print
+		}
+		f && ind != "" && index($0, ind ";;") == 1 { exit }' "$1" 2>/dev/null
 }
 
 # Both call sites, and the tree each asks of. The pass reports the code under it (`$FACTORY_HARNESS`);
@@ -4124,6 +4167,400 @@ pos_call_sites() {
 	return 0
 }
 claim_leg 'both call sites ask for the harness tree' pos_call_sites
+# --- the installed unit, read instead of asserted (#260) -----------------------------------------
+#
+# Everything above asks a *tree* where it stands. This asks a *unit* what it runs. The failure was a
+# guard reading the position of a tree the loop never ran: `install-timer.sh` printed `The unit execs
+# <FACTORY_ROOT>/factory/factory.sh`, composed from the template it was about to write, while
+# `systemctl --user cat` on the same box printed a different checkout -- so the guard checked a tree
+# the loop never ran. These legs therefore plant unit files (in `$pos_units`, never the operator's
+# `~/.config/systemd/user`, which is what `$FACTORY_UNITS_DIR` is for), and the discriminating half is
+# that the same call is asked twice across a rewrite of the file: a function that echoed
+# `$FACTORY_ROOT` would get the first question right as well.
+#
+# The unit these legs plant is written by hand and not with the generator on purpose -- the generator
+# writes what it intends, and the whole point of #260 is that the installed unit may say something
+# other than what any generator intended. Every install here passes `--name posfix`, so the file the
+# installer writes and the file these legs plant are the same file by construction. That is not a
+# detail: `pos_install` exports `FACTORY_NAME=posfix` and `factory_preflight` overwrites it from
+# `FACTORY_REPO` (common.sh `FACTORY_NAME=${FACTORY_REPO##*/}`), so the name the installer resolves on
+# its own is `repo-factory` and a leg that trusted the exported variable planted its unit where nothing
+# would ever read it -- which reads as "nothing armed", the wrong answer arriving as a pass.
+
+# The install legs above leave whatever they wrote. Started empty so every assertion below reads only
+# what this section planted.
+rm -f -- "$pos_u"/*
+
+pos_unit_exec() { # pos_unit_exec <lines for the [Service] section...>
+	local l
+	# Clearing first is load-bearing, not tidiness. Two legs below plant an EMPTY DIRECTORY at the unit
+	# path to stand for "a unit file that cannot be read", and each removes it only on the path where
+	# its assertion passes. Measured 10 Nov, probing what one collapsed arm costs: with the unreadable
+	# arm made to answer like an uninstalled one, that leg returned early, the directory survived, and
+	# every `>"$pos_unit_file"` after it died with `Is a directory` -- six legs red, four of them
+	# reporting `installing a current tree over a moved unit failed (rc=1)` about the installer, which
+	# had done nothing. One leg's failure must not arrive as four other legs' false accusations.
+	pos_unit_clear || return 1
+	printf '[Unit]\nDescription=planted\n[Service]\nType=oneshot\n' >"$pos_unit_file" || return 1
+	for l in "$@"; do printf '%s\n' "$l" >>"$pos_unit_file" || return 1; done
+	return 0
+}
+
+installed_tree_is_a_read() {
+	local got rc
+	# Three different fixture trees, none of them `$FACTORY_ROOT` and none the directory the suite
+	# lives in: an answer equal to either of those was composed from a global, not read off the file.
+	pos_unit_exec "ExecStart=$pos_stale/factory/factory.sh"
+	rc=0
+	got=$(factory_installed_tree "$pos_unit_file") || rc=$?
+	[ "$rc" -eq 0 ] || { pos_say "a planted unit was refused (rc=$rc)"; return 1; }
+	[ "$got" = "$pos_stale" ] || { pos_say "ExecStart names $pos_stale, the read answered '$got'"; return 1; }
+	# Ask again after rewriting the file underneath the same call.
+	pos_unit_exec "ExecStart=$pos_current/factory/factory.sh"
+	rc=0
+	got=$(factory_installed_tree "$pos_unit_file") || { pos_say 'the rewritten unit was refused'; return 1; }
+	[ "$got" = "$pos_current" ] || { pos_say "the answer did not move with the file: '$got'"; return 1; }
+	# systemd's own execution prefix (`-` ignores failure), and a comment that names ExecStart.
+	pos_unit_exec '# ExecStart=/decoy/factory/factory.sh' "ExecStart=-$pos_fork/factory/factory.sh"
+	rc=0
+	got=$(factory_installed_tree "$pos_unit_file") || { pos_say "an '-' prefix was refused"; return 1; }
+	[ "$got" = "$pos_fork" ] || {
+		pos_say "a commented ExecStart was read as the command, or the prefix was left on: '$got'"
+		return 1; }
+	return 0
+}
+claim_leg 'the installed tree is read from the unit' installed_tree_is_a_read
+
+installed_tree_refuses_to_guess() {
+	local rc got
+	# Nothing armed: rc 1 and NOTHING on stdout, so `UNIT-UNINSTALLED` cannot be printed with a path
+	# the function invented.
+	rm -f -- "$pos_unit_file"
+	rc=0
+	got=$(factory_installed_tree "$pos_unit_file") || rc=$?
+	[ "$rc" -eq 1 ] || { pos_say "a missing unit answered rc=$rc, want 1"; return 1; }
+	[ -z "$got" ] || { pos_say "a missing unit printed '$got'"; return 1; }
+	# Something at the path that is not a readable regular file is UNKNOWN, not "nothing is armed" --
+	# the #228 polarity, one read failing is not evidence of the clean state. A directory and not
+	# `chmod 000`: root ignores a mode, and a leg that only goes red for non-root reads green in a
+	# container, which is where the loop is being run.
+	mkdir -p -- "$pos_unit_file"
+	rc=0
+	factory_installed_tree "$pos_unit_file" >/dev/null 2>&1 || rc=$?
+	[ "$rc" -eq 4 ] || { pos_say "a directory at the unit path answered rc=$rc, want 4"; return 1; }
+	rmdir -- "$pos_unit_file"
+	# A dangling symlink is a unit file pointing nowhere: a third sentence, not the first one.
+	ln -s "$pos_work/no-such-unit" "$pos_unit_file"
+	rc=0
+	factory_installed_tree "$pos_unit_file" >/dev/null 2>&1 || rc=$?
+	[ "$rc" -eq 4 ] || { pos_say "a dangling symlink answered rc=$rc, want 4 and not 1"; return 1; }
+	rm -f -- "$pos_unit_file"
+	# A unit that is not this harness's: the raw value out, no tree invented out of it.
+	pos_unit_exec 'ExecStart=/usr/bin/true --serve'
+	rc=0
+	got=$(factory_installed_tree "$pos_unit_file") || rc=$?
+	[ "$rc" -eq 3 ] || { pos_say "a foreign ExecStart answered rc=$rc, want 3"; return 1; }
+	[ "$got" = '/usr/bin/true --serve' ] || { pos_say "the raw ExecStart was not passed through: '$got'"; return 1; }
+	# Two `ExecStart=` lines -- a hand-written unit, or one with a drop-in. Which checkout the loop runs
+	# is not knowable from two answers, so this refuses to choose and prints both.
+	pos_unit_exec "ExecStart=$pos_stale/factory/factory.sh" "ExecStart=$pos_current/factory/factory.sh"
+	rc=0
+	got=$(factory_installed_tree "$pos_unit_file") || rc=$?
+	[ "$rc" -eq 3 ] || { pos_say "two ExecStart lines answered rc=$rc, want 3"; return 1; }
+	printf '%s' "$got" | grep -qF "$pos_stale" || { pos_say "the first raw value is missing: '$got'"; return 1; }
+	printf '%s' "$got" | grep -qF "$pos_current" || { pos_say "the second raw value is missing: '$got'"; return 1; }
+	# A unit file that names no command at all.
+	pos_unit_exec 'ExecStart='
+	rc=0
+	factory_installed_tree "$pos_unit_file" >/dev/null 2>&1 || rc=$?
+	[ "$rc" -eq 3 ] || { pos_say "an empty ExecStart answered rc=$rc, want 3"; return 1; }
+	return 0
+}
+claim_leg 'an unreadable or foreign unit is refused, not guessed' installed_tree_refuses_to_guess
+
+unit_lines_name_both_trees() {
+	local out
+	pos_unit_exec "ExecStart=$pos_current/factory/factory.sh"
+	out=$(factory_unit_lines "$pos_current" "$pos_unit_file")
+	printf '%s\n' "$out" | grep -qF "UNIT-AT $pos_current" || {
+		pos_say 'the matching case does not say which checkout the unit execs:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qE 'UNIT-(DIVERGED|FOREIGN|UNINSTALLED|UNREADABLE)' && {
+		pos_say 'the matching case also printed a complaint:'; pos_say "$out"; return 1; }
+	# The same call, the file rewritten underneath it: exactly one DIVERGED line naming BOTH trees, and
+	# no UNIT-AT beside it. A line that said only "stale" would be #249's line again, about the wrong
+	# tree -- which is the exact shape of the 10 Nov journal, where the running tree printed neither.
+	pos_unit_exec "ExecStart=$pos_stale/factory/factory.sh"
+	out=$(factory_unit_lines "$pos_current" "$pos_unit_file")
+	[ "$(printf '%s\n' "$out" | grep -c '^UNIT-DIVERGED ')" = 1 ] || {
+		pos_say 'not exactly one DIVERGED line:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF "installed=$pos_stale" || {
+		pos_say 'the DIVERGED line does not name the tree the unit execs:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF "this=$pos_current" || {
+		pos_say 'the DIVERGED line does not name the tree the pass runs from:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'UNIT-AT' && {
+		pos_say 'a divergent unit printed UNIT-AT as well, which is the silence this is against:'
+		pos_say "$out"; return 1; }
+	return 0
+}
+claim_leg 'UNIT-DIVERGED names the unit and the pass' unit_lines_name_both_trees
+
+unit_lines_name_the_arms() {
+	local out
+	rm -f -- "$pos_unit_file"
+	out=$(factory_unit_lines "$pos_current" "$pos_unit_file")
+	printf '%s\n' "$out" | grep -qF "UNIT-UNINSTALLED unit=$pos_unit_file" || {
+		pos_say 'the no-unit arm does not name the file it looked at:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qE 'UNIT-(AT|DIVERGED)' && {
+		pos_say 'an uninstalled unit claimed a tree:'; pos_say "$out"; return 1; }
+	pos_unit_exec 'ExecStart=/usr/bin/true'
+	out=$(factory_unit_lines "$pos_current" "$pos_unit_file")
+	printf '%s\n' "$out" | grep -qF "UNIT-FOREIGN unit=$pos_unit_file" || {
+		pos_say 'the foreign arm does not name the file:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qF 'exec=/usr/bin/true' || {
+		pos_say 'the foreign arm does not quote the ExecStart it found:'; pos_say "$out"; return 1; }
+	rm -f -- "$pos_unit_file"
+	mkdir -p -- "$pos_unit_file"
+	out=$(factory_unit_lines "$pos_current" "$pos_unit_file")
+	printf '%s\n' "$out" | grep -qF "UNIT-UNREADABLE unit=$pos_unit_file" || {
+		pos_say 'the unreadable arm does not name the file:'; pos_say "$out"; return 1; }
+	printf '%s\n' "$out" | grep -qiE 'UNIT-(AT|UNINSTALLED)' && {
+		pos_say 'an unreadable unit was reported as nothing armed, which is the #228 polarity:'
+		pos_say "$out"; return 1; }
+	rmdir -- "$pos_unit_file"
+	return 0
+}
+claim_leg 'each unit arm names the fact it states' unit_lines_name_the_arms
+
+# Which file a pass looks at when it is not told. The unit names itself; a unit installed before #260
+# does not, and then the repository's name answers; `--status` answers before the remote is resolved,
+# so there is a third arm. Each is checked against a file planted at the name that arm is expected to
+# produce, so an arm that resolves the wrong name reads nothing and reports that, rather than reading a
+# neighbour and passing.
+unit_name_resolution_arms() {
+	local dir=$pos_work/names/systemd/user got rc
+	mkdir -p "$dir"
+	printf '[Service]\nExecStart=%s/factory/factory.sh\n' "$pos_current" >"$dir/renamed-factory.service"
+	printf '[Service]\nExecStart=%s/factory/factory.sh\n' "$pos_current" >"$dir/fromrepo-factory.service"
+	printf '[Service]\nExecStart=%s/factory/factory.sh\n' "$pos_current" >"$dir/tree-current-factory.service"
+	# arm 1: what the unit records about itself beats both derivations. It is the only arm that
+	# survives `install-timer.sh --name other`, because a name chosen on a command line leaves no
+	# other trace a later activation can read.
+	rc=0
+	got=$(FACTORY_UNITS_DIR=$dir FACTORY_SERVICE_UNIT=renamed-factory.service FACTORY_NAME=fromrepo \
+		factory_installed_tree) || rc=$?
+	{ [ "$rc" -eq 0 ] && [ "$got" = "$pos_current" ]; } || {
+		pos_say "FACTORY_SERVICE_UNIT did not win the name (rc=$rc, answer '$got')"; return 1; }
+	# arm 2: the repository's name, when the unit says nothing about itself.
+	rc=0
+	got=$(FACTORY_UNITS_DIR=$dir FACTORY_SERVICE_UNIT= FACTORY_NAME=fromrepo factory_installed_tree) || rc=$?
+	{ [ "$rc" -eq 0 ] && [ "$got" = "$pos_current" ]; } || {
+		pos_say "the repository's name did not resolve (rc=$rc, answer '$got')"; return 1; }
+	# arm 3: the checkout's own directory, with neither set -- the `--status` case, which answers
+	# before `factory_preflight` has read the remote. `$pos_current`'s directory is `tree-current`.
+	rc=0
+	got=$(FACTORY_UNITS_DIR=$dir FACTORY_SERVICE_UNIT= FACTORY_NAME= FACTORY_ROOT=$pos_current \
+		factory_installed_tree) || rc=$?
+	{ [ "$rc" -eq 0 ] && [ "$got" = "$pos_current" ]; } || {
+		pos_say "the checkout's own directory did not resolve (rc=$rc, answer '$got')"; return 1; }
+	# The control: a name with no file behind it answers "nothing armed", not the nearest neighbour.
+	rc=0
+	got=$(FACTORY_UNITS_DIR=$dir FACTORY_SERVICE_UNIT=nope-factory.service factory_installed_tree) || rc=$?
+	{ [ "$rc" -eq 1 ] && [ -z "$got" ]; } || {
+		pos_say "a name with no unit file answered rc=$rc with '$got', want 1 and nothing"; return 1; }
+	return 0
+}
+claim_leg 'the unit is found by its own record, then by repo, then by tree' unit_name_resolution_arms
+
+# The same rule `pos_call_sites` applies to the halt verdict: a function that ships with no call site
+# is a silence, and the scan that says it is wired has to prove it can see it unwired.
+unit_verdict_calls() { # <factory.sh> -> every call site, with the tree each one asks of
+	grep -oE 'factory_unit_lines "\$FACTORY_[A-Z]+"' "$1" 2>/dev/null | sort -u
+}
+unit_call_sites() {
+	local hits control=$work/unitcalls/factory.sh needle arm
+	hits=$(unit_verdict_calls "$HERE/factory.sh")
+	printf '%s\n' "$hits" | grep -qxF 'factory_unit_lines "$FACTORY_HARNESS"' || {
+		pos_say 'nothing logs the installed unit on a pass. What the file asks of:'; pos_say "$hits"; return 1; }
+	# One predicate per arm of the `--status` reporter, and this is the shape the leg had to take:
+	# asking only whether the arm contains `unit:` is satisfied by any three of its four printfs.
+	# Measured 10 Nov -- deleting the matched arm's printf, the line a person reads on a healthy box,
+	# left the suite at `355 passed, 1 failed` with that one failure the unrelated at-risk one. So each
+	# arm is named by the phrase only it prints, and the control below deletes one arm's sentence at a
+	# time and requires the scan to go blind for that arm alone.
+	for arm in 'matched:unit:    %s -- %s' 'diverged:NOT the tree running this' \
+		'none armed:none armed at' 'unreadable:cannot be read, so what the timer would exec is unknown' \
+		'foreign:which is not this harness'; do
+		needle=${arm#*:}
+		status_arm "$HERE/factory.sh" | grep -qF -- "$needle" || {
+			pos_say "--status has no ${arm%%:*} arm (${needle}), so the one command a person types"
+			pos_say 'cannot see which checkout the timer execs'
+			return 1; }
+	done
+	mkdir -p -- "$work/unitcalls/factory"
+	sed -e '/factory_unit_lines "\$FACTORY_HARNESS"/d' \
+		-e 's#unit:#unot:#g' "$HERE/factory.sh" >"$control"
+	cmp -s "$HERE/factory.sh" "$control" && {
+		pos_say 'the control edited nothing, so both assertions above prove nothing'; return 1; }
+	printf '%s\n' "$(unit_verdict_calls "$control")" |
+		grep -qxF 'factory_unit_lines "$FACTORY_HARNESS"' && {
+		pos_say 'control failed: the scan still found the deleted pass call'; return 1; }
+	status_arm "$control" | grep -qF 'unit:' && {
+		pos_say 'control failed: the --status scan still matches a copy that prints no unit: line'
+		return 1; }
+	# The per-arm control: for each arm, a copy with ONLY that arm's sentence taken out must stop
+	# satisfying that arm's predicate. A control that deletes all four proves the whole-leg version,
+	# which is the assertion P5a showed to be worthless.
+	for arm in 'matched:unit:    %s -- %s' 'diverged:NOT the tree running this' \
+		'none armed:none armed at' 'unreadable:cannot be read, so what the timer would exec is unknown' \
+		'foreign:which is not this harness'; do
+		needle=${arm#*:}
+		sed "s|$needle|X|" "$HERE/factory.sh" >"$control"
+		cmp -s "$HERE/factory.sh" "$control" && {
+			pos_say "control: nothing matched the ${arm%%:*} arm's phrase, so its assertion above"
+			pos_say 'was never tested against a copy that lacks it'
+			return 1; }
+		status_arm "$control" | grep -qF -- "$needle" && {
+			pos_say "control: the scan still sees the ${arm%%:*} arm after its sentence was deleted"
+			return 1; }
+	done
+	return 0
+}
+claim_leg 'both consumers ask the unit' unit_call_sites
+
+# The line that makes arm 1 of `factory_service_unit` exist. A unit installed by a pass cannot be found
+# by name at activation time unless the install wrote the name down somewhere the activation can read,
+# and `--name` is a decision that leaves no other trace: the unit is `$UNITS/<name>.service` and nothing
+# else records `<name>`. So the generated unit exports it about itself, and this pins the rendering --
+# not by grepping the template for the token, which a substituted unit satisfies even when the value is
+# wrong, but by rendering under two different names and requiring both answers to move with it.
+unit_records_its_own_name() {
+	local a='' b=''
+	pos_install "$pos_current" "$pos_current" --install --dry-run --name alpha >/dev/null 2>&1
+	a=$pos_out
+	pos_install "$pos_current" "$pos_current" --install --dry-run --name beta >/dev/null 2>&1
+	b=$pos_out
+	printf '%s' "$a" | grep -qxF 'Environment=FACTORY_SERVICE_UNIT=alpha.service' || {
+		pos_say 'the rendered unit does not record the name it was installed under:'; pos_say "$a"; return 1; }
+	printf '%s' "$b" | grep -qxF 'Environment=FACTORY_SERVICE_UNIT=beta.service' || {
+		pos_say 'the recorded name did not follow --name:'; pos_say "$b"; return 1; }
+	printf '%s' "$b" | grep -qF 'FACTORY_SERVICE_UNIT=alpha' && {
+		pos_say 'the old name is still in the rendered unit:'; pos_say "$b"; return 1; }
+	# An invariant rather than a control, and named as such: the discrimination above is the two names
+	# moving together, which no single grep can fake. What this adds is that the name lives on its own
+	# line and nowhere else, so the day the line is dropped the fix is a one-line render change and not a
+	# hunt through the unit for the other place the string appears.
+	if printf '%s\n' "$b" | grep -v '^Environment=FACTORY_SERVICE_UNIT=' |
+		grep -qF 'FACTORY_SERVICE_UNIT=beta.service'; then
+		pos_say 'the recorded name appears somewhere other than its own line, so removing that line'
+		pos_say 'would not remove the value from the unit:'; pos_say "$b"; return 1
+	fi
+	return 0
+}
+claim_leg 'the unit records the name it was installed under' unit_records_its_own_name
+
+# What an install says when it MOVES the loop to another checkout. This is the moment on 10 Nov that
+# made a healthy-looking journal go silent, and it was invisible: `TIMER-INSTALLED` in one tree's log
+# at 13:39:05Z, the next `PASS` in another tree's. So the move is said on stdout, journalled, and said
+# by a dry run that writes nothing.
+install_move_is_said() {
+	local jline='' before='' after=''
+	pos_unit_exec "ExecStart=$pos_stale/factory/factory.sh"
+	rm -f -- "$pos_log/supervisor.log"
+	pos_install "$pos_current" "$pos_current" --install --name posfix-factory
+	[ "$pos_rc" -eq 0 ] || {
+		pos_say "installing a current tree over a moved unit failed (rc=$pos_rc):"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF 'The loop MOVES' || {
+		pos_say 'an install that moves the loop does not say so:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF 'the HALT path' || {
+		pos_say 'the move notice omits what moves with the tree:'; pos_say "$pos_out"; return 1; }
+	jline=$(grep -h 'UNIT-TREE' "$pos_log/supervisor.log" 2>/dev/null | tail -n 1 || true)
+	printf '%s' "$jline" | grep -qF "UNIT-TREE old=$pos_stale" || {
+		pos_say 'the move is not in the journal, where the next reader looks:'
+		pos_say "got: ${jline:-<no UNIT-TREE line in $pos_log/supervisor.log>}"
+		pos_say "the install printed:"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$jline" | grep -qF "new=$pos_current" || {
+		pos_say 'UNIT-TREE does not name the tree the loop moves to:'; pos_say "$jline"; return 1; }
+	# The dry run has to say it too -- it exists to show what the real one would do -- and write
+	# nothing while doing so. The unit is re-planted at the OLD tree first, because the install above
+	# just replaced it with one that agrees, and an agreeing dry run has no move to report.
+	pos_unit_exec "ExecStart=$pos_stale/factory/factory.sh"
+	rm -f -- "$pos_log/supervisor.log"
+	before=$(find "$pos_u" -type f 2>/dev/null | sort)
+	pos_install "$pos_current" "$pos_current" --install --name posfix-factory --dry-run
+	printf '%s' "$pos_out" | grep -qF 'the loop MOVES from' || {
+		pos_say 'a dry run that would move the loop is silent about it:'; pos_say "$pos_out"; return 1; }
+	after=$(find "$pos_u" -type f 2>/dev/null | sort)
+	[ "$before" = "$after" ] || {
+		pos_say 'the dry run wrote into the unit directory:'; pos_say "$after"; return 1; }
+	[ -e "$pos_log/supervisor.log" ] && {
+		pos_say "the dry run journalled: $(tail -n 1 "$pos_log/supervisor.log")"; return 1; }
+	return 0
+}
+claim_leg 'an install that moves the loop says so, on and off' install_move_is_said
+
+# The polarity of the whole #260 read: a refusal has to state where the loop runs TODAY. The shipped
+# sentence was `The unit execs <the tree being installed>` -- the sentence that was false on 10 Nov,
+# when the refusal was about one checkout and the unit execed another.
+install_refusal_states_the_installed_tree() {
+	local planted=''
+	# The unit execs the FORK; the tree being refused is the STALE one. A refusal that prints only
+	# what it is about to write cannot tell the operator which of the two the queue is running.
+	pos_unit_exec "ExecStart=$pos_fork/factory/factory.sh"
+	planted=$(cat "$pos_unit_file")
+	pos_install "$pos_stale" "$pos_stale" --install --name posfix-factory
+	[ "$pos_rc" -ne 0 ] || { pos_say 'a 3-behind tree installed anyway'; return 1; }
+	printf '%s' "$pos_out" | grep -qF "$pos_fork" || {
+		pos_say 'the refusal does not name the checkout the installed unit execs:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qiE 'loop runs today' || {
+		pos_say 'the refusal names the installed tree without saying it is the live one:'
+		pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF "That tree is at $(git -C "$pos_fork" rev-parse --short HEAD) on unit" || {
+		pos_say 'the refusal does not say where the INSTALLED tree stands. The tree it tells you to'
+		pos_say 'fast-forward may not be the one that runs, and the running tree is the one that'
+		pos_say 'needs the fetch:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -E 'That tree is at ' | grep -qF 'behind origin/main' || {
+		pos_say 'the sentence about the installed tree gives no position against the trunk:'
+		pos_say "$pos_out"; return 1; }
+	# The false sentence is gone in both of its shapes: asserted for the tree under refusal, and
+	# asserted as though there were only one checkout in the story.
+	printf '%s' "$pos_out" | grep -qE "The unit execs $pos_stale" && {
+		pos_say 'the refusal still asserts the unit execs the tree under refusal:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF 'this tree IS the supervisor' && {
+		pos_say 'the refusal called the tree under refusal the supervisor while the unit execed another:'
+		pos_say "$pos_out"; return 1; }
+	[ "$planted" = "$(cat "$pos_unit_file")" ] || {
+		pos_say 'a refusal rewrote the installed unit:'; pos_say "$(cat "$pos_unit_file")"; return 1; }
+	return 0
+}
+claim_leg 'a refusal says which checkout the loop runs today' install_refusal_states_the_installed_tree
+
+# And the other side of the claim: when the unit and the tree agree, the harness says #249's sentence
+# exactly once and invents no two-checkout story out of one.
+install_agreeing_unit_says_so_once() {
+	local n
+	pos_unit_exec "ExecStart=$pos_stale/factory/factory.sh"
+	pos_install "$pos_stale" "$pos_stale" --install --name posfix-factory
+	[ "$pos_rc" -ne 0 ] || { pos_say 'a 3-behind tree installed anyway'; return 1; }
+	n=$(printf '%s' "$pos_out" | grep -cF 'this tree IS the supervisor' || true)
+	[ "$n" = 1 ] || { pos_say "#249's sentence should print exactly once, it printed $n:"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qiE 'loop runs today' && {
+		pos_say 'an agreeing install told a two-checkout story:'; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qF 'The loop MOVES' && {
+		pos_say 'an agreeing install invented a move:'; pos_say "$pos_out"; return 1; }
+	# The control for the leg above: the same installer, the unit pointed at a different tree, and the
+	# sentence count goes to zero while the two-tree text appears. Without this the `1` above could be
+	# a sentence that prints in both cases.
+	pos_unit_exec "ExecStart=$pos_current/factory/factory.sh"
+	pos_install "$pos_stale" "$pos_stale" --install --name posfix-factory
+	[ "$pos_rc" -ne 0 ] || { pos_say 'a 3-behind tree installed anyway'; return 1; }
+	n=$(printf '%s' "$pos_out" | grep -cF 'this tree IS the supervisor' || true)
+	[ "$n" = 0 ] || {
+		pos_say "the agreeing sentence still printed with a divergent unit ($n):"; pos_say "$pos_out"; return 1; }
+	printf '%s' "$pos_out" | grep -qiE 'loop runs today' || {
+		pos_say 'the divergent case did not take over the sentence:'; pos_say "$pos_out"; return 1; }
+	return 0
+}
+claim_leg 'an agreeing unit and tree are stated once' install_agreeing_unit_says_so_once
 
 # The rule H-0056 buys against `H-0013` (5min2s of a pass lost to one read) and `#879` (a blocking
 # read that fails open by parking the loop): the verdict is a reading of `.git`, never a network call.

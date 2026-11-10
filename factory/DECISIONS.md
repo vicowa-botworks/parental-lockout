@@ -2146,3 +2146,68 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   order captures nothing and leaves the file holding `payload` plus `fatal: cannot apply binary patch`
   -- the complaint inside the mirror, contaminating a patch that would otherwise have applied -- while
   the fixed order captures the complaint and leaves the file holding only the payload.
+## H-0083 · Which checkout the timer execs is read from the unit, not composed from the tree standing in front of the script
+
+- Question: `install-timer.sh` printed `The unit execs <FACTORY_ROOT>/factory/factory.sh` inside the
+  very refusal that stops an install, and neither the pass nor `--status` said anything about the unit
+  at all. #260 measured the two disagreeing on this box on 10 Nov: the installed unit execed
+  `~/prj/wt/factory-harness` while `--install` from `~/prj/parental-lockout` printed that it execed
+  `~/prj/parental-lockout`, so `H-0055`'s guard reported the position of a tree the loop never ran and
+  sent the operator to fast-forward a checkout nothing executes. Where does the answer to "which
+  checkout does the loop run today" come from, and what prints when it cannot be read?
+- Options: keep composing it from `$FACTORY_ROOT` and add a caveat line | ask the manager with
+  `systemctl --user cat` at every reading | read the unit file and give the four answers four
+  sentences | escalate
+- Chose: read the unit file and give the four answers four sentences
+- Why: the file is what systemd reads at activation, so it answers on a machine with no running
+  manager *and* inside `factory/selftest.sh`, which cannot call `systemctl` -- that file has faked it
+  with a `pos-shim` since before this change for exactly that reason, and `H-0054` is the standing
+  rule: a section needing a binary the gate does not install reads green on every box in the loop and
+  red on CI. The cost is named rather than hidden: the harness now owns a parser for one key. It takes
+  `ExecStart=` and systemd's execution prefixes (`-`, `@`, `+`, `!`, `:`) and does not interpret
+  quoting -- a unit whose command is quoted is not this generator's, so it lands in the foreign arm
+  carrying its raw text instead of being guessed at. Four sentences because of `#228`: "I could not
+  read it" and "nothing is armed" are different claims about the machine and the second is reassuring,
+  so collapsing them turns an unknown into a clean report. No fetch anywhere (`H-0056`, `H-0013`): the
+  installed tree's position is asked of `factory_supervisor_position`, which reads `.git` and nothing
+  else. The fourth option is refused by its own test -- nothing here changes what a tick is permitted
+  to do; it changes a sentence the installer prints and the guard reads.
+- Checkpoint: 20150cd
+- Effect: `factory/common.sh` gains `factory_units_dir` (the `XDG_CONFIG_HOME` formula `install-timer.sh`
+  kept a second copy of, which is `H-0077`'s two-definitions class), `factory_service_unit`,
+  `factory_installed_tree` and `factory_unit_lines`; `factory/factory.sh` logs one `UNIT-*` line per
+  activation and answers on `--status`'s `unit:` line; `factory/install-timer.sh` takes its refusal's
+  two sentences from the unit, prints three further arms (nothing armed, a unit that does not exec this
+  harness, a file that cannot be read), journals `UNIT-TREE old=… new=…` and says so in the block a
+  person reads when an install moves the exec path, and renders `Environment=FACTORY_SERVICE_UNIT=` so
+  a unit names itself; `factory/selftest.sh` gains ten legs and the `status_arm` scanner;
+  `docs/factory.md` re-prints the refusal and the move notice from the shipped script.
+  What lost, stated as measured: the reading answers "which checkout the timer WILL exec", not "which
+  one is running now" -- a pass started before a reinstall still reports the old unit, because the new
+  one has not been activated yet and nothing in a unit file says when systemd last read it. Discrimination,
+  each mutant applied to the working tree from backups and restored before the next, every tally from
+  `bash factory/selftest.sh` on this commit, and each `failed` count below including the `at-risk` leg
+  that `H-0084` fixes: composing the answer from `$FACTORY_ROOT` (the shipped bug) -> `347 passed,
+  9 failed`, eight legs naming the unit; an unreadable unit answered like an uninstalled one -> `353
+  passed, 3 failed`; the render drops the recorded name -> `354 passed, 2 failed`; the pass stops
+  calling the renderer -> `354 passed, 2 failed`; the false sentence restored in the refusal -> `353
+  passed, 3 failed`, both installer legs red; every `unit:` printf in `--status` deleted -> `354
+  passed, 2 failed`. Two probes found legs that were not legs. (1) Deleting ONLY the matched arm's
+  `unit:` printf left `355 passed, 1 failed` -- "does the arm contain `unit:`" is satisfied by any
+  three of four printfs, so the line a person reads on a healthy box was unpinned; the predicate is now
+  one per arm, each named by the phrase only it prints, with a control that deletes one arm's sentence
+  at a time and requires the scan to go blind for that arm alone (that control re-measured: deleting
+  the matched arm is now `354 passed, 2 failed`). (2) The `status_arm` scanner shipped as a one-liner
+  that stopped at the first `;;` it saw, which is inside the arm's own nested `case`, so the leg read
+  eight lines of a forty-line arm: the same tree read `both consumers ask the unit FAIL` at 15:55:34Z
+  and `ok` at 15:57Z with only the scanner widened. That is also why `unit_call_sites` reads a function
+  body rather than trusting `grep -c 'unit:'`. The same probe exposed a fixture defect worth its own
+  sentence, because it produced false accusations rather than a verdict: two legs plant an empty
+  directory at the unit path to stand for an unreadable file and remove it only when their assertion
+  passes, so one early return left the directory there and every later `>"$pos_unit_file"` died with
+  `Is a directory` -- six legs red, four reporting `installing a current tree over a moved unit failed
+  (rc=1)` about an installer that had done nothing. `pos_unit_exec` now clears the path first (file,
+  symlink, or empty directory; a NON-empty directory is refused rather than deleted), and the collapsed
+  arm costs the two legs that own it. Wiring that clear into `pos_install` instead was tried and is
+  wrong: the install legs' subject is the state the previous leg left, and clearing it produced `344
+  passed, 12 failed` with `install refuses a stale tree` no longer holding a stale tree.
