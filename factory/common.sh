@@ -104,6 +104,28 @@ factory_trees_default() {
 
 FACTORY_TREES=${FACTORY_TREES:-$(factory_trees_default)}
 
+# Where the supervisor keeps the only copy of anything it is about to stop holding: a dirty tree it is
+# quarantining (#248), a branch no pull request carries (#247). One box for both rescues so a person
+# has one place to look, and it is derived from the same parent as the trees directory -- so it lands
+# beside them, `/home/rodney/prj/at-risk` on this box, and never *under* them: `git worktree remove`
+# and a prune of `$FACTORY_TREES` must never be able to take the mirror with them.
+#
+# `/tmp` is refused, not derived into. The trees' parent is wherever an operator pointed
+# FACTORY_TREES, and `/tmp/opencode/wt-204` and `wt-206` are already gone that way: a box a reboot can
+# delete cannot be the surviving half of anything, which is the sentence #248 paid for and the reason
+# this does not simply inherit the trees' location. So a derived path under `/tmp`, a relative path,
+# and an empty answer all fall back to the home box rather than carrying the mistake into the rescue.
+factory_at_risk_default() {
+	local trees=${FACTORY_TREES:-$(factory_trees_default)} derived
+	derived=$(dirname -- "${trees%/}")/at-risk
+	case ${derived%/} in
+	'' | . | .. | ./* | ../* | /tmp | /tmp/*) printf '%s\n' "$HOME/prj/at-risk" ;;
+	*) printf '%s\n' "$derived" ;;
+	esac
+}
+
+FACTORY_AT_RISK=${FACTORY_AT_RISK:-$(factory_at_risk_default)}
+
 # Cadences, seconds. A unit waiting on a reviewer is re-poked at most this often; the timer
 # itself may fire far more often, because a wait-state tick spends no model tokens.
 FACTORY_REVIEW_POKES=${FACTORY_REVIEW_POKES:-1800}
@@ -156,12 +178,11 @@ FACTORY_LEDGER=${FACTORY_LEDGER:-$FACTORY_DIR/ledger}
 FACTORY_RUN=${FACTORY_RUN:-$FACTORY_DIR/run}
 FACTORY_HALT=${FACTORY_HALT:-$FACTORY_DIR/HALT}
 
-# Where the supervisor keeps the only copy of anything it is about to stop holding: a dirty tree it
-# is quarantining, a branch no pull request carries. Outside the repository and outside `/tmp`,
-# because a tree a reboot can delete can delete unmerged work with it -- `/tmp/opencode/wt-204` and
-# `wt-206` are gone that way and `~/prj/at-risk/` is the surviving half of them. The quarantine
-# mirror lands here so both kinds of rescue sit in the one place a person looks.
-FACTORY_AT_RISK=${FACTORY_AT_RISK:-$HOME/prj/at-risk}
+# The box named above is the one this file's own rescue writes into: `factory_tree_quarantine` mirrors
+# a dirty tree there as a patch (#248) and `factory_preserve_unpushed` mirrors a branch there as a
+# bundle (#247). It is deliberately not re-derived here -- two definitions of one variable is how one
+# of the two intents silently stops applying, which is what the merge of #247 into #248's tree had to
+# resolve. `~/prj/at-risk/` is the surviving half of `wt-204` and `wt-206` for exactly this reason.
 
 
 # The exit code a halted supervisor leaves behind. It is a code the *machine* reads: the generated unit
@@ -1813,6 +1834,223 @@ EOF
 		printf 'SUPERVISOR-FORKED %s holds %s %s %s does not have; a fast-forward is not available on a fork\n' \
 			"$branch" "$ahead" "$(factory_plural "$ahead")" "$base"
 	fi
+	return 0
+}
+
+# --------------------------------------------------- a stop that delivered nothing (#247)
+#
+# `exit=0` from `opencode run` means the session closed its turn. It does not mean the turn said
+# anything, and it does not mean anything was pushed. Measured over the 196 tick logs this box has
+# kept: six ticks closed with exit 0 and no pull request, and their last lines are three different
+# things.
+#
+#   two end on a tool call the harness never dispatched, because the name is not a tool.
+#     `20261108T233014Z.unclaimed:246.log` ends `<function=executae>`, 710 lines, 115 s alive;
+#     `20261108T175614Z.unclaimed:239.log` is 20 lines and ends inside its very first call,
+#     `<function=tools.opencode>`. When the CLI cannot match the model's markup to a tool it prints
+#     the markup as text, the text becomes the reply, the turn closes, and the run exits 0.
+#   two end on a turn opener with nothing after it -- `20261108T215923Z.unclaimed:241.log`, 6411
+#     lines whose last line is `> factory · default-model-fast`, over a clean tree holding four
+#     finished commits.
+#   two end on ordinary prose, having stopped mid-plan without saying so.
+#
+# The exit code separates none of them, so the reason has to be read off the end of the log. That is
+# all this reads: the shape of the last emission, never a guess about what the model meant.
+#
+# The polarity matters as much as the arms, and both halves of it are measured. Of the 26 ticks that
+# DID deliver, exactly one ends on an undispatched call -- `20261108T060114Z.address_review:231.log`,
+# whose last turn is nothing but `<function=<function_43 edit>` -- and it delivered because it had
+# already pushed at line 1757, three lines before the turn that died. So this is a verdict on the last
+# emission and never on the unit, which is why it is only ever printed by an arm that has already read
+# that no pull request exists, and never instead of that read.
+#
+# Scoping to the final turn is load-bearing, and the tick that opened this issue is the proof:
+# `20261108T234413Z.unclaimed:247.log` carries nine `<function=` hits before its last turn, because the
+# issue it was handed quotes `<function=executae>` verbatim. A whole-file grep for the markup would
+# have reported a misspelled tool call for a tick that misspelled nothing. The test is where the markup
+# sits, not whether the file contains it -- and a brief that quotes a failure is the normal case in
+# this queue, not an edge.
+#
+# The line the CLI prints to open an assistant turn, and the one the existing `TICK-FAILED` reason
+# already refuses to quote as a cause. It is deliberately not pinned to one agent or model: the
+# tick's own agent name and model sit in the middle of it.
+FACTORY_TURN_OPENER='^[[:space:]]*>[[:space:]]'
+
+# What the tick's own last emission says about why it stopped.
+#
+# The name in the markup arm is taken verbatim, not matched against a list of tools: `executae` is a
+# typo, `tools.opencode` is a namespace used as a name, and `<function_43 edit` is mangled past
+# recognition, and all three are facts the journal has to carry. A maintained list of legal names
+# would go stale the day a tool is renamed and would then report the *list* as the cause -- #1044's
+# failure with a different noun.
+#
+# Stdout is one sentence, bounded, safe to interpolate into a journal line. The return code is the
+# verdict the caller words:
+#   0  the turn was never delivered -- markup nothing dispatched, or a turn that emitted nothing.
+#      `exit=0` is the CLI's, and this says out loud that it is not a delivery.
+#   1  nothing of the kind; stdout quotes the log's last line, which may or may not explain anything.
+#   2  the log could not be read, so no cause is invented for the stop.
+# The text the model wrote in place of a function name: the last `<function=` in the given text, up to
+# the tag's own `>`, with everything non-printable deleted and the result bounded. It goes on one
+# journal line and it is the model's own bytes, so it is scrubbed and capped rather than trusted.
+# Nothing in it is matched against a list of tools -- see factory_stop_reason.
+_factory_call_name() { # text -> the name the model wrote, or nothing
+	local raw=''
+	raw=$(printf '%s\n' "$1" | grep -a -o '<function=[^>]*' | tail -n 1 || true)
+	printf '%s' "${raw#'<function='}" | tr -dc '[:print:]' | tr -s ' ' | cut -c1-60
+}
+
+factory_stop_reason() { # logfile -> the reason on stdout
+	local log=$1 clean='' block='' last='' first='' name=''
+	if [ -z "$log" ] || [ ! -r "$log" ]; then
+		printf 'the tick log could not be read (%s), so why it stopped is unknown\n' "${log:-<none>}"
+		return 2
+	fi
+	clean=$(tr -d '\033\r' <"$log" 2>/dev/null) || clean=''
+	# The test is "is there a non-blank byte", not "is the string empty": a log of nothing but newlines
+	# is a non-empty string and every reader downstream would be handed a blank as if it were content.
+	if [ -z "${clean//[[:space:]]/}" ]; then
+		printf 'the tick log %s holds nothing -- the session wrote no output at all\n' "${log##*/}"
+		return 2
+	fi
+	# The log's last line that says anything at all. A tick that died exactly at a turn opener -- the
+	# #241 shape -- has nothing AFTER that opener, so this is read from the whole file and not out of
+	# the final block: read from the block, the line the leg exists for is empty and the arm falls
+	# through to quoting the previous turn's prose. That is the whole difference between naming the
+	# failure and inventing one.
+	last=$(printf '%s\n' "$clean" | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+	# The final block is everything after the last turn opener. With no opener in the file at all --
+	# a tick that died before printing one -- the whole log is the block, which is the honest reading:
+	# there was no earlier turn for the text to belong to.
+	block=$(printf '%s\n' "$clean" | awk '
+		/^>[[:space:]]/ { n = NR }
+		{ lines[NR] = $0 }
+		END { for (i = n + 1; i <= NR; i++) print lines[i] }
+	')
+	first=$(printf '%s\n' "$block" | grep -v '^[[:space:]]*$' | head -n 1 || true)
+	name=$(_factory_call_name "$block")
+
+	# The two markup shapes: the emission that closed the run *is* a call, either from its first line
+	# or -- when the model wrote a sentence and then the call -- from its closing tag.
+	case "$first" in
+	'<tool_call>'* | '<function='*)
+		printf 'it stopped on a tool call nothing dispatched -- `%s` is not a tool, so the CLI printed the call as text and the turn closed as a reply\n' \
+			"${name:-<no name>}"
+		return 0
+		;;
+	esac
+	case "$last" in
+	'</tool_call>' | '</function>')
+		printf 'it stopped on a tool call nothing dispatched -- `%s` is not a tool, and the call markup, not a summary, is what closed the run\n' \
+			"${name:-<no name>}"
+		return 0
+		;;
+	esac
+	if [ -n "$last" ] && printf '%s\n' "$last" | grep -q "$FACTORY_TURN_OPENER"; then
+		printf 'it opened a turn and emitted nothing at all -- no call, no text, no summary\n'
+		return 0
+	fi
+	last=$(printf '%s\n' "$clean" | grep -v '^[[:space:]]*$' |
+		grep -v "$FACTORY_TURN_OPENER" | tail -n 1 || true)
+	# No guard here for "and if that is empty too". The blank-only log returned above, and any log with
+	# a non-blank line that is not a turn opener keeps that line through both greps -- so arm (c) always
+	# has something to quote. A branch that cannot be reached is a branch no leg can prove, which is the
+	# rule this repository applies to scriptlets (#1703), so it is absent rather than defended.
+	printf 'its last line reads: %s\n' "$(printf '%s' "$last" | cut -c1-160)"
+	return 1
+}
+
+# The journal line for a tick that stopped clean and delivered nothing. Split out of the call site so
+# the sentence is something a leg can assert whole, rather than one that only exists once a model has
+# been paid to fail in the right shape.
+factory_stop_marker() { # verb unit branch logfile -> the journal line on stdout
+	local verb=$1 unit=$2 branch=$3 log=$4 why='' rc=0 see=''
+	why=$(factory_stop_reason "$log") || rc=$?
+	# Naming the log is only an offer when there is one to open. Pointing a reader at a file the
+	# detector could not read is the same invented pointer this harness keeps writing up.
+	see="see $(basename -- "${log:-<no log>}")"
+	if [ "$rc" = "2" ]; then
+		# Pointing a reader at a file the detector could not read is the same invented pointer this
+		# harness keeps writing up.
+		see='no log to read'
+	fi
+	if [ "$rc" = "0" ]; then
+		printf '%s %s exit=0 refused as completion (%s) :: %s :: no pull request on %s -- it stays where it was\n' \
+			"$verb" "$unit" "$see" "$why" "${branch:-<no branch>}"
+		return 0
+	fi
+	printf '%s %s exit=0 with no pull request on %s (%s) :: %s -- it stays where it was\n' \
+		"$verb" "$unit" "${branch:-<no branch>}" "$see" "$why"
+	return 0
+}
+
+# Mirror the commits a stopped tick left behind, before anything else can take them.
+#
+# What this survives is not a lost disk -- the bundle lands on the same disk as the worktree. What it
+# survives is what actually happened twice: PR #238 merged the *pushed* head at `17:47:33Z` while the
+# local branch kept six more commits no pull request ever carried, and `issue-241` ended a tick with
+# four finished commits reachable from one directory on one machine and from no queue that reads pull
+# requests. A branch is a name someone can delete; a bundle is a file.
+#
+# It is a *prerequisite* bundle, `origin/main..<branch>`, and the form was chosen on measurement:
+#   * full history is 17,647,835 bytes for this repository's 687 commits and re-copies the 10 MB
+#     `plock` blob on every write (#1264). The prerequisite form is 28,601 bytes for the real
+#     `issue-241` (4 commits) and 18,551 bytes for `issue-235` (6).
+#   * a prerequisite bundle does not clone on a machine holding nothing -- measured,
+#     `error: Repository lacks these prerequisite commits`. So the recovery is a clone of the remote
+#     and then `git fetch <bundle> refs/heads/<branch>`, measured to reproduce the tip exactly
+#     (selftest leg `the bundle restores the tip where origin/main is all there is`). The
+#     prerequisite is a commit on `main`, and a force-push to `main` is denied to everything here, so
+#     the recovery cannot drift out from under the bundle.
+#
+# The write is read back, because this harness's most-repeated failure is a claim about a write that
+# was never re-read (#1180): `git bundle verify` runs against the tree that holds the prerequisite,
+# and a file that does not verify is reported as `PRESERVE-UNVERIFIED`, never as `PRESERVED`.
+#
+# Return: 0 mirrored, 1 nothing was owed, 2 refused. They are three codes because they are three
+# different sentences, and "nothing ahead" reading as "mirrored" is how a safety net becomes fiction.
+factory_preserve_unpushed() { # unit tree branch -> 0 mirrored, 1 nothing ahead, 2 refused
+	local unit=$1 tree=$2 branch=$3
+	local ahead='' tip='' path='' why='' rc=0
+	if [ -z "$tree" ] || [ ! -d "$tree" ]; then
+		log_event "PRESERVE-FAILED $unit no tree to read $branch from -- nothing was mirrored"
+		return 2
+	fi
+	if [ -z "$branch" ]; then
+		log_event "PRESERVE-SKIPPED $unit no branch, so there is nothing to mirror"
+		return 1
+	fi
+	if ! ahead=$(git -C "$tree" rev-list --count "origin/$FACTORY_BASE..$branch" 2>/dev/null); then
+		log_event "PRESERVE-FAILED $unit how far $branch is ahead of origin/$FACTORY_BASE could not be read -- nothing was mirrored"
+		return 2
+	fi
+	case "$ahead" in
+	'' | *[!0-9]*)
+		log_event "PRESERVE-FAILED $unit origin/$FACTORY_BASE..$branch answered \`$ahead', not a count -- nothing was mirrored"
+		return 2
+		;;
+	esac
+	if [ "$ahead" -eq 0 ]; then
+		return 1
+	fi
+	tip=$(git -C "$tree" rev-parse --short "$branch" 2>/dev/null) || tip=unknown
+	path="$FACTORY_AT_RISK/branch-$(factory_slug "$unit")-${tip}.bundle"
+	if ! mkdir -p -- "$FACTORY_AT_RISK" 2>/dev/null; then
+		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and $FACTORY_AT_RISK could not be created -- nothing was mirrored"
+		return 2
+	fi
+	if ! why=$(git -C "$tree" bundle create "$path" "origin/$FACTORY_BASE..$branch" 2>&1); then
+		# `git bundle create` refuses an empty bundle itself (`fatal: Refusing to create empty
+		# bundle.`), which is the same verdict the count above already reached. Getting here means the
+		# two reads disagree, so git's own sentence goes in the journal rather than a paraphrase.
+		log_event "PRESERVE-FAILED $unit $ahead commit(s) on $branch are at risk and no bundle was written :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160)"
+		return 2
+	fi
+	if ! why=$(git -C "$tree" bundle verify "$path" 2>&1); then
+		log_event "PRESERVE-UNVERIFIED $unit $path exists but git refuses to verify it :: $(printf '%s\n' "$why" | tr -d '\033\r' | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160) -- do not trust this bundle to hold the work"
+		return 2
+	fi
+	log_event "PRESERVED $path ($ahead commit(s) on $branch at $tip ahead of origin/$FACTORY_BASE) -- recover with \`git clone <remote> r.git && git -C r.git fetch $path refs/heads/$branch\`"
 	return 0
 }
 

@@ -5847,6 +5847,536 @@ gen_leg 'one fetch per activation' \
 	pass_one_fetch_per_activation
 pass_second_fetch_control
 
+# ============================================ a tick that stopped clean and delivered nothing (#247)
+#
+# `exit=0` is the CLI's verdict on whether the session closed its turn. Two ticks on 8 Nov closed with
+# 0 and delivered nothing, and the journal said the same seven words about both, so the first thing
+# this section pins is the *sentence* -- which of the shapes a stop had, read off the end of the log.
+# The second thing it pins is the bundle, because a reason does not recover a commit.
+#
+# Fixtures, not models: a leg cannot make a model misspell a tool name on command. The shapes are
+# planted as tick logs on disk in the byte-for-byte shapes measured in
+# `20261108T233014Z.unclaimed:246.log` (a misspelled call) and
+# `20261108T215923Z.unclaimed:241.log` (a turn opener with nothing after it), and the detector is
+# handed the file. What a fixture cannot prove is that a real CLI writes those bytes -- that is what
+# the real-journal control at the end is for, and it says out loud when there is no journal to read.
+#
+# Two ways this section could be green and blind, both controlled rather than assumed:
+#
+#   A detector that scans the whole file instead of the final turn.
+#   `20261108T234413Z.unclaimed:247.log` -- the tick handed this very issue -- carries nine
+#   `<function=` hits, because the issue it was given quotes `<function=executae>` at it. A whole-file
+#   grep reports a misspelled tool call for a tick that misspelled nothing. The leg
+#   `a brief quoting the failure` plants exactly that shape and reddens the whole-file detector.
+#
+#   A mirror that prints PRESERVED for a file that is not a bundle.
+#   The write is read back with `git bundle verify`; the shim leg refuses the verify and the leg fails
+#   if the word PRESERVED appears anywhere in the journal.
+
+stop_dir=$work/stops
+mkdir -p "$stop_dir"
+
+stop_leg() { # label fixture want_rc want_substring [absent_substring]
+	local label=$1 f=$2 want=$3 want_in=$4 want_out=${5:-}
+	stop_rc=0
+	stop_out=$(factory_stop_reason "$f") || stop_rc=$?
+	# A reason carrying a newline is a journal line spliced in two -- the same defect #242 found in a
+	# review body. Every leg checks it, because every leg hands in hostile bytes.
+	case "$stop_out" in
+	*$'\n'*)
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reason came back as %s lines; a journal line is one line.\n' \
+			"$label" "$(printf '%s\n' "$stop_out" | grep -c .)"
+		return 0
+		;;
+	esac
+	if [ "$stop_rc" = "$want" ] &&
+		{ [ -z "$want_in" ] || printf '%s' "$stop_out" | grep -qF -- "$want_in"; } &&
+		{ [ -z "$want_out" ] || ! printf '%s' "$stop_out" | grep -qF -- "$want_out"; }; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s rc=%s :: %s\n' "$label" "$stop_rc" "${stop_out:0:62}"
+		return 0
+	fi
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s wanted rc=%s' "$label" "$want"
+	[ -n "$want_in" ] && printf ', %s' "$want_in"
+	[ -n "$want_out" ] && printf ', not %s' "$want_out"
+	printf '; got rc=%s :: %s\n' "$stop_rc" "${stop_out:0:96}"
+	return 0
+}
+
+# The #246 shape, transcribed: a turn opener, then the call, then the file ends. `exit=0`.
+printf 'reading the queue now\n\033[0m$ \033[0mmake verify\nCLEAN\n> factory \302\267 default-model-fast\n<tool_call>\n<function=executae>\n<parameter=code>\nx\n</parameter>\n</function>\n' \
+	>"$stop_dir/misspelled.log"
+stop_leg 'a misspelled call names the name' "$stop_dir/misspelled.log" 0 'executae'
+
+# The same markup one sentence later: prose, then the call. The name has to survive both shapes, and
+# the second is the ordinary way a model reaches for a typo -- it says what it is about to do first.
+printf '> factory \302\267 default-model-fast\nLet me re-read the ledger.\n<tool_call>\n<function=tools.opencode>\n<parameter=code>\nx\n</parameter>\n</function>\n</tool_call>\n' \
+	>"$stop_dir/prose-then-call.log"
+stop_leg 'prose then a call is still the cause' "$stop_dir/prose-then-call.log" 0 'tools.opencode'
+
+# The #241 shape: the last thing in the file is the turn opener itself, 6411 lines of work ago.
+printf 'check-decisions: 90 entries across 2 log(s)\nCLEAN\n> factory \302\267 default-model-fast\n' \
+	>"$stop_dir/silent.log"
+stop_leg 'a turn that emitted nothing' "$stop_dir/silent.log" 0 'emitted nothing'
+
+# The polarity, in the shape the tick that opened this issue is written in. The CLI echoes the brief,
+# and the brief QUOTES the failure -- `20261108T234413Z.unclaimed:247.log` carries nine `<function=`
+# hits for exactly this reason, the earliest of them in the payload line at line 14. So the markup is
+# planted at the TOP of the file and the last turn is a clean summary: a detector that reads the file
+# instead of the final turn reports a misspelled tool call for a tick that misspelled nothing.
+printf '<tool_call>\n<function=executae>\n<parameter=code>\nx\n</parameter>\n</function>\n\nso I will not repeat that mistake.\n> factory \302\267 default-model-fast\nReading the issue; the markup above is quoted at me, not typed by me.\n> factory \302\267 default-model-fast\nPushed `9f3c1a2`; pull request #247 is open and the reviewer is requested.\n' \
+	>"$stop_dir/quoted.log"
+stop_leg 'a brief quoting the failure' "$stop_dir/quoted.log" 1 'pull request #247 is open' 'not a tool'
+
+# A delivered tick's last line, which is what arm (c) exists to quote rather than explain.
+printf 'work done\n> factory \302\267 default-model-fast\nTwo things you should know rather than discover.\n' \
+	>"$stop_dir/prose.log"
+stop_leg 'ordinary prose is quoted, not diagnosed' "$stop_dir/prose.log" 1 'Two things you should know' 'not a tool'
+
+# The two arms that refuse to invent a cause, and the sentence each owes.
+stop_leg 'a missing log says it is missing' "$stop_dir/nothing-here.log" 2 'could not be read'
+printf '' >"$stop_dir/empty.log"
+stop_leg 'an empty log says it is empty' "$stop_dir/empty.log" 2 'no output at all'
+# A log whose only content is turn openers has still ended on a silent turn, which is arm (b), and a
+# log of nothing but newlines is not content at all -- the two refusals are different and each gets its
+# own fixture, because "it said nothing" and "there was nothing to read" send a reader to different
+# places.
+printf '\n\n> factory \302\267 default-model-fast\n\n> factory \302\267 default-model-fast\n\n' \
+	>"$stop_dir/openers.log"
+stop_leg 'a log of only turn openers' "$stop_dir/openers.log" 0 'emitted nothing'
+printf '\n \n\t\n' >"$stop_dir/blank.log"
+stop_leg 'a log of only blanks' "$stop_dir/blank.log" 2 'no output at all'
+
+# A run cut off in the middle of its call: the markup opens the turn and there is no closing tag to
+# find. This is what makes the block's FIRST line a test rather than a second way of writing the same
+# thing -- with only the closing-tag arm, a log that stops inside `<parameter=code>` reports prose.
+printf 'looking at the ledger\n> factory \302\267 default-model-fast\n<tool_call>\n<function=executae>\n<parameter=code>\n' \
+	>"$stop_dir/truncated.log"
+stop_leg 'a call cut off mid-argument' "$stop_dir/truncated.log" 0 'executae'
+
+# Hostile bytes where a tool name should be: two control characters, two hundred of one letter, and a
+# trailing escape. The name goes on a journal line, so it is scrubbed, bounded, and never a second line.
+long_name=$(printf 'x%.0s' $(seq 1 200))
+printf '> factory \302\267 default-model-fast\n<tool_call>\n<function=ea\001\002b%sy\033[0m>\n</tool_call>\n' \
+	"$long_name" >"$stop_dir/hostile.log"
+stop_leg 'a hostile name is scrubbed' "$stop_dir/hostile.log" 0 'ea'
+long_run=$(printf '%s' "$stop_out" | grep -c 'x\{61\}' || true)
+ctl=$(LC_ALL=C printf '%s' "$stop_out" | grep -c '[[:cntrl:]]' || true)
+if [ "${long_run:-0}" = "0" ] && [ "${ctl:-0}" = "0" ] && [ ${#stop_out} -le 230 ]; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s no run past 60, no control byte, %s bytes\n' \
+		"control: the name cannot run long" "${#stop_out}"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s %s bytes, long-run hits %s, control-byte lines %s.\n' \
+		"control: the name cannot run long" "${#stop_out}" "$long_run" "$ctl"
+fi
+
+# The marker's wording, since which of the two sentences prints is the whole point of the change.
+marker_leg() { # label fixture want_substring absent_substring
+	local label=$1 f=$2 want=$3 absent=$4 out=''
+	out=$(factory_stop_marker TICK-UNDELIVERED unclaimed:247 issue-247 "$f")
+	case "$out" in
+	*$'\n'*)
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the journal line is not one line.\n' "$label"
+		return 0
+		;;
+	esac
+	if printf '%s' "$out" | grep -qF -- "$want" && ! printf '%s' "$out" | grep -qF -- "$absent"; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "${out:0:64}"
+		return 0
+	fi
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s wanted %s and not %s; got %s\n' "$label" "$want" "$absent" "${out:0:96}"
+	return 0
+}
+marker_leg 'an undelivered turn is refused' "$stop_dir/misspelled.log" \
+	'exit=0 refused as completion' 'no log to read'
+marker_leg 'a readable log is named for the reader' "$stop_dir/prose.log" 'see prose.log' \
+	'no log to read'
+marker_leg 'an ordinary stop keeps the plain verdict' "$stop_dir/prose.log" \
+	'with no pull request on issue-247' 'refused as completion'
+marker_leg 'an unreadable log points at nothing' "$stop_dir/nothing-here.log" \
+	'no log to read' 'refused as completion'
+
+# A branch that is empty has to be said, not printed as a space: `no pull request on  --` is the
+# reading that sends somebody looking for a branch name that was never there.
+no_branch=$(factory_stop_marker TICK-UNDELIVERED unclaimed:247 '' "$stop_dir/prose.log")
+case "$no_branch" in
+*'no pull request on <no branch>'*)
+	pass=$((pass + 1))
+	printf '  ok    %-40s the line names a missing branch instead of printing a hole\n' \
+		'a stop with no branch'
+	;;
+*)
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s an empty branch printed as a gap in the sentence: %s\n' \
+		'a stop with no branch' "${no_branch:0:96}"
+	;;
+esac
+
+# ---------------------------------------------------------------- the mirror of unpushed commits
+
+mirror=$(mktemp -d "$work/mirror-XXXX")
+git -c init.defaultBranch=main init -q --bare "$mirror/origin.git"
+git --git-dir="$mirror/origin.git" config user.email selftest@example
+git --git-dir="$mirror/origin.git" config user.name selftest
+git -c init.defaultBranch=main init -q "$mirror/seed"
+git -C "$mirror/seed" remote add origin "$mirror/origin.git"
+git -C "$mirror/seed" -c user.email=selftest@example -c user.name=selftest \
+	commit -q --allow-empty -m 'base: what origin/main holds'
+git -C "$mirror/seed" push -q origin main
+git -C "$mirror/seed" checkout -q -b issue-902
+git -C "$mirror/seed" -c user.email=selftest@example -c user.name=selftest \
+	commit -q --allow-empty -m 'the fix, committed'
+git -C "$mirror/seed" -c user.email=selftest@example -c user.name=selftest \
+	commit -q --allow-empty -m 'its decision entry'
+git -C "$mirror/seed" checkout -q -b issue-903 origin/main
+git -C "$mirror/seed" fetch -q origin
+
+mirror_journal() { printf '%s/log/supervisor.log' "$mirror"; }
+mirror_saved_log=$FACTORY_LOG
+mirror_saved_risk=$FACTORY_AT_RISK
+mirror_saved_path=$PATH
+FACTORY_LOG=$mirror/log
+FACTORY_AT_RISK=$mirror/at-risk
+factory_paths
+
+mirror_leg() { # label want_rc want(''none'|'!absent'|substring) unit tree branch
+	local label=$1 want=$2 needle=$3 rc=0 match=1
+	factory_preserve_unpushed "$4" "$5" "$6" >>"$mirror/run.out" 2>&1 || rc=$?
+	case "$needle" in
+	'') match=1 ;;
+	'!'*)
+		if grep -qF -- "${needle#!}" "$(mirror_journal)"; then match=0; fi
+		;;
+	*)
+		if grep -qF -- "$needle" "$(mirror_journal)"; then match=1; else match=0; fi
+		;;
+	esac
+	if [ "$rc" = "$want" ] && [ "$match" = "1" ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s rc=%s :: %s\n' "$label" "$rc" \
+			"$(tail -n 1 "$(mirror_journal)" | cut -c1-58)"
+		return 0
+	fi
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s wanted rc=%s (%s); got rc=%s :: %s\n' "$label" "$want" \
+		"${needle:-no journal line}" "$rc" "$(tail -n 1 "$(mirror_journal)" | cut -c1-70)"
+	return 0
+}
+
+mirror_leg 'two commits ahead are mirrored' 0 'PRESERVED' unclaimed:902 "$mirror/seed" issue-902
+bundle=$(grep -m1 PRESERVED "$(mirror_journal)" | sed -nE 's/.*PRESERVED ([^ ]+\.bundle).*/\1/p' || true)
+if [ -n "$bundle" ] && git -C "$mirror/seed" bundle verify "$bundle" >/dev/null 2>&1; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s git verifies it: %s bytes\n' "the bundle is a bundle" \
+		"$(wc -c <"$bundle")"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s %s does not verify.\n' "the bundle is a bundle" "${bundle:-<no path in the line>}"
+fi
+
+# The form is part of the design, so it is pinned rather than implied: a prerequisite bundle is
+# 18-28 KB for a real at-risk branch where full history is 17.6 MB, and full history would re-copy the
+# 10 MB `plock` blob on every stop (#1264). `git bundle verify` says which form it holds by naming the
+# ref it requires, so the leg asks git and not the author.
+if [ -n "$bundle" ] &&
+	git -C "$mirror/seed" bundle verify "$bundle" 2>&1 | grep -qF 'requires this ref'; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s git names a prerequisite, so it is not a full re-copy\n' \
+		'the bundle is a prerequisite bundle'
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s git asked for no prerequisite -- that is a full-history bundle.\n' \
+		'the bundle is a prerequisite bundle'
+fi
+
+# The recovery the journal line promises, run as written. This leg is what decided the bundle's form:
+# a copy nobody can restore is a second copy of a feeling. Measured while writing it, `git clone
+# <bundle>` on a machine holding nothing answers `error: Repository lacks these prerequisite commits`,
+# so the shipped sentence is clone-the-remote-then-fetch, and that sentence is what runs here.
+recovered=1
+bref=$(grep -m1 PRESERVED "$(mirror_journal)" | sed -nE 's/.*refs\/heads\/([^`]+)`.*/\1/p' || true)
+if [ -n "$bundle" ] && [ -n "$bref" ] &&
+	git clone -q "$mirror/origin.git" "$mirror/recover" 2>"$mirror/clone.err" &&
+	git -C "$mirror/recover" config user.email selftest@example &&
+	git -C "$mirror/recover" config user.name selftest &&
+	git -C "$mirror/recover" fetch "$bundle" "refs/heads/$bref" >"$mirror/fetch.out" 2>&1; then
+	got=$(git -C "$mirror/recover" rev-parse FETCH_HEAD 2>/dev/null || printf none)
+	want=$(git -C "$mirror/seed" rev-parse issue-902)
+	n=$(git -C "$mirror/recover" rev-list --count main..FETCH_HEAD 2>/dev/null || printf 0)
+	if [ "$got" = "$want" ] && [ "$n" = "2" ]; then recovered=0; fi
+fi
+if [ "$recovered" = "0" ]; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s the tip it names restores the tip on the branch, 2 ahead of main\n' \
+		"the sentence's own command works"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s clone plus the fetch the journal printed did not reproduce the tip.\n' \
+		"the sentence's own command works"
+	printf '          bundle: %s\n          clone stderr: %s\n          fetch: %s\n' \
+		"${bundle:-<none>}" "$(tail -n 1 "$mirror/clone.err" | cut -c1-76)" \
+		"$(tail -n 1 "$mirror/fetch.out" | cut -c1-76)"
+fi
+
+: >"$(mirror_journal)"
+mirror_leg 'nothing ahead mirrors nothing' 1 '!PRESERVED' unclaimed:903 "$mirror/seed" issue-903
+mirror_leg 'a branch that is gone is refused' 2 'PRESERVE-FAILED' unclaimed:900 "$mirror/seed" no-such-branch
+mirror_leg 'no tree is refused, not guessed' 2 'no tree to read' unclaimed:899 "$mirror/gone" issue-902
+mirror_leg 'no branch says which arm refused' 1 'PRESERVE-SKIPPED' unclaimed:898 "$mirror/seed" ''
+mkdir -p "$mirror/ro" && chmod 500 "$mirror/ro"
+FACTORY_AT_RISK=$mirror/ro/nope
+mirror_leg 'an unusable mirror dir is said' 2 'could not be created' unclaimed:897 "$mirror/seed" issue-902
+chmod 700 "$mirror/ro"
+FACTORY_AT_RISK=$mirror/at-risk
+
+# Two stops of one unit at two tips leave two files, not one written over the other: the second stop's
+# commits are the ones nobody has read yet, and the unit is named the same both times.
+n_before=$(find "$FACTORY_AT_RISK" -maxdepth 1 -type f -name '*.bundle' 2>/dev/null |
+	wc -l | tr -d '[:space:]' || true)
+git -C "$mirror/seed" checkout -q issue-902
+git -C "$mirror/seed" -c user.email=selftest@example -c user.name=selftest \
+	commit -q --allow-empty -m 'work the second stop did'
+factory_preserve_unpushed unclaimed:902 "$mirror/seed" issue-902 >>"$mirror/run.out" 2>&1 || true
+n_after=$(find "$FACTORY_AT_RISK" -maxdepth 1 -type f -name '*.bundle' 2>/dev/null |
+	wc -l | tr -d '[:space:]' || true)
+second=$(grep -c PRESERVED "$(mirror_journal)" || true)
+newest=$(grep PRESERVED "$(mirror_journal)" | tail -n 1 | sed -nE 's/.*PRESERVED ([^ ]+\.bundle).*/\1/p' || true)
+if [ "${n_after:-0}" -gt "${n_before:-0}" ] && [ "${second:-0}" -ge 1 ] &&
+	[ -n "$newest" ] && git -C "$mirror/seed" bundle verify "$newest" >/dev/null 2>&1; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s files, %s PRESERVED lines, newest verifies\n' \
+		"a second stop is not written over the first" "$n_after" "$second"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s %s files before, %s after, %s PRESERVED lines.\n' \
+		"a second stop is not written over the first" "${n_before:-0}" "${n_after:-0}" "${second:-0}"
+fi
+
+# The write is read back, so a file git will not verify is never called PRESERVED. The shim answers
+# only `bundle verify` and hands `bundle create` to the real git, which is what makes the leg about
+# the read-back rather than about the write.
+: >"$(mirror_journal)"
+shim=$(shim_install 'bundle verify' 1)
+PATH="$shim:$PATH"
+hash -r
+mirror_leg 'a refused verify is not PRESERVED' 2 'PRESERVE-UNVERIFIED' unclaimed:896 "$mirror/seed" issue-902
+mirror_leg 'and the word PRESERVED is not printed' 2 '!PRESERVED ' unclaimed:895 "$mirror/seed" issue-902
+PATH=$mirror_saved_path
+hash -r
+
+FACTORY_LOG=$mirror_saved_log
+FACTORY_AT_RISK=$mirror_saved_risk
+
+# The default location, because a default that nests inside $FACTORY_TREES is a mirror `git worktree
+# remove` can delete -- and the trees themselves are not under /tmp for exactly that lesson.
+risk_default=$(env -u FACTORY_AT_RISK FACTORY_TREES=/a/b/wt bash -c \
+	"FACTORY_DIR='$HERE'; . '$HERE/common.sh' >/dev/null 2>&1; printf '%s' \"\$FACTORY_AT_RISK\"")
+if [ "$risk_default" = "/a/b/at-risk" ]; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s FACTORY_TREES=/a/b/wt gives %s\n' "the mirror is beside the trees" \
+		"$risk_default"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s FACTORY_TREES=/a/b/wt gave %s, not /a/b/at-risk.\n' \
+		"the mirror is beside the trees" "${risk_default:-<nothing>}"
+fi
+risk_kept=$(env FACTORY_AT_RISK=/z/keep FACTORY_TREES=/a/b/wt bash -c \
+	"FACTORY_DIR='$HERE'; . '$HERE/common.sh' >/dev/null 2>&1; printf '%s' \"\$FACTORY_AT_RISK\"")
+if [ "$risk_kept" = "/z/keep" ]; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s an explicit FACTORY_AT_RISK survives the derivation\n' \
+		'the override is an override'
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the derivation printed over it: %s\n' 'the override is an override' \
+		"${risk_kept:-<nothing>}"
+fi
+
+# The one place the two intents met, and the only arm of the merge that could silently lose a property
+# someone had already paid for. #248 defines this box as outside `/tmp` because `/tmp/opencode/wt-204`
+# and `wt-206` are gone that way; #247 derives it from wherever the trees live. Deriving alone lets one
+# operator's `FACTORY_TREES=/tmp/…` carry the rescue into the exact directory that has already deleted
+# unmerged work on this machine -- and it would do it quietly, because the box is by definition where
+# nobody was looking. So the derivation refuses `/tmp`, a relative path, and an empty answer.
+#
+# The two legs control each other: the one above shows a normal trees path still derives (so this one
+# cannot be passed by a function that always returns the home box), and this one shows the fallback
+# fires for /tmp and a relative path and for nothing else.
+risk_tmp=$(env -u FACTORY_AT_RISK FACTORY_TREES=/tmp/opencode/wt HOME=/home/fixture bash -c \
+	"FACTORY_DIR='$HERE'; . '$HERE/common.sh' >/dev/null 2>&1; printf '%s' \"\$FACTORY_AT_RISK\"")
+risk_rel=$(env -u FACTORY_AT_RISK FACTORY_TREES=../wt HOME=/home/fixture bash -c \
+	"FACTORY_DIR='$HERE'; . '$HERE/common.sh' >/dev/null 2>&1; printf '%s' \"\$FACTORY_AT_RISK\"")
+risk_plain=$(env -u FACTORY_AT_RISK FACTORY_TREES=/srv/queue/trees HOME=/home/fixture bash -c \
+	"FACTORY_DIR='$HERE'; . '$HERE/common.sh' >/dev/null 2>&1; printf '%s' \"\$FACTORY_AT_RISK\"")
+if [ "$risk_tmp" = "/home/fixture/prj/at-risk" ] &&
+	[ "$risk_rel" = "/home/fixture/prj/at-risk" ] &&
+	[ "$risk_plain" = "/srv/queue/at-risk" ]; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s /tmp/opencode/wt and ../wt both give %s,\n' \
+		'the mirror never lands where a reboot can' "${risk_tmp:-<nothing>}"
+	printf '          and /srv/queue/trees still derives /srv/queue/at-risk\n'
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s /tmp gave %s, ../wt gave %s, /srv/queue/trees gave %s.\n' \
+		'the mirror never lands where a reboot can' "${risk_tmp:-<nothing>}" \
+		"${risk_rel:-<nothing>}" "${risk_plain:-<nothing>}"
+	printf '          The rescue must not sit in the directory that already deleted wt-204 and\n'
+	printf '          wt-206, and it must still follow the trees when they are somewhere sane --\n'
+	printf '          a fallback that always fires would pass the first two and fail the third.\n'
+fi
+
+# ------------------------------------------------- the shipped calls, and what deleting them costs
+#
+# A scan, not a drive: reaching either call site for real needs a gh read that answers "no pull
+# request" and a model that fails in one of two shapes. What the scan cannot see is said here rather
+# than implied by the ok -- it proves the marker is the thing whose output is logged, and that both
+# stopping arms call the mirror. It does not prove the arms are reachable, and it would still pass if
+# the marker were wired to print the wrong argument order. The legs above drive the functions.
+stop_wiring() { # <factory.sh> -> every wiring gap in that copy
+	local f=$1
+	grep -qF 'log_event "$(factory_stop_marker TICK-UNDELIVERED' "$f" ||
+		printf 'TICK-UNDELIVERED is logged without factory_stop_marker\n'
+	[ "$(grep -cF 'factory_preserve_unpushed "$unit" "$tree" "$branch"' "$f")" -eq 2 ] ||
+		printf 'fewer than two stopping arms mirror their commits\n'
+	return 0
+}
+stop_wired() {
+	local label='both stopping arms are wired' gaps
+	gaps=$(stop_wiring "$HERE/factory.sh")
+	if [ -n "$gaps" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the shipped file does not call what the legs above test:\n' "$label"
+		printf '%s\n' "$gaps" | while IFS= read -r g; do printf '            %s\n' "$g"; done
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s the marker prints the line and both arms mirror\n' "$label"
+
+	# The control, in the opposite polarity and planted outside the repository: both calls taken out
+	# of a copy has to be reported, or the ok above is the check being blind.
+	mkdir -p "$work/wired"
+	sed -e 's|log_event "$(factory_stop_marker TICK-UNDELIVERED|log_event "TICK-UNDELIVERED $unit exit=0|' \
+		-e '/factory_preserve_unpushed "\$unit" "\$tree" "\$branch" || true/d' \
+		"$HERE/factory.sh" >"$work/wired/factory.sh"
+	if [ -n "$(stop_wiring "$work/wired/factory.sh")" ]; then
+		printf '        control: the marker call and both mirror calls, deleted from a copy, are\n'
+		printf '        reported -- the ok above is the check working, not the check being blind.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a copy with all three calls deleted read as wired.\n' "control: $label"
+	fi
+	return 0
+}
+stop_wired
+PATH=$mirror_saved_path
+
+# The mirror is a prerequisite bundle, so it is NOT a standalone clone, and the issue asked for the
+# one thing that is therefore impossible: "`git clone` from that bundle reproduces the tip". Measured
+# both ways on a clone of nothing. Pinned as a leg because the failure is the price of the form -- the
+# form is what keeps a stop at 28 KB instead of 22 MB -- and the day somebody changes the form to full
+# history to make the clone work, this is the line that says what was traded.
+sc_rc=0
+# The leg below asserts this clone FAILS. The two `config` lines are for the state it refuses: if the
+# bundle ever becomes self-contained and the clone succeeds, the fixture still must not author under
+# the host's identity (H-0059). A `config` against a directory git did not create is a no-op here --
+# hence `|| true`, which is load-bearing and not decoration. They sit inside three lines of the clone
+# because `pos_unconfigured_repos` skips comments, so prose above them buys them no room.
+git clone "$bundle" "$mirror/selfcontained" >"$mirror/sc.out" 2>&1 || sc_rc=$?
+git -C "$mirror/selfcontained" config user.email selftest@example 2>/dev/null || true
+git -C "$mirror/selfcontained" config user.name selftest 2>/dev/null || true
+if [ "$sc_rc" != "0" ] && grep -qF 'lacks these prerequisite commits' "$mirror/sc.out"; then
+	pass=$((pass + 1))
+	printf '  ok    %-40s clone-from-bundle answers %s\n' "the mirror is not self-contained" \
+		"$(grep -m1 -oE '(error|fatal):.*' "$mirror/sc.out" | head -n 1 | cut -c1-46)"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s clone-from-bundle exited %s; the shipped sentence is now wrong.\n' \
+		"the mirror is not self-contained" "$sc_rc"
+	printf '          %s\n' "$(tail -n 1 "$mirror/sc.out" | cut -c1-100)"
+fi
+
+# ------------------------------------------------- the real failures, when this tree can see them
+#
+# The fixtures prove the detector reads the shape. Only the journal proves the shape is what a real CLI
+# writes, so the two logs this issue is written about go through the same function whenever they are on
+# disk. From a linked worktree `factory/log` is empty -- journals live in whichever tree ran the tick
+# -- so this says which way it went instead of printing a silent ok.
+stop_real() { # unit want_substring
+	local unit=$1 want=$2 f
+	for f in "$FACTORY_LOG"/*".$unit.log"; do
+		[ -f "$f" ] || continue
+		stop_leg "the real $(basename -- "$f" | cut -c1-8) log" "$f" 0 "$want"
+		return 0
+	done
+	pass=$((pass + 1))
+	printf '  ok    %-40s inert here: no *.%s.log in %s (%s file(s))\n' \
+		"real log: $unit" "$unit" "$FACTORY_LOG" \
+		"$(find "$FACTORY_LOG" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d '[:space:]' ||
+			printf 0)"
+	printf '        -- the fixtures above are the gate on this machine, and that is said here\n'
+	printf '        rather than left as a silent ok.\n'
+	return 0
+}
+stop_real 'unclaimed:246' 'executae'
+stop_real 'unclaimed:241' 'emitted nothing'
+
+# The mode of the scripts the timer execs, found the hard way by the sweep that came with this change.
+#
+# A mutation harness that replaces a file with `mv tmp file` restores the bytes and loses the
+# executable bit: `awk > tmp && mv tmp factory.sh` wrote `factory/factory.sh` back at 0644, every leg
+# still read green except two, and those two died with `Permission denied` -- a message that reads like
+# a fixture bug and is really a tick that will never start. `make verify` runs these scripts by path or
+# through `bash`, so nothing else in the gate notices, and `install-timer.sh` hands the unit a path to
+# exec. Both halves are pinned: the file on this disk, and the mode in the index, because a worktree
+# `chmod` is invisible to a fresh checkout and the hazard worth stopping is the one that gets committed.
+worktree_exec_problems() { # <dir> <name>... -> the names that are not executable there
+	local dir=$1 f bad=''
+	for f in "${@:2}"; do
+		[ -x "$dir/$f" ] || bad="$bad $f"
+	done
+	printf '%s' "${bad# }"
+}
+index_exec_problems() { # <repo> <name>... -> the names git does not hold at 100755
+	local repo=$1 f mode bad=''
+	for f in "${@:2}"; do
+		mode=$(git -C "$repo" ls-files -s -- "factory/$f" 2>/dev/null | awk '{print $1}' || true)
+		[ "$mode" = "100755" ] || bad="$bad $f(${mode:-untracked})"
+	done
+	printf '%s' "${bad# }"
+}
+exec_bits() { # the shipped four, in the tree and in the index
+	local bad
+	bad=$(worktree_exec_problems "$HERE" factory.sh triage.sh selftest.sh install-timer.sh)
+	[ -n "$bad" ] && { printf 'not executable in the worktree: %s' "$bad"; return 1; }
+	bad=$(index_exec_problems "$HERE/.." factory.sh triage.sh selftest.sh install-timer.sh)
+	[ -n "$bad" ] && { printf 'not 100755 in the index: %s' "$bad"; return 1; }
+	return 0
+}
+if bad_modes=$(exec_bits); then
+	pass=$((pass + 1))
+	printf '  ok    %-40s all four, in the worktree and in the index\n' "the timer's scripts are executable"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s %s -- the unit execs this path, and a tick that will not start looks\n' \
+		"the timer's scripts are executable" "$bad_modes"
+	printf '          like a machine that is idle.\n'
+fi
+mkdir -p "$work/execmodes"
+cp "$HERE/factory.sh" "$work/execmodes/factory.sh" && chmod 644 "$work/execmodes/factory.sh"
+if [ -n "$(worktree_exec_problems "$work/execmodes" factory.sh)" ]; then
+	printf '        control: a 0644 copy outside the repository is reported by the same predicate, so\n'
+	printf '        the ok above is the check working and not the check being blind.\n'
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a 0644 copy read as executable.\n' "control: the mode predicate"
+fi
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 reached_verdict=1
 if [ "$fail" -ne 0 ]; then
