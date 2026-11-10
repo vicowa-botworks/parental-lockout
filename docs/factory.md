@@ -461,6 +461,30 @@ answer is one above the highest id of the selected prefix anywhere in that union
 ceiling are closed forever: a retired or renumbered id remains the thing a historical citation means,
 so "first free" is not "smallest missing number".
 
+It answers only for a log that exists. The named path has to be in the working tree or in `HEAD`,
+because a union with no headings in it has exactly one answer available -- `<prefix>-0001`, the first
+heading both logs have carried since entry one -- so an empty union is a mistyped path, and answering
+it is the collision this command exists to refuse. Measured on the version #255 shipped, on three
+calls a session really makes:
+
+| The call | It printed | It prints now |
+|---|---|---|
+| `--prefix H factory/DECISION.md` | `H-0001`, exit 0 | a refusal naming the path |
+| `factory/DECISION.md`, no `--prefix` | nothing, exit 2, stdout and stderr both empty | a refusal naming the path |
+| `--repo <a checkout with no log> DECISIONS.md` | `D-0052` — *this* repository's ceiling | a refusal naming the path |
+
+The third row is the one that mattered: a relative log path fell back to the caller's tree whenever the
+named one was missing, so `--repo` read whatever log the directory it was invoked from had, and
+answered a question about one repository with a number from another. It now resolves against the
+repository named, once, with no second reading. The second row was a `sed` failing under
+`set -euo pipefail` inside a command-substitution assignment: the script ended with the substitution's
+status and said nothing on either stream, and a session holding an allocator that says nothing reads
+it as a broken tool and goes back to numbering by eye -- which is the defect this whole section is
+about. A fresh log is one `touch` and a title line away, and its first entry still gets an honest
+`D-0001` or `H-0001`, inferred from the path rather than from a heading that does not exist yet. Six
+legs and two controls in `factory/selftest.sh` plant each row; the controls are what prove the
+refusals are the guard and not a fixture that agrees by accident.
+
 It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
 verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
 That makes the answer a collision-free *read*, not a lock, and the read has a boundary. It is stated as

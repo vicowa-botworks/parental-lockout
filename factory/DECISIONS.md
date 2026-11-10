@@ -1695,3 +1695,66 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   the files as committed: `bash factory/selftest.sh` moved from `284 passed, 0 failed` to
   `286 passed, 0 failed`; `make check-shell` reported 28 scripts; the plant and its reversal are
   recorded above.
+
+
+## H-0073 · The allocator handed `H-0001` to a mistyped path and the caller's own log to a bare `--repo`
+
+- Question: #255 shipped #253's first instruction and left the ticket open for the race, so before
+  deciding anything the shipped allocator was called the way a session calls it -- including the paths
+  a session gets wrong. Three such calls, measured on `91d992d`: `--prefix H factory/DECISION.md`
+  printed `H-0001` and exited 0; the same path without `--prefix` exited 2 with stdout *and* stderr
+  empty; `--repo` aimed at a checkout that has no log printed `D-0052`, this repository's own ceiling,
+  once with a commit in the fixture and once with none. What is an allocator to do when the union it
+  has read is empty?
+- Options: refuse when the named log is in neither the working tree nor `HEAD`, and resolve a relative
+  path against the repository named with no second reading | keep answering from the empty union and
+  let `check-decisions.py` catch the collision at `make verify` | create the missing log and allocate
+  `D-0001` from it, which is what "fresh adoption" was documented to mean | keep the fallback to the
+  caller's path and document that `--repo` is advisory
+- Chose: refuse when the named log is in neither the working tree nor `HEAD`, and resolve a relative
+  path against the repository named with no second reading
+- Why: an empty union has exactly one answer available, `<prefix>-0001`, and both logs opened with
+  that number -- so an empty union is never an empty log, it is a wrong path, and the one thing this
+  command exists to refuse is the collision it was handing out. The second call is worse than the
+  first: `prefix=$(sed ... | head -1)` fails on a missing file, a command-substitution assignment
+  inherits status 2 under `set -euo pipefail`, and `set -e` ends the script before any message. A
+  refusal with nothing on either stream is indistinguishable from a broken tool, and a session
+  holding a broken allocator numbers by eye -- which is the prose allocator this ticket exists to
+  replace, arrived at by a route no leg can see. The tie-break order decides it at its third rung,
+  "refuse rather than proceed when input is missing or empty"; it also proves the documented arm was
+  fiction. `docs/factory.md` and the code comment both promised `D-0001` for "--repo pointing at a
+  branch before the log exists", and the measurement answers `D-0052`: the fallback took the read to
+  the caller's log before the default was ever reached, which is also why the seven legs and four
+  controls #255 shipped never saw the fallback -- every one of them writes its fixture's log and
+  passes `--prefix`, so neither dead arm had a caller. Letting the gate catch it instead is the
+  current behaviour and was measured not to be enough: `check-decisions.py` is ref-blind on purpose
+  (H-0072), so it refuses a *merged* duplicate at the trunk, in the one gate the supervisor may not
+  skip, which is the exact failure #253 opened with. Creating the log is a write made by a command
+  whose whole job is to read. `Chose:` the last option and `--repo` stops meaning anything, and #249's
+  staleness work is all about what a flag that does not bind costs. What lost, as measured: a fresh
+  adoption is now one `touch` plus a title line before the first id -- a step the replaced behaviour
+  did not ask for, and one that cannot break anything that worked, since the replaced behaviour was
+  unreachable; a `--repo` aimed at a log-less tree now refuses where it used to answer, so a caller
+  that depended on the bleed fails loudly (the only callers in this repository are the skill,
+  `docs/factory.md` and the legs, and all three name a log that exists); every call now costs one
+  more `git cat-file`, which asks about an object and not a ref, so the H-0072 boundary holds and the
+  verdict stays off every fetch path; and the guard cannot be planted with the `|` delimiter the other
+  plants use, because its call site is `log_is_here ||` -- the leg says so and uses commas rather than
+  an escaped `\|`, which in a BRE would match a different line.
+- Checkpoint: da773e6f007932eaa01ad5e961d3b3e24b2417ef
+- Effect: `factory/next-decision-id.sh` -- the path `case` has one arm (`--repo`, else `$PWD`, never a
+  fallback), a `log_is_here` guard ahead of prefix inference, `|| true` on the inference `sed`, and
+  the union's `[ -f ] && cat` became an `if` so a log present in `HEAD` but not in the tree cannot
+  trip the same trap. `factory/selftest.sh` -- `alloc_run` and `alloc_control` can now omit
+  `--prefix`, which is how the inference arm finally gets a leg; six legs and two controls
+  (`alloc_refuse` asserts a refusal refused, printed no id, and named the path; `alloc_reads_its_repo`
+  pins the cross-repo read as a difference between two trees and FAILs if they ever agree).
+  `.opencode/skills/factory/SKILL.md` says a refusal means the path is wrong and that numbering by eye
+  is not the fallback; `docs/factory.md` carries the three measured calls as a table. Re-measured
+  after the write: `bash factory/selftest.sh` moved from `286 passed, 0 failed` on the checkpoint to
+  `292 passed, 0 failed`, and the two runs' line lists were diffed to confirm six new counted legs,
+  two new control lines and no leg lost -- the suite prints a control's `ok` without adding it to the
+  tally, so #255's "four counted controls" overstates it by four. The three probe calls now refuse
+  naming the path; the calls that worked are unchanged (`D-0052` and `H-0073` here, a fixture at
+  `D-0001` answers `D-0002`, a fresh uncommitted log answers `D-0001`, a heading-less
+  `factory/DECISIONS.md` answers `H-0001` with no `--prefix`).

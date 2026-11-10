@@ -4688,7 +4688,14 @@ alloc_err=$work/alloc-stderr
 
 # shellcheck disable=SC2317  # reached through the command substitution in alloc_leg
 alloc_run() { # <repo> <log path> <prefix> -> the allocator's stdout
-	bash "$alloc_script" --repo "$1" --prefix "$3" "$2" 2>"$alloc_err"
+	# An empty prefix means "do not pass --prefix at all", which is the only way to reach the arm that
+	# infers the prefix from the log's own path. Every leg written before issue #253 passed a prefix,
+	# so that arm had never run in the suite -- and it was the arm that died silently.
+	if [ -n "${3:-}" ]; then
+		bash "$alloc_script" --repo "$1" --prefix "$3" "$2" 2>"$alloc_err"
+	else
+		bash "$alloc_script" --repo "$1" "$2" 2>"$alloc_err"
+	fi
 }
 
 # shellcheck disable=SC2317  # reached through the command substitution in alloc_leg
@@ -4737,7 +4744,13 @@ alloc_control() { # <label> <dir> <sed expr> <repo> <path> <prefix> <wrong answe
 		printf '          nothing change; the check has stopped pinning the read it names.\n'
 		return 0
 	fi
-	if ! got=$(bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err"); then
+	if ! got=$(
+		if [ -n "$prefix" ]; then
+			bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err"
+		else
+			bash "$bad" --repo "$repo" "$path" 2>"$alloc_err"
+		fi
+	); then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s the planted allocator refused:\n' "control: $label"
 		sed 's/^/          /' "$alloc_err"
@@ -4752,6 +4765,87 @@ alloc_control() { # <label> <dir> <sed expr> <repo> <path> <prefix> <wrong answe
 	printf '  ok    %-40s it falls back to %s, so the ok above is the\n' \
 		"control: $label" "$wrong"
 	printf '          ref being read, not the fixture agreeing by accident.\n'
+	return 0
+}
+
+# A refusal has three parts, and the allocator shipped delivering none of them: a mistyped log path
+# exited 0 with `H-0001` on stdout, and the same path without `--prefix` exited 2 with stdout AND
+# stderr empty. So a refusal leg asserts all three at once -- that it refused, that it printed no id
+# while refusing, and that it named the path it could not find. A bare exit status is what a session
+# reads as a broken tool, and a session holding a broken allocator goes back to numbering by eye.
+alloc_refuse() { # <label> <repo> <path that is not a log> <prefix> <what an ok proves>
+	local label=$1 repo=$2 path=$3 prefix=$4 fact=$5
+	local got='' rc=0
+	if [ -n "$prefix" ]; then
+		got=$(bash "$alloc_script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$alloc_script" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if [ "$rc" = 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it answered %s instead of refusing.\n' "$label" "$got"
+		printf '          A union with no headings in it has one answer available, and it is the\n'
+		printf '          first id of the range -- a number both logs opened with. %s\n' "$fact"
+		return 0
+	fi
+	if [ -n "$got" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it exited %s and printed %s anyway.\n' "$label" "$rc" "$got"
+		printf '          A refusal that also hands out an id is not a refusal.\n'
+		return 0
+	fi
+	if [ ! -s "$alloc_err" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it exited %s saying nothing at all,\n' "$label" "$rc"
+		printf '          on either stream. That is the failure mode this leg exists for: nothing to\n'
+		printf '          read, so the caller cannot tell a wrong path from a broken allocator.\n'
+		return 0
+	fi
+	if ! grep -qF -- "${path##*/}" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it refused without naming %s:\n' "$label" "$path"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# The cross-repo read, pinned as a difference rather than as a plant. Reproducing the old fallback
+# means editing both arms of the path `case` together -- a target resolved against the caller is an
+# absolute path outside the fixture, which the shipped script now refuses outright -- and a fixture
+# bent until a two-edit plant survives is no longer the shape that broke. So this measures the two
+# trees against each other instead: the fixture's answer, the caller's answer, and the assertion that
+# they are not the same number. That last one is the sentence that keeps the ok from being an accident.
+alloc_reads_its_repo() { # <label> <fixture> <expected id> <what an ok proves>
+	local label=$1 fixture=$2 want=$3 fact=$4
+	local got='' caller=''
+	got=$(bash "$alloc_script" --repo "$fixture" --prefix D DECISIONS.md 2>"$alloc_err") || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused a log that is there:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	}
+	caller=$(bash "$alloc_script" --prefix D DECISIONS.md 2>/dev/null) || caller=''
+	if [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s got %s, expected %s.\n' "$label" "$got" "$want"
+		return 0
+	fi
+	if [ -z "$caller" ]; then
+		printf '  SKIP  %-40s this suite is not running from a checkout with a\n' "$label"
+		printf '          DECISIONS.md, so there is no caller answer to prove the difference against.\n'
+		return 0
+	fi
+	if [ "$caller" = "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the fixture holds %s, which is what the caller tree\n' "$label" "$want"
+		printf '          holds too. The leg cannot tell the two repos apart, so it certifies nothing.\n'
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s (the caller tree answers %s)\n' "$label" "$fact" "$caller"
 	return 0
 }
 
@@ -4983,7 +5077,7 @@ alloc_boundary() { # <label> <repo> <log path> <prefix> <stale id> <fresh id> <w
 }
 
 decision_ids() {
-	local base current multi repo wt bad
+	local base current multi repo wt bad alloc_empty alloc_nolog alloc_nopfx alloc_bleed
 
 	if [ ! -f "$alloc_script" ]; then
 		printf '  SKIP  %-40s next-decision-id.sh is not in this tree\n' \
@@ -5154,6 +5248,80 @@ decision_ids() {
 		'the skill and the factory guide both name its path and the refresh' \
 		alloc_docs_reference
 	alloc_docs_control
+
+	# ---- what the allocator does when there is nothing to read (issue #253, the half #255 left) ----
+	#
+	# Every leg above writes its fixture's log before the leg runs and passes --prefix, so not one of
+	# them ever reached the two arms a mistyped path falls into. All three below were measured on the
+	# shipped script before this branch touched it:
+	#
+	#   --prefix H factory/DECISION.md    printed H-0001 and exited 0. A union with no headings in it
+	#                                     has exactly one answer available, and H-0001 is the first
+	#                                     heading the real harness log has carried since its own first
+	#                                     entry -- so a typo used to be answered with a collision.
+	#   factory/DECISION.md               exited 2 with stdout AND stderr empty. `sed` fails on the
+	#                                     missing file, the command-substitution assignment inherits
+	#                                     status 2, and `set -e` ends the script before any message.
+	#   --repo <a checkout with no log>   answered D-0052, this repository's own ceiling, both with a
+	#                                     commit in the fixture and with none: the log path fell back
+	#                                     to the caller's tree and read that log.
+	#
+	# The fixtures sit at H-0009 and D-0003 so the wrong answer is never ambiguous: the right path is
+	# answered at H-0010/D-0004, and the empty union was answered with the log's first number.
+	alloc_fixture() { # <dir> <log path> <body> -> 0 when the repo holds one commit, that log if a body
+		local dir=$1 rel=$2 body=$3
+		git init -q "$dir" 2>/dev/null || return 1
+		git -C "$dir" config user.email fixture@invalid || return 1
+		git -C "$dir" config user.name fixture || return 1
+		if [ -n "$body" ]; then
+			mkdir -p -- "$(dirname -- "$dir/$rel")" || return 1
+			printf '%s\n' "$body" >"$dir/$rel" || return 1
+		fi
+		git -C "$dir" add -A || return 1
+		git -C "$dir" commit -q --allow-empty -m 'fixture: the log a sibling branch would cite' || return 1
+	}
+
+	alloc_empty=$alloc_work/empty-union
+	alloc_nolog=$alloc_work/repo-without-a-log
+	alloc_nopfx=$alloc_work/prefix-inferred
+	alloc_bleed=$alloc_work/repo-bleed
+	if ! alloc_fixture "$alloc_empty" factory/DECISIONS.md '## H-0009 · the fixture ceiling' ||
+		! alloc_fixture "$alloc_nolog" DECISIONS.md '' ||
+		! alloc_fixture "$alloc_nopfx" factory/DECISIONS.md '# Harness decision log' ||
+		! alloc_fixture "$alloc_bleed" DECISIONS.md '## D-0003 · the fixture trunk'; then
+		printf '  SKIP  %-40s the throwaway repositories could not be\n' "the empty-union legs"
+		printf '          written; every leg in this group is about a repo that does not exist.\n'
+		return 0
+	fi
+
+	alloc_leg 'the same fixture asked correctly answers' "$alloc_empty" factory/DECISIONS.md H \
+		H-0010 'the refusals below are about the path asked for, not a repo the command cannot read'
+
+	alloc_refuse 'a mistyped log path refuses' "$alloc_empty" factory/DECISION.md H \
+		'refusal is the only answer that is not a collision'
+	# The comma delimiter is deliberate: the guard's call site is `log_is_here ||`, and `|` cannot be
+	# both the sed delimiter and a literal here -- `\|` is alternation in a BRE, so an escaped plant
+	# would match something else and change the wrong line.
+	alloc_control 'a mistyped log path refuses' "$alloc_work/ctrl-no-guard" \
+		's,^log_is_here ||,: log_is_here ||,' \
+		"$alloc_empty" factory/DECISION.md H H-0001 \
+		'without the guard a typo is answered with the first H id, taken since entry one'
+
+	alloc_refuse 'a mistyped path with no prefix refuses' "$alloc_empty" factory/DECISION.md '' \
+		'and names the path, where it used to exit 2 saying nothing on either stream'
+
+	alloc_refuse 'a repository with no log refuses' "$alloc_nolog" DECISIONS.md D \
+		'so a bare checkout is never answered out of the tree the command was invoked from'
+
+	alloc_reads_its_repo '--repo reads the repo it was aimed at' "$alloc_bleed" D-0004 \
+		'the answer is the fixture ceiling, never the caller tree'
+
+	alloc_leg 'a heading-less log takes its prefix' "$alloc_nopfx" factory/DECISIONS.md '' \
+		H-0001 'the arm that used to die silently now reaches a fresh harness log'
+	alloc_control 'a heading-less log takes its prefix' "$alloc_work/ctrl-no-path-inference" \
+		's|factory/DECISIONS.md) prefix=H|factory/DECISIONS.md) :|' \
+		"$alloc_nopfx" factory/DECISIONS.md '' D-0001 \
+		'without the path rule it answers in D, the wrong log, for the file it is standing in'
 
 	return 0
 }
