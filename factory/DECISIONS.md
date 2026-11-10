@@ -2086,7 +2086,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   do NOT stop the units behind the quarantined one -- the halt marker freezes the NEXT activation (exit
   8, nothing started), and the false failure costs one unit its own turn (exit 4, B still started).
   Only the halt file ends a queue, and only for later activations. Re-measured numbers went in for the
-  ones the mirror carried: 337 passed / 1 failed at `a7a656d` in 10.727 s / 10.438 s, 349 passed / 0
+  ones the mirror carried: 337 passed / 1 failed at `450a628` in 10.727 s / 10.438 s, 349 passed / 0
   failed with the section in 12.565 s / 12.476 s, and the `grep -c` pair in the header's own claim,
   which as written counted its own comment and answered 2 where it said 1.
 - Checkpoint: 6367582
@@ -2127,3 +2127,30 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   box-check commit would contain a `-newer` against a marker defined only in the other hunk, which
   answers 0 and passes for the wrong reason -- a tree that cannot be verified as it stands is not a
   checkpoint.
+
+## H-0082 · A sha cited six times is not an object in this repository
+
+- Question: `H-0080`, four comments in `factory/selftest.sh`, the pull-request body and `e334f4f`'s own
+  commit message all date their measurements to `a7a656d`. `git rev-parse a7a656d` answers
+  `unknown revision or path not in the working tree` and
+  `git log --all --format='%h' | grep -c '^a7a656'` answers `0`. Replace the string everywhere and move
+  on, or record the correction where a reader of the log will find it?
+- Options: silently `sed` the six places, which leaves no trace that a citation was ever wrong | delete
+  the affected entries as untrustworthy | correct the string, add this entry, and say in the pull
+  request that the pushed commit message cannot be corrected
+- Chose: correct the string, add this entry, and say in the pull request that the pushed commit message
+  cannot be corrected
+- Why: a decision log that has been quietly edited is indistinguishable from one that was always right,
+  and the whole reason `H-0080` cites a base is so a reader can re-run the 337/1 number against it --
+  a sha that resolves to nothing makes that claim unfalsifiable, which is the failure this repository
+  names over and over. The numbers themselves are not in doubt: every one was measured on the commit
+  now named, `450a628`, the merge of #259 and the parent of the checkpoint `6367582`; only the label was
+  invented. Deleting the entries would throw away the third control and the blast-radius measurement
+  with the typo. The fourth place is unreachable: a pushed commit message is not amendable here, because
+  force-push is denied to a tick and both squash and rebase merge are disabled, so the correction has to
+  live beside it rather than inside it, and `#1180` is the reason it is written as a dated entry instead
+  of an edit.
+- Checkpoint: e334f4f
+- Effect: `factory/DECISIONS.md` `H-0080` and four comments in `factory/selftest.sh` now read
+  `450a628`; this entry is the trace. `e334f4f`'s message still says `a7a656d`, permanently, and
+  PR #264's body says so. `bash factory/selftest.sh` re-run on this commit: same 349 legs.

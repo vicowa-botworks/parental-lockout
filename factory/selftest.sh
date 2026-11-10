@@ -75,7 +75,7 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/plock-factoryselftest-XXXXXX")
 # the operator's real box has to ask *this run* the question, not the box: `$FACTORY_AT_RISK`'s default
 # is where the supervisor puts the only copy of work it rescued from a dead tick, so on the machine
 # that runs the timer the box is legitimately non-empty -- and it gets more so every time the harness
-# does its job. Measured at a7a656d: the supervisor quarantined this very unit's half-finished file at
+# does its job. Measured at 450a628: the supervisor quarantined this very unit's half-finished file at
 # 15:12:15Z and wrote `issue-263-quarantine-…-2008e6100.patch` there, and `make verify` on the next
 # tick in that tree failed with "1 quarantine patch(es) in ~/prj/at-risk". A leg that goes red because
 # a rescue happened is a leg someone will make green by moving the rescue out of the way -- and the
@@ -2272,7 +2272,7 @@ notice_legs
 # starts `factory/factory.sh`, and #263 measured what that costs: 54 mentions of `factory.sh` in this
 # file at the tip this section was written against, every one of them a read of the text, and
 #
-#   asked of this file at a7a656d, the tip this section was written against:
+#   asked of this file at 450a628, the tip this section was written against:
 #     grep -c 'factory\.sh'                                                →  54
 #     grep -cE '(bash|sh|exec|env)[[:space:]]+"?\$[A-Za-z_/]*factory\.sh'  →  0
 #
@@ -2310,7 +2310,7 @@ notice_legs
 # What it costs: this is the first leg in the file to run the loop, so it pays for a fetch, three
 # `git worktree add`, and a supervisor process per activation. Seven activations and three mutants
 # together, two timed runs each on this box: `bash factory/selftest.sh` answers 10.727 s / 10.438 s at
-# a7a656d (337 passed, 1 failed) and 12.565 s / 12.476 s with this section (349 passed, 0 failed) --
+# 450a628 (337 passed, 1 failed) and 12.565 s / 12.476 s with this section (349 passed, 0 failed) --
 # 1.8 s for twelve legs. Where the section
 # came from: the tick before this one wrote it in 16 minutes and was stopped at its ceiling with the
 # file still uncommitted, and `factory_tree_quarantine` mirrored it to
