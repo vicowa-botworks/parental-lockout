@@ -1531,3 +1531,167 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   nothing, to `275 passed, 0 failed`, eight to the tally -- the identity leg the merge broke and the
   seven this section prints now that it renders. The section itself prints fourteen `ok` lines, seven
   legs and seven controls, the controls not counted in the tally.
+
+
+## H-0070 · The decision-id allocator reads every local branch ref, so a sibling's number is taken before this checkout meets it
+
+- Question: the skill told every session to "number from the highest id in the file you are writing
+  to," and `check-decisions.py` only judged the merged result. Three sessions followed that sentence
+  literally, saw the same H-0060, and all wrote H-0061; the notice filed at H-0068 says plainly that
+  "the allocator is untouched" and that a fourth branch can take the same number. What shared
+  allocator replaces prose without turning decision numbering into a second delivery queue?
+- Options: add `factory/next-decision-id.sh`, document it as the one allocation command, and pin its
+  ref union and gap rule in `factory/selftest.sh` | move allocation into `scripts/check-decisions.py`
+  so the existing gate also chooses the id | keep the prose and merely add "fetch and inspect every
+  branch" | give each branch its own id range by changing the gate's id grammar | do nothing and keep
+  renumbering after a collision is discovered
+- Chose: add `factory/next-decision-id.sh`, document it as the one allocation command, and pin its
+  ref union and gap rule in `factory/selftest.sh`
+- Why: the defect is a read with the wrong scope. The old prose was accurate about one checkout and
+  blind to the queue: `check-decisions.py` correctly refuses an id twice in a log and one id in both
+  logs, but it reads the two working logs at the end of a session, when a branch's own new entry has
+  already been written. H-0068 measured the cost -- H-0065/H-0066's renumbering, then this branch's
+  H-0068/H-0069 renumbering -- and said the missing piece was a shared allocator. The new command asks
+  git for the working file, `HEAD`, every `refs/heads` and every `refs/remotes` blob, then returns one
+  above the selected prefix's highest id. The selftest proves the union rather than trusting the
+  phrase: the current checkout remains at D-0001/H-0010 while local and remote refs hold D-0003/H-0011;
+  the allocator answers D-0004/H-0012. It then plants exactly D-0004/H-0012 on a second remote-only ref
+  and the answer moves to D-0005/H-0013, the H-0061 race caught locally. A planted allocator that drops
+  all branch refs falls back to D-0002/H-0011, and one that drops `refs/remotes` falls back to the
+  colliding D-0004/H-0012 -- so neither ok is the fixture agreeing by accident. D-0002 stays absent in
+  the first fixture and is deliberately not chosen: retired and renumbered ids are permanent
+  reservations, so "first free" means above the ceiling rather than the smallest gap. The command reads
+  refs already on the machine and fetches nothing, following #249's staleness verdict: H-0013 and
+  H-0056 already price a blocking read in a tick budget. Why the four alternatives lose. **Move
+  allocation into `check-decisions.py`** puts a write-shaped question in a shape gate and still runs
+  too late; an allocator must be callable before the checkpoint named in the entry. **Fetch in the
+  allocator** makes an ordinary harness command depend on network timing and recreates the parked-read
+  hazard the harness explicitly rejects. **Per-branch ranges** requires a new identity scheme and
+  changes what every historical `H-NNNN` citation means -- larger than this ticket, as H-0061 and
+  H-0068 both concluded. **Keep the prose** was measured to fail three times. What lost, as measured:
+  this is a collision-free read, not a reservation -- two processes can still call it before either
+  commits and receive the same answer, so the skill must re-run it immediately before the entry commit;
+  refs that have never been fetched are invisible, so the unit still needs an up-to-date trunk (the
+  allocator says so in its help and docs/factory.md names the operator's `git fetch --all --prune`);
+  it now reads every ref blob, so allocation costs one `git show` per local ref rather than one
+  heading scan; and `make verify` cannot close
+  the cross-branch race on its own because the same two ids may each pass independently in separate
+  worktrees. The selftest's local collision pins detection of a stale read, not prevention of a
+  same-instant race.
+- Checkpoint: 38ddd0bddcb47bd5151eec3e44951b385b76ecd0
+- Effect: new `factory/next-decision-id.sh` (executable); `.opencode/skills/factory/SKILL.md` step 3
+  now allocates before checkpointing and re-reads before committing; `docs/factory.md` gains "Decision
+  ids are allocated against refs, not prose"; `factory/selftest.sh` gains seven counted legs and four
+  counted controls. Re-measured after the write: `bash factory/selftest.sh` moved from the pre-change
+  `275 passed, 0 failed` to `282 passed, 0 failed`; `factory/next-decision-id.sh factory/DECISIONS.md`
+  printed H-0070, and `make check-shell` reported 28 scripts.
+
+
+## H-0071 · The allocator's re-read is written as what it can see: a sibling worktree is visible, an unfetched push is not
+
+- Question: H-0070 shipped the allocator and the skill's new step closed with "the second read catches
+  a sibling merged or pushed while the session worked". One half of that sentence is true and one is
+  not. Which half does the re-read actually cover, and what goes in the claim?
+- Options: leave the sentence as written | rewrite the skill and `docs/factory.md` to the measured
+  boundary and pin both halves in `factory/selftest.sh` | make the allocator fetch, so the claim
+  becomes true | give the allocator an opt-in `--refresh` and tell the tick to use it | have
+  `factory.sh` fetch the trunk before every dispatch
+- Chose: rewrite the skill and `docs/factory.md` to the measured boundary and pin both halves in
+  `factory/selftest.sh`
+- Why: measurements first, in two fixtures under the selftest's own temp tree. Same clone, second
+  worktree: the sibling commits `D-0009` in its own worktree, and the primary answers `D-0002` before
+  that commit and `D-0010` after it, with no fetch anywhere in between -- worktrees share
+  `refs/heads`, and every unit tree this harness makes is a worktree (`common.sh`'s `git worktree
+  add`), so for the concurrency this machine actually runs, the re-read is real. Two clones: origin
+  holds `D-0007` on a branch delivered by a second copy, and the first copy answers `D-0002` -- its own
+  stale ceiling, while origin is already at `D-0007` -- then `D-0008` after one `git fetch`. An
+  unfetched push never moves `refs/remotes`, so `merged` was true and `pushed` was not. The two
+  documents also disagreed with each other: `docs/factory.md` already told the operator to refresh
+  while the skill said the window was shut. What the false half costs: a session that believes it
+  re-reads, gets the same number back, and concludes no sibling exists -- on a queue that runs on two
+  machines that is issue #253's failure again, this time with a green allocator behind it. Tie-break:
+  fewest files, reversible by `git revert` alone, and the shape the surrounding code already takes --
+  `factory/common.sh`'s staleness verdict reads refs as this checkout last learned them and says so
+  beside the code, and the conflict path fetches explicitly where it must (`git fetch origin "$base"`
+  in `factory/factory.sh`). Why the four alternatives lose. **Leave the sentence** is the defect.
+  **Fetch in the allocator** and **`--refresh`** both put a blocking network read in front of a per-tick
+  budget, the hazard H-0013, H-0056 and #879 price, and the only use of an opt-in flag is that ticks
+  opt in. **A fetch before every dispatch** reopens H-0056, a standing decision about the supervisor's
+  ref policy, to shrink a window this entry documents instead; it is the follow-up named in the pull
+  request, not this commit. The selftest now carries both shapes as behaviour instead of prose:
+  `a sibling worktree is refused its id` answers `D-0010` off the sibling's own commit, with the
+  narrower-read control falling back to `D-0002`, and `an unfetched sibling push is invisible` asserts
+  both the blind answer and the fetched one -- the second half is what stops the first from being a
+  fixture that never met origin at all. `the shared allocator is documented` now requires the refresh
+  command in both documents as well as the path, and its control deletes every line naming the refresh
+  and demands a refusal. What lost, as measured: the cross-machine window is still open until someone
+  fetches -- this commit makes it legible, not shut; the fixture's origin is a local bare repository,
+  so no leg measures real network latency or a fetch that hangs; and an allocator on a machine that has
+  never contacted this origin still cannot see a sibling there, which is the same read-not-lock limit
+  H-0070 recorded.
+- Checkpoint: 5416659a40a4fe9ef0d1b5d84f9fb0f9e269e71b
+- Effect: `.opencode/skills/factory/SKILL.md` step 1 states the boundary with both measurements and
+  names `git fetch --prune origin` for a multi-machine queue; `docs/factory.md` gains the two-row table
+  of what is seen and what is missed; `factory/selftest.sh` gains two counted legs and two counted
+  controls, and its allocator doc-check now reads the refresh as well as the path. Re-measured after
+  the write, from the files as committed: `bash factory/selftest.sh` moved from `282 passed, 0 failed`
+  to `284 passed, 0 failed`; `make check-shell` reported 28 scripts with 0 findings; both documents read
+  back with the sentences named above in them before this entry was written.
+
+
+## H-0072 · The decision gate stays ref-blind, and what it may not read is now pinned twice
+
+- Question: #253's second instruction is that `scripts/check-decisions.py` must not start reading
+  sibling refs, because that makes the verdict depend on what this checkout last fetched. Nothing
+  enforces it -- the rule lives in the issue, in this log, and in one comment beside the git call. What
+  replaces the sentence, and with what shape of pin?
+- Options: leave the instruction as prose | pin it with a text scan for ref-shaped git calls in
+  `factory/selftest.sh` | pin it on behaviour, with a fixture repository whose sibling branch repeats an
+  id run through a copy of the shipped gate | pin it with both, since the scan is breadth and the
+  fixture is the property | move the ref union into the gate so it warns about a cross-branch duplicate
+  instead of only at the merge
+- Chose: pin it with both, since the scan is breadth and the fixture is the property
+- Why: the two pins answer different questions and each can pass without the other. The scan
+  (`the gate reads no branch refs`) refuses any git subcommand that is not `cat-file` and any
+  `for-each-ref`, so a fetch or a `git show <ref>:path` added years from now for an unrelated reason is
+  refused on the day it appears; its control appends a ref-enumerating vector to a copy of the gate and
+  requires a refusal, because a scan that cannot see a planted one is blind, not clean. The fixture
+  (`a sibling id leaves the verdict alone`) measures the property itself: a repository of the gate's own
+  shape -- a byte-identical copy of the script at the same relative path, since it resolves both logs
+  and the checkpoint lookup against its own directory -- whose sibling branch repeats `D-0001` while
+  the working log is clean. The shipped gate answers clean; the same duplicate put into the working log
+  is answered with `id D-0001 is already used`, and that second half is what stops the first from being
+  a fixture the gate never read. Discrimination was then measured rather than argued: with a ref-reading
+  arm planted in the working copy -- the exact change this entry forbids, `for-each-ref refs/heads` plus
+  `git show <ref>:DECISIONS.md` fed through `check()` -- both legs go FAIL together and the selftest
+  falls from `286 passed, 0 failed` to `284 passed, 2 failed`, the diagnostic naming
+  `refs/heads/sibling:11`. The restored file compares byte-identical to the backup taken before the
+  plant. Why the four alternatives lose. **Prose** is what this and H-0071 are both corrections for.
+  **The scan alone** never shows the verdict actually holds on a tree that contains a collision, so it
+  would keep passing if a future refactor read refs through a helper it does not pattern. **The fixture
+  alone** refuses only a ref read that changes an id verdict; a `git fetch` bolted onto the gate for
+  some other reason would pass it and still make the gate a network client. **Move the union into the
+  gate** is the hazard itself, and it was measured: one commit, `82bbe713`, in two checkouts that differ
+  only in which branches they hold -- with every branch present the ref-reading gate reports
+  `1 decision-log problem`, and in a single-branch clone of the same commit it reports none; the shipped
+  gate reports none in both. A gate whose answer is a function of `actions/checkout`'s depth, or of the
+  last person to fetch, gets re-run until it agrees, which is how a red gate gets ignored. Tie-break:
+  the option that refuses rather than proceeds (a clean answer from a tree that hides its refs is
+  exactly the wrong answer), and the one that touches the fewest shipped files -- both legs are in
+  `factory/selftest.sh`; the gate, the allocator and `make verify`'s shape are untouched. What lost, as
+  measured: the scan is textual, so a ref read spelled through a variable holding `["git", "for-"
+  "each-ref"]` would slip past it -- the fixture is what is load-bearing, and it is the leg that caught
+  the plant; the fixture's verdict is about *id* rules only, so a future rule that legitimately needs
+  the object store stays allowed by design (`Checkpoint:` resolution reads objects, not refs); neither
+  leg can stop a *human* wiring the union into the gate and dismissing the FAIL -- what stops that is
+  this entry and the merge that has to pass `make verify`.
+- Checkpoint: 1d61a4113c50680af4f2941024f276e69f97dabf
+- Effect: `factory/selftest.sh` gains two counted legs and two counted controls --
+  `the gate reads no branch refs` with the planted-vector control, and
+  `a sibling id leaves the verdict alone` with its own in-fixture falsifier; its header list gains the
+  gate row. `docs/factory.md`'s decision-id section now states the gate's limit as a rule with its
+  reason. No shipped check changed: `scripts/check-decisions.py`, `factory/next-decision-id.sh`,
+  `factory/factory.sh` and the Makefile are untouched by this commit. Re-measured after the write, from
+  the files as committed: `bash factory/selftest.sh` moved from `284 passed, 0 failed` to
+  `286 passed, 0 failed`; `make check-shell` reported 28 scripts; the plant and its reversal are
+  recorded above.

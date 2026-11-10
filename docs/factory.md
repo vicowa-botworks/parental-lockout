@@ -444,6 +444,48 @@ fast-forward is *not* available and names the three real choices. A stale tree c
 *removed*: `--remove` runs before the check, because the wrong reason to be unable to stop a broken
 loop is that it is broken.
 
+## Decision ids are allocated against refs, not prose
+
+`DECISIONS.md` and `factory/DECISIONS.md` are append-only references. A tick that numbers from the
+highest heading in *its checkout* is correct about the trunk and blind to the two siblings already
+pushed against it. That is what produced three `H-0061` entries and the hand renumberings recorded at
+`H-0065` and `H-0068`.
+
+```bash
+factory/next-decision-id.sh DECISIONS.md
+factory/next-decision-id.sh factory/DECISIONS.md
+```
+
+The command reads the working log, `HEAD`, every `refs/heads` ref and every `refs/remotes` ref. Its
+answer is one above the highest id of the selected prefix anywhere in that union. Gaps below the
+ceiling are closed forever: a retired or renumbered id remains the thing a historical citation means,
+so "first free" is not "smallest missing number".
+
+It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
+verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
+That makes the answer a collision-free *read*, not a lock, and the read has a boundary. It is stated as
+a measurement here because the skill's second read is only worth what it can see (H-0071), and the two
+shapes a sibling arrives in do not behave the same way:
+
+| A sibling that… | Unfetched | After `git fetch` | Why |
+|---|---|---|---|
+| committed in another worktree of **this clone** | seen: `D-0002` → `D-0010` | seen | every unit tree is a worktree, and worktrees share `refs/heads` |
+| pushed from **another clone** | missed: `D-0002`, while origin holds `D-0007` | seen: `D-0008` | a push moves `refs/heads` there; `refs/remotes` here moves on a fetch only |
+
+So the skill's re-read immediately before the entry commit closes the same-machine window and nothing
+else, and the refresh closes the other -- `git fetch --prune origin`, then merge or fast-forward the
+unit's trunk as the harness instructs. One machine can lean on the re-read; a queue that runs on two
+must fetch before it allocates. Nothing in the harness fetches on a tick's behalf, which is `H-0056`
+again.
+
+`scripts/check-decisions.py` remains the last-resort gate for the consequences: it refuses a repeated
+id in one log and one id claimed by both logs, but it is deliberately offline and cannot reserve an
+id in advance. That is a rule, and `factory/selftest.sh` refuses the day it changes: the gate may ask
+git about objects -- a `Checkpoint:` that resolves to nothing is a claim about `git revert`, so it has
+to be checked -- and never about refs. A verdict that reads `refs/remotes` is a different verdict in CI
+than at the merge, depending on what each tree last fetched, and a gate that disagrees with itself reads
+as flaky and gets re-run until it agrees.
+
 ## Configuration
 
 Everything is an environment override with a default, in `factory/common.sh`.

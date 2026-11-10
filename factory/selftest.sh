@@ -4643,6 +4643,521 @@ unit_deadlines() {
 }
 unit_deadlines
 
+# ------------------------------------------------------------ decision ids across refs (#253)
+#
+# The allocator used to be prose: "number from the highest id in the file you are writing to." Three
+# branches cut from the same trunk followed that sentence literally, saw the same H-0060, and all
+# wrote H-0061. H-0065, H-0066 and H-0068 later had to move. The sentence is not wrong about the
+# trunk; it is wrong about the concurrency. A decision id is a durable citation and a merge target,
+# so an id that exists on an open sibling is already taken even when this checkout has never seen it.
+#
+# What gets pinned:
+#
+#   the union      a local branch and a remote-tracking branch each add one id. The current file stays
+#                  at the trunk value, so a result above it can only come from a ref read.
+#   the collision  add the allocator's own next answer to a second remote-only ref. The next call has
+#                  to refuse that id and move one further -- this is the H-0061 race, made local.
+#   the prefix     DECISIONS.md and factory/DECISIONS.md share the allocator without sharing a line
+#                  count, which is what H-0068 had to repair by hand.
+#   the ceiling    D-0002 is deliberately absent. The allocator returns D-0004, not D-0002: retired
+#                  and renumbered ids are permanent reservations, not vacancies.
+#   the current tree an uncommitted entry has to count before the commit exists, because the allocator
+#                  is called immediately before the entry is written.
+#   the worktree   a sibling unit's committed entry in a second worktree of the same clone is seen with
+#                  no fetch. Every unit tree this harness makes is a worktree, so this is the case the
+#                  skill's "re-read immediately before the entry commit" actually buys.
+#   the boundary   a sibling pushed from another clone is NOT seen until this clone fetches. Measured
+#                  both ways so the docs cannot overstate the re-read (H-0071), and the leg asserts the
+#                  fetched half too: an answer that never moves would pass the unfetched half for free.
+#   the offline read it reads refs already on the machine and fetches nothing. A blocking network read
+#                  in a per-tick budget is a hazard this harness already paid for (H-0013, H-0056).
+#   the gate       `scripts/check-decisions.py` asks git about objects and never about refs. The
+#                  allocator may read refs because it only chooses a number; the gate's verdict has to
+#                  be identical in CI, in the review loop and at the merge, so it cannot depend on
+#                  what this checkout last fetched (#253's second instruction, H-0072). Pinned twice:
+#                  a scan for ref-shaped git calls, and the verdict itself on a fixture whose sibling
+#                  branch repeats an id.
+#
+# Both controls plant a narrower read than the shipped allocator has. If either control still returned
+# the correct answer, the ok above would be proof of nothing: the test would pass because the fixture
+# happens to agree, not because the allocator looked at the branch it was written for.
+
+alloc_script=$HERE/next-decision-id.sh
+alloc_work=$work/decision-id
+alloc_err=$work/alloc-stderr
+
+# shellcheck disable=SC2317  # reached through the command substitution in alloc_leg
+alloc_run() { # <repo> <log path> <prefix> -> the allocator's stdout
+	bash "$alloc_script" --repo "$1" --prefix "$3" "$2" 2>"$alloc_err"
+}
+
+# shellcheck disable=SC2317  # reached through the command substitution in alloc_leg
+alloc_leg() { # <label> <repo> <log path> <prefix> <expected id> <what an ok proves>
+	local label=$1 repo=$2 path=$3 prefix=$4 expected=$5 fact=$6 got rc=0
+	if ! got=$(alloc_run "$repo" "$path" "$prefix"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" = "$expected" ]; then
+		pass=$((pass + 1))
+		printf '  ok    %-40s %s\n' "$label" "$fact"
+		return 0
+	fi
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s got %s, expected %s.\n' "$label" "$got" "$expected"
+	printf '          The fixture is deliberately a ceiling above a lower gap: an allocator that\n'
+	printf '          recycles missing numbers, reads only the current file, or misses one ref\n'
+	printf '          returns the lower id here. %s\n' "$fact"
+	return 0
+}
+
+alloc_plant() { # <dir> <sed expr> -> a copy of the shipped allocator with one thing taken out
+	local dir=$1 expr=$2
+	mkdir -p -- "$dir" || return 1
+	if ! sed "$expr" "$alloc_script" >"$dir/new"; then
+		return 1
+	fi
+	cmp -s "$dir/new" "$alloc_script" && return 1
+	mv -- "$dir/new" "$dir/next-decision-id.sh" || return 1
+	printf '%s' "$dir/next-decision-id.sh"
+}
+
+# The shipped allocator returns the right answer. A control passes only when the same call, aimed at
+# the same fixture with one ref class missing, returns the older answer -- the one the bug would give.
+# If it still returns the right one, the plant did not narrow this allocator and the ok is the test
+# certifying its own fixture.
+alloc_control() { # <label> <dir> <sed expr> <repo> <path> <prefix> <wrong answer> <what it missed>
+	local label=$1 dir=$2 expr=$3 repo=$4 path=$5 prefix=$6 wrong=$7 fact=$8 bad got rc=0
+	bad=$(alloc_plant "$dir" "$expr" || true)
+	if [ -z "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the check has stopped pinning the read it names.\n'
+		return 0
+	fi
+	if ! got=$(bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator refused:\n' "control: $label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$wrong" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the narrowed allocator still said %s,\n' "control: $label" "$got"
+		printf '          not the %s its missing read would produce. %s\n' "$wrong" "$fact"
+		return 0
+	fi
+	printf '  ok    %-40s it falls back to %s, so the ok above is the\n' \
+		"control: $label" "$wrong"
+	printf '          ref being read, not the fixture agreeing by accident.\n'
+	return 0
+}
+
+alloc_no_fetch() {
+	! grep -Eq '^[[:space:]]*(env[[:space:]]+[^[:space:]]+[[:space:]]+)?git[[:space:]]+fetch' \
+		"$alloc_script"
+}
+
+alloc_docs_reference() { # [root] -> 0 when both documents name the allocator and its refresh
+	local root=$HERE/.. skill guide
+	[ -z "${1:-}" ] || root=$1
+	skill=$root/.opencode/skills/factory/SKILL.md
+	guide=$root/docs/factory.md
+	[ -f "$skill" ] && [ -f "$guide" ] || return 2
+	# The refresh is part of what gets pinned, not a garnish beside it. An allocator that stays offline
+	# is safe only while the one thing that closes the other window is written down where a session
+	# reads it, and H-0071 is the correction for a sentence that claimed the window was already closed.
+	grep -q 'factory/next-decision-id\.sh' "$skill" &&
+		grep -q 'factory/next-decision-id\.sh' "$guide" &&
+		grep -q 'git fetch' "$skill" && grep -q 'git fetch' "$guide"
+}
+
+# The control for the leg above, planted outside the repository: the same two documents with every
+# line naming the refresh deleted, in the layout the predicate walks. If the leg still passes on that
+# copy it is checking that a path was mentioned somewhere, not that the boundary is documented.
+alloc_docs_control() {
+	local ctrl=$alloc_work/docs-no-refresh
+	if ! mkdir -p -- "$ctrl/.opencode/skills/factory" "$ctrl/docs"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control tree could not be written\n' \
+			'control: the refresh, not just the path'
+		return 0
+	fi
+	if ! grep -v 'git fetch' "$HERE/../.opencode/skills/factory/SKILL.md" \
+		>"$ctrl/.opencode/skills/factory/SKILL.md" ||
+		! grep -v 'git fetch' "$HERE/../docs/factory.md" >"$ctrl/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copies could not be written\n' \
+			'control: the refresh, not just the path'
+		return 0
+	fi
+	if grep -q 'git fetch' "$ctrl/.opencode/skills/factory/SKILL.md" "$ctrl/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left a refresh in place, so the\n' \
+			'control: the refresh, not just the path'
+		printf '          leg below was never aimed at the thing it names.\n'
+		return 0
+	fi
+	if alloc_docs_reference "$ctrl"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted documents with no refresh named,\n' \
+			'control: the refresh, not just the path'
+		printf '          so the ok above pins a mention and not the boundary.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses documents with the refresh deleted, so\n' \
+		'control: the refresh, not just the path'
+	printf '          the ok above pins the boundary, not just the path.\n'
+	return 0
+}
+
+# Issue #253's second instruction, and the half a leg is worth pinning: the allocator reads refs and
+# the gate must not. If `scripts/check-decisions.py` started enumerating refs, `make verify` would
+# judge a branch by whatever this checkout last fetched -- H-0056's hazard moved into the one check
+# that has to answer identically in CI, in the review loop and at the merge. A verdict that changes
+# between two identical checkouts with no commit between them is worse than no verdict: it reads as a
+# flaky gate and gets re-run until it agrees. So the gate may ask git about objects (a `Checkpoint:`
+# that resolves to nothing is a claim about `git revert`, and the gate refuses that), never about refs.
+gate_reads_no_refs() { # [path] -> 0 when that gate asks git for nothing but object lookups
+	local file=$HERE/../scripts/check-decisions.py code
+	[ -z "${1:-}" ] || file=$1
+	[ -f "$file" ] || return 2
+	# Comments are stripped first: the file's own text explains why it reads no refs, and a scan that
+	# read prose would report the explanation of the rule as a violation of it.
+	code=$(sed 's/#.*//' "$file")
+	printf '%s\n' "$code" | grep -oE '"git",[[:space:]]*"[^"]+"' |
+		grep -vE '"git",[[:space:]]*"cat-file"' >/dev/null && {
+		pos_say 'the gate asks git for a subcommand that is not cat-file: only objects, never refs'
+		return 1
+	}
+	printf '%s\n' "$code" | grep -q 'for-each-ref' && {
+		pos_say 'the gate enumerates refs, so its verdict now depends on the last fetch'
+		return 1
+	}
+	return 0
+}
+
+# The control, planted outside the repository: the shipped gate with a ref-enumerating vector appended
+# and the same scan run over the copy. Appending is enough because the scan is over text, and the
+# point of the control is only that the scan can see what it claims to refuse.
+gate_ref_blind_control() {
+	local ctrl=$alloc_work/gate-refs-control copy
+	if ! mkdir -p -- "$ctrl"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control directory could not be written\n' \
+			'control: the gate stays ref-blind'
+		return 0
+	fi
+	copy=$ctrl/check-decisions.py
+	{
+		cat "$HERE/../scripts/check-decisions.py"
+		printf '%s\n' 'SIBLINGS = ["git", "for-each-ref", "refs/remotes"]'
+	} >"$copy" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copy could not be written\n' \
+			'control: the gate stays ref-blind'
+		return 0
+	}
+	grep -q 'for-each-ref' "$copy" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant landed nowhere the scan reads, so the\n' \
+			'control: the gate stays ref-blind'
+		printf '          leg above was never aimed at the thing it names.\n'
+		return 0
+	}
+	if gate_reads_no_refs "$copy" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a gate that enumerates refs, so\n' \
+			'control: the gate stays ref-blind'
+		printf '          the ok above is the scan being blind, not the gate being clean.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses a gate that enumerates refs, so the\n' \
+		'control: the gate stays ref-blind'
+	printf '          ok above is a reading of the shipped file, not a fixed phrase.\n'
+	return 0
+}
+
+# The behaviour the text scan is a proxy for, on a repository of the gate's own shape: a copy of the
+# shipped script at the same relative path -- it resolves both logs and the checkpoint lookup against
+# its own directory, so the copy is the same gate in a different repository -- with a sibling branch
+# that repeats an id. Both halves are needed: half one says a sibling's collision leaves the verdict
+# alone, half two puts the same bytes in the working log and demands a refusal. Without half two, half
+# one would be passed for free by a fixture the gate never read at all.
+gate_verdict_off_refs() { # -> 0 when the verdict is a reading of two files, not of the ref store
+	local repo=$alloc_work/gate-verdict sha out
+	command -v python3 >/dev/null || return 2
+	mkdir -p -- "$repo/scripts" "$repo/factory" || {
+		pos_say "could not create $repo"
+		return 1
+	}
+	cp "$HERE/../scripts/check-decisions.py" "$repo/scripts/" || {
+		pos_say 'the shipped gate could not be copied into the fixture'
+		return 1
+	}
+	git init -q -b trunk -- "$repo" || return 1
+	git -C "$repo" config user.email fixture@invalid || return 1
+	git -C "$repo" config user.name fixture || return 1
+	git -C "$repo" commit -q --allow-empty -m 'fixture: a commit the entries can cite' || return 1
+	sha=$(git -C "$repo" rev-parse HEAD) || return 1
+	# Two valid logs, one entry each, citing a checkpoint that exists: half one is only worth reading
+	# if this shape is one the gate answers when there is something to answer.
+	printf '# Product decisions\n\n## D-0001 · fixture decision\n\n- Question: does the gate read sibling refs?\n- Options: it reads them | it reads only the two logs\n- Chose: it reads only the two logs\n- Why: the verdict has to be identical in CI and at the merge.\n- Checkpoint: %s\n' \
+		"$sha" >"$repo/DECISIONS.md" || return 1
+	printf '# Harness decisions\n\n## H-0001 · fixture decision\n\n- Question: does the gate read sibling refs?\n- Options: it reads them | it reads only the two logs\n- Chose: it reads only the two logs\n- Why: the verdict has to be identical in CI and at the merge.\n- Checkpoint: %s\n' \
+		"$sha" >"$repo/factory/DECISIONS.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: the two logs' || return 1
+	git -C "$repo" checkout -qb sibling || return 1
+	printf '\n## D-0001 · the duplicate a sibling took\n\n- Question: the same id twice?\n- Options: yes | no\n- Chose: yes\n- Why: the collision the allocator exists to prevent.\n- Checkpoint: %s\n' \
+		"$sha" >>"$repo/DECISIONS.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: a sibling takes the id twice' || return 1
+	git -C "$repo" checkout -q trunk || return 1
+
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		:
+	else
+		pos_say 'the gate refused a log that is clean on its own branch, because a sibling ref'
+		pos_say 'repeats an id. That is the verdict reading the ref store, which is what #253 forbids:'
+		pos_say "$out"
+		return 1
+	fi
+	git -C "$repo" show 'sibling:DECISIONS.md' >"$repo/DECISIONS.md" || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the gate accepted a duplicate id sitting in the working log, so the clean answer'
+		pos_say 'above was a fixture it never read rather than a ref boundary:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'D-0001' || {
+		pos_say 'the gate refused, but not for the id planted in the fixture:'
+		pos_say "$out"
+		return 1
+	}
+	return 0
+}
+
+# Both halves of the multi-clone boundary, in one reporter. The unfetched half alone would be passed
+# for free by a fixture whose clone never learned about origin at all, so the fetched half is the
+# control for it: the answer has to be the stale ceiling first and the sibling's id after.
+alloc_boundary() { # <label> <repo> <log path> <prefix> <stale id> <fresh id> <what the pair proves>
+	local label=$1 repo=$2 path=$3 prefix=$4 stale=$5 fresh=$6 fact=$7 before after
+	if ! before=$(alloc_run "$repo" "$path" "$prefix"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if ! git -C "$repo" fetch -q origin 2>"$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the fixture could not fetch its origin:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if ! after=$(alloc_run "$repo" "$path" "$prefix"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused after the fetch:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$before" != "$stale" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the unfetched clone said %s, expected %s.\n' "$label" "$before" "$stale"
+		printf '          It is meant to be blind there: a push moves refs/heads on the other\n'
+		printf '          machine, not refs/remotes here. That is the boundary the docs state.\n'
+		return 0
+	fi
+	if [ "$after" != "$fresh" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the fetched clone said %s, expected %s.\n' "$label" "$after" "$fresh"
+		printf '          If a fetch does not move the answer, the first half above was a fixture\n'
+		printf '          that never saw origin at all rather than a boundary. %s\n' "$fact"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+decision_ids() {
+	local base current multi repo wt bad
+
+	if [ ! -f "$alloc_script" ]; then
+		printf '  SKIP  %-40s next-decision-id.sh is not in this tree\n' \
+			'decision ids across refs'
+		return 0
+	fi
+	if ! mkdir -p -- "$alloc_work"; then
+		printf '  SKIP  %-40s the fixture directory could not be created\n' \
+			'decision ids across refs'
+		return 0
+	fi
+
+	# A trunk at D-0001/H-0010, a sibling that advanced it by one, and no collision yet. The checkout
+	# is then returned to the trunk, so a high answer necessarily came from branch refs.
+	repo=$alloc_work/repo
+	git init -q -- "$repo" || return 0
+	git -C "$repo" config user.email fixture@invalid || return 0
+	git -C "$repo" config user.name fixture || return 0
+	git -C "$repo" checkout -qb main || return 0
+	mkdir -p -- "$repo/factory" || return 0
+	printf '## D-0001 · fixture trunk\n' >"$repo/DECISIONS.md" || return 0
+	printf '## H-0010 · fixture trunk\n' >"$repo/factory/DECISIONS.md" || return 0
+	git -C "$repo" add -A || return 0
+	git -C "$repo" commit -qm 'fixture: the trunk ceiling' || return 0
+
+	git -C "$repo" checkout -qb feature-a || return 0
+	{
+		printf '\n## D-0003 · a sibling id below the ceiling\n'
+	} >>"$repo/DECISIONS.md" || return 0
+	{
+		printf '\n## H-0011 · a sibling id below the ceiling\n'
+	} >>"$repo/factory/DECISIONS.md" || return 0
+	git -C "$repo" add -A || return 0
+	git -C "$repo" commit -qm 'fixture: sibling refs claim the next id' || return 0
+	git -C "$repo" update-ref refs/remotes/origin/feature-a HEAD || return 0
+	git -C "$repo" checkout -q main || return 0
+
+	# This control is before the collision, while the missing branch ref is the only reason a narrower
+	# allocator could ever be wrong. It reads D-0002/H-0011: the current tree's gap rather than the
+	# union's ceiling.
+	alloc_control 'only the current checkout is read' "$alloc_work/ctrl-no-refs" \
+		's|git -C "$root" for-each-ref|true #|' \
+		"$repo" DECISIONS.md D D-0002 'it missed the sibling branch'
+	alloc_control 'only the current checkout is read' "$alloc_work/ctrl-no-refs-h" \
+		's|git -C "$root" for-each-ref|true #|' \
+		"$repo" factory/DECISIONS.md H H-0011 'it missed the sibling branch'
+
+	alloc_leg 'refs/heads choose the product id' "$repo" DECISIONS.md D D-0004 \
+		"D-0004, not the current checkout's D-0002"
+	alloc_leg 'refs/heads choose the harness id' "$repo" factory/DECISIONS.md H H-0012 \
+		"H-0012, not the current checkout's H-0011"
+
+	# Now plant exactly the id each allocator has just returned onto a second remote-only ref. The
+	# local checkout remains unchanged, so if the next answer does not move, the allocator ignored
+	# refs/remotes -- the precise way a sibling that has been pushed is missed.
+	git -C "$repo" checkout -qb remote-collision main || return 0
+	{
+		printf '\n## D-0004 · a collision planted on a remote-only ref\n'
+	} >>"$repo/DECISIONS.md" || return 0
+	{
+		printf '\n## H-0012 · a collision planted on a remote-only ref\n'
+	} >>"$repo/factory/DECISIONS.md" || return 0
+	git -C "$repo" add -A || return 0
+	git -C "$repo" commit -qm 'fixture: the second ref takes the next id' || return 0
+	git -C "$repo" update-ref refs/remotes/origin/collision HEAD || return 0
+	git -C "$repo" checkout -q main || return 0
+	git -C "$repo" branch -q -D remote-collision || return 0
+
+	alloc_control 'only refs/heads is read' "$alloc_work/ctrl-no-remotes" \
+		's|refs/heads refs/remotes|refs/heads|' \
+		"$repo" DECISIONS.md D D-0004 'it missed the remote-only collision'
+	alloc_control 'only refs/heads is read' "$alloc_work/ctrl-no-remotes-h" \
+		's|refs/heads refs/remotes|refs/heads|' \
+		"$repo" factory/DECISIONS.md H H-0012 'it missed the remote-only collision'
+
+	alloc_leg 'a remote-only collision is refused' "$repo" DECISIONS.md D D-0005 \
+		'D-0005, because D-0004 is already on origin/collision'
+	alloc_leg 'a remote-only collision is refused' "$repo" factory/DECISIONS.md H H-0013 \
+		'H-0013, because H-0012 is already on origin/collision'
+
+	# A fresh repo with no commits and no branch refs. The only id there is the working file's entry
+	# about to be committed; if this returns D-0001, the allocator was only reading git's committed
+	# copies and each new session would be invited to take the same number.
+	current=$alloc_work/current-checkout
+	git init -q -- "$current" || return 0
+	git -C "$current" config user.email fixture@invalid || return 0
+	git -C "$current" config user.name fixture || return 0
+	printf '## D-0009 · an uncommitted candidate\n' >"$current/DECISIONS.md" || return 0
+	alloc_leg 'the current file counts before it is committed' "$current" DECISIONS.md D D-0010 \
+		'D-0010, because the uncommitted working entry is already D-0009'
+
+	# ---------------------------------------------------------- what the re-read can and cannot see
+	#
+	# The skill tells every session to re-run the allocator immediately before the entry commit. That
+	# is only worth what the second read can see, and the two shapes a sibling arrives in differ, so
+	# both are measured here (H-0071) rather than asserted in prose -- prose is what this whole section
+	# exists to stop being.
+	#
+	# Another worktree of the same clone is the shape this harness actually produces: `common.sh` makes
+	# every unit tree with `git worktree add`, and worktrees share `refs/heads`. So a sibling tick's
+	# committed entry is visible from the primary with no fetch, and the re-read is real.
+	wt=$alloc_work/worktrees
+	git init -q -- "$wt/base" || return 0
+	git -C "$wt/base" config user.email fixture@invalid || return 0
+	git -C "$wt/base" config user.name fixture || return 0
+	git -C "$wt/base" checkout -qb trunk || return 0
+	printf '## D-0001 · fixture trunk\n' >"$wt/base/DECISIONS.md" || return 0
+	git -C "$wt/base" add -A || return 0
+	git -C "$wt/base" commit -qm 'fixture: the trunk before the worktrees' || return 0
+	git -C "$wt/base" worktree add -qb sibling "$wt/sibling" trunk || return 0
+	{
+		printf '\n## D-0009 · a sibling unit in a second worktree\n'
+	} >>"$wt/sibling/DECISIONS.md" || return 0
+	git -C "$wt/sibling" add -A || return 0
+	git -C "$wt/sibling" commit -qm 'fixture: the sibling worktree takes the next id' || return 0
+
+	alloc_control 'only the current checkout is read' "$alloc_work/ctrl-no-worktree" \
+		's|git -C "$root" for-each-ref|true #|' \
+		"$wt/base" DECISIONS.md D D-0002 'it missed the sibling worktree'
+	alloc_leg 'a sibling worktree is refused its id' "$wt/base" DECISIONS.md D D-0010 \
+		'D-0010, read off the sibling worktree with no fetch'
+
+	# Another clone is the shape the re-read cannot see: a push moves `refs/heads` over there, and this
+	# clone's `refs/remotes` moves only when something fetches. origin is a local bare repo, so the leg
+	# measures ref freshness and never a network -- the same reason the shipped allocator is allowed to
+	# stay offline (H-0056).
+	multi=$alloc_work/multi-clone
+	git init -q --bare "$multi/origin.git" || return 0
+	git --git-dir="$multi/origin.git" config user.email fixture@invalid || return 0
+	git --git-dir="$multi/origin.git" config user.name fixture || return 0
+	# The bare origin authors no commits and it still carries an identity: a fixture that inherits the
+	# host's is the failure H-0059 records, and the scan over this file cannot tell a repo that will
+	# never commit from one that will.
+	git clone -q "$multi/origin.git" "$multi/a" >/dev/null 2>&1 || return 0
+	git -C "$multi/a" config user.email fixture@invalid || return 0
+	git -C "$multi/a" config user.name fixture || return 0
+	git -C "$multi/a" checkout -qb trunk || return 0
+	printf '## D-0001 · fixture trunk\n' >"$multi/a/DECISIONS.md" || return 0
+	git -C "$multi/a" add -A || return 0
+	git -C "$multi/a" commit -qm 'fixture: the trunk two machines share' || return 0
+	git --git-dir="$multi/origin.git" fetch -q "$multi/a" 'HEAD:refs/heads/trunk' || return 0
+	git -C "$multi/a" fetch -q origin || return 0
+	# A second machine: its own clone, an id far above the trunk's, delivered to origin while clone a
+	# is not looking. Fetching into the bare repo is how a push lands there.
+	git clone -q "$multi/origin.git" "$multi/b" >/dev/null 2>&1 || return 0
+	git -C "$multi/b" config user.email fixture@invalid || return 0
+	git -C "$multi/b" config user.name fixture || return 0
+	git -C "$multi/b" checkout -qb elsewhere origin/trunk || return 0
+	{
+		printf '\n## D-0007 · an entry pushed from a second clone\n'
+	} >>"$multi/b/DECISIONS.md" || return 0
+	git -C "$multi/b" add -A || return 0
+	git -C "$multi/b" commit -qm 'fixture: a sibling pushed from elsewhere' || return 0
+	git --git-dir="$multi/origin.git" fetch -q "$multi/b" 'HEAD:refs/heads/elsewhere' || return 0
+
+	alloc_boundary 'an unfetched sibling push is invisible' "$multi/a" DECISIONS.md D \
+		D-0002 D-0008 'blind until fetched, so the refresh is the other half'
+
+	claim_leg 'the gate reads no branch refs' gate_reads_no_refs
+	gate_ref_blind_control
+	gen_leg 'a sibling id leaves the verdict alone' \
+		'a duplicate on a sibling ref does not move the answer' \
+		gate_verdict_off_refs
+
+	gen_leg 'the allocator never fetches' 'no git fetch is reachable from its code' \
+		alloc_no_fetch
+	gen_leg 'the shared allocator is documented' \
+		'the skill and the factory guide both name its path and the refresh' \
+		alloc_docs_reference
+	alloc_docs_control
+
+	return 0
+}
+decision_ids
 
 printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
 reached_verdict=1
