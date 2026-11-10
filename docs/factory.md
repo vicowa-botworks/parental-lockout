@@ -480,7 +480,11 @@ again.
 
 `scripts/check-decisions.py` remains the last-resort gate for the consequences: it refuses a repeated
 id in one log and one id claimed by both logs, but it is deliberately offline and cannot reserve an
-id in advance.
+id in advance. That is a rule, and `factory/selftest.sh` refuses the day it changes: the gate may ask
+git about objects -- a `Checkpoint:` that resolves to nothing is a claim about `git revert`, so it has
+to be checked -- and never about refs. A verdict that reads `refs/remotes` is a different verdict in CI
+than at the merge, depending on what each tree last fetched, and a gate that disagrees with itself reads
+as flaky and gets re-run until it agrees.
 
 ## Configuration
 

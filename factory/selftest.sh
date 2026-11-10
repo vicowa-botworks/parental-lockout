@@ -4671,6 +4671,12 @@ unit_deadlines
 #                  fetched half too: an answer that never moves would pass the unfetched half for free.
 #   the offline read it reads refs already on the machine and fetches nothing. A blocking network read
 #                  in a per-tick budget is a hazard this harness already paid for (H-0013, H-0056).
+#   the gate       `scripts/check-decisions.py` asks git about objects and never about refs. The
+#                  allocator may read refs because it only chooses a number; the gate's verdict has to
+#                  be identical in CI, in the review loop and at the merge, so it cannot depend on
+#                  what this checkout last fetched (#253's second instruction, H-0072). Pinned twice:
+#                  a scan for ref-shaped git calls, and the verdict itself on a fixture whose sibling
+#                  branch repeats an id.
 #
 # Both controls plant a narrower read than the shipped allocator has. If either control still returned
 # the correct answer, the ok above would be proof of nothing: the test would pass because the fixture
@@ -4804,6 +4810,133 @@ alloc_docs_control() {
 	printf '  ok    %-40s it refuses documents with the refresh deleted, so\n' \
 		'control: the refresh, not just the path'
 	printf '          the ok above pins the boundary, not just the path.\n'
+	return 0
+}
+
+# Issue #253's second instruction, and the half a leg is worth pinning: the allocator reads refs and
+# the gate must not. If `scripts/check-decisions.py` started enumerating refs, `make verify` would
+# judge a branch by whatever this checkout last fetched -- H-0056's hazard moved into the one check
+# that has to answer identically in CI, in the review loop and at the merge. A verdict that changes
+# between two identical checkouts with no commit between them is worse than no verdict: it reads as a
+# flaky gate and gets re-run until it agrees. So the gate may ask git about objects (a `Checkpoint:`
+# that resolves to nothing is a claim about `git revert`, and the gate refuses that), never about refs.
+gate_reads_no_refs() { # [path] -> 0 when that gate asks git for nothing but object lookups
+	local file=$HERE/../scripts/check-decisions.py code
+	[ -z "${1:-}" ] || file=$1
+	[ -f "$file" ] || return 2
+	# Comments are stripped first: the file's own text explains why it reads no refs, and a scan that
+	# read prose would report the explanation of the rule as a violation of it.
+	code=$(sed 's/#.*//' "$file")
+	printf '%s\n' "$code" | grep -oE '"git",[[:space:]]*"[^"]+"' |
+		grep -vE '"git",[[:space:]]*"cat-file"' >/dev/null && {
+		pos_say 'the gate asks git for a subcommand that is not cat-file: only objects, never refs'
+		return 1
+	}
+	printf '%s\n' "$code" | grep -q 'for-each-ref' && {
+		pos_say 'the gate enumerates refs, so its verdict now depends on the last fetch'
+		return 1
+	}
+	return 0
+}
+
+# The control, planted outside the repository: the shipped gate with a ref-enumerating vector appended
+# and the same scan run over the copy. Appending is enough because the scan is over text, and the
+# point of the control is only that the scan can see what it claims to refuse.
+gate_ref_blind_control() {
+	local ctrl=$alloc_work/gate-refs-control copy
+	if ! mkdir -p -- "$ctrl"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control directory could not be written\n' \
+			'control: the gate stays ref-blind'
+		return 0
+	fi
+	copy=$ctrl/check-decisions.py
+	{
+		cat "$HERE/../scripts/check-decisions.py"
+		printf '%s\n' 'SIBLINGS = ["git", "for-each-ref", "refs/remotes"]'
+	} >"$copy" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copy could not be written\n' \
+			'control: the gate stays ref-blind'
+		return 0
+	}
+	grep -q 'for-each-ref' "$copy" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant landed nowhere the scan reads, so the\n' \
+			'control: the gate stays ref-blind'
+		printf '          leg above was never aimed at the thing it names.\n'
+		return 0
+	}
+	if gate_reads_no_refs "$copy" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a gate that enumerates refs, so\n' \
+			'control: the gate stays ref-blind'
+		printf '          the ok above is the scan being blind, not the gate being clean.\n'
+		return 0
+	fi
+	printf '  ok    %-40s it refuses a gate that enumerates refs, so the\n' \
+		'control: the gate stays ref-blind'
+	printf '          ok above is a reading of the shipped file, not a fixed phrase.\n'
+	return 0
+}
+
+# The behaviour the text scan is a proxy for, on a repository of the gate's own shape: a copy of the
+# shipped script at the same relative path -- it resolves both logs and the checkpoint lookup against
+# its own directory, so the copy is the same gate in a different repository -- with a sibling branch
+# that repeats an id. Both halves are needed: half one says a sibling's collision leaves the verdict
+# alone, half two puts the same bytes in the working log and demands a refusal. Without half two, half
+# one would be passed for free by a fixture the gate never read at all.
+gate_verdict_off_refs() { # -> 0 when the verdict is a reading of two files, not of the ref store
+	local repo=$alloc_work/gate-verdict sha out
+	command -v python3 >/dev/null || return 2
+	mkdir -p -- "$repo/scripts" "$repo/factory" || {
+		pos_say "could not create $repo"
+		return 1
+	}
+	cp "$HERE/../scripts/check-decisions.py" "$repo/scripts/" || {
+		pos_say 'the shipped gate could not be copied into the fixture'
+		return 1
+	}
+	git init -q -b trunk -- "$repo" || return 1
+	git -C "$repo" config user.email fixture@invalid || return 1
+	git -C "$repo" config user.name fixture || return 1
+	git -C "$repo" commit -q --allow-empty -m 'fixture: a commit the entries can cite' || return 1
+	sha=$(git -C "$repo" rev-parse HEAD) || return 1
+	# Two valid logs, one entry each, citing a checkpoint that exists: half one is only worth reading
+	# if this shape is one the gate answers when there is something to answer.
+	printf '# Product decisions\n\n## D-0001 · fixture decision\n\n- Question: does the gate read sibling refs?\n- Options: it reads them | it reads only the two logs\n- Chose: it reads only the two logs\n- Why: the verdict has to be identical in CI and at the merge.\n- Checkpoint: %s\n' \
+		"$sha" >"$repo/DECISIONS.md" || return 1
+	printf '# Harness decisions\n\n## H-0001 · fixture decision\n\n- Question: does the gate read sibling refs?\n- Options: it reads them | it reads only the two logs\n- Chose: it reads only the two logs\n- Why: the verdict has to be identical in CI and at the merge.\n- Checkpoint: %s\n' \
+		"$sha" >"$repo/factory/DECISIONS.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: the two logs' || return 1
+	git -C "$repo" checkout -qb sibling || return 1
+	printf '\n## D-0001 · the duplicate a sibling took\n\n- Question: the same id twice?\n- Options: yes | no\n- Chose: yes\n- Why: the collision the allocator exists to prevent.\n- Checkpoint: %s\n' \
+		"$sha" >>"$repo/DECISIONS.md" || return 1
+	git -C "$repo" add -A || return 1
+	git -C "$repo" commit -qm 'fixture: a sibling takes the id twice' || return 1
+	git -C "$repo" checkout -q trunk || return 1
+
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		:
+	else
+		pos_say 'the gate refused a log that is clean on its own branch, because a sibling ref'
+		pos_say 'repeats an id. That is the verdict reading the ref store, which is what #253 forbids:'
+		pos_say "$out"
+		return 1
+	fi
+	git -C "$repo" show 'sibling:DECISIONS.md' >"$repo/DECISIONS.md" || return 1
+	if out=$(cd "$repo" && python3 scripts/check-decisions.py 2>&1); then
+		pos_say 'the gate accepted a duplicate id sitting in the working log, so the clean answer'
+		pos_say 'above was a fixture it never read rather than a ref boundary:'
+		pos_say "$out"
+		return 1
+	fi
+	printf '%s\n' "$out" | grep -q 'D-0001' || {
+		pos_say 'the gate refused, but not for the id planted in the fixture:'
+		pos_say "$out"
+		return 1
+	}
 	return 0
 }
 
@@ -5008,6 +5141,12 @@ decision_ids() {
 
 	alloc_boundary 'an unfetched sibling push is invisible' "$multi/a" DECISIONS.md D \
 		D-0002 D-0008 'blind until fetched, so the refresh is the other half'
+
+	claim_leg 'the gate reads no branch refs' gate_reads_no_refs
+	gate_ref_blind_control
+	gen_leg 'a sibling id leaves the verdict alone' \
+		'a duplicate on a sibling ref does not move the answer' \
+		gate_verdict_off_refs
 
 	gen_leg 'the allocator never fetches' 'no git fetch is reachable from its code' \
 		alloc_no_fetch

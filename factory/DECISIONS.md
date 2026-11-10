@@ -1637,3 +1637,61 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   the write, from the files as committed: `bash factory/selftest.sh` moved from `282 passed, 0 failed`
   to `284 passed, 0 failed`; `make check-shell` reported 28 scripts with 0 findings; both documents read
   back with the sentences named above in them before this entry was written.
+
+
+## H-0072 · The decision gate stays ref-blind, and what it may not read is now pinned twice
+
+- Question: #253's second instruction is that `scripts/check-decisions.py` must not start reading
+  sibling refs, because that makes the verdict depend on what this checkout last fetched. Nothing
+  enforces it -- the rule lives in the issue, in this log, and in one comment beside the git call. What
+  replaces the sentence, and with what shape of pin?
+- Options: leave the instruction as prose | pin it with a text scan for ref-shaped git calls in
+  `factory/selftest.sh` | pin it on behaviour, with a fixture repository whose sibling branch repeats an
+  id run through a copy of the shipped gate | pin it with both, since the scan is breadth and the
+  fixture is the property | move the ref union into the gate so it warns about a cross-branch duplicate
+  instead of only at the merge
+- Chose: pin it with both, since the scan is breadth and the fixture is the property
+- Why: the two pins answer different questions and each can pass without the other. The scan
+  (`the gate reads no branch refs`) refuses any git subcommand that is not `cat-file` and any
+  `for-each-ref`, so a fetch or a `git show <ref>:path` added years from now for an unrelated reason is
+  refused on the day it appears; its control appends a ref-enumerating vector to a copy of the gate and
+  requires a refusal, because a scan that cannot see a planted one is blind, not clean. The fixture
+  (`a sibling id leaves the verdict alone`) measures the property itself: a repository of the gate's own
+  shape -- a byte-identical copy of the script at the same relative path, since it resolves both logs
+  and the checkpoint lookup against its own directory -- whose sibling branch repeats `D-0001` while
+  the working log is clean. The shipped gate answers clean; the same duplicate put into the working log
+  is answered with `id D-0001 is already used`, and that second half is what stops the first from being
+  a fixture the gate never read. Discrimination was then measured rather than argued: with a ref-reading
+  arm planted in the working copy -- the exact change this entry forbids, `for-each-ref refs/heads` plus
+  `git show <ref>:DECISIONS.md` fed through `check()` -- both legs go FAIL together and the selftest
+  falls from `286 passed, 0 failed` to `284 passed, 2 failed`, the diagnostic naming
+  `refs/heads/sibling:11`. The restored file compares byte-identical to the backup taken before the
+  plant. Why the four alternatives lose. **Prose** is what this and H-0071 are both corrections for.
+  **The scan alone** never shows the verdict actually holds on a tree that contains a collision, so it
+  would keep passing if a future refactor read refs through a helper it does not pattern. **The fixture
+  alone** refuses only a ref read that changes an id verdict; a `git fetch` bolted onto the gate for
+  some other reason would pass it and still make the gate a network client. **Move the union into the
+  gate** is the hazard itself, and it was measured: one commit, `82bbe713`, in two checkouts that differ
+  only in which branches they hold -- with every branch present the ref-reading gate reports
+  `1 decision-log problem`, and in a single-branch clone of the same commit it reports none; the shipped
+  gate reports none in both. A gate whose answer is a function of `actions/checkout`'s depth, or of the
+  last person to fetch, gets re-run until it agrees, which is how a red gate gets ignored. Tie-break:
+  the option that refuses rather than proceeds (a clean answer from a tree that hides its refs is
+  exactly the wrong answer), and the one that touches the fewest shipped files -- both legs are in
+  `factory/selftest.sh`; the gate, the allocator and `make verify`'s shape are untouched. What lost, as
+  measured: the scan is textual, so a ref read spelled through a variable holding `["git", "for-"
+  "each-ref"]` would slip past it -- the fixture is what is load-bearing, and it is the leg that caught
+  the plant; the fixture's verdict is about *id* rules only, so a future rule that legitimately needs
+  the object store stays allowed by design (`Checkpoint:` resolution reads objects, not refs); neither
+  leg can stop a *human* wiring the union into the gate and dismissing the FAIL -- what stops that is
+  this entry and the merge that has to pass `make verify`.
+- Checkpoint: 1d61a4113c50680af4f2941024f276e69f97dabf
+- Effect: `factory/selftest.sh` gains two counted legs and two counted controls --
+  `the gate reads no branch refs` with the planted-vector control, and
+  `a sibling id leaves the verdict alone` with its own in-fixture falsifier; its header list gains the
+  gate row. `docs/factory.md`'s decision-id section now states the gate's limit as a rule with its
+  reason. No shipped check changed: `scripts/check-decisions.py`, `factory/next-decision-id.sh`,
+  `factory/factory.sh` and the Makefile are untouched by this commit. Re-measured after the write, from
+  the files as committed: `bash factory/selftest.sh` moved from `284 passed, 0 failed` to
+  `286 passed, 0 failed`; `make check-shell` reported 28 scripts; the plant and its reversal are
+  recorded above.
