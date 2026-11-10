@@ -307,7 +307,7 @@ under `$TMPDIR`, where the fixture is built, and not the one the repository sits
 `f60c367` on one machine with only `TMPDIR` moved, the same commit reads 191 legs with `$TMPDIR` on
 tmpfs and 190 with it on btrfs, one leg of the exclude pair appearing and disappearing with the arm.
 The tally line therefore prints its own fixture root, filesystem and git version, so a leg count quoted
-anywhere carries the world it was counted in (H-0057). A stat-only difference, the report #228
+anywhere carries the world it was counted in (H-0104). A stat-only difference, the report #228
 came in with, was tried in six variants and does *not* reproduce on this git, which refreshes the
 index in memory before reporting; the verdict no longer depends on that question either way.
 
