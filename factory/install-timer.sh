@@ -10,7 +10,7 @@
 # The user instance, never the system one: nothing here needs root, and a timer that runs as root to
 # move a repository's pull requests is a bigger incident than a stalled ticket.
 #
-# usage: install-timer.sh [--install | --remove] [--dry-run] [--name NAME]
+# usage: install-timer.sh [--install | --remove] [--dry-run] [--force] [--name NAME]
 set -euo pipefail
 
 # shellcheck source=./common.sh
@@ -19,14 +19,19 @@ set -euo pipefail
 
 NAME=
 MODE=
+FORCE=0
 
 usage() {
 	cat <<'USAGE'
-usage: install-timer.sh [--install | --remove] [--dry-run] [--name NAME]
+usage: install-timer.sh [--install | --remove] [--dry-run] [--force] [--name NAME]
 
---install   write the two units, daemon-reload, enable --now the timer
+--install   write the two units, daemon-reload, enable --now the timer.
+            Refuses when the tree it is installing is not `origin/<trunk>` -- the unit's
+            ExecStart is a path, so a tree 121 commits behind runs 121 commits of fixes that
+            were merged and never installed (#249). The message prints the fast-forward.
 --remove    disable --now the timer, remove the units, daemon-reload
 --dry-run   print the units and the systemctl commands, write nothing
+--force     install the tree anyway, and log `TIMER-FORCED` with what was overridden
 --name NAME   unit name without the .service/.timer suffix
             (default: <repo>-factory, e.g. parental-lockout-factory)
 
@@ -41,6 +46,7 @@ while [ $# -gt 0 ]; do
 	--install) MODE=install ;;
 	--remove) MODE=remove ;;
 	--dry-run) DRY_RUN=1 ;;
+	--force) FORCE=1 ;;
 	--name)
 		[ $# -ge 2 ] || die "--name wants a unit name"
 		NAME=$2
@@ -90,10 +96,34 @@ UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SERVICE="$UNITS/$NAME.service"
 TIMER="$UNITS/$NAME.timer"
 INTERVAL=${FACTORY_INTERVAL:-10m}
-# The timer's ceiling has to clear the supervisor's own budget. systemd kills a oneshot at
-# TimeoutStopSec, and a tick killed mid-commit leaves a dirty worktree -- which the next pass finds,
-# refuses to touch, and halts on. Deriving it here is what keeps the two numbers from drifting apart.
+# Two deadlines, two numbers, because they bound two different moments. They were one token until
+# 8 Nov, and that coupling is what issue #246 is about: it cost 67 minutes of silence.
+#
+# START bounds the pass. A `Type=oneshot` has no start timeout by default -- systemd.service(5): the
+# default is "disabled by default" for that Type -- so without a number here a wedged pass holds
+# `factory/run/lock` for as long as it lives and every later activation prints "another supervisor
+# holds the lock" and does nothing. It has to clear the supervisor's own budget, and deriving it from
+# FACTORY_BUDGET rather than writing a literal is what keeps the two from drifting apart. This is also
+# the deadline that fires if a tick is ever killed mid-commit, which is the hazard the comment used to
+# sit on the *stop* line.
 STOP=$((FACTORY_BUDGET + 60))
+#
+# STOP_TIMEOUT bounds the reaping, once the pass has already printed its last line. systemd sends
+# SIGTERM to every process in the unit's cgroup (KillMode=control-group is the default) and escalates
+# to SIGKILL when this expires, and the unit is not `inactive` until that has finished -- while
+# `OnUnitInactiveSec=` on the timer starts counting its interval only at that moment. So this number
+# is precisely how long one descendant that ignores SIGTERM can hold the whole queue. Measured 8 Nov:
+# a Wine grandchild a tick had spawned (`C:\windows\system32\winedevice.exe`, started 14 s into the
+# activation) was still in the cgroup with the main process gone -- `ActiveState=deactivating
+# SubState=stop-sigterm MainPID=0 TasksCurrent=10` -- while the timer read `active`/`running` with an
+# empty `TriggerNextElapseUSecRealtime` and did not fire for 1 h 07 min. Nothing legitimate is running
+# at that point, so what the deadline is waiting for is a process that is not going to die: 60 s is
+# generous for reaping a process group, and 60 s is the whole outage now instead of 91 minutes.
+#
+# Deliberately not an environment override, unlike every other number here. START is a property of the
+# budget this machine gives a pass; this one is a property of how long a reaper should wait. A knob for
+# it is one setting away from re-merging the two numbers, and the merge is the defect.
+STOP_TIMEOUT=60
 
 systemctl_user() {
 	if [ "$DRY_RUN" = "1" ]; then
@@ -110,6 +140,85 @@ if [ "$MODE" = "remove" ]; then
 	systemctl_user daemon-reload
 	log_event "TIMER-REMOVED $NAME ($SERVICE, $TIMER)"
 	exit 0
+fi
+
+# Refuse to arm a tree that is not the trunk (#249).
+#
+# `ExecStart` is rendered as a *path*, so what the timer runs is whatever this tree has checked out
+# at the moment it fires -- and until this block nothing compared that checkout to the trunk: not
+# here, not in `--status`, not in the unit. Measured 8 Nov: the tree was at `efa4e29`, 121 commits
+# behind `origin/main`, and a reinstall of it -- an act that looks exactly like maintenance --
+# succeeded and said nothing. That is how a stale loop survives the one thing a person does about a
+# loop that is not moving. The answer is a refusal and not a warning because a warning about a
+# healthy-looking pass is precisely the thing that was already missing: #248's fix could be green,
+# merged, and still not be the code that halted the queue tomorrow.
+#
+# Measured against `origin/$FACTORY_BASE` as this checkout last learned it. There is no fetch inside
+# the verdict and H-0056 records why; that is also why the command below starts with a fetch -- the
+# operator is a person with a terminal, and a fetch in their hands cannot park a pass.
+#
+# The tree asked of here is `$FACTORY_ROOT` and not `$FACTORY_HARNESS`: it is the tree `@REPO@`
+# becomes, so it is the tree the unit this script is about to write will exec. The two differ whenever
+# the harness is installed from a linked worktree, which is what the `-x` check above tells you to do.
+pos_rc=0
+pos=$(factory_supervisor_position "$FACTORY_ROOT") || pos_rc=$?
+IFS=$'\t' read -r pos_sha pos_branch pos_behind pos_ahead pos_dirty <<EOF
+$pos
+EOF
+pos_base=$(factory_supervisor_base)
+pos_base=${pos_base#refs/remotes/}
+
+if [ "$pos_rc" -eq 2 ]; then
+	printf 'install-timer: %s is not a readable git checkout, so there is no way to say what code the unit would run.\n' \
+		"$FACTORY_ROOT" >&2
+	printf '  The unit execs %s/factory/factory.sh. Point the install at a real checkout:\n' "$FACTORY_ROOT" >&2
+	printf '      FACTORY_ROOT=<checkout> %s --install\n' "$0" >&2
+	exit 1
+fi
+
+if [ "$pos_rc" -eq 3 ] && [ "$FORCE" != "1" ]; then
+	printf 'install-timer: refusing to install: %s cannot be resolved in %s.\n' "$pos_base" "$FACTORY_ROOT" >&2
+	printf '  Nothing here can say whether this tree is merged code, and installing it arms a timer\n' >&2
+	printf '  running code nobody has checked against the trunk. Fetch the trunk or move the tree:\n\n' >&2
+	printf '      git -C %s fetch origin %s\n\n' "$FACTORY_ROOT" "${FACTORY_BASE:-main}" >&2
+	printf '  --force installs it anyway.\n' >&2
+	exit 1
+fi
+
+if [ "$pos_rc" -eq 0 ] && { [ "$pos_behind" != "0" ] || [ "$pos_ahead" != "0" ]; } &&
+	[ "$FORCE" != "1" ]; then
+	printf 'install-timer: refusing to install a tree that is not the trunk.\n' >&2
+	printf '  %s is at %s on %s: %s %s behind %s' \
+		"$FACTORY_ROOT" "$pos_sha" "$pos_branch" "$pos_behind" "$(factory_plural "$pos_behind")" \
+		"$pos_base" >&2
+	[ "$pos_ahead" = "0" ] || printf ', %s ahead of it' "$pos_ahead" >&2
+	[ "$pos_dirty" = "0" ] || printf ', %s uncommitted' "$pos_dirty" >&2
+	printf '.\n' >&2
+	printf '  The unit execs %s/factory/factory.sh, so this tree IS the supervisor: every merge\n' "$FACTORY_ROOT" >&2
+	printf '  since its checkout is invisible to the loop that exists to act on them, and every other\n' >&2
+	printf '  check in this harness reads healthy while that is true (#249).\n\n' >&2
+	if [ "$pos_ahead" = "0" ]; then
+		# A pure fast-forward exists here, so name it. This is the only arm allowed to: a fork has no
+		# fast-forward, and sending an operator to a command git refuses is its own wasted evening.
+		printf '      git -C %s fetch origin %s && git -C %s merge --ff-only %s\n\n' \
+			"$FACTORY_ROOT" "${FACTORY_BASE:-main}" "$FACTORY_ROOT" "$pos_base" >&2
+	else
+		printf '  This tree'"'"'s branch (%s) holds %s %s %s does not have, so a fast-forward is\n' \
+			"$pos_branch" "$pos_ahead" "$(factory_plural "$pos_ahead")" "$pos_base" >&2
+		printf '  not available. Merge it or rebase it onto the trunk, or arm a checkout the trunk\n' >&2
+		printf '  already contains:\n\n' >&2
+		printf '      FACTORY_ROOT=<checkout> %s --install\n\n' "$0" >&2
+	fi
+	printf '  Then re-run --install. --force installs this tree anyway, and says so in the journal.\n' >&2
+	exit 1
+fi
+
+if [ "$FORCE" = "1" ] && { [ "$pos_rc" -eq 3 ] || [ "$pos_behind" != "0" ] || [ "$pos_ahead" != "0" ]; }; then
+	# The override is for the deliberate case, and the journal is where the next reader looks for what
+	# was overridden. A force that leaves no trace is a way of lying to whoever finds it later.
+	printf 'install-timer: --force given, installing %s at %s (%s) even though it is not the trunk.\n' \
+		"$FACTORY_ROOT" "$pos_sha" "$pos_branch"
+	log_event "TIMER-FORCED $NAME code=$pos_sha branch=$pos_branch behind=$pos_behind ahead=$pos_ahead dirty=$pos_dirty base=$pos_base repo=$FACTORY_ROOT"
 fi
 
 # Where the binaries actually are. A systemd unit does not read a shell profile, so an `opencode`
@@ -166,6 +275,7 @@ render() {
 		-e "s#@PATHS@#$(sed_replacement "$BIN_DIRS:/usr/local/bin:/usr/bin:/bin")#g" \
 		-e "s#@INTERVAL@#$(sed_replacement "$INTERVAL")#g" \
 		-e "s#@STOP@#$(sed_replacement "$STOP")#g" \
+		-e "s#@STOP_TIMEOUT@#$(sed_replacement "$STOP_TIMEOUT")#g" \
 		-e "s#@REVIEWER@#$(sed_replacement "$FACTORY_REVIEWER")#g" \
 		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
 		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g"
@@ -205,11 +315,9 @@ Environment=FACTORY_REVIEWER=@REVIEWER@
 # defined out there. factory.sh sets the same variable at the call site too, so a pass started from a
 # terminal is correct as well; this line is the half a person can see in systemctl cat.
 Environment=PWD=@REPO@
-# Both bounds are the same number, and both are wider than FACTORY_BUDGET.
-#
-# TimeoutStopSec: systemd kills a oneshot at this point on stop, and a tick killed mid-commit leaves a
-# dirty worktree -- which the next pass finds, refuses to touch, and halts on. Deriving it from the
-# budget at the top of the generator is what keeps the two numbers from drifting apart.
+# Two numbers, because they bound two different moments. Until 8 Nov they were one token, and that
+# coupling is why the queue went silent for 1 h 07 min while every status command said it was fine --
+# `docs/factory.md` carries the measurement and the reasoning; the short version is below.
 #
 # TimeoutStartSec is written down because the default for this Type is not a number anybody would
 # guess. systemd.service(5): TimeoutStartSec "Defaults to DefaultTimeoutStartSec= set in the manager,
@@ -222,7 +330,17 @@ Environment=PWD=@REPO@
 # journal line a pass as the only symptom. An explicit start deadline is the whole fix, and it is here
 # rather than in a comment because a default that depends on `Type` is a default that changes when
 # someone changes `Type`.
-TimeoutStopSec=@STOP@
+#
+# TimeoutStopSec bounds the reaping, after the pass has said its last line: SIGTERM to the whole
+# cgroup, SIGKILL when this expires, and the unit is not `inactive` until that is done -- and the
+# timer's `OnUnitInactiveSec=`, the setting that re-arms the queue, starts its interval at that
+# moment. So this value is exactly how long one descendant that ignores SIGTERM can hold the factory:
+# a leaked `winedevice.exe` sat in this unit's cgroup on 8 Nov with the main process already gone
+# (`SubState=stop-sigterm`, `MainPID=0`, `TasksCurrent=10`) and the timer held no elapse for an hour.
+# What it is NOT is the guard against a tick being killed mid-commit -- that is TimeoutStartSec above,
+# because the start deadline is the one that fires while the pass is still running. Nothing legitimate
+# is executing during stop, which is why this one is a minute and the other is the budget.
+TimeoutStopSec=@STOP_TIMEOUT@
 TimeoutStartSec=@STOP@
 # A halt is not a failure, and saying so is not decoration. `factory/factory.sh` exits
 # FACTORY_EXIT_HALT when factory/HALT exists, and until this line existed the very first halted pass

@@ -27,7 +27,7 @@ systemd timer (or `while :; do factory.sh; sleep 600; done`)
 factory/factory.sh --dry-run            # every action printed, nothing written
 factory/triage.sh --table               # just the verdict, for a human
 factory/triage.sh --pr 206              # why this one is sitting there
-factory/factory.sh --status             # halt state and the ledger
+factory/factory.sh --status             # halt state, which code this is, and the ledger
 ```
 
 `--dry-run` is a property of the whole script, not of one call site: no GitHub write, no git write, no
@@ -181,12 +181,13 @@ review -- the tick is told to read the body itself, and told that if it is not t
 ## Installing it
 
 Generate the units; do not copy them out of a README. `factory/install-timer.sh` asks the machine
-where `gh` and `opencode` actually live, derives the unit's `TimeoutStopSec` from `FACTORY_BUDGET`,
+where `gh` and `opencode` actually live, derives the unit's `TimeoutStartSec` from `FACTORY_BUDGET`,
 and refuses to install anything that would fail quietly:
 
 ```bash
 factory/install-timer.sh --install --dry-run     # prints both units and the systemctl commands
-factory/install-timer.sh --install
+factory/install-timer.sh --install               # refuses a tree that is not the trunk
+factory/install-timer.sh --install --force       # anyway, and `TIMER-FORCED` in the journal
 journalctl --user -u parental-lockout-factory.service -n 50
 factory/install-timer.sh --remove                # the whole thing, reversibly
 ```
@@ -213,18 +214,63 @@ Environment=FACTORY_REVIEWER=hermesvicowa
 # WorkingDirectory. A unit exports a cwd and no PWD, so without this line every tick opens a session
 # in the background server's home directory and dies on `Agent not found: "factory"`.
 Environment=PWD=/home/rodney/prj/parental-lockout
-# The same number twice, both wider than FACTORY_BUDGET. TimeoutStopSec keeps systemd from killing a
-# tick mid-commit (a killed tick leaves a dirty worktree, and the next pass halts on it).
+# Two numbers, because they bound two different moments. They used to be the same one, and that
+# coupling is what the paragraph after this block is about.
 # TimeoutStartSec is here because a oneshot has NO start timeout at all: systemd.service(5) says the
 # default is "disabled by default" for that Type, measured as `TimeoutStartUSec=infinity` on a manager
 # whose DefaultTimeoutStartSec is 1min30s. With none, a wedged pass holds the run lock forever and
-# every later activation quietly does nothing.
-TimeoutStopSec=5460
+# every later activation quietly does nothing. It is also the deadline that fires while a pass is
+# *running*, so it is the one that could kill a tick mid-commit.
+# TimeoutStopSec bounds only the reaping, after the pass has exited: SIGTERM to the whole cgroup,
+# SIGKILL at this deadline, and the unit is not `inactive` until that finishes. One minute, because the
+# only thing left to wait for is a grandchild that will not die.
+TimeoutStopSec=60
 TimeoutStartSec=5460
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 ```
+
+**The two deadlines were one number until 8 Nov, and it took the queue offline for 1 h 07 min.**
+`OnUnitInactiveSec=` is the setting that keeps passes from stacking, and it is the one that re-arms the
+queue after a pass -- so "this unit becomes inactive" is the event the whole loop waits on. (The timer's
+other anchor, `OnStartupSec=`, fires once per manager start, which is why it rescued nothing here: this
+manager had been up since long before the pass.) A pass that evening printed `END rc=4 ticks_started=1`
+and its main process exited at 22:18:51Z, but the unit never went inactive: something the tick had run
+left a Wine grandchild (`C:\windows\system32\winedevice.exe`) in the unit's cgroup,
+`KillMode=control-group` will not call the cgroup empty while one descendant lives, and systemd waits
+out `TimeoutStopSec` -- then 5460 s -- before escalating to `SIGKILL`. For 91 minutes the unit sat at
+`ActiveState=deactivating SubState=stop-sigterm MainPID=0 TasksCurrent=10`, the timer sat at
+`ActiveState=active SubState=running` with an **empty** `TriggerNextElapseUSecRealtime` and a `-` in
+`list-timers`' next-fire column, and the journal held nothing after 22:18. Every command that reads as
+health read as healthy. `systemctl --user kill -s KILL <unit>` at 23:06:55Z re-armed the timer
+immediately.
+
+A descendant that ignores `SIGTERM` is not hypothetical and is not a Windows curiosity -- anything a
+tick runs can leak one, and the harness cannot enumerate them, so the answer is a bounded stop rather
+than a smarter kill. Three things travel with that:
+
+- `TimeoutStopSec` is now its own token at 60 s and `TimeoutStartSec` keeps the budget-derived ceiling.
+  Shrinking the start ceiling by accident would kill a real tick at a minute, so `factory/selftest.sh`
+  renders the shipped generator and asserts the two values are *different* and that start still clears
+  the budget (H-0066).
+- The only line in the whole system that recorded this failure is the unit's own substate, and nobody
+  reads it. Whatever watches the loop has to print it:
+  `systemctl --user show parental-lockout-factory.service -p ActiveState -p SubState -p TasksCurrent`,
+  alongside the timer's `TriggerNextElapseUSecRealtime`. A timer that is `active` with no elapse is the
+  least suspicious thing a stalled queue can look like: H-0037 is the same shape -- 3h13m of nothing
+  after a boot, with the timer reporting `active`.
+- After an escalated kill the unit ends `failed` -- `Result=exit-code`, from whatever the pass returned
+  -- which does not stop the timer firing, but makes `systemctl --user status` read like an outage long
+  after the queue recovered. Clear it with `systemctl --user reset-failed parental-lockout-factory.service`.
+
+Two things are still owed, and neither is a tick's to do. The reinstall that puts 60 s on a machine --
+`factory/install-timer.sh --install`, which has to restart a timer that is already running (H-0037) --
+is a manager write, and a manager call is denied to an unattended unit. And the reaping itself has not
+been measured on this box: the `systemd-run` pair that would show 5 s reaping a live detached
+descendant, against 5460 s not reaping it, is written out on the issue's pull request. Until somebody
+runs it, "60 s is enough to reap a process group" is a reading of how `SIGKILL` behaves, not a
+measurement taken here.
 
 No `After=`/`Wants=network-online.target`. That target does not exist in a user manager --
 `systemctl --user status network-online.target` answers `Unit network-online.target could not be
@@ -289,6 +335,263 @@ That is why the first install can point at the harness branch (`factory/DECISION
 `install-timer.sh` refuses rather than installing a unit whose `ExecStart` path does not exist: a
 timer that fires into 127 looks identical, from the outside, to a timer that is working.
 
+## Which code the loop is running
+
+`ExecStart=@REPO@/factory/factory.sh` is a *path*. A path says where the supervisor lives, not what
+it is, and the tree under it can be any commit anybody left there. Measured 9 Nov, from the tree's own
+reflog: it had sat on `efa4e29` since 6 Nov 19:27Z and been fast-forwarded at 16:39:59Z -- **three
+days**, with `origin/main` 121 commits away the whole time and `ahead 0`, so a fast-forward was always
+available and nobody was told to take one. What that cost is checkable rather than rhetorical: the
+halt path in that tree predates #228's hardening of the dirt verdict -- `git show efa4e29:factory/common.sh`
+has no `update-index --refresh` and `origin/main` has eight of them, arriving in `cf87ecc`, `08bd015`
+and `15352b3`, all three inside the 121 -- so the code that decides whether to stop the whole queue was
+the version that reads a stale stat cache. And the reinstall a person reaches for when a loop is not
+moving is a no-op with a healthy exit: run against a clone 33 commits behind its own trunk, the shipped
+`--install` exited 0, wrote both unit files, and left one journal line reading `TIMER-INSTALLED`
+(#249).
+
+So the tree's position against the trunk is part of *which code a given pass is*, and the harness says
+it in two places. The one command a person types when the queue is not moving:
+
+```
+$ factory/factory.sh --status
+halt:    no
+code:    3962919 (detached, 3 behind origin/main)
+```
+
+and the same fact in the journal, beside the `PASS` line, on every activation -- because nobody asks a
+timer a question, and `units=0` is one word short of a lie when the reader is out of date:
+
+```
+2026-11-09T17:39:29Z PASS units=0 dry=0 budget=5400s root=/tmp/opencode/demo-ff trees=/tmp/opencode/wt
+2026-11-09T17:39:29Z SUPERVISOR-AT 3962919 dirty=0
+2026-11-09T17:39:29Z SUPERVISOR-STALE origin/main is 3 commits ahead; the loop is not running merged code
+```
+
+Both are from a clone detached three commits behind its own trunk, with the harness where
+`install-timer.sh` puts it -- the same shape `factory/selftest.sh` builds for its `behind only` legs, so
+the shas in them are that clone's own commits and match no branch here. A fork, or a dirty tree, is the
+same two lines with more to say: `code: 95e1816 (issue-249, 0 behind origin/main, 1 commit ahead: a
+fork, which a fast-forward will not fix) + 5 uncommitted path(s)` is the line from the tree this change
+was written in, printed at 17:29:33Z while the work was in progress.
+
+`SUPERVISOR-AT` is on every pass. `SUPERVISOR-STALE`, `SUPERVISOR-FORKED` (the tree also holds commits
+the trunk does not), `SUPERVISOR-NOBASE` (no `origin/<trunk>` ref to compare against) and
+`SUPERVISOR-UNKNOWN` (git could not read the tree) appear only for the state each names, and
+`factory/selftest.sh` pins all five against trees planted in each state. `dirty=` is a path count from
+the same three content reads `factory_tree_dirt` uses -- never from `git status --porcelain`, for the
+reason given in the section on dirty trees.
+
+The count is every commit reachable from `origin/main` that the tree lacks, which is the reading
+`triage.sh` already uses for its `branch=` column. It is therefore *not* first-parent: the tree above
+is parked three merge commits back on a history of merges and says 33, because 33 merged commits are
+what it is missing. `git log --oneline HEAD..origin/main` is the list it counts.
+
+Two trees can be "the code under test" and they are different directories, which is why the branch is
+never asked of a global: `$FACTORY_HARNESS` is where the running script was read from -- what `--status`
+and the pass report, because it is what is actually executing -- and `$FACTORY_ROOT` is what `@REPO@`
+becomes, so `--install` judges that one, because it is what the unit will exec. They are equal only
+while the harness lives in the primary checkout, which is the arrangement `H-0009` rejects.
+
+This is what a reinstall of that tree now prints, verbatim:
+
+```
+install-timer: refusing to install a tree that is not the trunk.
+  /tmp/opencode/demo-ff is at 3962919 on detached: 3 commits behind origin/main.
+  The unit execs /tmp/opencode/demo-ff/factory/factory.sh, so this tree IS the supervisor: every merge
+  since its checkout is invisible to the loop that exists to act on them, and every other
+  check in this harness reads healthy while that is true (#249).
+
+      git -C /tmp/opencode/demo-ff fetch origin main && git -C /tmp/opencode/demo-ff merge --ff-only origin/main
+
+  Then re-run --install. --force installs this tree anyway, and says so in the journal.
+```
+
+and the same refusal where the tree holds commits the trunk does not, because the operator's next
+command is different and the message has to be the one that is true:
+
+```
+install-timer: refusing to install a tree that is not the trunk.
+  /tmp/opencode/demo-fork is at 5e32220 on detached: 3 commits behind origin/main, 1 ahead of it.
+  The unit execs /tmp/opencode/demo-fork/factory/factory.sh, so this tree IS the supervisor: every merge
+  since its checkout is invisible to the loop that exists to act on them, and every other
+  check in this harness reads healthy while that is true (#249).
+
+  This tree's branch (detached) holds 1 commit origin/main does not have, so a fast-forward is
+  not available. Merge it or rebase it onto the trunk, or arm a checkout the trunk
+  already contains:
+
+      FACTORY_ROOT=<checkout> /tmp/opencode/demo-fork/factory/install-timer.sh --install
+
+  Then re-run --install. --force installs this tree anyway, and says so in the journal.
+```
+
+What the check deliberately does **not** do:
+
+- **No fetch inside the verdict.** It compares against `origin/<trunk>` as this checkout last learned
+  it, the same reading the orphan pass already makes. A fetch is a blocking network call in front of a
+  budget, and this repository already owns the hazard of a read that parks (H-0056; `H-0013` cost
+  5min2s of a pass for a local read). The command the refusal prints starts with the fetch, because an
+  operator with a terminal cannot park a pass.
+- **No automatic move.** A timer runs a path, and editing the script a shell is reading is not a thing
+  to do from inside it.
+
+The refusal differs by the operator's next command, because the two states have different fixes and
+only one of them has a fast-forward: behind with no local commits prints
+`git -C <tree> fetch origin main && git -C <tree> merge --ff-only origin/main`; a fork -- commits of its
+own, which is what a tree looks like after a pass was interrupted mid-work -- prints that a
+fast-forward is *not* available and names the three real choices. A stale tree can always still be
+*removed*: `--remove` runs before the check, because the wrong reason to be unable to stop a broken
+loop is that it is broken.
+
+## Decision ids are allocated against refs, not prose
+
+`DECISIONS.md` and `factory/DECISIONS.md` are append-only references. A tick that numbers from the
+highest heading in *its checkout* is correct about the trunk and blind to the two siblings already
+pushed against it. That is what produced three `H-0061` entries and the hand renumberings recorded at
+`H-0065` and `H-0068`.
+
+```bash
+factory/next-decision-id.sh DECISIONS.md
+factory/next-decision-id.sh factory/DECISIONS.md
+```
+
+The command reads the working log, `HEAD`, every `refs/heads` ref and every `refs/remotes` ref. Its
+answer is one above the highest id of the selected prefix anywhere in that union. Gaps below the
+ceiling are closed forever: a retired or renumbered id remains the thing a historical citation means,
+so "first free" is not "smallest missing number".
+
+It answers only for the decision log itself. The named path has to be named `DECISIONS.md` and be a
+regular file in the working tree or a blob in `HEAD`, because a union with no headings in it has
+exactly one answer available -- `<prefix>-0001`, the first heading both logs have carried since entry
+one -- so an empty union is a mistyped path, and answering it is the collision this command exists to
+refuse. Measured on the version #255 shipped, on three calls a session really makes:
+
+| The call | It printed | It prints now |
+|---|---|---|
+| `--prefix H factory/DECISION.md` | `H-0001`, exit 0 | a refusal naming the path |
+| `factory/DECISION.md`, no `--prefix` | nothing, exit 2, stdout and stderr both empty | a refusal naming the path |
+| `--repo <a checkout with no log> DECISIONS.md` | `D-0052` — *this* repository's ceiling | a refusal naming the path |
+
+The third row is the one that mattered: a relative log path fell back to the caller's tree whenever the
+named one was missing, so `--repo` read whatever log the directory it was invoked from had, and
+answered a question about one repository with a number from another. It now resolves against the
+repository named, once, with no second reading. The second row was a `sed` failing under
+`set -euo pipefail` inside a command-substitution assignment: the script ended with the substitution's
+status and said nothing on either stream, and a session holding an allocator that says nothing reads
+it as a broken tool and goes back to numbering by eye -- which is the defect this whole section is
+about. A fresh log is one `touch` and a title line away, and its first entry still gets an honest
+`D-0001` or `H-0001`, inferred from the path rather than from a heading that does not exist yet. Six
+legs and two controls in `factory/selftest.sh` plant each row; the controls are what prove the
+refusals are the guard and not a fixture that agrees by accident.
+
+Existence turned out to be the wrong question, and asking it is how a wrong path gets the same answer
+as a missing one. The version reviewed at `c5aa1eb` asked whether the named path was *there*, and every
+wrong path in a checkout is there: `--prefix H docs/factory.md` printed `H-0001` and exited 0, and so
+did `README.md`, `AGENTS.md`, `factory` and `factory/` -- the last a directory in the tree and a tree in
+`HEAD`, which `git cat-file -e` answers true for. `docs/factory.md` is this guide, the file carrying the
+paragraph you are reading, so it is what a session has open at the moment it reaches for the allocator.
+That hole is worse than the typo above, not merely different: the refusal `c5aa1eb` ships tells the
+caller *your path is wrong*, so a session handed `H-0001` for `docs/factory.md` reads it as "my log was
+read" and writes a duplicate heading -- the silent collision, where an error message would have been
+visible. The guard now asks whether the path *is* the log: the basename must be `DECISIONS.md`, and
+what is behind it must be a regular file or a blob in `HEAD`. A guide, a README, a directory, and a
+directory named `DECISIONS.md` are each refused and each is told why (`H-0076`); three more legs and two
+more controls join the six and two above, one plant per arm of the predicate, so neither test can be
+retired without a leg going red.
+
+It reads the refs this machine already has and does not fetch, for the same reason #249's staleness
+verdict does not: a blocking network read ahead of a pass budget can park the loop (H-0013, H-0056).
+That makes the answer a collision-free *read*, not a lock, and the read has a boundary. It is stated as
+a measurement here because the skill's second read is only worth what it can see (H-0071), and the two
+shapes a sibling arrives in do not behave the same way:
+
+| A sibling that… | Unfetched | After `git fetch` | Why |
+|---|---|---|---|
+| committed in another worktree of **this clone** | seen: `D-0002` → `D-0010` | seen | every unit tree is a worktree, and worktrees share `refs/heads` |
+| pushed from **another clone** | missed: `D-0002`, while origin holds `D-0007` | seen: `D-0008` | a push moves `refs/heads` there; `refs/remotes` here moves on a fetch only |
+
+So the skill's re-read immediately before the entry commit closes the same-machine window and nothing
+else. The second row is closed by the activation itself (H-0075): `factory.sh` fetches origin -- every
+branch, once, bounded by `FACTORY_FETCH_TIMEOUT`, before it reads the queue -- so `refs/remotes` is
+current by the time the allocator runs in a tick's shell. The command an operator types is still
+`git fetch --prune origin`, and the shape matters more than it looks: measured in a fixture,
+`git fetch --prune origin main` updates the trunk only, leaves the allocator on its stale answer, and
+still prints a line with `->` in it. A sibling's ids are on the branch it pushed.
+
+Two things the fetch cannot do. It does not make the id *reserved*: two ticks that allocate in the
+same second still agree, and only the re-read immediately before the entry commit narrows that. And it
+is bounded, so on an origin that accepts the connection and never answers the activation proceeds on
+stale refs and says so -- `REFRESH-TIMEOUT`, with how old `origin/<trunk>` is -- rather than holding
+`factory/run/lock` while the queue freezes behind a read. A clone whose refspec names one branch
+cannot learn a sibling's branch at all, and the activation says that too, as `REFRESH-BLIND`.
+
+`scripts/check-decisions.py` remains the last-resort gate for the consequences: it refuses a repeated
+id in one log and one id claimed by both logs, but it is deliberately offline and cannot reserve an
+id in advance. That is a rule, and `factory/selftest.sh` refuses the day it changes: the gate may ask
+git about objects -- a `Checkpoint:` that resolves to nothing is a claim about `git revert`, so it has
+to be checked -- and never about refs. A verdict that reads `refs/remotes` is a different verdict in CI
+than at the merge, depending on what each tree last fetched, and a gate that disagrees with itself reads
+as flaky and gets re-run until it agrees.
+
+### When two branches take the same number, the side that has not merged yields
+
+Two reads can still agree: measured, two calls in the same instant against one fixture both answered
+`H-0010`. What that window needs -- two sessions allocating before either commits -- is not available on
+this machine by mechanism rather than by habit. `factory/factory.sh` takes `exec 9>"$FACTORY_RUN/lock"`
+and `flock -n 9` before it reads anything, so a second activation prints `another supervisor holds …, so
+nothing was done here.` and exits 7; and it starts each tick in the foreground (`timeout … opencode
+run`, no `&`) from one loop, so two sessions are never allocating at each other here. The window that
+stays open is the one no local read closes: a second clone that has not fetched, or a person running a
+unit by hand in another checkout while the timer runs one here (issue #256).
+
+**The side that has not merged yields.** Its entry is the only one that can still move. `main`'s ids sit
+in merged history, the only merge this repository offers is a merge commit whose ancestors are
+permanent, and so moving an id that is already on `main` means rewriting published history -- a
+force-push, denied to every agent here by `.opencode/opencode.jsonc`, in a repository where the thing
+it would destroy is permanent rather than retried. The gate is the arbiter and it already says enough:
+it names the id, both rows, and what a `revert to before H-NNNN` would now point at. Resolving it is
+four steps, in this order:
+
+1. merge `main` into the unit branch. The conflict is *in the log*, and the resolution keeps both
+   entries -- one of them changes number, neither changes meaning;
+2. re-run `factory/next-decision-id.sh` **on the merged tree**, so the ceiling it reads includes the
+   ids that arrived with `main`;
+3. renumber the heading and every citation of it in this branch's own files, then run
+   `python3 scripts/check-decisions.py` over both logs before the resolution is committed;
+4. record what moved, inside the entry, the way `H-0051` and `H-0052` do: the number it gave up, the
+   branch that kept it, and that the two decisions share nothing but the digit. A gap in a log is
+   citable when an entry says why it is empty, and inexplicable when it does not.
+
+### Why there is no reservation
+
+The alternative to a rule at the merge is a reservation before the write -- a fourth ref each session
+claims, or an id handed out by the tracker. Neither is built. What decides it is the shape of the window
+that is left, not the cost of a script:
+
+**A reservation ref**, claimed with a compare-and-set `git update-ref`, says nothing to the other clone
+unless it is pushed -- and a pushed reservation is a state-changing write in front of the tick budget,
+where `H-0013` priced a blocking *read* at 5min2s of a pass and `H-0056` refused one inside a verdict
+outright. Worse, a claim that outlives the session that made it is a lease: it needs an owner and an
+expiry, or a killed tick reserves a number forever and nothing here reaps it.
+
+**The supervisor allocating the id at dispatch** and naming it in the brief moves the race earlier
+without closing it. The supervisor reads the same union this allocator reads and inherits the same
+staleness, so a session whose re-read finds the handed-out number taken has to move anyway. It also
+costs a write to the tracker per unit, on a loop that already explains why it does not put network reads
+ahead of a budget.
+
+**Accepting it, with the merge as the arbiter, is what is bought.** The arbiter already resolves every
+content conflict before anything is merged; its verdict is the four lines that name the id and both
+entries; and the yield rule above is what turns the resolution into a procedure instead of a judgement
+call made by whoever merges second.
+
+What acceptance makes cheap is the mitigation #255 named and declined: `factory/factory.sh` fetching the
+trunk once per activation, before it dispatches, bounded by a `timeout` so a hung fetch cannot park a
+pass. That is the supervisor's ref policy rather than the allocator's, so it is issue #256 with the
+`H-0056` counter-argument written out on it -- not a paragraph here that only whoever reads this
+section will ever find.
+
 ## Configuration
 
 Everything is an environment override with a default, in `factory/common.sh`.
@@ -301,6 +604,7 @@ Everything is an environment override with a default, in `factory/common.sh`.
 | `FACTORY_AT_RISK` | `../at-risk` | where a stopped tick's unpushed commits are mirrored; beside `FACTORY_TREES`, never inside it |
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
+| `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on the one `git fetch` an activation does (H-0075); hit it and the pass dispatches on the refs it has, and says so |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
@@ -318,6 +622,11 @@ enough on its own: a tick can hold a worktree for 45 minutes, and inside that wi
 that can hear you is the agent. The supervisor also writes this file itself when it finds a dirty
 worktree it does not own -- a person is working there, or a dead tick left a half-merged index, and
 neither is a machine's to clean up. To stop it hard: `systemctl --user stop plock-factory.timer`.
+
+Nothing halted and the queue still is not moving: read the `code:` line of
+`factory/factory.sh --status` first. A supervisor 121 commits behind the trunk prints the same
+`halt: no` as one with nothing to do, and the journal's `SUPERVISOR-STALE` line is the only place that
+says otherwise (#249, and the section above).
 
 ## What "dirty" means, because the test decides when the queue stops
 

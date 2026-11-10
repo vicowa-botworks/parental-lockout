@@ -1116,3 +1116,888 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Why: the triggering body is 21 bytes. `#240`'s change request, filed at `18:19:17Z` on `8 Nov`, is `@/tmp/pr240-review.md` -- filed with `gh api -X POST repos/.../pulls/240/reviews -f body=@/tmp/pr240-review.md`, where `-f` is `--raw-field`, which sends the bytes after the `=` literally and reads no file. GitHub answered **200 with a healthy review row**, so nothing anywhere said the ask was missing, and a worktree, a ceiling and a model were spent on a verdict with no question in it. The first two options spend that same work anyway: a tick cannot tell *"the reviewer asked for nothing"* from *"the reviewer asked for something I cannot see"*, because from inside the tick the two arrive as the same empty string, and what it writes in that gap is the most-measured failure this repository has -- `D-0046` is five invented citations across three published artifacts, and the rule it produced (#1180) is that a claim written before the read-back is a prophecy. The fourth is refused because the timestamp is the only field that says *which* review the row means; the tick reading the body itself is kept, but as the fallback for a transport failure, not as the design. Both thresholds are measured, not chosen, and the unit had to be measured twice to be right. The first tally here used `jq`'s `length`, which counts **characters**, and was published on `#240` as bytes; the reviewer's own `18:41:12Z` body is 14777 characters and **14863 bytes** -- the predicate counts bytes, so the whole tally was re-done through python over the NUL-joined bodies. Measured that way over the 86 `CHANGES_REQUESTED` reviews on this repository's 200 most recent pull requests (`8 Nov`): five shortest **21 / 1002 / 2695 / 2986 / 3124**, longest **14863**, median **7569**, exactly **one** body under 40 bytes, and **83 of 86** at or under a 12000-byte bound. So a 40-byte floor retires no ask anyone has written here by a factor of 25, and 12000 carries 83 of 86 into a dispatch whole while the other three arrive cut with their total and the command that reads the rest. The shape arm exists because a floor cannot see the actual failure at any length: `/home/reviewer/notes/pr240-review-notes.md` is a 42-byte ask that is not an ask, and raising the floor to catch it starts refusing real prose. The predicate is `bytes < 40` -- strictly -- and that boundary is a deliberate divergence from the reviewer's own ask, which arrived independently at `18:41:12Z` as "refuse a `CHANGES_REQUESTED` whose body is <= 40 bytes or matches `^@?/[\w/.-]+$`": two people, two ends of the same pipe, the same rule, and the reviewer's side of it is the one that files reviews. 40 itself is accepted here because a floor that eats its own boundary buys nothing when the shortest real ask is 1002 bytes, and the leg pins `40 -> readable` and `39 -> below-floor` so the boundary cannot drift either way in silence. Three findings came out of writing the legs rather than out of the design, and all three are load-bearing now. **(1) No leg in the 1235-line suite had ever produced an `address_review` row.** The claim shim's REST arm dispatches on `${3}` -- the `--jq` expression -- where the fixture's own file-name normaliser is handed `${2}`, the path, so every `api … /pulls/N/reviews --jq '…'` the classifier made printed `claim-shim: unhandled api path` and answered empty. The legs still passed because the empty read made every planted pull request look like it had no reviews, and one of them asserts `needs_reviewer` for the PR the leg had just planted a change request on: it was pinning the bug. Fixed, the same fixture answers `needs_reviewer` with the detail `answered by the head commit ` -- an empty date -- which is the more general hazard: **a REST read that fails and answers empty is not a neutral failure here, it is the positive verdict "no review" wearing an empty state**, and `reviews | length > 0` is the only guard. **(2) A bound built on `cut -b 1-N` ends its output with a newline.** Found by writing the leg before the code it tests: the shipped row for a long review came back with `ask=12082` bytes for a 12000-byte bound and the row's own text split across two lines -- the trailer arrived as a separate record, and a newline inside a `\037`-delimited row is a splice into whatever reads it next, which here is a model prompt and a ledger line. `head -c` writes the exact bytes and nothing else; the leg pins the length, the tail, and that the run prints one row rather than two. **(3) A mutation is only evidence if it is verifiably applied.** An early pass reported `0 failed` for four mutations and all four had silently not applied -- two sed targets did not exist, and one added a class to a `case` *below* an arm bash had already matched, which is unreachable, so the tree was unmutated and the green was the baseline. Every mutation in the sweep now echoes the changed line back and refuses to run the suite if the proof grep fails; `sweep.sh` lives at `/tmp/opencode/sweep.sh` with this entry and its output is the tally. Sixteen single-edit mutations of the shipped files were run at this head, every one red, every one applied by line address inside the function that owns the line and echoed back before the suite ran: the fixture's `${3}` as shipped, 19 legs; the refusal arm deleted, 9; the `readable` arm made to never fire, 9; the ask column never filled, 4; the predicate's `reference` arm deleted, 4; the floor moved to 41, 4; the floor moved to 20, 4; the `BEGIN/END REVIEWER ASK` block deleted from the instruction, 4; the floor set to zero in the shipped file, 3; the dry run stopped printing the ask, 2; the predicate's empty arm deleted, 2; `review_unreadable` made to queue the unit itself, 1; the bound raised to 120000, 1; `head -c` put back to `cut -b`, 1; the second re-serialisation dropping the column, 1; the flattening removed from `factory_newest_ask`, 1. Restores are `cp` and a byte comparison after every case, never `git checkout` (#1044). Three of the sixteen came back `NOT APPLIED` on the first pass, and all three were the harness lying rather than the mutation failing. One proof was written as an extended-regular-expression pattern whose literal text ends in `"` followed by `)`; measured on a copy afterwards, `grep -qE` with that pattern answers "no match" -- exit 1, no diagnostic -- against a line containing the pattern's own text verbatim, while `grep -qF` with the same bytes matches the mutated file and refuses the unmutated one. The mutation had applied, was discriminating, and was reported as having done nothing. A second proof wrote `grep -qE '\t'`, which GNU grep does not expand, and failed the same way on a mutation that had applied. The third had two faults at once: the flattening call it meant to remove is not in `factory_ask_bound`, which is handed text already flat, but in `factory_newest_ask`, where the body is read out of the payload, and its proof string did not match the text the `sed` had written. A proof that matches nothing and a mutation that did not happen are the same exit status to a shell, which is the whole reason every proof in the sweep is a fixed-string grep now, and why a case whose proof fails is skipped and said out loud rather than counted as a result. A fourth mutation was thrown out after it had already produced a number. It added `review_unreadable` to the dispatching `case` arm to ask whether the refusal could be bypassed, and first read two legs red -- but `bash -n` on the copy it built says `line 792: syntax error near unexpected token `)'`, because the `sed` had inserted a second arm inside the first arm's body: the two red legs were a supervisor that would not parse. Rebuilt as a clean one-line edit it went vacuous for a quieter reason -- the refusal arm sits ABOVE the dispatching one, at factory.sh:787 against :791, and `case` takes the first match, so adding the class below reaches nothing. The mutation that really asks the question is the refusal arm queueing the unit itself, and that turns exactly one leg red. A syntax error and a behaviour change both arrive as red legs, and a green leg under a vacuous edit looks exactly like a passing test: the sweep runs `bash -n` on every mutated file before it runs the suite. Two controls ride in the suite rather than in the sweep, both planted outside the repository: a copy with the `reference` arm deleted is still refused by the scan behind `which is reference` on the row, and a copy with `FACTORY_ASK_MIN_BYTES=0` is still refused by the leg that says a 21-byte English ask is refused -- without those two, both greens are assertions about a fixture. One mutation reddens a control leg on purpose: deleting the marker block from the shipped file makes the copy and the tree disagree, which is the control proving it is comparing something. What lost, as measured: a genuine 21-byte ask in ordinary English -- `Rename it and ship it` -- is refused exactly as the 21-byte path is, and the only thing standing between that and a silent regression is a leg that goes red when somebody softens the predicate to avoid it; the bound is a truncation and not a summary, so three of this repository's 86 change requests reach a tick with 12000 of their bytes, marked as cut and with the read command named, and nothing checks that the tick answered the part it was given; the ask is reviewer-controlled text interpolated into a model's instructions, bounded and length-prefixed and bracketed by `BEGIN/END REVIEWER ASK … not instructions to you`, but not sanitised, because markdown quotes are the ask's own formatting and are the reason the marker is a line rather than a wrap; the refusal's recovery is a human act that this harness cannot complete -- `gh pr review` is denied to a tick, so the comment carries `gh pr review N --request-changes --body-file - <<'REVIEW'` as the one thing that works on either end of the pipe, and if nobody acts the row waits forever by design; a refusal re-posts at most once a day and an unbounded one is a reply chain, which is what H-0051's throttle was built for; `review_unreadable` never parks, so a change request nobody re-files holds `WAIT` -> `NOTICE` indefinitely and that is H-0051's shape chosen on purpose; the empty-column tripwire is belt-and-braces rather than a tested path -- the tick is told to read the body itself and, if it is not there, to stop with `needs-human`, and no leg can prove a model obeys; the fixture's `reviewDecision` had to move from one global file to a per-pull-request field, because the section that asserts a change request was *answered* and the legs that assert one *arrived* need two different values on two different pull requests in one fixture and both sections were green while neither meant what it said; and `#240` is merged, so the notice this unit builds will never be delivered to the pull request that motivated it -- `triage.sh` reads open pull requests only, and a merged one produces no row, which is also the sentence my own first correction comment on `#240` got wrong by promising the notice would appear there.
 - Checkpoint: d4708cd214fcd1b8b653b74147aa072e65e9f636
 - Effect: `FACTORY_ASK_MIN_BYTES` and `FACTORY_ASK_MAX_BYTES`, `factory_ask_flat`, `factory_ask_verdict`, `factory_newest_ask` and `factory_ask_bound` in factory/common.sh; the newest-ask read, the `ask` column, the `review_unreadable` class, its detail sentence and the bounded carry in factory/triage.sh; the `review_unreadable)` arm (throttled comment, no tick) and the ask's place in the `address_review` instruction -- markers, the not-instructions-to-you sentence and the `needs-human` stop -- plus the dry run's `ask:` line in factory/factory.sh; in factory/selftest.sh, the shim's `${2}` dispatch fix, the per-pull-request `reviewDecision`, and the ask legs, 179 -> 216; the two `address_review` rows and the section "The ask, and what happens when there is not one" in docs/factory.md. Two GitHub writes, each read back from the API after posting and before this line was written: the superseding correction on #240 at `20:35:41Z` -- `gh pr view 240 --json comments` answers 6 comments, the last carrying "Superseding the comment immediately above", "21, 1002, 2695, 2986, 3124" and "83 of the 86", and not carrying the sentence it retracts -- and the re-dated-`sources_rev` pointer on #199, which answers with `:480`, "0 problems over four frames" and `is_ancestor` in the newest comment. Neither write was in the record before this entry: `H-0050` named both artifacts and neither existed on the tracker until now.
+
+
+## H-0056 · The supervisor runs whatever is checked out in its worktree, and a tree 121 commits behind the trunk passes every check in the repository
+
+- Question: `install-timer.sh` renders `ExecStart=@REPO@/factory/factory.sh`, so a pass runs whatever that tree has checked out at the moment the timer fires, and nothing in the harness -- not `--status`, not the journal, not the unit, not `triage.sh` -- compared that checkout with `origin/main`. What is the comparison made against, who is told, and what is refused?
+- Options: report it, and refuse it only where a human is standing | fetch the trunk at the top of every pass and compare against the fetched ref | fast-forward the tree automatically at install | halt the pass whenever the tree is behind | print the sha alone, with no comparison
+- Chose: report it, and refuse it only where a human is standing
+- Why: measured on the tree, not of it. `git rev-list --count efa4e29..origin/main` answers **121** with no network at all, and the tree's own reflog dates the checkout at `2026-11-06T19:27:50Z` against a fast-forward taken `2026-11-09T16:39:59Z` -- three days, from the remote-tracking ref the orphan pass already reads (`triage.sh:539-543`, whose `branch=` column prints exactly that number for a *unit's* branch and has never once been asked about the supervisor's own); `grep -c 'PASS units=' factory/log/supervisor.log` in that tree answers **204** and not one of them reads `units=0` -- the queue was never empty, it was being read by old code. The symptom is in the halt instead: 89 lines carry the sentence `a worktree was left dirty by a previous tick`, which `git grep` finds in no shipped script on `origin/main` or on this branch (`factory.sh:109` re-prints the reason stored in `factory/HALT`, so those lines are `efa4e29`'s wording echoed once an activation), the `issue-247` instance running 82 lines from `01:05:09Z` to `16:37:09Z` -- **15h32m** -- two minutes before the tree was fast-forwarded at `16:39:59Z`. What that code was missing is checkable: `git show efa4e29:factory/common.sh` has no `update-index --refresh` where `origin/main` has eight, arriving in `cf87ecc`, `08bd015` and `15352b3`, all three inside the 121 -- so the verdict that decides whether to stop the whole queue was the pre-#228 one, reading a stat cache #228 had already learned not to trust. And the reinstall a person reaches for is a no-op with a healthy exit: run today against a clone 33 commits behind its own trunk, the shipped `--install` exited **0**, wrote both unit files, and left one journal line reading `TIMER-INSTALLED`, because the only thing it asks of the tree is whether a file is executable. So the failure was never the absence of a number -- it was that no sentence anywhere read the tree the timer execs, and the act a person reaches for when a loop is not moving (reinstalling it) re-armed the very staleness they came to fix. `--status` and the journal are the report, because nobody asks a timer a question and `PASS units=0` is the same sentence for an empty queue and an out-of-date reader. `--install` is the refusal, and the reason it is a refusal and not a warning is `H-0034`'s: a person in a terminal is the one moment a second command costs nothing, and the warning is the thing that was already missing. The three other arms lose on evidence rather than taste. **Fetch in the pass** buys a number that is 200 ms fresher and pays for it in the one hazard this repository has been taught twice -- `H-0013` lost 5min2s of a pass to a *local* read, and `#879` is a blocking open that fails *open* by parking the loader; a pass runs on a 5400s budget with no `fetch` anywhere in it today, and a timer's network is a workstation's network. **Fast-forward at install** fixes the 8 Nov state and creates a worse one: the tree being moved is the tree the timer will exec, a fast-forward is a write to a checkout that may hold the interrupted work of a killed tick (`#228` is that exact state, and its lesson is that a machine does not clean up a person's tree), and a moved tree that fails halfway is a supervisor that will not start. **Halt when behind** is the tempting over-correction and it inverts the polarity the last two decisions spent their blood on: `H-0051` and `H-0052` narrowed halting so a check that cannot see stops the queue instead of passing it, and "old" is not that -- the queue's state would be unchanged and a halt would stop a working loop because a laptop had not fetched, which is a worse `units=0` than the one being fixed. Halting stays for a tree the harness does not own. Print the sha alone is what `#249` was filed against: a bare hex string looks like a version, so nobody asks which ref it names, and `H-0018`'s rule (a refusal names the command and the number) is why the printed sentence carries the count, the ref and the branch. Two things were found writing the legs, both reported rather than fixed quietly. `install refuses a stale tree, writes none` was **passing on a tree that was no longer stale**: `behind 3, then silent once moved` fast-forwards the same fixture to prove its second half, and the install leg ran after it -- so `tree-moved` is now its own clone, and the leg went red the moment the trees stopped being shared, which is the only reason anyone knows the leg was ever wrong. And the install leg now named `a checkout with no commits is refused` was vacuous in its first shape: `factory_preflight` refuses a plain directory six lines before the position check, so that exit was never the arm's; it is now `git init` with no commit -- the accident that actually reaches the UNKNOWN arm (a clone into the wrong path, the harness copied in, `--install`). One more measurement belongs in the record because the sentence was wrong before it was written: the count is not first-parent -- a tree detached at `origin/main~3` reports **33**, because the trunk's merge history carries side branches the tree also lacks. That is the reading `triage.sh` already prints, so the two agree, and `docs/factory.md` now says so beside the example rather than letting a reader find it in `git log`.
+- Checkpoint: 95e181694da56a13668524ae54557d4839a5a571
+- Effect: `factory_supervisor_base`, `factory_plural`, `factory_supervisor_position` and `factory_supervisor_lines` in `factory/common.sh`; the `SUPERVISOR-*` lines beside every `PASS` and the `code:` line of `--status` in `factory/factory.sh`; `--force`, the position check and `TIMER-FORCED` in `factory/install-timer.sh`; a `Which code the loop is running` section in `docs/factory.md` with the real output quoted, the `--install`/`--force` lines, `code:` in the `--status` sample, and the pointer from `Stopping it`; nineteen legs in `factory/selftest.sh`, 216 -> 235 on this tree (btrfs, `/home/rodney/prj/wt/issue-249`). What lost, as measured: a tree can read `0 behind` forever on a machine nobody ever fetches on, because there is no fetch in the verdict -- that is bought knowingly, against `H-0013` and `#879`, and it is why the printed command starts with the fetch and why `NOBASE` and `UNKNOWN` exist rather than defaulting to zero; `--force` is one flag away from silence, mitigated by the `TIMER-FORCED` journal line and by the `AT` line being on every pass, not removed; a tree that goes stale *after* install is reported and never refused, because the pass that notices it is the pass that cannot move it without editing the script bash is reading; `dirty=` is a second reader of the working tree beside `factory_tree_dirt`, so the two can disagree for a tree whose index cannot be read (the exclude-file leg prints `dirty=0` beside a halt) and that disagreement is a journal line rather than a verdict; `--status` answers for `$FACTORY_HARNESS` and not `$FACTORY_ROOT`, so a harness installed from one tree and pointed at another reports the code that ran rather than the code the other checkout holds -- deliberate, because `--status` is the question "what ran", and `install judges the ExecStart tree` is the leg that keeps the two from being confused in the one place a write follows.
+
+
+## H-0058 · A worktree left dirty by a dead tick halted every other unit for 15h57m with nobody told
+
+- Question: A tick killed at the timeout left one file modified in `~/prj/wt/issue-237`, and `factory/HALT` has no per-unit scope: the halt switch is read before triage, so 22 other units went undone for 15h57m while nobody was told. The only signals were a journal line in a log nobody reads and a file in a directory nobody opens, and `systemctl --user status` renders the deliberate exit 8 as `code=exited, status=8`, the shape of a crash. What does the harness do with a tree it cannot work in?
+- Options: halt as before, and add an operator-visible line to the journal naming the age of the marker | quarantine: mirror the work to the at-risk box, stash it under a supervisor-subjected message, name both in the journal, clear the tree, and let the pass continue; halt only when the rescue cannot be completed or the same unit goes dirty twice without a tick between | always quarantine, with no streak rule and no refusal arms | quarantine without mirroring, the stash alone | reset the tree to HEAD and continue, since the tick that made the mess was killed anyway | keep halting and put a per-unit skip list next to the halt switch | stop halting on dirty trees entirely and let the next tick work in the dirt
+- Chose: quarantine: mirror the work to the at-risk box, stash it under a supervisor-subjected message, name both in the journal, clear the tree, and let the pass continue; halt only when the rescue cannot be completed or the same unit goes dirty twice without a tick between
+- Why: The halt is right about one thing and wrong about everything else. It is right that a harness must
+  not guess at a person's uncommitted edit, which is why `git stash` alone is the wrong verb: #237's
+  WIP was a real person's fix for the very outage being lived through, and silently shelving it buries
+  it under a subject line nobody greps. It is wrong that the accident is allowed to speak for the whole
+  queue. Quarantine changes who bears the cost -- the unit that had the accident waits, the other 22 do
+  not -- and keeps every property the halt was chosen for: nothing is rewritten, the work leaves the
+  tree only after git confirms the stash exists, and a mirror is written and re-read before the tree is
+  declared clean. The mirror is three reads, not one, because "mirror the work" has to mean tracked
+  plus staged plus untracked: measured on a fixture holding one of each, `git diff HEAD` alone
+  reproduces 1 of the 3 paths and `git status --porcelain` shows 2 of the 3, since it never prints
+  staged content. The halt is still the answer for the case that genuinely is ambiguous: a unit that
+  goes dirty twice with no tick in between is evidence the quarantine is wrong about that tree, which is
+  the original reason for stopping. Refusing to clean a tree it cannot mirror is the same discipline as
+  H-0034's `--ff-only` -- an action that cannot be completed honestly reports a failure and leaves the
+  tree alone rather than inventing an approximation. What was rejected and why: the journal-line-only
+  fix was this issue's own first shape and was dropped because it makes the outage shorter, not
+  smaller -- a person still has to notice; the stash-alone arm loses the untracked file with no copy
+  anywhere; `reset --hard` deletes a person's work, the one thing the harness exists never to do; a
+  per-unit skip list is the quarantine's cost borne by nobody, because the work then stays dirty with no
+  copy and no notice; and working in the dirt means the next tick's `git add -A` commits a stranger's
+  half-edit -- `git add -A` has swept the built binary into history four times (D-0015's evidence), so
+  the harness does not type that command anywhere. Both the streak and the refusal still halt through
+  `factory_tree_stop`, and a halt with no `HALT` file would misreport the state of the queue, so the
+  marker stays global: what changed here is the accident rate, not the switch.
+- Checkpoint: f4379061585a92d9990970b2545db57152a1345d
+- Effect: `factory_tree_quarantine` and `factory_tree_stop` in `factory/common.sh`; both dirty-tree
+  sites in `factory/factory.sh` (`TICK-HALTED` before a tick, `CONFLICT-HALTED` before a conflict
+  commit) now call the stop function, and the `TICK-START` and `CONFLICT-RESOLVED` sites call
+  `factory_quarantine_reset`, because a streak counter that only rises turns "halt on the second
+  accident" into this issue's outage with a delay built in. The confirmation that the stash took
+  everything asks `factory_tree_dirt`, not `git status --porcelain` -- `naive_dirt_test_refused` in the
+  selftest caught that read in shipped code on its first run (H-0040). Two bugs the legs found rather
+  than the reader: the confirmation first read `if ! confirm=$(factory_tree_dirt ...)`, and the
+  verdict's exit codes are 0 dirty / 1 clean / 2 unknown, so as written it refused the two arms meaning
+  "nothing is left" and accepted the one meaning "the work is still here"; and `factory_tree_halt`
+  re-asked whether the tree was dirty, so the streak halt -- taken only after a successful quarantine,
+  on a tree it had just cleaned -- logged `TREE-STREAK` and then let the pass continue, the halt
+  evaporating on the condition it had itself removed. A red CI run on the #238 runner found a third:
+  the selftest drives the shipped classifier, whose preflight refuses to start without
+  `$FACTORY_OPENCODE`, on the host PATH, so a runner with no `opencode` launcher gets zero classifier
+  rows and 45 assertions that print nothing; a fixture launcher plus a `the pass really ran the shipped
+  classifier` leg -- whose own first version died calling that launcher without `CLAIM_FIXTURE`, the
+  stub's own env contract -- makes a stub that never ran a red leg. `make selftest` was added because
+  every other entry point to this suite begins with the Go guards, so on a machine with no Go toolchain
+  the suite that checks the delivery loop cannot be invoked. `#248` is cited by name in the shipped
+  files that carry the behaviour -- `factory/common.sh`, where `FACTORY_AT_RISK`'s own comment is the
+  sentence explaining why the box exists, and the two call sites in `factory/factory.sh` -- and the
+  rescue names itself where an operator looks: the journal line carries `mirror=<absolute path>`, and
+  both the marker and the issue notice render `factory_halt_reason`. There is no per-file at-risk
+  checklist to update, and this sentence claimed there was one until the grep showed otherwise; it is
+  corrected in place rather than appended, because it was written before the files were. Suite: 242
+  legs, 0 failed. Corrected 9 Nov after the review of #250 re-measured the base rather than repeating it: the
+   addition is not +66. `ae8aba845` is 39 legs behind this branch's actual base, `main@e0d27d3`, and that
+   base measures **216 legs on this box** (215 on the reviewer's -- the +/-1 filesystem-dependent spread
+   this repository already documents), so the entry added **+26** legs, and the branch carrying it stands
+   at 247 after H-0062..H-0064. `176` is not a wrong count of some head, it is a count of a head this
+   suite was never run at, quoted as though it were the base; corrected in place with the date and the
+   reason, for the reason the two lines below give. The
+   sentence this replaces claimed that `factory/factory.sh:107`'s comment already named this entry for
+   the age clause, and that a re-pointed comment would hand the age clause and the per-unit scope to
+   `H-0062`. Neither held when it was checked: line 107 is the argument parser, the halt block is
+   `factory.sh:113-117`, and the only id that comment names is `H-0036`, for why a halt exits 8 instead
+   of reading as a crash. So the age of the marker in the journal line and the per-unit scope of the
+   switch stay exactly where this entry puts them -- rejected arms, each with the reason it was refused
+   and the reason it is still owed -- and no id is cited for work nothing holds. Corrected rather than
+   appended to, for the reason the two lines above give: it was written before the files were, and a
+   merged log that quietly agrees with itself is worse than one that admits it was wrong.
+
+
+## H-0059 · The #249 fixture commits under whatever git identity the host has, and a CI runner has none
+
+- Question: the position section builds its fixture repositories with `git init` and `git clone` and then commits inside two of them. Where does a commit's identity come from, which box is allowed not to have one, and what makes the next occurrence of this fail on the author's machine instead of on the one check that gates a merge?
+- Options: plant the identity in each repository at its creation site | export `GIT_AUTHOR_*` and `GIT_COMMITTER_*` for the whole section | pass `-c user.email=… -c user.name=…` on the two commits | give the CI job a git identity | report it and change nothing
+- Chose: plant the identity in each repository at its creation site
+- Why: read off the runner's own log, not inferred from a green box. At `8772339` the rollup is `verify=FAILURE` with the other four checks green, and the same head prints `verify: OK` here (`236 passed, 0 failed`). The runner's last leg is `every class has a dispatch arm`; the next thing it prints is `Author identity unknown … fatal: empty ident name (for <runner@runnervm7aw5e.…>) not allowed`, then `make: *** [Makefile:95: verify] Error 128`, and across the entire failed log there are **0** lines matching `passed, .* failed` -- the suite ended at its own command and never reached a verdict. Reproduced before any edit by taking the box's identity away (`HOME` pointed at an empty directory, `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` at `/dev/null`, `GIT_AUTHOR_*`/`GIT_COMMITTER_*` unset): the same last leg, `EXIT=128`, 217 legs printed, no tally. The mechanism is that `git clone` copies the upstream's *remote* and none of its local config, so `user.email` set on `$pos_up` says nothing about a clone of it -- and two top-level statements in the section, `pos_fork` and `pos_detach`, commit inside a clone. Why `main` is green is the part that decides the shape of the fix: every pre-existing commit site is already identity-safe (`selftest.sh:467-469` configures the repository it has just created, `:1460-1461` passes `-c user.email=… -c user.name=…` on the commit), so the discipline predates this branch and #249's section is the first code in the file to break it -- which makes the per-repository answer also the answer the surrounding code already takes. The other four lose on evidence. **Export the env**: a `GIT_AUTHOR_*` export outranks repository config, so it would also override a leg that plants the *absence* of an identity on purpose -- and "no identity" is a state this harness cares about, being exactly the `UNKNOWN` arm the section spends four legs on; per-repository keeps the host out and leaves the env free for the leg that will want it. **`-c` on the two commits**: it fixes the two statements that happen to exist today and nothing else; the bug is a repository created without an identity, and the next leg that commits in it re-opens CI. **An identity in the CI job** fixes one job on one repository and leaves `make verify` -- the gate a reviewer runs on a fresh clone, which is the box that has no identity either -- still red. **Nothing** is the state that cost a merge cycle. What writing the leg found belongs in the record: `no fixture repo inherits the host` scans every `git init`/`git clone` in the file for an identity on the creation line or within three lines of it, and its control deletes the clone's identity in a copy outside the repository. The first version recognised creation lines with `\b`; awk reads `\b` inside a regex as a **backspace**, not a word boundary, so the scan matched nothing -- it called the shipped file clean *and* the control, with its identity deleted, equally clean. The control failed on the first run, and that is the only reason anyone knows the scan was ever blind: the file's own rule is that a presence check has to prove it can say absent. After the fix both other creation sites were checked individually -- deleting either identity line is reported (`2729: git init -q "$pos_up"`, `3085: git init -q "$pos_empty"`), and the shipped file reports nothing. What lost, as measured: the scan reads this file's text, so an identity arriving from a variable, from a heredoc, or four lines below its `git init` reads as a gap -- the window is 3 lines, and `pos_empty`'s comment had to move above the `git init` rather than sit between it and the identity, which is the first judgement the next person will have to re-make; a repository created by a spelling that is not `init` or `clone` on a line starting with `git ` is invisible to it; it pins `factory/selftest.sh` and not the harness, so the same dependence in `scripts/` or `testing/` is out of its reach; and no leg here makes a *first* occurrence loud -- a suite that dies before its tally prints nothing about how far it got, which is what this one's diagnosis had to reconstruct by hand and what H-0060 is about.
+- Checkpoint: b89fac0ab20401a6ec1b5e611842281316bcb0f0
+- Effect: `factory/selftest.sh` only -- `user.email`/`user.name` planted in `pos_clone()` and at `$pos_empty`, an independence paragraph in the section header beside the H-0054 precedent it follows, and `pos_unconfigured_repos` with the leg `no fixture repo inherits the host`. Legs 235 -> 236, measured twice at this head: `236 passed, 0 failed` on this tree (btrfs, git 2.53.0) and `236 passed, 0 failed` again with `HOME` empty and `GIT_CONFIG_GLOBAL=/dev/null`, the condition that killed the run. No shipped script changed: the red was in the gate, not in the harness.
+
+
+## H-0060 · A run that dies before its tally leaves no tally behind, so the red tick says nothing about where it stopped
+
+- Question: H-0059 had to be diagnosed from a CI log that ends at a tool's own fatal -- 217 legs printed, no `FAIL` line, no `N passed, M failed`, and no sentence anywhere saying the run had stopped early. What does the suite owe the reader of a run that does not finish, and how is that notice kept from becoming a second thing that can quietly be wrong?
+- Options: report the incompleteness from the `EXIT` trap, with the counts and the status | print a running progress line per leg so the log always ends on one | leave it, and diagnose with `bash -x` when it happens | add a CI step that greps the log for the tally line | report it and change nothing
+- Chose: report the incompleteness from the `EXIT` trap, with the counts and the status
+- Why: the cost is the argument. `make: *** [Makefile:95: verify] Error 128` says a recipe failed; the 217 legs say the run got *somewhere*; nothing says the two facts belong to one failure, and the log's last line is git's error text, which is a symptom of a fixture, not a location in a 3300-line file. The reproduction that found the cause was a re-run of the suite with this box's git identity taken away -- an act only possible on a box that has one, which is the same asymmetry that made H-0059 invisible in the first place. That is the failure this harness exists to end, one level down: #248's whole thesis is that a tick which exits 0 and delivers nothing is worse than one that refuses, and a suite that exits 128 and reports nothing is the same shape wearing a gate. The four others lose on evidence. **A line per leg** buys, in every journal and every PR log, 236 lines that say what was already printed one line ago, to cover the one moment it matters; nobody reads this suite's stdout as it goes -- the supervisor reads it after the fact with no terminal attached. **`bash -x` when it happens** is what was done this time, by hand, on the wrong box, and it only works where the box reproduces; the class is precisely the one that does not reproduce here. **A CI step that greps for the tally** turns "no verdict" into a *second* red check saying the first thing, and it is CI-only -- the same death on a reviewer's fresh clone, which is the box with no identity too, still dies silent. **Nothing** is the state that cost a merge cycle. The trap is the only place that holds both the counts and the status the shell is dying with: measured on the runner, 128, because the command that ended the run was git and not a leg, and a status is the cause's own name. `reached_verdict` is set by the tally line alone, so the notice cannot contradict a run that did report, and it goes to stderr, so it cannot splice a reader of stdout. Both polarities are legs, because one half alone proves only that a word prints for everything: `a death before the verdict is reported` runs the shipped `cleanup()` -- extracted with `awk`, since a leg that pastes a copy of the function tests the paste -- over a planted death and over a clean finish, and asserts the notice, the counts inside it, that the verdict line which *is* in the script after the death was not reached, that the clean run prints the verdict and not the notice, and that the fixture is still gone. Two mutations, each echoed back as applied before the suite ran (H-0055's rule that a mutation which did not happen is not a result): an arm made unable to fire (`if [ 1 = 0 ]`) is caught by the death case with `said nothing about it`, and a notice stripped of its counts is caught by `does not say how far the run got`, which printed the stripped line verbatim. What lost, as measured: a trap cannot report its own deletion -- one `#` in front of `trap cleanup EXIT INT TERM` silences the notice and the cleanup together, and that is the floor `scripts/attack-self-test.py` states for a check policing its own removal, so it is listed rather than fixed; a `SIGKILL`, an OOM kill, or a `timeout -9` runs no trap at all, so the notice covers only a death the shell survives, and a pass killed at the wall-clock ceiling still looks like a machine that is working; the counts are as fresh as the last completed leg, so a death inside a leg's setup reports one fewer than began -- the line answers "how far the tally got", not "how many legs started"; it cannot name the leg that was in flight, which would mean setting a label before all 236 calls and is the next person's judgement, not this one's omission; and the "fixture still gone" assertion rode no mutation -- the two above reach the notice, not the cleanup tail -- so it is a guard written from a hazard rather than one proven red, and it is said here for that reason.
+- Checkpoint: 0810fcf0ee4e527293e53ce57eac256f7bd0ab80
+- Effect: `factory/selftest.sh` only -- `reached_verdict` beside the counters, the notice in `cleanup()` before the fixture is wiped, the flag set on the line after the tally prints, and the leg `a death before the verdict is reported`. Legs 236 -> 237 at this head.
+
+
+## H-0061 · Two ids this branch took today are already taken by open siblings, so the second merge turns `main`'s gate red
+
+- Question: `main` stops at `H-0055` and three other branches are open against it, each numbering from the same next-free value. This pass added `H-0057` and `H-0058`, which `issue-235`/`issue-246` and `issue-248` have already taken. Do the two unpushed entries move, and what gets said about an allocator that let four branches take `H-0056`?
+- Options: renumber this branch's two unpushed entries to free ids, `H-0059` and `H-0060` | leave the numbers and let whichever merge lands second break `make verify` on `main` | rewrite the two local commits so their `Decision:` trailers match the new ids | give every branch its own id range | report it and change nothing
+- Chose: renumber this branch's two unpushed entries to free ids, `H-0059` and `H-0060`
+- Why: the table is read off every ref, not guessed, because the collision is only visible across branches: `H-0056` on `issue-235`@`afeb148`, `issue-241`@`63464a4`, `issue-246`@`84ccdf9` and this branch, inherited at `8772339`; `H-0057` on `issue-235`, `issue-246` and, until this commit, here; `H-0058` on `issue-248`@`9547949` and, until this commit, here. `scripts/check-decisions.py:128-131` refuses a repeated id in one log -- `id %s is already used at %s:%d; 'revert to before %s' would name two commits` -- so a merged pair is not untidy, it is a red `verify` on `main` plus a red `verify` in whichever PR has to carry the fix, and the gate's own sentence names why an id is not a label you may reuse: the log is the thing that makes `revert to before H-NNNN` mean one commit. Renumbering is free exactly once and this is that moment -- both entries live in commits that have never been pushed, the remote's `issue-249` is still `8772339`, so no force-push and no in-flight rewrite is involved -- and `H-0059`/`H-0060` were checked against every ref before being taken. Why the four others lose. **Leave them**: it moves a failure that is currently visible from a branch to `main`, which is the exact move this PR exists to stop making, and it does it to the one gate the supervisor cannot skip. **Rewrite the two local commits** so their trailers agree with the file: `AGENTS.md` forbids rewriting an in-flight branch and the strict reading is the right one here, because a `Decision:` trailer pointing at an entry that was renamed is still greppable history while a rebased-away commit is gone; the mapping is recorded in this entry instead. **Per-branch id ranges** is the real answer to the allocator and not this unit's to make -- it edits `scripts/check-decisions.py`, invalidates the numbering of three open branches mid-flight, and belongs to whoever owns the queue. **Nothing** is the state that produced four `H-0056`s. What lost, as measured: the inherited `H-0056` here is untouched and still collides with three siblings, so this branch's contribution to the mess goes from two collisions to one, not to zero, because `8772339` is pushed and the no-force-push rule outranks tidiness; the file now has a permanent gap at `H-0057`/`H-0058`, so anyone who counts entries against the highest id will read two as missing, and only this entry says where they are; the two commits that made those decisions keep `Decision: H-0057` and `Decision: H-0058` in their messages, so `git log --grep='Decision: H-0059'` finds this rename and not the work, and the follow-the-trailer habit breaks once, here, on purpose; nothing stops the next branch taking `H-0056` a fifth time, because the allocator is untouched and this entry is a notice, not a lock; and no leg pins any of it -- a leg that checked for collisions would have to read sibling branches, which is a network read inside a gate `H-0056`'s own entry keeps off the pass path.
+- Checkpoint: 594242b3a7026b652dd931b2587c2732eaaca77b
+- Effect: `factory/DECISIONS.md`, both entry headers and the cross-reference the first one makes to the second, and the seven comments in `factory/selftest.sh` that cite the old numbers. Re-measured at this head: `check-decisions` 95 entries with no duplicate, `make verify` last line `verify: OK`, `factory/selftest.sh: 237 passed, 0 failed`. The allocator is unchanged, so this is a band-aid over two of the four collisions and is named as one here rather than as a fix.
+
+
+## H-0062 · A quarantine streak was cleared before the tick that could prove it, so it could not fire on the tick path at all
+
+- Question: The streak is #248's evidence rule -- a SECOND quarantine of the same unit says something keeps dying in that tree, and a third guess is how work gets thrown away. The review of #250 drove the shipped functions in the pass's real order (`factory_tree_stop` -> `TICK-START` -> `factory_quarantine_reset`) over a tree whose tick dies leaving dirt, five passes, and got `attempt=1` five times with no HALT. Where does a streak end, so that it can both end and fire?
+- Options: clear it at `TICK-START` as shipped, and re-point the selftest's adjacency pin at whatever shape follows | clear it after the session, gated on the tree reading clean, so a tick that leaves work behind leaves the streak armed | clear it after the session whatever the tree says, on the argument that a tick entering the unit is the progress the counter measures | require two quarantines of one unit inside a single activation instead of across activations | keep a timestamp instead of a counter and halt on two quarantines inside N minutes
+- Chose: clear it after the session, gated on the tree reading clean, so a tick that leaves work behind leaves the streak armed
+- Why: The shipped line answered a question the counter does not ask. "A tick has entered this unit, so whatever the previous one left behind has been dealt with" is true of the *dirt* -- the quarantine really did move it -- and false of the *pattern*, which is the only thing the counter exists to remember; one sentence asserted the first and destroyed the second. The tie-break that separates the two post-tick shapes is the third one, refuse rather than proceed on missing input: an UNKNOWN tree keeps the streak armed rather than clearing it, because a tree git will not read back is not evidence that the tree is fine (the same direction H-0050's verdict takes), and the next pass refuses at `factory_tree_stop` before anything is stashed, so arming on UNKNOWN costs at most a halt that was the right answer anyway. Nothing earlier in the order separates anything: no dependency, no config decode. The tree's verdict is asked rather than the session's exit status because the question is "did work appear in here again?", and both endings answer it -- a session that exits 0 and one killed at the ceiling are distinguished by what they leave behind, which is exactly what the next pass would have to quarantine. What lost, and why: `TICK-START` is unreachable by construction for a tick unit, measured above, and its own gate was enforcing the defect -- `streak_reset_after_tick_start` required the reset within 8 lines of `TICK-START`, so the check pinned the adjacency that made `attempt=2` impossible; the review's sharpest line is why that went unseen, and it is worth keeping as a rule: a control that deletes the reset proves the reset is *wired*, not that the streak survives being wired. The unconditional post-tick clear loses because it rebuilds the same blindness on a different clock -- a tree that kills every tick would never accumulate a second attempt. Two-quarantines-in-one-activation loses because the outage was five activations, not one. The timestamp loses on the tie-breaks: a second ledger key plus an `N` nobody has measured, on a file where #248's own entry already calls an invented threshold a guess.
+- Checkpoint: 1554b3070b7b38040729a11afc9a1ac5d3f2e395
+- Effect: `factory_quarantine_after_tick` in `factory/common.sh` (new, returns 0 always so it can never overwrite the tick's own answer); one call site in `factory/factory.sh`, placed after the `timeout ... || status=$?` line so it covers `TICK-DONE`, the early `TICK-UNDELIVERED` return and `TICK-FAILED` alike; the reset is gone from the `TICK-START` block, with the reason left in place of it; the `CONFLICT-RESOLVED` site stays and its comment now says why it is not redundant -- the conflict pass keeps its streak under `pr:$pr` and a conflict tick keeps its own under `conflict:<pr>`, two ledger keys, which was true before this commit and is now written down where someone would mistake them for one counter. Journal: `TREE-AFTER-TICK <unit> streak=cleared|armed ...`; the word chosen does not contain `TREE-STREAK`, because `expect_quarantine`'s STREAK arm greps that string and an armed-but-never-halted pass would have satisfied it -- the collision was found by reading the assertion, not by the suite. `factory/selftest.sh`: the leg the review asked for by name, `a streak survives its tick (primary|worktree)`, composes quarantine -> tick -> verdict -> next pass from the shipped functions and never calls the increment, asserts `attempt=2` halts, and controls it with the same shape where the tick leaves the tree clean -- plus the third arm, a tree reading UNKNOWN from #228's exclude-file loop must not end the streak; `streak_reset_after_tick_start` becomes `streak_reset_after_tick_end` (the call must come after the `timeout` line, not beside `TICK-START`) and gains a second scan, `streak_reset_gated_on_the_tree`, with a control each: deleting the call, and deleting the verdict inside the function. Suite: 244 legs, 0 failed, against 242 at `9547949`. Still owed, and stated because the shape can bite: the armed counter has no wall-clock decay. A unit that is quarantined and then never ticked again -- its PR merged, its branch gone from triage's view -- keeps the streak armed indefinitely, so two accidents a year apart can halt on the second with no tick between them because no tick *could* come between them. `quarantined-at` is already stamped, so the repair is an age test in `factory_quarantine_after_tick`'s armed arm; it is not written here because no measured outage needs it yet and H-0048 is about not inventing a number.
+
+
+## H-0063 · The mirror rendered a binary path as a sentence about itself, and the size guard could not tell
+
+- Question: The quarantine's rule is "clean a tree only after its contents exist somewhere other than the tree", and the guard that enforces it is `[ ! -s "$tmp" ]`. Measured on git 2.53.0: `git stash show -p --include-untracked` prints `Binary files a/shot.png and b/shot.png differ` for a tracked binary and omits the payload, so a tree holding one modified PNG produced a 45-byte non-empty mirror, the tree was cleaned, and the journal advertised `mirror=<path>` that restores nothing. What makes the claim true?
+- Options: pass `--binary` to the `git stash show` that renders the mirror | leave the rendering alone and refuse any mirror whose text contains `Binary files`, treating a binary-bearing tree as unmirrorable and halting | after writing the mirror, verify it by applying it to a throwaway clone and comparing digests, and refuse when that fails | keep the flagless rendering and record the limit in the entry, since `refs/stash` still holds the bytes
+- Chose: pass `--binary` to the `git stash show` that renders the mirror
+- Why: Measured both ways on this box, git 2.53.0, one modified tracked binary plus one new untracked one: flagless, `git apply` refuses the *whole* patch -- `cannot apply binary patch … without full index line` -- so the text edit in the same tree goes down with the binary; with `--binary`, both paths come back as `GIT binary patch` and a `git apply` into a fresh clone of the base restores all three digests exactly. The tie-breaks that separate the options are the third and the fourth. Refusing on the sentence is the honest *reading* and the wrong *consequence*: committed PNGs are this repository's normal state (`docs/screenshots/360/*.png`), so a killed capture tick would halt every other unit over a rendering flag -- #248's outage re-imported by a check that cannot be satisfied. Verifying by applying is the right *test*, and the wrong place to run it: a clone per quarantine, beside the box that holds the only copies of real work, to re-check something git honoured in every measurement taken here; that verification belongs in the gate, which is where the new leg puts it. Recording the limit is restating a false claim more politely. What the guard was actually doing: `[ ! -s ]` measures presence, and git's refusal is 45 non-empty bytes, so the guard was never the thing that could see this -- the leg is.
+- Checkpoint: 28f41bc1f68382956cce174d69f18fdfa83a49ad
+- Effect: `--binary` on the one `git stash show -p` in `factory_tree_quarantine` (`factory/common.sh`), its plumbing comment corrected where it claimed the flagless form "renders both halves", and the emptiness comment extended to say what emptiness does not prove. `factory/selftest.sh`: `the mirror carries its binary (capture)` builds a throwaway repo with a committed PNG and a committed text file, modifies the PNG, adds an untracked binary, quarantines it, then applies the journal's own mirror to a fresh clone of the base and compares three digests -- the tracked binary, the untracked binary, the text edit -- because "the mirror restores nothing" and "the mirror takes the text edit down with it" are the same bug and only the second one is loud. Its control re-renders the same stash without the flag and asserts the patch is non-empty AND refused by `git apply`, which is the pair the size guard cannot distinguish; a control that applied would report itself. Suite: 245 legs, 0 failed, against 244 at `9797e7b`. The legs above this one count paths and plant text, which is why none of them could see it. Still owed, adjacent and untouched because the refusal still refuses: on this path stderr and stdout both go to `$tmp` (`err=$(git … >"$tmp" 2>&1)`), so a refused render journals `no mirror could be written to <path> ::` with nothing after the colon -- the reason is in the file that gets deleted, not in the sentence.
+
+
+## H-0064 · A rescue popped the top of a stash stack it does not own, in a repository where that stack is shared
+
+- Question: `factory_tree_unstash` undoes a quarantine that could not be finished, and it did it with a bare `git stash pop`. Measured on git 2.53.0: `refs/stash` is repo-global -- a primary tree and a linked worktree of the same repository answer the same sha, and one `git stash list` shows both units' entries -- so after another unit's accident the pop restores that unit's work into this unit's tree. `git stash pop "$sha"` is refused (`is not a stash reference`), so the entry cannot simply be named to the pop. How is an undo pinned to the thing it is undoing?
+- Options: re-check `refs/stash` and pop only while its top is still the entry made moments ago; otherwise restore nothing and say which sha holds the work | locate the entry's index in `git stash list` and `git stash pop stash@{n}` so the right entry is restored and dropped | `git stash apply "$sha`, which does accept a non-top entry (measured), and leave the entry on the stack | keep the bare pop and treat the caller's subject check as the guard
+- Chose: re-check `refs/stash` and pop only while its top is still the entry made moments ago; otherwise restore nothing and say which sha holds the work
+- Why: The subject check in the caller is the right check and runs too early -- it proves the entry was ours when we made it, not that it is still on top when we undo; the review named that gap and it is the finding. Popping by index does restore the right entry, and lost on the third tie-break: it writes into a tree whose HEAD may have moved since the stash and whose index may be mid-merge, and its failure mode is a conflict *mid-pop*, which is the half-moved state the refusal arm exists to prevent; refusing and naming the sha leaves the work exactly where it already is safe. `apply <sha>` is what a person is pointed at in the sentence for precisely that reason -- it restores without dropping anyone else's entry -- but as shipped behaviour it leaves our entry on the stack forever, so the stack never drains and the next rescue meets a taller version of the same hazard. Keeping the bare pop was never an option: its failure is silent and it moves a stranger's work into a tree that then looks like its own. Landed with it, both from the same review: the `$FACTORY_RUN/quarantine-error.$$` file is read and removed where it is written instead of below the success path's `return 0` (measured: one zero-byte file named after a dead pid per happy pass), and the function's own promise -- "every refusal leaves the tree exactly as it was found" -- is rewritten to say what the code buys, which is a stash undone by a pop that can fail, plus the measured mid-merge arm (`git stash push -u` refuses a half-merged index and leaves `MERGE_HEAD` and every stage entry intact, so a tree stuck mid-merge keeps halting with the resolution still there for a person).
+- Checkpoint: 5e0a9406c11840a1be8fd35d9a5aa8c210132e6d
+- Effect: `factory_tree_unstash` in `factory/common.sh` (the pin, and the sentence that names both shas and the `git stash apply` command); `factory_tree_stop` reads git's sentence into `qerr` and removes the file immediately after the call, so the refusal arm prints the reason instead of re-reading a file that no longer exists at a point the success path never reaches; the plumbing comment above `factory_tree_quarantine` carries the honest version of "refused means untouched" and the mid-merge measurement. `factory/selftest.sh`: `a rescue undoes its own stash` puts a second unit's entry on top of ours in a throwaway repo and asserts the pop restores nothing, says `was NOT put back`, and names our sha -- with the control that the same call on its own entry still restores; `a rescue leaves no temp behind` counts `quarantine-error.*` around one successful rescue, with a planted file as its control. Suite: 247 legs, 0 failed, against 245 at `ac5f365`.
+
+
+## H-0065 · Three ids this branch took are already taken on `main`, so the merge #250 was sent for would have turned `main`'s own gate red
+
+- Question: `#250` reads `CONFLICTING`/`DIRTY` against `main`, and the reason `main` moved under this branch is worse than the two textual conflicts. `93ee5f6` merged #252, whose log entries are `H-0059`, `H-0060` and `H-0061` -- the same three ids this branch took across `3319571..97d5daf` for three unrelated decisions. `H-0058` is this branch's alone, because #252's own `H-0061` deliberately stepped over `H-0057` and `H-0058` to dodge exactly this. Whose numbers move, and what happens to the four already-pushed commits whose `Decision:` trailers name the old ones?
+- Options: renumber this branch's three entries up to `H-0062`/`H-0063`/`H-0064`, the next ids free on every ref | renumber `main`'s three instead, since its prose is the younger of the two | keep both pairs and let the merged `main` fail `check-decisions.py` | give every branch its own id range by editing `scripts/check-decisions.py` | report the collision on #248 and change nothing
+- Chose: renumber this branch's three entries up to `H-0062`/`H-0063`/`H-0064`, the next ids free on every ref
+- Why: The ids are read off every ref, not guessed, because a collision is only visible across branches --
+  the discipline `H-0061` names as its whole reason for existing. Measured here over `refs/heads` and
+  `refs/remotes`, taking every `^## H-` heading each ref carries: above `H-0055` the union is `H-0056`
+  (`origin/main`, `issue-235`, `issue-241`, `origin/issue-246`, `origin/issue-249`), `H-0057`
+  (`issue-235`, `origin/issue-246`), `H-0058` (this branch alone), `H-0059`/`H-0060`/`H-0061` (`origin/main`
+  AND this branch -- the collision), and nothing above `H-0061`. So `H-0062` is the first id no ref holds,
+  and a renumber is free exactly once, before the merge makes someone else resolve it. Why these three lose
+  their numbers while `main`'s three keep theirs: `main`'s sit in merged history, and moving them means
+  rewriting `main`, which is refused here twice over -- `AGENTS.md` bars the rewrite and both squash and
+  rebase merge are off on this repository, so a rewrite is a force-push this agent cannot make. This
+  branch's three move as text in one file, no commit moves, so the same escape `H-0061` took is available
+  without touching an in-flight branch. What was rejected and why. **Renumber `main`'s**: it moves a
+  failure that is currently visible on a branch onto the trunk, the exact move #252 exists to stop making,
+  and it does it to the one gate the supervisor cannot skip. **Keep both pairs**: `check()` at
+  `scripts/check-decisions.py:128-131` refuses the repeated id for the reason already on the record --
+  `'revert to before H-0059' would name two commits` -- and the rule next to it in the same loop,
+  `if e["num"] < prev_num`, refuses a merged file that concatenates the two blocks, so a naive merge is red
+  twice over, once for the duplicate and once for the order. **Per-branch id ranges** is the real answer to
+  the allocator and is not this unit's to make: it edits the gate and invalidates the numbering of three
+  open branches mid-flight. **Report and change nothing** is the state that produced this collision. What
+  was lost, as measured: the four pushed commits `9797e7b`, `ac5f365`, `3196d2d` and `97d5daf` keep their
+  `Decision: H-0059`/`H-0060`/`H-0061` trailers, and once this branch merges those trailers resolve on
+  `main` to #252's three decisions rather than to this branch's -- strictly worse than `H-0061`'s case, where
+  the ids it abandoned named nothing at all, because here following a trailer does not merely miss the
+  commit, it arrives at the wrong decision; the mapping is in this entry and nowhere else. No selftest leg
+  pins any of it, for the reason `H-0061` gives: a leg that tested for collisions would have to read
+  sibling refs, which is a network read inside a pass `H-0056`'s own entry keeps off the pass path. And the
+  allocator is untouched, so the next branch cut from `main` can claim `H-0062` alongside this one; this is
+  the third band-aid over the same wound and is named as one, not as a fix.
+- Checkpoint: 5ba87a029fa3c879c0349d97535b46843271971a
+- Effect: `factory/DECISIONS.md` only, and only what has happened in this commit: the three headers `H-0059`
+  → `H-0062`, `H-0060` → `H-0063`, `H-0061` → `H-0064`, the two cross-references inside `H-0058` that point
+  at them (the leg arithmetic, now "247 after `H-0062..H-0064`", and the rejected arm that names `H-0062`),
+  plus this entry. Read back rather than asserted: `grep -cE 'H-00(59|60|61)' factory/DECISIONS.md` prints
+  `0`, and `python3 scripts/check-decisions.py` answers "95 entries across 2 log(s)" with rc 0 at this
+  head. The merge is the NEXT commit and is deliberately not claimed here, because an `Effect:` naming a
+  merge that has not run is the same prophecy this log has now been corrected twice for; that commit
+  interleaves #252's `H-0056`/`H-0059`/`H-0060`/`H-0061` with this branch's `H-0058`/`H-0062`/`H-0063`/
+  `H-0064` in the ascending order the gate's ordering rule demands, and keeps both sides' additions in
+  `factory/common.sh`.
+
+
+## H-0066 · Stop is a reaping, not a second copy of the pass ceiling
+
+- Question: `install-timer.sh` renders `TimeoutStopSec` and `TimeoutStartSec` from one token,
+  `STOP=$((FACTORY_BUDGET + 60))` -- 5460 s on this box. On 8 Nov one leaked grandchild held the unit in
+  `stop-sigterm` and the queue did not fire for 1 h 07 min. What should the stop deadline be, and where
+  should its number come from?
+- Options: keep one token and bound the outage somewhere else | give stop its own token at a fixed 60 s
+  and leave start budget-derived | give stop its own token with a `FACTORY_STOP_TIMEOUT` override
+  defaulting to 60 s | set `KillMode=mixed`, or `process`, so a stubborn descendant cannot hold the
+  cgroup, and leave the deadline alone
+- Chose: give stop its own token at a fixed 60 s and leave start budget-derived
+- Why: the two settings bound different moments and the shared token made them look like one concern.
+  `TimeoutStartSec` fires *while* the pass runs -- it is the deadline that would kill a tick mid-commit,
+  which is the hazard the comment on the stop line had cited, for the wrong setting -- and
+  `docs/factory.md` repeated it. `TimeoutStopSec` begins once `ExecStart` has exited: the pass has
+  printed its last line, and the only work left is reaping. Measured 8 Nov, issue #246:
+  `END rc=4 ticks_started=1` at `22:18:51Z`, then `ActiveState=deactivating SubState=stop-sigterm
+  MainPID=0 ControlPID=0 TasksCurrent=10` held by PID 1693618, `C:\windows\system32\winedevice.exe`,
+  started 14 s into the activation; the timer the whole while `ActiveState=active SubState=running`,
+  `TriggerNextElapseUSecRealtime` empty, `-` in `list-timers`' next-fire column, and the journal holding
+  zero lines for the unit after 22:18. Recovered at `23:06:55Z` by an escalated `kill -s KILL` at the
+  manager, after which the timer re-armed in the same second. Because `OnUnitInactiveSec=` counts its
+  interval from the moment the unit finishes going inactive, the outage *is* `TimeoutStopSec`: 5460 s,
+  stopped at 1 h 07 min only because a person killed it. At 60 s the same grandchild costs a minute and
+  nothing else. Option three is refused because every other number in this generator is a fact about the
+  machine -- interval, budget, reviewer, where the binaries live -- and this one is not: it is how long
+  the harness will wait for a process group to die. A knob for it is also one setting away from
+  re-merging the two numbers, and the merge is the defect, so the tie-break order lands on the choice
+  that touches the fewest files and cannot be un-fixed by an environment variable. `KillMode` is the
+  right instinct -- kill the group, stop waiting -- and is refused on evidence rather than taste: under
+  `mixed` the escalation is still bounded by `TimeoutStopSec`, so it removes the wait only for a
+  descendant that would have taken `SIGKILL` at all, while a process in uninterruptible sleep holds the
+  cgroup to the deadline whatever the mode; `process` is worse, because leaving a tick's orphans running
+  is precisely the dirty worktree the next pass halts and refuses to touch. Both change what is killed on
+  *every* stop, including manager shutdown, and neither can be measured by a tick on this box: a
+  manager call is denied to this agent in both spellings, so picking one would be picking a manual page
+  nobody here re-ran. The issue draws the same line -- "the answer is a bounded stop, not a smarter
+  kill". What lost, as measured: the machine is not yet the repository.
+  `~/.config/systemd/user/parental-lockout-factory.service` still reads `TimeoutStopSec=5460` and
+  `TimeoutStartSec=5460` (read this session, its lines 51-52), because putting 60 s on the box needs
+  `install-timer.sh --install`, which is a manager write a tick may not make; H-0037 is why that
+  reinstall must also restart the running timer, and it does. The live reproduction the issue asks for
+  has therefore not been run -- H-0067 records what the shipped gate proves instead, and the exact
+  commands still owed. And 60 s is a judgement, so the gate pins a *bound* (120 s) rather than this
+  constant: a measured argument can move the number without editing the check.
+- Checkpoint: 4cfa83abc7b4e8a2dfbd79e86513ccc59f86b5f1
+- Effect: `STOP_TIMEOUT` and its substitution in `render()`, and the service template's `TimeoutStopSec`
+  line and its comment, in factory/install-timer.sh; in docs/factory.md, the unit excerpt's two
+  deadlines and their comment, the account of the 8 Nov outage with the `reset-failed` line and the
+  status read a watchdog owes, and `TimeoutStartSec` in the sentence about what `--install` derives.
+  This entry was written as `H-0056` and the commits that made it carry `Decision: H-0056`; `H-0068`
+  says why the number moved, and `H-0056` on `main` is a different decision -- the stale-tree refusal.
+
+## H-0067 · The deadline gate renders the shipped generator; it does not read its template
+
+- Question: H-0066 splits one rendered number into two. What has to go red for the two deadlines to be
+  re-merged, and where does a check that can see that live?
+- Options: grep the template in `install-timer.sh` for the two `Timeout…Sec=` lines | run
+  `install-timer.sh --install --dry-run` from `factory/selftest.sh` against a throwaway repo with stub
+  `gh` and `opencode` on the PATH, and assert on the unit it prints | cut a throwaway service/timer
+  pair under a transient user scope at `TimeoutStopSec=5s`, measure the stop, and put that in the gate |
+  ship no gate and leave the two lines beside a comment that says not to merge them
+- Chose: run `install-timer.sh --install --dry-run` from `factory/selftest.sh` against a throwaway repo
+  with stub `gh` and `opencode` on the PATH, and assert on the unit it prints
+- Why: the defect is a substitution, not a line of text, and three different regressions leave the
+  template looking exactly right -- point the stop token back at `@STOP@`, point the start token at the
+  stop token, or delete the substitution line and ship a unit carrying a literal `@STOP_TIMEOUT@`, which
+  a manager reads as no deadline at all. A grep over the template passes all three. The generator is the
+  only thing that knows what a token becomes, and `--dry-run` is the call that answers without writing:
+  it prints both units and exits before the first manager call. The two stubs are what makes the leg run
+  anywhere -- `install-timer.sh` refuses to start unless it can find `gh` and `opencode` on its PATH,
+  and this gate has no business needing a GitHub token or the CLI -- and neither stub is ever asked to
+  do anything, because the dry run never reaches a manager call. `FACTORY_ROOT` and `FACTORY_DIR` both
+  name the copy so that even `factory_paths`' three `mkdir`s land in `$work`: a gate that dirties the
+  tree it is checking can halt the very pass that runs it. Six legs, each with its own plant in the
+  opposite polarity -- a copy of the generator carrying the bug, which the same predicate has to refuse
+  -- because a check that cannot say absent is the check being blind, and that is how a green gate
+  coexists with the outage it was written for. One leg needs a second render to mean anything: at
+  `FACTORY_BUDGET=9000` start must move and stop must not, which is the only way to tell two derived
+  numbers from two literals that happen to differ. The bound asserted on stop is 120 s, not the shipped
+  60: the number *is* the outage a leaked descendant causes, so the gate refuses anything ceiling-sized
+  while leaving room for a measured argument about the constant.
+  What this gate cannot prove, on its own line so nobody mistakes it for the measurement: the live
+  reproduction the issue asks for has not been run. A manager call is denied to this agent in both
+  spellings, and this session measured the denial on the read-only form of it -- a `show` of the
+  service asking for `ActiveState`, `SubState` and `TasksCurrent` came back `Permission denied: shell`.
+  So no claim here rests on observed stop behaviour: not that 60 s reaps what 5460 s waited for, nor
+  that the unit goes inactive a minute after the last leaked descendant dies. The commands owed are in
+  the pull request body, and they are the issue's own pair: a transient unit whose `ExecStart` leaves a
+  detached descendant and exits, once at `TimeoutStopSec=5s` -- assert inactive inside about 5 s, and
+  the paired timer's next-fire non-empty again -- and once at 5460, which is tonight's outage and must
+  come back `stop-sigterm` with an empty next-fire. That second arm is the one that makes the first one
+  mean something. Using another manager client to get around the denial was considered and refused: the
+  denial is on the manager, not on one binary's name, and routing a refused call through a different
+  program is how a harness gap turns into a trust problem.
+- Checkpoint: b05070735f644f2e297863489f2dd85cb06144bc
+- Effect: the "unit's two deadlines" section of factory/selftest.sh -- `gen_setup`, `gen_dry_run`,
+  `gen_split`, `deadline_value`, `budget_default`, six `leg_*` predicates, `gen_leg`, `gen_planted`,
+  `gen_control` and `unit_deadlines` -- 216 -> 222 passing legs with six plants beside them, and the
+  header's claim about how many legs read shipped text rather than a planted tree. This entry was
+  written as `H-0057`, which `issue-235` also holds; `H-0068` says why the number moved.
+
+
+## H-0068 · The two ids this branch took are taken on `main` too, so the merge this pull request asks for would have turned `main`'s gate red
+
+- Question: `origin/main` is at `ef99ae2`, 30 commits ahead of this branch's merge-base with it.
+  `git merge-tree`
+  resolves every file but `factory/DECISIONS.md`, and the reason is worse than a textual conflict: the
+  merge puts `H-0056` (this branch's stop deadline) beside `H-0056` (`#252`'s stale-tree refusal), so
+  the merged log has one id naming two decisions. Whose numbers move, and what happens to the two
+  already-pushed commits whose `Decision:` trailers name the old ones?
+- Options: renumber this branch's two entries to the next ids free on every ref, `H-0066`/`H-0067` |
+  renumber `main`'s `H-0056` instead, since this branch took its number first | keep both pairs and let
+  the merged `main` fail `check-decisions.py` | give every branch its own id range by editing
+  `scripts/check-decisions.py` | report the collision on #246 and change nothing
+- Chose: renumber this branch's two entries to the next ids free on every ref, `H-0066`/`H-0067`
+- Why: the refusal is measured on the merged bytes, not argued. `git merge-tree --write-tree
+  origin/main HEAD` at `84ccdf9` prints `CONFLICT (content): Merge conflict in factory/DECISIONS.md`
+  and nothing else, so its merged blob was extracted and run through the gate:
+  `python3 scripts/check-decisions.py --log <merged blob>` answers **four** problems, exit 1 -- `id
+  H-0056 is already used at :1122; 'revert to before H-0056' would name two commits`, two `out of
+  order` rows, and the cross-log `one id, 2 decisions; a citation to it does not resolve`. So this is
+  not untidiness deferred to the person who resolves the conflict; it is `main`'s own `make verify` red
+  after a green merge, in the one gate the supervisor cannot skip. The ids were read off every ref
+  before any was taken, which is the discipline `H-0061` names as its whole reason for existing: above
+  `H-0055` the union over `refs/heads` and `refs/remotes/origin` is `H-0056` (`origin/main`,
+  `issue-235`, `issue-241`, `issue-246`, and the already-merged local `issue-248`/`issue-249` and two
+  backup branches), `H-0057` (`issue-235`, `issue-246`), `H-0058`..`H-0065` (`origin/main`), nothing
+  above `H-0065`. `H-0066` is therefore the first id no ref holds. That measurement was re-taken
+  mid-session and moved: the first read had `origin/main` at `93ee5f6` and its ceiling at `H-0061`, and
+  by the time this entry was written `#250` had merged `issue-248`, which renumbered *its own* three
+  entries to `H-0062`..`H-0064` and filed the notice as `H-0065` -- the same defect, third time in
+  twenty-four hours, on three branches that each did the thing `H-0061` told them to do. Why the four
+  others lose. **Renumber `main`'s**: its id sits in merged history and moving it means rewriting
+  `main`, barred twice over -- `AGENTS.md` forbids the rewrite and both squash and rebase merge are off
+  on this repository, so a rewrite is a force-push this agent cannot make and that no `git revert`
+  undoes. **Keep both pairs** moves a failure that is currently visible on a branch onto `main`, which
+  is the exact move this harness exists to stop making (the words are `H-0061`'s, and `H-0065` re-made
+  the same argument for the same three ids one branch later). **Per-branch id ranges** is the real
+  answer and is not this unit's to make: it edits `scripts/check-decisions.py`, invalidates the
+  numbering of three open branches mid-flight, and belongs to whoever owns the queue; the tie-break
+  order therefore lands on the option that touches the fewest files and is reversible by `git revert`
+  alone. **Nothing** is the state that produced four `H-0056`s. The yield is recorded inside both moved
+  entries' `Effect:` prose rather than in a new `Id:` field, because that is how `D-0050` was resolved
+  at `392f451` and because the field set `check-decisions.py` recognises must stay the five it declares
+  plus `Awaiting` and `Effect`. What lost, as measured: the two pushed commits keep `Decision: H-0056`
+  and `Decision: H-0057` in their messages -- rewriting them is the same barred force-push -- so
+  `git log --grep='Decision: H-0066'` finds this rename and not the work, and the follow-the-trailer
+  habit breaks once, here, on purpose; `issue-235` and `issue-241` still hold their `H-0056`s and
+  `issue-235` its `H-0057`, so this branch's contribution to the mess goes from two collisions to zero
+  only for the merge it is asking for, and the next sibling to merge still has to do this dance; a
+  fourth branch can take `H-0066` an hour from now, because the allocator is untouched and this entry
+  is a notice, not a lock -- the only real fix is a reservation the gate can see, and no leg can be
+  written for it without putting a read of sibling branches (a network read) inside a gate that
+  `H-0056` on `main` deliberately keeps off any fetch path; and `main`'s permanent gap at `H-0057`
+  means anyone counting entries against the highest id will read one as missing.
+- Checkpoint: e3903d1053f028a408841e59aa860b8972b47d00
+- Effect: `factory/DECISIONS.md` -- the two entry headers, the cross-reference each makes to the other,
+  and the two sentences above that say where the old numbers went; one cite in `docs/factory.md` and one
+  in `factory/selftest.sh`, both pointing at the stop-decision. No shipped script changed: the collision
+  is in the log, not in the harness. Re-measured at this head: `check-decisions: 93 entries across 2
+  log(s), clean`.
+
+
+## H-0069 · Merging `main`'s #249 arm turned all six deadline legs into SKIPs, so the fixture became a tree the generator would arm and a refusal to render became a FAIL
+
+- Question: `origin/main` brought #249 into `install-timer.sh`: the generator now asks
+  `factory_supervisor_position "$FACTORY_ROOT"` before it prints a line, and exits 1 on a tree that is
+  not its own trunk. This section's fixture is a `git init` with no commit and no trunk ref, and its
+  creation site plants no git identity. What is the fixture now, and what does the section do when the
+  generator declines to render -- because the answer it had was a SKIP.
+- Options: make the fixture a tree the generator would arm (a commit, and `origin/main` at it), plant
+  the identity where the repository is created, and fail the section when the generator refuses |
+  keep the SKIP bargain and add only the missing commit | aim the legs at a rendered unit checked into
+  the tree instead of the live generator | point `FACTORY_ROOT` at this real worktree, which is a
+  checkout with a trunk | delete the six legs and rely on #249's own legs, which now cover the generator
+- Chose: make the fixture a tree the generator would arm (a commit, and `origin/main` at it), plant the
+  identity where the repository is created, and fail the section when the generator refuses
+- Why: both halves of this are measured at `3b56a05`, on the merge commit with the log resolved and
+  nothing else touched. `bash factory/selftest.sh` there prints `FAIL  no fixture repo inherits the
+  host   fixture_carries_identity` and `SKIP  the unit's two deadlines   install-timer.sh --dry-run
+  refused to run here: install-timer: /tmp/plock-factoryselftest-M86pkW/genrepo is not a readable git
+  checkout`, and the section's own closing line -- `Every check below needs the generator; none of them
+  is a verdict on the unit.` -- is the most honest sentence in a suite that then went on to print
+  `267 passed`. That is #246's defect wearing a gate: not a wrong number, a check that stopped looking
+  while the tally kept saying the checks ran. Six legs read an empty file and reported nothing at all.
+  So the SKIP bargain, which was written for a different case, is withdrawn from both of its arms here.
+  It was correct where it came from: a tree that has no `install-timer.sh` has no subject, and demanding
+  one is a failure of the test, not of the code. Status 2 stays reserved for exactly that, and
+  `leg_generator_accepts_the_fixture` refuses to offer it, because here the subject is in this tree and
+  it is the *gate* that cannot see it -- the same distinction `leg_no_token_left_unrendered` draws
+  against its own SKIP arm. Why a real commit and a real `refs/remotes/origin/main` rather than a stub:
+  #249's verdict is a reading of git, and a fixture that fakes it would make the legs read a fixture
+  instead of a repository -- `git commit --allow-empty` plus `update-ref` is four seconds. Why not
+  `$FACTORY_ROOT` = this worktree: this branch is 30 commits behind the trunk right now, so the legs
+  would go red on every merge and green only in the window after a rebase -- armable by construction is
+  the property, armable by luck is not. Why the identity is planted at the creation site and not
+  exported for the section: H-0059's rule, quoted at the line itself, and the leg that enforces it
+  arrived on the trunk side of this merge and refused this fixture the first time the two met. Why not a
+  checked-in rendered unit: `install-timer.sh` is the only thing that knows what a token becomes, and an
+  artifact committed as a source is the failure mode H-0060 was written to refuse. Why not delete the
+  six legs: #249's legs pin the *refusal*; nothing there says which number is on which deadline, which
+  is the whole of #246. What lost, as measured: `gen_leg`'s FAIL tail changed from "the rendered unit is
+  wrong:" to "the check refused:" -- one line of shared vocabulary the six legs did not ask for, chosen
+  over a per-call wording so the helper stays one function. The section now builds a second, unarmed
+  fixture per run, so a failure there costs one more refusal to diagnose. `gen_control_unarmed` borrows
+  `$gen_tree` and hands it back, so a future leg added *after* it that assumes the armed tree is
+  correct today and wrong the day someone reorders the section. And `arm` is an argument, not a type: a
+  caller that omits it gets `arm=` , which is not `1`, which is an unarmed fixture, which is a FAIL --
+  the loud direction, but a new way to break this section that only the leg now catches. The checkpoint
+  is the merge commit and not its parent: the state this entry refuses is the merge with the blind
+  fixture in it, so that is what a revert has to land on.
+- Checkpoint: 9c96f3c7b82b717ae8121496ee3ec266a5e1d4d5
+- Effect: `factory/selftest.sh` -- `gen_setup` takes `<dir> <arm>` and now plants `user.email`/
+  `user.name` beside its `git init` and, at `arm=1`, an `--allow-empty` commit and
+  `refs/remotes/origin/main` at it; `gen_dry_run` renders against `$gen_tree`; new
+  `leg_generator_accepts_the_fixture` and `gen_control_unarmed`; both SKIP arms in `unit_deadlines`
+  replaced by FAILs; `gen_leg`'s FAIL tail; two new paragraphs in the section header. Re-measured, same
+  command before and after: `267 passed, 1 failed` with this section reporting one SKIP and reading
+  nothing, to `275 passed, 0 failed`, eight to the tally -- the identity leg the merge broke and the
+  seven this section prints now that it renders. The section itself prints fourteen `ok` lines, seven
+  legs and seven controls, the controls not counted in the tally.
+
+
+## H-0070 · The decision-id allocator reads every local branch ref, so a sibling's number is taken before this checkout meets it
+
+- Question: the skill told every session to "number from the highest id in the file you are writing
+  to," and `check-decisions.py` only judged the merged result. Three sessions followed that sentence
+  literally, saw the same H-0060, and all wrote H-0061; the notice filed at H-0068 says plainly that
+  "the allocator is untouched" and that a fourth branch can take the same number. What shared
+  allocator replaces prose without turning decision numbering into a second delivery queue?
+- Options: add `factory/next-decision-id.sh`, document it as the one allocation command, and pin its
+  ref union and gap rule in `factory/selftest.sh` | move allocation into `scripts/check-decisions.py`
+  so the existing gate also chooses the id | keep the prose and merely add "fetch and inspect every
+  branch" | give each branch its own id range by changing the gate's id grammar | do nothing and keep
+  renumbering after a collision is discovered
+- Chose: add `factory/next-decision-id.sh`, document it as the one allocation command, and pin its
+  ref union and gap rule in `factory/selftest.sh`
+- Why: the defect is a read with the wrong scope. The old prose was accurate about one checkout and
+  blind to the queue: `check-decisions.py` correctly refuses an id twice in a log and one id in both
+  logs, but it reads the two working logs at the end of a session, when a branch's own new entry has
+  already been written. H-0068 measured the cost -- H-0065/H-0066's renumbering, then this branch's
+  H-0068/H-0069 renumbering -- and said the missing piece was a shared allocator. The new command asks
+  git for the working file, `HEAD`, every `refs/heads` and every `refs/remotes` blob, then returns one
+  above the selected prefix's highest id. The selftest proves the union rather than trusting the
+  phrase: the current checkout remains at D-0001/H-0010 while local and remote refs hold D-0003/H-0011;
+  the allocator answers D-0004/H-0012. It then plants exactly D-0004/H-0012 on a second remote-only ref
+  and the answer moves to D-0005/H-0013, the H-0061 race caught locally. A planted allocator that drops
+  all branch refs falls back to D-0002/H-0011, and one that drops `refs/remotes` falls back to the
+  colliding D-0004/H-0012 -- so neither ok is the fixture agreeing by accident. D-0002 stays absent in
+  the first fixture and is deliberately not chosen: retired and renumbered ids are permanent
+  reservations, so "first free" means above the ceiling rather than the smallest gap. The command reads
+  refs already on the machine and fetches nothing, following #249's staleness verdict: H-0013 and
+  H-0056 already price a blocking read in a tick budget. Why the four alternatives lose. **Move
+  allocation into `check-decisions.py`** puts a write-shaped question in a shape gate and still runs
+  too late; an allocator must be callable before the checkpoint named in the entry. **Fetch in the
+  allocator** makes an ordinary harness command depend on network timing and recreates the parked-read
+  hazard the harness explicitly rejects. **Per-branch ranges** requires a new identity scheme and
+  changes what every historical `H-NNNN` citation means -- larger than this ticket, as H-0061 and
+  H-0068 both concluded. **Keep the prose** was measured to fail three times. What lost, as measured:
+  this is a collision-free read, not a reservation -- two processes can still call it before either
+  commits and receive the same answer, so the skill must re-run it immediately before the entry commit;
+  refs that have never been fetched are invisible, so the unit still needs an up-to-date trunk (the
+  allocator says so in its help and docs/factory.md names the operator's `git fetch --all --prune`);
+  it now reads every ref blob, so allocation costs one `git show` per local ref rather than one
+  heading scan; and `make verify` cannot close
+  the cross-branch race on its own because the same two ids may each pass independently in separate
+  worktrees. The selftest's local collision pins detection of a stale read, not prevention of a
+  same-instant race.
+- Checkpoint: 38ddd0bddcb47bd5151eec3e44951b385b76ecd0
+- Effect: new `factory/next-decision-id.sh` (executable); `.opencode/skills/factory/SKILL.md` step 3
+  now allocates before checkpointing and re-reads before committing; `docs/factory.md` gains "Decision
+  ids are allocated against refs, not prose"; `factory/selftest.sh` gains seven counted legs and four
+  counted controls. Re-measured after the write: `bash factory/selftest.sh` moved from the pre-change
+  `275 passed, 0 failed` to `282 passed, 0 failed`; `factory/next-decision-id.sh factory/DECISIONS.md`
+  printed H-0070, and `make check-shell` reported 28 scripts.
+
+
+## H-0071 · The allocator's re-read is written as what it can see: a sibling worktree is visible, an unfetched push is not
+
+- Question: H-0070 shipped the allocator and the skill's new step closed with "the second read catches
+  a sibling merged or pushed while the session worked". One half of that sentence is true and one is
+  not. Which half does the re-read actually cover, and what goes in the claim?
+- Options: leave the sentence as written | rewrite the skill and `docs/factory.md` to the measured
+  boundary and pin both halves in `factory/selftest.sh` | make the allocator fetch, so the claim
+  becomes true | give the allocator an opt-in `--refresh` and tell the tick to use it | have
+  `factory.sh` fetch the trunk before every dispatch
+- Chose: rewrite the skill and `docs/factory.md` to the measured boundary and pin both halves in
+  `factory/selftest.sh`
+- Why: measurements first, in two fixtures under the selftest's own temp tree. Same clone, second
+  worktree: the sibling commits `D-0009` in its own worktree, and the primary answers `D-0002` before
+  that commit and `D-0010` after it, with no fetch anywhere in between -- worktrees share
+  `refs/heads`, and every unit tree this harness makes is a worktree (`common.sh`'s `git worktree
+  add`), so for the concurrency this machine actually runs, the re-read is real. Two clones: origin
+  holds `D-0007` on a branch delivered by a second copy, and the first copy answers `D-0002` -- its own
+  stale ceiling, while origin is already at `D-0007` -- then `D-0008` after one `git fetch`. An
+  unfetched push never moves `refs/remotes`, so `merged` was true and `pushed` was not. The two
+  documents also disagreed with each other: `docs/factory.md` already told the operator to refresh
+  while the skill said the window was shut. What the false half costs: a session that believes it
+  re-reads, gets the same number back, and concludes no sibling exists -- on a queue that runs on two
+  machines that is issue #253's failure again, this time with a green allocator behind it. Tie-break:
+  fewest files, reversible by `git revert` alone, and the shape the surrounding code already takes --
+  `factory/common.sh`'s staleness verdict reads refs as this checkout last learned them and says so
+  beside the code, and the conflict path fetches explicitly where it must (`git fetch origin "$base"`
+  in `factory/factory.sh`). Why the four alternatives lose. **Leave the sentence** is the defect.
+  **Fetch in the allocator** and **`--refresh`** both put a blocking network read in front of a per-tick
+  budget, the hazard H-0013, H-0056 and #879 price, and the only use of an opt-in flag is that ticks
+  opt in. **A fetch before every dispatch** reopens H-0056, a standing decision about the supervisor's
+  ref policy, to shrink a window this entry documents instead; it is the follow-up named in the pull
+  request, not this commit. The selftest now carries both shapes as behaviour instead of prose:
+  `a sibling worktree is refused its id` answers `D-0010` off the sibling's own commit, with the
+  narrower-read control falling back to `D-0002`, and `an unfetched sibling push is invisible` asserts
+  both the blind answer and the fetched one -- the second half is what stops the first from being a
+  fixture that never met origin at all. `the shared allocator is documented` now requires the refresh
+  command in both documents as well as the path, and its control deletes every line naming the refresh
+  and demands a refusal. What lost, as measured: the cross-machine window is still open until someone
+  fetches -- this commit makes it legible, not shut; the fixture's origin is a local bare repository,
+  so no leg measures real network latency or a fetch that hangs; and an allocator on a machine that has
+  never contacted this origin still cannot see a sibling there, which is the same read-not-lock limit
+  H-0070 recorded.
+- Checkpoint: 5416659a40a4fe9ef0d1b5d84f9fb0f9e269e71b
+- Effect: `.opencode/skills/factory/SKILL.md` step 1 states the boundary with both measurements and
+  names `git fetch --prune origin` for a multi-machine queue; `docs/factory.md` gains the two-row table
+  of what is seen and what is missed; `factory/selftest.sh` gains two counted legs and two counted
+  controls, and its allocator doc-check now reads the refresh as well as the path. Re-measured after
+  the write, from the files as committed: `bash factory/selftest.sh` moved from `282 passed, 0 failed`
+  to `284 passed, 0 failed`; `make check-shell` reported 28 scripts with 0 findings; both documents read
+  back with the sentences named above in them before this entry was written.
+
+
+## H-0072 · The decision gate stays ref-blind, and what it may not read is now pinned twice
+
+- Question: #253's second instruction is that `scripts/check-decisions.py` must not start reading
+  sibling refs, because that makes the verdict depend on what this checkout last fetched. Nothing
+  enforces it -- the rule lives in the issue, in this log, and in one comment beside the git call. What
+  replaces the sentence, and with what shape of pin?
+- Options: leave the instruction as prose | pin it with a text scan for ref-shaped git calls in
+  `factory/selftest.sh` | pin it on behaviour, with a fixture repository whose sibling branch repeats an
+  id run through a copy of the shipped gate | pin it with both, since the scan is breadth and the
+  fixture is the property | move the ref union into the gate so it warns about a cross-branch duplicate
+  instead of only at the merge
+- Chose: pin it with both, since the scan is breadth and the fixture is the property
+- Why: the two pins answer different questions and each can pass without the other. The scan
+  (`the gate reads no branch refs`) refuses any git subcommand that is not `cat-file` and any
+  `for-each-ref`, so a fetch or a `git show <ref>:path` added years from now for an unrelated reason is
+  refused on the day it appears; its control appends a ref-enumerating vector to a copy of the gate and
+  requires a refusal, because a scan that cannot see a planted one is blind, not clean. The fixture
+  (`a sibling id leaves the verdict alone`) measures the property itself: a repository of the gate's own
+  shape -- a byte-identical copy of the script at the same relative path, since it resolves both logs
+  and the checkpoint lookup against its own directory -- whose sibling branch repeats `D-0001` while
+  the working log is clean. The shipped gate answers clean; the same duplicate put into the working log
+  is answered with `id D-0001 is already used`, and that second half is what stops the first from being
+  a fixture the gate never read. Discrimination was then measured rather than argued: with a ref-reading
+  arm planted in the working copy -- the exact change this entry forbids, `for-each-ref refs/heads` plus
+  `git show <ref>:DECISIONS.md` fed through `check()` -- both legs go FAIL together and the selftest
+  falls from `286 passed, 0 failed` to `284 passed, 2 failed`, the diagnostic naming
+  `refs/heads/sibling:11`. The restored file compares byte-identical to the backup taken before the
+  plant. Why the four alternatives lose. **Prose** is what this and H-0071 are both corrections for.
+  **The scan alone** never shows the verdict actually holds on a tree that contains a collision, so it
+  would keep passing if a future refactor read refs through a helper it does not pattern. **The fixture
+  alone** refuses only a ref read that changes an id verdict; a `git fetch` bolted onto the gate for
+  some other reason would pass it and still make the gate a network client. **Move the union into the
+  gate** is the hazard itself, and it was measured: one commit, `82bbe713`, in two checkouts that differ
+  only in which branches they hold -- with every branch present the ref-reading gate reports
+  `1 decision-log problem`, and in a single-branch clone of the same commit it reports none; the shipped
+  gate reports none in both. A gate whose answer is a function of `actions/checkout`'s depth, or of the
+  last person to fetch, gets re-run until it agrees, which is how a red gate gets ignored. Tie-break:
+  the option that refuses rather than proceeds (a clean answer from a tree that hides its refs is
+  exactly the wrong answer), and the one that touches the fewest shipped files -- both legs are in
+  `factory/selftest.sh`; the gate, the allocator and `make verify`'s shape are untouched. What lost, as
+  measured: the scan is textual, so a ref read spelled through a variable holding `["git", "for-"
+  "each-ref"]` would slip past it -- the fixture is what is load-bearing, and it is the leg that caught
+  the plant; the fixture's verdict is about *id* rules only, so a future rule that legitimately needs
+  the object store stays allowed by design (`Checkpoint:` resolution reads objects, not refs); neither
+  leg can stop a *human* wiring the union into the gate and dismissing the FAIL -- what stops that is
+  this entry and the merge that has to pass `make verify`.
+- Checkpoint: 1d61a4113c50680af4f2941024f276e69f97dabf
+- Effect: `factory/selftest.sh` gains two counted legs and two counted controls --
+  `the gate reads no branch refs` with the planted-vector control, and
+  `a sibling id leaves the verdict alone` with its own in-fixture falsifier; its header list gains the
+  gate row. `docs/factory.md`'s decision-id section now states the gate's limit as a rule with its
+  reason. No shipped check changed: `scripts/check-decisions.py`, `factory/next-decision-id.sh`,
+  `factory/factory.sh` and the Makefile are untouched by this commit. Re-measured after the write, from
+  the files as committed: `bash factory/selftest.sh` moved from `284 passed, 0 failed` to
+  `286 passed, 0 failed`; `make check-shell` reported 28 scripts; the plant and its reversal are
+  recorded above.
+
+
+## H-0073 · The allocator handed `H-0001` to a mistyped path and the caller's own log to a bare `--repo`
+
+- Question: #255 shipped #253's first instruction and left the ticket open for the race, so before
+  deciding anything the shipped allocator was called the way a session calls it -- including the paths
+  a session gets wrong. Three such calls, measured on `91d992d`: `--prefix H factory/DECISION.md`
+  printed `H-0001` and exited 0; the same path without `--prefix` exited 2 with stdout *and* stderr
+  empty; `--repo` aimed at a checkout that has no log printed `D-0052`, this repository's own ceiling,
+  once with a commit in the fixture and once with none. What is an allocator to do when the union it
+  has read is empty?
+- Options: refuse when the named log is in neither the working tree nor `HEAD`, and resolve a relative
+  path against the repository named with no second reading | keep answering from the empty union and
+  let `check-decisions.py` catch the collision at `make verify` | create the missing log and allocate
+  `D-0001` from it, which is what "fresh adoption" was documented to mean | keep the fallback to the
+  caller's path and document that `--repo` is advisory
+- Chose: refuse when the named log is in neither the working tree nor `HEAD`, and resolve a relative
+  path against the repository named with no second reading
+- Why: an empty union has exactly one answer available, `<prefix>-0001`, and both logs opened with
+  that number -- so an empty union is never an empty log, it is a wrong path, and the one thing this
+  command exists to refuse is the collision it was handing out. The second call is worse than the
+  first: `prefix=$(sed ... | head -1)` fails on a missing file, a command-substitution assignment
+  inherits status 2 under `set -euo pipefail`, and `set -e` ends the script before any message. A
+  refusal with nothing on either stream is indistinguishable from a broken tool, and a session
+  holding a broken allocator numbers by eye -- which is the prose allocator this ticket exists to
+  replace, arrived at by a route no leg can see. The tie-break order decides it at its third rung,
+  "refuse rather than proceed when input is missing or empty"; it also proves the documented arm was
+  fiction. `docs/factory.md` and the code comment both promised `D-0001` for "--repo pointing at a
+  branch before the log exists", and the measurement answers `D-0052`: the fallback took the read to
+  the caller's log before the default was ever reached, which is also why the seven legs and four
+  controls #255 shipped never saw the fallback -- every one of them writes its fixture's log and
+  passes `--prefix`, so neither dead arm had a caller. Letting the gate catch it instead is the
+  current behaviour and was measured not to be enough: `check-decisions.py` is ref-blind on purpose
+  (H-0072), so it refuses a *merged* duplicate at the trunk, in the one gate the supervisor may not
+  skip, which is the exact failure #253 opened with. Creating the log is a write made by a command
+  whose whole job is to read. `Chose:` the last option and `--repo` stops meaning anything, and #249's
+  staleness work is all about what a flag that does not bind costs. What lost, as measured: a fresh
+  adoption is now one `touch` plus a title line before the first id -- a step the replaced behaviour
+  did not ask for, and one that cannot break anything that worked, since the replaced behaviour was
+  unreachable; a `--repo` aimed at a log-less tree now refuses where it used to answer, so a caller
+  that depended on the bleed fails loudly (the only callers in this repository are the skill,
+  `docs/factory.md` and the legs, and all three name a log that exists); every call now costs one
+  more `git cat-file`, which asks about an object and not a ref, so the H-0072 boundary holds and the
+  verdict stays off every fetch path; and the guard cannot be planted with the `|` delimiter the other
+  plants use, because its call site is `log_is_here ||` -- the leg says so and uses commas rather than
+  an escaped `\|`, which in a BRE would match a different line.
+- Checkpoint: da773e6f007932eaa01ad5e961d3b3e24b2417ef
+- Effect: `factory/next-decision-id.sh` -- the path `case` has one arm (`--repo`, else `$PWD`, never a
+  fallback), a `log_is_here` guard ahead of prefix inference, `|| true` on the inference `sed`, and
+  the union's `[ -f ] && cat` became an `if` so a log present in `HEAD` but not in the tree cannot
+  trip the same trap. `factory/selftest.sh` -- `alloc_run` and `alloc_control` can now omit
+  `--prefix`, which is how the inference arm finally gets a leg; six legs and two controls
+  (`alloc_refuse` asserts a refusal refused, printed no id, and named the path; `alloc_reads_its_repo`
+  pins the cross-repo read as a difference between two trees and FAILs if they ever agree).
+  `.opencode/skills/factory/SKILL.md` says a refusal means the path is wrong and that numbering by eye
+  is not the fallback; `docs/factory.md` carries the three measured calls as a table. Re-measured
+  after the write: `bash factory/selftest.sh` moved from `286 passed, 0 failed` on the checkpoint to
+  `292 passed, 0 failed`, and the two runs' line lists were diffed to confirm six new counted legs,
+  two new control lines and no leg lost -- the suite prints a control's `ok` without adding it to the
+  tally, so #255's "four counted controls" overstates it by four. The three probe calls now refuse
+  naming the path; the calls that worked are unchanged (`D-0052` and `H-0073` here, a fixture at
+  `D-0001` answers `D-0002`, a fresh uncommitted log answers `D-0001`, a heading-less
+  `factory/DECISIONS.md` answers `H-0001` with no `--prefix`).
+- Correction (`H-0073`, 10 Nov, on #257's review): one clause of this `Effect:` is false, and so is the
+  code comment that came with it. The union's `[ -f ] && cat` did not become an `if` because "a log
+  present in `HEAD` but not in the tree" could "trip the same trap" -- it could not. Bash exempts a
+  failing command inside an `&&` list from `set -e`: `bash -c 'set -euo pipefail; out=$( { [ -f /nope ]
+  && cat /nope; echo AFTER; } | cat ); echo $out'` prints `AFTER`, and measured on `91d992d` with
+  `--prefix D`, a fixture whose `DECISIONS.md` is in `HEAD` and deleted from the working tree answered
+  `D-0008` with status 0. The `sed` half of the same sentence is real and reproduces -- the same
+  fixture, no `--prefix`, status 2 with both streams empty, because `pipefail` gives the pipeline's
+  status to the command-substitution assignment -- and that is what the branch actually fixed. The `if`
+  stays because it says what it does, not because it closes a failure mode; the claim was written before
+  it was measured, the same hazard the entry two numbers later records about its own `Effect:` line.
+  Nothing in the suite planted the deleted-from-the-tree shape either, so nothing could have
+  contradicted it: `factory/selftest.sh` now answers it
+  (`a log in HEAD but not in the tree answers from HEAD`, `D-0008`). This entry is corrected in a dated
+  line rather than rewritten, because it is cited as evidence and a silently corrected decision log is
+  indistinguishable from one that was always right.
+
+
+## H-0074 · Two sessions can still take the same id, so the merge arbitrates it and the yield rule is written down
+
+- Question: #253's item 4 says the same-minute collision "is the part worth a decision rather than a
+  script", and #255 left it open. Measured on this tree: two allocator calls in the same instant against
+  one fixture both print `H-0010`. Is a reservation bought, or is the merge the arbiter -- and what has
+  to be written down for that answer to be a procedure rather than a shrug? Item 3 belongs to the same
+  question, because the rule a collision is resolved with did not exist either: `grep -c yield` over
+  `docs/factory.md` at `91d992d` answers 0, and `git diff f311075 91d992d -- docs/factory.md` adds no
+  paragraph about it, though #255's body reported "**4. The tie-break, written down.** ... is in
+  `docs/factory.md` now".
+- Options: accept the race, make the merge the arbiter, and write the yield rule and its reason into
+  `docs/factory.md` | reserve ids on a fourth ref claimed with a compare-and-set `git update-ref` |
+  have the supervisor allocate the id at dispatch and name it in the tick's brief | give each branch its
+  own id range, the option H-0070 also rejected
+- Chose: accept the race, make the merge the arbiter, and write the yield rule and its reason into
+  `docs/factory.md`
+- Why: what the race needs to open is not reachable on the deployment, and not by habit but by
+  mechanism. `factory/factory.sh` takes `exec 9>"$FACTORY_RUN/lock"` and `flock -n 9` before it reads
+  anything -- a second activation prints `another supervisor holds …, so nothing was done here.` and
+  exits 7 -- and it dispatches each tick in the foreground (`timeout … opencode run`, no `&`) from one
+  loop, so two sessions are never allocating at each other on one machine; a sibling that has already
+  committed is visible regardless, because every unit tree is a worktree and worktrees share
+  `refs/heads` (the leg in this very section: `D-0002` before the sibling commits, `D-0010` after, with
+  no fetch). The window that survives is a second clone that has not fetched, or a person running a
+  unit in a second checkout while the timer runs one here. **A reservation ref** loses on reachability
+  and on kind: a local ref says nothing to the other clone, and the moment it is pushed it is a
+  state-changing write in front of the tick budget -- `H-0013` priced a blocking *read* at 5min2s of a
+  pass and `H-0056` refused one inside a verdict -- while a claim that outlives the session that made it
+  is a lease needing an owner and an expiry, which nothing in this harness reaps. **Supervisor
+  allocation at dispatch** moves the race earlier without closing it: the supervisor reads the same
+  union this allocator reads and inherits the same staleness, so a session whose re-read finds the
+  handed-out number taken has to move anyway; it also costs a tracker write per unit. **Per-branch
+  ranges** change what every historical `H-NNNN` citation means, which is why `H-0070` refused it and
+  `H-0061` and `H-0068` before it. Acceptance is only honest if the arbiter is a procedure, so the guide
+  now carries the rule -- the side that has not merged yields -- with the reason it is that side and not
+  either: `main`'s ids sit in history that cannot be rewritten here, because the only merge offered is a
+  merge commit whose ancestors are permanent and the rewrite that would move one is a force-push
+  `.opencode/opencode.jsonc` denies every agent in this repository. The four steps end with the gate over
+  both logs, and they cite `H-0051` and `H-0052` as the shape of the record, because a gap in a log is
+  citable only when an entry says why it is empty. One leg and one control pin both halves, rule and
+  reason, each with its own plant: what failed here was a delivered claim with no leg behind it, and a
+  phrase in a pull-request body is read by nobody resolving a conflict at the trunk at 2am.
+- Checkpoint: 18d07e37589ea220f274340bd4139d227abb52f1
+- Effect: `docs/factory.md` gains "When two branches take the same number, the side that has not merged
+  yields" and "Why there is no reservation", with the measured `H-0010`/`H-0010` and the reachability
+  paragraph. `factory/selftest.sh` gains `alloc_yield_rule` with a two-plant control, and a comment
+  recording that this suite's controls print `ok` without incrementing the tally -- so #255's "four
+  counted controls" overstates it by four, and every count in both of this branch's entries says "legs"
+  and "control lines" separately. No shipped check changes: `factory/next-decision-id.sh` is already a
+  read that says it is one, and `H-0072` keeps ref-reading out of `scripts/check-decisions.py`. The
+  mitigation acceptance makes cheap -- `factory/factory.sh` fetching the trunk once per activation,
+  bounded by a `timeout` and non-fatal -- is deliberately not bought here, because it is the supervisor's
+  ref policy and needs its own decision; it is filed and read back as issue #256 (`256 OPEN The
+  supervisor dispatches against whatever refs this tree last fetched, so a second clone allocates stale
+  ids`). Re-measured after the write: `bash factory/selftest.sh` moved from `292 passed, 0 failed` to
+  `293 passed, 0 failed` -- one leg counted, one control line printed and not counted -- and the
+  control's two plants each make the leg refuse, which is what proves the leg reads both halves.
+
+
+## H-0075 · The activation fetches origin once, ahead of the queue read, so the pass dispatches against refs it has actually refreshed
+
+- Question: `H-0056` forbids a fetch inside a verdict, and #256 asks for a refresh before the
+  allocator runs. Where does the refresh go?
+- Options: inside the verdicts that read refs | one unrefspec'd fetch per activation, ahead of the
+  queue read | one fetch per unit, in `factory_tick` | operator discipline only, as the skill says today
+- Chose: one unrefspec'd fetch per activation, ahead of the queue read
+- Why: Every judgement the pass makes is a reading of refs, and nothing in the harness had ever
+  fetched. `factory/triage.sh:538` takes `main_sha` from `git rev-parse origin/main` and `:563` counts
+  `git rev-list --count "$main_sha..$sha"` for every branch with no open pull request -- that is the
+  `$ahead` number in the `branch_without_pr` detail line, so an unfetched clone reports an orphan as
+  further behind or ahead than it is; `factory_worktree` (`factory/common.sh`) cuts a unit with
+  `git worktree add -b "$branch" "$path" origin/main`; `next-decision-id.sh` takes its ceiling from
+  every `refs/heads` and `refs/remotes` blob. All three therefore read the last time this
+  clone looked. That is not hypothetical here: taking this branch, `git for-each-ref` in the primary
+  clone listed `origin/issue-253` carrying `H-0073` and `H-0074` while `origin/main` stopped at
+  `H-0072`, and the file in the checkout ends at `H-0072` -- so a clone that had not fetched would
+  allocate `H-0073`, the fourth entry under three numbers, which is exactly the shape `H-0070` was
+  bought to stop. The allocator's answer in this tree was right (`H-0075`) only because some earlier
+  person had fetched; nothing guaranteed it, and `docs/factory.md` told the operator to type the fetch
+  themselves on a second machine.
+  It is not `H-0056` to do this here, and the distinction is the decision. #256's own reasoning is
+  correct about a *verdict*: `H-0072` keeps `scripts/check-decisions.py` ref-blind, `H-0074` measured
+  one commit reporting `1 decision-log problem` in a clone holding every branch and none in a
+  single-branch clone of the same commit, and a verdict whose answer depends on which refs a tree
+  happens to hold gets re-run until it agrees. A gate must not read refs; a *dispatch* already does,
+  unavoidably, because it is the thing that chooses which branch to cut. The supervisor is also already
+  a network path -- every triage, review-poke and merge in `factory.sh` is a `gh` call -- so one `git
+  fetch` per activation adds a call to a pass that spends minutes on the network already, and it adds
+  it in the one place where the refs are about to be used.
+  The shape is a measurement, not a guess, because the ticket asked for the wrong one. A fixture with a
+  local bare origin, a clone holding a unit worktree, and a sibling that pushed `D-0007` from a second
+  clone: `git fetch --prune origin trunk` -- the trunk-limited form #256 names -- returns 0 and the
+  unit tree still allocates `D-0002`; `git fetch --prune origin` returns 0 and it allocates `D-0008`.
+  The sibling's entry is on the branch it pushed, and a refspec-limited fetch updates the trunk only.
+  Worse, the trunk-limited fetch *reports* `1 moved` when counted on `->`, because git prints
+  `* branch trunk -> FETCH_HEAD` for an explicit refspec: the useless form looks in the journal like
+  the useful one. Hence the counter reads `-> origin/`, and hence `factory/selftest.sh` ships the
+  trunk-only plant as a counted control that must leave the id stale.
+  Which tree: one fetch in the primary checkout moved the allocator's answer in a linked unit worktree
+  of the same clone (`D-0002` in both trees before, `D-0008` in both after), because `refs/remotes`
+  lives in the common directory -- the same sharing `H-0074` cites for the worktree half of the
+  boundary, read the other way. So the argument is `factory_main_checkout` and a tick gets a refresh it
+  never asks for; a fetch in the unit tree alone would have been the tick's, not the pass's.
+  The bound is the answer to #256's counter-argument rather than a dismissal of it: the pass runs under
+  `flock -n factory/run/lock`, so a fetch that parks does freeze the queue. Measured against an origin
+  that accepts the connection and never answers -- `GIT_SSH_COMMAND='bash -c "exec sleep 60"'`,
+  `FACTORY_FETCH_TIMEOUT=4` -- the call returns at the bound, leaves no `.lock` file in `.git`, and the
+  clone works afterwards; the same holds under `SIGKILL`, which git cannot clean up after. `--prune`
+  with a single-branch refspec does not destroy the union the allocator reads (a planted
+  `refs/remotes/origin/ghost` survived it). The default, 120s, is a fifth of the timer's
+  `OnUnitInactiveSec=600`, so the worst case the bound permits is one activation that finds the lock
+  held, prints `supervisor: another pass holds the lock, skipping`, exits 7, and is over. And the
+  function returns 0 whatever the fetch did, because the alternative -- a halt because origin was
+  unreadable -- is the bug #248, 115 `HALTED` lines and a frozen queue. What a failed fetch costs is
+  one journal line naming how blind the pass is: `REFRESH-TIMEOUT`/`REFRESH-FAILED` with the trunk
+  ref's own age, and `REFRESH-BLIND` for a refspec that can never see a sibling's branch.
+  The fixture also caught a real ordering fault, which is the reason it is a fixture and not prose: the
+  first version aimed `>"$FACTORY_LOG/refresh.log"` at a directory nothing had created yet, because
+  `log_event` is what calls `factory_paths`. The redirect fails as status 1 with an empty file, so a
+  pristine tree reported `REFRESH-FAILED (1)` over an empty log -- a missing directory wearing the
+  sound of a refused origin. `factory_paths` now runs first.
+  Tie-break: reversible by `git revert` alone (one function, one call site, one config default), and
+  the option that leaves every verdict's answer exactly where `H-0072` and `H-0074` pinned it.
+  What lost, as measured: one network call per activation on the critical path *inside* the lock, and
+  its whole cost lands on a slow or dead network -- that is the option's real price and the reason it
+  is bounded rather than trusted. It makes the dispatch refs-dependent, so two clones can still choose
+  differently inside the window between activations: the allocator is still a read and not a
+  reservation (`H-0070`), and `H-0071`'s re-read before the entry commit is still the last line of
+  defence, unchanged. A machine with no reachable origin now writes one `REFRESH-FAILED` every ten
+  minutes, which is honest and noisy. `REFRESH-BLIND` exists because a single-branch clone cannot be
+  fetched into seeing a sibling -- that is the residual the fetch cannot close.
+  Why the alternatives lose. **Inside the verdicts** is what `H-0072` refuses, and the two legs that
+  say so (`the gate reads no branch refs`, `the verdict never fetches`) would have to be inverted for
+  it, trading a gate with one answer for `H-0074`'s measured two-clone divergence; it also puts a
+  blocking read in front of `install-timer.sh --install`, a function with no budget of its own. **Per
+  unit** costs up to three fetches a pass inside the tick ceilings, and fixes the smaller half: the
+  tick's allocator would be current while `triage.sh`'s rows and the branch the worktree was cut from
+  -- both decided before any tick exists -- stay stale. **Operator discipline only** is what shipped
+  until now, and its measurement is the first paragraph: a live collision on an open branch with a
+  sentence in `docs/factory.md` as the only remedy.
+- Checkpoint: 96c54a1dc7d73b2c6ed750f2705c865b09a81313
+- Effect: read back from `git diff --stat origin/main...HEAD` on this branch rather than restated from
+  memory, because restating it is what made the first version of this entry name a `triage.sh` command
+  that does not exist as written -- corrected by the follow-up commit on this branch, which touches only
+  this paragraph and the matching comment in `factory/factory.sh`.
+  `factory/factory.sh` gains `factory_refresh_origin` and one call in `factory_body`
+  before the `triage.sh` read. `factory/common.sh` gains `FACTORY_FETCH_TIMEOUT` (default 120).
+  `factory/selftest.sh` gains four counted legs (`the pass refreshes before it dispatches`,
+  `the refresh is bounded by a timeout`, `a failed fetch never stops the pass`,
+  `one fetch per activation`) and four controls, two of them planted outside the tree;
+  `bash factory/selftest.sh` moved from `286 passed, 0 failed` to `290 passed, 0 failed`, and
+  `make check-shell` reports `0.10.0 over 28 scripts` with no finding. `docs/factory.md`'s
+  decision-id section closes the second row of `H-0071`'s table instead of assigning it to an
+  operator, and the configuration table gains the timeout row.
+  `.opencode/skills/factory/SKILL.md`'s allocator bullet no longer says nothing fetches on a tick's
+  behalf. Not touched: `factory_supervisor_position`, `factory/next-decision-id.sh`,
+  `scripts/check-decisions.py`, the Makefile.
+
+
+## H-0076 · The guard asked whether the path exists, so every wrong path that exists was still answered
+
+- Question: #257's review measured the guard H-0073 shipped, at `c5aa1eb`, and found it answering a
+  different question than the one this command exists to ask. `[ -e "$target" ] || git cat-file -e
+  "HEAD:$rel"` is true of anything that is *there*, and every wrong path in a real checkout is there.
+  Re-measured on this branch's own head after the review, with `--prefix H`: `docs/factory.md`,
+  `README.md`, `AGENTS.md`, `factory` and `factory/` each printed `H-0001` and exited 0 -- the
+  collision, with exit 0. At the head this entry ships, the same five exit 2 naming the path while
+  `DECISIONS.md` answers `D-0052` and `factory/DECISIONS.md` answers `H-0076`, both unchanged. Two
+  things make it blocking rather than tidy. `docs/factory.md` is not a typo a session has to invent: it
+  is the 842-line guide carrying the section that tells a session to run this command, so it is what a
+  session has open at the moment it reaches for the allocator. And the text #255 wrote makes the
+  residual worse instead of neutral -- `SKILL.md`'s step 3 and this guide both reframe a refusal as
+  *your path is wrong*, so a session handed `H-0001` for a file that exists reads it as "my log was
+  read" and writes the duplicate heading: a silent collision where an error message would have been
+  visible. No leg can see the shape, either -- every path named in the whole `decision_ids` section is
+  `DECISIONS.md`, `factory/DECISIONS.md` or `factory/DECISION.md`, all three absent, so an existence
+  predicate and a log predicate agree on every fixture the suite owns. What is the predicate, and where
+  does it have to live for a control to be able to falsify it?
+- Options: fold the name and type tests inside `log_is_here`, and give each arm its own leg and its own
+  plant | put the name test beside the function, ahead of the call site | keep the existence predicate
+  and widen it to `! -d`, so a directory is refused | leave the allocator alone and let
+  `check-decisions.py` catch the duplicate heading at the gate
+- Chose: fold the name and type tests inside `log_is_here`, and give each arm its own leg and its own
+  plant
+- Why: the tie-break's third rung is the one H-0073 itself stopped at -- "refuse rather than proceed
+  when input is missing or empty" -- and it settles this the same way, because `docs/factory.md` is the
+  same *input* as `factory/DECISION.md`: a path that is not the log. The second option was measured,
+  not dismissed: with the `case` in front of the function, the shipped control's plant
+  (`s,^log_is_here ||,: log_is_here ||,`, which neuters `log_is_here` and nothing else) leaves a script
+  that still refuses, and `control: a mistyped log path refuses` fails with "the planted allocator
+  refused". A check the plant cannot reach is a check no control can falsify, so beside-the-function is
+  not merely clumsier -- it is unleggable, which is the thing this suite refuses to ship. The `! -d`
+  option closes one shape and admits the one that matters: it still answers `docs/factory.md`, and it
+  leaves the guard and the read disagreeing about what counts as the log, which is how a later shape --
+  a FIFO, a socket -- becomes a `cat` that parks the caller. Both tests are needed, not one: the name
+  alone admits a directory named `DECISIONS.md` (a tree in `HEAD`, and `cat-file -e` is true of a tree),
+  the type alone admits `docs/factory.md`, so each gets a fixture where only it can refuse. The fourth
+  option moves a read into the gate H-0072 keeps ref-blind on purpose, and still answers the wrong file
+  first. What lost: one `git cat-file` per call becomes `-t` instead of `-e` -- still a question about
+  an object, never about a ref, so H-0072's boundary holds and the allocator stays off every fetch path;
+  and a caller aiming at a file that exists but is not the log is now stopped instead of answered, so
+  anything that depended on that fails loudly (the only callers in this repository are the skill, this
+  guide, and the legs, and all three name a log that exists); and the refusal now carries two possible
+  reasons, which is one more sentence to keep true in `docs/factory.md`.
+- Checkpoint: 82a4acd526796b2292f1692c3acc951a91c0faed
+- Effect: `factory/next-decision-id.sh` -- `log_is_here` asks for a basename of `DECISIONS.md` and then
+  for a regular file in the tree or `git cat-file -t "HEAD:$rel"` equal to `blob`, and it records which
+  of the two refused in `$why`, because the shipped message asserted "not in the working tree, not in
+  HEAD" even when the file was sitting there. The header block and `--help` now say the log itself is
+  what gets answered, not any path. `factory/selftest.sh` -- three legs and two controls over two
+  fixtures built so each arm decides alone: a checkout holding `docs/factory.md` and a `factory/`
+  directory and no log at all (refused by name, `factory` as a directory with it), and a checkout where
+  `DECISIONS.md` is a *directory* (the name matches; only the type can refuse it). Each control's plant
+  was run against the other fixture to prove it narrow: the name plant still refuses the tree, and the
+  type plant -- which writes back `git cat-file -e`, the predicate this entry replaces -- still refuses
+  the mistyped name. `docs/factory.md` carries the five `c5aa1eb` calls and why the "your path is
+  wrong" wording made that shape worse than the typo; `.opencode/skills/factory/SKILL.md` step 3 says
+  the same thing in the text a session is reading when it runs the command. Re-measured after the
+  write: `bash factory/selftest.sh` moved from `293 passed, 0 failed` on the checkpoint's tree to `296
+  passed, 0 failed` here, and the two runs' `ok`/`FAIL` line lists were diffed -- five lines added,
+  three counted legs and two control lines printed without touching the tally, no leg lost, the only
+  other differences the fixture tmpdir names and one quarantine count this suite already treats as
+  run-dependent. This tree's baseline reads one above the review's `292` because the environmental
+  `install-timer` leg FAILs without `go`/`gofmt` first on its stub PATH and passes here; the delta is
+  three legs on either box.

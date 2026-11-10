@@ -46,7 +46,9 @@ usage: factory.sh [--dry-run] [--max-ticks N] [--budget SECS] [--once] [--status
 --max-ticks N model ticks this pass may start (default FACTORY_MAX_TICKS=3).
 --budget S    stop opening new ticks after S seconds (default FACTORY_BUDGET=5400).
 --once        at most one tick; the same as --max-ticks 1.
---status      print the halt state and the ledger, then exit without reading GitHub.
+--status      print one verdict -- WORKING, IDLE, HALTED or STALLED -- then the halt state and the
+              ledger, and exit without reading GitHub. The verdict is local state only: the halt of
+              9 Nov was exactly the moment a read of GitHub was not the useful one.
 
 A tick runs the `factory` agent in a per-unit worktree through
 `opencode run --auto --agent factory`. The instruction tells it to stop at the pull request and
@@ -70,11 +72,49 @@ while [ $# -gt 0 ]; do
 	--once) FACTORY_MAX_TICKS=1 ;;
 	--status)
 		factory_paths
+		# First line, before the details: the question that makes anyone type this is "is it working",
+		# and the answer used to require reading a journal timestamp and comparing it to `date`.
+		printf 'verdict: %s\n' "$(factory_verdict)"
 		if factory_halted; then
 			printf 'halt:    YES -- %s\n' "$(factory_halt_reason)"
 		else
 			printf 'halt:    no\n'
 		fi
+		# Which code this harness is (#249), in the one command a person types when the queue is not
+		# moving. Until now the only place the answer was written down anywhere was the unit's
+		# `ExecStart` path, and a path is not a position: measured 8 Nov it pointed at a tree 121
+		# commits behind `origin/main` while every other line `--status` prints read healthy. Asked of
+		# `$FACTORY_HARNESS`, not `$FACTORY_ROOT` -- this is the tree the script being run was read
+		# from, and the primary checkout sits on whatever a human left there, which is the same reason
+		# `triage.sh` asks for the current branch of `$FACTORY_DIR`. The branch is printed even when
+		# the tree is current, because a bare sha is exactly what made #249 invisible: the number
+		# looks like a version, so nobody asks which ref it names.
+		pos_rc=0
+		pos=$(factory_supervisor_position "$FACTORY_HARNESS") || pos_rc=$?
+		IFS=$'\t' read -r pos_sha pos_branch pos_behind pos_ahead pos_dirty <<EOF
+$pos
+EOF
+		pos_base=$(factory_supervisor_base)
+		pos_base=${pos_base#refs/remotes/}
+		case "$pos_rc" in
+		2)
+			printf 'code:    unknown -- git could not read %s, so nothing can say what code this is\n' \
+				"$FACTORY_HARNESS"
+			;;
+		3)
+			printf 'code:    %s (%s, %s uncommitted) -- %s is not a ref in this checkout, so its position against the trunk is unknown\n' \
+				"$pos_sha" "$pos_branch" "$pos_dirty" "$pos_base"
+			;;
+		*)
+			printf 'code:    %s (%s, %s behind %s' "$pos_sha" "$pos_branch" "$pos_behind" "$pos_base"
+			[ "$pos_ahead" = "0" ] ||
+				printf ', %s %s ahead: a fork, which a fast-forward will not fix' \
+					"$pos_ahead" "$(factory_plural "$pos_ahead")"
+			printf ')'
+			[ "$pos_dirty" = "0" ] || printf ' + %s uncommitted path(s)' "$pos_dirty"
+			printf '\n'
+			;;
+		esac
 		printf 'repo:    %s\n' "$(git -C "$FACTORY_ROOT" remote get-url origin 2>/dev/null)"
 		printf 'trees:   %s\n' "$FACTORY_TREES"
 		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
@@ -427,7 +467,11 @@ factory_resolve_conflict() {
 	# saw: the old line asserted "a person or a dead tick owns it", which on a tree whose bytes match
 	# HEAD is false about the work, and a reader who follows its advice commits nothing, discards
 	# nothing, and halts again next pass.
-	factory_tree_halt CONFLICT-HALTED "pr:$pr" "$tree" || return $?
+	#
+	# `factory_tree_stop`, not `_halt`, since #248: a tree left dirty by a dead tick is mirrored to
+	# `$FACTORY_AT_RISK` and cleaned so the rest of the queue runs, and the halt is what happens when
+	# that cannot be done for certain, or when the same unit goes dirty twice without a tick between.
+	factory_tree_stop CONFLICT-HALTED "pr:$pr" "$tree" || return $?
 
 	# The base is not always `main`. Pull request #215 is based on `fix/audit-row-label` -- another open
 	# pull request, because its capture work needs the audit-row change -- and this function merged
@@ -473,6 +517,11 @@ factory_resolve_conflict() {
 	fi
 	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch"
 	factory_ledger_clear "pr:$pr" stuck-since
+	# The one progress a `pr:` unit can make on a conflict, and it ends a quarantine streak for the same
+	# reason a finished tick does -- see `factory_quarantine_after_tick`. This site is not redundant with
+	# that one: the conflict pass's streak is kept under `pr:$pr` while a conflict tick's is kept under
+	# `conflict:<pr>`, two ledger keys, so each needs its own clearing.
+	factory_quarantine_reset "pr:$pr"
 	return 0
 }
 
@@ -608,14 +657,20 @@ is the failure this repository has written up more often than any other (#1180, 
 		log_event "TICK-SKIPPED $unit no worktree for $branch :: ${why:-common.sh gave no reason}"
 		return 5
 	fi
-	# The content verdict and the halt, both in common.sh (#228, H-0044): a halt stops the whole pass
-	# -- every other unit, every review answer, every merge -- so it must not rest on a filesystem
-	# timestamp, it must say what it found, and the one place that decides must be the place the probe
-	# drives.
-	factory_tree_halt TICK-HALTED "$unit" "$tree" || return $?
+	# The content verdict and the response to it, both in common.sh (#228, H-0044): a halt stops the
+	# whole pass -- every other unit, every review answer, every merge -- so it must not rest on a
+	# filesystem timestamp, it must say what it found, and the one place that decides must be the place
+	# the probe drives. Since #248 the response is a quarantine first and a halt only when the work
+	# cannot be mirrored, because one dead tick's four modified files froze 22 units for 15h57m.
+	factory_tree_stop TICK-HALTED "$unit" "$tree" || return $?
 
 	log="$FACTORY_LOG/$(date -u +%Y%m%dT%H%M%SZ).$(factory_slug "$unit").log"
 	log_event "TICK-START $unit tree=$tree log=$(basename -- "$log")"
+	# Nothing clears the quarantine streak here. It used to: `TICK-START` -> reset, in the same pass as
+	# the `factory_tree_stop` above, so the counter was back to 0 before the tick that would have shown
+	# whether this tree is one that keeps dying -- `attempt=2` was unreachable for every tick unit, and
+	# the review of #250 drove five abandoned ticks through the shipped functions to prove it. The reset
+	# now happens after the session, against the tree's verdict, at `factory_quarantine_after_tick`.
 
 	# `--auto` approves permissions that are not explicitly denied; the deny rules in
 	# .opencode/opencode.jsonc are what bounds that, and the `factory` agent denies `question`, so a
@@ -653,6 +708,15 @@ exactly: checkpoint before a judgement call, one decision per commit carrying it
 trailer, DECISIONS.md updated in the same commit as what it decides, and stop once the pull request
 is open or updated. Merging belongs to the supervisor and is denied to you." \
 		>"$log" 2>&1 || status=$?
+
+	# The quarantine streak is settled here, after the session has run, because this is the first moment
+	# the question has an answer: did work appear in this tree again? It used to sit three lines below
+	# `TICK-START`, which meant every pass cleared the counter before the tick that could have proved the
+	# pattern, and #248's streak could not fire on the tick path at all -- see
+	# `factory_quarantine_after_tick` in common.sh for the measurement. It is above both exits below, so
+	# the `TICK-UNDELIVERED` return and the failed-tick return are both covered, and it returns 0
+	# whatever it found: what the tick achieved remains the tick's own answer.
+	factory_quarantine_after_tick "$unit" "$tree"
 
 	if [ "$status" -eq 0 ]; then
 		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two
@@ -746,6 +810,120 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	return 4
 }
 
+# --------------------------------------------------------------------------- the refs this pass reads
+
+# #256: everything here decides against refs. `triage.sh` reads `origin/main` to judge every branch
+# that has no pull request (`:538` takes the sha, `:563` counts `$main_sha..$sha` for the
+# `branch_without_pr` detail), `factory_worktree` cuts every new unit's branch from `origin/main`, and
+# the allocator a tick runs before it numbers an entry (H-0070) reads every `refs/heads` and
+# `refs/remotes` blob. Until now nothing in the harness fetched, so all three read whatever ref state
+# this clone last happened to have -- measured on 9 Nov in this very tree: `origin/issue-253` was
+# holding `H-0073` and `H-0074` while `origin/main` stopped at `H-0072`, and a clone that had not
+# fetched would have handed out `H-0073` a fourth time. `docs/factory.md` told the operator to run
+# `git fetch --prune origin` before allocating on a second machine; `H-0056` refused to run it for
+# them inside a *verdict*, because a verdict's answer has to be identical in CI, in the review loop
+# and at the merge (H-0072). The dispatch path is not a verdict. It is already a network path -- every
+# triage, review-poke and merge in this file is a `gh` call -- so one fetch per activation, ahead of
+# the first dispatch, is where the refresh belongs, and it is what closes the second row of H-0071's
+# table for a queue that runs on two machines.
+#
+# Three measurements, each in a fixture with a local bare origin under /tmp/opencode, decide the shape.
+#
+#   which fetch  `git fetch --prune origin trunk` does NOT move the allocator: `D-0002` before it and
+#                `D-0002` after, while `git fetch --prune origin` on the same fixture answers `D-0008`.
+#                A sibling's ids sit on the branch it pushed, and a refspec-limited fetch updates the
+#                trunk only -- so `git fetch --prune origin <base>`, the command #256 asked for,
+#                refreshes the one ref that was never the problem. The unrefspec'd form is also the
+#                one `docs/factory.md` already tells a person to type.
+#   which tree   one fetch in the primary checkout moved the allocator's answer in a *linked worktree*
+#                of the same clone: `D-0002` in both trees before, `D-0008` in both after.
+#                `refs/remotes` lives in the common directory -- the same sharing H-0074 cites for the
+#                worktree half of the boundary, running the other way -- so the tree to fetch is the
+#                one `factory_worktree` cuts unit trees from, and one call covers every tick the pass
+#                will start.
+#   can it hurt  `timeout --signal=TERM --kill-after=5 3 git fetch --prune origin` against an origin
+#                that accepts the connection and never answers returned 124 at 3s, left no `.lock`
+#                file behind, and the clone worked afterwards. Same under `-s KILL`. And `--prune` with
+#                a single-branch fetch refspec does not wipe the other remote refs (a planted
+#                `refs/remotes/origin/ghost` survived it), so the prune cannot destroy the union the
+#                allocator reads.
+#
+# What it must never be is fatal, and that is the ticket's own counter-argument answered rather than
+# waved away: a hung fetch holds `factory/run/lock`, which is the file every later activation is
+# waiting on. `FACTORY_FETCH_TIMEOUT` bounds that hold (measured above: the bound is real, and a
+# killed fetch costs seconds and nothing else), and returning 0 whatever the fetch did is the rest. A
+# `git` that cannot reach its origin must not stop a queue whose other reads all answer per unit.
+
+# factory_refresh_origin <tree> -- every branch, once per activation, before anything is dispatched.
+# Prints one journal line either way. Returns 0 whatever the fetch did.
+factory_refresh_origin() {
+	local tree=${1:-$FACTORY_ROOT} rc=0 started elapsed before changed age refspec why
+	# The log directory is created before the fetch is aimed at it. `log_event` calls `factory_paths`
+	# on every line, so the pass has always made it by the time anything is logged -- but this function
+	# writes its own file first, and a redirect to a directory that is not there yet fails as status 1
+	# with nothing in it: measured in the selftest fixture, that arrived as `REFRESH-FAILED (1)` over an
+	# with nothing in it: measured in the selftest fixture, that arrived as `REFRESH-FAILED (1)` over an
+	# empty log, which is how a missing directory reports itself when the only thing a caller can see is
+	# a status code.
+	factory_paths
+	if [ "$DRY_RUN" = "1" ]; then
+		printf 'DRY-RUN  timeout --signal=TERM --kill-after=5 %s git -C %s fetch --prune origin\n' \
+			"$FACTORY_FETCH_TIMEOUT" "$tree"
+		return 0
+	fi
+	before=$(git -C "$tree" for-each-ref --format='%(refname)' refs/remotes/origin 2>/dev/null |
+		grep -c . || true)
+	started=$(date -u +%s)
+	timeout --signal=TERM --kill-after=5 "$FACTORY_FETCH_TIMEOUT" \
+		git -C "$tree" fetch --prune origin >"$FACTORY_LOG/refresh.log" 2>&1 || rc=$?
+	elapsed=$(($(date -u +%s) - started))
+	# Counted out of the fetch's own report, which is the only thing that says what moved:
+	# `+ abc1234..def5678 main -> origin/main`, `* [new branch] x -> origin/x`,
+	# `- [deleted] (none) -> origin/x`. Every line that names a branch ref moving ends `-> origin/<name>`,
+	# so this counts the refs the activation actually learned about. `->` alone would count one line too
+	# many for any fetch given an explicit refspec -- `* branch trunk -> FETCH_HEAD` -- and that is how
+	# the trunk-limited shape, the one that learns nothing about a sibling, would have reported itself as
+	# a refresh. The selftest's control measures exactly that line.
+	changed=$(grep -c -- '-> origin/' "$FACTORY_LOG/refresh.log" 2>/dev/null || true)
+	if [ "$rc" -eq 0 ]; then
+		log_event "REFRESH origin in $tree: ${before:-0} branch ref(s) before, ${changed:-0} moved, ${elapsed}s"
+	else
+		# How blind this activation is, in the unit a person asks for: the trunk ref's own clock. The
+		# same read answers `no ref` for a single-branch or shallow clone, which is the other way this
+		# line can be true -- and it is the diagnosis `factory_resolve_conflict` already makes when
+		# `git fetch origin <branch>` exits 0 and creates nothing.
+		age=$(git -C "$tree" log -1 --format=%ct "refs/remotes/origin/${FACTORY_BASE}" 2>/dev/null) || age=''
+		if [ -n "$age" ]; then
+			age="$(( $(date -u +%s) - age ))s since origin/$FACTORY_BASE last moved"
+		else
+			age="origin/$FACTORY_BASE is not visible in $tree"
+		fi
+		why=$(grep -m1 -E '^(fatal|error)' "$FACTORY_LOG/refresh.log" 2>/dev/null) || true
+		[ -n "$why" ] || why=$(grep -v '^[[:space:]]*$' "$FACTORY_LOG/refresh.log" 2>/dev/null | tail -n 1) || true
+		why=$(printf '%s' "${why:-}" | cut -c1-160)
+		if [ "$rc" -eq 124 ]; then
+			log_event "REFRESH-TIMEOUT origin did not answer in ${FACTORY_FETCH_TIMEOUT}s in $tree -- ${age}; the dispatch goes ahead on those refs, which is the cost of the bound (${why:-the fetch wrote nothing, which is what a parked connection does})"
+		else
+			log_event "REFRESH-FAILED ($rc) origin in $tree -- ${age}; the dispatch goes ahead on those refs, because a fetch is not a verdict (${why:-see $FACTORY_LOG/refresh.log})"
+		fi
+	fi
+	# The one shape where a successful fetch still cannot see a sibling, said out loud instead of
+	# leaving `REFRESH … 0 moved` to be read as "nothing new anywhere". A single-branch clone's refspec
+	# names one branch, so `refs/remotes` here can never learn the branch another machine pushed --
+	# the exact window H-0071 measured, and it is widened by an operator, not by this script. The test
+	# is a literal `*` anywhere in the refspec: the whole line is matched, so a pattern that merely
+	# *starts* with a star would call the wildcard form blind, which is the bug the control for this
+	# leg plants.
+	refspec=$(git -C "$tree" config --get remote.origin.fetch 2>/dev/null) || refspec=''
+	case "$refspec" in
+	'' | *\**) : ;;
+	*)
+		log_event "REFRESH-BLIND $tree fetches only '$refspec', so refs/remotes here cannot learn a branch another clone pushed; widen it with \`git -C $tree config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'\` (H-0071)"
+		;;
+	esac
+	return 0
+}
+
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
@@ -757,6 +935,16 @@ factory_body() {
 	local started_at end_at now
 	started_at=$(date -u +%s)
 	end_at=$((started_at + FACTORY_BUDGET))
+	# The refs come next (H-0075), and inside the budget rather than outside it: the triage read on the
+	# next line reports this tree's position against `origin/main`, `factory_worktree` cuts every new
+	# unit's branch from `origin/main`, and a tick's allocator reads the branch refs -- so all three
+	# read origin or they read the last time this clone looked, and nothing until now ever made it
+	# look. Charged to the budget because it is time the pass spends, and bounded by
+	# `FACTORY_FETCH_TIMEOUT` because it is the one read here that can accept a connection and never
+	# answer. It runs inside `factory/run/lock` on purpose: `flock -n` means a second activation is
+	# never waiting here, it reports 7 and leaves, so the worst a parked fetch costs is one missed
+	# activation and one sentence in the journal.
+	factory_refresh_origin "$(factory_main_checkout)"
 	if ! rows=$("$FACTORY_DIR/triage.sh"); then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"
 		return 3
@@ -766,8 +954,19 @@ factory_body() {
 	# slide every column after it one place left.
 	rows=$(printf '%s\n' "$rows" | tail -n +2)
 	log_event "PASS units=$(printf '%s\n' "$rows" | grep -c . || true) dry=$DRY_RUN budget=${FACTORY_BUDGET}s root=$FACTORY_ROOT trees=$FACTORY_TREES"
+	# The code under test belongs in the pass's own announcement (#249). `PASS units=0` from a tree 121
+	# commits behind the trunk is indistinguishable in the journal from a queue that is genuinely empty,
+	# and nobody asks a timer a question -- which is why this is a journal line and not only `--status`.
+	# Three sentences at most, and the one that is always printed is the sha (see common.sh for the
+	# pair of trees that can both claim to be "the code under test", and for what the comparison is
+	# measured against). This reports and changes nothing: moving a tree the timer is executing from is
+	# editing a script while bash is reading it, so the move stays a human act.
+	while IFS= read -r supervisor_line; do
+		[ -n "$supervisor_line" ] || continue
+		log_event "$supervisor_line"
+	done < <(factory_supervisor_lines "$FACTORY_HARNESS")
 
-	local workable='' unit key class detail branch issue ask rc_tick rc_conflict
+	local workable='' unit key class detail branch issue ask rc_tick rc_conflict supervisor_line
 	while IFS=$'\037' read -r unit key class detail branch issue ask; do
 		[ -n "${unit:-}" ] || continue
 		[ -n "$(factory_ledger_get "$unit:$(factory_slug "$key")" first-seen)" ] ||

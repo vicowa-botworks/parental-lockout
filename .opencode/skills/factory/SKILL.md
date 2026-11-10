@@ -133,10 +133,41 @@ timeout killed it with no reason recorded anywhere.
 
 When you reach a decision point, do this instead, in this order:
 
-1. **Checkpoint first**, always before the decision, never after:
+1. **Allocate the id before taking the checkpoint.** Run the allocator for the log you will write:
+
+   ```bash
+   factory/next-decision-id.sh DECISIONS.md
+   factory/next-decision-id.sh factory/DECISIONS.md
+   ```
+
+   Use exactly what it prints. It takes the union of the current checkout, `HEAD`, `refs/heads` and
+   `refs/remotes`, then returns the first free id above that ceiling. If it refuses, **your path is
+   wrong, not the tool**: it answers only for the decision log itself -- a path whose name is
+   `DECISIONS.md`, holding a regular file in the working tree or a blob in `HEAD` -- because
+   an empty union has exactly one answer available -- `D-0001`/`H-0001`, the number both logs opened
+   with -- and handing that out is the collision this command exists to refuse (`H-0073`). Read its
+   message and name the log you mean; never fall back to numbering by eye. A relative path resolves
+   against the repository it was aimed at (`--repo`), never against the directory you happen to be
+   standing in. Never take the highest heading in
+   the current file as the whole answer: a sibling branch's entry is already a durable citation and a
+   merge target even though this checkout has never seen it (#253). Re-run the allocator immediately
+   before the entry commit. It is a read, not a reservation, and the second read sees only what moved
+   **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
+   `refs/heads` (measured: `D-0002` before the sibling commits, `D-0010` after, with no fetch), while
+   a sibling that pushed from a different clone does not, because an unfetched push never moves
+   `refs/remotes` (measured: the same call answers `D-0002` while origin already holds `D-0007`, and
+   `D-0008` one `git fetch` later). The supervisor now fetches origin once per activation, ahead of
+   the queue read (`H-0075`), which is what makes a second machine's ids reachable at all -- but that
+   is one fetch at one moment, and your tree may have been cut before it. So fetch it yourself as
+   well, unrefspec'd: `git fetch --prune origin` updates every branch, while
+   `git fetch --prune origin main` updates the trunk only and leaves the allocator blind to the branch
+   a sibling pushed. When the journal holds `REFRESH-TIMEOUT` or `REFRESH-BLIND` for your tree, that
+   activation dispatched on refs it could not check, and the re-read immediately before the entry
+   commit is the only thing left between you and a duplicate id.
+2. **Checkpoint next**, always before the decision, never after:
    `git commit --allow-empty -m "chore(checkpoint): pre-D-<NNNN> <why>"`. That commit is the
    rollback target, and it is worthless if it is taken after the change.
-2. **Choose by the tie-break order**, and stop at the first one that separates the options:
+3. **Choose by the tie-break order**, and stop at the first one that separates the options:
    1. the option that keeps `go.mod` free of `require` lines (#856 -- a dependency is not yours to
       add, and there is a gate that proves it);
    2. the option whose config decodes ambiguity **toward locking the child out** (#873, #872 -- an
@@ -145,17 +176,16 @@ When you reach a decision point, do this instead, in this order:
    4. the option that touches the fewest files and packages;
    5. the option that is reversible by `git revert` alone;
    6. the option the surrounding code already takes -- read two call sites before inventing a rule.
- 3. **Write the entry into the log of the tree you are delivering into**, in the same commit as what it
+4. **Write the entry into the log of the tree you are delivering into**, in the same commit as what it
    decides: question, every option you considered, the one you took, why the tie-break selected it, and
    the checkpoint sha. Product work -- the daemon, the web UI, the capture driver, a test -- goes in
    `DECISIONS.md` with a `D-` id. Work on the delivery harness itself -- `factory/`, `.opencode/`,
    `scripts/check-*`, the timer -- goes in `factory/DECISIONS.md` with an `H-` id. The prefixes are not
    decoration: two loops once opened the same file at `D-0011` and each cited the other's numbers, so
    `main` carries `D-0011`..`D-0015` as page-design decisions while the harness decisions with those same
-   numbers live in `factory/DECISIONS.md`. Number from the highest id in the file you are writing to,
-   never from one you read elsewhere; `scripts/check-decisions.py` refuses an id that appears in both
-   logs.
-4. **Carry on.** Do not mark a todo, do not wait, do not restate the decision as a question.
+   numbers live in `factory/DECISIONS.md`. Use the allocator's prefix for the selected log;
+   `scripts/check-decisions.py` refuses an id that appears in both logs.
+5. **Carry on.** Do not mark a todo, do not wait, do not restate the decision as a question.
 
 `scripts/check-decisions.py` runs in `make verify` and refuses an entry that is missing a field, so
 an entry that only says "chose X" fails the gate. That is on purpose.
