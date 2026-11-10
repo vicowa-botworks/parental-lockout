@@ -4818,6 +4818,13 @@ alloc_refuse() { # <label> <repo> <path that is not a log> <prefix> <what an ok 
 # bent until a two-edit plant survives is no longer the shape that broke. So this measures the two
 # trees against each other instead: the fixture's answer, the caller's answer, and the assertion that
 # they are not the same number. That last one is the sentence that keeps the ok from being an accident.
+#
+# The caller's tree is named, not inherited. Both halves used to be true of it: it was wherever the
+# suite happened to be started from, so `make verify` -- which runs this file from the repository root
+# -- counted it and any other cwd printed the SKIP below, and the leg that proves the cross-repo fix
+# left the tally without a word. That is H-0069's failure (six quiet SKIPs under a tally that still
+# reads `passed`), and this suite is the one that recorded it. `cd` inside the substitution, so the
+# suite's own cwd is untouched.
 alloc_reads_its_repo() { # <label> <fixture> <expected id> <what an ok proves>
 	local label=$1 fixture=$2 want=$3 fact=$4
 	local got='' caller=''
@@ -4827,15 +4834,16 @@ alloc_reads_its_repo() { # <label> <fixture> <expected id> <what an ok proves>
 		sed 's/^/          /' "$alloc_err"
 		return 0
 	}
-	caller=$(bash "$alloc_script" --prefix D DECISIONS.md 2>/dev/null) || caller=''
+	caller=$(cd -- "$HERE/.." &&
+		bash "$alloc_script" --prefix D DECISIONS.md 2>/dev/null) || caller=''
 	if [ "$got" != "$want" ]; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-40s got %s, expected %s.\n' "$label" "$got" "$want"
 		return 0
 	fi
 	if [ -z "$caller" ]; then
-		printf '  SKIP  %-40s this suite is not running from a checkout with a\n' "$label"
-		printf '          DECISIONS.md, so there is no caller answer to prove the difference against.\n'
+		printf '  SKIP  %-40s %s has no DECISIONS.md, so there is no\n' "$label" "$HERE/.."
+		printf '          caller answer to prove the difference against.\n'
 		return 0
 	fi
 	if [ "$caller" = "$want" ]; then
