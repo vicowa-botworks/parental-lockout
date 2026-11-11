@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-06T16:34:09Z",
-  "head": "21c1ecf1990fa5b431a769ae4a089141b34f0405",
+  "captured_at": "2026-11-10T13:59:03Z",
+  "head": "cff128e5b08e0b117f6c9ad36f021107973d5eb4",
   "pages": [
     {
       "capture": {
@@ -18,6 +18,7 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/audit",
       "png": "audit.png",
       "png_sha256": "fc37cd9adcc5d0a87c77a903b8a93453a18a638575673e70a4c7c1ea726d7902",
@@ -27,7 +28,7 @@
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -61,34 +62,36 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/",
       "png": "dashboard.png",
-      "png_sha256": "9310b6948b82c40dadee2550c493834f3dd74efc8f0f46ceb4d8df380757a4c3",
+      "png_sha256": "d4d7ed12f2b8fc0ca6018a74d9e6a2a5dcc5a3da1ec76113c4aba29cd95ecbb2",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
         "fixture": "lock",
         "scripts": "off",
+        "sessions": "2",
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
       "page": "/lock",
       "png": "lock.png",
-      "png_sha256": "712ee63120514eeac4f8d399700843bc239ae5155811bbdd6cbd565d9f0ba771",
+      "png_sha256": "df49958928685fa0c66ebcdc7ff115e9d8b3dbfbfbfc2f3c11aa573a3d990f3a",
       "sources": [
         "internal/web/templates/lock.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -100,16 +103,17 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/profiles",
       "png": "profiles-refused.png",
-      "png_sha256": "cf1f712b41621ee0d6f59ed2418c20de0ba911298873be8e4d3916d842e2f2d6",
+      "png_sha256": "9a62a2cd948101b23e62c9e8bf3f3509c0c0b635c54d2c22317114d3aed22101",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -121,16 +125,17 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/profiles",
       "png": "profiles.png",
-      "png_sha256": "66e4f402a0a758a33a599e25fd85cc7a935443614fe62470af1193059d6e8c8f",
+      "png_sha256": "a2bede881152d65e5f55e1a8daa39cd46549895291d6b5612c234d3fd8797944",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -142,34 +147,36 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/settings",
       "png": "settings.png",
-      "png_sha256": "a7411adf35b74015cf0730e3a2087b4eff67c89aa80ec6ae045252aa6983d572",
+      "png_sha256": "c47e16d6de93c4be756c470b15aa1730d4837079dfc7f98cf0925c1c83569b80",
       "sources": [
         "internal/web/templates/settings.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
         "fixture": "testlock",
         "scripts": "off",
+        "sessions": "2",
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
       "page": "/testlock",
       "png": "testlock.png",
-      "png_sha256": "ae25abeb1a32df97f06ae1d199cb16eae347f0037cd6037e3e47c5c4be31a281",
+      "png_sha256": "d285d1cd0d0389b6a0c662035113ec967e5575af8d5e8702381709cbd4d886ab",
       "sources": [
         "internal/web/templates/testlock.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -178,16 +185,17 @@
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/users",
       "png": "users-no-profiles.png",
-      "png_sha256": "9173e9b4ca1326ca2907de509de5bd0930b60fc767330e0173c0592666761e29",
+      "png_sha256": "4f505c2e37a6f155e104d240528a600f3c8df33d915e3fa80b078963e17768d0",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -199,16 +207,17 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/users",
       "png": "users.png",
-      "png_sha256": "5b742e5b4a2f12a6e18a8a61d24f3b490fb3d8190b37d0c6d78e1b7f0a2390c1",
+      "png_sha256": "b1974aaa29c841c3820a89d4ee7de9f1e979ce10cb5985c22f8b86256cd21e7e",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "cf26e506ff55f0ec0ece79d60963a5e884505c51"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     }
   ],
   "schema": "capture-manifest/2",

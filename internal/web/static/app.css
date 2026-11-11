@@ -9,6 +9,7 @@
 	--line: #d8dbe2;
 	--held: #b3261e;
 	--free: #1c6b34;
+	--warn: #845600;
 	--bg: #ffffff;
 }
 
@@ -19,6 +20,7 @@
 		--line: #33373f;
 		--held: #ff6b61;
 		--free: #57c785;
+		--warn: #cf901c;
 		--bg: #16181c;
 	}
 }
@@ -124,6 +126,179 @@ body {
 
 .state-free {
 	color: var(--free);
+}
+
+/* The rest of the state vocabulary (#199).
+
+   The two rules above are the only ones this file ever wrote for the classes the templates use to
+   report what the daemon found. `state-held` got red and bold; every other state word on the page
+   was left as prose. Measured in Chrome at both viewports on the nine photographed pages before
+   this block existed: "no desktop session", "session list unavailable" and "cannot be decided"
+   (`.state-unknown`), "scheduled, not enforced" and the `no` in both verdict columns of the probe
+   page (`.state-gap`), the failure detail (`.problem`), "open override" (`.override`), "override
+   expired", "account switched off", the status notices (`.flag`) and the verdict paragraph at the
+   top of every result page (`.banner`) each computed the same colour, weight, style, decoration,
+   left border and background as the text they sit in. That is the report -- "the web UI is very
+   basic" -- with its cause located: the vocabulary is in the markup, one rule was ever written for
+   it, and a reader scanning the Lockout column could not tell a verdict from a read that failed to
+   produce one. `cdp.require_state_legible` is the guard, because a grep of this file can see a
+   class name and cannot see a difference.
+
+   Four colours is the palette's whole vocabulary and one of them is free: `--held` is the lock
+   being on, `--free` is the lock being off, and `--warn` is the case that is neither --
+   "unconfirmed", "scheduled, not enforced", a switched-off account. Reusing `--held` for those
+   would round a gap to a failure, which `lock.tmpl` refuses out loud ("That is not the same as
+   locked, and it is not the same as failed"); reusing `--muted` would bury the one state where the
+   schedule is quietly not holding. So the palette grows a token, in both colour schemes, at the
+   contrast its existing tokens already hold: `#845600` on `#ffffff` is 6.34:1 and `#cf901c` on
+   `#16181c` is 6.48:1, where `--held` is 6.54 and 6.37 and `--muted` 6.13 and 6.92. Its hue is 39
+   degrees, 36 from `--held`'s 3 and 99 from `--free`'s 138, so the three are not three names for
+   two colours; and no state below relies on hue alone, because each also moves weight or style.
+
+   Two classes are deliberately NOT given a colour of their own. `.problem` carries the daemon's own
+   words about a row, and on the probe page those words are `/bin/true (configured command; not a
+   production backend)` -- a detail, visible in the committed `testlock.png`, not a fault. `.override`
+   carries the operator's deliberate release on the dashboard, and it sits ADJACENT to the daemon's
+   detail in the same cell (that pair is #108's seam), so giving them the same voice would fuse them
+   into one run. Italic is the machine being quoted; muted is the note beside it.
+
+   What these two names used to cover, and what covers it now (#239). Each of them carried two
+   meanings: `.problem` was the refusal, the mode notice, the help sentence and the missing value as
+   well as the quoted detail, and `.override` was the open hold and the sentence whose whole content
+   is that nothing is held. A reader who learned that one tint meant "a hold is open" therefore read
+   the daemon's own exemption as one. The templates now put one class on one job: two names were
+   added for the two jobs the vocabulary had no word for (`.refusal`, `.exempt`) and three jobs went
+   to names the vocabulary already had (`disabled` for the machine's own switch, `muted` for the help
+   sentence, `state-gap` for the missing value). The paragraphs below say what each mark is allowed to
+   mean, because the name is the only place that record lives. */
+.state-unknown {
+	color: var(--muted);
+	font-style: italic;
+}
+
+.state-gap {
+	color: var(--warn);
+}
+
+.banner {
+	/* The verdict sentence, on the three pages whose whole job is one verdict. It is the first
+	   thing on the page and the line an operator reads out over the phone, and until now it was
+	   the same weight as the help text under it. */
+	font-weight: 600;
+}
+
+.flag {
+	/* A notice, drawn as one: the rule is the warning colour and the words keep the page's own
+	   ink, so a three-sentence status block does not become a wall of amber. */
+	border-left: 3px solid var(--warn);
+	padding-left: .8rem;
+}
+
+/* The daemon's own words about one row -- `/bin/true (configured command; not a production backend)`,
+   "no account entry", the detail beside a verdict. #239 narrowed it to that one job: it used to be
+   the refusal, the mode notice, the help sentence and the missing value as well, six jobs on one
+   name. It is now none of those, and `TestEveryStateClassCarriesOneMeaning` refuses it back into a
+   table cell if anyone puts it on a paragraph again -- the cell is what the name means. */
+.problem {
+	color: var(--ink);
+	font-style: italic;
+}
+
+/* A write the daemon refused, and the evaluator's sentence about a rule that can never fire (#239).
+   Amber, not red: the fact a refusal states is "what you asked for is not in effect", which is the
+   fact `--warn` already carries in this file -- the schedule is not holding -- rather than `--held`'s
+   fact, which is that the lock is on. A refusal is not a second meaning for the red. Italic because
+   the sentence is still the machine's own. Two channels, both already meaningful here, so the split
+   invents no third voice.
+
+   Measured with the same arithmetic #199's block cites: `--warn` is 2.69:1 against the ink it sits in
+   in the light scheme and 2.24:1 in the dark one, and on the page's own ground `#845600` on `#ffffff`
+   is 6.34:1 with `#cf901c` on `#16181c` at 6.48:1. D-0045's refusal of a loud paragraph voice -- "a
+   bold red paragraph on /users would turn a table into weather" -- was about words inside the table,
+   and it still holds for them; every `.refusal` is a block above or beside the form it came from, so
+   it is a paragraph on a page that holds at most two of them. */
+.refusal {
+	color: var(--warn);
+	font-style: italic;
+}
+
+/* The hold the operator granted on the status page: "open override: <reason>", and nothing else.
+   #239 moved the other thing this class marked -- the self-session note, a sentence whose whole
+   content is that nothing is held and nothing can be -- to `.exempt` below, which is the case the
+   issue names: a reader who had learned that this voice means "a hold is open" read the daemon's own
+   exemption as one. */
+.override {
+	color: var(--muted);
+}
+
+/* The session the daemon runs inside, which no schedule will ever lock (#239). It keeps the exact
+   voice it had as `.override`, because D-0045 measured this adjacency rather than inventing it: the
+   note sits beside the quoted detail in the Detail cell (#108's seam), italic is the machine being
+   quoted and muted is the note beside it. Only the name moved, so no pixel in that cell moves with
+   it -- what changed is that the note no longer claims to be a hold. */
+.exempt {
+	color: var(--muted);
+}
+
+.override-expired {
+	color: var(--warn);
+}
+
+.disabled {
+	/* Same colour as `.state-gap` on purpose: "account switched off" and "scheduled, not enforced"
+	   are two reasons for one fact -- the schedule is not holding this child right now. The words
+	   say which reason; the colour says which fact.
+
+	   #239 gave this name a third row of the same table: the standing sentence at the top of
+	   /profiles and /settings, "Enforcement is switched off, so …". It is the same reason one scope
+	   up -- somebody switched it off, so nothing is being locked -- and it takes the existing name
+	   rather than a new one for a colour that already says it. The alternative was a synonym: two
+	   names, one voice, one meaning, which is the mirror image of the defect the issue is about. */
+	color: var(--warn);
+}
+
+/* The row, when the state belongs to the account rather than to one of its cells (#199).
+
+   `held` and `unreadable` are composed between actions at dashboard.tmpl:33 and `stale` and
+   `unmanaged` at users.tmpl:43 -- `class="{{if .Stale}}stale{{end}}{{if not .Configured}}unmanaged
+   {{end}}"` -- so the names appear in the markup only as the text between two actions, and before
+   this block the stylesheet had no rule for any of them: `grep -n "tr\.\|tbody tr" app.css` on the
+   head this branch started from answers nothing at all. The row is what an eye travels down when it
+   is not reading, so unmarked rows say "every row here is the same kind of row" -- and `unmanaged`
+   is exactly the row a parent must not read as managed.
+
+   A background on the row rather than a rule down its left edge, and that is a rendering fact and not
+   a preference: a border declared on a <tr> is not what paints an edge in the collapsing table model,
+   so a guard that read the row's own `border-left-width` would be reading a number Chrome never drew.
+   The row's OWN background is painted, is what `cdp.require_state_legible` asks the browser about, and
+   is the reason the four alphas are written out instead of reusing the colour tokens: a tint has to
+   stay readable beside a cell that is already red. The hues are the same four as the four words, so a
+   row and its cells agree by construction, and nothing here asks anyone to tell four tints apart --
+   every one of these rows also carries a drawn word. */
+tr.held {
+	background: rgba(179, 38, 30, .10);
+}
+
+tr.unreadable, tr.stale {
+	background: rgba(132, 86, 0, .12);
+}
+
+tr.unmanaged {
+	background: rgba(91, 98, 112, .14);
+}
+
+@media (prefers-color-scheme: dark) {
+	tr.held {
+		background: rgba(255, 107, 97, .14);
+	}
+
+	tr.unreadable, tr.stale {
+		background: rgba(207, 144, 28, .16);
+	}
+
+	tr.unmanaged {
+		background: rgba(143, 151, 166, .16);
+	}
 }
 
 .muted {

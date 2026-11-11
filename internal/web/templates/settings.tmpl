@@ -6,7 +6,7 @@
        so the operator reads the answer where they acted, and a page that showed both would be
        refusing and accepting the same submit. */ -}}
 {{- if .Problem}}
-<p class="problem" role="alert">{{.Problem}}</p>
+<p class="refusal" role="alert">{{.Problem}}</p>
 {{- end}}
 {{- if .Message}}
 <p class="flag" role="status">{{.Message}}</p>
@@ -21,7 +21,7 @@
     Enforcement is <strong>on</strong>: an account inside a lockout window is locked out, and the
     daemon asks again on every tick until the window closes.
   {{- else}}
-    <span class="problem">Enforcement is switched off, so nothing is being locked out and nothing
+    <span class="disabled">Enforcement is switched off, so nothing is being locked out and nothing
     will be, whatever the schedule says.</span> Profiles, rules and assignments are all still saved
     here; they simply lock nobody until enforcement is switched back on.
   {{- end}}
@@ -186,7 +186,10 @@
       nothing is written, because a saved setting the next start cannot boot on is a way to make
       this page unreachable.
     </p>
-    <p class="problem">
+    {{- /* Help prose about how this page behaves, in the same voice as the four help paragraphs
+           around it. It wore `.problem` until #239, which is how a page whose only complaint was a
+           timing note came to print one paragraph of instructions as if something had failed. */ -}}
+    <p class="muted">
       A change here takes effect the <strong>next time the daemon starts</strong>, not now. You are
       reading this page over the transport the daemon chose when it came up, so switching to
       "no TLS" does not make this connection plain, and switching to a certificate does not make

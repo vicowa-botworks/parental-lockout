@@ -54,11 +54,12 @@ import cdp  # noqa: E402
 # names -- not inferred from an older one. The discriminating test, both arms:
 #
 #   PLOCK_CAPTURE_SCRIPTS=on ./testlock-setup.sh && \
-#     ./testlock.py --out testing/capture/runs/testlock-on --overwrite     # -> acc5ba4d…
+#     ./testlock.py --out testing/capture/runs/testlock-on --overwrite     # -> d285d1cd0d0389b6…
 #   ./testlock-setup.sh && \
-#     ./testlock.py --out testing/capture/runs/testlock-off --overwrite    # -> acc5ba4d…, the same file
+#     ./testlock.py --out testing/capture/runs/testlock-off --overwrite    # -> d285d1cd0d0389b6…,
+#                                                                            the same file
 #
-# Measured 6 Nov: one PNG from both arms, equal to the committed frame. That is what this page's
+# Measured 6 Nov, and again 10 Nov: one PNG from both arms, equal to the committed frame. That is what this page's
 # pixels can witness, which is nothing -- the probe page renders no `time[data-unix]`, and rewriting
 # those nodes is the only thing `static/app.js` does on load, so there is no element for the page's
 # scripts to change. The control is `/dashboard`, where the same switch moves the casey row from the
@@ -128,7 +129,7 @@ def capture(name):
                                  "'muted':(document.querySelector('p.muted')||{}).innerText||'',"
                                  "'backendRows':document.querySelectorAll('table.rows')[0]"
                                  ".querySelectorAll('tbody tr').length" + "," + cdp.CONTROLS_JS
-                                 + "," + cdp.NAV_JS)
+                                 + "," + cdp.NAV_JS + "," + cdp.STATE_JS)
         # The page has to be the probe result, not an error page wearing its URL. The banner
         # counts the backends, so an empty one means nothing was measured whatever scrollWidth
         # says; two tables is the page's own shape, backend table then sessions.
@@ -157,13 +158,25 @@ def capture(name):
         cdp.require_nav_marked(g, "the probe result page", "/users")
         cdp.require_nav_in_palette(g, "the probe result page")
         cdp.require_nav_distinguishable(g, "the probe result page", "/users")
+        # #199, on the page where the vocabulary is the answer. Both verdict columns here are two
+        # spans, `state-held` for "yes" and `state-gap` for "no": one red and bold, the other the
+        # same ink and weight as the sentence above it, so "no, this backend cannot lock" read as
+        # an ordinary line of the explanation.
+        cdp.require_state_legible(g, "the probe result page")
+        rows = cdp.session_rows(s)
+        # #213, the same rule as lock.py's. This page draws two tables and the census is only the
+        # second one, which is why the count goes through `cdp.session_census` rather than counting
+        # `tbody tr`: the backend table above it has a row per configured backend, and on 8 Nov that
+        # distinction is the difference between a check and a number that moves for an unrelated
+        # reason.
+        census = cdp.require_declared_sessions(rows, cap.declared_sessions(),
+                                               "the probe result page")
         # The probe page copies the lock page's Detail cell, so it inherits the #108 rule. A
         # check that exists on one of two pages sharing a cell is the check that misses the
         # regression on the other one. The count matters for the same reason it does on lock.py:
         # whether a seam exists here depends on whether the account's sessions are lockable, and
         # a rule that found nothing to look at must not be quoted as a pass.
-        seen, seams = cdp.require_detail_terminated(cdp.session_rows(s),
-                                                  "the probe result page")
+        seen, seams = cdp.require_detail_terminated(rows, "the probe result page")
         if seen == 0:
             raise SystemExit("no Detail cell on the page holds the self-session note, so the "
                              "#108 seam rule examined nothing -- a rule that checked nothing is "
@@ -192,7 +205,7 @@ def capture(name):
               flush=True)
         print(f"  tables={g['tables']} backendRows={g['backendRows']} cells={g['cells']} "
               f"unlabelled={g['unlabelled']} {cdp.census_line(g)} "
-              f"{cdp.nav_census_line(g)}", flush=True)
+              f"{cdp.nav_census_line(g)} {cdp.state_census_line(g)}", flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
         print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
         return 0
