@@ -1011,11 +1011,11 @@ def main(shoot_fn=None, record_fn=None):
             # nobody could look at. What is NOT here is a partial publish -- `out` still gets
             # nothing, and the nine committed frames still come from one fixture in one state or
             # they come from nowhere (#222 is the report on what a half-replaced set does).
-            # The note is built on its own statement rather than inside the call below, and that is a
-            # gate's requirement, not a taste: `scripts/attack-capture-self-test.py` attacks this
-            # disposal by anchoring on the keep call, and an aligned continuation line retires the
-            # moment a field is added or a name is renamed -- which is exactly how the row went stale
-            # on 11 Nov (#1048; `35f2a41` repaired the same accident in the mutation battery). D-0062.
+            # The note is built on its own statement, not inside the call below, because the attack
+            # suite anchors on the keep call (`scripts/attack-capture-self-test.py`), and the wrapped
+            # form this replaced retired on a rewrap on 11 Nov (#1048; `35f2a41`; D-0062). A rewrap
+            # is all the hoist buys off: the anchor is this call's own text, so renaming `note` or
+            # giving `keep_refused` a kwarg retires it too -- loudly (INVALID, exit 1), not silently.
             note = cdp.refusal_note(mode, out, fixture_envs(selected), notes)
             kept = cdp.keep_refused(keep, note=note, out=out)
             for width, pages, untested in refused:

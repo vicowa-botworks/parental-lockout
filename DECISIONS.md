@@ -3442,3 +3442,152 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   locators and the 6-of-77 failing set were all measured *after* the edit, and they say what they say. The
   reason this is a bullet rather than an edit is #1180 -- a silently corrected record is indistinguishable
   from one that was always right.
+- Correction (`D-0062`, 11 Nov -- second correction, after the one above): the clause "what changed is that
+  only a change to the attacked behaviour can now do it, not a reformat" is false as written, and what
+  falsifies it is a rename of a local. Three probes at `14f1826`, each counting the anchor string in
+  `testing/capture/pages.py` and then run end to end against a copy of the tree (`/tmp/opencode/p305/box1`
+  and `box2`, never the gated tree -- #1807), row 2 selected. Growing the `cdp.refusal_note(…)` call until
+  it rewraps: **1** match, `py_compile` clean, the row prints `CAUGHT`, exit 0. Adding a keyword argument to
+  `cdp.keep_refused(…)` -- signature and call site, so `pages.py --self-test` still answers "77 refusal
+  rules hold" and nothing but the locator notices: **0** matches, the row answers `INVALID … 0 anchor
+  matches` and exits 1; that is the case `What lost:` names. Renaming the local, `note` to `note_text` --
+  an edit with no behaviour in it at all, `py_compile` clean, every rule still holding: **0** matches, the
+  same INVALID line, the same exit 1. A rename is neither a
+  reformat nor a change to the attacked behaviour, so the third probe refutes the quoted clause instead of
+  confirming it. What the hoist bought is immunity from a **rewrap** -- from the operand rewrapping, which
+  is what #296 actually did -- and the anchor is still this call's own text, so any edit to that one line,
+  including the identifier inside it, retires the row. The rename is the likelier of the two that remain,
+  because renaming a local is what every style pass does, and it is the one this entry never names. What
+  keeps the gap loud rather than dangerous is already in the entry: the `if hits != 1:` arm counts a 0-match
+  anchor as INVALID and the suite exits 1, so the cost of the overstatement is a spurious red gate and a
+  confused reader, not a retired attack -- more than the mutation battery's silent NOT APPLIED can claim
+  (#1048). #305 files it, and counted these three before this round re-counted them and ran the middle and
+  third end to end. Corrected as a bullet, not by editing the sentence (#1180). `testing/capture/pages.py`'s
+  site comment now names the boundary the sentence skipped, in the same five lines it had, so that both
+  locators the correction above cites -- `main()` at 897-1076 and the guard at
+  `scripts/attack-capture-self-test.py:573` -- still read true at this head. One measure in that
+  correction is itself a line short, found by re-running the `grep -n 'if hits != 1:'` it prescribes in
+  order to check this claim: the arm is **573-577**, not 573-576, because the four statements it
+  enumerates -- `counts["invalid"] += 1`, the `problems.append`, the `INVALID` print, the `continue` --
+  end on the `continue`, which is line 577; 576 is the print. The start is where it says and the guard is
+  where it says, so nothing about that correction's argument moves, and #305's own body repeats the short
+  range. It is recorded here rather than written into the merged bullet above (#1180), and the bullet
+  above is otherwise left exactly as it was.
+
+## D-0063 · The sentence #305 files has a twin one file away: row 2's own comment also promises a statement cannot move on an added field, and this branch corrects that one too
+
+- Question: `D-0062` and `testing/capture/pages.py` both claimed the re-pointed anchor can only be retired
+  by a change to the attacked behaviour; #305 measures that false and files a fix in two named places.
+  `scripts/attack-capture-self-test.py`'s comment above row 2 makes the same promise in its own words -- "a
+  statement's text does not move when a field is added or a literal realigns, an aligned continuation
+  line's does" -- and the ticket does not name it. Does this branch leave that sentence for another unit,
+  or correct it here?
+- Options: leave it and file the third site as its own issue | name the boundary here too, in this branch, in its own checkpointed commit separate from the ticket's deliverable | delete the durability claim from the comment and keep only the retirement story
+- Chose: name the boundary here too, in this branch, in its own checkpointed commit separate from the ticket's deliverable
+- Why: option one is what #305 itself is evidence against -- it exists because the site sentence was left
+  alone in the round that could have fixed it -- and a queue item filed against a comment one file away
+  from the comment this branch is already rewriting costs a whole tick to say what one clause says now.
+  It would also leave the two comments in contradiction: the commit before this one makes `pages.py` say a
+  rewrap is all the hoist buys off, while row 2 still promises a statement cannot move on an added field.
+  One anchor, two comments, and the more generous of the two wins for whoever reads the row first -- and the
+  row is what a future editor meets, because the row is the thing that goes red. Option three deletes the
+  only reason the row is a statement rather than the wrapped call (`35f2a41` for W214), which is the reason
+  the last round did not re-point it back onto `pages.py`. The tie-break order's fourth rung (fewest files)
+  points at option one and is overridden the way `D-0062` overrode it for the same kind of reason: a
+  witness's own documentation is part of the witness, and #1048 is a standing rule about anchors, not a
+  preference. The sentence was measured before it was argued: at `14f1826` in `/tmp/opencode/p305/box2`,
+  widening `cdp.keep_refused`'s signature to `stamp=None` and passing `stamp=mode` at the site leaves
+  `py_compile` clean and `pages.py --self-test` still answering "77 refusal rules hold", while row 2 answers
+  `INVALID … 0 anchor matches` and exits 1. A field was added, the statement moved, and the comment says it
+  does not. Not an escalation: no dependency, nothing about what the daemon runs as, no safety or
+  tamper-resistance property changed, nothing published, nothing deleted -- a comment inside a gate that a
+  pull request carries is inside #1823's authority.
+- What lost: the branch carries a file #305 does not name, so a reader of the ticket finds three changes
+  where two were asked for; that is why this is its own commit and not part of the one before it -- `git
+  revert` of this commit takes row 2's comment back and leaves the ticket's deliverable standing; the code
+  half applies clean, the log half conflicts and is resolved by hand (`D-0064`). The comment block stays
+  seven lines as it was, so the locator the correction above cites, `if hits != 1:` at
+  `scripts/attack-capture-self-test.py:573`, still reads true at this head; an eighth line would have moved
+  it. And the comment no longer spells out the cross-file coupling in so many words -- it used to end
+  "`pages.py` keeps the note on its own statement to keep that true", and width bought the boundary clause
+  instead. The coupling survives as what each side now says about the other: this row says a rename of
+  `note` retires it, and `pages.py`'s site comment says the attack suite is why the note is hoisted at all.
+- Checkpoint: cb72929
+- Effect: `scripts/attack-capture-self-test.py` lines 175-177 -- row 2's comment, three lines rewritten as
+  three, the row's `old` and `new` untouched. Read back after the edit: the file is 686 lines as it was,
+  `ast.parse` clean, `grep -n 'if hits != 1:'` still answers 573, and the anchor string still occurs exactly
+  once in `pages.py`. `python3 testing/capture/pages.py --self-test` -> `capture self-test: 77 refusal rules
+  hold`, exit 0; `python3 scripts/attack-capture-self-test.py` -> `TOTAL 41 attacks: 26 caught, 6 honest
+  edits still green, 9 holes, 0 invalid, 0 unexpected` and `VERDICT: 41 attacks, 0 problem(s), 5 hole
+  class(es), 9 hole row(s)`, exit 0 -- the same tally `D-0062` recorded, so the edit moved no row's verdict.
+  `make verify` for the delivered head is quoted in the pull-request body, not here (#1180).
+
+## D-0064 · The review on #306 found the short range still standing 39 lines under the bullet that fixes it: repair the three sentences, or log a fourth beside them
+
+- Question: the review at `2026-11-11T20:40:00Z`, forty-five minutes after `a911d24`, reads only prose
+  this branch adds and finds three sentences that are not true. `D-0063`'s `What lost:` gives the guard as
+  `scripts/attack-capture-self-test.py:573-576`, 39 lines below the bullet that says the arm is 573-577
+  and that 573-576 is a line short -- one file, one entry, two statements about one locator that cannot
+  both hold. `D-0062`'s second correction points at "the bolded clause", and the only bold in that bullet
+  is `**1**`, `**0**`, `**rewrap**`, `**573-577**`. And `D-0063`'s separability claim -- "`git revert` of
+  this commit takes row 2's comment back and leaves the ticket's deliverable standing", which this pull
+  request's body repeats as a revert that stands on its own -- holds for the code and not for the log,
+  because the `DECISIONS.md` half of that revert conflicts. None of the three is merged, so #1180 shelters
+  none of them. Repair the sentences, or leave them standing and add a dated correction the way this
+  branch treated the merged copies?
+- Options: repair all three in place, inside the number of lines each already occupies, with this entry as the record | leave all three exactly as they are and add a third dated correction bullet to `D-0062` | repair only the blocking range and file the two non-blocking sentences as their own issue
+- Chose: repair all three in place, inside the number of lines each already occupies, with this entry as the record
+- Why: #1180 protects a merged sentence from being silently re-set, and nothing here is merged: `git
+  blame` gives 3456 to `5504d79` and 3505-3514 to `0e0c4b3`, both written on this branch, and the branch's
+  diff against `origin/main` deleted no line of the log before this commit (79/0, so every line of main's
+  copy still stands). Option two would ship the very state `D-0063` was written to avoid -- "One anchor,
+  two comments, and the more generous of the two wins for whoever reads the row first" -- with the two
+  copies 39 lines apart inside a single entry, and the deliverable of this pull request is the accuracy of
+  three locator sentences, so a fourth sentence that explains a false one while leaving it printed is the
+  defect with a note attached to it. Option three splits one push into three and spends a whole tick on
+  two clauses one paragraph answers. Tie-break four (fewest files) is answered by one file, and tie-break
+  five holds: `git revert` of this commit takes all three back, and because it touches no code there is
+  nothing for it to conflict with -- the opposite of the revert option two's record would have had to
+  describe. Line numbers are part of the deliverable here, not decoration: both edited blocks keep the
+  lines they had, so 3515-3523 are byte-identical and the review's citations at 3456, 3470 and 3507 still
+  name the sentences they were taken from. The one the fix is about moved a line down inside its own
+  re-flowed block -- the locator the review read at 3509 prints on 3510 now, paid for by the revert clause
+  the same edit adds. The count holds; that one pointer inside it moved.
+- What lost: one clause is deleted to pay for the revert sentence: `D-0063` no longer says "and this entry
+  would have had to correct that as well", so a reader of the delivered log learns the seven-line count
+  mattered but not what else an eighth line would have cost -- that survives only in the `a911d24` copy of
+  the block. The other copies of the two wrong sentences are still wrong and unreachable: `5504d79`'s and
+  `0e0c4b3`'s commit messages and #305's body (line 20 of `gh issue view 305 --json body`) all carry the
+  short range. And the clause the old pointer named is plain type in both copies -- `D-0062` as merged
+  takes bold seven times, never around that clause -- so #1180 is why the pointer moved rather than the
+  clause being emboldened; `a911d24` already owns that record and this entry adds nothing to it. #305's
+  body was left alone deliberately -- it is another unit's artifact and the ticket is the filed
+  measurement, not this branch's to restate. And nothing pins a locator: a fifth move of `if hits != 1:`
+  stales all four sentences at once and `scripts/check-decisions.py` reads fields, never line numbers, so
+  no gate would notice. A notice, not a lock, which is the same limit `D-0062`'s correction conceded.
+- Checkpoint: 34e7a8f
+- Effect: `DECISIONS.md`, three edits and this entry, no code. At 3456, `bolded` becomes `quoted` -- 106
+  characters before and after, so that block did not re-wrap and the sentence the review quotes is still
+  on 3456. `D-0063`'s `What lost:` was re-flowed inside its own ten lines (3505-3514): the locator is now
+  the bare `scripts/attack-capture-self-test.py:573`, the form the correction above uses, because the
+  sentence's own argument needs only the arm's first line, and the revert sentence now says which half
+  applies clean and which needs the boundary resolved by hand. Read back after the edit rather than
+  asserted: `diff` of the file against `34e7a8f`'s copy is three hunks -- one at 3456, one inside
+  3505-3514, and this entry at the end -- so 3515-3523 did not move and the file is 3523 lines plus this
+  entry; every line the commit deletes is absent from `git show origin/main:DECISIONS.md` (checked line by
+  line against the read-back, #1180), and no line this entry wraps exceeds 107 columns -- the three it
+  does not are its own heading and the `Options:` and `Chose:` fields, which the log writes on one line
+  each. The revert claim the new clause makes was measured before it was written, in a clone of the branch
+  at `/tmp/opencode/p306/box1` and never in the gated tree (#1807): at `a911d24`, `git revert --no-commit
+  0e0c4b3` answers `CONFLICT (content): Merge conflict in DECISIONS.md` at rc 1, `git status --short`
+  names `UU DECISIONS.md` beside `M  scripts/attack-capture-self-test.py`, and the suite after that
+  partial revert is byte-identical to `origin/main`'s copy (`diff` empty, md5
+  `f033eb57e104598c79022479d0019e98`) with `if hits != 1:` still at 573 -- the code half does come back on
+  its own and the record half does not. The id was allocated twice before it was written and answered
+  `D-0064` both times, once before the checkpoint and once at it; the same command answers `D-0065` from
+  the moment this heading exists in the working tree, because the allocator's union read counts the
+  checkout -- the second answer is this entry, not a sibling. That was checked, not assumed: a `git grep`
+  for a `## D-0064 ` heading across all 64 refs in `refs/heads` and `refs/remotes` prints nothing and
+  exits 1 at `34e7a8f`, this draft being the only text anywhere carrying the heading (#303: the read is
+  the only lock there is). `python3 scripts/check-decisions.py` for the delivered head is quoted in the
+  pull-request body, not here (#1180).
