@@ -1011,9 +1011,13 @@ def main(shoot_fn=None, record_fn=None):
             # nobody could look at. What is NOT here is a partial publish -- `out` still gets
             # nothing, and the nine committed frames still come from one fixture in one state or
             # they come from nowhere (#222 is the report on what a half-replaced set does).
-            kept = cdp.keep_refused(keep, note=cdp.refusal_note(mode, out,
-                                                                fixture_envs(selected), notes),
-                                    out=out)
+            # The note is built on its own statement rather than inside the call below, and that is a
+            # gate's requirement, not a taste: `scripts/attack-capture-self-test.py` attacks this
+            # disposal by anchoring on the keep call, and an aligned continuation line retires the
+            # moment a field is added or a name is renamed -- which is exactly how the row went stale
+            # on 11 Nov (#1048; `35f2a41` repaired the same accident in the mutation battery). D-0062.
+            note = cdp.refusal_note(mode, out, fixture_envs(selected), notes)
+            kept = cdp.keep_refused(keep, note=note, out=out)
             for width, pages, untested in refused:
                 # A fixture-untested page is in neither the numerator nor the refused list: it did
                 # not fail this viewport, and it did not prove anything about it either. The third

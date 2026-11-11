@@ -3361,3 +3361,71 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   it once, this head matches it **0** times), so it arrives `INVALID`; that is a second decision and the
   next entry, not this commit. **What this does not take:** no behaviour in `testing/capture/` is
   changed by this commit, no rule is added or dropped, and no row of the suite is edited here.
+
+## D-0062 · The merge repairs the witness it retired: the attack’s anchor moves onto a one-line statement, because an aligned continuation line is the thing that went stale
+
+- Question: `origin/main` (`fd82903`, #300) added `scripts/attack-capture-self-test.py` to `verify:`, and its
+  row “the refusal branch goes back to `discard_stage()`” anchors on the three-line
+  `kept = cdp.keep_refused(keep, note=_refusal_note(…))` call that #296 rewrote onto
+  `cdp.refusal_note`. On the merged tree that anchor matches **0** times, the row reports `INVALID`, and
+  the suite exits 1 (`TOTAL 41 attacks: 25 caught, … 1 invalid`), so `make verify` is red on the merge
+  commit `4cb16fd`. Where does the row’s anchor go, and does anything else move to keep it there?
+- Options: re-point `old` onto the wrapped three-line call exactly as it now stands, so only the suite moves | re-point onto the guard `if kept is not None:` and leave the keep call alone, so only the suite moves and no product line is touched | re-point onto a one-line keep call, hoisting the refusal note onto its own statement in `pages.py` to make that shape true | delete the row and carry the disposal as a `DOCUMENTED_HOLES` class | leave the row stale and let the next tick re-point it
+- Chose: re-point onto a one-line keep call, hoisting the refusal note onto its own statement in `pages.py` to make that shape true
+- Why: the last two are not decisions. The row is one of the nine #297 was filed with and its `CAUGHT`
+  is the only thing between a future edit and the disposal destroying what it measured, so deleting it
+  trades a red gate for a smaller green one; and leaving it stale leaves `make verify` red for whoever
+  merges. The middle option was measured before it was rejected, and the measurement is the reason:
+  replacing `            if kept is not None:` with `kept = None` above it (a copy of the tree at
+  `/tmp/opencode/p299/boxv2`, never the gated tree — #1807) comes back `capture self-test: 1 of 77
+  rules failed`, exit 1 — so it *would* report `CAUGHT`, and the catch is a lie. The single failing
+  rule is the announcement one (“nothing says how many frames the refusal kept or which ones”); no
+  disposal rule fires, because `cdp.discard_stage()` never runs and the frames are still moved. A row
+  that attacks the transcript while describing the disposal is a silent weakening, the same class as
+  the retired anchor that motivated this entry. Against the first option the tie-break order’s fourth
+  rung (fewest files) does point, and it is overridden by a standing constraint rather than by taste:
+  #1048 is the rule “an anchor a mutant on a **statement**, never on an aligned composite-literal
+  line, since a statement’s text is alignment-independent”, and the third line of the retired anchor
+  (`                                    out=out)`) is aligned to an opening paren thirty columns away —
+  the retirement this commit repairs was a rename *and* a rewrap. The repository repaired the identical
+  accident once before by taking the durable line over the nearby one: `35f2a41` re-pointed W214 onto
+  “the `{if .IsCurrent “/settings”}` line itself — an action, not an aligned literal, so no future
+  gofmt pass or added field can retire it”. The hoist is behaviour-neutral: `cdp.refusal_note(…)` was
+  already the first operand evaluated, so the call order is what it was, and `note` is not a name
+  `main()` uses — read off the AST, not by eye: `main` spans `pages.py:897-1072` and binds no `note`
+  (the only occurrence was the keyword argument at `:1014`). Whether the row still attacks what it says
+  it attacks was then measured rather than assumed: the re-pointed row on a copy of the tree
+  (`/tmp/opencode/p299/boxv3`) fails **6 of 77** rules, and the failing set is the disposal set —
+  `every page refused -> discard_stage() ran 1 times`, `a refused run destroyed the frames it measured
+  (discard_stage ran) instead of keeping them in the refused directory (D-0054)`, `a refusal at 1024 px
+  only discarded the stage 1 times`, plus the `REFUSED.txt` and count clauses. Against the claim that
+  the first option is cheap: this suite exits 1 on a 0-match anchor
+  (`anchor matched 0 times in pages.py, want exactly 1`, `scripts/attack-capture-self-test.py:566-570`),
+  unlike the mutation battery where a 0-match mutant is counted NOT APPLIED and the battery stays green
+  (#1048) — so option one costs a chore at the next rewrap, not a hole. Option three just buys that
+  the chore does not come.
+- What lost: two files carry one repair, so `git revert` of this commit moves the product’s statement
+  order back with the row’s anchor — behaviour-neutral, but not the one-file revert a reader might
+  expect. `pages.py`’s refusal branch is one line longer and the note no longer reads inline with the
+  call it fills, which is worse prose bought with a locator that stops moving; four comment lines at the
+  site name the gate that reads it so the next reader does not “tidy” it back into a wrapped call.
+  The re-point is not immunity either: a new keyword argument on `keep_refused` retires this anchor too,
+  because the anchor is the call and the call is what the row attacks — what changed is that only a
+  change to the attacked behaviour can now do it, not a reformat. And `new` is deliberately unchanged,
+  so the row’s claim is the same claim on both sides of the merge.
+- Checkpoint: 7997878
+- Effect: `testing/capture/pages.py` — the refusal note built on its own statement, the keep call now
+  one line, four comment lines naming the gate that reads it; `scripts/attack-capture-self-test.py` —
+  row 2’s `old` only (its `new` byte-identical), plus six comment lines above the row recording the
+  retirement and the rule that keeps it a statement. Read back against the code each one describes: the
+  new anchor occurs exactly **1** time in `pages.py` and the old three-line form **0**;
+  `python3 -m py_compile` clean on both files; `python3 testing/capture/pages.py --self-test` →
+  `capture self-test: 77 refusal rules hold`, exit 0, so no rule was added or dropped by a commit that
+  touched a driver; the row alone → `CAUGHT`, `VERDICT: 1 attacks, 0 problem(s)`, exit 0; the whole
+  suite → `TOTAL 41 attacks: 26 caught, 6 honest edits still green, 9 holes, 0 invalid, 0 unexpected` /
+  `VERDICT: 41 attacks, 0 problem(s), 5 hole class(es), 9 hole row(s)`, exit 0 — 26 caught where the
+  merged tree printed 25 caught *plus* 1 invalid, so the repair moved exactly one row and nothing else.
+  `scripts/mutations/*.json` names 797 `.go` and 50 `.tmpl` targets and no `.py` or `.md` (counted over
+  every row of every set file), so #1048 has no surface in this commit and the anchor battery was not
+  run — and it must never overlap the gate in this tree anyway (#1807). `make verify` for the delivered
+  head is quoted in the pull-request body, not here (#1180).
