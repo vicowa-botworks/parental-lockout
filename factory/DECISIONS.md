@@ -5057,3 +5057,73 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   this branch's own work sits in the first-parent chain (`93ab835`, `aa1c82f`, `63464a4`, `4115b23`).
 - Nothing here merges this pull request: merging is the supervisor's, and it merges only what the API still
   reports approved, mergeable, clean and green at the moment of the merge.
+
+## H-0129 · The pass writes down what the previous pass cost the queue, because a 60-second window is not a thing anybody is asked about
+
+- Question: #283 shipped this read into `factory.sh --status` and its own body named what was left: "the
+  pass path does not yet log a held teardown to the harness journal, so #248-style watching still needs
+  someone to run `--status`". Is a fact that exists only as the answer to a question *delivered*, when the
+  window it is true in is one `TimeoutStopSec` wide -- 60 s against a ten-minute cadence, in a substate
+  nobody has open -- and the failure it reports is the one where every other reading says healthy?
+  Measured the morning this entry was written, with the read in the tree and the line not: five activations
+  on this box held the queue about a minute each (08:05:36->08:06:36, 08:21:08->08:22:09,
+  08:44:08->08:45:09, 09:20:42->09:21:42, 09:41:42->09:42:42, `last word -> terminal stamp`, every one
+  `winedevice.exe`, every one ending `Failed with result 'timeout'`), and `grep -c REAP` over the journal
+  those five passes wrote answered `0`.
+- Options: leave it in `--status` and let #248's watcher poll it | write the mark on every pass, journal
+  only, one line | the same plus a ledger stamp so each hold is written exactly once across passes |
+  `WatchdogSec=` with a ping from inside the pass | a journald-side companion unit reading the previous
+  activation's `Result=`
+- Chose: write the mark on every pass, journal only, one line
+- Why: option one is the state this branch inherited and it is the #249/#260 argument refused in the
+  present tense -- nobody asks a timer a question, and the 9 Nov note on this issue says the watcher
+  cannot be sequenced to the interval because a hold ends before the next look. A fact with a 60 s
+  half-life has to be written down at the moment it is observable, which is the next activation. Option
+  three is refused on arithmetic rather than taste: the read reports the newest *completed* activation,
+  and from inside a running pass that is always the pass before this one, so "once, by the next
+  activation" is what the read already does for free -- a stamp file would be state able to disagree with
+  the journal it is meant to dedup, and #237 already owns the residue (a repeat must read as a repeat, so
+  the line carries `ended=`). Option four is refused on the issue's own recorded ground: a blind ping
+  turns a hang into a silent pass, and the stalled tick is row 2 of #246's table -- still nobody's job,
+  filed as its own issue rather than smuggled in beside this one. Option five is what H-0118 measured
+  false: `Result=` is backwards on the polarity that matters, `timeout` on a 60 s clean-exit hold and
+  `exit-code` on the 91-minute one, and `success` on all five of today's. Tie-break 1: no dependency, and
+  no `require` line. Tie-break 2 not engaged -- nothing decodes -- but #228's rule is carried by hand:
+  neither unknown prints a `hold=`, and a leg reddens if either one borrows the healthy number, which is
+  the H-0124 bug in its second home. Tie-break 3: it refuses to print a number rather than print 0.
+  Tie-break 4: three files, one function, one call site, and the manager is not asked at all -- the bus
+  stays `--status`'s, where a human is the one asking, and a leg installs a `systemctl` that files a note
+  the moment anything runs it, because a pass querying the unit it is running inside is the authority
+  H-0118 had to disclose borrowing six times. Tie-break 5: one revertable commit, nothing published, no
+  merge. What lost: two `journalctl` reads and one journal line per activation (0.01 s measured against
+  this box's 400-line window), and `--status`'s sole authorship of the sentence -- the same fact is now
+  composed twice from one parse, in two registers. The held line names no cause in prose deliberately:
+  `deadline` is systemd's, `client` is an operator's `kill -s KILL`, `unexplained` is the journal saying
+  nothing, and only the first is a descendant that ignored `SIGTERM`; the cause is `how=`, and the
+  sentence that spells each one out is three lines from the same read.
+- Checkpoint: 6d33b17
+- Effect: `factory/common.sh` (`factory_reap_journal_lines`), `factory/factory.sh` (the loop ahead of
+  `factory_refresh_origin`, `reap_line` in `factory_body`'s locals), `factory/selftest.sh` (six legs on the
+  existing reap stubs; a `journalctl` stub in `$proc_bin` selected by `PROC_REAP`, so a fixture pass reads
+  planted bytes instead of the operator's real journal; two process legs), `docs/factory.md` (the three
+  marks and where every field comes from, plus two rows the config table had never carried,
+  `FACTORY_REAP_NOTICE_SECS` and `FACTORY_REAP_TAIL`). Also corrected in this commit, because it is a
+  false sentence about this machine and not a stylistic one: the page said the 60 s reinstall "is still
+  owed" -- this box installed it on 10 Nov (`~/.config/systemd/user/parental-lockout-factory.service`,
+  `TimeoutStopSec=60` and `TimeoutStartSec=5460`), and the five escalations above are that 60 s firing;
+  what is owed is owed by machines that do not have it, and `install-timer.sh --install` remains a manager
+  write an unattended unit may not make. `bash factory/selftest.sh` 488 passed 0 failed against 480
+  measured at this checkpoint with the diff stashed in the same tree -- the delta is these eight legs, and
+  #283's 455/458 pair is nobody's baseline today. Five plants, each restored by `cp` and confirmed
+  byte-identical: deleting the call-site loop reddens exactly the two process legs; retitling `REAP-HELD`
+  to `REAP-CLEAN` reddens five; the rc=2 arm borrowing `hold=0s how=clean` reddens exactly the unknown
+  leg; `factory_unit_state` inserted into the held arm reddens exactly the manager leg; and dropping
+  `export` from `PROC_REAP` -- the bug this branch actually shipped and its own leg found on the first
+  run -- reddens exactly the process leg that needs it. The agreement leg is on its second version: the
+  first walked green while `--status` said `HELD` and the journal said `REAP-CLEAN`, the exact drift it
+  claimed to catch, and it now reduces both sides to one word and compares them across all four
+  transcripts. One adjacent finding for the queue, not for this branch: `proc_leg` has been running the
+  shipped `factory.sh` as a process since #262, so #263's premise that "no leg in `factory/selftest.sh`
+  runs `factory.sh` as a process" is false at the tip and the text scan it asks for is the weaker of the
+  two checks -- this branch's legs are process legs for that reason. No dependency, no security or
+  tamper-resistance semantics, no publish, no deletion. Nothing here merges -- merging is the supervisor's.

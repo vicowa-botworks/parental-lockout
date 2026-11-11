@@ -774,6 +774,76 @@ EOF
 	printf '\n'
 }
 
+# The same read, in the supervisor's own journal, on every pass (#246). `--status` has printed it since
+# #283 and that is not enough on its own: nobody asks a timer a question (the sentence is #249's, and it
+# is why `SUPERVISOR-AT` and `UNIT-AT` exist), and a held teardown is now visible for exactly one
+# `TimeoutStopSec` -- 60 s inside a ten-minute cadence, in a substate nobody has open. Measured on this
+# box on 11 Nov before this function existed: five activations held the queue for about a minute each --
+# last word to terminal stamp 08:05:36->08:06:36, 08:21:08->08:22:09, 08:44:08->08:45:09,
+# 09:20:42->09:21:42, 09:41:42->09:42:42, every one of them `winedevice.exe` ignoring `SIGTERM` and
+# every one of them ending in `Failed with result 'timeout'` -- and `grep -c REAP` over the supervisor
+# journal those five passes wrote answered 0. The outage this retires is the same one with a bigger
+# number: on 8 Nov the pass printed `END rc=4` at 22:18:51Z and the journal's next line was 67 minutes
+# later.
+#
+# Three marks, one line, and the split is the whole design (#228: a read that failed is not the clean
+# state):
+#
+#   REAP-CLEAN   the last activation was reaped inside `FACTORY_REAP_NOTICE_SECS`.
+#   REAP-HELD    it was held -- to the stop deadline, by a `SIGKILL` somebody asked for by hand, or for
+#                a reason the journal does not name. This is the mark a watcher greps for.
+#   REAP-UNKNOWN the read could not answer, in the two sentences `--status` uses for the two ways it
+#                runs out of input. It never prints `hold=0`: that is the number this read exists to
+#                withhold when it has no start point (`H-0124`).
+#
+# One line per pass, not one per hold, and that is arithmetic rather than a dedup to maintain. The read
+# reports the newest COMPLETED activation; this pass's own `Starting` line is met first in the backwards
+# scan and only sets `open`, so the activation being reported is always the one before this pass and it
+# is reported exactly once -- by the first thing that exists able to write it. When the pairing does
+# break (an activation that wrote no terminal line, a manual run beside a timer pass) the line still
+# carries `ended=`, so the same event repeated reads as a repeat and not as a fresh hold, which is
+# #237's rule for a sentence printed on every activation.
+#
+# The journal only, never the manager. The bus is `--status`'s addition (`factory_reap_line` appends
+# `factory_unit_state`), and a pass that asked systemd about the unit it is running inside would be a
+# pass deciding about its own timer -- the authority `H-0118` had to disclose borrowing six times.
+factory_reap_journal_lines() {
+	local raw='' rc=0 hold='' how='' age='' open=''
+	raw=$(factory_reap_lines | factory_reap_read) || rc=$?
+	case $rc in
+	1)
+		printf 'REAP-UNKNOWN rc=1 nothing in the journal window has finished, so this pass cannot say what the last one cost the queue (#246)\n'
+		return 0
+		;;
+	2)
+		printf 'REAP-UNKNOWN rc=2 a pass finished and nothing in the journal says when its work stopped, so the hold is unread, not zero (#246)\n'
+		return 0
+		;;
+	0) ;;
+	*)
+		printf 'REAP-UNKNOWN rc=%s the reaping read answered outside its own contract of 0, 1 and 2 (#246)\n' "$rc"
+		return 0
+		;;
+	esac
+	IFS=$'\t' read -r hold how age open <<EOF
+$raw
+EOF
+	case $how in
+	clean)
+		printf 'REAP-CLEAN hold=%ss how=clean ended=%ss open=%s\n' "$hold" "$age" "$open"
+		;;
+	*)
+		# No cause in the sentence on purpose. `deadline` is systemd's, `client` is an operator's
+		# `kill -s KILL`, and `unexplained` is the journal having nothing to say -- so "a descendant
+		# ignored SIGTERM" is only true of the first of the three, and a mark that asserts the wrong
+		# cause is worse than one that asserts none. The cause is the `how=` field, and the sentence
+		# that spells each one out is `--status`, three lines from the same read.
+		printf 'REAP-HELD hold=%ss how=%s ended=%ss open=%s -- %s was still being torn down after the pass said its last line, and %s counts from the unit going INACTIVE, so the queue could not re-arm for all of it; `factory.sh --status` names the cause (#246)\n' \
+			"$hold" "$how" "$age" "$open" "$(factory_service_unit)" "$FACTORY_TIMER_UNIT"
+		;;
+	esac
+}
+
 # One verdict, so "is the factory alive?" is a command and not a diff between a journal timestamp and
 # `date`. Issue #248 is why it exists: 115 `HALTED` lines across 15h57m, every one of them true, and
 # nothing in the system that could be asked the question or would notice the answer.

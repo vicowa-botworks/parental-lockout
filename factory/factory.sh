@@ -1025,7 +1025,7 @@ factory_refresh_origin() {
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
-	local rows rc=0 started=0 unit_line
+	local rows rc=0 started=0 unit_line reap_line
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
 	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
 	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before
@@ -1053,6 +1053,15 @@ factory_body() {
 		[ -n "$unit_line" ] || continue
 		log_event "$unit_line"
 	done < <(factory_unit_lines "$FACTORY_HARNESS")
+	# What the pass BEFORE this one cost the queue to tear down (#246). Same place and same reason as
+	# the two lines above: before the fetch and the triage, because the pass an operator goes looking
+	# for is the one that cannot be reached. Measured on this box on 11 Nov: five activations held the
+	# queue about a minute each between 08:05 and 09:42, and every line those passes wrote to
+	# `supervisor.log` read `PASS`. A read of systemd's journal, never a manager call.
+	while IFS= read -r reap_line; do
+		[ -n "$reap_line" ] || continue
+		log_event "$reap_line"
+	done < <(factory_reap_journal_lines)
 	factory_refresh_origin "$(factory_main_checkout)"
 	if ! rows=$("$FACTORY_DIR/triage.sh"); then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"

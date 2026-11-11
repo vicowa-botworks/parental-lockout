@@ -374,9 +374,13 @@ than a smarter kill. Three things travel with that:
   -- which does not stop the timer firing, but makes `systemctl --user status` read like an outage long
   after the queue recovered. Clear it with `systemctl --user reset-failed parental-lockout-factory.service`.
 
-One thing is still owed, and it is not a tick's to do: the reinstall that puts 60 s on a machine --
-`factory/install-timer.sh --install`, which has to restart a timer that is already running (H-0037) --
-is a manager write, and a manager call is denied to an unattended unit.
+What remains owed is owed by every machine that does not already have it, and it is not a tick's to do:
+the reinstall that puts 60 s on a unit -- `factory/install-timer.sh --install`, which has to restart a
+timer that is already running (H-0037) -- is a manager write, and a manager call is denied to an
+unattended unit. This box is not one of them. Its installed unit, written 2026-11-10 at
+`~/.config/systemd/user/parental-lockout-factory.service`, reads `TimeoutStopSec=60` and
+`TimeoutStartSec=5460`, and the 00:56 row in the table below is that 60 s firing on the shipped unit with
+the same grandchild as the outage: 1 h 07 min became 60.18 s.
 
 The reaping itself has been measured here since 11 Nov (issue #246, H-0118), with a transient unit and
 a planted `trap '' TERM` descendant, so the stop path is no longer a reading of how `SIGKILL` behaves:
@@ -428,6 +432,42 @@ subtraction and the word beside it is not what most people reach for:
   sentences: nothing has finished inside the window, or something finished and the journal cannot say
   when its work stopped. The second one used to print `reaped in 0s`, the healthy case's own words
   (H-0124).
+
+**The same read is in the supervisor's journal on every activation, and not only in `--status`** (H-0129).
+`--status` is a question to a timer and nobody asks a timer a question -- the argument that put
+`SUPERVISOR-AT` and `UNIT-AT` in the journal (#249, #260) -- and a held teardown is now true for exactly
+one `TimeoutStopSec`: 60 s inside a ten-minute cadence, in a substate nobody has open. Measured on this
+box the morning before the line existed: five activations held the queue for about a minute each, between
+08:05 and 09:42 (`last word -> terminal stamp` 08:05:36->08:06:36, 08:21:08->08:22:09,
+08:44:08->08:45:09, 09:20:42->09:21:42, 09:41:42->09:42:42, every one `winedevice.exe` ignoring
+`SIGTERM`), and `grep -c REAP` over the journal those passes wrote answered `0`.
+
+Three marks, one line, always exactly one (`<age>` is how long ago the terminal line was written):
+
+```
+REAP-CLEAN hold=0s how=clean ended=<age>s open=1
+REAP-HELD hold=60s how=deadline ended=<age>s open=1 -- parental-lockout-factory.service was still being torn down after the pass said its last line, and parental-lockout-factory.timer counts from the unit going INACTIVE, so the queue could not re-arm for all of it; `factory.sh --status` names the cause (#246)
+REAP-UNKNOWN rc=2 a pass finished and nothing in the journal says when its work stopped, so the hold is unread, not zero (#246)
+REAP-UNKNOWN rc=1 nothing in the journal window has finished, so this pass cannot say what the last one cost the queue (#246)
+```
+
+`REAP-HELD` is the mark to grep for, and `grep REAP` is the census: the three are exhaustive, so a
+stretch of journal with no `REAP-` line in it is a harness that stopped looking, not a machine that never
+held. The two sentences are the same two the `--status` line uses for the same two ways the read runs out
+of input, and neither prints a `hold=` field -- an unknown is not the clean state (#228). `how=` carries
+the cause (`deadline`, `client`, `unexplained`, as above) and the sentence deliberately names none of it:
+only `deadline` is a descendant that ignored `SIGTERM`, and a mark that asserts the wrong cause is worse
+than one that asserts none. `open=1` is normal and says this pass is itself an activation.
+
+The line is written before the `git fetch` and before triage, so the pass that never reached a queue
+still says what the last one cost: `TRIAGE-FAILED` returns 3 five lines after this loop, and a queue
+that cannot be read is the pass an operator goes looking for (3h13m on 9 Nov). It is a read of
+`journalctl`, never a manager call -- the bus stays `--status`'s addition, where a human is the one
+asking. And it is one line per pass rather than one per hold by arithmetic, not by a dedup to maintain:
+the read reports the newest *completed* activation, which from inside a running pass is always the pass
+before this one, so a hold is written once, by the next activation -- the first thing in existence able
+to say it. `ended=` is what makes a repeat read as a repeat rather than as a fresh hold, which is #237's
+rule for any sentence printed on every activation.
 
 No `After=`/`Wants=network-online.target`. That target does not exist in a user manager --
 `systemctl --user status network-online.target` answers `Unit network-online.target could not be
@@ -841,6 +881,8 @@ Everything is an environment override with a default, in `factory/common.sh`.
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
+| `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause |
+| `FACTORY_REAP_TAIL` | `400` | how many of the unit's journal lines the reaping read is allowed to look at -- a bound on the read, never the measurement |
 | `SHELLCHECK` etc. | — | see `make check-shell` |
 
 ## Stopping it
