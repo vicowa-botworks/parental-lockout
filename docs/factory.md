@@ -349,13 +349,60 @@ than a smarter kill. Three things travel with that:
   -- which does not stop the timer firing, but makes `systemctl --user status` read like an outage long
   after the queue recovered. Clear it with `systemctl --user reset-failed parental-lockout-factory.service`.
 
-Two things are still owed, and neither is a tick's to do. The reinstall that puts 60 s on a machine --
+One thing is still owed, and it is not a tick's to do: the reinstall that puts 60 s on a machine --
 `factory/install-timer.sh --install`, which has to restart a timer that is already running (H-0037) --
-is a manager write, and a manager call is denied to an unattended unit. And the reaping itself has not
-been measured on this box: the `systemd-run` pair that would show 5 s reaping a live detached
-descendant, against 5460 s not reaping it, is written out on the issue's pull request. Until somebody
-runs it, "60 s is enough to reap a process group" is a reading of how `SIGKILL` behaves, not a
-measurement taken here.
+is a manager write, and a manager call is denied to an unattended unit.
+
+The reaping itself has been measured here since 11 Nov (issue #246, H-0118), with a transient unit and
+a planted `trap '' TERM` descendant, so the stop path is no longer a reading of how `SIGKILL` behaves:
+
+| the activation | main exit | the hold | what systemd reported as `Result=` |
+| --- | --- | --- | --- |
+| nothing leaked | 4 | 0.3 ms | `exit-code` |
+| one leaked descendant, `TimeoutStopSec=60` | 4 | **60.194 s** | `exit-code` |
+| the same, `TimeoutStopSec=20`, `OnUnitInactiveSec=10s` | 4 | **20.135 s**, next pass 30.4 s after the previous one's last line | `exit-code` |
+| the real unit, 11 Nov 00:56 (`winedevice.exe` again) | 0 | **60.18 s** | `timeout` |
+| the real unit, 8 Nov 22:18 -- the 91-minute outage | 4 | **4084 s**, ended by a hand-escalated kill | `exit-code` |
+
+Where the numbers on `factory.sh --status`'s `reaping:` line come from, since one of them is a
+subtraction and the word beside it is not what most people reach for:
+
+- The END is the newest terminal line in the unit's own journal -- `Failed to start …`, `Finished …`,
+  `Stopped …`, `Deactivated.` -- from `journalctl --user -u parental-lockout-factory.service -t systemd
+  -o short-iso-precise --utc -n 400`. The 400 is a bound on how much is read, not the measurement: a
+  pass 25 minutes old has written past any line-count window, so it is the newest *terminal* line the
+  window holds, not the newest line.
+- The START is `Main process exited` when systemd wrote one -- and it writes one only when the main
+  process exits non-zero, measured as 4 activations out of the last 15 on this unit. An exit-0 pass
+  writes nothing, so the start is the pass's own last stdout line, read by a second call *without*
+  `-t systemd`: that filter excludes the unit's output entirely (0 of the 325 lines in a 400-line
+  window carry it), which is why one call cannot answer both halves and why a read filtered to
+  systemd's identifier reports the 00:56 hold as 0 s.
+- The manager's own lines are dropped by the field the author occupies -- `<comm>[<pid>]:`, third in
+  the rendering -- not by matching that text anywhere in the line. The harness's own sentences quote
+  journal lines, and a line the unit wrote that quotes `systemd[4485]:` is still the unit's line.
+- Stamps are microseconds and the window boundary is applied by the read, not by `--until`, because
+  `--until` truncates to the resolution of the stamp it is handed. This is why: the 08:44 activation's
+  `State 'stop-sigterm' timed out.` opens at 08:45:08.999972, a displayed second BEFORE its terminal
+  line at 08:45:09.002985. Read the naive way, that hold is 1 s; it is 60.133 s.
+- The word after the number is the *cause*, and it comes from the sentence, not from `Result=`.
+  `deadline` is `State 'stop-sigterm' timed out. Killing.`, `client` is `with SIGKILL on client
+  request.`, and anything else held past `FACTORY_REAP_NOTICE_SECS` (5 s) is `unexplained`. `Result=`
+  is not usable for this: `timeout` is what the 00:56 pass that exited cleanly reported and
+  `exit-code` what the 91-minute hold reported, which is backwards on the only polarity that matters
+  (H-0118).
+- The live half after `live:` is `systemctl --user show <unit> -p LoadState -p ActiveState -p SubState
+  -p Result -p MainPID -p TasksCurrent`, and it is the half that sees a hold in progress:
+  `MainPID=0` beside `TasksCurrent=10` is the main process gone and the cgroup not empty, which is the
+  8 Nov outage in two fields. The keys are printed with the values because `systemctl show` answers in
+  its own order, not the order asked (`LoadState` is there because the other four cannot distinguish a
+  unit the manager never loaded from a healthy one -- they answer `inactive dead success [not set]`
+  for `no-such-unit.service`). It degrades to nothing when the bus is unreachable, which is exactly
+  when the journal half is read anyway.
+- When either end of the subtraction is missing the line says so and prints no number, in one of two
+  sentences: nothing has finished inside the window, or something finished and the journal cannot say
+  when its work stopped. The second one used to print `reaped in 0s`, the healthy case's own words
+  (H-0124).
 
 No `After=`/`Wants=network-online.target`. That target does not exist in a user manager --
 `systemctl --user status network-online.target` answers `Unit network-online.target could not be
