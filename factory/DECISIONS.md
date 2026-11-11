@@ -4248,6 +4248,22 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   neither halt sentence, so no doc had to change; `will not touch it` appears nowhere in the shipped tree
   outside the new plant. (i) There is no live halted queue to observe, so half (2)'s verdict rests on
   reading and running the shipped function, not on a fresh stall.
+- Correction (2026-11-11, the day after this was committed at `b080260`): two counts in the entry above are
+  wrong, and the failure is the one `H-0104` named -- "a fifth entry that copies an old count without
+  re-running repeats this exactly", with the twist that this count was never old because it was never
+  counted. The Effect says `all twenty of its legs` and quotes the wiring row as `the twenty legs above
+  that drive both verbs`. Measured on this tree instead: `expect_halt` has NINETEEN call sites
+  (`grep -cE "^\s*expect_halt " factory/selftest.sh`) and runs FORTY-ONE legs per pass -- 35 `HALT` and 6
+  `PROCEED`, counted off the run's own rows with `grep -cE "^  (ok|FAIL) .*halt:"` -- because the calls sit
+  in loops over two trees. Mutation B's 37 failures are therefore those 35 halt legs plus the named leg
+  plus its control row, which the entry asserted as "the 37 name X" without saying what the 37 are. The
+  FAIL message is corrected in this commit and no longer carries a count at all (`every leg above that
+  drives both verbs still reads the tick's marker only`), because the number belongs to the tree and the
+  message outlives it. Mutation A re-run after the wording change: `447 passed, 1 failed`, one row,
+  the wiring row, printing the corrected sentence. The baseline either side of it is unchanged at
+  `447 passed, 0 failed`, and `make verify` on `b080260` printed `verify: OK` with exit 0 before any of
+  this was touched. The two sentences above are left as written so the record shows what was asserted;
+  this line is the record of what it measures.
 - Roll back: `git revert <this commit>` -- the change is additive to `factory/selftest.sh`, and reverting
   it removes the named leg, the comparison and the `h2`/`hl2` reads, restoring `expect_halt` to the shape
   that deleted the conflict pass's marker unread.

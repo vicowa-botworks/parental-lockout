@@ -1653,8 +1653,8 @@ halt_markers_agree() {
 	printf '%s\n' "$body" | sed '/halt_pair_problems/d' >"$stripped"
 	if ! printf '%s\n' "$body" | grep -q 'halt_pair_problems'; then
 		fail=$((fail + 1))
-		printf '  FAIL  %-34s expect_halt never calls it, so the twenty legs above that drive both\n' "wiring: $label"
-		printf '          verbs still read the tick'"'"'s marker only and this whole section is prose.\n'
+		printf '  FAIL  %-34s expect_halt never calls it, so every leg above that drives both\n' "wiring: $label"
+		printf '          verbs still reads the tick'"'"'s marker only and this whole section is prose.\n'
 	elif printf '%s\n' "$stripped" | grep -q 'halt_pair_problems'; then
 		fail=$((fail + 1))
 		printf '  FAIL  %-34s the scan still finds the call after every line naming it is\n' "control: wiring: $label"
