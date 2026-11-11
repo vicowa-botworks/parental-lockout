@@ -68,3 +68,56 @@ units both recorded something rather than one of them quietly not writing it dow
   Every entry below this one has an ordinary marker commit.
 - Effect: the branch's own base (no content commit; `issue-204` moved from `410f132` to
   `dce832d4427dc48b8161860339f6ace166aa65a8` by fast-forward), and this file
+
+## D-0053 · The preserved `.Page` design is delivered as the record of a drop, not as work to merge
+
+- Question: this branch is the only ref that carries a checkpoint and an allocated id for the
+  `.Page` shell-comparison design of #204, and it has no pull request anywhere; the content commit
+  `7bface3` is also on `origin/wip/issue-204-page-comparison-preserved`, whose draft dock (#230) is
+  closed. Deliver this as work, deliver it as a drop, or delete it?
+- Options: rebase onto main and ship the `.Page` design | rebase onto main and port only
+  `TestTheResultPagesMarkNothing` | deliver the branch unchanged as an open pull request that
+  records the drop | delete the branch and leave no pull request
+- Chose: deliver the branch unchanged as an open pull request that records the drop
+- Why: the first two options are refused by measurement rather than by preference. Both designs
+  state something about the same two paths and the statements contradict: `main`'s
+  `internal/web/nav_test.go:197-198`, read at `origin/main`, wants `["/users"]` marked on
+  `/users/casey/lock-now` and `/users/casey/test-lock`, while this branch's
+  `internal/web/pages_test.go:381` refuses *any* `aria-current` in the render of those same two
+  POSTs. No tree holds both verdicts, so the second option has nothing to port -- the property it
+  would port is false on the design `main` chose. Choosing between the designs is not an open
+  question either: #229 merged the path design at `2026-11-08T01:33:46Z` and its review and
+  `testing/capture/cdp.py` both defend it, and reopening a settled design is one of the classes
+  this skill reserves for a person. Independently of all that, the branch is red at its own tip:
+  `make verify` at `badba83` stops at `==> screenshot manifest` with 9 of 9 frames refused, because
+  `7bface3` moved the shared shell (`internal/web/templates/page.tmpl`) and no frame was re-taken --
+  as its own message admits, "unrun-and-unlanded". Its log cannot meet `main`'s as written either:
+  `DECISIONS.md:29` opens this log at `D-0015` while `main` carries a `D-0015` at its line 211, so
+  `main`'s `scripts/check-decisions.py`, run against the two logs concatenated, adds three refusals
+  naming that id -- "'revert to before D-0015' would name two commits" -- the failure this file's
+  own preamble forbids. Between the last two options the ticket settles it: a branch dropped only
+  in a local log is indistinguishable from one never attempted. The option taken also touches the
+  fewest files (this one) and is undone by `git revert` of a single commit.
+- What this entry is *not* evidence for: the four capture drivers were not re-run, so nothing here
+  claims the nine frames would come back byte-identical once re-photographed -- only that none was
+  taken after `7bface3`. The contradiction is proven by reading the two assertions at their file and
+  line, not by running a merged suite, and the log collision is proven with `main`'s checker against
+  a concatenation in `/tmp`, not against a test merge of the two trees.
+- What it costs: `main` keeps nothing of this design. What survives is what is already on refs --
+  `origin/wip/issue-204-page-comparison-preserved` at `7bface3` and the older
+  `origin/wip/issue-204-nav-preserved` at `d076168` -- plus #230's closed thread. No bytes are lost
+  by not merging; the pull request exists so the verdict is visible to the queue that counts
+  pull requests and nothing else.
+- Checkpoint: badba830938a45c7f935973c7fdf863f0610930a
+- A note on this checkpoint's shape: it is the tip this tick started from, not a marker commit it
+  took. `badba83` is itself the `pre-D-0053` marker, taken by the tick that allocated the id and was
+  killed before writing the entry. `git rev-parse HEAD` at the start of this tick was that same sha
+  with `git status --porcelain` empty, so nothing moved between the marker and the decision that
+  precedes it, and a second identical marker would only bury the first.
+- A note on the id: this base (merge-base `dce832d`) predates the harness and has no `factory/`
+  directory, so `factory/next-decision-id.sh` is not here to run. The id came from `origin/main`'s
+  copy of the allocator, extracted to `/tmp` and aimed back at this worktree with `--repo`, which
+  printed `D-0053` -- agreeing with the marker above, and one above `main`'s highest entry, D-0052.
+- Effect: this file, and the pull request for `issue-204`. No source, template or stylesheet is
+  touched by this commit, and `7bface3` and `badba83` are left exactly as they are -- unrewritten --
+  because both shas are cited by name in #204's thread and in #230.
