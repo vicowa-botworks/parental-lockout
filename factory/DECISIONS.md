@@ -4710,3 +4710,60 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   working tree, and re-taken as the empty `f2dc6b1` whose parent is `88451d9`; `70e6797` survives in
   the reflog. `make verify` is not run by this entry and is owed before the branch is pushed. Nothing
   merges or publishes: merging is the supervisor's.
+
+## H-0126 · The live half of the reaping line threw away the labels that make it readable, and printed the healthy sentence for a unit the manager never loaded
+
+- Question: #283's review's second non-blocking row, measured independently by whoever wrote it:
+  `factory_unit_state` pipes `systemctl show` through `sed -n 's/^[A-Za-z]*=//p'`, so the clause reads
+  `parental-lockout-factory.service inactive dead success [not set]`; `systemctl show` answers in its
+  own order rather than the requested one (asked `ActiveState SubState TasksCurrent Result`, received
+  `ActiveState SubState Result TasksCurrent`), so the bare values are positionally ambiguous as well
+  as unlabelled; asked about `no-such-unit.service` -- a unit the manager has never loaded -- the same
+  four properties answer the same `inactive dead success [not set]`, which is the live half of a
+  healthy `reaping:` line about a unit that does not exist; and `H-0118`'s `Effect:` says the clause
+  prints `SubState=stop-sigterm TasksCurrent=10 MainPID=0` when `MainPID` was never in the `-p` list.
+  Is a clause that must be memorised to be read an acceptable reading of the one field that can see a
+  hold while it is happening, and which property tells `not-found` from idle?
+
+- Options: keep the strip and ask one property per call so the order is the one asked | keep the strip
+  and add `LoadState` as a fifth bare value | print `key=value` as answered, and ask for `LoadState`
+  and `MainPID` as well | leave the clause alone and correct `H-0118` to say it never carried `MainPID`
+- Chose: print `key=value` as answered, and ask for `LoadState` and `MainPID` as well
+- Why: the strip costs the reader a lookup table and buys nothing -- the clause is the end of a
+  sentence, not a field a program parses, and a program that did want to grep it wants exactly
+  `SubState=stop-sigterm`, which the stripped form cannot express. One call per property (option one)
+  buys an order nobody asked for at six times the manager calls, on the one read whose docstring says
+  it must stay off the bus when the bus is contested. Labels are also the only fix that survives the
+  order not being contractual: `systemctl show` owes nobody the sequence, so pairing each value with
+  its key is what makes the order stop mattering rather than making it correct by luck. `LoadState` is
+  the property that separates "never loaded" from "idle", and the distinction is this file's own
+  standing argument -- #228 is "a read that failed is not the clean state", and a live half that says
+  the healthy words about a unit nothing can load is that failure in the half the review could not
+  raise as blocking. Option four was the cheap way out and it is refused: `MainPID=0` beside
+  `TasksCurrent=10` -- main process gone, cgroup not empty -- is the 8 Nov outage in two fields, the
+  pair `H-0118` measured and the pair an operator needs, so making the claim true is worth more than
+  documenting it false. Tie-break 3 is unchanged and deliberate: one `systemctl` call, `|| out=''`, the
+  clause vanishes when the bus is unreachable and the journal half still answers. Tie-break 5: one
+  revertable commit, nothing published. What lost: the clause grows from 31 to 102 characters for the
+  shipped unit (measured here, both against the live manager), and anyone scripting against the
+  stripped form loses it -- there is no such script, `factory_reap_line` is the only caller. The
+  legs' stub had to learn to read its own `-p`
+  arguments: a stub that answered the whole property set whatever it was asked let a dropped `-p` look
+  present, and that is exactly the arm `reap: not-loaded is not healthy` exists to notice -- found by
+  planting it, not by reading.
+- Checkpoint: 7221336
+- Effect: `factory/common.sh` (`factory_unit_state` and the comment above it) and `factory/selftest.sh`
+  (three legs, `reap: the last-words read is reachable`, `reap: the live half names its keys`,
+  `reap: not-loaded is not healthy`; the stub `systemctl` now answers only the properties it is asked
+  for, in the order systemd answers rather than the order asked). `bash factory/selftest.sh` 458 passed
+  0 failed against 455 at the checkpoint -- the delta is these three -- and `shellcheck -S style` clean
+  on both files. Four plants, each restored by `cp` and confirmed byte-identical: `factory_reap_lastword`
+  moved back inside `factory_reap_read` (the `0a3939d` shape) turns exactly one leg red and the leg
+  prints the reviewer's own number, `rc=127`; `sed -n 's/^[A-Za-z]*=//p'` restored turns two red; `-p
+  LoadState` removed turns two red; `-p MainPID` removed turns one red. #283's Blocking 2 is therefore
+  now pinned rather than merely fixed: at `050f25d` the move was real and no guard measured it, which
+  is the same difference between a fix and a guard that this log keeps writing about. `docs/factory.md`
+  is corrected in the same push, one commit later, so the page's owed-thing paragraph and the
+  measurement that retires it are separable: it now owes only the manager write, carries the
+  five-row hold table, and says where every number on the `reaping:` line comes from. No dependency, no
+  security property, no publish, no deletion. Nothing here merges -- merging is the supervisor's.

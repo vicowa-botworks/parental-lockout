@@ -495,8 +495,21 @@ factory_reap_lastword() { # <terminal stamp> -> the stamp of the newest process 
 # bus may be unreachable, and on the times that matter a tick is not allowed to ask the manager at all.
 factory_unit_state() {
 	local out=""
-	out=$(systemctl --user show "$(factory_service_unit)" -p ActiveState -p SubState -p TasksCurrent -p Result 2>/dev/null |
-		sed -n 's/^[A-Za-z]*=//p' | paste -sd' ' -) || out=""
+	# The labels travel with the values. Stripping them (`sed 's/^[A-Za-z]*=//p'`, until now) made a
+	# clause that could only be read by someone who had memorised which column is which -- and the
+	# order is not the one asked for: `systemctl show` answers in its own, measured here on systemd
+	# 259 asking `ActiveState SubState TasksCurrent Result` and receiving
+	# `ActiveState SubState Result TasksCurrent`.
+	#
+	# `LoadState` is in the list because the four properties above cannot tell an unloaded unit from a
+	# healthy one: asked about `no-such-unit.service` they answer `inactive dead success [not set]`,
+	# which is the live half of a line about a unit that does not exist.
+	#
+	# `MainPID` is in the list because it is the field the 8 Nov shape turns on -- `MainPID=0` beside
+	# `TasksCurrent=10` is the main process gone and the cgroup not empty, the pair `H-0118` measured
+	# and the only live reading of a hold in progress.
+	out=$(systemctl --user show "$(factory_service_unit)" -p LoadState -p ActiveState -p SubState \
+		-p Result -p MainPID -p TasksCurrent 2>/dev/null | paste -sd' ' -) || out=""
 	printf '%s\n' "$out"
 	return 0
 }

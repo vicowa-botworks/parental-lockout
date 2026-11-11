@@ -9842,9 +9842,30 @@ awk -v u="$until" -v n="$n" -v dumb="${RP_DUMB:-0}" '
 	END { for (i = (dumb || n + 0 <= 0 || c <= n) ? 1 : c - n + 1; i <= c; i++) print line[i] }
 ' "$RP_FIXTURE"
 STUB
-	# `factory_unit_state` asks `systemctl` for four properties. No leg asserts their values; they are
-	# pinned so the sentence's live clause is byte-stable and the manager is never touched.
-	printf '#!/usr/bin/env bash\nprintf "inactive\\ndead\\nsuccess\\n"\n' >"$rp_bin/systemctl"
+	# `factory_unit_state` asks `systemctl` for six properties. No leg asserts their VALUES; they are
+	# pinned so the clause is byte-stable and the manager is never touched -- except in the order they
+	# are ANSWERED, which is not the order asked (H-0126), and that is what a leg below depends on.
+	cat >"$rp_bin/systemctl" <<'STUB'
+#!/usr/bin/env bash
+# Answers ONLY the properties it is asked for, in the order systemd answers them rather than the order
+# asked. A stub that answered the whole set whatever it was given would let a dropped `-p` look
+# present, which is the arm `reap: not-loaded is not healthy` exists to notice.
+asked=''
+while [ $# -gt 0 ]; do
+	case $1 in
+	(-p) asked="$asked ${2:-}"; shift 2 ;;
+	(*) shift ;;
+	esac
+done
+want() { case " $asked " in (*" $1 "*) return 0 ;; (*) return 1 ;; esac }
+want LoadState && printf 'LoadState=%s\n' "${RP_LOAD-loaded}"
+want MainPID && printf 'MainPID=0\n'
+want Result && printf 'Result=success\n'
+want SubState && printf 'SubState=dead\n'
+want ActiveState && printf 'ActiveState=inactive\n'
+want TasksCurrent && printf 'TasksCurrent=[not set]\n'
+exit 0
+STUB
 	chmod +x "$rp_bin/journalctl" "$rp_bin/systemctl"
 }
 rp_stub
@@ -10134,6 +10155,77 @@ EOF
 	return 0
 }
 claim_leg 'reap: the live journal, if there is one' reap_leg_live
+
+reap_leg_reachable() {
+	local got='' rc=0
+	# #283's Blocking 2, pinned rather than assumed. The function used to be defined inside
+	# `factory_reap_read`'s body, whose only call site is the right-hand end of a pipeline, so the
+	# definition was created in a subshell and died with it: every call from outside -- which is what
+	# each of these legs is -- answered 127. `type factory_reap_lastword` after
+	# `factory_reap_lines | factory_reap_read` was the reviewer's measurement; this is the same fact
+	# as a leg, with the value it returns rather than only its name.
+	got=$(RP_FIXTURE=$rp_dir/escalation RP_DUMB=1 RP_UNIT=plrev283b.service PATH="$rp_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
+			factory_reap_lastword "2026-11-11T08:45:09.002985+00:00"' _ "$HERE") || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		rp_say "calling factory_reap_lastword from outside answered rc=$rc"
+		[ "$rc" -ne 127 ] || rp_say "127 is the nesting again: the definition dies with its subshell"
+		return 1
+	fi
+	[ "$got" = '2026-11-11T08:44:08.869637+00:00' ] || {
+		rp_say "it named something else as the pass's last words: '$got'"
+		rp_say "want the END line's own stamp, not the manager's 'Consumed' line after it"; return 1; }
+	got=''
+	got=$(RP_FIXTURE=$rp_dir/no-worker RP_DUMB=1 RP_UNIT=plrev283b.service PATH="$rp_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
+			factory_reap_lastword "2026-11-11T02:56:06.131574+00:00"' _ "$HERE") || rc=$?
+	[ "$rc" -eq 1 ] || { rp_say "on a transcript with no line from the pass it answered rc=$rc, want 1"; return 1; }
+	[ -z "$got" ] || { rp_say "and it printed a stamp anyway: '$got'"; return 1; }
+	return 0
+}
+claim_leg 'reap: the last-words read is reachable' reap_leg_reachable
+
+reap_leg_live_keys() {
+	local line=''
+	# `H-0118` sold the live half as the reading that can see a hold in progress. Stripped of its keys
+	# it said `inactive dead success [not set]`, in the order systemd chose rather than the order asked
+	# (`ActiveState SubState TasksCurrent Result` in, `ActiveState SubState Result TasksCurrent` out),
+	# so the clause had to be memorised to be read at all -- on the one line whose whole purpose is to
+	# be read by somebody who has not memorised it.
+	line=$(rp_sentence "$rp_dir/clean" 1)
+	case $line in
+	(*'live: plrev283b.service LoadState=loaded MainPID=0 Result=success SubState=dead ActiveState=inactive TasksCurrent=[not set]'*) : ;;
+	(*) rp_say "the live half does not carry each key beside its value:"; rp_say "$line"
+		rp_say "want the six 'key=value' pairs the stub answered, in the order it answered them"
+		return 1 ;;
+	esac
+	# and the manager is still not being asked: nothing here may reach the bus.
+	case $line in
+	(*parental-lockout-factory*) rp_say "the live half named the real unit, so the stub was bypassed:"
+		rp_say "$line"; return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: the live half names its keys' reap_leg_live_keys
+
+reap_leg_unloaded() {
+	local line=''
+	# A unit the manager never loaded answered `inactive dead success [not set]` to the four properties
+	# the clause asked for -- the live half of a healthy `reaping:` line about a unit that does not
+	# exist (`no-such-unit.service`, measured). `LoadState` is what separates the two, and it is the
+	# same distinction #228 is about: not-loaded is a fact, not the clean state.
+	line=$(RP_LOAD=not-found rp_sentence "$rp_dir/open" 1)
+	case $line in
+	(*'LoadState=not-found'*) : ;;
+	(*) rp_say "an unloaded unit's live half does not say so:"; rp_say "$line"
+		rp_say "silent about LoadState is the shape that reads healthy for a unit nothing can load"
+		return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: not-loaded is not healthy' reap_leg_unloaded
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
