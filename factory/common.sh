@@ -326,7 +326,8 @@ FACTORY_REAP_NOTICE_SECS=${FACTORY_REAP_NOTICE_SECS:-5}
 # line: systemd spends two lines on an activation that reaps cleanly and eleven on one that escalates
 # (it names every process it SIGKILLs), and a pass writes its own progress as it goes -- a few dozen
 # lines, because a tick's chattiness goes to its own log file. 400 is several passes deep. A window
-# too small to find a terminal line is reported as unknown, never as a clean read.
+# too small to find EITHER end of the measurement -- the terminal line, or the line the hold is
+# measured from -- is reported as unknown, never as a clean read.
 FACTORY_REAP_TAIL=${FACTORY_REAP_TAIL:-400}
 
 # What systemd says it will do next, on one line. The journal alone is not enough, twice over: on 8
@@ -533,7 +534,14 @@ factory_reap_usec() { # <stamp> -> epoch microseconds
 #             age    seconds since that teardown
 #             open   1 when a newer activation has started and not yet finished
 #   exit 1  no terminal line in the tail: nothing finished inside the window, or there is no journal.
-#           Unknown is its own answer (#228's polarity -- a read that failed is not the clean state).
+#   exit 2  a finished activation with nothing to measure the hold FROM -- no `Main process exited`
+#           from systemd and no process line at or before the terminal one.
+#           Both are Unknown, and Unknown is its own answer (#228's polarity -- a read that failed is
+#           not the clean state). Two codes, because the two arms tell the reader different things:
+#           one says the unit has not finished a pass recently, the other says it finished one and the
+#           journal cannot say when its work stopped. What arm 2 printed before it was separated is
+#           `reaped in 0s` -- the exact sentence a 0.5 ms clean reaping prints, for a teardown that
+#           was never read.
 factory_reap_read() {
 	local -a msgs=() stamps=()
 	local line="" stamp="" msg=""
@@ -590,9 +598,14 @@ factory_reap_read() {
 	[ -n "$term" ] || return 1
 	t=$(factory_reap_usec "$term") || return 1
 	if [ -z "$work" ]; then
-		work=$(factory_reap_lastword "$term") || work=$term
+		# No `Main process exited` in the stream means systemd had nothing to say about the exit, and
+		# then the hold has exactly one source: the pass's own last line. If that is not there either,
+		# there is no start point and the honest answer is that this read does not know -- arm 2 of the
+		# contract above. Falling back to `work=$term` measured the hold against itself: `hold=0`,
+		# `how=clean`, `reaped in 0s`, the one sentence this read exists to withhold.
+		work=$(factory_reap_lastword "$term") || return 2
 	fi
-	w=$(factory_reap_usec "$work") || w=$t
+	w=$(factory_reap_usec "$work") || return 2
 	hold=$((t > w ? (t - w + 500000) / 1000000 : 0))
 	now=$(date -u +%s)
 	case $sig in
@@ -617,12 +630,20 @@ factory_reap_read() {
 # progress, and it degrades to nothing when the bus is unreachable, which is when the journal half is
 # read anyway.
 factory_reap_line() {
-	local raw='' hold='' how='' age='' open='' live=''
-	raw=$(factory_reap_lines | factory_reap_read) || raw=''
+	local raw='' rc=0 hold='' how='' age='' open='' live=''
+	raw=$(factory_reap_lines | factory_reap_read) || rc=$?
 	live=$(factory_unit_state)
 	if [ -z "$raw" ]; then
-		printf 'unknown -- journalctl --user has no finished activation for %s to read%s\n' \
-			"$(factory_service_unit)" "${live:+; manager says: $live}"
+		# Two unknowns, because they are two different facts about the loop. Saying "no finished
+		# activation" when one finished and the journal cannot say when its work stopped would send a
+		# reader to the timer, when the thing to look at is the unit's stdout.
+		if [ "$rc" = 2 ]; then
+			printf 'unknown -- %s finished, but nothing in the tail says when its work stopped: no `Main process exited` from systemd and no line from the pass at or before that moment, so the hold is unread, not zero%s\n' \
+				"$(factory_service_unit)" "${live:+; manager says: $live}"
+		else
+			printf 'unknown -- journalctl --user has no finished activation for %s to read%s\n' \
+				"$(factory_service_unit)" "${live:+; manager says: $live}"
+		fi
 		return 0
 	fi
 	IFS=$'\t' read -r hold how age open <<EOF

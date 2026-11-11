@@ -4580,3 +4580,61 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   property, no publish, no deletion, so this is not
   one of the four classes held for a person; nothing here merges or publishes -- merging is the
   supervisor's.
+
+## H-0124 · The reaping read had two ways to run out of input and one of them printed a zero -- both answer unknown now, in two different sentences
+
+- Question: #283's review names this as the polarity follow-on inside the same function it filed as
+  blocking: when no process line is found, `factory_reap_read` fell back to `work=$term`, measuring
+  the hold from the terminal line to the terminal line. Measured here through the `PATH` stub the legs
+  will use, at `fd36792`, on transcripts with systemd's lines and nothing else -- because `-t systemd`
+  excludes the unit's stdout, that is what this function's own stream always looks like:
+
+  | the finished activation's stream | before | after |
+  | --- | --- | --- |
+  | `Starting`, `State 'stop-sigterm' timed out. Killing.`, `Failed to start` | `0 deadline` → `HELD 0s to the stop deadline -- a descendant of the pass ignored SIGTERM` | rc 2 |
+  | `Starting`, `Finished`, `Consumed` | `0 clean` → `reaped in 0s; the unit has been inactive for 6h08m` | rc 2 |
+
+  So the alarm printed a hold of zero seconds for a teardown it had not measured, and the healthy-case
+  sentence was one of the two outputs. The fallback was written as "nothing better available", but
+  after `H-0123` there IS a better source and it has already been asked: `factory_reap_lastword`
+  returned 1, which means the journal does not say when the work stopped. Is not-saying a fact about
+  the unit, or a zero to print?
+
+- Options: keep the fallback and call the printed hold a lower bound | refuse with a third exit code
+  and its own sentence | refuse with the same rc 1 the no-terminal-line arm already returns | raise
+  `FACTORY_REAP_TAIL` and the stub window until a process line is always inside them
+- Chose: refuse with a third exit code and its own sentence
+- Why: every other error this function can make runs upward -- an unread work line, a bounded window,
+  a pass whose chattiness pushed lines out of the tail all overestimate the hold, which is the
+  direction an alarm wants. This one runs to zero, and zero is the value the healthy case prints, so
+  the failure is indistinguishable from the thing it is meant to distinguish; `H-0118` chose the
+  journal over `Result=` for exactly this kind of reason and `#228` is the polarity in general -- a
+  read that failed is not evidence of the clean state. A lower bound (option one) is refused because
+  the number would sit in the same slot with the same typography and the only difference would be one
+  qualifier inside a sentence an operator reads once; this repository's refusals say what they mean in
+  their own sentence, the way `unknown` does here already. Option three is refused because the two
+  arms send a reader to different places: "no finished activation in the window" is a reason to look
+  at the timer, "it finished and the journal cannot say when its work stopped" is a reason to look at
+  the unit's stdout, and `factory_reap_line` has the manager's live state in the same line to make
+  either readable. Option four is refused on a measurement rather than a principle: the 08:44 pass
+  wrote 11 `DELIVERED` lines inside 60 ms, so bursts are how the arm gets reached in the first place,
+  and no finite window promises a line -- it only trades a silent unknown for a slower read. Tie-break
+  4: one file, no new tool, no manager call. Tie-break 5: `git revert` of the effect commit restores
+  the optimistic arm whole. What lost: a real hold can now be reported as unknown when the unit logs
+  nothing at all, and unknown does not alarm anybody -- mitigated only by the fact that the same line
+  carries the manager's live substate, which does know `activating` from `failed`; and a helper's exit
+  status now carries meaning in three values, which every future caller has to read, pinned by a leg
+  and not by a type.
+- Checkpoint: fd36792
+- Effect: `factory/common.sh` only. The fallback returns 2 instead of inventing a start point, a
+  work-stamp `date` cannot parse returns 2 for the same reason, `factory_reap_read`'s contract names
+  both codes and what each asserts, `FACTORY_REAP_TAIL`'s promise is symmetric now ("either END of the
+  measurement"), and `factory_reap_line` captures the pipeline's status rather than flattening it to
+  an empty string, printing a second unknown sentence for rc 2. Witness, the two transcripts above at
+  this commit: rc 2 both times, `HELD 0s to the stop deadline` and `reaped in 0s` both gone, the new
+  sentence reads `... finished, but nothing in the tail says when its work stopped ... so the hold is
+  unread, not zero`. The live journal is unmoved: `factory_reap_lines | factory_reap_read` still
+  answers `hold=60` for the 08:44 activation, because there the pass's own line exists.
+  `bash factory/selftest.sh` 447 passed 0 failed -- unchanged again, and for the same reason: no leg
+  reads any of this yet; the legs are the next commit, and until they exist both this arm and
+  `H-0123`'s exclusion can be edited back with the suite green. Nothing merges or publishes.
