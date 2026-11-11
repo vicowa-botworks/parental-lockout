@@ -3466,3 +3466,51 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   site comment now names the boundary the sentence skipped, in the same five lines it had, so that both
   locators the correction above cites -- `main()` at 897-1076 and the guard at
   `scripts/attack-capture-self-test.py:573-576` -- still read true at this head.
+
+## D-0063 · The sentence #305 files has a twin one file away: row 2's own comment also promises a statement cannot move on an added field, and this branch corrects that one too
+
+- Question: `D-0062` and `testing/capture/pages.py` both claimed the re-pointed anchor can only be retired
+  by a change to the attacked behaviour; #305 measures that false and files a fix in two named places.
+  `scripts/attack-capture-self-test.py`'s comment above row 2 makes the same promise in its own words -- "a
+  statement's text does not move when a field is added or a literal realigns, an aligned continuation
+  line's does" -- and the ticket does not name it. Does this branch leave that sentence for another unit,
+  or correct it here?
+- Options: leave it and file the third site as its own issue | name the boundary here too, in this branch, in its own checkpointed commit separate from the ticket's deliverable | delete the durability claim from the comment and keep only the retirement story
+- Chose: name the boundary here too, in this branch, in its own checkpointed commit separate from the ticket's deliverable
+- Why: option one is what #305 itself is evidence against -- it exists because the site sentence was left
+  alone in the round that could have fixed it -- and a queue item filed against a comment one file away
+  from the comment this branch is already rewriting costs a whole tick to say what one clause says now.
+  It would also leave the two comments in contradiction: the commit before this one makes `pages.py` say a
+  rewrap is all the hoist buys off, while row 2 still promises a statement cannot move on an added field.
+  One anchor, two comments, and the more generous of the two wins for whoever reads the row first -- and the
+  row is what a future editor meets, because the row is the thing that goes red. Option three deletes the
+  only reason the row is a statement rather than the wrapped call (`35f2a41` for W214), which is the reason
+  the last round did not re-point it back onto `pages.py`. The tie-break order's fourth rung (fewest files)
+  points at option one and is overridden the way `D-0062` overrode it for the same kind of reason: a
+  witness's own documentation is part of the witness, and #1048 is a standing rule about anchors, not a
+  preference. The sentence was measured before it was argued: at `14f1826` in `/tmp/opencode/p305/box2`,
+  widening `cdp.keep_refused`'s signature to `stamp=None` and passing `stamp=mode` at the site leaves
+  `py_compile` clean and `pages.py --self-test` still answering "77 refusal rules hold", while row 2 answers
+  `INVALID … 0 anchor matches` and exits 1. A field was added, the statement moved, and the comment says it
+  does not. Not an escalation: no dependency, nothing about what the daemon runs as, no safety or
+  tamper-resistance property changed, nothing published, nothing deleted -- a comment inside a gate that a
+  pull request carries is inside #1823's authority.
+- What lost: the branch carries a file #305 does not name, so a reader of the ticket finds three changes
+  where two were asked for; that is why this is its own commit and not part of the one before it --
+  `git revert` of this commit takes row 2's comment back and leaves the ticket's deliverable standing. The
+  comment block stays seven lines as it was, so the locator the correction above cites, `if hits != 1:` at
+  `scripts/attack-capture-self-test.py:573-576`, still reads true at this head; an eighth line would have
+  moved it and this entry would have had to correct that as well. And the comment no longer spells out the
+  cross-file coupling in so many words -- it used to end "`pages.py` keeps the note on its own statement to
+  keep that true", and width bought the boundary clause instead. The coupling survives as what each side now
+  says about the other: this row says a rename of `note` retires it, and `pages.py`'s site comment says the
+  attack suite is why the note is hoisted at all.
+- Checkpoint: cb72929
+- Effect: `scripts/attack-capture-self-test.py` lines 175-177 -- row 2's comment, three lines rewritten as
+  three, the row's `old` and `new` untouched. Read back after the edit: the file is 686 lines as it was,
+  `ast.parse` clean, `grep -n 'if hits != 1:'` still answers 573, and the anchor string still occurs exactly
+  once in `pages.py`. `python3 testing/capture/pages.py --self-test` -> `capture self-test: 77 refusal rules
+  hold`, exit 0; `python3 scripts/attack-capture-self-test.py` -> `TOTAL 41 attacks: 26 caught, 6 honest
+  edits still green, 9 holes, 0 invalid, 0 unexpected` and `VERDICT: 41 attacks, 0 problem(s), 5 hole
+  class(es), 9 hole row(s)`, exit 0 -- the same tally `D-0062` recorded, so the edit moved no row's verdict.
+  `make verify` for the delivered head is quoted in the pull-request body, not here (#1180).

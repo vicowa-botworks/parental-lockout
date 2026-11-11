@@ -172,9 +172,9 @@ ROWS = [
     # `cdp.refusal_note` and the call rewrapped, and the run answered `INVALID … 0 anchor matches` with
     # exit 1 -- this suite refuses a retired anchor instead of counting it (unlike the mutation battery,
     # where a 0-match mutant is reported NOT APPLIED and the battery stays green, #1048). It is re-pointed
-    # onto a one-line statement rather than back onto the wrapped call, for the reason `35f2a41` gives for
-    # W214: a statement's text does not move when a field is added or a literal realigns, an aligned
-    # continuation line's does. `pages.py` keeps the note on its own statement to keep that true.
+    # onto a one-line statement so reformatting the note cannot reach the anchor -- the reason `35f2a41`
+    # gives for W214, and what retired the wrapped form on #296. It is not immunity to an edit of the
+    # anchored line: a kwarg on `keep_refused` or a rename of `note` retires it too, loudly (#305).
     (CAUGHT, "pages.py", "the refusal branch goes back to `discard_stage()`",
      '            kept = cdp.keep_refused(keep, note=note, out=out)',
      '            cdp.discard_stage()\n            kept = None'),
