@@ -175,7 +175,7 @@ the org's machine user. Nothing measured that day shows a team producing a *new*
 who could be. An individual stays available as the override for a repository with no org
 team: set the team empty and name the login. The classifier counts both lists, `users` and `teams`, so
 a request the supervisor already made reads as `awaiting_review` rather than being poked again as
-`needs_reviewer`, and the journal says which kind was asked (`POKED pr:<n> asked team cinemaitor`,
+`needs_reviewer`, and the journal says which kind was asked (`POKED pr:<n> asked team workers`,
 where the older line read `asked <login>`) instead of printing a login whatever was POSTed. Two things
 the poke does not do: it does not ask a
 draft (`#230` and `#233` are drafts on purpose -- a draft pull request is the author's claim channel,
@@ -208,7 +208,7 @@ were. So the queue watched the unit it had just asked about go unserved, in its 
 
 The first line is that journal line as it read on 10 Nov, before #241. The poke then printed
 `$FACTORY_REVIEWER` whatever it had actually posted; it now prints the target it resolved, so the same
-event reads `POKED pr:269 asked team cinemaitor` -- see *Who the `needs_reviewer` row asks* above. The
+event reads `POKED pr:269 asked team workers` -- see *Who the `needs_reviewer` row asks* above. The
 quotation is kept in the older spelling because that is what the box wrote that day.
 
 The second line is the defect. One `DISMISSED` row, an empty `/pulls/269/requested_reviewers`,
@@ -319,7 +319,7 @@ ExecStart=/home/rodney/prj/parental-lockout/factory/factory.sh
 # pass the one gate it is required to pass, and finds that out 40 minutes into a run.
 Environment=PATH=/home/rodney/.local/bin:/home/rodney/.opencode/bin:/usr/bin:/usr/local/bin:/usr/bin:/bin
 Environment=FACTORY_REVIEWER=hermesvicowa
-Environment=FACTORY_REVIEWER_TEAM=cinemaitor
+Environment=FACTORY_REVIEWER_TEAM=workers
 # The project the CLI works in -- agent, deny rules, skills -- comes from $PWD, not from
 # WorkingDirectory. A unit exports a cwd and no PWD, so without this line every tick opens a session
 # in the background server's home directory and dies on `Agent not found: "factory"`.
@@ -784,7 +784,7 @@ Everything is an environment override with a default, in `factory/common.sh`.
 | variable | default | what it decides |
 |---|---|---|
 | `FACTORY_REPO` | from `origin` | `owner/name`; set it when the remote is a fork you do not want to file against |
-| `FACTORY_REVIEWER_TEAM` | `cinemaitor` | the team a review is requested from, as a **slug**; a team notifies every member, so this is the form that ends a wait |
+| `FACTORY_REVIEWER_TEAM` | `workers` | the team a review is requested from, as a **slug**; a team notifies every member, so this is the form that ends a wait |
 | `FACTORY_REVIEWER` | `hermesvicowa` | the individual a review is requested from -- used only when the team is set empty (`FACTORY_REVIEWER_TEAM=`), which is how a repository with no org team overrides this one |
 | `FACTORY_TREES` | `../wt` | where per-unit worktrees live; deliberately not under `/tmp` |
 | `FACTORY_AT_RISK` | `../at-risk` | where a stopped tick's unpushed commits are mirrored; beside `FACTORY_TREES`, never inside it |
@@ -1118,7 +1118,7 @@ every merge is permanent history.
 Nothing in `factory/` may name this repository. `FACTORY_REPO` comes from `origin`, the reviewer is
 an override, the gate it runs (`make verify`) is whatever the repository's Makefile calls verify,
 and the agent's deny list is generic except `go get`. Say the honest half of that rather than leaving
-it out: the two review defaults do name this organisation (`cinemaitor`, `hermesvicowa`), exactly as
+it out: the two review defaults do name this organisation (`workers`, `hermesvicowa`), exactly as
 they always did -- they are the *values* of two overrides, the same class of thing as a reviewer's
 login, and a repository that wants another target changes them in its unit or its environment rather
 than editing the file. What the rule forbids is a line that needs the repository's *name* to work.

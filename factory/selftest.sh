@@ -5862,17 +5862,17 @@ claim_reset
 # sixth parameter. `--dry-run` prints what a tick would be told, so the transport can be watched end
 # to end without starting a model, and the shipped supervisor is the thing under test, from a copy of
 # the three scripts it needs beside each other.
-# `FACTORY_REVIEWER_TEAM` is pinned to the shipped default (`factory/common.sh:82`) for the same reason
+# `FACTORY_REVIEWER_TEAM` is pinned to the shipped default (`factory/common.sh:83`) for the same reason
 # `FACTORY_OPENCODE` is: inherited, the two legs that read this journal would be green or red depending
 # on what the operator exports. It is also the line that makes the ask below mean something -- the poke
-# prints the target it resolved, so `request review from team cinemaitor` is the shipped default asking
+# prints the target it resolved, so `request review from team workers` is the shipped default asking
 # end to end through factory.sh, not a login pasted here.
 ask_dispatch() { # run the shipped supervisor, dry, over whatever is planted
 	mkdir -p "$claim_work/dtrees"
 	PATH="$claim_bin:$PATH" CLAIM_FIXTURE="$claim_fix" \
 		FACTORY_DIR="$claim_harness" FACTORY_ROOT="$claim_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
-		FACTORY_REVIEWER_TEAM=cinemaitor \
+		FACTORY_REVIEWER_TEAM=workers \
 		FACTORY_OPENCODE=opencode \
 		FACTORY_LOG="$claim_work/dlog" FACTORY_LEDGER="$claim_work/dledger" \
 		FACTORY_RUN="$claim_work/drun" FACTORY_TREES="$claim_work/dtrees" \
@@ -6103,7 +6103,7 @@ claim_leg 'a verdict that still stands is not the new arm' claim_class_is 269 aw
 # one that must appear, and the one that must not.
 voided_asked() {
 	case "$(ask_journal)" in
-	*'WOULD-POKE pr:269 request review from team cinemaitor'*) return 0 ;;
+	*'WOULD-POKE pr:269 request review from team workers'*) return 0 ;;
 	esac
 	printf '            the supervisor took 269 somewhere other than a request to the team. Its journal:\n' >&2
 	printf '%s\n' "$(ask_journal)" | sed 's/^/              /' | grep -v '^[[:space:]]*$' >&2
@@ -6396,7 +6396,7 @@ answer() { # answer <payload> -> through the caller's --jq, with --raw-field bou
 case "$*" in
 *'-X POST'*)
 	if [ "${POKE_POST_FAIL-0}" = 1 ]; then
-		printf 'gh: HTTP 422: Review requests already requested reviewers: cinemaitor\n' >&2
+		printf 'gh: HTTP 422: Review requests already requested reviewers: workers\n' >&2
 		exit 1
 	fi
 	answer '{"users":[],"teams":[]}' "$@"
@@ -6518,16 +6518,16 @@ poke_rc_is() { # <n> -> the function returned this, which is how a refusal is to
 #    decoration on the first -- it is the only record of the request that anyone outside this run
 #    ever sees.
 poke_asks_the_team() {
-	poke_run "$1" hermesvicowa cinemaitor || true
-	poke_post_has 'team_reviewers[]=cinemaitor'
+	poke_run "$1" hermesvicowa workers || true
+	poke_post_has 'team_reviewers[]=workers'
 }
 poke_never_asks_the_person_too() {
-	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
 	poke_no_post_with 'reviewers[]=hermesvicowa'
 }
 poke_journal_names_the_team() {
-	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
-	poke_log_has 'POKED pr:241 asked team cinemaitor' &&
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has 'POKED pr:241 asked team workers' &&
 		poke_log_says_nothing_about 'asked hermesvicowa' &&
 		poke_rc_is 0
 }
@@ -6620,30 +6620,31 @@ fi
 #    the same wrong answer reaches `--dry-run`'s only sibling, the throttle.
 poke_already_holds_a_team_request() {
 	local POKE_POST_FAIL=1
-	local POKE_LIST='{"users":[],"teams":[{"name":"cinemAItor","slug":"cinemaitor","id":19038850}]}'
-	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
-	poke_log_has 'POKE-ALREADY pr:241 team cinemaitor already holds a request' && poke_rc_is 0
+	local POKE_LIST='{"users":[],"teams":[{"name":"Workers","slug":"workers","id":19038850}]}'
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has 'POKE-ALREADY pr:241 team workers already holds a request' && poke_rc_is 0
 }
 claim_leg 'a held team request is not a failure' poke_already_holds_a_team_request
 
 # 4b. the same read-back over the other two ways a team's name reaches a reader. `slug` is what the
 #     current REST schema makes required; `login` is the spelling that field had before the slug rename,
-#     and it is the one that arrives as `org/team`; `name` is the display name, which this org spells
-#     `cinemAItor` over the slug `cinemaitor`. Each of the three has to answer ALREADY, because the
+#     and it is the one that arrives as `org/team`; `name` is the display name, which the fixture
+#     capitalises as `Workers` over the slug `workers`. The 11 Nov re-measure says the live team reads
+#     `workers` in both fields, but the case-fold must survive another rename. Each of the three has to answer ALREADY, because the
 #     alternative reading is POKE-FAILED -- a red journal line about a request that is sitting right
 #     there, retried forever.
 poke_reads_a_prefixed_login() {
 	local POKE_POST_FAIL=1
-	local POKE_LIST='{"users":[],"teams":[{"login":"vicowa-botworks/cinemaitor"}]}'
-	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
-	poke_log_has 'POKE-ALREADY pr:241 team cinemaitor already holds a request' && poke_rc_is 0
+	local POKE_LIST='{"users":[],"teams":[{"login":"vicowa-botworks/workers"}]}'
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has 'POKE-ALREADY pr:241 team workers already holds a request' && poke_rc_is 0
 }
 claim_leg '…an older payload spells it `login`' poke_reads_a_prefixed_login
 
 poke_reads_the_display_name() {
 	local POKE_POST_FAIL=1
-	local POKE_LIST='{"users":[],"teams":[{"id":19038850,"name":"cinemAItor","privacy":"secret"}]}'
-	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
+	local POKE_LIST='{"users":[],"teams":[{"id":19038850,"name":"Workers","privacy":"secret"}]}'
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
 	poke_log_has 'POKE-ALREADY pr:241' && poke_rc_is 0
 }
 claim_leg '…and a display name in another case' poke_reads_the_display_name
@@ -6668,16 +6669,16 @@ PY
 # whatever the schema -- which is precisely the wrong report this change had to fix.
 poke_users_only_readback_red() {
 	local POKE_POST_FAIL=1
-	local POKE_LIST='{"users":[],"teams":[{"slug":"cinemaitor"}]}'
-	poke_run "$poke_root/usersonly/factory.sh" hermesvicowa cinemaitor || true
+	local POKE_LIST='{"users":[],"teams":[{"slug":"workers"}]}'
+	poke_run "$poke_root/usersonly/factory.sh" hermesvicowa workers || true
 	poke_log_has 'POKE-FAILED pr:241' && poke_rc_is 1
 }
 claim_leg 'control: a users-only read-back misses it' poke_users_only_readback_red
 
 # 5. 404 -- the name resolves to nobody. Failure, and the sentence has to carry the override that fixes
-#    it, because the commonest version of this is a display name pasted where a slug belongs
-#     (`cinemAItor` asks for `cinemaitor`) and the person reading the journal is not in the org's
-#     team settings page.
+#    it, because a rename leaves the old slug and the old display name looking alike to a reader who
+#     has not re-taken the org listing (`cinemAItor` asked after the move to `workers`), and the person
+#     reading the journal is not in the org's team settings page.
 poke_failed_names_the_override() {
 	local POKE_POST_FAIL=1
 	local POKE_LIST='{"users":[],"teams":[]}'
@@ -6692,11 +6693,11 @@ claim_leg 'an unknown team fails, and says what to set' poke_failed_names_the_ov
 #    already-holding path. The leg is about a call that must NOT happen, so its control is the same
 #    function with the DELETE added -- the shape a "clean up the stale request" fix would take.
 poke_never_revokes_a_request() {
-	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
 	poke_no_delete || return 1
 	local POKE_POST_FAIL=1
 	local POKE_LIST='{"users":[{"login":"hermesvicowa"}],"teams":[]}'
-	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
 	poke_no_delete
 }
 claim_leg 'the poke leaves a request it did not make' poke_never_revokes_a_request
@@ -6717,7 +6718,7 @@ if anchor not in text:
 open(dst, 'w', encoding='utf-8').write(text.replace(anchor, anchor + '\n' + add, 1))
 PY
 poke_revokes_when_told_to() {
-	poke_run "$poke_root/revokes/factory.sh" hermesvicowa cinemaitor || true
+	poke_run "$poke_root/revokes/factory.sh" hermesvicowa workers || true
 	poke_no_delete
 }
 if poke_revokes_when_told_to 2>/dev/null; then
@@ -6734,9 +6735,9 @@ fi
 #    `--dry-run` is how an operator checks who a pass is about to ask before it asks them.
 poke_dry_run() {
 	local DRY_RUN=1
-	poke_run "$HERE/factory.sh" hermesvicowa cinemaitor || true
-	poke_log_has '-f team_reviewers[]=cinemaitor' &&
-		poke_log_has 'WOULD-POKE pr:241 request review from team cinemaitor' &&
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has '-f team_reviewers[]=workers' &&
+		poke_log_has 'WOULD-POKE pr:241 request review from team workers' &&
 		[ ! -e "$poke_dir/ledger/pr:241.last-poke" ]
 }
 claim_leg '--dry-run prints the team and writes nothing' poke_dry_run
@@ -6782,7 +6783,7 @@ preflight_refuses_a_self_review() {
 	poke_log_has 'FACTORY_REVIEWER_TEAM'
 }
 preflight_starts_for_a_team_it_belongs_to() {
-	preflight_target someone-else cinemaitor && return 0
+	preflight_target someone-else workers && return 0
 	printf '            preflight refused to start although the request goes to a team, and that\n' >&2
 	printf '            that is the new default asking a team, and its own happy path:\n' >&2
 	sed 's/^/              /' "$poke_log" >&2
@@ -6806,7 +6807,7 @@ if old not in text:
     sys.exit(3)
 open(dst, 'w', encoding='utf-8').write(text.replace(old, new, 1))
 PY
-if preflight_target someone-else cinemaitor "$poke_root/alwaysself/common.sh"; then
+if preflight_target someone-else workers "$poke_root/alwaysself/common.sh"; then
 	fail=$((fail + 1))
 	printf '  FAIL  %-40s a guard that ignores the target still started the pass,\n' "control: self-review guard"
 	printf '          so the ok above is the guard being gone, not aimed.\n'
@@ -6828,10 +6829,10 @@ fi
 # same fixture file would be one more thing that can disagree about its default.
 claim_reset
 claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
-claim_reviewers '{"users":[],"teams":[{"name":"cinemAItor","slug":"cinemaitor","id":19038850}]}'
+claim_reviewers '{"users":[],"teams":[{"name":"Workers","slug":"workers","id":19038850}]}'
 claim_rows >/dev/null
 claim_leg 'a team request is somebody being asked' claim_class_is 246 awaiting_review
-claim_leg '…named as a team in the row' claim_detail_has 246 'team:cinemaitor'
+claim_leg '…named as a team in the row' claim_detail_has 246 'team:workers'
 
 claim_reset
 claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
@@ -6840,19 +6841,20 @@ claim_rows >/dev/null
 claim_leg 'an individual request still counts' claim_class_is 246 awaiting_review
 
 # The other two spellings of the team's name, through the classifier rather than the poke. `login`
-# pre-dates the slug rename and arrives as `org/team`; `name` is the display name, which this org
-# capitalises differently from its slug. A row that misses either one is not a cosmetic misreport: it
+# pre-dates the slug rename and arrives as `org/team`; `name` is the display name, which the fixture
+# capitalises differently from its slug. The 11 Nov reading says both fields currently read `workers`,
+# but the classifier must not depend on that agreement. A row that misses either one is not cosmetic: it
 # is `needs_reviewer`, and `needs_reviewer` is an instruction to poke again.
 claim_reset
 claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
-claim_reviewers '{"users":[],"teams":[{"login":"vicowa-botworks/cinemaitor"}]}'
+claim_reviewers '{"users":[],"teams":[{"login":"vicowa-botworks/workers"}]}'
 claim_rows >/dev/null
 claim_leg '…however the payload spells it' claim_class_is 246 awaiting_review
-claim_leg '…with the prefix off the row' claim_detail_has 246 'team:cinemaitor'
+claim_leg '…with the prefix off the row' claim_detail_has 246 'team:workers'
 
 claim_reset
 claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
-claim_reviewers '{"users":[],"teams":[{"id":19038850,"name":"cinemAItor"}]}'
+claim_reviewers '{"users":[],"teams":[{"id":19038850,"name":"Workers"}]}'
 claim_rows >/dev/null
 claim_leg '…or names it only to look at' claim_class_is 246 awaiting_review
 
@@ -6884,7 +6886,7 @@ cp "$HERE/common.sh" "$poke_root/clstriage/common.sh"
 chmod +x "$poke_root/clstriage/triage.sh"
 claim_reset
 claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
-claim_reviewers '{"users":[],"teams":[{"slug":"cinemaitor"}]}'
+claim_reviewers '{"users":[],"teams":[{"slug":"workers"}]}'
 claim_script="$poke_root/clstriage/triage.sh" claim_rows >/dev/null
 if claim_class_is 246 needs_reviewer; then
 	printf '        control: the same fixture through a classifier that reads only `users[]` answers\n'

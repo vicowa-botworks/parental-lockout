@@ -63,9 +63,14 @@ FACTORY_NAME=${FACTORY_NAME:-}
 # with `requested_reviewers: []`. Owner's instruction the same hour: ask the team, not a member,
 # because nobody knows who is online at what time.
 #
-# `FACTORY_REVIEWER_TEAM` is a TEAM SLUG, not a display name. `team_reviewers[]` wants the slug and
-# this org's team is `slug=cinemaitor`, `name=cinemAItor`, `id=19038850` (measured 8 Nov through
-# `GET /orgs/vicowa-botworks/teams`), so the pretty name pasted here would 404 and read as a wrong
+# `FACTORY_REVIEWER_TEAM` is a TEAM SLUG, not a display name. `team_reviewers[]` wants the slug, and a
+# slug is a name someone can change. The 8 Nov listing read `slug=cinemaitor`, `name=cinemAItor`,
+# `id=19038850` through `GET /orgs/vicowa-botworks/teams`. The #282 review re-measured the same team on
+# 11 Nov: `GET /orgs/vicowa-botworks/teams/workers` answers 403 (exists, token blind to `org:read`)
+# while `cinemaitor` and a fabricated slug both answer 404. The 67 stored `review_requested` events
+# resolve id `19038850`, so they date the id; only the 403/404 differential dates today's slug. The
+# shipped value follows that re-measure (`workers`), while the 8 Nov `cinemaitor` above stays as the
+# dated reading it is, not as a default. The pretty name pasted here would still 404 and read as a wrong
 # username. It is the same endpoint the poke already POSTs to -- `team_reviewers[]` is a second
 # argument of the existing `POST pulls/N/requested_reviewers`, not a new route and not a new
 # permission.
@@ -77,10 +82,10 @@ FACTORY_NAME=${FACTORY_NAME:-}
 #
 # `${VAR-default}`, not `${VAR:-default}`, and the two characters are the override: the colon form
 # substitutes for an *empty* value as well as an unset one, so `FACTORY_REVIEWER_TEAM=` -- the
-# documented way to say "there is no team here" -- would silently keep asking cinemaitor. Absent and
+# documented way to say "there is no team here" -- would silently keep asking workers. Absent and
 # empty are different answers, which is the same distinction #873 makes for a config key.
 FACTORY_REVIEWER=${FACTORY_REVIEWER-hermesvicowa}
-FACTORY_REVIEWER_TEAM=${FACTORY_REVIEWER_TEAM-cinemaitor}
+FACTORY_REVIEWER_TEAM=${FACTORY_REVIEWER_TEAM-workers}
 
 # The poke's target as one string: `team:<slug>`, `user:<login>`, or empty for neither. Written, read
 # back, logged and --dry-run'd from here, so the four cannot disagree about who was asked. They
@@ -112,8 +117,9 @@ factory_review_target() {
 # spelling). `login` is the
 # spelling that field had before the slug rename, and it is the one that took the `org/team` form the
 # prefix below strips; `name` is the display name, required in the same schema, which is why the
-# comparison is case-folded -- this org's team is `slug=cinemaitor` under `name=cinemAItor`, so a
-# case-sensitive read of the display name would call a real request a 404 forever. Case-folding costs
+# comparison is case-folded -- the 8 Nov worked example was `slug=cinemaitor` under `name=cinemAItor`;
+# the 11 Nov re-measure says both fields now read `workers`, but another rename can split them again, so
+# a case-sensitive read of a display name would call a real request a 404 forever. Case-folding costs
 # nothing that is worth keeping: GitHub account and team identifiers are matched case-insensitively on
 # the way in, and two teams that differ only by case cannot both exist to be confused.
 JQ_REQUESTED_DEFS='

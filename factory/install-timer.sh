@@ -391,7 +391,7 @@ Environment=FACTORY_REVIEWER=@REVIEWER@
 # (`Environment=FACTORY_REVIEWER_TEAM=`) is the documented override that
 # means "ask the individual on this repository": systemd reads `Environment=VAR=` as an empty value,
 # and common.sh reads the defaults with `${VAR-default}` so that empty survives instead of being
-# refilled with cinemaitor.
+# refilled with workers.
 Environment=FACTORY_REVIEWER_TEAM=@REVIEWER_TEAM@
 # Which unit this is, so the pass can read its own `ExecStart` back (#260). `install-timer.sh --name`
 # lets a person rename the pair, and a name chosen on a command line is recorded nowhere else a later
