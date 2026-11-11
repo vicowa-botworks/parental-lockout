@@ -173,6 +173,17 @@ FACTORY_DELIVERED_WINDOW=${FACTORY_DELIVERED_WINDOW:-100}
 # merge nobody can deploy is the false green this class exists to prevent.
 FACTORY_BASE=${FACTORY_BASE:-main}
 
+# The opening token of the refused-claim note `factory/triage.sh` puts in front of an `unclaimed`
+# row's detail when a MERGED pull request names the issue and the sole-claim/`Part of` arms refuse it
+# (#277). It is a shared literal rather than a sentence each side invents, because two files read it:
+# the classifier writes it as the first characters of the detail, and `factory/factory.sh`'s `unclaimed`
+# arm matches it at the START of the detail to decide whether to add the instruction that tells the
+# tick what the bracket means. Anchored, not `*substring*`, because the rest of that column is an
+# issue title somebody typed -- text this harness does not control -- and a title that happened to
+# contain the token must not buy itself an instruction. `factory/selftest.sh` pins both ends: a row
+# that reaches the table with the note, and a copy of `factory.sh` with the arm deleted.
+FACTORY_MERGED_MARK=${FACTORY_MERGED_MARK:-'[merged:PR#'}
+
 FACTORY_LOG=${FACTORY_LOG:-$FACTORY_DIR/log}
 FACTORY_LEDGER=${FACTORY_LEDGER:-$FACTORY_DIR/ledger}
 FACTORY_RUN=${FACTORY_RUN:-$FACTORY_DIR/run}

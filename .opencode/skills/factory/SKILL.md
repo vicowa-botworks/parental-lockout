@@ -241,6 +241,15 @@ So read the ticket against the head before writing code, the way Step 1 reads a 
 than remembering one. If every requirement in the ticket is met on `main`, the deliverable is the
 evidence and not a diff:
 
+The queue says when this case is possible. A `[merged:PR#…]` bracket in front of your ticket is a
+REFUSED claim, not a verdict: a merged pull request named this issue, the classifier declined to read
+that as delivery, and the bracket carries which pull request, on which branch, when it merged, and
+which rule refused it. Read it before you write. `gh pr diff <N>` and `git log --oneline origin/main`,
+then hold what that pull request changed against each requirement below and follow the five steps --
+measure, do not quote the old body. The bracket does not make the ticket done, and it does not make it
+not done: a body naming four issues does not say which four it finished, `Part of` says only that some
+of it landed, and the branch in the bracket may belong to a different ticket entirely.
+
 1. **Measure it; do not quote the merged body.** A pull-request body is a claim about code that has
    moved since. Run the probe it says it added, then break the thing it says is pinned and watch it go
    red. Assert each mutant's pattern actually applied before believing its tally: a pattern that is not

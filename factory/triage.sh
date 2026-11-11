@@ -12,6 +12,7 @@
 #   pr      240       address_review       review asked for changes …     …       240    <the ask>
 #   pr      240       review_unreadable    21 bytes of body, no ask       …       240    -
 #   issue   213       unclaimed            <title>                        -       213    -
+#   issue   199       unclaimed            [merged:PR#229 on `issue-199`  -       199    -
 #   issue   232       delivered            delivered by merged PR #234 …  -       232    -
 #   branch  fix/x     branch_without_pr    2 ahead of main, no open PR    fix/x   -      -
 #
@@ -61,7 +62,10 @@ thing that needs something (or, for `delivered`, one row per thing that needs no
   class  merge_now | conflict | checks_failing | checks_pending | address_review |
          review_unreadable | needs_reviewer | awaiting_review | awaiting_merge | draft |
          unclaimed | delivered | branch_without_pr
-  detail why that class, with the timestamps the verdict was made from
+  detail why that class, with the timestamps the verdict was made from. One `unclaimed` row may open
+         with `$FACTORY_MERGED_MARK` -- a merged pull request named the issue and the sole-claim or
+         `Part of` arm refused it, so part of this ticket may already be on the trunk. The class and
+         the tick are unchanged; see the refused-claim block.
   branch the PR head / orphan branch
   issue  the issue GitHub says the PR closes, when there is one
   ask    the reviewer's own words for `address_review`, bounded at
@@ -470,8 +474,16 @@ done <<<"$pr_rows"
 # why the row is printed instead of dropped. Dropping it is what the `unclaimed` channel does with an
 # over-claim, and that is the lesson the open-body scan above carries in its own comment -- a dropped
 # issue is work nobody will look for again.
+# `headRefName` is in this field list for the refused-claim note below, and it is NOT an input to
+# either verdict: `delivered` still reads four facts and no branch name. It is carried because it is
+# the one fact that tells a reader whether a merged body was written FOR this ticket (`issue-235`) or
+# merely mentions it while delivering another (`issue-253` naming #251, measured 10 Nov) -- and as a
+# verdict a branch name is measurably false. Three merged pull requests sit on the branch `issue-199`
+# (#229, #240, #243), #231 and #236 both sit on `issue-228`, and #254 was merged on `issue-246` under
+# a `Part of #246` that #246 is still open to finish. So it is evidence handed to the reader and never
+# the thing the scan decides with (H-0108).
 merged_json=$(gh pr list --state merged --limit "$FACTORY_DELIVERED_WINDOW" \
-	--json number,body,mergedAt,baseRefName 2>/dev/null || printf '')
+	--json number,body,mergedAt,baseRefName,headRefName 2>/dev/null || printf '')
 if [ -z "$merged_json" ]; then
 	printf 'triage: merged pull requests unreadable; nothing is reported delivered this pass\n' >&2
 	merged_json='[]'
@@ -527,6 +539,66 @@ if ! printf '%s' "$delivered_map" | jq -e 'type == "object"' >/dev/null 2>&1; th
 	delivered_map='{}'
 fi
 
+# ------------------------------------------------------- the claims the arms refused (#277)
+#
+# The arms above refuse a claim for two reasons, and both of them are honest: a body naming several
+# issues does not say which ones it finished, and `Part of #N` is this repository's own spelling of
+# partial work. Refusing is right. What was wrong is that the refusal was then thrown away, so the
+# next tick started from nothing and re-derived the answer by hand. Measured in the supervisor's own
+# journal: `TICK-START unclaimed:235 2026-11-10T22:57:23Z`, `TICK-DONE 23:14:23Z` -- seventeen minutes
+# of ceiling to discover that PR #238, merged 8 Nov on branch `issue-235` under a body naming eight
+# issues, had already delivered #235's three requirements. The classifier had read that body, had
+# refused it, and had said nothing about the refusal to anybody.
+#
+# So the refusal is kept and carried: this map holds, per issue, the newest MERGED claim that named it
+# and was refused, with the reason the arms gave. It changes no verdict -- the class stays `unclaimed`,
+# the tick still runs, nothing is closed, and `delivered` still needs all five facts it always needed.
+# That is deliberate, and it is what separates this from the two shapes #277 proposed:
+#
+#   * A branch name is not a verdict. #254 merged on `issue-246` under `Part of #246` and #246 is
+#     still open with a requirement nobody has built; #255 merged on `issue-253` naming #251 beside
+#     #253, and `factory/selftest.sh` carries the record that #253's third instruction was reported
+#     delivered by #255 and was not on `main`. Both would have been claimed by a branch-shaped signal.
+#   * A class that starts no tick retires real work. #253 was refused by the count arm at #255 and
+#     NEEDED the tick that row dispatched: #257 delivered it five hours later. #246 is in the queue as
+#     `unclaimed` right now, on the strength of a refusal that was correct.
+#
+# The note is therefore evidence for the reader the arms decline to be, and the veto pair below is the
+# same pair the verdict uses: an issue that spoke after the merge has already been re-queued by a
+# person, and an issue whose closure was once rejected has already proved it needs one. Neither is
+# given a note, because in both cases somebody has already read exactly this.
+refused_map=$(printf '%s' "$merged_json" | jq -c --arg base "$FACTORY_BASE" --arg re "$CLAIM_RE" '
+  def claims: (.body // "") as $b
+    | [ $b | scan($re) | . as $p
+        | [ $p | scan("#[1-9][0-9]*") | {phrase: $p, n: (ltrimstr("#") | tonumber)} ] ]
+    | flatten;
+  [ .[]
+    | select(.baseRefName == $base)
+    | select((.mergedAt // "") != "")
+    | . as $p
+    | claims as $all
+    | ($all | unique_by(.n) | length) as $k
+    | ($all | map(.phrase | ascii_downcase | startswith("part of")) | any) as $partial
+    | $all[]
+    | ( (if $k == 1 then [] else ["names it in a \($k)-issue body"] end)
+      + (if $partial then ["a `Part of` phrase in the same body"] else [] end) ) as $why
+    | select(($why | length) > 0)
+    | {n, pr: $p.number, at: $p.mergedAt, branch: ($p.headRefName // ""), why: $why}
+  ]
+  | group_by(.n)
+  | map(max_by(.at) + {bodies: (map(.pr) | unique | length)})
+  | map({(.n | tostring): .}) | add // {}' 2>&1) || :
+# Same `|| :` and the same reason: under `set -e` a failed substitution in an assignment ends the
+# pass, and the second scan must not be able to take the table -- or the first scan's verdicts -- down
+# with it. Checked by shape for the same reason as the map above: `{}` is a legitimate answer, so only
+# the shape says whether the scan ran. What is lost when it does not is the note and nothing else, and
+# that is said out loud rather than left as a silently shorter row.
+if ! printf '%s' "$refused_map" | jq -e 'type == "object"' >/dev/null 2>&1; then
+	printf 'triage: the refused-claim scan refused, so an `unclaimed` row says nothing about merged bodies: %s\n' \
+		"${refused_map:0:200}" >&2
+	refused_map='{}'
+fi
+
 # The verdict for one open issue, or nothing when nothing may be claimed about it. `updated` is the
 # issue's own last activity and the comparison is on the first nineteen characters of GitHub's
 # second-precision UTC stamps, so a payload that grew milliseconds cannot invert it. An unreadable
@@ -546,6 +618,32 @@ delivered_claim() { # delivered_claim <issue> <issue updatedAt>
 		# table, which is the shape #235 was filed for. What a payload this repository has not
 		# produced yet (a `mergedAt` that is not a string, say) therefore still says one line about
 		# itself instead of quietly reproducing the bug.
+}
+
+# The refused-claim note for one open issue, or nothing. Three answers are nothing, and each of them
+# is a different reason: no merged body named it at all (a stranger, not a refused claim -- the
+# #149 case, where #218's "Not here: #149's per-control commit policy" carries no verb and so is not a
+# claim for either scan), the issue spoke after the merge (a person has re-queued it deliberately), or
+# a closure of it was already rejected (a person has already read exactly this). The stamp comparison
+# is the same nineteen characters `delivered_claim` uses, so the two scans cannot disagree about
+# whether an issue has been quiet.
+refused_note() { # refused_note <issue> <issue updatedAt>
+	printf '%s' "$refused_map" | jq -r \
+		--argjson n "$1" --arg updated "${2:-}" --arg mark "$FACTORY_MERGED_MARK" '
+		.[$n | tostring] as $c
+		| if $c == null then ""
+		  elif $updated == "" then ""
+		  elif ($updated[0:19]) > ($c.at[0:19]) then ""
+		  else
+		    $mark + ($c.pr | tostring)
+		    + (if $c.branch == "" then "" else " on `\($c.branch)`" end)
+		    + " at \($c.at) -- \($c.why | join("; "))"
+		    + (if $c.bodies > 1 then " (\($c.bodies) merged bodies name it)" else "" end)
+		    + "] "
+		  end' || printf ''
+	# No `2>/dev/null`, for the reason `delivered_claim` carries: an empty answer here is invisible in
+	# the table, so a refusal has to be able to speak. Without the redirect a jq complaint on stderr
+	# names the payload that broke, and the row that quietly lost its note does not.
 }
 
 # Has a closure of this issue already been rejected? `REOPENED` is GitHub's own record of it, and one
@@ -595,7 +693,22 @@ if [ "$CLOSING_OK" = "1" ]; then
 			# column's job (H-0055).
 			rows+="$(emit issue "$number" delivered "$claim (window $FACTORY_DELIVERED_WINDOW)" '' "$number")"$'\n'
 		else
-			rows+="$(emit issue "$number" unclaimed "$title" '' "$number")"$'\n'
+			# The refusal travels with the row instead of being dropped (#277). A tick that arrives at
+			# this issue knowing `merged PR #229 named it on `issue-199` and the sole-claim rule
+			# refused` starts from a diff to read; the same tick without the note starts from zero and
+			# spends the ceiling re-deriving what the scan already knew, which is the seventeen minutes
+			# measured above. It is put at the START of the detail because `factory.sh` matches the
+			# marker anchored there, and what follows it is a title somebody typed.
+			#
+			# The class does not move. This row is still `unclaimed`, it still gets its tick, and the
+			# only thing that changes is what the tick is told on the way in -- because the refusal
+			# being right is exactly why the issue must keep being worked: #246 is here now, refused by
+			# a `Part of` that told the truth about unfinished work.
+			note=''
+			if ! was_reopened "$number"; then
+				note=$(refused_note "$number" "$updated")
+			fi
+			rows+="$(emit issue "$number" unclaimed "${note}${title}" '' "$number")"$'\n'
 		fi
 	done < <(gh issue list --state open --limit "$issue_limit" --json number,title,updatedAt \
 		--jq '.[] | [.number, (.title | gsub("[\t\r\n]"; " ")), (.updatedAt // "")] | join("\u001f")' 2>/dev/null) ||
