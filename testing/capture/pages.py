@@ -1737,7 +1737,7 @@ def self_test():
             if refusal is None or want not in refusal:
                 problems.append(f"{probe} produced {refusal!r}, want a refusal naming {want!r}")
 
-    def refused_run(**kw):
+    def refused_run(sink=None, **kw):
         """Run the driver in a scratch tree that outlives the call, and hand back what it left.
 
         `_run_main` deletes its own box on the way out, which is right for a rule that reads the
@@ -1750,9 +1750,14 @@ def self_test():
         Both come off the disk, from the real `cdp.keep_refused`/`capture_refused`. Neither is
         counted through a stub, because every claim these rules makes is about files -- a rule that
         watched a fake being called would still pass with `keep_refused` hollowed to `return []`.
+
+        `sink` hands the caller the driver's own log, for a rule that has to see the steps that
+        leave no file behind -- `record`, the manifest step, is the one that matters to
+        `manifest_never_over_a_refusal` below, and it is the reason that rule now runs through here
+        instead of through a bare `_run_main`.
         """
         with _refusal_box() as (box, out):
-            rec = []
+            rec = [] if sink is None else sink
             rc, entered, err, _out, published, discarded = _run_main(box=box, out=out,
                                                                      sink=rec, **kw)
             d = op.join(box, "pages-refused")
@@ -3743,15 +3748,28 @@ def self_test():
         # manifest written over a run that wrote no PNGs certifies photographs this run did not
         # take, which is the failure #144 was filed against.
         rec = []
-        rc, _entered, _err, _out, published, discarded = _run_main(refuse=["/audit"], sink=rec)
+        rc, _entered, _err, published, discarded, kept, _note = refused_run(refuse=["/audit"],
+                                                                           sink=rec)
         if rc == 0:
             problems.append("a refused run exited 0")
         if "record" in rec:
             problems.append("a refused run recorded a manifest over a run that published nothing")
-        if discarded and not published:
-            # Kept, not destroyed, is the new contract (#220) -- but the invariant this rule owns
-            # is that the staged frames stop being a live queue either way, so that no later
-            # `publish()` can reach a run's leftovers.
+        if published:
+            problems.append("a refused run published the stage, so the frames it refused would "
+                            "carry a manifest beside them anyway (#222)")
+        # Two ways for a refused run to dispose of the stage wrongly, and they need telling apart
+        # because they are opposite mistakes. Destroying the frames is what the run did before
+        # D-0054, and it is wrong now -- the kept set is the point. Leaving them staged is the
+        # older hazard: `publish()` copies whatever `_PENDING` holds, so a run that neither moved
+        # the frames into the refused directory nor destroyed them hands its leftovers to the next
+        # run that reaches a publish. This rule cannot see `_PENDING` (the driver's stubs never
+        # stage real bytes); `a_kept_frame_is_moved_out_of_the_publish_queue` reads that queue and
+        # the stage directly, and owns the property in its strong form. What this rule owns is
+        # that the frames went *somewhere*: no `discard`, and a refused directory that exists.
+        if discarded:
+            problems.append("a refused run destroyed the frames it measured (discard_stage ran) "
+                            "instead of keeping them in the refused directory (D-0054)")
+        elif kept is None:
             problems.append("a refused run neither moved its frames out of the stage nor "
                             "destroyed them, so a later publish could reach them")
 

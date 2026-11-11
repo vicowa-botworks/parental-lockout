@@ -2721,3 +2721,42 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   refusal, the fixture, the UTC minute, the untouched `--out` and the `fixture.env` that states the
   conditions, beside `dashboard@360.png` and the five fitted frames; the fixture's daemon and Chrome
   gone with the run, nothing listening on 8501 or 9333.
+
+  **Correction, 11 Nov, taken while the pull request was being opened — three findings, each with
+  the command that re-checks it.**
+
+  1. `Effect:` names `capture_refused_frame` as a `pages.py` symbol. This tree never had that name;
+     the helper is `_refused_frame`. Re-check: `grep -rn 'capture_refused_frame' .` answers nothing,
+     `grep -n 'def _refused_frame' testing/capture/pages.py` answers the definition. The wrong name
+     is left standing above rather than edited out, because a silently corrected `Effect:` field is
+     indistinguishable from one that was always right.
+  2. `Why:` says the mutation counts were taken "against main's 76 rules". `main` has 70
+     (`git show origin/main:testing/capture/pages.py` at `EXPECTED_RULES`); 76 is this tree's count,
+     which `Effect:` records correctly as `70 -> 76`. The counts themselves are this tree's and were
+     re-measured before this correction, each on a copy of the tree under `/tmp/opencode` so the
+     gated tree was never itself the mutant (#1807): hollowed `keep_refused` -> `12 of 76 rules
+     failed`, restored `discard_stage()` -> `6 of 76`, `refused_dir` without the fixture ->
+     `5 of 76`.
+  3. `manifest_never_over_a_refusal` reported the opposite of what it saw, and this one was in the
+     code rather than the prose. Its clause read `if discarded and not published:` above the
+     sentence "a refused run neither moved its frames out of the stage nor destroyed them" -- so it
+     fired on exactly the mutation where `discard_stage()` HAD run and destroyed the frames, and
+     stayed silent on the case the sentence describes. Measured on the restored-disposal mutant
+     before the fix, the finding printed beside its own contradiction: `capture self-test: a refused
+     run neither moved its frames out of the stage nor destroyed them`. Fixed in this commit into
+     two arms that each mean what they say: `discarded` -> "destroyed the frames it measured
+     (discard_stage ran)", and `kept is None` -> the "neither moved" sentence, which now fires only
+     when both halves are true (verified on a second mutant that leaves the stage live: 7 of 76,
+     with this rule's line among them). Detection is not weaker for the change -- the
+     restore-disposal mutant is still 6 of 76, and the strong form of the live-queue property stays
+     where it always was, in `a_kept_frame_is_moved_out_of_the_publish_queue`, which reads
+     `_PENDING` and the stage directly.
+
+  Checkpoint for the correction: 8cb0d6d2be3365e570d29f803a9a3dad835a15ae. What it does not touch:
+  the behaviour, the six rules, or the counts -- two findings are in the record and one is in a
+  self-test sentence. The live refusal was re-run end to end against this branch before the pull
+  request (setup 0, driver 1, refusing `/` on casey's countdown, `runs/pages-refused/` left holding
+  six PNGs and `REFUSED.txt` while `runs/pages/` held the fixture's own files and no PNG), and the
+  five fitted frames came back byte-identical to the committed set: `users b1974aaa...`,
+  `profiles a2bede88...`, `profiles-refused 9a62a2cd...`, `audit fc37cd9a...`,
+  `settings c47e16d6...`.
