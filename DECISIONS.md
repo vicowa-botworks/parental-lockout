@@ -2619,3 +2619,144 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the *driver's* missing-key refusal firing on a stale `fixture.env` — a green-looking "census undeclared"
   about a fixture that had simply died early. The fix is one line and the lesson is #1180's: a refusal
   observed before the thing it guards was reachable is not a control that fired)
+
+## D-0054 · A refused capture run keeps the frames it measured, in a directory nothing certifies
+
+- Question: `pages.py` disposes of a refused run with `cdp.discard_stage()`, which is right for a
+  publish and was silently right for a look: the frames a refusal exists to explain left with it.
+  Measured 11 Nov on `origin/main` at `a0c7fce` by driving the real `main()` with only `Capture`,
+  `capture_out` and `shoot` replaced -- `cdp.Session.write_png` staging real bytes into
+  `cdp._stage_dir()`, the disposal path neither stubbed nor faked -- one page refusing at both
+  viewports while five fitted: the stage held `dashboard.png, profiles-refused.png, profiles.png,
+  settings.png, users.png` with five `_PENDING` entries when `discard_stage()` ran, once; afterwards
+  the stage directory was gone, `runs/` held nothing, `--out` was not a directory, and the refusing
+  page had never been photographed at all. The same harness on this branch: no `discard_stage()`
+  call, and `runs/pages-refused/` holding seven PNGs -- the five measured frames plus
+  `audit@360.png` and `audit@1024.png`, the refusing page at each viewport that refused it -- with
+  `REFUSED.txt` beside them, `_PENDING` empty, and `--out` still not a directory. Where do kept
+  frames go, so a refusal can be looked at without a kept byte ever readable as the evidence the run
+  refused to produce?
+- Options: write them into `--out` beside the published set under a `.refused` suffix | move them out
+  of the publish queue into `runs/<fixture>-refused/` with `REFUSED.txt` beside them and photograph
+  the refusing page too | keep only the refusing page's frame | leave the disposal as it was and treat
+  the refusal's prose as the record
+- Chose: move them out of the publish queue into `runs/<fixture>-refused/` with `REFUSED.txt` beside
+  them and photograph the refusing page too
+- Why: option four is refuted by the measurement above rather than argued. The prose is five `FITS`
+  sentences naming files that do not exist -- once on 6 Nov, re-run here against main's own code --
+  and it is why an undiagnosable refusal got closed twice: #220 on 5 Nov as satisfied by D-0031,
+  which fixed the *stamp* of a frame (`manifest.py record` dates what it is handed, so a frame that
+  never landed keeps the `sources_rev` of the commit its bytes were rendered from), and again on 6 Nov
+  as satisfied by main, when neither half said anything about the frames themselves. Option one is
+  refused by #222, the failure this driver exists to prevent: `--out` is the certified surface,
+  `manifest.py check` reads the manifest that lives in it, and `record` stamps any file handed to it
+  with this run's `sources_rev` and `captured_at` -- a refused frame parked there is one `record` away
+  from carrying a stamp it did not earn, same bytes, same filename, a `captured_at` from a run that
+  refused. Option three keeps the frame that explains the refusal and throws the five that explain the
+  count: `5/6 pages fit` is only checkable against the other five, and the whole 6 Nov mystery was
+  which of the five sentences were true. Four properties are then enforced in code rather than left to
+  a note: the frames are moved and not copied and `_PENDING` is emptied with them, so no staged path
+  survives to be published beside them; the directory is cleared when opened, once, and the clear is
+  announced; it is never `--out` or anything inside it -- `keep_refused` declines a target outside
+  `runs/` or one overlapping `--out`, and says the frames are being destroyed when it declines; it is
+  named for the fixture, so a `pages-noprof` refusal cannot land in `pages`' kept set. Each of those
+  four was then cut and the self-test run, every mutation applied to its own copy under
+  `/tmp/opencode` so the gated tree was never itself a mutant (#1807, one step further than the
+  runner's own restore-on-exit):
+
+  | mutation | rules red | the finding it produces |
+  |---|---|---|
+  | `keep_refused` hollowed to `return []` | 12/76 | `FileNotFoundError` from every rule that reads a kept frame back |
+  | the refusal branch restored to `discard_stage()` | 6/76 | `every page refused -> discard_stage() ran 1 times` |
+  | `refused_dir` drops the fixture from the name | 5/76 | `no refused directory at all, so the run destroyed the twelve frames it had measured` |
+  | the stale clear deletes nothing | 1/76 | `pages-refused still holds a frame from before this run` |
+  | the clear goes unannounced | 1/76 | `cleared yesterday's frames without saying it did` |
+  | the keep-guard accepts any target | 1/76 | `keep_refused accepted a directory outside the scratch tree` |
+  | `_PENDING.clear()` removed | 1/76 | a kept frame still queued to publish |
+  | the handler reads `Exception`, not `(Exception, SystemExit)` | 1/76 | `capture_refused raised SystemExit out of a refusal handler` |
+  | `REFUSED.txt` not written | 2/76 | `a frame with no sentence under it is what #211 says a frame is not` |
+  | the retracting sentence dropped | 1/76 | `the transcript still prints FITS paths for files this run did NOT write` |
+  | the kept frame loses its `@width` | 3/76 | `kept ['settings.png'], want ['settings@1024.png', 'settings@360.png']` |
+  | one rule's registration deleted | 1/76 | `75 rules ran, want 76` -- the count is load-bearing |
+
+  The first three rows are #251's four requirements and the rest are the properties above; the counts
+  are this tree's, against main's 76 rules -- the earlier attempt on `wip/issue-220-refused-frames`
+  reported 12/7/6 against a 54-rule file and never ran against main at all.
+- What lost: a refused run is no longer silent on disk -- `runs/` holds one kept set per
+  fixture, emptied by that fixture's next refusal and by nothing else, so a set outlives its own
+  explanation until the next refusal; the refusing page is photographed inside its own refusal
+  handler, so a failure there is swallowed into a line (`capture_refused caught: …`, `page not
+  photographed`) instead of stopping the run; that photograph is a second render and can differ from
+  what was measured; and a refused page's own guard reaches that handler as `SystemExit`, so the outer
+  handler keeps having to read `(Exception, SystemExit)` or the diagnostic takes the refusal's exit
+  code with it. One more, measured rather than predicted: the five frames that fitted in the live run
+  below are byte-identical to the committed set (`users b1974aaa…`, `profiles a2bede88…`,
+  `profiles-refused 9a62a2cd…`, `audit fc37cd9a…`, `settings c47e16d6…`). So the kept directory holds
+  the committed filenames holding the committed bytes, and what separates them from evidence is the
+  manifest, the note, and `testing/capture/runs/` being gitignored -- not the filename. Say that to
+  anyone handed a PNG out of it.
+- Checkpoint: a0c904afe819e17b40f7c7260ca69799433abf5e
+- Effect: `testing/capture/cdp.py` (`REFUSED_NOTE`, `refused_dir`, `keep_refused`, `capture_refused`,
+  `_REFUSED`), `testing/capture/pages.py` (`capture_refused_frame`, `_refusal_note`, the refusal
+  branch of `main()` in place of `discard_stage()`, the retracting sentence, six rules,
+  `EXPECTED_RULES` 70 → 76, and `_refusal_box` so a rule that reads files back does it inside its own
+  temp directory and every other rule writes none), and `testing/capture/README.md` -- plus
+  `DECISIONS.md`. What this does NOT take: the two single-frame drivers, `lock.py` and `testlock.py`,
+  still dispose of their staged frame with `discard_stage()`, and the notes now say so under open
+  work, because their `--out` is a single named file and #251 did not ask about them. This yields a
+  decision rather than a design: the id the preserved branch carried (`D-0031`) has belonged since
+  7 Nov to the manifest's `sources_rev` stamping, of which this is a consequence and not a restatement
+  -- a frame that landed under `--out` and a frame that was refused both need the same reader told
+  what they are, and this entry is the second of those two sentences. Read-backs this field rests on,
+  each run after the code it describes: `make verify` exit 0, quoting `capture self-test: 76 refusal
+  rules hold`, `capture manifest self-test: 42 rules hold`, and `screenshot manifest: 9 photographs
+  current`; then the live refusal on this branch, `PLOCK_CAPTURE_SCRIPTS=on ./pages-setup.sh &&
+  PLOCK_CAPTURE_SCRIPTS=on ./pages.py`, setup exit 0 and driver exit 1, refusing `/` because casey's
+  row reads `locked out until 16h 48m` where the artifact is a photograph of `locked out until
+  00:00` -- the one condition these notes already document as refusing this fixture -- printing
+  `5/6 pages fit at 360 px (fixture pages); refused: /`, then `Nothing was written to
+  …/runs/pages.`, then `6 frame(s) this run measured are in …/runs/pages-refused, with REFUSED.txt
+  beside them`, then the retraction; `runs/pages/` left holding the fixture's own `config.json`,
+  `audit.jsonl` and `fixture.env` and no PNG; `runs/pages-refused/` holding `REFUSED.txt` naming the
+  refusal, the fixture, the UTC minute, the untouched `--out` and the `fixture.env` that states the
+  conditions, beside `dashboard@360.png` and the five fitted frames; the fixture's daemon and Chrome
+  gone with the run, nothing listening on 8501 or 9333.
+
+  **Correction, 11 Nov, taken while the pull request was being opened — three findings, each with
+  the command that re-checks it.**
+
+  1. `Effect:` names `capture_refused_frame` as a `pages.py` symbol. This tree never had that name;
+     the helper is `_refused_frame`. Re-check: `grep -rn 'capture_refused_frame' .` answers nothing,
+     `grep -n 'def _refused_frame' testing/capture/pages.py` answers the definition. The wrong name
+     is left standing above rather than edited out, because a silently corrected `Effect:` field is
+     indistinguishable from one that was always right.
+  2. `Why:` says the mutation counts were taken "against main's 76 rules". `main` has 70
+     (`git show origin/main:testing/capture/pages.py` at `EXPECTED_RULES`); 76 is this tree's count,
+     which `Effect:` records correctly as `70 -> 76`. The counts themselves are this tree's and were
+     re-measured before this correction, each on a copy of the tree under `/tmp/opencode` so the
+     gated tree was never itself the mutant (#1807): hollowed `keep_refused` -> `12 of 76 rules
+     failed`, restored `discard_stage()` -> `6 of 76`, `refused_dir` without the fixture ->
+     `5 of 76`.
+  3. `manifest_never_over_a_refusal` reported the opposite of what it saw, and this one was in the
+     code rather than the prose. Its clause read `if discarded and not published:` above the
+     sentence "a refused run neither moved its frames out of the stage nor destroyed them" -- so it
+     fired on exactly the mutation where `discard_stage()` HAD run and destroyed the frames, and
+     stayed silent on the case the sentence describes. Measured on the restored-disposal mutant
+     before the fix, the finding printed beside its own contradiction: `capture self-test: a refused
+     run neither moved its frames out of the stage nor destroyed them`. Fixed in this commit into
+     two arms that each mean what they say: `discarded` -> "destroyed the frames it measured
+     (discard_stage ran)", and `kept is None` -> the "neither moved" sentence, which now fires only
+     when both halves are true (verified on a second mutant that leaves the stage live: 7 of 76,
+     with this rule's line among them). Detection is not weaker for the change -- the
+     restore-disposal mutant is still 6 of 76, and the strong form of the live-queue property stays
+     where it always was, in `a_kept_frame_is_moved_out_of_the_publish_queue`, which reads
+     `_PENDING` and the stage directly.
+
+  Checkpoint for the correction: 8cb0d6d2be3365e570d29f803a9a3dad835a15ae. What it does not touch:
+  the behaviour, the six rules, or the counts -- two findings are in the record and one is in a
+  self-test sentence. The live refusal was re-run end to end against this branch before the pull
+  request (setup 0, driver 1, refusing `/` on casey's countdown, `runs/pages-refused/` left holding
+  six PNGs and `REFUSED.txt` while `runs/pages/` held the fixture's own files and no PNG), and the
+  five fitted frames came back byte-identical to the committed set: `users b1974aaa...`,
+  `profiles a2bede88...`, `profiles-refused 9a62a2cd...`, `audit fc37cd9a...`,
+  `settings c47e16d6...`.
