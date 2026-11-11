@@ -312,6 +312,23 @@ factory_age_human() { # seconds -> 4d2h | 15h57m | 3m12s | 42s | never
 	fi
 }
 
+# Longer than this between a pass's last line and its unit going inactive, and the teardown is a hold
+# rather than a reaping. Nothing legitimate runs in that window: the shipped unit has no `ExecStop=`,
+# so the only thing systemd can be waiting for is a descendant that will not die. Measured on this box
+# 11 Nov: a `Type=oneshot` whose main process exits goes inactive 0.3 ms after it exits, while the same
+# unit carrying one `trap '' TERM` descendant sits in `stop-sigterm` for the whole stop deadline --
+# 60.194 s against `TimeoutStopSec=60`, 20.135 s against 20. Five seconds separates the two cases by
+# three orders of magnitude and a clean pass cannot reach it.
+FACTORY_REAP_NOTICE_SECS=${FACTORY_REAP_NOTICE_SECS:-5}
+
+# How many of the unit's journal lines the teardown read looks back over. The tail has to reach past
+# everything the newest activation has written in order to get at the previous activation's terminal
+# line: systemd spends two lines on an activation that reaps cleanly and eleven on one that escalates
+# (it names every process it SIGKILLs), and a pass writes its own progress as it goes -- a few dozen
+# lines, because a tick's chattiness goes to its own log file. 400 is several passes deep. A window
+# too small to find a terminal line is reported as unknown, never as a clean read.
+FACTORY_REAP_TAIL=${FACTORY_REAP_TAIL:-400}
+
 # What systemd says it will do next, on one line. The journal alone is not enough, twice over: on 8
 # Nov a unit sat `deactivating` for 91 minutes while the timer printed `active` (#246), and after the
 # 6 Nov reboot the timer read `active` with `SubState=elapsed` and would not fire until something
@@ -326,6 +343,170 @@ factory_timer_state() {
 		printf '%s\n' "$out"
 	fi
 	return 0
+}
+
+
+# systemd's own lines about this unit, plus the unit's own lines, oldest first, newest `FACTORY_REAP_TAIL`
+# of them. Both are needed and neither alone is enough. The systemd lines are the only account of the
+# stop path -- `State 'stop-sigterm' timed out. Killing.` is the sentence that says the queue was held
+# open. The unit's own lines are the only record of when the pass's WORK stopped: systemd logs nothing
+# at all when an oneshot exits 0, and the 11 Nov incident at 00:56 was exactly that -- `END rc=0` at
+# 00:56:06Z, then a silent minute, then the escalation -- so a read filtered to systemd's identifier
+# alone reports that 60-second hold as 0s.
+factory_reap_lines() {
+	# shellcheck disable=SC2312  # the unit name is a lookup, and a failing lookup prints nothing here
+	journalctl --user --no-pager -u "$(factory_service_unit)" -t systemd -o short-iso -n "$FACTORY_REAP_TAIL" 2>/dev/null
+}
+
+
+# The live state of the unit, the way `factory_timer_state` gives the live state of the timer. This is
+# the half that can see a hold while it is happening -- `SubState=stop-sigterm` with `TasksCurrent=10`
+# and `MainPID=0` is the 8 Nov outage in three fields. It is an addition and never a requirement: the
+# bus may be unreachable, and on the times that matter a tick is not allowed to ask the manager at all.
+factory_unit_state() {
+	local out=""
+	out=$(systemctl --user show "$(factory_service_unit)" -p ActiveState -p SubState -p TasksCurrent -p Result 2>/dev/null |
+		sed -n 's/^[A-Za-z]*=//p' | paste -sd' ' -) || out=""
+	printf '%s\n' "$out"
+	return 0
+}
+
+# Reads `factory_reap_lines` back and says what the last COMPLETED activation did -- completed, because
+# the newest block is usually the pass running right now, which has no verdict in it yet.
+#
+#   stdout  <hold>TAB<how>TAB<age>TAB<open>
+#             hold   seconds from the main process exiting to the unit going inactive, whole seconds
+#             how    clean | deadline (the stop deadline expired) | client (a hand-escalated SIGKILL)
+#                    | unexplained (it was held and nothing in the log says why)
+#             age    seconds since that teardown
+#             open   1 when a newer activation has started and not yet finished
+#   exit 1  no terminal line in the tail: nothing finished inside the window, or there is no journal.
+#           Unknown is its own answer (#228's polarity -- a read that failed is not the clean state).
+factory_reap_read() {
+	local -a msgs=() stamps=()
+	local line="" stamp="" msg=""
+	while IFS= read -r line || [ -n "$line" ]; do
+		[ -n "$line" ] || continue
+		stamp=${line%% *}
+		case $line in
+		(*"]: "*) msg=${line#*]: } ;;
+		(*) continue ;;
+		esac
+		msgs+=("$msg")
+		stamps+=("$stamp")
+	done
+# The pass's last words: the newest line written by a process of the unit at or before the moment its
+# activation ended. Read separately, and read short, because a bounded tail of the whole stream is not
+# bounded in TIME: a pass 25 minutes old had already written past any line-count window, so a fixed
+# `-n` would find the terminal line only on a machine where the last pass said nothing. `-n 25` reaches
+# back over the handful of systemd lines that sit between the last stdout line and the terminal one.
+factory_reap_lastword() { # <terminal stamp> -> the stamp of the newest process line at or before it
+	local until=$1 out=''
+	[ -n "$until" ] || return 1
+	out=$(journalctl --user --no-pager -u "$(factory_service_unit)" -o short-iso --until "$until" -n 25 2>/dev/null |
+		awk '
+			$0 !~ / systemd\([0-9]+\): / { last = $1 }
+			END { if (last != "") print last }
+		') || out=''
+	[ -n "$out" ] || return 1
+	printf '%s\n' "$out"
+}
+
+	local unit="" i=0 msg2="" hold=0 how='' sig='' work='' term='' open=0 t=0 w=0 now=0
+	unit=$(factory_service_unit)
+	for ((i = ${#msgs[@]}; i > 0; i--)); do
+		msg2=${msgs[i - 1]}
+		stamp=${stamps[i - 1]}
+		case $msg2 in
+		"Starting $unit"*)
+			if [ -n "$term" ]; then
+				break
+			fi
+			open=1
+			;;
+		"Main process exited, "* | "$unit: Main process exited, "*)
+			[ -n "$work" ] || work=$stamp
+			;;
+		(*"timed out. Killing."*)
+			sig=deadline
+			;;
+		(*"Failed with result 'timeout'."*)
+			[ -n "$sig" ] || sig=deadline
+			;;
+		(*"with SIGKILL on client request."*)
+			sig=client
+			;;
+		("Failed to start $unit "* | "Finished $unit "* | "Stopped $unit "* | *"Deactivated." | *"Deactivated after execution.")
+			[ -n "$term" ] || term=$stamp
+			;;
+		esac
+		# Anything the activation itself wrote, once the terminal line has been passed walking
+		# backwards, is the pass's last words: the newest one first, so the first one met wins. It
+		# predates the main process's actual exit by whatever the pass did without logging on its way
+		# out, which makes the hold an overestimate -- the conservative direction for an alarm. A line
+		# from the activation running right now is met before any terminal line, so it is not counted.
+	done
+	[ -n "$term" ] || return 1
+	t=$(date -u -d "$term" +%s 2>/dev/null) || return 1
+	if [ -z "$work" ]; then
+		work=$(factory_reap_lastword "$term") || work=$term
+	fi
+	w=$(date -u -d "$work" +%s 2>/dev/null) || w=$t
+	hold=$((t > w ? t - w : 0))
+	now=$(date -u +%s)
+	case $sig in
+	(deadline | client) how=$sig ;;
+	(*)
+		if [ "$hold" -gt "$FACTORY_REAP_NOTICE_SECS" ]; then
+			how=unexplained
+		else
+			how=clean
+		fi
+		;;
+	esac
+	printf '%s\t%s\t%s\t%s\n' "$hold" "$how" "$((now > t ? now - t : 0))" "$open"
+}
+
+# The `reaping:` line of `factory.sh --status`, in one sentence: what the last pass cost the queue to
+# tear down, and what the unit is doing right now. Both halves are needed and neither is enough. The
+# journal half is the only thing that survives a fast hold -- 60 s between activations that are 10
+# minutes apart is a window a person almost never lands in, and on 8 Nov the whole 1 h 07 min freeze
+# was visible only as a substate nobody had open. The live half is the only thing that sees a hold in
+# progress, and it degrades to nothing when the bus is unreachable, which is when the journal half is
+# read anyway.
+factory_reap_line() {
+	local raw='' hold='' how='' age='' open='' live=''
+	raw=$(factory_reap_lines | factory_reap_read) || raw=''
+	live=$(factory_unit_state)
+	if [ -z "$raw" ]; then
+		printf 'unknown -- journalctl --user has no finished activation for %s to read%s\n' \
+			"$(factory_service_unit)" "${live:+; manager says: $live}"
+		return 0
+	fi
+	IFS=$'\t' read -r hold how age open <<EOF
+$raw
+EOF
+	case $how in
+	clean)
+		printf 'reaped in %s; the unit has been inactive for %s' \
+			"$(factory_age_human "$hold")" "$(factory_age_human "$age")"
+		;;
+	deadline)
+		printf 'HELD %s to the stop deadline -- a descendant of the pass ignored SIGTERM (systemd: "State '"'"'stop-sigterm'"'"' timed out. Killing."), and %s counts from the unit going INACTIVE, so the queue could not re-arm for all of it. Ended %s ago.' \
+			"$(factory_age_human "$hold")" "$FACTORY_TIMER_UNIT" "$(factory_age_human "$age")"
+		;;
+	client)
+		printf 'HELD %s, ended by a SIGKILL somebody asked for by hand -- nothing reaped it on its own, so the queue was frozen for all of it. Ended %s ago; `systemctl --user reset-failed %s` clears the failed reading.' \
+			"$(factory_age_human "$hold")" "$(factory_age_human "$age")" "$(factory_service_unit)"
+		;;
+	*)
+		printf 'HELD %s with nothing in the journal saying why. Ended %s ago.' \
+			"$(factory_age_human "$hold")" "$(factory_age_human "$age")"
+		;;
+	esac
+	[ "$open" = "1" ] && printf '; a pass is running now'
+	[ -n "$live" ] && printf ' | live: %s %s' "$(factory_service_unit)" "$live"
+	printf '\n'
 }
 
 # One verdict, so "is the factory alive?" is a command and not a diff between a journal timestamp and
