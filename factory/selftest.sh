@@ -4828,7 +4828,13 @@ claim_open() { # claim_open <json array of {number,title,body,claims,reviewDecis
 	# door that cannot be opened: the CHANGES_REQUESTED arm -- the one that decides between a tick,
 	# a wait and #242's new refusal -- is unreachable from a fixture that can only say "no decision".
 	# Defaulting it to "" inside jq keeps all eighteen existing callers answering what they answered.
-	jq -c '[.[] | {number, title, headRefName: "fix/planted", isDraft: false,
+	# `isDraft` and `headRefName` join `reviewDecision` as pass-throughs for the same reason and with the
+	# same safety: they used to be constants, and a constant is a door that cannot be opened. #291 needs
+	# a DRAFT pull request in this fixture -- an issue that only a draft names is the one suppression
+	# that can never resolve itself -- and a head branch of its own, because the sentence that names the
+	# suppression prints it. Defaults kept identical to the constants, so all the existing callers answer
+	# exactly what they answered.
+	jq -c '[.[] | {number, title, headRefName: (.headRefName // "fix/planted"), isDraft: (.isDraft // false),
 		reviewDecision: (.reviewDecision // ""), mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN",
 		updatedAt: "2026-11-08T05:00:00Z", headRefOid: "0000000", statusCheckRollup: []}]' \
 		"$claim_fix/open-claims.json" >"$claim_fix/pr-open.json"
@@ -5359,6 +5365,185 @@ CLAIM_MERGED_FAIL=1
 claim_rows >/dev/null
 CLAIM_MERGED_FAIL=
 claim_leg 'a merged read that fails notes nothing' claim_row_says_nothing_about 199 '[merged:PR#'
+claim_reset
+
+# ------------------------------------------------ the branch a delivered row names, and the draft (#291)
+#
+# Two halves, one measurement behind each.
+#
+# (1) A `delivered` row used to name the pull request and the instant and the phrase, and not the branch
+# -- although the payload has carried `headRefName` on this very read since #277. A branch is deleted
+# when its pull request merges, so the pass that reports delivery is the LAST moment the name exists:
+# #291 had to reconstruct `issue-249` from a commit id six hours after #252 merged, because six hours
+# earlier the row could have said it. The name must come out of the same row the claim came out of and
+# never be assembled from the issue number -- which is the shape this repository has already refused
+# twice (#254 merged on `issue-246` under `Part of #246` with #246 unfinished; #253's third instruction
+# was reported delivered by #255 and was not on `main`). So the discriminating plant is a merged pull
+# request whose head branch is NOT `issue-<n>`: `fix/weird-branch` naming #212. On that row the shipped
+# code prints the branch it read, and a copy that builds the name from the number prints `issue-212`,
+# which is a sentence about a branch that does not exist. The control runs exactly that copy.
+#
+# (2) An issue any open pull request names gets no row at all (triage.sh:682). While that pull request
+# can still merge, the silence ends when it does. A DRAFT never merges, so the silence has no end:
+# measured on the live queue at 13:36Z on 11 Nov, #241, #284 and #222 have no row of any class and the
+# only thing naming them is draft #285 (`backup-tip`, title ending `reference only, do not merge`) or
+# draft #233 -- #241's own fix having merged as #282 at 11:01:37Z that morning, so nobody will be told
+# about that ticket again. The fix is a sentence, not a class, for the two reasons #277 measured: a
+# class that starts a tick re-implements the draft, and a class that starts no tick retires real work.
+# Whether #241 should be closed and #285 deleted are two judgement calls about somebody else's pull
+# request, and they are the operator's; the harness's failure was hiding the pair.
+#
+# The polarities are the point again: a draft is reported, a mergeable pull request is not, a draft
+# GitHub itself says closes the issue is work in flight and is not, and one real claim anywhere on the
+# issue is enough to leave the sentence unsaid. The control deletes the filter that makes those four
+# answers differ and demands the sentence fire on a pull request that can still deliver.
+
+claim_err_says_nothing() { # claim_err_says_nothing <needle> -- paired with a positive leg beside it
+	if grep -qF -- "$1" "$claim_err"; then
+		printf '            stderr said %s; it said:\n' "$1" >&2
+		sed 's/^/            /' "$claim_err" >&2
+		return 1
+	fi
+}
+# One exact-string edit of the shipped `triage.sh`, run as the classifier. This section's two controls
+# both change text inside a jq program, where `claim_mutate_triage`'s `sed "s/$anchor/$repl/"` would
+# read `\(` as a group -- and that helper is defined below this point besides, so bash has not met it
+# yet when these legs run. Exact strings, one occurrence or a refusal, and the same two refusals the
+# helper makes: no change at all, and a copy that does not parse.
+claim_mutate_text() { # claim_mutate_text <dest> <exact old> <new>
+	local dest=$work/$1/triage.sh old=$2 new=$3
+	mkdir -p "$work/$1" || return 1
+	cp "$HERE/common.sh" "$work/$1/common.sh" || return 1
+	python3 - "$HERE/triage.sh" "$dest" "$old" "$new" <<'PY' || return 1
+import io
+import sys
+
+src, dst, old, new = sys.argv[1:5]
+text = io.open(src, encoding="utf-8").read()
+if text.count(old) != 1:
+    sys.exit("the text to replace occurs %d time(s) in factory/triage.sh, so the mutant\n"
+             "would not land where it is described:\n  %s" % (text.count(old), old))
+io.open(dst, "w", encoding="utf-8").write(text.replace(old, new, 1))
+PY
+	if ! bash -n "$dest"; then
+		printf '            the mutant does not even parse\n' >&2
+		return 1
+	fi
+	chmod +x "$dest"
+	claim_script=$dest
+	claim_rows >/dev/null
+	claim_script=''
+	# A mutant whose jq died is not a mutant that changed its verdict. The shape checks in `triage.sh`
+	# are good enough that a broken program still prints a table, so the only sign is the diagnostic --
+	# and a leg that goes on to assert "the bug came back" against a run that computed nothing would
+	# report a reproduction it never saw. H-0131's controls failed this exact way, on `common.sh`.
+	if grep -qF 'jq: error' "$claim_err"; then
+		printf '            the mutant died rather than changed its verdict:\n' >&2
+		tr '\n' '|' <"$claim_err" | sed 's/^/            /' >&2
+		printf '\n' >&2
+		return 1
+	fi
+}
+
+claim_rows >/dev/null
+claim_leg 'the delivered row names the branch that carried it' claim_detail_has 232 'on `issue-232`'
+
+# A head branch that is not the issue's own name, so a name built from the number cannot pass for it.
+claim_merged '. + [{number: 258, baseRefName: "main", headRefName: "fix/weird-branch",
+	mergedAt: "2026-11-09T00:00:00Z", body: "fix(capture): the rig names the rev its frames came from\n\nRefs #212.\n"}]'
+claim_rows >/dev/null
+claim_leg '…and it is the branch the payload named' claim_detail_has 212 'on `fix/weird-branch`'
+claim_leg '…not the one the issue number would suggest' claim_row_says_nothing_about 212 'issue-212'
+
+claim_branch_from_number() { # the mutant: the branch assembled from the number, as `#291` forbids
+	claim_mutate_text delivmut \
+		'else " on `\($c.branch)`" end)
+		    + " at \($c.at) says' \
+		'else " on `issue-\($c.issue)`" end)
+		    + " at \($c.at) says'
+}
+if claim_branch_from_number; then
+	if claim_detail_has 212 'on `issue-212`'; then
+		printf '        control: the same fixture through a copy that builds the branch name from the\n'
+		printf '        issue number prints `issue-212` for a pull request that sat on\n'
+		printf '        `fix/weird-branch` -- so the ok above is the row quoting the payload, and not\n'
+		printf '        a name that happens to agree with it.\n'
+		claim_rows >/dev/null
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a branch name built from the number printed the same thing the\n' "control: triage read"
+		printf '          shipped code prints, so the ok above proves nothing about where the\n'
+		printf '          name came from. The mutant answered: %s\n' "$(row_for 212)"
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the mutant refused to build, so nothing was compared\n' "control: triage plant"
+fi
+claim_reset
+
+# A merged row whose head branch GitHub no longer names at all: the row keeps its verdict and keeps
+# quiet about a branch, rather than printing a name nobody read.
+claim_merged '. + [{number: 259, baseRefName: "main", headRefName: null,
+	mergedAt: "2026-11-09T00:00:00Z", body: "feat: packages\n\nCloses #149.\n"}]'
+claim_rows >/dev/null
+claim_leg 'a merged row with no head branch says nothing about one' claim_row_says_nothing_about 149 'on `'
+claim_leg '…and it is still delivered' claim_class_is 149 delivered
+claim_reset
+
+# The draft, exactly as the live one is shaped: not a draft of a work in progress, but a tombstone that
+# says do not merge in its title, on a `backup/`-shaped branch, naming the issue with `Refs`.
+claim_open '[{"number":260,"title":"do not merge: the record of a drop","body":"Refs #212.\n","claims":[],
+	"isDraft":true,"headRefName":"backup-tip"}]'
+claim_rows >/dev/null
+claim_leg 'an issue only a draft names is named on stderr' claim_err_has '#212 (named only by #260 on `backup-tip`)'
+claim_leg '…and it still gets no row, because a row is an offer' claim_no_row 212
+claim_reset
+
+# The same pull request one click from ready is a different fact, and the sentence has to know that.
+claim_open '[{"number":260,"title":"the record of a drop, marked ready","body":"Refs #212.\n","claims":[],
+	"isDraft":false,"headRefName":"issue-212"}]'
+claim_rows >/dev/null
+claim_leg 'a pull request that can still deliver is not named' claim_err_says_nothing 'named only by'
+claim_leg '…and its issue is still the one row that is missing' claim_no_row 212
+
+# GitHub's own `closingIssuesReferences` is the other way a draft is work in progress rather than a
+# tombstone: the pull request is a draft today and the link says what it will close.
+claim_open '[{"number":260,"title":"work in progress on the capture rig","body":"Refs #212.\n","claims":[212],
+	"isDraft":true,"headRefName":"issue-212"}]'
+claim_rows >/dev/null
+claim_leg 'a draft GitHub says closes the issue is in flight' claim_err_says_nothing 'named only by'
+
+# One real claim anywhere outranks the tombstone, even beside one.
+claim_open '[{"number":260,"title":"do not merge: the record of a drop","body":"Refs #212.\n","claims":[],
+		"isDraft":true,"headRefName":"backup-tip"},
+	{"number":261,"title":"the capture rig, again","body":"Fixes #212.\n","claims":[],
+		"isDraft":false,"headRefName":"issue-212"}]'
+claim_rows >/dev/null
+claim_leg 'one claim from a pull request that can merge is enough' claim_err_says_nothing 'named only by'
+claim_leg '…while the issue stays off the table either way' claim_no_row 212
+
+claim_draft_filter_off() { # the mutant: every claim counts as draft-hidden
+	claim_mutate_text draftmut \
+		'| [ $rows[] | select(.draft) | .issue as $i | select(($live | index($i)) | not) ]' \
+		'| [ $rows[] ]'
+}
+# The plant still in the fixture is the pair above: the issue is named by a draft AND by a mergeable
+# pull request, which is the case the shipped code stays silent about.
+if claim_draft_filter_off; then
+	if claim_err_has 'named only by'; then
+		printf '        control: the same fixture, with the filter that separates a draft from a\n'
+		printf '        mergeable pull request deleted, names an issue a real pull request is still\n'
+		printf '        about to deliver -- so the ok above is the filter deciding, not the sentence\n'
+		printf '        never being reached.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s deleting the draft filter changed nothing, so the ok above is\n' "control: triage read"
+		printf '          the sentence being unreachable for a reason of its own.\n'
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the mutant refused to build, so nothing was compared\n' "control: triage plant"
+fi
 claim_reset
 
 # The other half of the change: `factory.sh`'s `unclaimed` arm turns the marker into the instruction
@@ -6426,6 +6611,271 @@ triage_arm_coverage() {
 }
 triage_arm_coverage
 claim_reset
+
+# --------------------------------------------- the branch scan (#291): content, not commits
+#
+# `branch_without_pr` is the one class the queue invents out of a local ref, and until #291 it was
+# bought with a commit COUNT. `rev-list --count` cannot tell 400 changed lines from an empty commit,
+# and Step 3 of the factory skill makes every tick take a `git commit --allow-empty` rollback target
+# BEFORE the judgement call it may never reach. A tick killed by the wall-clock ceiling between the
+# checkpoint and its effect commit therefore leaves a branch ahead of `main` whose whole delta is
+# zero bytes, and `factory.sh:675` tells the next tick "The work is already written" about it. That
+# is not a hypothetical: measured 11 Nov, `issue-249` was one such commit ahead -- `git show
+# --numstat` printed no file list and `git diff --stat c98f75f f64ddcd` printed nothing -- and a model
+# was dispatched at it.
+#
+# The fixture is a real repository rather than a planted table because the verdict is a git question.
+# Every branch below is genuinely cut, committed, merged or orphaned, and the classifier answers from
+# `merge-base` and `diff --name-only` exactly as it does against this machine's own refs -- which is
+# how these legs would catch a merge-base mistake (asking `main..branch` instead, say) rather than
+# only a missing `if`.
+#
+# The two polarities are the argument, exactly as #284 measured them for the sibling arm. A queue
+# that stops reporting empty branches must keep reporting full ones: "skip branches with no content"
+# degrades into "skip branches" by changing one character, and a fixture that can only plant an empty
+# branch cannot tell those two apart. So `br-work` and `br-delete` exist to be KEPT, `br-empty` and
+# `br-merge-empty` exist to be DROPPED, and `br-nobase` exists to prove that a read which failed is
+# not a verdict. The three control legs below each apply one `sed` to the shipped file and demand that
+# the named bug come back; a control that cannot bring it back is the check being blind, and it fails
+# the run.
+branch_work=$work/branches
+branch_bin=$branch_work/bin
+branch_fix=$branch_work/fixture
+branch_repo=$branch_work/repo
+branch_dir=$branch_work/harness
+branch_err=$branch_work/stderr
+branch_rows_file=$branch_work/rows
+branch_script=''
+mkdir -p "$branch_bin" "$branch_fix" "$branch_dir"
+
+# The claim fixture's `gh`, copied rather than shared: these legs answer the same reads with their own
+# payloads, and a leg that edited a payload both sections read would move the other section's verdicts.
+# Copied rather than rewritten, so the refusals are the shipped ones -- no write can reach a real
+# queue from here, and no unhandled read can answer `[]` and pass for an empty queue.
+cp "$claim_bin/gh" "$branch_bin/gh"
+cp "$claim_bin/opencode" "$branch_bin/opencode"
+install_gh_fields "$branch_fix"
+printf '[]' >"$branch_fix/issues.json"
+printf '[]' >"$branch_fix/pr-open.json"
+printf '[]' >"$branch_fix/pr-bodies.json"
+printf '[]' >"$branch_fix/reviews.json"
+printf '%s' '{"users":[],"teams":[]}' >"$branch_fix/reviewers.json"
+printf '%s' '{"login":"someone-else"}' >"$branch_fix/user.json"
+printf '%s' '{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false},
+	"nodes":[]},"issues":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}' |
+	jq -c . >"$branch_fix/graphql.json"
+# No merged pull request in the window, so every branch below is judged on its content alone and a
+# `delivered` row here can only have come from the branch half of the scan.
+printf '[]' >"$branch_fix/pr-merged.json"
+cp "$branch_fix/pr-merged.json" "$branch_work/pr-merged.live.json"
+
+git init -q -b main "$branch_repo"
+git -C "$branch_repo" config user.email fixture@invalid
+git -C "$branch_repo" config user.name fixture
+git -C "$branch_repo" config commit.gpgsign false
+printf 'trunk\n' >"$branch_repo/trunk.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'fixture: the trunk'
+# `origin/main` as a ref, not a remote: the scan asks `rev-parse origin/main` and then reads refs, and
+# nothing here is going to push. A bare `git remote add` would only invite the fixture to reach the
+# network.
+git -C "$branch_repo" update-ref refs/remotes/origin/main refs/heads/main
+
+# br-work -- one file, one commit. The row these legs exist to keep.
+git -C "$branch_repo" checkout -qb br-work main
+printf 'work\n' >"$branch_repo/work.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'fixture: one file of work'
+
+# br-delete -- a deletion is content. A verdict counting added bytes would call this branch empty and
+# lose a person's work exactly the way it loses an empty checkpoint.
+git -C "$branch_repo" checkout -qb br-delete main
+git -C "$branch_repo" rm -q trunk.txt
+git -C "$branch_repo" commit -qm 'fixture: one file removed'
+
+# br-empty -- the dead tick: `--allow-empty`, the shape of `f64ddcd` down to the message.
+git -C "$branch_repo" checkout -qb br-empty main
+git -C "$branch_repo" commit -q --allow-empty -m 'chore(checkpoint): pre-H-0000 nothing follows it'
+
+# br-merge-empty -- that same checkpoint after the trunk moved on and was merged in, which is what
+# `issue-249` had actually become by the time anybody read it: TWO commits ahead, still zero bytes. The
+# content question has to be asked from the MERGE BASE, or this branch is charged for the trunk's own
+# file and offered all the same -- so this branch is the leg that catches a `main..branch` diff.
+git -C "$branch_repo" checkout -q main
+printf 'trunk moves on\n' >>"$branch_repo/trunk.txt"
+git -C "$branch_repo" commit -qam 'fixture: the trunk moves on'
+git -C "$branch_repo" update-ref refs/remotes/origin/main refs/heads/main
+git -C "$branch_repo" checkout -qb br-merge-empty br-empty
+git -C "$branch_repo" merge -q --no-edit refs/remotes/origin/main
+
+# br-nobase -- a history with nothing in common with the trunk, so `merge-base` has no answer and the
+# content question cannot be asked at all. A failed read keeps the row and says it is unverified.
+git -C "$branch_repo" update-ref refs/heads/br-nobase \
+	"$(git -C "$branch_repo" commit-tree "$(git -C "$branch_repo" hash-object -t tree /dev/null)" \
+		-m 'fixture: an unrelated root commit')"
+git -C "$branch_repo" checkout -q main
+
+# The shipped classifier over the fixture repository, with the fixture `gh` first on PATH. The issue
+# and pull-request halves read empty lists, so every row these legs see is a branch row.
+branch_rows() {
+	: >"$branch_err"
+	PATH="$branch_bin:$PATH" \
+		FACTORY_DIR="$branch_dir" FACTORY_ROOT="$branch_repo" \
+		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
+		FACTORY_OPENCODE=opencode \
+		FACTORY_LOG="$branch_dir/log" FACTORY_LEDGER="$branch_dir/ledger" FACTORY_RUN="$branch_dir/run" \
+		FACTORY_DELIVERED_WINDOW=100 CLAIM_FIXTURE="$branch_fix" \
+		"${branch_script:-$HERE/triage.sh}" 2>"$branch_err" |
+		tr '\037' '\t' >"$branch_rows_file" || true
+	if [ -n "${BRANCH_DEBUG:-}" ]; then
+		printf 'BRANCH DEBUG triage stderr:\n' >&2
+		sed 's/^/    /' "$branch_err" >&2
+		printf 'BRANCH DEBUG rows:\n' >&2
+		sed 's/^/    /' "$branch_rows_file" >&2
+	fi
+	cat "$branch_rows_file"
+}
+
+branch_row_for() { awk -F'\t' -v k="$1" '$1 == "branch" && $2 == k { print; exit }' "$branch_rows_file"; }
+branch_rows_printed() { awk -F'\t' '$1 == "branch" { printf "            %s %s %s\n", $2, $3, $4 }' "$branch_rows_file" >&2; }
+branch_class_is() { # branch_class_is <branch> <class>
+	local row got
+	row=$(branch_row_for "$1")
+	[ -n "$row" ] || {
+		printf '            no branch row for %s; the pass printed:\n' "$1" >&2
+		branch_rows_printed
+		return 1
+	}
+	got=$(printf '%s' "$row" | cut -f3)
+	[ "$got" = "$2" ] || {
+		printf '            %s answers %s, not %s: %s\n' "$1" "$got" "$2" "$(printf '%s' "$row" | cut -f4)" >&2
+		return 1
+	}
+}
+branch_no_row() { # branch_no_row <branch>
+	local row
+	row=$(branch_row_for "$1")
+	[ -z "$row" ] || {
+		printf '            %s printed a row the queue would dispatch at nothing: %s\n' "$1" "$row" >&2
+		return 1
+	}
+}
+branch_detail_has() { # branch_detail_has <branch> <needle>
+	local d
+	d=$(branch_row_for "$1" | cut -f4)
+	case "$d" in
+	*"$2"*) return 0 ;;
+	*)
+		printf '            %s detail is %s, which does not carry %s\n' "$1" "$d" "$2" >&2
+		return 1
+		;;
+	esac
+}
+branch_err_has() { # branch_err_has <needle> -- the tally sentences, which are not rows
+	if ! grep -qF -- "$1" "$branch_err"; then
+		printf '            stderr never said %s; it said:\n' "$1" >&2
+		sed 's/^/            /' "$branch_err" >&2
+		return 1
+	fi
+}
+branch_rows_are() { # branch_rows_are <n> -- the whole branch half, so a stray row cannot hide
+	local n
+	n=$(awk -F'\t' '$1 == "branch"' "$branch_rows_file" | wc -l | tr -d '[:space:]')
+	[ "$n" = "$1" ] || {
+		printf '            %s branch rows, not %s:\n' "$n" "$1" >&2
+		branch_rows_printed
+		return 1
+	}
+}
+
+branch_rows >/dev/null
+claim_leg 'a branch with one file keeps its row' branch_class_is br-work branch_without_pr
+claim_leg '…and the detail counts files, not commits' branch_detail_has br-work '1 file(s) across 1 commit(s)'
+claim_leg 'a deletion is content' branch_class_is br-delete branch_without_pr
+claim_leg '…counted as one file, not zero' branch_detail_has br-delete '1 file(s) across 1 commit(s)'
+claim_leg 'a zero-byte checkpoint gets no row' branch_no_row br-empty
+claim_leg '…nor the one that merged the trunk in' branch_no_row br-merge-empty
+claim_leg '…and only what has content prints' branch_rows_are 3
+claim_leg 'the skip is said out loud, not silently' branch_err_has 'hold no content the trunk lacks'
+claim_leg '…naming both branches it dropped' branch_err_has 'br-empty br-merge-empty'
+claim_leg 'an unrelated history is still offered' branch_class_is br-nobase branch_without_pr
+claim_leg '…marked as content not compared' branch_detail_has br-nobase 'content not comparable to main'
+claim_leg '…and the failed read is reported' branch_err_has 'no merge base with main'
+
+# One `sed` on the shipped file, run through the same runner. A mutation that changes no byte is
+# refused: it would report the bug as reproduced without having reproduced anything.
+#
+# Two ways this fixture died the first time it ran, and both are staged against here rather than
+# discovered again by the next person. `triage.sh:51` sources `common.sh` from its OWN directory, so
+# a copy anywhere else exits before printing a row; and the runner execs the file directly, so without
+# the bit nothing runs at all. Either one leaves `$branch_rows_file` empty, and an empty rows file
+# makes "this branch got no row" TRUE for every branch in the fixture -- so a control asserting the
+# bug came back would have said the bug came back. Hence the floor below: a mutant that prints no
+# branch row at all is reported as dead, never as guilty.
+branch_mutant_dir=$work/branch-mut/factory
+mkdir -p "$branch_mutant_dir"
+cp "$HERE/common.sh" "$branch_mutant_dir/common.sh"
+branch_mutate() { # branch_mutate <sed-expr>
+	local expr=$1
+	sed "$expr" "$HERE/triage.sh" >"$branch_mutant_dir/triage.sh" || return 1
+	if cmp -s "$HERE/triage.sh" "$branch_mutant_dir/triage.sh"; then
+		printf '            the mutation changed no byte of triage.sh, so it proves nothing\n' >&2
+		return 1
+	fi
+	if ! bash -n "$branch_mutant_dir/triage.sh"; then
+		printf '            the mutation does not even parse\n' >&2
+		return 1
+	fi
+	chmod +x "$branch_mutant_dir/triage.sh"
+	branch_script=$branch_mutant_dir/triage.sh
+	branch_rows >/dev/null
+	branch_script=''
+	if ! awk -F'\t' '$1 == "branch" { found = 1 } END { exit !found }' "$branch_rows_file"; then
+		printf '            the mutant printed no branch row at all, so it DIED rather than changed\n' >&2
+		printf '            its verdict -- every "no row" assertion below would read as a pass. It\n' >&2
+		printf '            said:\n' >&2
+		sed 's/^/            /' "$branch_err" >&2
+		return 1
+	fi
+}
+# Control 1: the content test gone. `issue-249` has to come back, or legs 5-9 are guarding a rule
+# that was never there. Both empty branches are asserted: one is what the dead tick leaves, the other
+# is what that same tick looks like after the trunk moved and somebody merged it in.
+branch_control_empty_back() {
+	branch_mutate 's/\[ "\$comparable" = 1 \] && \[ -z "\$delta" \]/[ "$comparable" = 0 ] \&\& [ -z "$delta" ]/' ||
+		return 1
+	branch_class_is br-empty branch_without_pr && branch_class_is br-merge-empty branch_without_pr
+}
+claim_leg 'control: dropping the content test re-offers it' branch_control_empty_back
+# Control 2: the degradation #284 names -- one character turns "skip empty branches" into "skip
+# branches". `br-work` has to go AND `br-nobase` has to stay, or this control cannot tell "the rule
+# skips everything" from "the fixture is broken", which is the distinction the whole leg exists for.
+branch_control_skip_all() {
+	branch_mutate 's/if \[ "\$comparable" = 1 \] && \[ -z "\$delta" \]; then/if [ "$comparable" = 1 ]; then/' ||
+		return 1
+	branch_no_row br-work && branch_class_is br-nobase branch_without_pr
+}
+claim_leg 'control: skipping on content skips everything' branch_control_skip_all
+# Control 3: the unjudgeable arm. A `comparable` that is never 1 has to show up in the row as
+# unverified rather than as a byte count this pass did not measure -- and `br-nobase`, which is the
+# branch that arm is FOR, has to keep its row.
+branch_control_all_unjudged() {
+	branch_mutate 's/^\t\tcomparable=1$/\t\tcomparable=0/' || return 1
+	branch_detail_has br-work 'content not comparable to main' &&
+		branch_detail_has br-nobase 'content not comparable to main'
+}
+claim_leg 'control: an unjudgeable read says so' branch_control_all_unjudged
+# Control 4: the merge base, which is the half of this fix that looks like a detail. Ask the content
+# question of `main`'s TIP instead and a zero-byte branch is charged for the trunk's own work: measured
+# on the live `issue-249` on 11 Nov, 0 files from the merge base (`c98f75f`, PR #252's head) against 21
+# files from the tip -- 187 commits of other people's work sitting between the two. `br-empty` is that
+# case: the trunk moved on after it was cut and it never merged the trunk in, so a tip-diff would find
+# `trunk.txt` "missing" and offer it as content.
+branch_control_tip_not_base() {
+	branch_mutate 's/--name-only "\$merge_base" "\$sha"/--name-only "$main_sha" "$sha"/' || return 1
+	branch_class_is br-empty branch_without_pr && branch_detail_has br-empty '1 file(s)'
+}
+claim_leg 'control: asked of the tip, the empty branch is back' branch_control_tip_not_base
 
 # --------------------------------------------------------------- who the review poke asks (#241)
 #

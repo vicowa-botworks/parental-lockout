@@ -57,8 +57,8 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
-| `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected | nothing: the supervisor logs it, and closes nothing |
-| `branch_without_pr` | commits ahead of `main`, no open pull request | a tick, to adopt or refuse the stranded work |
+| `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. The row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
+| `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
 
 `delivered` is the fourth class the queue could not see, and it was measured twice in one day before
@@ -163,6 +163,112 @@ asked" from "asked and answered" -- measured, four pull requests had an empty li
 `/pulls/N/requested_reviewers`, three days after opening, with every check green. `branch_without_pr`
 exists because a branch with commits and no pull request is invisible to every queue that reads
 issues and pull requests; the first run of this script found five, one of them seven commits deep.
+
+### What a branch has to hold to be offered (#291)
+
+Commits are not content. `rev-list --count` moves by one when `git commit --allow-empty` moves the
+tree by nothing, and Step 3 of `.opencode/skills/factory/SKILL.md` makes every tick take exactly such a
+commit -- the `chore(checkpoint): pre-H-…` rollback target -- *before* the judgement call it may never
+reach. A tick killed by the wall-clock ceiling between the checkpoint and its effect commit therefore
+leaves a ref ahead of `main` whose whole delta is zero bytes, and the arm at `factory.sh:675` announces
+"The work is already written" and spends a model on it. Measured 11 Nov on `issue-249`, one commit
+ahead: `git show --numstat` printed no file list and `git diff --stat c98f75f f64ddcd` printed nothing.
+
+So the row is bought with a content question: `git merge-base origin/main <branch>`, then `git diff
+--name-only <base> <branch>`, and a branch that changes no file is not offered. Three things are the
+rule rather than the one-liner, and each has legs in `factory/selftest.sh`:
+
+* **From the merge base, not from `main`'s tip.** The branch above had also merged the trunk in, and
+  between its merge base (`c98f75f`, the head of the pull request that had already delivered it) and
+  `main`'s tip sat 187 more commits. Ask the same question of the tip and that zero-byte branch reads
+  as **21 changed files** -- other people's work, billed to it. Measured, not reasoned: 0 files from
+  the base, 21 from the tip, at `origin/main` `a0c7fce`. Control 4 in the fixture asks it the wrong way
+  and demands the branch come back.
+* **A deletion is content.** `--name-only` lists removals, so a branch whose only act is deleting a
+  file keeps its row. A verdict that counted added bytes would lose a person's work exactly the way the
+  count lost a checkpoint's.
+* **A read that failed is not a verdict.** No merge base -- unrelated history, or a git that refused the
+  diff -- keeps the row, with `content not comparable to main` printed in its place and a warning naming
+  the branch. Ambiguity about a missing input goes toward looking at the work, the same direction
+  #873 takes for the config decoder.
+
+What is dropped is said out loud every pass that still sees it -- `triage: 2 branch(es) ahead of main
+hold no content the trunk lacks, so none is offered: br-empty br-merge-empty` -- on stderr rather than
+as a row, because a row is an offer and there is nothing to offer, and because a class that quietly
+stops printing rows is the failure `factory.sh` calls "a queue nobody can audit". The dangerous edit here
+is one character: "skip branches with no content" becomes "skip branches" and every real stranded branch
+leaves the queue with the fake ones. That is why the fixture plants `br-work` and `br-delete` beside
+`br-empty` and demands they stay, and why a control deletes the content test and demands the empty
+branch returns.
+
+The detail reports what was measured now -- `14 file(s) across 3 commit(s) ahead of main, no open PR
+(local only)` -- because "2 commit(s) ahead" was a number that could be true about nothing. Running this
+against GitHub and this machine's refs at 13:21Z on 11 Nov moved no row: all eight `branch_without_pr`
+rows carry content (58, 15, 14, 6, 4, 4, 2 and 1 files) and none was empty. The live instance of the
+defect, `issue-249`, had acquired a real commit of its own -- H-0130's -- two hours before this was
+written. The fix is for the next one.
+
+### When the issue half knows a pull request exists (#291)
+
+Two ways the issue half reads a pull request and says nothing about it, both found while working the
+branch scan above, and both fixed by saying more rather than by moving a class.
+
+**`delivered` names the branch.** The row used to give the pull request, the instant and the phrase,
+although the same read has carried `headRefName` since #277. A branch is deleted when its pull request
+merges, so the pass that reports delivery is the last moment the name exists: `issue-249`'s tip was
+unreachable six hours after #252 merged, and #291 had to be written from a commit id. The row now reads
+`merged PR #280 on \`issue-279\` at 2026-11-11T02:05:20Z says \`Refs #279\``, and the name comes out of
+the same row the claim came out of -- never assembled from the issue number, which is the inference this
+repository has been burnt by twice (#254 merged on `issue-246` under `Part of #246` with #246 unfinished;
+#253's third instruction was reported delivered by #255 and was not on `main`). The legs plant a merged
+pull request sitting on `fix/weird-branch` claiming #212, demand that name in the row, and run a control
+copy that builds the name from the number: it prints `issue-212`, and the leg fails on it. A merged row
+whose head branch GitHub no longer names says nothing about a branch and keeps its `delivered`.
+
+**An issue only a draft names is named out loud.** Any open pull request whose body claims an issue
+takes that issue out of the table entirely (`triage.sh`'s `claimed_issues`, by design: the open channel
+outranks a merged claim, #216's stacked chain). While the pull request can still merge, the silence ends
+when it does. A **draft** never merges, so the silence has no end. Measured on the live queue at 13:36Z
+on 11 Nov, three open issues have no row of any class and nothing to look forward to:
+
+| issue | the only thing naming it | what that pull request says about itself |
+|---|---|---|
+| #241 | draft #285 on `backup-tip`, `Refs #241` | title: `wip(factory): the pre-rebase copy of what #282 delivers -- reference only, do not merge` |
+| #284 | draft #285 on `backup-tip`, `fix in #284` | the same |
+| #222 | draft #233 on `wip/issue-220-refused-frames`, `Refs #222` | title: `wip(capture): the preserved refused-run implementation of #220 -- reference only` |
+
+The first row is the one that settles it. **#241's fix merged as PR #282 at 11:01:37Z on 11 Nov**, two
+hours before the pass above, on branch `issue-241` into `main`, under a body carrying exactly one claim --
+`Refs #241.` -- with the issue silent since 02:22:33Z that morning and never closed, which is every input
+the delivered scan asks for. So what the draft is suppressing is not a bare `unclaimed` row that might
+have been worked, it is the delivered verdict the scan already computed. #285 is the pre-rebase copy of
+the very work that closed the ticket, and its existence in the queue is what hides that the ticket closed.
+Reading that silence as "nothing to do" is the #235 failure arriving by a new route. The pass now says this, on
+stderr, every pass it is true -- the measured output, 13:36Z on 11 Nov:
+
+```
+triage: 3 open issue(s) get no row of any class because the only pull requests naming them are drafts: #284 (named only by #285 on `backup-tip`) #241 (named only by #285 on `backup-tip`) #222 (named only by #233 on `wip/issue-220-refused-frames`) -- a draft never merges, so neither scan reports these again
+```
+
+It is a sentence and not a class, for the two prices #277 measured: a class that starts a tick at an
+issue whose work is sitting in a draft re-implements the draft, and a class that starts no tick retires
+real work. Whether #241 should be closed and #285 deleted are judgements about somebody else's in-flight
+pull request, and they are the operator's -- the harness's failure was hiding the pair, not failing to
+resolve it. Four answers are "nothing said", and each is a different reason: the pull request is not a
+draft (it can still deliver); GitHub's own `closingIssuesReferences` links it (a draft today, work in
+progress); a non-draft pull request names the same issue anywhere (one real claim outranks a tombstone);
+or the issue was never named at all. A control deletes the filter that separates a draft from a
+mergeable pull request and demands the sentence fire on the one that can still deliver, so the four
+`ok` lines above are that filter deciding.
+
+Two claims in #291 that this section does *not* implement, because both measured false. It asked for
+`headRefName` to be added to the merged read -- it has been in that field list since #277
+(`triage.sh:492` at `a0c7fce`). And its live instance, "PR #280 is open right now and `triage.sh` cannot
+know it, so #279 reads `unclaimed`", describes the state before 02:05:20Z on 11 Nov: #280 merged then,
+its branch was deleted, and #279 now reads `delivered`, named by exactly the read the ticket said could
+not see it. What was left standing is the half about not silently omitting a pull request, and it turned
+out to point the other way -- the omission was never the merged scan missing an open pull request, it was
+the open scan swallowing an issue a draft had claimed.
 
 **Who the `needs_reviewer` row asks.** The poke addresses a TEAM (`FACTORY_REVIEWER_TEAM`, a team
 slug), because a request is a question to whoever can answer it and a team request notifies every
