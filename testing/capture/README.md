@@ -191,9 +191,48 @@ so in the same breath as the count — because a PNG with no sentence under it i
 says a frame is not, and these frames state less than most: the reason they exist is that the state
 was *not* the declared one. `runs/` is gitignored, so they cannot reach a commit by accident.
 
-`lock.py` and `testlock.py` still discard their stage. Their refusal is one page and one frame, so
-the loss above is a single picture rather than five sentences about pictures, and neither driver
-has the per-page loop that made `pages.py`'s case. Wiring them is open work, not an oversight.
+The two POST drivers keep the same way now (#296). They did not: every guard ran, the one frame this
+run measured was staged, the refusal printed, and the bytes were deleted on the way out -- while the
+only file the refusal named was **the previous run's** `lock.png` sitting at `--out`, with the mtime
+that says it is stale. So the two drivers whose artifact is a single page, and the two that post a
+real state change, were the two where a refusal left a sentence pointing at a file this run did not
+write and no picture of the page that refused. Measured 11 Nov on this branch by declaring one
+session in `fixture.env` on a machine whose census is two -- `lock.py`, exit 1, `--out` still
+`df499589…` afterwards:
+
+```
+REFUSED: the lock result page: the page renders 2 lockable session row(s) and the fixture declared 1. …
+  a previous lock.png is still at …/runs/lock/lock.png -- mtime 2026-11-11T16:23:35Z, 132550 bytes -- and it is NOT from this run. Do not quote it as current.
+  lock-refused/ cleared 1 file(s) from an earlier refusal; everything in it now came from this run
+  what the page actually renders is at …/runs/lock-refused/lock@360.png -- this run refused to publish it, so it is not evidence; read it with REFUSED.txt beside it
+  1 frame(s) this run kept are in …/runs/lock-refused, with REFUSED.txt beside them; nothing was written to …/runs/lock, and none of these frames is evidence
+```
+
+Four things about that are deliberate:
+
+* **The frame is taken while the browser is still open.** The keeping happens inside
+  `with cdp.Capture(...)`, because a torn-down CDP session answers nothing, and a keep after
+  teardown is the same defect in new clothes: no frame, plus a note describing a page nobody looked
+  at. `--self-test`'s fake browser now closes its session on `__exit__` the way the real one does, so
+  moving the keeping back out is caught rather than admired in a comment.
+* **`lock@360.png`, not `lock.png`.** The name with no viewport on it is the artifact an operator
+  quotes, and the file standing under that name may belong to a previous run (#222).
+* **`--out` is never touched**, and the stale file standing there is named, with its mtime, instead
+  of deleted. Aim `--out` straight at `runs/lock-refused` and the keep *declines* -- the same guard
+  that stops `pages.py` writing into a publish directory -- destroys its own frame, says that it did,
+  and leaves the file it found there byte for byte.
+* **One drawer per fixture.** `lock-refused` and `testlock-refused` are separate for the reason
+  `pages` and `pages-noprof` are: two fixtures in one directory produce frames whose names look like
+  whoever wrote last.
+
+`--self-test` drives both drivers' `main()` with their capture stubbed to refuse, on both arms -- a
+guard refusing while the browser is up, and a fixture refusing before one exists -- and reads the
+result off the disk rather than from a stub: the drawer holds exactly `lock@360.png`, `REFUSED.txt`
+carries the refusal and names the fixture, the announced count agrees with the directory, the
+disposal ran exactly once (#149's dead-statement class, which is how these two turned out to have
+been discarding *nothing* at all), and nothing was destroyed. Of fifteen attacks on that contract,
+applied one at a time to copies of the tree, thirteen die; the two honest edits -- a reworded
+comment, a renamed local -- stay green.
 
 ## The negative control, and why a refusal nobody watched fire proves nothing
 

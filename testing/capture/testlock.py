@@ -77,152 +77,164 @@ ARTIFACT = "testlock"
 ALLOWED = {"lock.probed"}
 
 
-def capture(name):
-    with cdp.Capture(ARTIFACT) as cap:
-        s = cap.session
-        target = cap.env["PLOCK_CAPTURE_TARGET"]
-        trail = op.join(cap.dir, "audit.jsonl")
-        first_new = len(cdp.audit_lines(trail))
+def capture(cap, name):
+    s = cap.session
+    target = cap.env["PLOCK_CAPTURE_TARGET"]
+    trail = op.join(cap.dir, "audit.jsonl")
+    first_new = len(cdp.audit_lines(trail))
 
-        # The dashboard, and the button the operator actually has.
-        s.goto(cap.base + "/")
-        if s.where() != "/":
-            raise SystemExit(f"the dashboard answered {s.where()} instead; nothing was measured")
-        s.settle()
-        form = s.json(f"""
-            (() => {{
-              const f = document.querySelector('form[action="/users/{target}/test-lock"]');
-              if (!f) return JSON.stringify({{err: 'no probe form for {target}'}});
-              const b = f.querySelector('button[type=submit]');
-              const c = f.querySelector('input[name=csrf]');
-              return JSON.stringify({{button: !!b, csrf: !!(c && c.value),
-                                      label: b ? b.textContent.trim() : '',
-                                      method: f.method, action: f.getAttribute('action')}});
-            }})()""")
-        if form.get("err"):
-            raise SystemExit(form["err"])
-        if not form["button"]:
-            raise SystemExit("the probe form has no submit button")
-        if not form["csrf"]:
-            raise SystemExit("the probe form posts no CSRF token -- the click would be refused "
-                             "and the capture would photograph a refusal")
-        if form["method"].lower() != "post":
-            raise SystemExit(f"the probe form is method={form['method']}, not post")
-        print(f"dashboard form: action={form['action']} method={form['method']} "
-              f"label={form['label']!r} csrf=yes button=yes", flush=True)
+    # The dashboard, and the button the operator actually has.
+    s.goto(cap.base + "/")
+    if s.where() != "/":
+        raise SystemExit(f"the dashboard answered {s.where()} instead; nothing was measured")
+    s.settle()
+    form = s.json(f"""
+        (() => {{
+          const f = document.querySelector('form[action="/users/{target}/test-lock"]');
+          if (!f) return JSON.stringify({{err: 'no probe form for {target}'}});
+          const b = f.querySelector('button[type=submit]');
+          const c = f.querySelector('input[name=csrf]');
+          return JSON.stringify({{button: !!b, csrf: !!(c && c.value),
+                                  label: b ? b.textContent.trim() : '',
+                                  method: f.method, action: f.getAttribute('action')}});
+        }})()""")
+    if form.get("err"):
+        raise SystemExit(form["err"])
+    if not form["button"]:
+        raise SystemExit("the probe form has no submit button")
+    if not form["csrf"]:
+        raise SystemExit("the probe form posts no CSRF token -- the click would be refused "
+                         "and the capture would photograph a refusal")
+    if form["method"].lower() != "post":
+        raise SystemExit(f"the probe form is method={form['method']}, not post")
+    print(f"dashboard form: action={form['action']} method={form['method']} "
+          f"label={form['label']!r} csrf=yes button=yes", flush=True)
 
-        clicked = s.value("(() => { const b = document.querySelector("
-                          "'form[action=\"/users/" + target + "/test-lock\"] button[type=submit]'); "
-                          "if (!b) return 'no button'; b.click(); return 'clicked'; })()")
-        if clicked != "clicked":
-            raise SystemExit(f"the button was never clicked: {clicked!r}")
-        want = f"/users/{target}/test-lock"
-        for _ in range(120):
-            time.sleep(0.1)
-            if s.where() == want:
-                break
-        else:
-            raise SystemExit(f"the click never produced {want}; the browser is at {s.where()}")
-        s.settle(0.5)
+    clicked = s.value("(() => { const b = document.querySelector("
+                      "'form[action=\"/users/" + target + "/test-lock\"] button[type=submit]'); "
+                      "if (!b) return 'no button'; b.click(); return 'clicked'; })()")
+    if clicked != "clicked":
+        raise SystemExit(f"the button was never clicked: {clicked!r}")
+    want = f"/users/{target}/test-lock"
+    for _ in range(120):
+        time.sleep(0.1)
+        if s.where() == want:
+            break
+    else:
+        raise SystemExit(f"the click never produced {want}; the browser is at {s.where()}")
+    s.settle(0.5)
 
-        g = cdp.measure(s, extra="'banner':(document.querySelector('p.banner')||{}).innerText||'',"
-                                 "'muted':(document.querySelector('p.muted')||{}).innerText||'',"
-                                 "'backendRows':document.querySelectorAll('table.rows')[0]"
-                                 ".querySelectorAll('tbody tr').length" + "," + cdp.CONTROLS_JS
-                                 + "," + cdp.NAV_JS + "," + cdp.STATE_JS)
-        # The page has to be the probe result, not an error page wearing its URL. The banner
-        # counts the backends, so an empty one means nothing was measured whatever scrollWidth
-        # says; two tables is the page's own shape, backend table then sessions.
-        if not g["banner"].strip():
-            raise SystemExit("the result page rendered no banner sentence; nothing was measured")
-        if "Nothing was locked" not in g["muted"]:
-            raise SystemExit("the result page does not say nothing was locked; this is not the "
-                             f"probe page: {g['muted'][:120]!r}")
-        if g["tables"] < 2 or g["backendRows"] < 1:
-            raise SystemExit(f"the result page has {g['tables']} tables and {g['backendRows']} "
-                             "backend rows; the capture would show an empty diagnostic")
-        cdp.require_labelled_cells(g, "the result page")
-        # #202, on the other page pages.py does not photograph. The transport radios its name
-        # suggests live on /settings -- a pages.py frame, where the choice-group guard has real work
-        # to do -- so this page too carries only the chrome's Sign out button, and the zeros on the
-        # line below are the record of that. The guard belongs here anyway: a diagnostic page is
-        # where a "use this backend" tick box gets added next, and on the day it does, a `:has()`
-        # rule the browser dropped would leave this frame looking exactly as it did before it.
-        cdp.require_control_font(g, "the probe result page")
-        cdp.require_control_width(g, "the probe result page")
-        cdp.require_choice_groups(g, "the probe result page")
-        # #204, and the same argument as lock.py's: `/users/<name>/test-lock` is a child of a
-        # section, so the mark belongs to the accounts entry. Both POST verdict pages are covered
-        # because between them and pages.py's five GET frames every page the shell renders is
-        # asked, and this is the only pair where the answer is not the page's own href.
-        cdp.require_nav_marked(g, "the probe result page", "/users")
-        cdp.require_nav_in_palette(g, "the probe result page")
-        cdp.require_nav_distinguishable(g, "the probe result page", "/users")
-        # #199, on the page where the vocabulary is the answer. Both verdict columns here are two
-        # spans, `state-held` for "yes" and `state-gap` for "no": one red and bold, the other the
-        # same ink and weight as the sentence above it, so "no, this backend cannot lock" read as
-        # an ordinary line of the explanation.
-        cdp.require_state_legible(g, "the probe result page")
-        rows = cdp.session_rows(s)
-        # #213, the same rule as lock.py's. This page draws two tables and the census is only the
-        # second one, which is why the count goes through `cdp.session_census` rather than counting
-        # `tbody tr`: the backend table above it has a row per configured backend, and on 8 Nov that
-        # distinction is the difference between a check and a number that moves for an unrelated
-        # reason.
-        census = cdp.require_declared_sessions(rows, cap.declared_sessions(),
-                                               "the probe result page")
-        # The probe page copies the lock page's Detail cell, so it inherits the #108 rule. A
-        # check that exists on one of two pages sharing a cell is the check that misses the
-        # regression on the other one. The count matters for the same reason it does on lock.py:
-        # whether a seam exists here depends on whether the account's sessions are lockable, and
-        # a rule that found nothing to look at must not be quoted as a pass.
-        seen, seams = cdp.require_detail_terminated(rows, "the probe result page")
-        if seen == 0:
-            raise SystemExit("no Detail cell on the page holds the self-session note, so the "
-                             "#108 seam rule examined nothing -- a rule that checked nothing is "
-                             "not a reason to trust this capture")
+    g = cdp.measure(s, extra="'banner':(document.querySelector('p.banner')||{}).innerText||'',"
+                             "'muted':(document.querySelector('p.muted')||{}).innerText||'',"
+                             "'backendRows':document.querySelectorAll('table.rows')[0]"
+                             ".querySelectorAll('tbody tr').length" + "," + cdp.CONTROLS_JS
+                             + "," + cdp.NAV_JS + "," + cdp.STATE_JS)
+    # The page has to be the probe result, not an error page wearing its URL. The banner
+    # counts the backends, so an empty one means nothing was measured whatever scrollWidth
+    # says; two tables is the page's own shape, backend table then sessions.
+    if not g["banner"].strip():
+        raise SystemExit("the result page rendered no banner sentence; nothing was measured")
+    if "Nothing was locked" not in g["muted"]:
+        raise SystemExit("the result page does not say nothing was locked; this is not the "
+                         f"probe page: {g['muted'][:120]!r}")
+    if g["tables"] < 2 or g["backendRows"] < 1:
+        raise SystemExit(f"the result page has {g['tables']} tables and {g['backendRows']} "
+                         "backend rows; the capture would show an empty diagnostic")
+    cdp.require_labelled_cells(g, "the result page")
+    # #202, on the other page pages.py does not photograph. The transport radios its name
+    # suggests live on /settings -- a pages.py frame, where the choice-group guard has real work
+    # to do -- so this page too carries only the chrome's Sign out button, and the zeros on the
+    # line below are the record of that. The guard belongs here anyway: a diagnostic page is
+    # where a "use this backend" tick box gets added next, and on the day it does, a `:has()`
+    # rule the browser dropped would leave this frame looking exactly as it did before it.
+    cdp.require_control_font(g, "the probe result page")
+    cdp.require_control_width(g, "the probe result page")
+    cdp.require_choice_groups(g, "the probe result page")
+    # #204, and the same argument as lock.py's: `/users/<name>/test-lock` is a child of a
+    # section, so the mark belongs to the accounts entry. Both POST verdict pages are covered
+    # because between them and pages.py's five GET frames every page the shell renders is
+    # asked, and this is the only pair where the answer is not the page's own href.
+    cdp.require_nav_marked(g, "the probe result page", "/users")
+    cdp.require_nav_in_palette(g, "the probe result page")
+    cdp.require_nav_distinguishable(g, "the probe result page", "/users")
+    # #199, on the page where the vocabulary is the answer. Both verdict columns here are two
+    # spans, `state-held` for "yes" and `state-gap` for "no": one red and bold, the other the
+    # same ink and weight as the sentence above it, so "no, this backend cannot lock" read as
+    # an ordinary line of the explanation.
+    cdp.require_state_legible(g, "the probe result page")
+    rows = cdp.session_rows(s)
+    # #213, the same rule as lock.py's. This page draws two tables and the census is only the
+    # second one, which is why the count goes through `cdp.session_census` rather than counting
+    # `tbody tr`: the backend table above it has a row per configured backend, and on 8 Nov that
+    # distinction is the difference between a check and a number that moves for an unrelated
+    # reason.
+    census = cdp.require_declared_sessions(rows, cap.declared_sessions(),
+                                           "the probe result page")
+    # The probe page copies the lock page's Detail cell, so it inherits the #108 rule. A
+    # check that exists on one of two pages sharing a cell is the check that misses the
+    # regression on the other one. The count matters for the same reason it does on lock.py:
+    # whether a seam exists here depends on whether the account's sessions are lockable, and
+    # a rule that found nothing to look at must not be quoted as a pass.
+    seen, seams = cdp.require_detail_terminated(rows, "the probe result page")
+    if seen == 0:
+        raise SystemExit("no Detail cell on the page holds the self-session note, so the "
+                         "#108 seam rule examined nothing -- a rule that checked nothing is "
+                         "not a reason to trust this capture")
 
-        cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.probed", ALLOWED,
-                          "the test-lock probe")
+    cdp.require_trail(cdp.audit_lines(trail)[first_new:], "lock.probed", ALLOWED,
+                      "the test-lock probe")
 
-        # Reported, never required: a lockable session's cell on this page is the note alone, so
-        # seams=0 is a correct page, not a passed check. The transcript has to say which it was.
-        print(f"  #108 seam: note in {seen} Detail cell(s), {seams} with a sentence in front "
-              "of it", flush=True)
+    # Reported, never required: a lockable session's cell on this page is the note alone, so
+    # seams=0 is a correct page, not a passed check. The transcript has to say which it was.
+    print(f"  #108 seam: note in {seen} Detail cell(s), {seams} with a sentence in front "
+          "of it", flush=True)
 
-        fits = g["scroll"] <= cdp.WIDTH
-        if not fits:
-            raise SystemExit(f"the page is {g['scroll']} px wide at a {cdp.WIDTH} px viewport; "
-                             "the criterion refuses this page, so its photograph is not taken")
+    fits = g["scroll"] <= cdp.WIDTH
+    if not fits:
+        raise SystemExit(f"the page is {g['scroll']} px wide at a {cdp.WIDTH} px viewport; "
+                         "the criterion refuses this page, so its photograph is not taken")
 
-        cap.require_running()
-        s.write_png(name)
-        # Every check above has passed, and only now do the bytes land: a refusal earlier in this
-        # function leaves the target exactly as it was, staged frames and all.
-        s.publish()
-        print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
-        print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
-              flush=True)
-        print(f"  tables={g['tables']} backendRows={g['backendRows']} cells={g['cells']} "
-              f"unlabelled={g['unlabelled']} {cdp.census_line(g)} "
-              f"{cdp.nav_census_line(g)} {cdp.state_census_line(g)}", flush=True)
-        print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
-        print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
-        return 0
+    cap.require_running()
+    s.write_png(name)
+    # Every check above has passed, and only now do the bytes land: a refusal earlier in this
+    # function leaves the target exactly as it was, staged frames and all.
+    s.publish()
+    print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
+    print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
+          flush=True)
+    print(f"  tables={g['tables']} backendRows={g['backendRows']} cells={g['cells']} "
+          f"unlabelled={g['unlabelled']} {cdp.census_line(g)} "
+          f"{cdp.nav_census_line(g)} {cdp.state_census_line(g)}", flush=True)
+    print(f"  banner: {g['banner'].strip()[:110]}", flush=True)
+    print(f"  FITS at {cdp.WIDTH} px  -> {name}", flush=True)
+    return 0
 
 
 def main():
-    name = op.join(cdp.capture_out("testlock"), "testlock.png")
+    out = cdp.capture_out(FIXTURE)
+    name = op.join(out, f"{ARTIFACT}.png")
+    # Same shape as lock.py, same reason: the frame of the page this run refused, named for the
+    # viewport and never after the artifact. See `cdp.refuse_single_shot` for what a refusal leaves
+    # where, and #222 for why the file standing at `--out` is named instead of deleted.
+    frame = f"{ARTIFACT}@{cdp.WIDTH}.png"
     try:
-        return capture(name)
-    except SystemExit as exc:
-        cdp.report_refusal(name, exc)
-    except Exception as exc:  # a traceback is not an answer; a refusal is
-        cdp.report_refusal(name, f"{type(exc).__name__}: {exc}")
-    # Same shape as lock.py, same reason: the refusal helper used to raise, so the discard on the
-    # next line never ran and the exit code arrived as an uncaught exception. One discard, one
-    # explicit 1, on the outside of both handlers.
-    cdp.discard_stage()
+        with cdp.Capture(FIXTURE) as cap:
+            try:
+                return capture(cap, name)
+            except SystemExit as exc:
+                # Inside the `with`, because only the browser this run opened can show what the page
+                # actually rendered while the run was refusing it.
+                cdp.refuse_single_shot(cap, FIXTURE, out, name, frame, str(exc))
+            except Exception as exc:  # a traceback is not an answer; a refusal is
+                cdp.refuse_single_shot(cap, FIXTURE, out, name, frame,
+                                       f"{type(exc).__name__}: {exc}")
+    except (Exception, SystemExit) as exc:
+        # The probe fixture refused before a browser existed -- no `testlock-setup.sh`, no binary.
+        cdp.refuse_single_shot(None, FIXTURE, out, name, frame,
+                               str(exc) if isinstance(exc, SystemExit)
+                               else f"{type(exc).__name__}: {exc}")
+    # One explicit 1, outside both handlers, exactly as in lock.py: reaching the end of this function
+    # means a refusal happened, and the keeping has already run beside the live browser.
     return 1
 
 

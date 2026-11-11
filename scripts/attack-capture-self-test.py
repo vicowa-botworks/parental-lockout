@@ -168,9 +168,15 @@ ROWS = [
     (CAUGHT, "cdp.py", "keep_refused is hollowed to `return []`, so a refusal destroys what it measured",
      "def keep_refused(keep, note=None, out=None):",
      "def keep_refused(keep, note=None, out=None):\n    return []"),
+    # Row 2's anchor retired once, on 11 Nov: #296 (D-0060) moved the refusal note onto the shared
+    # `cdp.refusal_note` and the call rewrapped, and the run answered `INVALID … 0 anchor matches` with
+    # exit 1 -- this suite refuses a retired anchor instead of counting it (unlike the mutation battery,
+    # where a 0-match mutant is reported NOT APPLIED and the battery stays green, #1048). It is re-pointed
+    # onto a one-line statement rather than back onto the wrapped call, for the reason `35f2a41` gives for
+    # W214: a statement's text does not move when a field is added or a literal realigns, an aligned
+    # continuation line's does. `pages.py` keeps the note on its own statement to keep that true.
     (CAUGHT, "pages.py", "the refusal branch goes back to `discard_stage()`",
-     '            kept = cdp.keep_refused(keep, note=_refusal_note(mode, out, fixture_envs(selected),\n'
-     '                                                             notes), out=out)',
+     '            kept = cdp.keep_refused(keep, note=note, out=out)',
      '            cdp.discard_stage()\n            kept = None'),
     (CAUGHT, "cdp.py", "`refused_dir` stops naming the directory for the fixture, so two fixtures share one drawer",
      '    return op.join(RUNS, f"{mode}-refused")',
