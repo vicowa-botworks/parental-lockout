@@ -5041,6 +5041,18 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   written at `6577ba1`, this push spends that standing regardless (`H-0095`, `H-0097`), and the re-review is
   the reviewer's verdict, so whatever the API answers after this push belongs in the pull-request body beside
   the push, not in a record written before it.
+- Dated correction, 11 Nov, in the commit that follows the merge it corrects. Two counts above were taken
+  before this entry existed -- the same self-blindness `H-0127` had to correct in `H-0121`, rediscovered one
+  entry later. The old slug's `12` mentions in this log is the pre-entry count: this entry writes the word
+  twice itself, so `grep -c cinemaitor factory/DECISIONS.md` printed `14` at the merge, prints `15` where
+  this sentence is read (this sentence is the extra one), and prints `5` in `factory/common.sh` -- and those
+  five are all comments; the shipped default is `workers`.
+  And the two post-entry offsets are true of the merge as pushed, so pin them: `git diff --unified=0
+  00ed490^1 00ed490 -- factory/DECISIONS.md` answers THREE add-only hunks ending `+4943,5047` (105 lines)
+  and `git diff --unified=0 00ed490^2 00ed490 -- factory/DECISIONS.md` a last hunk `+4907,5047` (141).
+  Neither number survives this correction, which adds lines to the same file; that is why they name a commit
+  rather than "a re-run". Deleted lines stay zero against BOTH parents either way, and that, not the
+  offsets, is the claim the census was ever for.
 - Roll back: `git revert -m 1 <this commit>` -- the merge brings main's sixteen commits and nothing else, and
   this branch's own work sits in the first-parent chain (`93ab835`, `aa1c82f`, `63464a4`, `4115b23`).
 - Nothing here merges this pull request: merging is the supervisor's, and it merges only what the API still
