@@ -10387,6 +10387,440 @@ skill_jq_leg() { # the document a tick actually reads, and the three refusals
 }
 skill_jq_leg
 
+# --- the reaping read, replayed through a stub journalctl (#246, filed by #283's review) ----------
+#
+# `factory_reap_lines` and `factory_reap_lastword` each run `journalctl` by bare name, so one
+# directory on PATH replaces the whole backend and every transcript below is a file. That seam is the
+# reason these legs exist rather than a note in a body: `H-0120` measured `grep -c factory_reap
+# factory/selftest.sh` as 0 on the merged tree, on main and on the branch, for a feature whose whole
+# output is a `HELD 60s to the stop deadline` alarm. #283's review filed the absence as blocking 2 --
+# `factory_reap_lastword` was defined inside `factory_reap_read`'s body, whose only call site is the
+# right end of a pipeline, so the definition was created in a subshell and died there: a leg calling
+# it from outside was rc 127 as shipped. `H-0123` moved it to top level as this section's precondition.
+#
+# Fixtures and not the host journal, because the shapes have to be PLANTABLE. The escalation opening
+# in the second BEFORE the terminal line is the case the exclusion in `factory_reap_lastword` exists
+# for, and on this box's live journal it is 14 activations out of 15 -- but a journal cannot be
+# planted, only waited for, and #246 says the suite must pass "standalone with no host journal at
+# all". So the live read is a leg too, the last one, and it degrades to a skip.
+#
+# Two stub personalities, and the difference between them is itself a leg. `RP_DUMB=1` makes the stub
+# ignore `--until` and `-n` and hand over the whole file. A fix that left the window's boundary to
+# `journalctl` cannot pass the legs that way, which is precisely why `factory_reap_lastword` applies
+# the comparison itself -- any stub honouring `--until` correctly would be checking its own arithmetic
+# instead of the read's. `-u`, `-t`, `-o` and `--utc` are accepted and dropped: a stub that enforced
+# flags would be testing the stub.
+
+rp_dir=$work/reap
+rp_bin=$rp_dir/bin
+mkdir -p "$rp_bin"
+
+rp_say() { printf '%s\n' "$*" | sed 's/^/            /' >&2; }
+
+rp_stub() {
+	cat >"$rp_bin/journalctl" <<'STUB'
+#!/usr/bin/env bash
+# One fixture file, the two flags that change what the read sees, and a mode that implements neither.
+set -u
+until='' n=0
+while [ $# -gt 0 ]; do
+	case $1 in
+	(--until) until=${2:-}; shift 2 ;;
+	(-n) n=${2:-0}; shift 2 ;;
+	(*) shift ;;
+	esac
+done
+awk -v u="$until" -v n="$n" -v dumb="${RP_DUMB:-0}" '
+	!dumb && u != "" && $1 > u { next }
+	{ line[++c] = $0 }
+	END { for (i = (dumb || n + 0 <= 0 || c <= n) ? 1 : c - n + 1; i <= c; i++) print line[i] }
+' "$RP_FIXTURE"
+STUB
+	# `factory_unit_state` asks `systemctl` for six properties. No leg asserts their VALUES; they are
+	# pinned so the clause is byte-stable and the manager is never touched -- except in the order they
+	# are ANSWERED, which is not the order asked (H-0126), and that is what a leg below depends on.
+	cat >"$rp_bin/systemctl" <<'STUB'
+#!/usr/bin/env bash
+# Answers ONLY the properties it is asked for, in the order systemd answers them rather than the order
+# asked. A stub that answered the whole set whatever it was given would let a dropped `-p` look
+# present, which is the arm `reap: not-loaded is not healthy` exists to notice.
+asked=''
+while [ $# -gt 0 ]; do
+	case $1 in
+	(-p) asked="$asked ${2:-}"; shift 2 ;;
+	(*) shift ;;
+	esac
+done
+want() { case " $asked " in (*" $1 "*) return 0 ;; (*) return 1 ;; esac }
+want LoadState && printf 'LoadState=%s\n' "${RP_LOAD-loaded}"
+want MainPID && printf 'MainPID=0\n'
+want Result && printf 'Result=success\n'
+want SubState && printf 'SubState=dead\n'
+want ActiveState && printf 'ActiveState=inactive\n'
+want TasksCurrent && printf 'TasksCurrent=[not set]\n'
+exit 0
+STUB
+	chmod +x "$rp_bin/journalctl" "$rp_bin/systemctl"
+}
+rp_stub
+
+# One transcript, verbatim in `journalctl -o short-iso-precise --utc`: `<stamp> <host> <comm>[pid]:
+# <message>`. The stamps are this box's real 11 Nov 08:44 activation -- `END rc=0` at 08:44:08.869637,
+# `State 'stop-sigterm' timed out.` at 08:45:08.999972, the terminal line at 08:45:09.002985, a hold of
+# 60.133 s -- with the unit renamed, because the read asks `factory_service_unit` and the legs plant
+# their own answer to that question rather than inheriting this repository's name.
+cat >"$rp_dir/escalation" <<'F'
+2026-11-11T08:44:08.865920+00:00 h systemd[4485]: Starting plrev283b.service - planted (one pass)...
+2026-11-11T08:44:08.865920+00:00 h factory.sh[1969281]: 2026-11-11T08:44:08Z QUEUED 13 unit(s) remain
+2026-11-11T08:44:08.869608+00:00 h factory.sh[1969281]: 2026-11-11T08:44:08Z END rc=0 ticks_started=1
+2026-11-11T08:44:08.869637+00:00 h factory.sh[1969281]: factory: 1 tick(s), rc=0.
+2026-11-11T08:45:08.999972+00:00 h systemd[4485]: plrev283b.service: State 'stop-sigterm' timed out. Killing.
+2026-11-11T08:45:09.000077+00:00 h systemd[4485]: plrev283b.service: Killing process 1971081 (winedevice.exe) with signal SIGKILL.
+2026-11-11T08:45:09.002807+00:00 h systemd[4485]: plrev283b.service: Failed with result 'timeout'.
+2026-11-11T08:45:09.002985+00:00 h systemd[4485]: Failed to start plrev283b.service - planted (one pass).
+2026-11-11T08:45:09.003052+00:00 h systemd[4485]: plrev283b.service: Consumed 4min 933ms CPU time.
+F
+# The same transcript with the exclusion taken out, which is what the pattern #283 shipped amounted
+# to: `systemd(4485): ` matches no line a journal emits, so filtering on it is the same as not
+# filtering. `reap: the exclusion matches a real rendering` computes the answer both ways as its
+# control for the control -- the exclusion has to EARN the 60, and the number it earns without it is
+# 0: `hold` measured from systemd's own `Failed with result` line, 178 microseconds before the
+# terminal one, while the queue was frozen for a minute.
+#
+# A clean reaping, the real 10 Nov 17:09 activation: the pass's last line at 17:09:10.131057 and
+# systemd's `Finished` at .131574, so the truth is 0.517 ms and the answer is 0 and clean. The
+# `Consumed` line lands after the terminal one, which is also what the real journal does.
+cat >"$rp_dir/clean" <<'F'
+2026-11-10T17:09:10.128067+00:00 h factory.sh[828665]: 2026-11-10T17:09:10Z QUEUED 23 unit(s) remain
+2026-11-10T17:09:10.131018+00:00 h factory.sh[828665]: 2026-11-10T17:09:10Z END rc=0 ticks_started=1
+2026-11-10T17:09:10.131057+00:00 h factory.sh[828665]: factory: 1 tick(s), rc=0.
+2026-11-10T17:09:10.131574+00:00 h systemd[4485]: Finished plrev283b.service - planted (one pass).
+2026-11-10T17:09:10.131686+00:00 h systemd[4485]: plrev283b.service: Consumed 5min 12.793s CPU time.
+F
+# The boundary: a line the unit wrote AFTER its own activation ended -- a descendant that outlived the
+# pass, which is the whole reason a hold exists. The naive read takes it as the last word and prints
+# 16 s for an 11 s hold. `stop-sigterm` is in the window so the verdict word is pinned too, and the
+# hold is above `FACTORY_REAP_NOTICE_SECS` either way: the leg is about WHICH stamp was chosen, not
+# about which side of the notice line it lands.
+cat >"$rp_dir/after" <<'F'
+2026-11-11T04:00:00.000000+00:00 h factory.sh[7]: 2026-11-11T04:00:00Z TICK-START issue/1
+2026-11-11T04:00:01.000000+00:00 h factory.sh[7]: 2026-11-11T04:00:01Z END rc=0 ticks_started=1
+2026-11-11T04:00:11.999972+00:00 h systemd[4485]: plrev283b.service: State 'stop-sigterm' timed out. Killing.
+2026-11-11T04:00:12.000000+00:00 h systemd[4485]: Failed to start plrev283b.service - planted (one pass).
+2026-11-11T04:00:17.000000+00:00 h factory.sh[9]: a line from a process that outlived the activation
+F
+# A pass whose last line QUOTES a journal line -- `HALT` sentences quote the manager, and
+# `factory_reap_line` itself prints one. An exclusion written as a substring match anywhere in the
+# line drops it (`H-0123` shipped that form), which leaves the read with no work line and the answer
+# unknown, on a transcript that plainly has one. The anchored form keeps it: 5.7 s, over the notice
+# line, so the shape is `6 unexplained`. The quoted text is a `Consumed` line rather than a verdict
+# line on purpose -- the latter is systemd's cause sentence and would set the verdict through the
+# `case` in `factory_reap_read`, which is a different claim than this fixture is making.
+cat >"$rp_dir/quoted" <<'F'
+2026-11-11T06:00:00.400000+00:00 h factory.sh[21]: 2026-11-11T06:00:00Z HALT quoting the manager: systemd[4485]: plrev283b.service: Consumed 4min 933ms CPU time over 11min wall clock.
+2026-11-11T06:00:06.100000+00:00 h systemd[4485]: Failed to start plrev283b.service - planted (one pass).
+F
+# A finished activation with no line from the unit at all. systemd wrote nothing about the exit
+# because the main process exited 0, and the tail holds only the manager's own lines: there is no
+# start point, so the answer is unknown. Before `H-0124` this printed `reaped in 0s`.
+cat >"$rp_dir/no-worker" <<'F'
+2026-11-11T02:55:00.100000+00:00 h systemd[4485]: Starting plrev283b.service - planted (one pass)...
+2026-11-11T02:56:06.131574+00:00 h systemd[4485]: Finished plrev283b.service - planted (one pass).
+2026-11-11T02:56:06.131686+00:00 h systemd[4485]: plrev283b.service: Consumed 5min 12.793s CPU time.
+F
+# Nothing finished: an activation still running, so no terminal line exists.
+cat >"$rp_dir/open" <<'F'
+2026-11-11T05:00:00.000000+00:00 h systemd[4485]: Starting plrev283b.service - planted (one pass)...
+2026-11-11T05:00:01.000000+00:00 h factory.sh[11]: 2026-11-11T05:00:01Z TICK-START issue/2
+F
+# Half a second either side of the notice line. The truth is 5.2 s, which is `clean` under
+# `FACTORY_REAP_NOTICE_SECS=5`; arithmetic that truncates each stamp to its own second (9 - 3) reads
+# 6 and files a 5.2 s teardown as unexplained.
+cat >"$rp_dir/half-second" <<'F'
+2026-11-11T03:00:03.900000+00:00 h factory.sh[5]: 2026-11-11T03:00:03Z END rc=0 ticks_started=1
+2026-11-11T03:00:09.100000+00:00 h systemd[4485]: Finished plrev283b.service - planted (one pass).
+F
+
+rp_ask() { # rp_ask <fixture> <dumb 0|1> -> the read's TAB line; the read's status is the status
+	local f=$1 dumb=${2:-0}
+	RP_FIXTURE=$f RP_DUMB=$dumb RP_UNIT=plrev283b.service PATH="$rp_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
+			factory_reap_lines | factory_reap_read' _ "$HERE"
+}
+
+rp_sentence() { # rp_sentence <fixture> <dumb> -> the `reaping:` line, manager stubbed like rp_ask
+	local f=$1 dumb=${2:-0}
+	RP_FIXTURE=$f RP_DUMB=$dumb RP_UNIT=plrev283b.service PATH="$rp_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
+			factory_reap_line' _ "$HERE"
+}
+
+rp_fields() { # rp_fields <TAB line> -> hold|how|open. The age is dropped on purpose: it counts from
+	local hold='' how='' age='' open=''     # the fixture's stamp to NOW, so pinning its value would
+	IFS=$'\t' read -r hold how age open <<EOF
+$1
+EOF
+	printf '%s|%s|%s\n' "${hold-}" "${how-}" "${open-}"   # go red as the afternoon wears on, the bug
+}                                                       # #246 was written about, in this suite.
+
+reap_leg_escalation() {
+	local got='' rc=0 honest_shape='' shape=''
+	got=$(rp_ask "$rp_dir/escalation" 1) || rc=$?
+	[ "$rc" -eq 0 ] || { rp_say "the read refused a transcript that has both ends (rc=$rc)"; return 1; }
+	shape=$(rp_fields "$got")
+	# 60.133 s between the pass's last line and the terminal one. A read that took systemd's own line
+	# as the last word answers 0 (the newest manager line is 178 us earlier); one that truncated each
+	# stamp to its second answers 61; the shipped read on this box's live journal answered 1.
+	[ "$shape" = "60|deadline|0" ] || {
+		rp_say "a 60.133 s hold that ended at the stop deadline read as: $shape"
+		rp_say "want 60|deadline|0, the raw line was: $got"; return 1; }
+	got=$(rp_ask "$rp_dir/escalation" 0) || rc=$?
+	honest_shape=$(rp_fields "$got")
+	[ "$honest_shape" = "$shape" ] || {
+		rp_say "honouring --until and -n changes the answer: '$honest_shape' against '$shape'"
+		rp_say "the number must be the read's, whichever end does the bounding"; return 1; }
+	return 0
+}
+claim_leg 'reap: escalation opens the second before' reap_leg_escalation
+
+reap_leg_control() {
+	local got='' rc=0 shape=''
+	got=$(rp_ask "$rp_dir/clean" 1) || rc=$?
+	[ "$rc" -eq 0 ] || { rp_say "the control transcript was refused (rc=$rc)"; return 1; }
+	shape=$(rp_fields "$got")
+	[ "$shape" = "0|clean|0" ] || {
+		rp_say "a 0.517 ms clean reaping read as: $shape (want 0|clean|0)"; return 1; }
+	got=$(rp_ask "$rp_dir/clean" 0) || rc=$?
+	[ "$(rp_fields "$got")" = "$shape" ] || {
+		rp_say "the control moved with the stub's personality: $got"; return 1; }
+	return 0
+}
+claim_leg 'reap: a clean reaping still reads clean' reap_leg_control
+
+reap_leg_filter() {
+	local shape='' naive='' last='' dumb_shape=''
+	shape=$(rp_fields "$(rp_ask "$rp_dir/escalation" 1)")
+	[ "$shape" = "60|deadline|0" ] || { rp_say "the bracket transcript read $shape, want 60|deadline|0"; return 1; }
+	# The control for the control, in the suite's `NAIVE` shape: the same window measured by the read
+	# with its exclusion taken out. `systemd\([0-9]+\)` -- what #283 shipped -- excludes no line, so
+	# removing the filter and excluding nothing are the same program, and the number it produces is
+	# the one an inert filter prints. If this ever equals the answer above, no leg here depends on the
+	# exclusion and this leg says so instead of passing.
+	last=$(awk -v until='2026-11-11T08:45:09.002985+00:00' '
+		($1 "") > (until "") { next }
+		{ last = $1 }
+		END { if (last != "") print last }' "$rp_dir/escalation")
+	[ -n "$last" ] || { rp_say 'the control found no line at all, so the fixture is wrong'; return 1; }
+	# The same subtraction the read does, repeated here on purpose: this is the control, so it has to
+	# be computed by the leg and not asked of the thing under test.
+	local tn='' wn=''
+	tn=$(factory_reap_usec '2026-11-11T08:45:09.002985+00:00') || {
+		rp_say 'factory_reap_usec refused the fixture stamp'; return 1; }
+	wn=$(factory_reap_usec "$last") || { rp_say "factory_reap_usec refused '$last'"; return 1; }
+	naive=$(((tn - wn + 500000) / 1000000))
+	[ "$naive" = 0 ] || {
+		rp_say "the filter-free control reads ${naive}s, want 0s -- the fixture no longer puts a"
+		rp_say "manager line inside the terminal second, so it cannot detect an inert exclusion"
+		return 1; }
+	[ "$naive" != "$shape" ] || {
+		rp_say "filtering and not filtering both read $shape, so nothing here pins the exclusion"
+		return 1; }
+	# And the other direction: the exclusion must not eat a line from the unit that merely QUOTES a
+	# manager line. Measured at H-0123's substring form, this transcript answered rc 2 -- unknown, no
+	# work line -- because the quoted text contains ` systemd[4485]: ` anywhere in the line.
+	local got='' rc=0
+	got=$(rp_ask "$rp_dir/quoted" 1) || rc=$?
+	[ "$rc" -eq 0 ] || {
+		rp_say "a pass whose last line quotes systemd was refused (rc=$rc)"
+		rp_say "that is the substring form of the exclusion dropping the unit's own line"; return 1; }
+	dumb_shape=$(rp_fields "$got")
+	[ "$dumb_shape" = "6|unexplained|0" ] || {
+		rp_say "the quoting pass read $dumb_shape, want 6|unexplained|0"; return 1; }
+	return 0
+}
+claim_leg 'reap: the exclusion matches a real rendering' reap_leg_filter
+
+reap_leg_boundary() {
+	local got='' shape='' other='' rc=0
+	shape=$(rp_fields "$(rp_ask "$rp_dir/after" 1)")
+	[ "$shape" = "11|deadline|0" ] || {
+		rp_say "a line written after the terminal one moved the hold: $shape, want 11|deadline|0"
+		rp_say "16|deadline|0 is the read taking a survivor's line for its predecessor's last word"
+		return 1; }
+	got=$(rp_ask "$rp_dir/after" 0) || rc=$?
+	other=$(rp_fields "$got")
+	[ "$other" = "$shape" ] || {
+		rp_say "with the flags ignored the same transcript reads $other, not $shape"
+		rp_say "so the window is being bounded by journalctl, not by factory_reap_lastword"; return 1; }
+	return 0
+}
+claim_leg 'reap: nothing after the terminal line counts' reap_leg_boundary
+
+reap_leg_no_worker() {
+	local got='' rc=0 line=''
+	got=$(rp_ask "$rp_dir/no-worker" 1) || rc=$?
+	[ "$rc" -eq 2 ] || { rp_say "rc=$rc, want 2 (arm 2 of factory_reap_read's contract)"; return 1; }
+	[ -z "$got" ] || { rp_say "arm 2 printed a verdict anyway: '$got'"; return 1; }
+	line=$(rp_sentence "$rp_dir/no-worker" 1)
+	case $line in
+	(*'nothing in the tail says when its work stopped'*) : ;;
+	(*) rp_say "the reaping line for an unread teardown is not the unknown sentence:"; rp_say "$line"
+		rp_say "what it must not be is 'reaped in 0s', the healthy case's own words"; return 1 ;;
+	esac
+	case $line in
+	(*'reaped in'* | *'HELD'*)
+		rp_say "the unread teardown still printed a hold:"; rp_say "$line"; return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: no worker line is unknown, not zero' reap_leg_no_worker
+
+reap_leg_open() {
+	local got='' rc=0 line=''
+	got=$(rp_ask "$rp_dir/open" 1) || rc=$?
+	[ "$rc" = 1 ] || { rp_say "an activation with no terminal line answered rc=$rc, want 1"; return 1; }
+	[ -z "$got" ] || { rp_say "it printed a verdict for a pass that has not ended: '$got'"; return 1; }
+	line=$(rp_sentence "$rp_dir/open" 1)
+	case $line in
+	(*'has no finished activation'*) : ;;
+	(*) rp_say "the reaping line for a pass that has not ended is not the no-finished sentence:"
+		rp_say "$line"; rp_say "and it must not be the unread one either: those are different facts"
+		return 1 ;;
+	esac
+	case $line in
+	(*'nothing in the tail says when its work stopped'*)
+		rp_say "both unknowns printed the same sentence, so the reader is sent to the wrong place:"
+		rp_say "$line"; return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: an open pass is the other unknown' reap_leg_open
+
+reap_leg_rounding() {
+	local shape=''
+	shape=$(rp_fields "$(rp_ask "$rp_dir/half-second" 1)")
+	[ "$shape" = "5|clean|0" ] || {
+		rp_say "a 5.2 s teardown read $shape, want 5|clean|0"
+		rp_say "6|unexplained means each stamp was truncated to its own second before subtracting,"
+		rp_say "which files a clean teardown as unexplained at FACTORY_REAP_NOTICE_SECS=5"
+		return 1; }
+	return 0
+}
+claim_leg 'reap: the hold is the truth, not the seconds' reap_leg_rounding
+
+reap_leg_live() {
+	# The read against the journal that is actually here, as a shape and not a value: what the last
+	# pass cost this machine changes minute to minute, and a leg that pinned it would be a clock. What
+	# is invariant is the contract -- four tab-separated fields, a numeric hold, a verdict word -- plus
+	# one substantive pairing: a verdict of `deadline` with a hold of 0 is the exact shape `H-0124`
+	# removed, so if this box's journal can produce a deadline it cannot produce a zero one.
+	local got='' rc=0 shape='' hold='' how='' age='' open=''
+	if ! journalctl --user --no-pager -n 1 >/dev/null 2>&1; then
+		printf '        skip  the live journal: this box has no user journal to read\n'
+		return 0
+	fi
+	got=$(factory_reap_lines | factory_reap_read) || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		[ -z "$got" ] || { rp_say "a refused read printed a verdict anyway: '$got'"; return 1; }
+		case $rc in
+		(1 | 2) return 0 ;;
+		esac
+		rp_say "factory_reap_read exited $rc; its contract offers 0, 1 and 2 only"; return 1
+	fi
+	shape=$(rp_fields "$got")
+	IFS=$'\t' read -r hold how age open <<EOF
+$got
+EOF
+	case $hold in
+	('' | *[!0-9]*) rp_say "the hold field is not a number: '$got'"; return 1 ;;
+	esac
+	case $age in
+	('' | *[!0-9]*) rp_say "the age field is not a number: '$got'"; return 1 ;;
+	esac
+	case $how in
+	(clean | deadline | client | unexplained) : ;;
+	(*) rp_say "unrecognised verdict '$how': $got"; return 1 ;;
+	esac
+	[ "$how" != deadline ] || [ "$hold" -gt 0 ] || {
+		rp_say "the live journal produced a deadline hold of 0s: $got"
+		rp_say "that is the H-0124 shape: held by the deadline, measured against itself"; return 1; }
+	return 0
+}
+claim_leg 'reap: the live journal, if there is one' reap_leg_live
+
+reap_leg_reachable() {
+	local got='' rc=0
+	# #283's Blocking 2, pinned rather than assumed. The function used to be defined inside
+	# `factory_reap_read`'s body, whose only call site is the right-hand end of a pipeline, so the
+	# definition was created in a subshell and died with it: every call from outside -- which is what
+	# each of these legs is -- answered 127. `type factory_reap_lastword` after
+	# `factory_reap_lines | factory_reap_read` was the reviewer's measurement; this is the same fact
+	# as a leg, with the value it returns rather than only its name.
+	got=$(RP_FIXTURE=$rp_dir/escalation RP_DUMB=1 RP_UNIT=plrev283b.service PATH="$rp_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
+			factory_reap_lastword "2026-11-11T08:45:09.002985+00:00"' _ "$HERE") || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		rp_say "calling factory_reap_lastword from outside answered rc=$rc"
+		[ "$rc" -ne 127 ] || rp_say "127 is the nesting again: the definition dies with its subshell"
+		return 1
+	fi
+	[ "$got" = '2026-11-11T08:44:08.869637+00:00' ] || {
+		rp_say "it named something else as the pass's last words: '$got'"
+		rp_say "want the END line's own stamp, not the manager's 'Consumed' line after it"; return 1; }
+	got=''
+	got=$(RP_FIXTURE=$rp_dir/no-worker RP_DUMB=1 RP_UNIT=plrev283b.service PATH="$rp_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
+			factory_reap_lastword "2026-11-11T02:56:06.131574+00:00"' _ "$HERE") || rc=$?
+	[ "$rc" -eq 1 ] || { rp_say "on a transcript with no line from the pass it answered rc=$rc, want 1"; return 1; }
+	[ -z "$got" ] || { rp_say "and it printed a stamp anyway: '$got'"; return 1; }
+	return 0
+}
+claim_leg 'reap: the last-words read is reachable' reap_leg_reachable
+
+reap_leg_live_keys() {
+	local line=''
+	# `H-0118` sold the live half as the reading that can see a hold in progress. Stripped of its keys
+	# it said `inactive dead success [not set]`, in the order systemd chose rather than the order asked
+	# (`ActiveState SubState TasksCurrent Result` in, `ActiveState SubState Result TasksCurrent` out),
+	# so the clause had to be memorised to be read at all -- on the one line whose whole purpose is to
+	# be read by somebody who has not memorised it.
+	line=$(rp_sentence "$rp_dir/clean" 1)
+	case $line in
+	(*'live: plrev283b.service LoadState=loaded MainPID=0 Result=success SubState=dead ActiveState=inactive TasksCurrent=[not set]'*) : ;;
+	(*) rp_say "the live half does not carry each key beside its value:"; rp_say "$line"
+		rp_say "want the six 'key=value' pairs the stub answered, in the order it answered them"
+		return 1 ;;
+	esac
+	# and the manager is still not being asked: nothing here may reach the bus.
+	case $line in
+	(*parental-lockout-factory*) rp_say "the live half named the real unit, so the stub was bypassed:"
+		rp_say "$line"; return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: the live half names its keys' reap_leg_live_keys
+
+reap_leg_unloaded() {
+	local line=''
+	# A unit the manager never loaded answered `inactive dead success [not set]` to the four properties
+	# the clause asked for -- the live half of a healthy `reaping:` line about a unit that does not
+	# exist (`no-such-unit.service`, measured). `LoadState` is what separates the two, and it is the
+	# same distinction #228 is about: not-loaded is a fact, not the clean state.
+	line=$(RP_LOAD=not-found rp_sentence "$rp_dir/open" 1)
+	case $line in
+	(*'LoadState=not-found'*) : ;;
+	(*) rp_say "an unloaded unit's live half does not say so:"; rp_say "$line"
+		rp_say "silent about LoadState is the shape that reads healthy for a unit nothing can load"
+		return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: not-loaded is not healthy' reap_leg_unloaded
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not

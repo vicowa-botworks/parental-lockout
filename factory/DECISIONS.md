@@ -4290,6 +4290,241 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: b4c52f071cba3e66e79320b3139585f5ecbf8610
 - Effect: `factory_request_review` has no revoke path on either the success arm or the already-holding arm, and the legs prove both the absence and its teeth -- one asserts no delete request reaches the API after a clean ask and after a 422, the other plants a revoke immediately after the `POKED` line and goes red on the same assertion. What lost: the poke has no way to tidy a list it did not create. Nothing in the queue is holding both kinds at the head of this branch, measured rather than assumed: #240, the row the question was raised on, reads `state: MERGED` with `mergedAt 19:50:20Z` and `reviewRequests: []`, which puts the 22:04Z observation two hours AFTER the merge timestamp -- so that state cannot be reproduced from here and this option was chosen on the owner's reading plus the rule, not on a state still on the board. The open queue at the same moment is #245 holding one individual request (`hermesvicowa`) and #243 holding none. That is also why the legs are the whole artifact here: they pin a behaviour no live row currently exercises. And if the org later decides a stale individual request is noise worth clearing, the fix is not just the delete but the marker that knows which requests are the poke's -- the ledger marker named above is the thing to build, and this entry is the thing to read before building it. Re-read on the merge with `origin/main` (`075dede`): the two legs that pin this still pass, at `factory/selftest.sh: 460 passed, 0 failed`, and no row in the open queue holds both kinds of request at that head -- the read this entry rests on is still the 8 Nov one and still two hours after #240's merge timestamp, which is said here rather than smoothed, because the option was chosen on the rule and the owner's reading, not on a state anyone can re-take.
 
+## H-0118 · The reaping read is the unit's own journal, not `Result=`, because `Result=` is wrong on the polarity that matters
+
+- Question: `#246` shipped two deadlines in #254 and left the second half open -- the ticket says
+  "the teardown itself must be visible: the unit's `SubState` during the hold, and the residue
+  `Result=timeout` afterwards". Both of those signals were measured on this box on 11 Nov, against a
+  reproduction of the fault and against the real unit, and the suggested one fails on the case the
+  ticket was written about. What was wanted is a reading of "how did the last pass get reaped?" that
+  a person gets from `factory.sh --status`, the one command the ticket says a person types.
+
+  Measured, all of it on this box, systemd 259.9-0ubuntu0.1, user manager for uid 1000:
+
+  | activation | main exit | hold | `Result=` |
+  | --- | --- | --- | --- |
+  | control, nothing leaked | 4 | 0.3 ms | `exit-code` |
+  | one `trap '' TERM` descendant, `TimeoutStopSec=60` | 4 | **60.194 s** | `exit-code` |
+  | same, `TimeoutStopSec=20`, paired `OnUnitInactiveSec=10s` | 4 | **20.135 s**; next pass started **30.4 s** after the previous one's last line | `exit-code` |
+  | the factory unit, 11 Nov 00:56 -- `winedevice.exe` again | 0 | **60.18 s** | `timeout` |
+  | the factory unit, 8 Nov 22:18 -- the 91-minute outage | 4 | 4084 s, ended by a hand-escalated kill | `exit-code` |
+
+  So `Result=timeout` appears when the pass exited *cleanly* and `Result=exit-code` when it did not,
+  on held teardowns and clean ones alike. `Result` records what the main process returned, not what
+  the stop path waited for. It is right on tonight's clean-exit hold and wrong on 8 Nov -- the exact
+  incident named in the ticket, whose pass exited 4 -- so it would have answered "nothing to see" to
+  the only question this line exists to answer. `SubState=stop-sigterm` is a true signal and was
+  verified live (`SubState=stop-sigterm TasksCurrent=10 MainPID=0` is printed by the new `live:`
+  clause), but it is a window of one `TimeoutStopSec` inside a cadence of ten minutes: nothing whose
+  attention is not already on the screen sees it.
+
+- Options: `systemctl --user show -p Result -p SubState`, as the issue suggests, as the source | poll
+  `SubState` from a watcher, so the answer is live whenever someone asks | parse the unit's journal for
+  the two systemd lines that name an escalation and the unit's own last line as the moment the work
+  stopped, with the live manager read appended as a clause that is dropped when the bus does not
+  answer | read systemd's own lifetime figure, `Consumed ... over <n> wall clock`
+- Chose: parse the unit's journal for the two systemd lines that name an escalation and the unit's own
+  last line as the moment the work stopped, with the live manager read appended as a clause that is
+  dropped when the bus does not answer
+
+- Why: the journal keeps the two facts apart and is readable by anyone, including a tick, with no
+  grant. `State 'stop-sigterm' timed out. Killing.` and `Killed unit cgroup ... with SIGKILL on
+  client request.` say not just that it was held but by what, which is the difference between
+  "shorten the ceiling" and "go reap it by hand" -- and the second is a manager write, so the
+  sentence has to name it rather than reach for it. The hold's start had to come from the unit's own
+  stdout and not from systemd: for a pass that exits 0 there is no `Main process exited` line at all,
+  measured on tonight's incident, and a read filtered `-t systemd` timed that 60-second hold as 0s
+  until it was widened. It is therefore an overestimate by whatever a silent pass does on its way out,
+  which is the conservative direction for an alarm. The three that lost, with what killed each: the
+  manager read mis-polarises -- `Result` records what the main process returned, not what the stop path
+  waited for, so it is right on tonight's clean-exit hold and wrong on 8 Nov, the incident named in the
+  ticket -- and a tick is refused the manager on principle (`.opencode/opencode.jsonc`: "systemctl is
+  the wrong verb here, whatever the subcommand"), so a read that needs the bus cannot be the read the
+  harness makes about itself; a watcher polling `SubState` answers only while someone is watching, which
+  is the failure mode #248 was filed about, and it costs a daemon; `Consumed ... over <n> wall clock` is
+  the activation's whole life, and the number wanted is the part after the pass stopped working -- 17
+  minutes of real work and 60 seconds of freeze are one figure to that line.
+
+- Checkpoint: 97b28e867bb5b5c0d7c68ae050591f92f5a6f193
+
+- Effect: `factory/common.sh` gains `factory_reap_lines`, `factory_reap_lastword`, `factory_reap_read`
+  and `factory_reap_line` beside `factory_timer_state`, plus `FACTORY_REAP_NOTICE_SECS` (5 s, three
+  orders of magnitude away from the 0.3 ms of a clean reaping) and `FACTORY_REAP_TAIL`;
+  `factory/factory.sh --status` prints `reaping:` between `unit:` and `trees:`. Against the live
+  journal of the real unit on this box it prints `HELD 1m00s to the stop deadline -- a descendant of
+  the pass ignored SIGTERM ... Ended 25m22s ago.` for the 00:56 incident, with the measured truth being
+  00:56:06.070895 to 00:57:06.252797, 60.18 s. It does not merge or publish anything; merging stays
+  the supervisor's, and the transient units this measurement created in the user manager are left for
+  a human to remove, because removing one is a manager write (`plock246-*`, named in the pull request).
+- Correction (`H-0119`, 11 Nov, on #283's red `verify`): what was decided here is unchanged; what was
+  wrong is the record of it, and it shipped. As committed at `a99762e` the four options above sat as an
+  indented bullet list under `Options:`, which is not this log's grammar --
+  `scripts/check-decisions.py:182` splits the field on `|`, so a nested list folds into ONE option and
+  the gate read `H-0118` as a decision with no alternative (`:183`), with the `Chose:` sentence naming a
+  fifth thing none of the options was (`:189`). `Checkpoint:` held the sentence "`pre-H-0118`, the two
+  functions in `factory/common.sh` and the `reaping:` line in `factory/factory.sh --status` with no
+  entry and no tests" instead of a sha, so the rollback target this entry named was not something
+  `git revert` can be pointed at (`:203` on the shape, `:448` if the shape had been right and the object
+  absent). The words "with no entry and no tests" described the tree at `97b28e8` accurately; a
+  checkpoint field is not prose, it is the argument to `git revert`. Reshaped in place, the per-option
+  rejections moved out of the option text into `Why:` the way every other entry in this log carries
+  them, and the checkpoint written as the sha its heading names. Corrected in a dated line rather than
+  silently, because this entry is cited as evidence outside this repository -- `gh pr view 283 --json
+  body` carries a "Measurements (`H-0118`)" heading and the five-row table -- and a silently corrected
+  decision log is indistinguishable from one that was always right. It was never caught before because
+  it was never read: the tick that wrote it said in its own pull-request body that the full
+  `make verify` had not run.
+
+## H-0119 · A red decision-log gate is fixed by reshaping the entry, never by editing the checker
+
+- Question: #283's `verify` check concluded FAILURE at `a99762e` -- `gh run view --job 130362623877
+  --log-failed` prints `make: *** [Makefile:103: verify] Error 1` with three refusals above it, all
+  three naming `H-0118`, and the same three reproduce in the worktree in two seconds with
+  `python3 scripts/check-decisions.py` (exit 1). Two readings are live: the entry is the thing that is
+  wrong, or the grammar the gate enforces is. Which moves, and what does a later reader of `H-0118` get
+  either way?
+
+- Options: reshape `H-0118` in place and leave no trace of the earlier shape | reshape it in place and
+  leave a dated `Correction` bullet on the entry, with this entry recording the cause | widen
+  `scripts/check-decisions.py` so an indented bullet list under `Options:` counts as options | rewrite
+  `H-0118` from scratch in today's wording, options and reasoning re-derived
+- Chose: reshape it in place and leave a dated `Correction` bullet on the entry, with this entry
+  recording the cause
+- Why: widening the checker is the option this repository has refused every time it has been offered,
+  and here the refusal is measurable rather than temperamental: both arms that fired are asserted in the
+  gate's own self-test (`scripts/check-decisions.py:563` asserts the one-option refusal, `:566` the
+  not-a-sha refusal), so admitting the shape that was just refused means deleting those cases, and a
+  gate that bends to the entry it refused is a suggestion. The checkpoint arm is the youngest rule in
+  that file and the one with this session's own failure in its docstring -- `:388` records forty-hex
+  checkpoints typed in and reported clean, which is why `:448` asks git rather than a regex; loosening
+  it to let prose through is exactly the case it was written for. Silent reshaping is refused by this
+  log twice over (`H-0086`'s `Why:` at `:2444`, `H-0094`'s at `:2945`: a silently corrected log is
+  indistinguishable from one that was always right), and the two corrections already in this file are the
+  shapes to copy: `H-0049` left a bold `Superseded in part by H-0049` pointer inside the entry it
+  corrected (`:1001`) and carried its own entry, and `H-0073` carries a dated `- Correction` bullet added
+  afterwards by `c5946d4`, signed with its own id, correcting itself rather than taking a new one. This
+  does both at once -- the correction detail sits on `H-0118` signed `H-0119`, and the repair takes an id
+  of its own -- because the repair had the thing the two precedents did not: a live alternative, loosening
+  the gate, that has to be refused where a reader will find it. Rewriting from scratch is refused because
+  `H-0118` is quoted outside this repository by #283's own body, so re-deriving its prose risks moving a
+  number a reviewer is reading (`60.18 s`, `4084 s`, `0.3 ms`) when the defect was in the field
+  boundaries, not the sentences. Tie-break 4: one file, no code, no gate. Tie-break 5: `git revert` of
+  the effect commit restores the original entry whole. Tie-break 6: `H-0114`, the entry immediately
+  above (`:3921`), is the neighbour that shows the shape -- `- Options: a | b | c`, each verdict argued in
+  `Why:` rather than inside the option text. What
+  lost: `H-0118`'s option lines no longer carry their own rejection inline, so reading the options alone
+  no longer shows why three of them lost; you have to read `Why:` for that, as with every other entry
+  here.
+- Checkpoint: 2e45d66a38a68b342820a7f7a1a1f26e026f55fe
+- Effect: `factory/DECISIONS.md` only -- `H-0118`'s `Options:` becomes four pipe-separated options and
+  gains a `Chose:` that is one of them verbatim, its three rejections move into `Why:`, its
+  `Checkpoint:` becomes `97b28e8`, the correction bullet above is appended, and this entry is added. No
+  code and no checker changed; no `scripts/mutations/*.json` anchor is touched, so the anchor sweep is
+  out of scope here and was not run -- it mutates the working tree in place and must never overlap a gate
+  run (#1807, the reason `H-0107` gives for not running it at `:3577`). Witness, both directions: `python3 scripts/check-decisions.py` at `a99762e` prints
+  three problems and exits 1; after this commit it prints `check-decisions: 150 entries across 2 log(s)`
+  and exits 0, and the checkpoint `H-0118` now names resolves as a commit through
+  `git cat-file --batch-check` instead of being asserted. Every citation the bullet and this entry add was
+  resolved by measuring before the commit rather than recalled, and three of them failed that check in the
+  first draft: `H-0117` does not exist in this log (the entry above `H-0118` is `H-0114`), `:567` is the
+  `n/a`-without-escalation arm and not the not-a-sha arm, and the `#1807` reason is `H-0107`'s, not
+  `H-0104`'s -- which is `H-0111`'s claim in its own title, that the citation audit is the half that finds
+  something. What it does not establish: that the rest of
+  `make verify` is green -- the run aborts at `Makefile:103` today, so every leg after it is untested at
+  this head until the log leg stops failing -- and it does not answer #283's own disclosed gap, the
+  missing selftest legs for the four `factory_reap_*` functions. Nothing here merges or publishes:
+  merging is the supervisor's.
+
+## H-0120 · The log collides a ninth time and `factory/common.sh` collides with it for the first time -- two independent intents at one anchor -- so the merge is judged by a zero-deletion diff against each parent and one plant per side
+
+- Question: `#283` reads `state=OPEN`, `reviewDecision=REVIEW_REQUIRED`, `mergeable=CONFLICTING`,
+  `mergeStateStatus=DIRTY` at head `1b7a660c38e16f65d23a0fe992f1a017092ea941` -- read back before
+  anything here was touched, with `gh pr view 283 --json number,title,state,headRefName,baseRefName,
+  headRefOid,mergeable,mergeStateStatus,reviewDecision`, and all four of the ticket's words confirmed by
+  that one call. `origin/main` moved `075dede` -> `1fedb2e` (PR #281, `issue-237`, #237's halt report)
+  while it sat open. `git merge-tree --write-tree --name-only origin/main HEAD` names TWO conflicting
+  paths -- `factory/DECISIONS.md` and `factory/common.sh` -- with `factory/factory.sh` and
+  `factory/selftest.sh` auto-merged. This is the ninth collision of the log class and the first time
+  `factory/common.sh` has joined it, and the two sides turn out to be independent: ours adds the reaping
+  read for #246 (`-U0` hunks `+315,17` and `+348,164`, 181 lines), theirs adds the halt-report composer
+  for #237 (`+331,67` plus one changed line at base 346), and BOTH insert at base offset 330 -- between
+  `factory_timer_state()`'s `}` and `factory_verdict()`'s doc comment -- so the text collides where the
+  intent does not. In the log, again, both sides appended at the same base offset (ours `-4059,0
+  +4060,144` = `H-0118`/`H-0119`, theirs `-4059,0 +4143,127` = `H-0115`, with theirs' `H-0113` at
+  `-3919,0 +3920,83` auto-merging because base has nothing of ours near it). And the same asymmetry as
+  `H-0096` and `H-0114`: the file that decides whether this branch's delivery is checked,
+  `factory/selftest.sh` (+489 non-blank lines from main, 0 from ours), auto-merged and therefore counted
+  rather than read. What is the deliverable -- a marker cleared, or proof that a leg from each side still
+  says no on the merged tree?
+
+- Options: take git's side-order layout and delete the markers | cut both files out of the two parent
+  blobs with `main`'s block first in each, and prove the cut by a zero-deletion diff against each parent
+  plus one plant per side | resolve `factory/common.sh` with `--ours` and re-land main's halt report as a
+  follow-up commit | renumber this branch's `H-0118` and `H-0119` above main's block so the log
+  concatenates | rebase onto `origin/main`
+
+- Chose: cut both files out of the two parent blobs with `main`'s block first in each, and prove the cut
+  by a zero-deletion diff against each parent plus one plant per side
+
+- Why: for the log the order is not ours to choose -- the shipped gate reads it as a history, and ordered
+  by id the tail is `H-0113`(main), `H-0114`(base), `H-0115`(main), `H-0118`(ours), `H-0119`(ours), so
+  git's side-order layout is exactly the one arrangement the gate refuses (the witness `H-0110`, `H-0111`
+  and `H-0114` all cite). For `common.sh` the order IS ours -- two definitions that call neither other --
+  and main's block was put where main has it, immediately above `factory_verdict()`, because that is what
+  makes a zero-deletion proof available on both files: nothing was rewritten, only ordered. Against
+  main's blob the cut is 180 insertions and 0 deletions for `common.sh` (181 lines added by this branch,
+  one blank separator absorbed where main's block already ends in one) and 145/0 for the log; against
+  ours it is 67/1 and 211/0, and the single deletion is main's own `factory_verdict` line, which is the
+  change #237 came to make. So the claim is checkable as arithmetic rather than as assurance: 2553 lines
+  in the merged `common.sh` = 2306 base + 181 + 67 - 1, 4414 in the log = 4059 + 210 + 144 + 1, and no
+  non-blank line either side wrote was edited. The composition then has to be attacked, because 0 missing
+  lines is equally consistent with a wrong merge. Two plants, each restored by `cp` and confirmed
+  byte-identical (never `git checkout`, which would resolve the in-progress merge and take the conflict
+  stages with it). Plant A strips the age out of main's sentence: 444 passed, 3 failed, and the three red
+  legs are `halt line: names the age`, `halt line: young is young` and `control: the halt restored freezes
+  it` -- main's intent is pinned on the merged tree. Plant B makes this branch's `factory_reap_line`
+  answer `unknown` unconditionally: 447 passed, 0 failed. That is a finding, not a pass: `grep -c
+  factory_reap factory/selftest.sh` is 0 on the merged tree, on main and on this branch, so nothing in any
+  suite reads the reaping line and the merge cannot have retired a leg that was never written. It
+  converts #283's own disclosed gap (`H-0119`, `make verify` after it) from an admission into a
+  measurement, and it is the reason the leg is filed as the next unit rather than left in a body: a
+  feature that prints a `HELD 60s to the stop deadline` alarm and has no leg is the same shape as every
+  guard this repository keeps writing gates for. Baselines line up with that reading -- main's `b080260`
+  is 447 passed 0 failed (`H-0115`'s own record), this branch contributes 0 legs, merged is 447 passed 0
+  failed, so the merge's leg delta is exactly zero and neither side's suite was quietly replaced. Two
+  things are carried unchanged and said here rather than discovered later: `factory_reap_lastword()` is
+  defined INSIDE `factory_reap_read()`'s body (`factory/common.sh:469`, inside the function starting
+  `:451`), which is this branch's own commit `a99762e` and not a merge artifact -- it runs, because the
+  definition is executed before the only call site, but it is not where a reader looks for it; and no
+  dependency, security property, publish or deletion is involved, so this is not one of the four classes
+  held for a person. Gate on the merged tree: `bash factory/selftest.sh` 447 passed 0 failed, `python3
+  scripts/check-decisions.py` 154 entries across 2 logs, `make verify` -> `verify: OK`.
+
+- Checkpoint: f44acaabb3cd46b874b447b9ab8b12d867b38310
+
+- Roll back: `git revert -m 1 <this merge commit>` -- a merge has two parents, so the mainline is the
+  first one; reverting it restores both conflicted files to their `1b7a660` contents and touches none of
+  this branch's own commits. Nothing here merges this pull request: merging is the supervisor's, and it
+  merges only what the API still reports approved, mergeable, clean and green at the moment of the merge.
+- Correction (`H-0123`, 11 Nov, on #283's review): what was decided here is unchanged and every count
+  in it reproduces; what is wrong is one parent's label and one total. Measured with `wc -l` on the
+  blobs at the four shas this entry names -- `factory/DECISIONS.md` is 4059 at `075dede`, 4269 at
+  `1fedb2e`, 4203 at `1b7a660`, 4486 at `0a3939d` -- so `4059 + 210 + 144 = 4413` is right, the `4414`
+  it prints is one line above that sum (which no blob can confirm on its own, because the cut and this
+  entry were committed together), and the merged file is **4486**: the entry doing the counting left
+  its own 72 lines (71 plus the blank before it, `4415..4486` of that blob) out of the sum it offered
+  as "checkable as arithmetic rather than as assurance". `factory/common.sh` is 2306 at `075dede`, 2373
+  at `1fedb2e`, 2487 at `1b7a660`, 2553 at `0a3939d`, so the printed identity `2553 = 2306 + 181 +
+  67 - 1` sums only because `2306 + 67 = 2373`: the word "base" belongs to `1fedb2e`'s 2373, and the
+  67 is main's own move already inside it. The spellings that name one parent each are `2553 = 2373 +
+  181 - 1` against the base and `2553 = 2487 + 67 - 1` against ours; both hold. Neither slip moves a
+  byte of content -- the zero-deletion diff against each parent is the stronger of the two proofs and
+  still stands -- and both are corrected in a dated line rather than silently, for the reason this
+  log has now given three times (`H-0086`, `H-0094`, and `H-0119` applying it to `H-0118`): a silently
+  corrected decision log is indistinguishable from one that was always right. It was found by #283's
+  reviewer re-measuring the head rather than by whoever wrote the sum, which is the same division of
+  labour `H-0111`'s title records.
+
 ## H-0121 · The log collides again with main's whole tail below this branch's, so the splice is one append at id position -- and the review's one-word slug fix is refused here because the read that settles it is denied to a tick
 
 - Question: `#282` reads `OPEN`, `reviewDecision=CHANGES_REQUESTED`, `mergeable=CONFLICTING`,
@@ -4405,6 +4640,270 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   (`H-0095`, `H-0097`), so whatever the API answers after this push is the API's verdict and belongs in the
   pull-request body beside the push, not in a record written before it.
 
+## H-0123 · The character holding the reaping number to the truth matches no line a journal contains, so the read now owns its own boundary -- and this box's live journal had already been answered `1s` for a 60.133 s hold
+
+- Question: #283's review (11 Nov, review `5856028275`, `CHANGES_REQUESTED` at head `0a3939d`, newer
+  than every commit on the branch) reports that the exclusion in `factory_reap_lastword`
+  (`factory/common.sh:474`) cannot match anything, and that the hold it guards is correct only when
+  the escalation happens to land inside the terminal second. Reproduced on this box first, because
+  the review's fixture is a fixture: `journalctl -o short-*` renders an author as `<comm>[<pid>]: `,
+  so systemd's lines read `systemd[4485]: `, and the pattern here was `/ systemd\([0-9]+\): /`. In
+  the live window of the 08:44 activation -- `END rc=0` at 08:44:08.869637, terminal line
+  `Failed to start parental-lockout-factory.service` at 08:45:09.002985, real hold **60.133 s** --
+  the escalation opens at 08:45:08.999972, one displayed second BEFORE the terminal line, so the
+  second-resolution anchor does not exclude it and the inert filter does not either. Running the
+  journal half as shipped, `factory_reap_lines | factory_reap_read`, returned `hold=1
+  how=deadline`. So the sentence `factory.sh --status` prints for the fault #246 exists to make
+  visible said the queue was held for one second. And this is not a rare shape here: 14 of the last
+  15 activations in this unit's journal ended in `State 'stop-sigterm' timed out. Killing.`, because
+  the leaked `winedevice.exe` is still leaking. What is the repair -- the character, the window, or
+  the read?
+
+- Options: change `(` to `[` and leave `--until` deciding the boundary | hand `--until` a microsecond
+  stamp (`-o short-iso-precise --utc`) and leave the boundary to `journalctl` | microsecond stamps
+  AND the read's own comparison, with `--until` demoted to a bound on how much is read | rewrite both
+  reads on `journalctl -o json` typed fields (`__REALTIME_TIMESTAMP`, `RESULT=`, `MESSAGE_ID`)
+  instead of rendered text
+- Chose: microsecond stamps AND the read's own comparison, with `--until` demoted to a bound on how
+  much is read
+- Why: the single character is necessary and not sufficient, and the live journal is the proof --
+  with the bracket pattern in place but the anchor still doing the bounding, the same window answers
+  60 only because every manager line except one sits in the terminal second, and the one that does
+  not (08:45:08.999972) is the line that produced `1s`. So option one passes the review's first
+  bullet and re-fails it the next time an escalation opens early, which on this box is 14 times in
+  15. Option two is refused for a testability reason, not a taste one: the exactness would belong to
+  `journalctl`, so any fixture that honours `--until` correctly is checking its own arithmetic and
+  nothing of the read's, and a build that rounds the anchor -- which this one demonstrably does at
+  the resolution of the stamp it is handed, `--until 2026-11-11T08:45:09+00:00` stopping the window
+  at 08:45:08.999972 -- puts the accident back with no leg able to see it. Option three makes the
+  comparison the code's own and therefore plantable: a fixture may hand over the whole stream and the
+  read still has to refuse the lines after the terminal one. Option four is the review's own
+  "not this slice's job", and tie-break 4 agrees with the review: the typed-field rewrite also
+  replaces the four English sentences `factory_reap_read`'s `case` matches on, which is a verdict
+  parser, not a window, and doing both in one commit would leave a review of #283 unable to tell
+  which half moved a number. It is named here so it stops being a footnote: the next unit after the
+  legs. Tie-break 3 is served by the same arm -- an empty window returns 1 and the line reads
+  `unknown`, never a clean read. Two things travel with the choice because the measurement demanded
+  them rather than for tidiness: `factory_reap_usec`, because the repaired filter printed `61s` for
+  the 60.133 s hold the moment it stopped being fed a truncated anchor -- the two stamps were being
+  truncated to their own seconds before subtraction, which is ±1 s on a number this file uses to
+  pick a verdict at `FACTORY_REAP_NOTICE_SECS=5`; and the move of `factory_reap_lastword` to top
+  level, because it was defined inside `factory_reap_read`'s body whose only call site is the right
+  end of a pipeline, so the definition was created in a subshell and died there (`type
+  factory_reap_lastword` after `factory_reap_lines | factory_reap_read` answers `not found`, the
+  review's measurement reproduced here) -- every leg that wants to replay one transcript through a
+  `PATH` stub is a call from outside, which is rc 127 as shipped. What lost: option three keeps a
+  *text* comparison where `journalctl` offers a typed field, so the fixed-width single-zone rendering
+  of `-o short-iso-precise --utc` is now load-bearing in a place it was not before -- `($1 "") >
+  (until "")` is an instant comparison only because both sides carry the same 32-character `+00:00`
+  form -- and that contract is pinned by a leg and by a comment rather than by a schema; option two
+  was two lines shorter; option one is what a 1 s error on a 60 s alarm looks like from the queue.
+- Checkpoint: c151347
+- Effect: `factory/common.sh` only. The exclusion is `/ systemd\[[0-9]+\]: /`; both reads ask for `-o
+  short-iso-precise --utc` (both flags present since systemd v239, checked against the upstream man
+  page at `v239`, `v246`, `v251`); `factory_reap_lastword` is a top-level definition that applies the
+  boundary itself; `factory_reap_usec` is new; `factory_reap_read`'s arithmetic, its `hold`/`age`
+  fields and its contract header, the `work`-line comment inside its loop, and `factory_reap_lines`'
+  docstring -- which claimed the filtered stream also carries the unit's own lines and is measured
+  above not to (0 of the 325 in the same window) -- are corrected. Witness, both directions, same
+  window, same box, same command (`factory_reap_lines | factory_reap_read` against the live user
+  journal): `hold=1` at `0a3939d`, `hold=60` after this commit, the truth 60.133 s. `bash -n` clean,
+  `shellcheck -S style` clean, `bash factory/selftest.sh` 447 passed 0 failed -- which is this
+  entry's own bad news and not a pass: the count is unchanged because no leg reads any of it
+  (`grep -c factory_reap factory/selftest.sh` is 0 at this commit), so the legs the review asks for
+  are the next commit and until they exist nothing here is guarded against being edited back. The
+  line-count identity `H-0120` states wrongly is left to a dated `Correction` bullet on that entry,
+  where a reader of it will find it, rather than folded in here. No dependency, no security
+  property, no publish, no deletion, so this is not
+  one of the four classes held for a person; nothing here merges or publishes -- merging is the
+  supervisor's.
+
+## H-0124 · The reaping read had two ways to run out of input and one of them printed a zero -- both answer unknown now, in two different sentences
+
+- Question: #283's review names this as the polarity follow-on inside the same function it filed as
+  blocking: when no process line is found, `factory_reap_read` fell back to `work=$term`, measuring
+  the hold from the terminal line to the terminal line. Measured here through the `PATH` stub the legs
+  will use, at `fd36792`, on transcripts with systemd's lines and nothing else -- because `-t systemd`
+  excludes the unit's stdout, that is what this function's own stream always looks like:
+
+  | the finished activation's stream | before | after |
+  | --- | --- | --- |
+  | `Starting`, `State 'stop-sigterm' timed out. Killing.`, `Failed to start` | `0 deadline` → `HELD 0s to the stop deadline -- a descendant of the pass ignored SIGTERM` | rc 2 |
+  | `Starting`, `Finished`, `Consumed` | `0 clean` → `reaped in 0s; the unit has been inactive for 6h08m` | rc 2 |
+
+  So the alarm printed a hold of zero seconds for a teardown it had not measured, and the healthy-case
+  sentence was one of the two outputs. The fallback was written as "nothing better available", but
+  after `H-0123` there IS a better source and it has already been asked: `factory_reap_lastword`
+  returned 1, which means the journal does not say when the work stopped. Is not-saying a fact about
+  the unit, or a zero to print?
+
+- Options: keep the fallback and call the printed hold a lower bound | refuse with a third exit code
+  and its own sentence | refuse with the same rc 1 the no-terminal-line arm already returns | raise
+  `FACTORY_REAP_TAIL` and the stub window until a process line is always inside them
+- Chose: refuse with a third exit code and its own sentence
+- Why: every other error this function can make runs upward -- an unread work line, a bounded window,
+  a pass whose chattiness pushed lines out of the tail all overestimate the hold, which is the
+  direction an alarm wants. This one runs to zero, and zero is the value the healthy case prints, so
+  the failure is indistinguishable from the thing it is meant to distinguish; `H-0118` chose the
+  journal over `Result=` for exactly this kind of reason and `#228` is the polarity in general -- a
+  read that failed is not evidence of the clean state. A lower bound (option one) is refused because
+  the number would sit in the same slot with the same typography and the only difference would be one
+  qualifier inside a sentence an operator reads once; this repository's refusals say what they mean in
+  their own sentence, the way `unknown` does here already. Option three is refused because the two
+  arms send a reader to different places: "no finished activation in the window" is a reason to look
+  at the timer, "it finished and the journal cannot say when its work stopped" is a reason to look at
+  the unit's stdout, and `factory_reap_line` has the manager's live state in the same line to make
+  either readable. Option four is refused on a measurement rather than a principle: the 08:44 pass
+  wrote 11 `DELIVERED` lines inside 60 ms, so bursts are how the arm gets reached in the first place,
+  and no finite window promises a line -- it only trades a silent unknown for a slower read. Tie-break
+  4: one file, no new tool, no manager call. Tie-break 5: `git revert` of the effect commit restores
+  the optimistic arm whole. What lost: a real hold can now be reported as unknown when the unit logs
+  nothing at all, and unknown does not alarm anybody -- mitigated only by the fact that the same line
+  carries the manager's live substate, which does know `activating` from `failed`; and a helper's exit
+  status now carries meaning in three values, which every future caller has to read, pinned by a leg
+  and not by a type.
+- Checkpoint: fd36792
+- Effect: `factory/common.sh` only. The fallback returns 2 instead of inventing a start point, a
+  work-stamp `date` cannot parse returns 2 for the same reason, `factory_reap_read`'s contract names
+  both codes and what each asserts, `FACTORY_REAP_TAIL`'s promise is symmetric now ("either END of the
+  measurement"), and `factory_reap_line` captures the pipeline's status rather than flattening it to
+  an empty string, printing a second unknown sentence for rc 2. Witness, the two transcripts above at
+  this commit: rc 2 both times, `HELD 0s to the stop deadline` and `reaped in 0s` both gone, the new
+  sentence reads `... finished, but nothing in the tail says when its work stopped ... so the hold is
+  unread, not zero`. The live journal is unmoved: `factory_reap_lines | factory_reap_read` still
+  answers `hold=60` for the 08:44 activation, because there the pass's own line exists.
+  `bash factory/selftest.sh` 447 passed 0 failed -- unchanged again, and for the same reason: no leg
+  reads any of this yet; the legs are the next commit, and until they exist both this arm and
+  `H-0123`'s exclusion can be edited back with the suite green. Nothing merges or publishes.
+
+## H-0125 · The legs replay a transcript through a stub `journalctl` with two personalities, and the second one is the only thing that can tell a read which owns its window from one that outsources it
+
+- Question: #283's review calls `H-0123`'s move of `factory_reap_lastword` to top level "a
+  precondition for the leg, not a cosmetic", and asks for three: the 11 Nov transcript, a control, and
+  one whose window holds a manager line in an EARLIER second than the terminal line -- the shape that
+  would have caught the bracket typo. #246 says the same thing from the other side: "the suite must
+  pass standalone with no host journal at all", so the legs cannot read this box. What is replayable,
+  given that `factory_reap_lines` and `factory_reap_lastword` each shell out to `journalctl` and the
+  parsing depends on how `journalctl` renders a line?
+
+- Options: fixtures under `$work` and a `PATH` stub, run in both a flag-honouring and a
+  flag-ignoring personality | boot a real journal into a `systemd-run --scope -p` sandbox and read it
+  with the real `journalctl` | stub `factory_reap_lines` only and hand `factory_reap_read` a pipe, so
+  no subprocess runs at all | drive `factory.sh --status` and assert on its prose
+
+- Chose: fixtures under `$work` and a `PATH` stub, run in both a flag-honouring and a flag-ignoring
+  personality
+- Why: option three is the tempting one and it is a trap -- it exercises the `case` and nothing else,
+  because the rendering (`<stamp> <host> <comm>[pid]: <message>`, which the parse splits on `"]: "`)
+  and the second `journalctl` call both live in `factory_reap_lastword`. Option two is refused on
+  cost and on a hard dependency: it needs a manager, and #246's whole premise is that the queue must
+  be diagnosable where the manager is not answering. Option four asserts on the sentence rather than
+  the number, which is how `H-0118`'s table got quoted as evidence for a reading nobody had tested.
+  The second personality is the part worth the entry. A stub that honours `--until` makes the
+  truncation of the anchor invisible: the read looks correct because `journalctl` did the bounding,
+  and `H-0123`'s point is that this box's `journalctl` truncates to the resolution of the stamp it is
+  handed (`--until 2026-11-11T08:45:09+00:00` stopping the window at 08:45:08.999972). `RP_DUMB=1`
+  implements neither `--until` nor `-n`, so every leg that reports the same shape both ways is
+  asserting the read survives a backend that does nothing for it. Measured, four plants against
+  `factory/common.sh`, each restored by `cp` and confirmed byte-identical: the inert `(` exclusion
+  turns SIX legs red including the live one; truncating each stamp to its own second in
+  `factory_reap_usec` turns three red; deleting the read's own comparison
+  `($1 "") > (until "")` turns exactly one red, `reap: nothing after the terminal line counts`, which
+  is the leg written for it; the `work=$term` fallback turns one red, `reap: no worker line is
+  unknown, not zero`. Two of the four were found by writing the fixtures rather than by the review,
+  and both are in the shipped text now. (a) The review's suggested `systemd\[[0-9]+\]`, applied as a
+  substring match anywhere in the line -- which is what `H-0123` shipped -- over-drops: a line from
+  the UNIT whose message quotes a manager line contains ` systemd[4485]: ` too, and on the
+  `reap: the exclusion matches a real rendering` transcript that form answers rc 2, unknown, for a
+  teardown the transcript plainly does describe. `factory_reap_line` prints such a quote itself
+  (`systemd: "State 'stop-sigterm' timed out. Killing."`), so this is not a hypothetical author. The
+  exclusion is now anchored to the field the author occupies, `/^[^ ]+ +[^ ]+ +systemd\[[0-9]+\]: /`,
+  which is also what the parse at `factory/common.sh:551` already assumes -- it requires `"]: "` in
+  the line and skips the line otherwise, which is why the reviewer's literal `systemd(4485): `
+  rendering was never a journal rendering and why the paren fixture this section first drafted
+  measured nothing: with parens the parser drops those lines before any filter runs. (b) The `case`
+  in `factory_reap_read` matches its cause sentences as substrings of the message, so a unit line
+  quoting `Failed with result 'timeout'.` sets the verdict word to `deadline` -- left as shipped,
+  because the quote does report the cause and changing it is a different claim than this entry's; the
+  fixture quotes a `Consumed` line instead and says so. Tie-break 4: no new tool, no manager, one
+  file plus the functions already written. Tie-break 5: `git revert` of the effect commit deletes the
+  section and nothing else. What lost: the stub accepts and discards `-u`, `-t`, `-o` and `--utc`, so
+  a leg cannot catch a wrong flag -- a missing `--utc` or a plain `-o short-iso` is caught only by
+  the live leg, and that leg prints `skip` on a machine with no user journal, which is the case #246
+  says must pass; and each transcript now costs up to two subprocess pairs, thirteen invocations for
+  eight legs.
+- Checkpoint: f2dc6b1
+- Effect: `factory/selftest.sh` gains eight legs between the skill-`--jq` section and the tally
+  (447 passed 0 failed at the checkpoint, 455 passed 0 failed here, the delta exactly this section,
+  `bash factory/selftest.sh` exit 0), and `factory/common.sh` gains the anchored exclusion plus the
+  docstring that says why an anchored match and not a substring one. Fixtures are this box's real
+  stamps -- 60.133 s, 0.517 ms, 5.2 s -- with the unit renamed `plrev283b.service`, the name #283's
+  review used. `python3 scripts/check-scripts.py` clean, `shellcheck -S style` clean on both files,
+  `python3 scripts/check-mutations.py` 847 mutants apply and compile. The checkpoint itself is a
+  finding: the first attempt at it, `70e6797`, was made with `git add -A` and so committed the effect
+  INTO the checkpoint -- the "checkpoint taken afterwards records the state the decision produced"
+  failure `AGENTS.md` names, caught before any push (the branch was 5 ahead, nothing published),
+  undone with `git reset --soft HEAD~1` plus `git restore --staged` so the effect returned to the
+  working tree, and re-taken as the empty `f2dc6b1` whose parent is `88451d9`; `70e6797` survives in
+  the reflog. `make verify` is not run by this entry and is owed before the branch is pushed. Nothing
+  merges or publishes: merging is the supervisor's.
+
+## H-0126 · The live half of the reaping line threw away the labels that make it readable, and printed the healthy sentence for a unit the manager never loaded
+
+- Question: #283's review's second non-blocking row, measured independently by whoever wrote it:
+  `factory_unit_state` pipes `systemctl show` through `sed -n 's/^[A-Za-z]*=//p'`, so the clause reads
+  `parental-lockout-factory.service inactive dead success [not set]`; `systemctl show` answers in its
+  own order rather than the requested one (asked `ActiveState SubState TasksCurrent Result`, received
+  `ActiveState SubState Result TasksCurrent`), so the bare values are positionally ambiguous as well
+  as unlabelled; asked about `no-such-unit.service` -- a unit the manager has never loaded -- the same
+  four properties answer the same `inactive dead success [not set]`, which is the live half of a
+  healthy `reaping:` line about a unit that does not exist; and `H-0118`'s `Effect:` says the clause
+  prints `SubState=stop-sigterm TasksCurrent=10 MainPID=0` when `MainPID` was never in the `-p` list.
+  Is a clause that must be memorised to be read an acceptable reading of the one field that can see a
+  hold while it is happening, and which property tells `not-found` from idle?
+
+- Options: keep the strip and ask one property per call so the order is the one asked | keep the strip
+  and add `LoadState` as a fifth bare value | print `key=value` as answered, and ask for `LoadState`
+  and `MainPID` as well | leave the clause alone and correct `H-0118` to say it never carried `MainPID`
+- Chose: print `key=value` as answered, and ask for `LoadState` and `MainPID` as well
+- Why: the strip costs the reader a lookup table and buys nothing -- the clause is the end of a
+  sentence, not a field a program parses, and a program that did want to grep it wants exactly
+  `SubState=stop-sigterm`, which the stripped form cannot express. One call per property (option one)
+  buys an order nobody asked for at six times the manager calls, on the one read whose docstring says
+  it must stay off the bus when the bus is contested. Labels are also the only fix that survives the
+  order not being contractual: `systemctl show` owes nobody the sequence, so pairing each value with
+  its key is what makes the order stop mattering rather than making it correct by luck. `LoadState` is
+  the property that separates "never loaded" from "idle", and the distinction is this file's own
+  standing argument -- #228 is "a read that failed is not the clean state", and a live half that says
+  the healthy words about a unit nothing can load is that failure in the half the review could not
+  raise as blocking. Option four was the cheap way out and it is refused: `MainPID=0` beside
+  `TasksCurrent=10` -- main process gone, cgroup not empty -- is the 8 Nov outage in two fields, the
+  pair `H-0118` measured and the pair an operator needs, so making the claim true is worth more than
+  documenting it false. Tie-break 3 is unchanged and deliberate: one `systemctl` call, `|| out=''`, the
+  clause vanishes when the bus is unreachable and the journal half still answers. Tie-break 5: one
+  revertable commit, nothing published. What lost: the clause grows from 31 to 102 characters for the
+  shipped unit (measured here, both against the live manager), and anyone scripting against the
+  stripped form loses it -- there is no such script, `factory_reap_line` is the only caller. The
+  legs' stub had to learn to read its own `-p`
+  arguments: a stub that answered the whole property set whatever it was asked let a dropped `-p` look
+  present, and that is exactly the arm `reap: not-loaded is not healthy` exists to notice -- found by
+  planting it, not by reading.
+- Checkpoint: 7221336
+- Effect: `factory/common.sh` (`factory_unit_state` and the comment above it) and `factory/selftest.sh`
+  (three legs, `reap: the last-words read is reachable`, `reap: the live half names its keys`,
+  `reap: not-loaded is not healthy`; the stub `systemctl` now answers only the properties it is asked
+  for, in the order systemd answers rather than the order asked). `bash factory/selftest.sh` 458 passed
+  0 failed against 455 at the checkpoint -- the delta is these three -- and `shellcheck -S style` clean
+  on both files. Four plants, each restored by `cp` and confirmed byte-identical: `factory_reap_lastword`
+  moved back inside `factory_reap_read` (the `0a3939d` shape) turns exactly one leg red and the leg
+  prints the reviewer's own number, `rc=127`; `sed -n 's/^[A-Za-z]*=//p'` restored turns two red; `-p
+  LoadState` removed turns two red; `-p MainPID` removed turns one red. #283's Blocking 2 is therefore
+  now pinned rather than merely fixed: at `050f25d` the move was real and no guard measured it, which
+  is the same difference between a fix and a guard that this log keeps writing about. `docs/factory.md`
+  is corrected in the same push, one commit later, so the page's owed-thing paragraph and the
+  measurement that retires it are separable: it now owes only the manager write, carries the
+  five-row hold table, and says where every number on the `reaping:` line comes from. No dependency, no
+  security property, no publish, no deletion. Nothing here merges -- merging is the supervisor's.
 ## H-0127 · The team slug moved under the branch, so the shipped default follows the dated re-measure rather than the 8 Nov name
 
 - Question: #282's review at `2026-11-11T09:15:23Z` says the shipped default `FACTORY_REVIEWER_TEAM=cinemaitor`
@@ -4441,3 +4940,108 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   that entry existed, with the 132/110-line and offset re-measure beside it. Gate at this worktree:
   `factory/selftest.sh: 469 passed, 0 failed`; `check-decisions: 154 entries across 2 log(s)` before this entry
   was appended and the final gate below quotes the post-entry run; `make verify` last line `verify: OK`.
+
+## H-0128 · The log collides again and this time each side has entries on both sides of the other's, so the splice is a sort by id -- and the disjointness census only means anything if it counts main's zero-count hunks, which a `-U0` parse that drops `,0` reports as main changing nothing
+
+- Question: `#282` reads back `OPEN`, `reviewDecision=CHANGES_REQUESTED`, `mergeable=CONFLICTING`,
+  `mergeStateStatus=DIRTY`, `headRefOid=4115b23` -- asked before anything here was touched -- with five
+  checks `completed`/`success` (`verify`, `shellcheck`, `mutation sets`, `packages (amd64)`,
+  `packages (arm64)`) and `reviewRequests` answering `[{"__typename":"User","login":"hermesvicowa"}]`, so
+  one request IS outstanding; `--jq '[.users[].login]'` answers `cannot iterate over: null` because these
+  rows carry `login` directly, and a tick that reads `null` and concludes "nobody asked" is wrong. The two
+  `CHANGES_REQUESTED` reviews are `submittedAt` `06:39:41Z` and `09:15:23Z`; this head was committed
+  `09:41:05Z`, so the newer thing is the commit and the second review -- whose whole ask was the one-word
+  slug change -- is the one `H-0127` answers at `factory/common.sh:88`. `origin/main` moved `1fedb2e` ->
+  `e1633e1` (PR #283, `issue-246`) while the pull request sat: `git rev-list --left-right --count
+  HEAD...origin/main` answers `10 16`. `git merge-tree --write-tree --name-only HEAD origin/main` conflicts
+  ONE file, `factory/DECISIONS.md`, and auto-merges four that carry the checks -- `docs/factory.md` (main
+  +53/-6 since base, ours +34/-3), `factory/common.sh` (+296/-0, +100/-7), `factory/factory.sh` (+6/-0,
+  +40/-12), `factory/selftest.sh` (+434/-0, +598/-4) -- `H-0096`'s silent half again. The log shape is
+  `H-0114`'s hard instance, not `H-0121`'s easy one: base ends at `H-0115` (4269 lines), this branch appends
+  `H-0116`, `H-0117`, `H-0121`, `H-0127` (4443 lines), main appends `H-0118`, `H-0119`, `H-0120`, `H-0123`,
+  `H-0124`, `H-0125`, `H-0126` (4769), and each side has entries on both sides of the other's -- ours below
+  main's `H-0118` (`H-0116`/`H-0117`) and between main's `H-0120` and `H-0123` (`H-0121`), main's below our
+  `H-0127`. So the deliverable is the sort that clears the marker plus the count that says no line either
+  side wrote was edited, and a third thing this shape asks: does either side's intent depend on the other's,
+  when `H-0127` moved a shipped default in the same file main's 296 new lines sit in?
+- Options: take git's side-order layout and delete the markers | cut the merged log at id position out of the
+  two parent blobs and count every line either side added | resolve with `--ours` or `--theirs` | renumber
+  this branch's `H-0121` and `H-0127` above main's block | rebase onto `origin/main` | read both diffs and
+  settle the intent question by grepping main's diff for the thing `H-0127` moved
+- Chose: cut the merged log at id position out of the two parent blobs and count every line either side added
+- Why: the order is the shipped gate's, both layouts are the same length, and the gate says which one it
+  accepts. Git's side-order layout -- this branch's tail, then main's seven entries -- is 4942 lines and
+  answers SEVEN problems at exit 1, `…/sideorder-log.md:4444: H-0118 is out of order (H-0127 came before it)`
+  and the same sentence for `H-0119`, `H-0120`, `H-0123`, `H-0124`, `H-0125`, `H-0126`; the id-ordered cut is
+  the same 4942 lines and answers `check-decisions: 123 entries across 1 log(s)` at exit 0, and `sort` of the
+  two files is byte-identical, so they hold the same lines in a different order and nothing but the order is
+  being argued (the witness `H-0110`, `H-0111`, `H-0114` and `H-0121` cite). `--ours`/`--theirs` are
+  arithmetic, not taste: `--theirs` deletes the 174 lines that ARE this branch's four entries -- the whole
+  record of #241, `H-0127` included, which is the answer to the review outstanding on this very pull request
+  -- and `--ours` deletes main's 500, the record of #283, which merged into `main` an hour ago. Renumbering
+  is owed to nobody: nothing collides (`grep -c '^## H-0118 '` is 0 in ours and 1 in main; `'^## H-0123 '`
+  likewise; `'^## H-0127 '` 1 and 0) and `H-0116`'s `Id:` line already paid that cost once. Rebasing is
+  refused by the remote rather than by habit -- `git rev-parse origin/issue-241` answers `4115b23`, so a
+  rewrite needs the `--force` `.opencode/opencode.jsonc` withholds from a tick, while a merge is undone by
+  `git revert -m 1` back to the checkpoint (tie-break 5), and tie-break 4 lands here too: one file of five
+  touched is resolved by hand.
+- Checkpoint: 2504b6f23292ca4e447d7333870f09557d947268
+- Effect: one file resolved by hand, cut by line range out of the two parent blobs rather than spliced out of
+  the conflicted file. The prefix `1..4270` is byte-identical in the two blobs (`diff` of those ranges empty,
+  which is what makes taking it from either side safe), then, in id order: ours `4271..4292` (`H-0116`,
+  `H-0117`), main `4271..4505` (`H-0118`..`H-0120`), ours `4293..4407` (`H-0121`), main `4506..4769`
+  (`H-0123`..`H-0126`), ours `4408..4443` (`H-0127`) -- 4942 lines and 123 `H-` entries, as counted BEFORE
+  this entry was appended. The two-way census is the whole claim that both intents survived: `diff` against
+  main's blob is THREE add-only hunks -- `4270a4271,4292` (22 lines, our `H-0116`/`H-0117`),
+  `4505a4528,4642` (115, our `H-0121`) and `4769a4907,4942` (36, our `H-0127`) -- and `diff` against ours is
+  TWO add-only hunks -- `4292a4293,4527` (235, main's `H-0118`..`H-0120`) and `4407a4643,4906` (264, main's
+  `H-0123`..`H-0126`). Zero deleted lines in either direction, so nothing either side wrote was edited, only
+  placed. After this entry is appended -- measured at its final length, so the two numbers below are the
+  ones a re-run prints -- `diff` against ours gains a third add-only hunk, `4443a4943,5047` (105 lines), and
+  `diff` against main's last hunk grows to `4769a4907,5047` (141 lines, this entry plus `H-0127`); deleted
+  lines stay ZERO in both directions, and the pre-entry census above is labelled as pre-entry rather than
+  left to be discovered (`H-0121`'s omission, corrected at `H-0127`).
+- The census that would have lied, and the one line that fixes it. Measuring `H-0096`'s silent half by pulling
+  `-U0` hunk headers with `@@ -(\d+)(?:,(\d+))?` and skipping an empty count reports main changing NOTHING in
+  three of the four auto-merged files -- 0 hunks in `factory/common.sh`, `factory/factory.sh` and
+  `factory/selftest.sh` -- because a pure insertion is `-N,0` and a zero-count range is exactly what that
+  filter drops. An intersection of zero against an empty list is then a green that proves nothing about the
+  files carrying the checks, and `H-0121`'s method, repeated verbatim, is that filter. Counted with the
+  `,0` arm kept, main has one hunk in `factory/factory.sh` (base `147`) and `factory/selftest.sh` (base
+  `9795`), two in `factory/common.sh` (base `314`, `397`) and two in `docs/factory.md` (base `352`,
+  `354-358`), against this branch's eleven (from `233`), eight (from `4388`), two (`54-58`, `769-770`) and
+  six (from `54`) respectively -- and the two sides' base ranges intersect in NONE of the four files. No
+  function name is defined by BOTH sides (`comm -12` over the `+name()` lines: main's six new functions in
+  `factory/common.sh` against our one; main's `reap_leg_*` x11 and `rp_*`/`want` helpers against our
+  `poke_*`/`preflight_*` x22 in `factory/selftest.sh`), and the only function the merged suite defines twice,
+  `emit()`, is defined twice in BOTH parents as well -- pre-existing, not a merge artifact.
+- The intent question, measured rather than assumed, because this is the first collision where one side moved
+  a value the other side's tests could plausibly pin: `git diff 1fedb2e origin/main` contains ZERO
+  occurrences of `cinemaitor` and ZERO of `FACTORY_REVIEWER`, so #283's 296 new lines in `factory/common.sh`
+  do not read the default `H-0127` moved, and the merged tree still ships `FACTORY_REVIEWER_TEAM=${...
+  -workers}` at `factory/common.sh:88` with the 8 Nov `cinemaitor` readings left where they are labelled
+  history (5 comment lines there, 12 in this log). Both halves' legs run on the merged tree:
+  `factory/selftest.sh: 480 passed, 0 failed`, of which 11 lines are main's `reap_leg_*` and 16 this
+  branch's `poke_*`/`preflight_*`, and `python3 scripts/check-decisions.py` answers `check-decisions: 162
+  entries across 2 log(s)` at exit 0 with `--self-test` at exit 0.
+- What those numbers do NOT establish. `480` is this box at this head; `H-0127` recorded `469` for this
+  branch's own pre-merge head here and the reviewer's box read `459` for that same commit, which is
+  `H-0104`'s box dependence, so `480 - 469 = 11` matching main's eleven new reap legs is a consistency check
+  and not proof that every leg passes elsewhere. And no leg was attacked on this merged tree: disjointness
+  plus a green suite says the two halves do not contradict each other, not that each still fails when its own
+  rule is removed -- that attack is one leg per side on the merged tree and the `make check-mutations`
+  battery, and it belongs to the next unit on this branch in its own uninterrupted run, never beside
+  `make verify` in this tree (measured 4 Nov on `wt-206`, and `H-0121` says the same).
+- NOT in this commit, and that is the decision. It does not re-take the org team read (`gh api` is denied to
+  a tick), so nothing here changes the slug again: `H-0127`'s dated re-measure stays the record and the
+  shipped value stays whatever `workers` resolves to when a token holder re-reads it. It does not build the
+  403/404 preflight guard that `H-0127` left open on purpose -- a behaviour change parked inside a conflict
+  resolution makes `git revert -m 1` of that conflict the wrong size (tie-break 5). It does not answer the
+  review with `gh pr review` or `gh pr merge`, both denied: `#282`'s `reviewDecision` is `CHANGES_REQUESTED`
+  written at `6577ba1`, this push spends that standing regardless (`H-0095`, `H-0097`), and the re-review is
+  the reviewer's verdict, so whatever the API answers after this push belongs in the pull-request body beside
+  the push, not in a record written before it.
+- Roll back: `git revert -m 1 <this commit>` -- the merge brings main's sixteen commits and nothing else, and
+  this branch's own work sits in the first-parent chain (`93ab835`, `aa1c82f`, `63464a4`, `4115b23`).
+- Nothing here merges this pull request: merging is the supervisor's, and it merges only what the API still
+  reports approved, mergeable, clean and green at the moment of the merge.
