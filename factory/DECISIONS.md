@@ -5127,3 +5127,92 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   runs `factory.sh` as a process" is false at the tip and the text scan it asks for is the weaker of the
   two checks -- this branch's legs are process legs for that reason. No dependency, no security or
   tamper-resistance semantics, no publish, no deletion. Nothing here merges -- merging is the supervisor's.
+
+## H-0130 · The queue said "the work is already written" about a branch whose whole delta against `main` is zero bytes, and the honest deliverable was a draft nobody is asked to merge
+
+- Question: `factory/factory.sh:675` dispatched this unit as `branch_without_pr` at `issue-249` with
+  the standing sentence "The work is already written. Assess it against the gate, then open its pull
+  request. If the work should be dropped instead, open the pull request anyway and say so in its
+  body." The assessment says the sentence's subject does not exist. The branch's one commit ahead of
+  `origin/main` is `f64ddcd`, a `git commit --allow-empty` rollback checkpoint -- `git show --numstat`
+  prints no file list and `git diff --stat c98f75f f64ddcd` prints nothing. The change it was cut for
+  merged on 9 Nov as #252 (`mergedAt 2026-11-09T19:13:21Z`, head `c98f75f`, merge commit `93ee5f6`,
+  the issue 2 seconds later in `state: CLOSED`), GitHub deleted the head ref at the merge
+  (`git ls-remote origin refs/heads/issue-249` prints nothing), and after `git merge --no-edit
+  origin/main` the branch's total content delta against the trunk is empty. Both endings the sentence
+  offers -- deliver the work, or open a pull request that says the work should be dropped -- describe
+  an object with nothing in it. What is delivered, and by which artifact?
+
+- Options: delete the leftover local ref and record the drop in this file alone | open a ready pull
+  request from the branch as it stands, a zero-byte diff offered for merge | open a **draft** pull
+  request carrying this entry and no code | open nothing, comment on the ticket, and stop | escalated
+  to a maintainer
+
+- Chose: open a **draft** pull request carrying this entry and no code
+
+- Why: option one is the exact failure the dispatch sentence was written to end -- "a branch that is
+  dropped only in a local log is indistinguishable from one that was never attempted" -- and it does
+  not even work as a mechanism. `factory/triage.sh:758` drops a `branch_without_pr` row exactly when
+  an open pull request's `headRefName` equals the branch name; a comment, a journal line and a log
+  entry are all invisible to it, so the next pass re-offers the same assessment. Only a ref deletion
+  or a pull request stops the queue, and deleting a ref is the class of act this repository keeps away
+  from an unattended unit (tie-break 5, the same asymmetry as
+  `allow_squash_merge=false`/`allow_rebase_merge=false`) -- with a reason on this particular ref: a
+  sibling `backup/issue-249-session` was cut from the same session, so the tree behind it was
+  deliberately copied by a person and the copy on `main`'s side of the merge is not the only thing
+  anybody wants from it. Option two asks a reviewer for a decision about nothing and, if granted,
+  writes a permanent no-op merge commit into `main` for a diff that changes no file. Option four is
+  what has effectively already happened twice -- the ticket is answered and the queue still dispatches
+  at the branch -- because the classifier reads pull requests, not conversation. Option three is the
+  only write that reaches the classifier and costs nothing the others do not also cost. It was
+  verified rather than assumed at this head: `gh pr list --state open --json number,isDraft` returns
+  `{"number":285,"isDraft":true}`, so a draft *is* in the list `triage.sh:124` builds with
+  `gh pr list --state open --limit 100` and `:758` consults, and the row stops; and
+  `triage.sh:285-286` classes a pull request marked draft as `draft` before it reaches any review arm
+  while `factory/factory.sh:1135` puts `draft` in the wait arm -- so the branch becomes visible to
+  every queue that reads pull requests while asking no reviewer for anything and offering the
+  supervisor nothing to merge. That answers the objection to opening a pull request at all: a ready
+  one would put a zero-byte diff into the review queue that `H-0116` exists to keep honest.
+  Tie-break 6, the option the surrounding work already takes: `backup-tip` arrived at this same shape
+  on 11 Nov in #285 -- "A disposition record, not a candidate" -- for the same reason and with the
+  same reasoning, arrived at in another worktree without sight of this one.
+  The branch was also given `git merge --no-edit origin/main` (187 commits) before this entry. Not to
+  manufacture work: `factory/DECISIONS.md` gains at its tail and the trunk's copy carries 125 entries
+  against this branch's 57, so a bare append here is a guaranteed conflict that the supervisor would
+  then have to be dispatched to resolve, and a merge is the forward-only way round it (`git revert`
+  still undoes everything after it; nothing is rewritten, nothing is force-pushed). The proof the
+  merge carried no intent of its own is `git diff --stat origin/main..HEAD`, empty.
+
+- Checkpoint: a2bb1382922cbf1bd9f271136c069e19ef3c2ec4
+
+- Effect: this file, one entry, plus three tracker writes -- each performed and read back *before*
+  this line was written, per the rule that an `Effect:` field naming an unwritten artifact is a
+  prophecy. (1) **#291** carries the defect: `triage.sh:124` reads open pull requests only, so a
+  merged one does not count as delivery, and `:761` measures "ahead" with `git rev-list --count`, so a
+  content-free checkpoint is a work unit; with the blast radius over all 49 local refs (34 are a merged
+  pull request's leftover, exactly 1 is ahead of `main`, and its content measures `files=0`) and three
+  legs to pin it. Because an `--allow-empty` checkpoint is what Step 4 of
+  `.opencode/skills/factory/SKILL.md` *requires* before every judgement call, every tick killed between
+  its checkpoint and its effect commit leaves this shape behind, which is what `f64ddcd` is: reserved
+  as `H-0062` at 18:39Z on 9 Nov, never written here, and `H-0062` on `main`
+  (`factory/DECISIONS.md:1235`) is a different decision. (2) A comment on #249 with this ticket's four
+  requirements measured on `main` today -- `factory_supervisor_lines` run against a fixture moved
+  through at-trunk / 3-behind / behind-and-forked / unreadable, printing `SUPERVISOR-AT`,
+  `SUPERVISOR-STALE … 3 commits ahead`, `SUPERVISOR-STALE` with `SUPERVISOR-FORKED … a fast-forward is
+  not available on a fork`, and `SUPERVISOR-UNKNOWN` -- read back as `issuecomment-6796549664`, comments
+  2 to 3, body byte-identical to the file except GitHub's one added trailing newline; it names what the
+  probe does not establish, including that `install-timer.sh --install` was not run because installing
+  is a manager write. (3) The draft pull request this branch is pushed into; `gh pr list --head
+  issue-249 --state all` names it, and its body is the artifact that quotes the gate, because it is
+  written after the run rather than before it -- `verify: OK`, exit 0, at `06adcae` (the post-merge
+  head: 187 commits of `main`, zero content delta), with `check-decisions: 164 entries across 2 log(s)`,
+  `factory/selftest.sh: 488 passed, 0 failed` -- that suite is `Makefile:113`, so the legs at
+  `selftest.sh:7186-7259` and `:7325-7360` that pin #249's marks ran inside the quoted result -- and
+  `check-deps: stdlib only`. Nothing here merges: merging is the supervisor's, and what should happen
+  to this pull request is that a person reads the body and closes it without merging. What lost, stated
+  as measured: the ref stays, so `git for-each-ref refs/heads/` keeps one more line than the trunk
+  needs until a person removes it -- `git worktree remove` plus `git branch -d` is the human's two
+  commands, and this entry is the record that says they are safe to run; the draft occupies a row in
+  `gh pr list --state open` until then, which is the cost of making a nothing visible; and the defect
+  itself is not fixed here, because a rule edited in a branch cut 187 commits behind `main` cannot
+  reach `triage.sh` or a leg, and #291 is where that work belongs.
