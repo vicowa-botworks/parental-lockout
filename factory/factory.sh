@@ -16,7 +16,8 @@
 #   merge_now          merge, after reading    bash, never a model
 #   conflict           merge origin/main in    bash when git resolves it, else one tick
 #   awaiting_review    wait, re-poke, notify   bash, throttled
-#   unclaimed          implement               one tick
+#   unclaimed          implement               one tick (a refused merged claim rides in the
+#                                              instruction as `[merged:PR#…]`, never as a verdict)
 #   address_review     respond to review       one tick, WITH the ask in its prompt
 #   checks_failing     fix red checks          one tick
 #   branch_without_pr  assess stranded work    one tick
@@ -603,6 +604,37 @@ factory_tick() {
 	unclaimed)
 		branch="issue-$key"
 		id_line="Issue #$key: $detail"
+		# The classifier's refused-claim note (#277): a merged pull request named this issue and the
+		# sole-claim / `Part of` arms refused the claim, which is why the row is `unclaimed` rather
+		# than `delivered`. The refusal is the honest half; saying nothing about it was the dishonest
+		# half, because the tick then had no way to know the question had already been asked of a
+		# merged body. Measured: `TICK-START unclaimed:235 2026-11-10T22:57:23Z` to `TICK-DONE
+		# 23:14:23Z`, seventeen minutes to work out that PR #238 had delivered #235 three days
+		# earlier, from a row that carried nothing but the title.
+		#
+		# Matched at the START of the detail, against the same literal the classifier writes
+		# (`FACTORY_MERGED_MARK`), because the rest of the column is a title somebody typed: a title
+		# that happened to contain the token must not be able to buy itself an instruction.
+		case "$detail" in
+		"$FACTORY_MERGED_MARK"*)
+			id_line="$id_line
+
+The bracketed note above your title is a REFUSED claim, not a verdict. A merged pull request named
+this issue and the classifier declined to read that as delivery -- the note says which pull request,
+on which branch, when it merged, and which rule refused it. It is not evidence the ticket is done and
+it is not evidence it is not: a body naming several issues does not say which of them it finished,
+and \`Part of\` says only that some of it landed.
+
+So read it before you write anything. \`git log --oneline origin/main\` and \`gh pr diff <N>\` for the
+number in the note, then hold what that pull request changed against each requirement in the ticket.
+If every requirement measures as met on \`main\`, that is the case
+\`.opencode/skills/factory/SKILL.md\` calls \"already satisfied by \`main\`\": measure it rather than
+quoting the old pull request's body, post the measurements on the issue, file whatever the
+measurements show is still owed as its own issue, and stop at the gate before touching code. If a
+requirement is missing, build that requirement and only that. Either way say in the pull request, or
+in the comment, which merged pull request you read and what you found in it."
+			;;
+		esac
 		;;
 	branch_without_pr)
 		branch=$key

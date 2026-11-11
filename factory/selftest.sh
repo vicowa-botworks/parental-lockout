@@ -4208,18 +4208,22 @@ exit 78
 CLAIMRUNTIME
 chmod +x "$claim_bin/opencode"
 
-# The live payloads, abridged as described in the header. The bodies are GitHub's own text.
+# The live payloads, abridged as described in the header. The bodies are GitHub's own text, and the
+# `headRefName` values are GitHub's own too -- read back per pull request with
+# `gh pr view <N> --json number,headRefName,mergedAt,baseRefName` on 11 Nov, not guessed from the
+# issue numbers. They do not all agree with the issue a body names, and that is the fact #277 is
+# about: #229 was branch `issue-199` while naming four issues, and #240/#243 sit on the same branch.
 cat >"$claim_fix/pr-merged.json" <<'JSON'
 [
- {"number":234,"baseRefName":"main","mergedAt":"2026-11-08T14:26:31Z",
+ {"number":234,"baseRefName":"main","headRefName":"issue-232","mergedAt":"2026-11-08T14:26:31Z",
   "body":"fix(factory): a read that answered at its success status said it could not open the file\n\nRefs #232.\n"},
- {"number":231,"baseRefName":"main","mergedAt":"2026-11-08T07:08:17Z",
+ {"number":231,"baseRefName":"main","headRefName":"issue-228","mergedAt":"2026-11-08T07:08:17Z",
   "body":"fix(factory): the dirt verdict asks a content question, so a killed mutation run no longer halts the queue\n\nRefs #228.\n"},
- {"number":229,"baseRefName":"main","mergedAt":"2026-11-08T01:33:46Z",
+ {"number":229,"baseRefName":"main","headRefName":"issue-199","mergedAt":"2026-11-08T01:33:46Z",
   "body":"feat(web): the navigation is in the palette and marks the page you are on\n\nRefs #199. Refs #204. Refs #207. Refs #213.\n\n## What this branch does not finish\n\n`#204` stays open on purpose, and two things it owns are not here: name the root page once, and the skip link.\n\n`#213` is untouched as an audit.\n"},
- {"number":227,"baseRefName":"main","mergedAt":"2026-11-08T01:44:14Z",
+ {"number":227,"baseRefName":"main","headRefName":"issue-222","mergedAt":"2026-11-08T01:44:14Z",
   "body":"fix(capture): a frame this run did not take keeps the rev its bytes were rendered from\n\nRefs #222.\n\n### Why `#222` was reopened\n\nIt was closed as satisfied row by row, and every row was about `capture`. The row that is wrong is the field the gate reads.\n\n### What stays open, stated rather than glossed\n"},
- {"number":218,"baseRefName":"main","mergedAt":"2026-11-06T00:02:30Z",
+ {"number":218,"baseRefName":"main","headRefName":"issue-202","mergedAt":"2026-11-06T00:02:30Z",
   "body":"feat: packages and a release process\n\nCloses #202.\n\nNot here: #149's per-control commit policy.\n"}
 ]
 JSON
@@ -4332,6 +4336,40 @@ claim_detail_has() { # claim_detail_has <key> <needle>
 	*"$2"*) return 0 ;;
 	esac
 	printf '            key %s detail is: %s\n' "$1" "$d" >&2
+	return 1
+}
+claim_row_says_nothing_about() { # claim_row_says_nothing_about <key> <phrase>
+	# The negative twin of the one above, and the row has to be THERE for "nothing" to mean anything:
+	# a row that vanished would pass every absence test in this file, which is the trap #235's own
+	# report calls the worst outcome ("an issue that vanishes from the table is work nobody looks
+	# for again"). Note the marker is absent from the WHOLE row, not just the detail -- a note that
+	# leaked into another column would be a field-boundary bug worth failing on.
+	local row
+	row=$(row_for "$1")
+	[ -n "$row" ] || {
+		printf '            no row for %s, so "says nothing" would be vacuous\n' "$1" >&2
+		return 1
+	}
+	case "$row" in
+	*"$2"*)
+		printf '            key %s says it after all: %s\n' "$1" "$row" >&2
+		return 1 ;;
+	esac
+}
+claim_detail_starts_with() { # claim_detail_starts_with <key> <needle>
+	# The anchor contract with `factory.sh`'s `unclaimed` arm: the classifier writes the marker as the
+	# first characters of the detail and the arm matches it there. Checked at the row level rather
+	# than by reading either file, because the contract is about what crosses the tab.
+	local d
+	d=$(row_for "$1" | cut -f4)
+	[ -n "$d" ] || {
+		printf '            no detail for %s\n' "$1" >&2
+		return 1
+	}
+	case "$d" in
+	"$2"*) return 0 ;;
+	esac
+	printf '            key %s detail does not START with %s -- it is: %s\n' "$1" "$2" "$d" >&2
 	return 1
 }
 claim_has_row() { # claim_has_row <key> -> the table says something about it. On the merged channel
@@ -4858,6 +4896,305 @@ else
 	printf '        control: a copy with the term deleted reads as no requirement, so the ok\n'
 	printf '        above is the scan working and not the check being blind.\n'
 fi
+
+# 16. the refusal the scan used to throw away (#277). Everything above asks what the classifier
+#     DECIDED. These ask what it SAID about the claims it refused, because the defect was not a wrong
+#     verdict: #235's own fix arrived as PR #238, merged 8 Nov on branch `issue-235` under a body
+#     naming eight issues, and the delivered scan read that body, refused it on the count rule, and
+#     printed `unclaimed` with nothing further. Three days later the supervisor dispatched #235 anyway
+#     -- `TICK-START unclaimed:235 2026-11-10T22:57:23Z`, `TICK-DONE 23:14:23Z` in the journal,
+#     seventeen minutes of ceiling to rediscover what the scan had already read and discarded.
+#
+#     Four things these legs keep apart, because the defect class is those four being confused:
+#
+#       * THE VERDICT IS UNCHANGED. #199 and #213 are still `unclaimed` and still get their tick. A
+#         row that stopped being dispatched here would retire work the refusals were correct to keep:
+#         #253 was refused by the count arm at #255 and NEEDS the tick that row dispatched -- #257
+#         delivered it five hours later -- and #246 sits in this very fixture refused by a `Part of`
+#         that told the truth about unfinished work.
+#       * THE NOTE IS ONLY ON A REFUSAL. Not on a delivered row, not on a mention that carries no
+#         verb (#149, leg 6), not on an issue that spoke after the merge (#213), not on one whose
+#         closure was rejected (#222), and not on anything when the merged read failed (leg 7).
+#       * THE BRANCH IS A FACT, NEVER A REASON. #232 is delivered while its own `headRefName` sits in
+#         the same column, and #213's note names `issue-199` -- another ticket's branch. A signal that
+#         decided from that column would have claimed #246.
+#       * THE TICK IS TOLD WHAT TO DO WITH IT, and the two ends are one change: the arm in
+#         `factory.sh` is keyed to the marker anchored at the START of the detail, and the legs below
+#         check both ends and the pairing with the two documents. Half of this, on its own, is exactly
+#         what #272 was filed for.
+#
+#     One thing these legs cannot show, said rather than left to be inferred: the fixture is a stub,
+#     so a `gh pr list` that stopped asking for `headRefName` would have been handed the field anyway
+#     and every leg here would stay green. That is why the stub now projects the payload down to the
+#     fields the caller named, which is what the real `gh` does. The branch-naming legs below only
+#     pass while the read actually asks.
+#
+#     Corrected by the merge of `origin/main` (`4405119`) on 11 Nov, in the sentence that named the
+#     mechanism, because the merge removed the mechanism it named. This section used to carry its own
+#     copy of the projection at the `pr list --state merged` site; the trunk now supplies it once, for
+#     every payload in both shims, from `gh_json_payload` -- installed beside the payloads by
+#     `install_gh_fields` and obeyed by both `emit()`s (`H-0109`, PR #280). The copy was deleted rather
+#     than kept beside the rule, measured rather than read: unpunctured the merged tree is
+#     `437 passed, 0 failed`, and shortening the shipped merged read to
+#     `--json number,body,mergedAt,baseRefName` still answers `434 passed, 3 failed` with the same
+#     three branch-naming legs red as it did with the copy in place. Two copies of one rule is the
+#     thing #279 was filed to end.
+claim_reset
+claim_rows >/dev/null
+claim_leg '#199 keeps its tick' claim_class_is 199 unclaimed
+claim_leg '…and the row carries the merged body it refused' claim_detail_has 199 '[merged:PR#229'
+claim_leg '…the note leads the detail, as the arm expects' claim_detail_starts_with 199 '[merged:PR#'
+claim_leg '…naming the branch that carried it' claim_detail_has 199 'on `issue-199`'
+claim_leg '…and the instant it merged' claim_detail_has 199 '2026-11-08T01:33:46Z'
+claim_leg '…and the rule that refused it' claim_detail_has 199 'names it in a 4-issue body'
+claim_leg '…with the title still readable behind it' claim_detail_has 199 'Improve the design of the web UI'
+claim_leg '…and a delivered row carries no note' claim_row_says_nothing_about 232 '[merged:PR#'
+claim_leg '…nor the issue nothing merged has named' claim_row_says_nothing_about 235 '[merged:PR#'
+claim_leg '…nor a mention that carries no verb' claim_row_says_nothing_about 149 '[merged:PR#'
+claim_leg '…nor an issue that spoke after the merge' claim_row_says_nothing_about 213 '[merged:PR#'
+claim_leg '…nor one whose closure was rejected' claim_row_says_nothing_about 222 '[merged:PR#'
+claim_reset
+
+# The reopen veto on its own. In the fixture above #222 is refused twice over -- REOPENED and an
+# `updatedAt` later than the merge -- so the legs cannot tell which arm declined. Moving the stamp
+# before the merge leaves exactly one reason, and the row must still say nothing: a person who
+# reopened a ticket has already read the merged body that the reopen says did not finish it.
+claim_issues 'map(if .number == 222 then .updatedAt = "2026-11-07T00:00:00Z" else . end)'
+claim_rows >/dev/null
+claim_leg 'the reopen veto alone still declines the note' claim_row_says_nothing_about 222 '[merged:PR#'
+claim_reset
+
+# The `Part of` arm, carrying its own reason. This is the arm that must NOT become a verdict: #246 is
+# in the live queue right now because this arm refused PR #254's `Part of #246`, and #246 still owns
+# a requirement nobody has built -- the `branch:` line in the note is there so the tick can go and
+# look, and nothing else.
+claim_merged 'map(if .number == 234 then .body = "Part of #232; the umbrella is not finished.\n" else . end)'
+claim_rows >/dev/null
+claim_leg '`Part of #232` still refuses the verdict' claim_class_is 232 unclaimed
+claim_leg '…and names the pull request that said it' claim_detail_has 232 '[merged:PR#234'
+claim_leg '…and which phrase, not the count rule' claim_detail_has 232 'a `Part of` phrase in the same body'
+claim_leg '…and the branch, as a fact to go and read' claim_detail_has 232 'on `issue-232`'
+claim_reset
+
+# The sibling of a bundled claim: #213 inside #229's list. The verb matters -- `#213 and #212 shipped
+# together.` is what leg 4 plants and it carries no claim verb at all, which is the #149 case (a
+# cross-reference), so no claim is made and no claim is refused. `Refs` plus the list is the shape that
+# reaches the count arm, and the branch named in the resulting note belongs to a DIFFERENT ticket,
+# which is both why a branch name is evidence rather than a rule and why the note is worth carrying to
+# a tick whose own number never appears in it. #213's stamp moves to before the merge because the
+# fixture has it speaking at 02:46:41Z, seventy-three minutes after #229 merged -- the veto the leg
+# eleven lines above pins -- and this leg is about the count arm, not that one.
+claim_merged 'map(if .number == 229 then .body = "Refs #213 and #212.\n" else . end)'
+claim_issues 'map(if .number == 213 then .updatedAt = "2026-11-07T00:00:00Z" else . end)'
+claim_rows >/dev/null
+claim_leg 'a bundled sibling is carried, not dropped' claim_class_is 213 unclaimed
+claim_leg '…on a branch that is not its own ticket' claim_detail_has 213 'on `issue-199`'
+claim_reset
+
+# Two merged bodies naming one issue -- #199's real history, three pull requests on branch
+# `issue-199`. The newest is quoted, because the newest is the one that could have finished it, and
+# the count is said, because "one body mentioned it" and "three did" are different things to a reader.
+claim_merged '. + [{"number":243,"baseRefName":"main","headRefName":"issue-199","mergedAt":"2026-11-09T00:08:13Z","body":"Refs #199. Refs #204.\n"}]'
+claim_rows >/dev/null
+claim_leg 'two merged bodies say so on one row' claim_detail_has 199 '(2 merged bodies name it)'
+claim_leg '…and the newest is the one quoted' claim_detail_has 199 '[merged:PR#243'
+claim_leg '…and the older one is not also named' claim_row_says_nothing_about 199 'PR#229'
+claim_reset
+
+# The note at the size that broke the other scan. This is leg 12's plant -- the 128 KiB body appended
+# after `Refs #232.` -- with #199's stamp moved back before the merge, so the delivered arm's own veto
+# no longer hides it. What the leg needs to show is that neither scan quits when a payload grows large:
+# `delivered` keeps answering (the appended junk carries no second number, so #232 is still delivered
+# exactly as leg 12 says) and a REFUSED claim keeps its note instead of quietly arriving as a bare
+# title, which is the silent row this whole section is about.
+claim_merged '.[0].body = .[0].body + "
+" + ("x" * 131072)'
+claim_issues 'map(if .number == 199 then .updatedAt = "2026-11-01T00:00:00Z" else . end)'
+claim_rows >/dev/null
+claim_leg 'a payload past 128 Ki still notes the refusal' claim_detail_has 199 '[merged:PR#229'
+claim_leg '…and it is the whole note, not a truncated one' claim_detail_has 199 'names it in a 4-issue body] '
+claim_leg '…while #232 is still delivered beside it' claim_class_is 232 delivered
+claim_reset
+
+# Both scans read the same merged payload, so the two ways that payload fails have to be refused twice
+# as well. The garbage case is the one that matters: `gh` answers http 502 with prose on stdout and
+# exit 0, and the second scan's jq is just as unparseable as the first -- so it says so, instead of
+# printing a table of rows that quietly lost their notes.
+claim_reset
+claim_open '[{"number":237,"title":"fix(web): the users page names its own blocking profile","body":"Refs #212.\n","claims":[212]}]'
+CLAIM_MERGED_GARBAGE=1
+claim_rows >/dev/null
+claim_leg 'a payload that is not JSON notes nothing' claim_row_says_nothing_about 199 '[merged:PR#'
+claim_leg '…and the refused-claim scan says it refused' claim_err_has 'refused-claim scan refused'
+CLAIM_MERGED_GARBAGE=
+claim_reset
+CLAIM_MERGED_FAIL=1
+claim_rows >/dev/null
+CLAIM_MERGED_FAIL=
+claim_leg 'a merged read that fails notes nothing' claim_row_says_nothing_about 199 '[merged:PR#'
+claim_reset
+
+# The other half of the change: `factory.sh`'s `unclaimed` arm turns the marker into the instruction
+# that tells the tick what the bracket means, and nothing in the repository but these legs says the two
+# halves have to move together. `#272` is the precedent -- its third instruction was shipped by a pull
+# request that changed `triage.sh` and `selftest.sh` and left `docs/factory.md` on `grep -c yield` = 0.
+unclaimed_note_instructs() { # unclaimed_note_instructs <dir holding factory.sh> -> the arm is keyed
+	local f=$1/factory.sh arm
+	[ -f "$f" ] || {
+		printf '            no factory.sh at %s -- the argument is the directory holding it\n' "$f" >&2
+		return 2
+	}
+	# The arm, from its label to the first `;;` that closes a case entry inside it. The inner
+	# `case "$detail"` is why the window ends at the first `;;` rather than at the arm's own: the
+	# instruction is inside the window either way, and a window that ran to the arm's end would
+	# include the next class and pass on someone else's text.
+	arm=$(awk '/^[[:space:]]*unclaimed\)/{f=1} f{print} f&&/^[[:space:]]*;;[[:space:]]*$/{exit}' "$f")
+	[ -n "$arm" ] || {
+		printf '            no `unclaimed)` arm in %s\n' "$f" >&2
+		return 1
+	}
+	# Anchored at the start of the pattern, because the unanchored form is the failure being guarded:
+	# the rest of the column is an issue title somebody typed, and `*MARK*` would let a title that
+	# happens to contain the token buy itself an instruction the classifier never wrote.
+	printf '%s' "$arm" | grep -qE '^[[:space:]]*"\$FACTORY_MERGED_MARK"\*\)' || {
+		printf '            the arm does not match the shared marker anchored at the detail start\n' >&2
+		return 1
+	}
+	printf '%s' "$arm" | grep -qF -- 'already satisfied by' || {
+		printf '            the arm keys on the marker but sends the tick no instruction\n' >&2
+		return 1
+	}
+}
+unclaimed_note_control() { # each mutant loses one of the three things the ok above claims
+	local ctrl=$claim_work/note-arm m built=1
+	for m in no-marker unanchored no-instruction; do
+		mkdir -p "$ctrl/$m" || { built=0; continue; }
+		case $m in
+		no-marker)
+			grep -vF -- '"$FACTORY_MERGED_MARK"*)' "$HERE/factory.sh" >"$ctrl/$m/factory.sh" ;;
+		unanchored)
+			sed 's|^[[:space:]]*"\$FACTORY_MERGED_MARK"\*)|*"$FACTORY_MERGED_MARK"*)|' \
+				"$HERE/factory.sh" >"$ctrl/$m/factory.sh" ;;
+		no-instruction)
+			sed 's/already satisfied by/no such phrase in/' "$HERE/factory.sh" >"$ctrl/$m/factory.sh" ;;
+		esac
+		[ -s "$ctrl/$m/factory.sh" ] || built=0
+	done
+	if [ "$built" != 1 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a control copy could not be written\n' 'control: the note, the arm'
+		return 0
+	fi
+	# Each copy has to be checked for what it lost BEFORE it is asked to fail, or a copy that lost
+	# everything fails for the wrong reason and the leg above is never aimed at what it names.
+	grep -qF -- '"$FACTORY_MERGED_MARK"*)' "$ctrl/no-marker/factory.sh" && {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the no-marker copy still holds the marker arm,\n' 'control: the note, the arm'
+		printf '          so the ok above was never aimed at the arm it names.\n'
+		return 0
+	}
+	grep -qE '^[[:space:]]*\*"\$FACTORY_MERGED_MARK"\*\)' "$ctrl/unanchored/factory.sh" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the unanchored copy did not become a substring match,\n' 'control: the note, the arm'
+		printf '          so nothing tested the anchor the leg above claims.\n'
+		return 0
+	}
+	grep -qF -- 'already satisfied by' "$ctrl/no-instruction/factory.sh" && {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the no-instruction copy still carries the instruction,\n' 'control: the note, the arm'
+		printf '          so the ok above does not need it.\n'
+		return 0
+	}
+	for m in no-marker unanchored no-instruction; do
+		if unclaimed_note_instructs "$ctrl/$m" 2>/dev/null; then
+			fail=$((fail + 1))
+			printf '  FAIL  %-40s it accepted the `%s` copy\n' 'control: the note, the arm' "$m"
+			printf '          so the ok above is a grep that any copy passes.\n'
+			return 0
+		fi
+	done
+	printf '  ok    %-40s each copy loses one of the three halves\n' \
+		'control: the note, the arm'
+	printf '          and the leg says no -- the arm, the anchor, and the instruction are each read.\n'
+	return 0
+}
+claim_leg '…and the arm is keyed to the shared marker' unclaimed_note_instructs "$HERE"
+unclaimed_note_control
+
+# Both documents have to keep saying it, for the reason #272 was filed: PR #253 shipped the classifier
+# half and left the guide on `grep -c yield` = 0, and the tick's behaviour is only reproducible if the
+# half that lives in `SKILL.md` -- what the bracket means and what to do with it -- travels with the
+# half that lives here -- that the marker is evidence and not a verdict. Four clauses again, each a
+# whole phrase, because `grep -qF 'merged'` over a 900-line guide is satisfied by any mention of the
+# word and the leg would print ok while reading a different sentence.
+merged_note_docs() { # merged_note_docs <root> -> the rule and the reason, in both documents
+	local root=$HERE/.. skill guide
+	[ -z "${1:-}" ] || root=$1
+	skill=$root/.opencode/skills/factory/SKILL.md
+	guide=$root/docs/factory.md
+	[ -f "$skill" ] && [ -f "$guide" ] || return 2
+	# The guide: the class rule, and the measured cost that made it worth a row at all.
+	grep -qF 'never a verdict' "$guide" &&
+		grep -qF 'already read and discarded' "$guide" &&
+		# The tick's own document: what the bracket is, and what it is not licensed to conclude.
+		grep -qF 'REFUSED claim, not a verdict' "$skill" &&
+		grep -qF 'does not make the ticket done' "$skill"
+}
+merged_note_docs_control() {
+	local ctrl=$claim_work/merged-note-docs
+	if ! mkdir -p "$ctrl/rules/docs" "$ctrl/rules/.opencode/skills/factory" \
+		"$ctrl/reasons/docs" "$ctrl/reasons/.opencode/skills/factory"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' \
+			'control: the note, both documents'
+		return 0
+	fi
+	# One clause out of each document, twice: the two rule clauses, then the two reason clauses. Same
+	# shape as `voided_docs_control` two sections above, which is the shape that caught #272.
+	if ! grep -vF 'never a verdict' "$HERE/../docs/factory.md" \
+			>"$ctrl/rules/docs/factory.md" ||
+		! grep -vF 'REFUSED claim, not a verdict' "$HERE/../.opencode/skills/factory/SKILL.md" \
+			>"$ctrl/rules/.opencode/skills/factory/SKILL.md" ||
+		! grep -vF 'already read and discarded' "$HERE/../docs/factory.md" \
+			>"$ctrl/reasons/docs/factory.md" ||
+		! grep -vF 'does not make the ticket done' "$HERE/../.opencode/skills/factory/SKILL.md" \
+			>"$ctrl/reasons/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copies could not be written\n' \
+			'control: the note, both documents'
+		return 0
+	fi
+	if grep -qF 'never a verdict' "$ctrl/rules/docs/factory.md" ||
+		grep -qF 'REFUSED claim, not a verdict' "$ctrl/rules/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the rule plant left a rule in place, so the\n' \
+			'control: the note, both documents'
+		printf '          leg above was never aimed at the clauses it names.\n'
+		return 0
+	fi
+	if grep -qF 'already read and discarded' "$ctrl/reasons/docs/factory.md" ||
+		grep -qF 'does not make the ticket done' "$ctrl/reasons/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reason plant left a reason in place, so\n' \
+			'control: the note, both documents'
+		printf '          the leg above does not need the reasons it claims to need.\n'
+		return 0
+	fi
+	if merged_note_docs "$ctrl/rules" || merged_note_docs "$ctrl/reasons"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a pair with one rule clause deleted\n' \
+			'control: the note, both documents'
+		printf '          from one document and one reason clause from the other, so the ok above is a\n'
+		printf '          phrase match and not the four halves it names.\n'
+		return 0
+	fi
+	printf '  ok    %-40s each copy loses one clause from each document\n' \
+		'control: the note, both documents'
+	printf '          and the leg says no; all four are read, not a word nearby.\n'
+	return 0
+}
+claim_leg 'the note is in both documents' merged_note_docs
+merged_note_docs_control
 
 # ------------------------------------------------------ the field list, as a contract (#279)
 #
