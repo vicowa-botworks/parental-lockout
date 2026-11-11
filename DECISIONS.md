@@ -2971,3 +2971,100 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `python3 testing/capture/pages.py --self-test` -> `capture self-test: 76 refusal rules hold`;
   `make verify` exit 0, last line `verify: OK`; the nine-attack loop above -> six unchanged tallies
   and three new catches.
+
+## D-0058 · The #297 attacks become a suite in the tree, and the suite carries the holes it cannot close as rows rather than closing them
+
+- Question: `#297` says nothing attacks `pages.py --self-test`: three of the nine attacks on its
+  refusal contract printed green, and the attacks live in prose in `D-0057`. What shape does the
+  runner take -- and what does it do about the attacks the *current* guard does not see, which are
+  most of the ones that probe the guard itself rather than the driver?
+- Options: `copy-in-depth`: sandbox `testing/capture/*.py` plus `internal/web/templates/*.tmpl`
+  (13 files, 599 KB), re-run the baseline before trusting any row, and assert the copy holds what
+  the driver reads | `symlink-the-root`: box holds copies of the `.py` files and symlinks `internal/`
+  at the real tree, so the box is cheap and can never go stale as the driver's reads widen |
+  `shallow-copy`: sandbox only `pages.py` and `cdp.py`, the two files the rows patch |
+  `fix-the-guard-first`: strengthen `pages.py`'s verdict (a third canary, a per-rule probe) before
+  writing the runner, so the suite is green on arrival | `holes-as-rows`: write the runner against
+  the guard as it stands and carry every attack it does not see as a `DOCUMENTED_HOLES` row whose
+  class is named and whose disappearance is as loud as a new hole appearing
+- Chose: `copy-in-depth`: sandbox `testing/capture/*.py` plus `internal/web/templates/*.tmpl`
+  (13 files, 599 KB), re-run the baseline before trusting any row, and assert the copy holds what
+  the driver reads
+- Second choice: `holes-as-rows`, taken alongside the box decision because both were forced by the
+  same fact -- the guard as it stands does not see most of the attacks that probe the guard. It is
+  recorded as its own choice because it is the half with a cost, argued under `What lost:`.
+- Why: `symlink-the-root` and `shallow-copy` both trade away the one thing this suite exists to
+  provide. Measured, not reasoned: a box with `pages.py` alone comes back `ModuleNotFoundError: No
+  module named 'cdp'`, and a box with `pages.py` and `cdp.py` comes back the same for `manifest` --
+  and `attack-self-test.py`'s docstring records that exact shape of accident, where 42 rows reported
+  `CAUGHT` because every patched run died on a missing import before printing anything. A symlinked
+  `internal/` keeps the baseline green but makes the box unstatable: the guard's whole claim is
+  "nothing written outside a temp box", and the assertion that proves it is a set difference over the
+  box's own file list, which a symlink silently widens to the repository. So the box is a copy, its
+  contents are named (`capture_modules()` globs `testing/capture/*.py` rather than listing three
+  names, so a new sibling module joins the box on the day it appears), and the baseline is re-run
+  and required green before a single row is believed -- with a printed diagnosis naming the two
+  directories the box holds, so the next time the driver starts reading something new the run says
+  what to add instead of reporting 41 phantom catches. The 3.4 s the 41 rows now cost every `make
+  verify` is the same trade the Makefile already documents for the mutation attack suite at 2.5 s --
+  against `D-0057`'s 0.06 s for the self-test and ~3m9s for the target -- on the same grounds:
+  #124's eviction hazard is cheaper than a gate whose evidence nobody can reproduce.
+- What lost: `fix-the-guard-first` lost, and losing it is the point of the row set. Strengthening
+  the verdict first buys a green suite and throws away the measurement: writing the rows against the
+  guard as it stands is what produced the five classes below, and a suite written after a fix would
+  have listed none of them. Two prices were paid for that and both are still on the desk. One: the
+  holes are not closed, so `make verify` now runs a suite that prints `9 holes` and exits 0, which
+  reads worse than it is -- the run's contract is that a hole is a finding and an *unexpected* hole
+  is a failure, so the list cannot rot in either direction, and that both directions work is driven
+  in `Re-checks:` rather than claimed. Two: three of the five classes are one small edit from closed
+  and were left open on purpose -- the third canary is four lines of `pages.py`, the byte-for-byte
+  frame comparison is one clause of `a_refused_run_says_where_its_frames_are`. Closing them here
+  would have changed a verdict #297 did not ask to change and would have removed the rows that prove
+  the runner can see a hole at all; they are filed as issues instead, so the queue owns them and the
+  rows go `HOLE CLOSED` -- a failure naming the class -- on the day somebody else closes them.
+- Checkpoint: 4537b9d1b8528fc6c1ff78216530e367f5be42bb
+- Effect: `scripts/attack-capture-self-test.py`, new -- 41 rows (26 expected catches, 9 holes, 6
+  honest edits that must stay green), each row an exact-once anchor assertion against a copy of the
+  tree, plus `shape_problems()` (the static joins between the row list, the class map and the hole
+  list) and `wiring_problems()` (both `make verify` steps, read from the recipe and not the prose).
+  `Makefile`: the `==> capture refusal attack suite` step beside the `==> capture refusal contract`
+  step at former line 117, the two empty-filter steps folded into one loop over both attack suites,
+  and the comment above them rewritten to say what is now cross-witnessed. `docs/issues-from-d-0058.md`,
+  new: the five findings as issuable work, each with its title, its `gh issue create` invocation, its
+  body, and the row in the suite that will go `HOLE CLOSED` when it is closed -- committed rather than
+  filed, because #297 says do not open issues and a claim that something was filed is exactly the kind
+  of claim this log has been wrong about twice (`Effect:` fields describing writes the server never
+  received). Nothing under `testing/capture/` is touched: the guard is attacked, not changed, and
+  `EXPECTED_RULES` is still 76. The nine rows `D-0057` left as prose are rows 1-9 here and all nine
+  come back `CAUGHT`, so they are regression rows now instead of a recollection.
+- What this found (each row re-measured on every `make verify`, each filed as its own issue): a
+  hollowed rule body is invisible to the count -- all three refusal rules emptied came back green,
+  which is #297's title read literally and the class #125 tracks from the other end;
+  `if counts != [1, 0]` is the only sentence proving the rule helper is not hollow and nothing
+  polices *it*; `if bad:`, the reach comparison and its `return 1` are one edit above anything a rule
+  compares; a rule that throws is recorded as a passing rule, which is invisible until the exact
+  moment it matters; and a kept frame's bytes are never compared to the bytes the browser returned,
+  so writing an empty PNG at the announced path keeps the transcript and the directory in perfect
+  agreement about a frame with no picture in it. The last three are findings about the guard, not
+  about the driver: no committed behaviour is wrong today, and none of them was closed here because
+  closing them changes a verdict and #297 asked for the runner.
+- What lost, second entry, and the hazard this file already carries: `wiring_problems()` asserts
+  this suite is called from TWO steps and that each survives, so deleting one makes the other refuse
+  -- the `manifest.py` #144 trick, which works only because the two calls are independent. It is
+  written against `verify_recipe()` rather than the file, because a sentence in the comment above the
+  recipe names this script and must not be able to satisfy the assertion the step exists to make
+  (driven: a Makefile whose two steps are deleted but whose prose remains still refuses). The
+  mutation attack suite beside it has no such pin, and neither does `==> capture refusal contract`;
+  that gap is older than this entry and is not narrowed here.
+- Re-checks, each run after the sentence it certifies was written:
+  `python3 scripts/attack-capture-self-test.py` -> `VERDICT: 41 attacks, 0 problem(s), 5 hole
+  class(es), 9 hole row(s)`, exit 0, 3.4 s; `python3 testing/capture/pages.py --self-test` -> `76
+  refusal rules hold` (untouched); nine self-attacks on broken copies of the runner itself, each
+  producing the branch it claims -- a renamed row name -> `HARNESS ... malformed` exit 2, an anchor
+  that matches nothing -> `INVALID`, an honest edit turned red -> `OVER-STRICT`, an unseen attack
+  expected as a catch -> `NEW HOLE`, a patched guard that now refuses a listed hole -> `HOLE CLOSED`,
+  a box without the templates -> `HARNESS ... does not pass its own self-test (caught)` exit 2,
+  `EXPECTED_ROWS` off by one -> a problem, a wrapped `tree_state()` -> `this suite modified the tree
+  it was checking`, a stray file planted in the box -> `wrote into the tree it was copied into` exit
+  2; the filter contract -> `zzzznomatch` exit 1 and `""` exit 1, both saying `no row matched`, and
+  `announcement` selecting 4 rows and printing the `SELECTED RUN -- not a gate` banner.
