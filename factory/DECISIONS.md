@@ -4140,3 +4140,114 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `gh pr view 278` answers afterwards is the API's verdict and belongs in the pull-request body beside the
   push, not in this record written before it; if it reads `REVIEW_REQUIRED` again, asking is
   `factory_request_review`'s act on the next activation, not a tick's.
+
+## H-0115 · #237's "the two halt writers cannot differ in what the operator is left holding" is true of the source and pinned by nothing, because the suite deleted the conflict pass's marker unread -- so the drift is planted behaviourally and every leg that drives both verbs now compares the pair
+
+- Question: `#237` (opened `2026-11-08T15:11:54Z`, `unclaimed`, head branch `issue-237` sitting six
+  commits ahead of `origin/main` and with no pull request -- the `branch_without_pr` case `AGENTS.md`
+  names) files one hazard with two halves, measured on 8 Nov: `factory/factory.sh:490` wrote a halt
+  marker ending in the resume step while `:339`, the conflict path, wrote
+  `a working tree was found dirty and the supervisor will not touch it: $tree` and stopped -- tree, and
+  no `rm factory/HALT` -- and the queue then sat eleven hours on that sentence while its `HALTED` line
+  repeated byte-identically at 14:09:09, 14:20:09, 14:31:01 and 14:42:09Z for a cause that had been
+  cleared at ~14:35Z. It asks for (1) the same resume clause in both writers, "so the two halt writers
+  cannot differ in what the operator is left holding", and (2) a decision between re-probing the named
+  tree and self-clearing, or keeping the marker sticky and printing its age. Half (2) is decided and
+  committed on this branch -- `98fa4be` "fix(factory): the halted pass dates its own cause", entered as
+  `H-0113` at checkpoint `fffdf8b`, `2026-11-10T22:47:13` local, three days after the ticket, with an
+  earlier attempt parked in `698d31c` ("wip(factory): the halt line carries its age -- unfinished, no
+  decision entry yet") behind the checkpoint that opened as `H-0054`, `90c537b`. Half (1) has been true
+  of the shipped code since `H-0044` factored both writers into one guard: `origin/main` builds the
+  marker in a single `printf` (`git show origin/main:factory/common.sh`, line 1298, ending
+  ``then `rm $FACTORY_HALT` to resume``) and that entry says in as many words that the conflict sentence
+  "loses 'and the supervisor will not touch it'". So what is left to deliver: write the wording again to
+  satisfy the ticket's letter, ship the test that makes the property the ticket states actually held,
+  ship nothing, or rebuild the halt path so a writer cannot drift?
+- Options: write the conflict verb its own halt sentence and correct its wording | assert the pair inside
+  `expect_halt` and add no fixture of its own | a named leg that plants each kind of marker disagreement
+  and runs the comparison, with the comparison also moved into `expect_halt` | nothing -- the wording is
+  fixed and the age is committed | rebuild the halt path so one writer cannot drift from another
+- Chose: a named leg that plants each kind of marker disagreement and runs the comparison, with the
+  comparison also moved into `expect_halt`
+- Why: because the property #237 states is about what the operator is *handed*, and the suite drove both
+  verbs and read the tick's marker only -- the old line 380 did `rm -f -- "$FACTORY_HALT"` on the
+  conflict pass's file without reading it, on this file's own comment that the guard is one `printf` so
+  reading it twice "would buy a leg that can only fail twice". That premise is a statement about one
+  revision's source and the conclusion is a suite that stays green while the merge path hands out a
+  different instruction, which is the state the ticket was filed for and which `H-0044` describes in the
+  past tense ("the conflict pass wrote a HALT file with neither the UNKNOWN-versus-DIRTY distinction nor
+  the matching action"). `H-0113` is the nearest miss worth naming: it measured this very thing --
+  "measured on this branch: driving each verb writes the same marker, and both marker texts contain the
+  resume clause" -- and kept the sentence in prose, not a leg, so the next reader has to trust that a
+  three-day-old ad-hoc drive still describes the file. This is the leg that measurement should have left
+  behind. The plant has to be behavioural rather than a source mutation: a mutation to the
+  shared `printf` changes BOTH verbs at once, so the tick's read fires first and the conflict read -- the
+  one the ticket is about -- is never distinguished. What the others lose. Writing the wording: a
+  tree-wide grep for `>"$FACTORY_HALT"` returns `factory/common.sh:1365-1366` and test plants, one
+  `printf` for both verbs, so there is no second sentence to correct and the commit would rewrite
+  something already correct while claiming the find. Asserting the pair with no fixture of its own:
+  nothing would show the comparison can report a disagreement, and a check added to close a gap no check
+  could see, with nothing to show it sees, is the same object as the check that was missing -- the rule
+  `H-0049` wrote when it built the refusal arms "rather than finding" them, because no state on disk
+  isolates one arm either. Nothing at all: it leaves the property unprotected on the exact path that
+  stalled the queue for eleven hours, and `$FACTORY_HALT` stops every unit in the pass. Rebuilding the
+  path: `H-0044` already rebuilt it, and a second writer is the only thing the drift needs.
+- Checkpoint: f5a69fd
+- Effect: `factory/selftest.sh` only. `halt_pair_problems` is the comparison, four arms: a marker present
+  on one path only, either way round; different bytes; equal bytes on unequal line counts. `expect_halt`
+  reads the conflict pass's marker before deleting it and runs the comparison, so all twenty of its legs
+  -- every one of which calls both verbs -- consult it, and its `h2` is now asserted empty, which is new:
+  a conflict pass that halted the queue with an exit code and wrote no file used to pass the PROCEED legs.
+  `halt_markers_agree` is the named leg: it drives the shipped guard on both verbs over one planted tree,
+  requires the two markers to be the same bytes and one line each, refuses the identical-and-absent case
+  (a command substitution hid the plant in a subshell -- measured, the row reporting "nothing to compare"
+  for a run that had written both markers), then plants three disagreements and requires each to be named
+  by its own arm; and it pins textually, with a stripped-copy control, that `expect_halt` calls the
+  comparison at all. Measured on this tree in this order: baseline at `6412ff9` -- `446 passed, 0 failed`;
+  after the change -- `447 passed, 0 failed`, zero `FAIL` rows; mutation A, the
+  `pair=$(halt_pair_problems …)` call replaced by `pair=""` -- `447 passed, 1 failed`, the failure being
+  the wiring row: `expect_halt never calls it, so the twenty legs above that drive both verbs still read
+  the tick's marker only`; mutation B, four lines planted in the shipped `factory_tree_halt` rewriting the
+  marker on the `CONFLICT-HALTED` path with the ticket's own resume-less sentence -- `411 passed, 37
+  failed`, every one of the 37 naming `the two halts leave the operator different markers` and printing
+  both sentences; `factory/common.sh` restored from a copy afterwards, `git diff -- factory/common.sh`
+  empty. `./scripts/check-shell.sh` -- shellcheck 0.10.0 over 28 scripts, exit 0. `python3
+  scripts/check-decisions.py` -- 151 entries, exit 0. Nothing here addresses half (2), because `98fa4be`
+  addresses it; its three arms were re-run through the shipped function on this tree rather than taken on
+  faith -- `factory_halt_report` over a marker stamped `touch -d "@$(( $(date -u +%s) - 7500 ))"` prints
+  `cause recorded 2h05m ago, and not re-probed since: …`, one stamped 5400s ahead prints
+  `cause recorded 1h30m ahead of this clock, so its age is unknown`, and a marker removed between
+  `factory_halted()` and the read prints `at a time that could not be read`.
+- **What lost, and what is not established.** (a) The plants are behavioural: they pin the comparison and
+  the wiring, and claim nothing about git or the guard drifting this way on their own -- the shipped-state
+  row and mutation B are the evidence about the shipped state. (b) The `nonewline` plant is the only
+  reachable state in which the two sentences are the same WORDS and the files are not, because a sentence
+  split across two lines also changes the `tr`-joined string and lands in the bytes arm; that is why the
+  count arm is kept with a plant that reaches it rather than dropped as dead. (c) Mutation B is not a
+  commit and cannot be re-run from the tree -- four lines planted, measured, restored -- so the recipe is
+  in the pull-request body for whoever wants the number again. (d) The per-verb journal line still
+  carries no resume clause (`log_event "$verb $unit $tree has uncommitted work (…); refusing to merge
+  into it`): the marker and the top-of-pass `HALTED` line both do, and a log line is not the instruction.
+  (e) No leg drives `factory_tree_stop` with `CONFLICT-HALTED`: the grep answer is one call site,
+  `factory/factory.sh:507`, and every `expect_quarantine` leg passes `TICK-HALTED`, so the conflict
+  path's quarantine-and-streak behaviour is unproven at that level even though the marker both verbs
+  leave is now proven and the call-site shape is pinned by `halt_call_sites_in`. That is the follow-up
+  this ticket's boundary exposed and it is NOT fixed here. (f) Half (2) is committed and **unmerged**, and
+  that is the finding worth having: `git show origin/main:factory/common.sh | grep -c 'not re-probed
+  since'` is 0, as is the same grep over `origin/main:factory/selftest.sh`, so every supervisor running
+  from `origin/main` still prints the ageless line. A later instance of exactly the filed shape is on
+  disk: nine `HALTED` lines `2026-11-10T12:07:09Z` through `13:38:09Z` in
+  `wt/factory-harness/factory/log/supervisor.log` -- nine distinct timestamps,
+  `cut -d' ' -f3- | sort -u | wc -l` = one distinct message, ninety-one minutes, tree `wt/issue-248` --
+  written by a supervisor running out of `wt/factory-harness` at `a97ef21`, a tree that cannot contain
+  `98fa4be`. The main checkout's journal runs to `2026-11-10T23:51` local with no HALT-family line in it,
+  so the live supervisor moved and neither tree has the fix. The eleven hours can therefore recur until
+  this branch merges; whether the timer points at the behind tree is not this ticket and nobody should
+  read this as settled. (g) Half (2)'s other branch -- re-probe the tree and self-clear -- was decided
+  against in `H-0113`, not here, and re-arguing it is not this entry's to do. (h) `docs/factory.md` quotes
+  neither halt sentence, so no doc had to change; `will not touch it` appears nowhere in the shipped tree
+  outside the new plant. (i) There is no live halted queue to observe, so half (2)'s verdict rests on
+  reading and running the shipped function, not on a fresh stall.
+- Roll back: `git revert <this commit>` -- the change is additive to `factory/selftest.sh`, and reverting
+  it removes the named leg, the comparison and the `h2`/`hl2` reads, restoring `expect_halt` to the shape
+  that deleted the conflict pass's marker unread.

@@ -349,18 +349,51 @@ FACTORY_LEDGER=$FACTORY_DIR/ledger
 FACTORY_RUN=$FACTORY_DIR/run
 FACTORY_HALT=$FACTORY_DIR/HALT
 
+# halt_pair_problems TICK_SENTENCE TICK_LINES CONFLICT_SENTENCE CONFLICT_LINES
+#   One line per way the two markers the queue leaves behind differ from each other; empty when the
+#   operator is handed the same instruction whichever path stopped. #237 item 1 asked for that
+#   property and this file never held it: `expect_halt` read the tick's marker and `rm -f`'d the
+#   conflict pass's unread, on the argument that the guard is one `printf` so the two cannot differ.
+#   That is true of this revision and is the shape of the argument that let them differ in the first
+#   place -- H-0044's own entry records the conflict arm writing a marker "with neither the
+#   UNKNOWN-versus-DIRTY distinction nor the matching action", and the sentence in #237's `:339` ends
+#   at the tree's name, so the operator of a queue stopped by the merge path reads where the trouble
+#   is and not how to resume it. Eleven hours is what that cost.
+#
+#   The strings arrive already joined by `tr` (one line, for the leg's own message), so a file that
+#   split its sentence in two is invisible in the string and the LINE COUNTS are the only thing that
+#   can see it. That arm is last and only reached when the strings agree, because when they differ
+#   the disagreement is the finding and the counts are its symptom.
+halt_pair_problems() {
+	local s1=$1 n1=$2 s2=$3 n2=$4
+	if [ -z "$s1" ] && [ -n "$s2" ]; then
+		printf 'the tick left no HALT file while the conflict pass did (%s), so the two paths disagree about whether the queue is stopped\n' "$s2"
+	elif [ -n "$s1" ] && [ -z "$s2" ]; then
+		printf 'the conflict pass left no HALT file while the tick did (%s), so a queue stopped by the merge path leaves nothing for factory_halted() to find\n' "$s1"
+	elif [ "$s1" != "$s2" ]; then
+		printf 'the two halts leave the operator different markers -- tick: %s | conflict: %s\n' "$s1" "$s2"
+	elif [ "$n1" != "$n2" ]; then
+		printf 'the two HALT files are %s and %s lines, and the sentences match only because `tr` joined them\n' "$n1" "$n2"
+	fi
+	return 0
+}
+
 # expect_halt LABEL TREE WANT [SUBSTRING]
 #   WANT is PROCEED or HALT -- what the supervisor does with the unit. A HALT leg requires all of:
 #   exit 4 from the tick's verb, exit 2 from the conflict pass's, a HALT file (because that is what
 #   `factory_halted()` tests), the `rm …` resume step inside it, the action that matches the finding,
-#   and one journal line per path carrying that path's own verb. A PROCEED leg requires the guard to
+#   and one journal line per path carrying that path's own verb. BOTH markers are read -- the tick's
+#   and the conflict pass's -- before either is deleted, and the HALT arm requires the two to be the
+#   same bytes: #237 item 1 is that the two halt writers cannot leave the operator different
+#   sentences. A PROCEED leg requires the guard to
 #   have halted neither and to have written neither file: a halt that fires on a clean tree is the
 #   false positive #228 was filed about, and it stops every other unit in the pass.
 #   SUBSTRING is asserted inside the halt file's sentence -- the finding has to reach the operator,
 #   not just the return code.
 expect_halt() {
 	local label=$1 tree=$2 want=$3 sub=${4:-}
-	local c1=0 c2=0 h1="" hl=0 j1="" j2="" before=0 after=0 bad="" want_how drc=0
+	local c1=0 c2=0 h1="" h2="" hl=0 hl2=0 j1="" j2="" before=0 after=0 bad="" want_how drc=0
+	local pair=""
 
 	factory_tree_dirt "$tree" >/dev/null || drc=$?
 	case "$drc" in
@@ -379,10 +412,18 @@ expect_halt() {
 	if [ -s "$FACTORY_LOG/supervisor.log" ]; then j1=$(tail -n 1 "$FACTORY_LOG/supervisor.log"); fi
 	rm -f -- "$FACTORY_HALT"
 	factory_tree_halt CONFLICT-HALTED selftest "$tree" >"$work/guard.out" 2>&1 || c2=$?
-	# The halt file's sentence is read from the tick's call only. It is one `printf` in the guard, so
-	# the two paths cannot disagree about it; what differs per path is the exit code and the journal
-	# verb, and both are asserted below. Reading the same string twice would buy a leg that can only
-	# fail twice.
+	# The conflict pass's marker is read before it is removed. It used to be deleted unread, on the
+	# argument that the guard holds one `printf` so the two paths cannot disagree -- a statement about
+	# this revision's source, not a property this file keeps, and #237 is the record of the two having
+	# differed (`H-0044`: "the conflict pass wrote a HALT file with neither the UNKNOWN-versus-DIRTY
+	# distinction nor the matching action", and the ticket's `:339` sentence ends at the tree's name
+	# with no `rm factory/HALT` anywhere in it). Equality with the tick's sentence is asserted below;
+	# `tr` above would fold a split sentence back into the same string, so the line count is asked of
+	# this marker as well rather than inferred from the tick's.
+	if [ -e "$FACTORY_HALT" ]; then
+		h2=$(tr '\n' ' ' <"$FACTORY_HALT")
+		hl2=$(wc -l <"$FACTORY_HALT" | tr -d '[:space:]')
+	fi
 	if [ -s "$FACTORY_LOG/supervisor.log" ]; then j2=$(tail -n 1 "$FACTORY_LOG/supervisor.log"); fi
 	rm -f -- "$FACTORY_HALT"
 	if [ -f "$FACTORY_LOG/supervisor.log" ]; then
@@ -393,6 +434,7 @@ expect_halt() {
 		[ "$c1" = 0 ] || bad="the tick was stopped (exit $c1)"
 		[ "$c2" = 0 ] || bad="${bad:+$bad; }the conflict pass was stopped (exit $c2)"
 		[ -z "$h1" ] || bad="${bad:+$bad; }a HALT file was written, so every other unit is stopped too"
+		[ -z "$h2" ] || bad="${bad:+$bad; }the conflict pass wrote a HALT file for a tree it let through"
 		[ "$((after - before))" = 0 ] || bad="${bad:+$bad; }it journaled $((after - before)) line(s) for a unit it let through"
 		want=PROCEED
 	else
@@ -408,6 +450,18 @@ expect_halt() {
 		[ "$hl" = 1 ] || bad="${bad:+$bad; }the HALT file is $hl lines, want one: the resume step and\n          the reason are read as the last line, so a split sentence loses one of them"
 		case "$h1" in *"rm $FACTORY_HALT"*) : ;; *) bad="${bad:+$bad; }the sentence names no resume step" ;; esac
 		case "$h1" in *"$want_how"*) : ;; *) bad="${bad:+$bad; }the sentence promises the wrong action for a $drc" ;; esac
+		# The PAIR, not only the tick's. #237 item 1 is about the marker the *conflict* pass leaves --
+		# the one an operator finds when it was the merge path that stopped -- and the two writers did
+		# once disagree (H-0044: "the conflict pass wrote a HALT file with neither the UNKNOWN-versus-
+		# DIRTY distinction nor the matching action", and the ticket's :339 sentence ends at the tree's
+		# name). The comparison is a function of its own so the plant below can try the same code on a
+		# disagreement it builds; a leg cannot prove a comparison that only exists inline.
+		pair=$(halt_pair_problems "$h1" "$hl" "$h2" "$hl2")
+		# No `tr` over the report: the helper prints at most one line (its arms are an if-chain) and the
+		# command substitution has already taken the newline off. Folding and deleting separators here
+		# would eat every semicolon inside the two markers, and a message that silently rewrites the
+		# sentence it is quoting is one fewer thing an operator can trust.
+		[ -z "$pair" ] || bad="${bad:+$bad; }$pair"
 		case "$j1" in *TICK-HALTED*"$tree"*) : ;; *) bad="${bad:+$bad; }the journal line is not the tick's" ;; esac
 		case "$j2" in *CONFLICT-HALTED*) : ;; *) bad="${bad:+$bad; }the conflict pass journaled the tick's verb" ;; esac
 		[ "$((after - before))" = 2 ] || bad="${bad:+$bad; }it journaled $((after - before)) lines, want one per path"
@@ -1453,6 +1507,168 @@ wired_into_verify() {
 }
 wired_into_verify
 halt_call_sites_shaped
+
+# --------------------------------------- the marker each verb leaves in the operator's hand (#237)
+#
+# `#237` counts two halt writers that left the operator different sentences. The conflict one is in the
+# ticket: `a working tree was found dirty and the supervisor will not touch it: <tree>` -- the tree, and
+# nothing about how to resume. The tick's ended `… resolve the tree (commit it to its branch, or discard
+# it on purpose) … rm factory/HALT …`. The queue was stopped for eleven hours on the first of those,
+# because the marker is the whole of what whoever finds a halted queue reads before they act, and it
+# does not say what to do.
+#
+# H-0044 unified the writers, so both verbs reach the same `printf` in `factory_tree_halt` today. That
+# is a property of this revision's source and not one this file kept: `expect_halt` drove both verbs and
+# read the marker from the tick's call only, then `rm -f`'d the conflict pass's unread -- its own comment
+# argued that "reading the same string twice would buy a leg that can only fail twice". The premise is
+# today's source; the conclusion is a suite that stays green while the merge path hands out a different
+# instruction, which is the state #237 was filed for and which H-0044's entry describes in the past
+# tense. A drift cannot be caught by a leg that does not look at the drifted thing.
+#
+# So the comparison is a function (`halt_pair_problems`, above) and the legs that already drive both
+# verbs now run it. What is here is the evidence that it can say the other word. The plants are
+# behavioural, not source mutations, and that is the only shape that works: one edit to the shared
+# `printf` changes both verbs at once, so the tick's own read fires first and nothing is learned about
+# the conflict read. To prove the conflict marker is consulted, the two verbs have to be made to
+# disagree -- so the shipped guard runs unchanged for both verbs and the conflict verb's marker is then
+# rewritten, exactly as a second conflict-specific writer would. Same tree, same guard, same order; the
+# only difference between the four rows is what is in the file afterwards.
+po_s='' po_n=0
+halt_pair_of() { # verb tree -> the marker that verb leaves, in $po_s (joined) and $po_n (lines)
+	po_s='' po_n=0
+	rm -f -- "$FACTORY_HALT"
+	factory_tree_halt "$1" selftest "$2" >"$work/guard.out" 2>&1 || true
+	if [ -e "$FACTORY_HALT" ]; then
+		po_s=$(tr '\n' ' ' <"$FACTORY_HALT")
+		po_n=$(wc -l <"$FACTORY_HALT" | tr -d '[:space:]')
+	fi
+	return 0
+}
+
+# halt_pair_planted MODE TREE -> `halt_pair_problems` over the pair the SHIPPED guard leaves, with MODE
+# applied to the conflict pass's marker afterwards. `same` is the shipped state and the assertion; the
+# other three are the arms, each named by the needle its caller requires.
+halt_pair_planted() { # mode tree
+	local mode=$1 tree=$2 s1='' n1=0 s2='' n2=0
+	halt_pair_of TICK-HALTED "$tree"
+	s1=$po_s
+	n1=$po_n
+	halt_pair_of CONFLICT-HALTED "$tree"
+	s2=$po_s
+	n2=$po_n
+	case "$mode" in
+	drift)
+		# The ticket's `:339`, verbatim in shape, written over the marker the shipped guard just made:
+		# the tree, and no resume step. This is what the pre-H-0044 world looks like, and what any
+		# future conflict-specific writer reintroduces.
+		printf '%s\n' "a working tree was found dirty and the supervisor will not touch it: $tree" \
+			>"$FACTORY_HALT"
+		;;
+	vanished)
+		# Halts the queue with the exit code and writes nothing: `factory_halted()` is a file test, so
+		# the next unit walks past a halt that stopped nothing.
+		rm -f -- "$FACTORY_HALT"
+		;;
+	nonewline)
+		# The one state where the two sentences are the same WORDS and the files are not: a `printf` that
+		# loses its `\n`. `tr` cannot see it -- both join to the same string -- so it is the count arm's
+		# own plant, and the reason the counts are asked instead of inferred from the sentence.
+		printf '%s' "$s2" >"$FACTORY_HALT"
+		;;
+	same) : ;;
+	esac
+	if [ -e "$FACTORY_HALT" ]; then
+		s2=$(tr '\n' ' ' <"$FACTORY_HALT")
+		n2=$(wc -l <"$FACTORY_HALT" | tr -d '[:space:]')
+	else
+		s2=''
+		n2=0
+	fi
+	halt_pair_problems "$s1" "$n1" "$s2" "$n2"
+}
+
+halt_markers_agree() {
+	local label='both halts leave one marker' tree=$repo out="" bad="" mode="" needle=""
+	local body="" stripped="" plant_out="" got=""
+
+	reset_tree "$tree"
+	printf 'ALPHA\nbeta\ngamma\n' >"$tree/tracked.txt"
+
+	# The shipped state: one instruction, whichever path stopped. Everything the operator needs has to
+	# be in the marker the merge path leaves, and this is the row that says it is. Written to a file
+	# rather than a command substitution on purpose: a substitution runs the plant in a subshell and the
+	# marker the plant left is held in `$po_s`/`$po_n`, which the parent would never see -- measured,
+	# the row below reading an empty pair and reporting "nothing to compare" for a run that had written
+	# both markers.
+	plant_out=$work/halt-pair-same.out
+	halt_pair_planted same "$tree" >"$plant_out"
+	out=$(cat -- "$plant_out")
+	if [ -n "$out" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the two halt verbs leave different things to read:\n' "$label"
+		printf '%s\n' "$out" | sed 's/^/          /'
+	elif [ -z "$po_s" ] || [ "$po_n" != 1 ]; then
+		# The pair check says "no disagreement" just as happily when neither verb wrote anything. A leg
+		# whose ok means "identical" has to refuse the identical-and-absent case or it is certifying an
+		# empty pair, and po_s/po_n are the conflict pass's own last read.
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the check is silent because there is nothing to compare: the conflict\n' "$label"
+		printf '          pass left a %s-line marker holding %s\n' "${po_n:-nothing}" "${po_s:-<empty>}"
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s one sentence, %s line, both verbs\n' "$label" "$po_n"
+	fi
+
+	# The arms, in the polarity every check in this file carries: each plant has to be named by the arm
+	# it is here for, or the ok above is the comparison being blind.
+	for mode in drift vanished nonewline; do
+		case "$mode" in
+		drift) needle='different markers' ;;
+		vanished) needle='left no HALT file' ;;
+		nonewline) needle='lines, and the sentences match' ;;
+		esac
+		out=$(halt_pair_planted "$mode" "$tree")
+		case "$out" in
+		*"$needle"*) : ;;
+		*) bad="${bad:+$bad; }$mode: ${out:-<no problem reported>}" ;;
+		esac
+	done
+	if [ -n "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a planted disagreement was not flagged, so the ok above is the\n' "control: $label"
+		printf '          comparison being blind, not the two verbs agreeing:\n'
+		printf '            %s\n' "$bad"
+	else
+		printf '        control: the marker rewritten with the ticket'"'"'s resume-less sentence, the\n'
+		printf '        marker deleted, and the marker written without its final newline are each named\n'
+		printf '        by their own arm, so the ok above is the comparison separating the states.\n'
+	fi
+
+	# The other half of the same obligation: the legs have to actually run this. Twenty legs drive both
+	# verbs over planted trees and none of them says out loud that the pair is what they check, so the
+	# wiring is asked of the shipped text -- with a control that deletes the call and requires the
+	# question to change its answer.
+	body=$(awk '/^expect_halt\(\) \{/{f=1} f{print} f && /^\}/{exit}' "$HERE/selftest.sh")
+	stripped=$work/halt-pair-unwired.sh
+	printf '%s\n' "$body" | sed '/halt_pair_problems/d' >"$stripped"
+	if ! printf '%s\n' "$body" | grep -q 'halt_pair_problems'; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s expect_halt never calls it, so the twenty legs above that drive both\n' "wiring: $label"
+		printf '          verbs still read the tick'"'"'s marker only and this whole section is prose.\n'
+	elif printf '%s\n' "$stripped" | grep -q 'halt_pair_problems'; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan still finds the call after every line naming it is\n' "control: wiring: $label"
+		printf '          deleted, so it matches something else and its ok means nothing.\n'
+	else
+		printf '        wiring: every expect_halt leg runs the pair check, and deleting the call is\n'
+		printf '        reported by the same predicate (the stripped copy is %s).\n' "${stripped##*/}"
+	fi
+
+	reset_tree "$tree"
+	rm -f -- "$FACTORY_HALT"
+	return 0
+}
+halt_markers_agree
 
 # ------------------------------------------------- the quarantine, and the halt that follows it
 #
