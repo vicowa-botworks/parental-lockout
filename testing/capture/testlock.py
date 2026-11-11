@@ -54,11 +54,12 @@ import cdp  # noqa: E402
 # names -- not inferred from an older one. The discriminating test, both arms:
 #
 #   PLOCK_CAPTURE_SCRIPTS=on ./testlock-setup.sh && \
-#     ./testlock.py --out testing/capture/runs/testlock-on --overwrite     # -> acc5ba4d…
+#     ./testlock.py --out testing/capture/runs/testlock-on --overwrite     # -> d285d1cd0d0389b6…
 #   ./testlock-setup.sh && \
-#     ./testlock.py --out testing/capture/runs/testlock-off --overwrite    # -> acc5ba4d…, the same file
+#     ./testlock.py --out testing/capture/runs/testlock-off --overwrite    # -> d285d1cd0d0389b6…,
+#                                                                            the same file
 #
-# Measured 6 Nov: one PNG from both arms, equal to the committed frame. That is what this page's
+# Measured 6 Nov, and again 10 Nov: one PNG from both arms, equal to the committed frame. That is what this page's
 # pixels can witness, which is nothing -- the probe page renders no `time[data-unix]`, and rewriting
 # those nodes is the only thing `static/app.js` does on load, so there is no element for the page's
 # scripts to change. The control is `/dashboard`, where the same switch moves the casey row from the
@@ -162,13 +163,20 @@ def capture(name):
         # same ink and weight as the sentence above it, so "no, this backend cannot lock" read as
         # an ordinary line of the explanation.
         cdp.require_state_legible(g, "the probe result page")
+        rows = cdp.session_rows(s)
+        # #213, the same rule as lock.py's. This page draws two tables and the census is only the
+        # second one, which is why the count goes through `cdp.session_census` rather than counting
+        # `tbody tr`: the backend table above it has a row per configured backend, and on 8 Nov that
+        # distinction is the difference between a check and a number that moves for an unrelated
+        # reason.
+        census = cdp.require_declared_sessions(rows, cap.declared_sessions(),
+                                               "the probe result page")
         # The probe page copies the lock page's Detail cell, so it inherits the #108 rule. A
         # check that exists on one of two pages sharing a cell is the check that misses the
         # regression on the other one. The count matters for the same reason it does on lock.py:
         # whether a seam exists here depends on whether the account's sessions are lockable, and
         # a rule that found nothing to look at must not be quoted as a pass.
-        seen, seams = cdp.require_detail_terminated(cdp.session_rows(s),
-                                                  "the probe result page")
+        seen, seams = cdp.require_detail_terminated(rows, "the probe result page")
         if seen == 0:
             raise SystemExit("no Detail cell on the page holds the self-session note, so the "
                              "#108 seam rule examined nothing -- a rule that checked nothing is "

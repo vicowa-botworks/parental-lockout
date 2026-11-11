@@ -15,6 +15,10 @@ So the script refuses to fake any of that. It stops, without writing a file, whe
 * the click does not navigate to the result page;
 * the result page renders no banner sentence, or no session rows (the empty case fits at any
   width and says nothing);
+* the session rows are not the census the fixture declared (#213) -- the fixture asks this machine
+  how many lockable sessions the target account holds before the browser starts, because that count
+  decides this page's height, and a frame taken over a different machine's logins is a different
+  page;
 * any cell lacks a `data-label`;
 * the self-session note does not appear in any Detail cell, because then the #108 rule below
   would have had nothing to look at and a rule that examined nothing reports success for free;
@@ -59,14 +63,14 @@ import cdp  # noqa: E402
 #
 # What this frame was taken under, and how to check it. The scripts condition is `off`, and the frame
 # that carries it was photographed by THIS driver on this branch, at the commit the manifest's `head`
-# names -- not inferred from an older one. The discriminating test, both arms:
+# names -- not inferred from an older one. The discriminating test, both arms, run again 10 Nov:
 #
 #   PLOCK_CAPTURE_SCRIPTS=on ./lock-setup.sh && \
-#     ./lock.py --out testing/capture/runs/lock-on --overwrite      # -> b59bb2be…
+#     ./lock.py --out testing/capture/runs/lock-on --overwrite      # -> df49958928685fa0…
 #   ./lock-setup.sh && \
-#     ./lock.py --out testing/capture/runs/lock-off --overwrite     # -> b59bb2be…, the same file
+#     ./lock.py --out testing/capture/runs/lock-off --overwrite     # -> df49958928685fa0…, the same
 #
-# Measured 6 Nov: one PNG from both arms, equal to the committed frame. That is what this page's
+# Measured 6 Nov, and again 10 Nov: one PNG from both arms, equal to the committed frame. That is what this page's
 # pixels can witness, which is nothing -- /lock renders no `time[data-unix]`, and rewriting those
 # nodes is the only thing `static/app.js` does on load, so there is no element for the page's scripts
 # to change. The control is `/dashboard`, where the same switch moves the casey row from the server's
@@ -169,6 +173,15 @@ def capture(name):
         cdp.require_state_legible(g, "the lock result page")
 
         rows = cdp.session_rows(s)
+        # #213, and the check the census sentence in README.md never was. The fixture asked this
+        # machine how many lockable sessions the target account holds — through `plock status --json`,
+        # whose `lockable` field is the daemon's own predicate — and this page has to render that
+        # many rows. The census is what decides this artifact's height, so a frame taken over another
+        # machine's logins is a different page wearing the same filename: the committed file is a
+        # 2-session page and the prose above it has said 1 session since 27 Oct, with nothing able to
+        # notice. Refused before the write, like every other refusal here.
+        census = cdp.require_declared_sessions(rows, cap.declared_sessions(),
+                                               "the lock result page")
         for r in rows:
             try:
                 i = [k.lower() for k in r["result"]].index("result")
@@ -213,6 +226,7 @@ def capture(name):
         print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
               flush=True)
         print(f"  rows={g['rows']} cells={g['cells']} unlabelled={g['unlabelled']} "
+              f"census={census}/{cap.env.get('PLOCK_CAPTURE_SESSIONS')} "
               f"{cdp.census_line(g)} {cdp.nav_census_line(g)} {cdp.state_census_line(g)}",
               flush=True)
         print(f"  banner: {g['banner'].strip()[:110]}", flush=True)

@@ -116,6 +116,7 @@ CONDITION_KEYS = (
     ("PLOCK_CAPTURE_TZ", "tz"),
     ("PLOCK_CAPTURE_AUDIT_ROWS", "rows"),
     ("PLOCK_CAPTURE_PATH_PREPEND", "census"),
+    ("PLOCK_CAPTURE_SESSIONS", "sessions"),
     ("PLOCK_CAPTURE_SCRIPTS", "scripts"),
 )
 # Values a manifest is allowed to assert about the page's own scripts, read out of the driver that
@@ -743,6 +744,13 @@ def check(directory, run=git, pages=None):
                                 f"(testing/capture/README.md). Keep that run's PNG as a measurement; "
                                 f"what is committed here is the frame taken with the declaration at "
                                 f"its default")
+            sessions = cap.get("sessions")
+            if sessions is not None and not (isinstance(sessions, str) and sessions.isdigit()):
+                problems.append(f"{name} records sessions={sessions!r}, which is not a count. The "
+                                f"census is the number of lockable sessions the fixture asked the "
+                                f"machine for and the driver counted on the page, so a value with a "
+                                f"typo in it is a condition that reads as a number and matches "
+                                f"nothing (#213). Re-record the frame from its fixture's own env.")
             spec = specs.get(name[:-len(".png")])
             if spec is not None:
                 want_fixture = getattr(spec, "fixture", None)
@@ -1593,6 +1601,20 @@ def self_test():
         typo = dict(good["capture"], scripts="maybe")
         if not any("scripts=" in p for p in check_with(typo)):
             return "scripts=maybe is not a condition anyone declares, and it passed"
+        # #213's key, in the same two shapes: a census that is not a count, and a census that is a
+        # count of nothing. `pages` records no `sessions` at all and must stay green — the pages
+        # fixture gets its census from the stub loginctl and says so through `census`, so a rule that
+        # demanded the new key from every frame would refuse five honest entries.
+        if any("sessions=" in p for p in check_with(dict(good["capture"]))):
+            return ("an entry with no `sessions` key was refused; the pages fixture declares no "
+                    "census of its own and must stay recordable without one (#213)")
+        for bad_census in ("two", "1 ", ""):
+            if not any("sessions=" in p for p in check_with(dict(good["capture"],
+                                                                sessions=bad_census))):
+                return (f"sessions={bad_census!r} is not a count, and it passed: a census with a "
+                        f"typo in it reads as a condition and matches no page")
+        if any("sessions=" in p for p in check_with(dict(good["capture"], sessions="8"))):
+            return "a well-formed census was refused, so the rule refuses the shape and not the defect"
         stale = dict(good["capture"], state=[["casey", "assigned"]])
         if not any("no longer builds" in p for p in check_with(stale)):
             return ("an entry describing a state the driver no longer declares passed, so the "

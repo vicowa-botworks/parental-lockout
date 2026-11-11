@@ -970,11 +970,23 @@ def require_nav_distinguishable(got, what, nav):
 # an element, and `every_state_class_the_pages_render_is_in_the_census` below refuses the day one of
 # them stops being rendered -- a guard that measures a class nobody emits passes on nothing. The
 # matching seam on the Go side is `TestEveryStateClassTheTemplatesNameIsDrawn` in internal/web, which
-# refuses the other direction: a `state-` word the pages say and app.css never mentions.
+# refuses the other direction: a word the pages say and app.css never mentions. Since #239 that seam
+# reads the whole vocabulary named here, not only the `state-` prefixed half of it.
 #
 # `state-free` is deliberately absent. app.css has drawn it since before this folder existed and no
 # template has ever rendered it, so it is the one entry in the stylesheet's state block a browser
 # could not be asked about; the Go test asserts both halves of that sentence stay true.
+#
+# #239 moved two names in and moved no pixels out. `.problem` was carrying six jobs at once -- a
+# refused write, a per-account fact, a backend's detail, the standing "enforcement is switched off"
+# sentence, one paragraph of help prose and a missing value -- and `.override` carried both the open
+# hold and the self-session sentence whose whole content is that nothing is held. Two of those jobs had
+# no name, so they are in this census: `refusal` (the write that did not happen, the evaluator's
+# complaint) and `exempt` (the session the daemon runs inside, which no schedule will lock). The other
+# three went to names already listed here or to no state at all -- the mode notice to `disabled`, the
+# missing value to `state-gap`, the help prose to `muted`, which is not a state and stays out. A name
+# this list gains is a name Chrome is now asked about on every photographed page, which is the half of
+# the guard a rename cannot quietly opt out of.
 # The four row-level state names, named separately because nothing outside this file can find them.
 #
 # They are the finding the coverage rule in `pages.py --self-test` produced the first time it was run,
@@ -992,8 +1004,8 @@ def require_nav_distinguishable(got, what, nav):
 # four names is a census that passes on them.
 ROW_STATE_CLASSES = ("held", "unreadable", "stale", "unmanaged")
 
-STATE_CLASSES = ("state-held", "state-unknown", "state-gap", "problem", "override",
-                 "override-expired", "disabled", "flag", "banner") + ROW_STATE_CLASSES
+STATE_CLASSES = ("state-held", "state-unknown", "state-gap", "problem", "refusal", "override",
+                 "override-expired", "exempt", "disabled", "flag", "banner") + ROW_STATE_CLASSES
 
 
 # The state census (#199): every element on the page carrying one of those classes, with the four
@@ -1181,6 +1193,49 @@ def session_rows(session):
 # The first words of the self-session note, as one string in one place. Both result pages render
 # the same Detail cell, and the check below is about the seam between that cell's two sentences.
 SELF_SESSION_NOTE = "This is the session the daemon runs"
+
+
+def session_census(rows):
+    """How many of `rows` are the account's own session rows.
+
+    Both POST pages draw the census as a `table.rows` table whose rows carry a `Where` cell, and
+    `testlock` draws a second `table.rows` table above it — one row per configured backend, labelled
+    `Can lock` and `Detail`. Counting `tbody tr` over the whole page therefore counts two different
+    things on the two pages, which is the mistake this function exists to make impossible: the census
+    is the rows with a `Where`, on both pages, whatever else the page has grown beside them.
+    """
+    return sum(1 for r in rows if "Where" in [str(x) for x in (r.get("result") or [])])
+
+
+def require_declared_sessions(rows, declared, what):
+    """The page shows exactly the number of lockable sessions the fixture declared (#213).
+
+    The sibling of `pages.py`'s `require_declared_rows`, one layer down: that one pins a row count to
+    a seeded file, this one pins a row count to a census the machine was asked for before the browser
+    started. Both exist because the alternative is a frame whose shape belongs to whatever the
+    capturing machine happened to be, and both are checks of the *page* rather than of the source
+    they were declared from — the reader of the artifact is counting rows on paper.
+
+    What this catches that `scrollWidth` never could: the census is what decides how tall these two
+    pages are. `lock.png` was re-taken on 8 Nov on a machine holding two lockable sessions for the
+    target — `tty` plus `x11`, both of them `isLockable` at `internal/platform/platform.go:241-258` —
+    and the artifact changed shape by 394 px while every guard in this file stayed green, because
+    nothing anywhere said how many rows the frame was supposed to have. The README that describes
+    these two frames still quotes the 1-session transcript from 27 Oct.
+
+    A refusal here is not a broken page. It is a different page: the same template over another
+    machine's logins. Re-take it deliberately, on a machine whose census is the one the artifact is
+    meant to show, and let the manifest say which that was.
+    """
+    shown = session_census(rows)
+    if shown != declared:
+        raise SystemExit(
+            f"{what}: the page renders {shown} lockable session row(s) and the fixture declared "
+            f"{declared}. The census decides this artifact's height, so a frame taken over a "
+            f"different census is a different page — re-run the setup script on a machine whose "
+            f"census is the one you mean to publish, or declare PLOCK_CAPTURE_SESSIONS={shown} if "
+            f"this one is right and the fixture is out of date (#213).")
+    return shown
 
 
 def require_detail_terminated(rows, what):
@@ -1500,6 +1555,27 @@ class Capture:
             # are the thing a reader of the artifact cannot recover from the pixels afterwards.
             print(f"page scripts: {'off' if scripts_off else 'ON'} for this frame "
                   f"(PLOCK_CAPTURE_SCRIPTS in {op.basename(self.dir)}/fixture.env)", flush=True)
+            # #213, in the same breath: the census is the condition these two frames' height comes
+            # from, and the three things that decided it are named with it. Not the session bus and
+            # not the timezone — `fixture.sh`'s note on `capture_declare_census` carries the
+            # measurements that show why it is the system bus and the loginctl that matter here.
+            if self.env.get("PLOCK_CAPTURE_SESSIONS"):
+                uid = self.env.get("PLOCK_CAPTURE_CENSUS_UID")
+                through = self.env.get("PLOCK_CAPTURE_CENSUS_LOGINCTL")
+                if uid and through:
+                    line = (f"session census: {self.env['PLOCK_CAPTURE_SESSIONS']} lockable "
+                            f"session(s), as uid {uid} through {through}")
+                    if self.env.get("PLOCK_CAPTURE_CENSUS_SYSTEM_BUS"):
+                        line += (f" on DBUS_SYSTEM_BUS_ADDRESS="
+                                 f"{self.env['PLOCK_CAPTURE_CENSUS_SYSTEM_BUS']}")
+                else:
+                    # No loginctl and no uid with it: nobody asked the machine, so the number came
+                    # from a person. Said as plainly as the measured case, because the two support
+                    # different sentences about the frame (#213).
+                    line = (f"session census: {self.env['PLOCK_CAPTURE_SESSIONS']} lockable "
+                            "session(s), declared by the operator rather than taken from the machine")
+                print(f"{line} (PLOCK_CAPTURE_SESSIONS in "
+                      f"{op.basename(self.dir)}/fixture.env)", flush=True)
         except BaseException:
             self.close()
             raise
@@ -1540,6 +1616,32 @@ class Capture:
                 "count. The fixture's declared number is what the audit page's row count is compared "
                 "against, so it has to be a plain integer.")
         return raw
+
+    def declared_sessions(self):
+        """The session census this fixture declares, or a refusal that says where the number comes from.
+
+        #213, and the reason it is a refusal rather than a default: these two pages render one row per
+        lockable session of the target account, so the count is the shape of the artifact — its height
+        with it. `0` read out of an absent key would be a fixture confidently photographing the empty
+        case, and a default of "whatever the page shows" is the check not happening, which is the state
+        the two frames were in until now: the committed `lock.png` is a 2-session page and the README
+        that describes it still quotes the 1-session transcript.
+
+        There is one way for this to be missing legitimately: a `runs/<fixture>/fixture.env` written by
+        a setup script older than the census. The message says so, because the alternative reading —
+        that this file is where the number belongs — would put a second copy of a machine's logins in
+        the driver.
+        """
+        raw = self.env.get("PLOCK_CAPTURE_SESSIONS", "")
+        if not raw.isdigit():
+            raise SystemExit(
+                f"{op.basename(self.dir)} declares PLOCK_CAPTURE_SESSIONS={raw!r}, which is not a "
+                "count. The census decides how many rows this page has and therefore how tall the "
+                "artifact is, so it is declared before the browser starts and checked against the "
+                "page. `capture_declare_census` in fixture.sh writes it into fixture.env from the "
+                "machine's own census: re-run the setup script, or name the count yourself with "
+                "PLOCK_CAPTURE_SESSIONS=<n> in front of it.")
+        return int(raw)
 
     def require_running(self):
         """The daemon and the browser this fixture started must still be the ones in use.
