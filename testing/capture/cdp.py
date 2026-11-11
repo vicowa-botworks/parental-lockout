@@ -200,6 +200,113 @@ def capture_refused(cap, path):
     return path
 
 
+def refusal_note(mode, out, envs, notes):
+    """REFUSED.txt: what the run refused, under what conditions, and what it left next to this file.
+
+    The frames in the refused directory are worthless on their own. A PNG with no sentence next to it
+    is the exact thing #211 was filed about -- a frame that looks current and states nothing about
+    the state it was taken in -- and these frames state less than most, because the whole reason
+    they exist is that the state was NOT the declared one. So the sentences and the conditions come
+    here, in the directory, where they travel with the bytes.
+
+    The conditions are named by their files rather than copied out. `fixture.env` is still on disk
+    beside the run directory and is the only thing that can change; a copy made here would be a
+    second answer to the same question, and #213 is what those two do when they drift.
+
+    This used to be `pages.py`'s `_refusal_note`. It moved here when #296 wired the two single-frame
+    drivers into the same keeping, because the text is the thing that makes a kept frame mean
+    something and three drivers writing three versions of it is how one of them ends up saying less
+    than the others.
+    """
+    when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = [
+        "# What this run refused, and what it left here.\n",
+        "#\n",
+        "# These are the frames a run measured and then declined to publish, and they are\n",
+        "# not evidence: nothing records them, --out was left untouched, and any artifact\n",
+        "# path this run printed names a file that is not there. Read them to see what the\n",
+        "# page actually rendered; never quote them as current.\n",
+        f"\nfixture: {mode}\nrefused at: {when}\n--out (untouched): {out}\n",
+        "conditions stated in:\n"
+        + ("".join(f"  {p}\n" for p in envs) if envs
+           else "  (none: no setup script has run, so no fixture.env declares anything here)\n"),
+        f"\nrefusals ({len(notes)}):\n" + ("".join(notes) if notes else "  (none recorded)\n"),
+    ]
+    return "".join(lines)
+
+
+def refused_frame(cap, keep, out, note=None, frame=None):
+    """Move what this run staged into `keep` with `note` beside it, then photograph the refused page.
+
+    The order is the whole function: `keep_refused` opening the directory is what clears a previous
+    refusal's frames, so a frame written before that open would be deleted by the run that wrote it.
+    Then the page is photographed, because the refusal is the only sentence a driver says about a
+    page and it should travel with the picture it is a sentence about.
+
+    One call per refusal is the property its name keeps: this is the disposal of the stage on the
+    refusal path, and `pages.py --self-test` counts it at exactly one for every refusal arm. Before
+    #220 the disposal was `discard_stage()` and the count was pinned the same way, which is how
+    `lock.py` and `testlock.py` were found to have been running theirs as dead code -- an exit code
+    laundered the fact that the statement after a raising helper never ran. A keep that never runs
+    leaves nothing on disk, so the count and the directory together are what make the statement live.
+
+    Returns what `keep_refused` returned: the frames it moved, or None when it declined to write
+    there and destroyed them instead -- in which case there is no directory to photograph into.
+    """
+    kept = keep_refused(keep, note=note, out=out)
+    if kept is None or cap is None or not frame:
+        return kept
+    capture_refused(cap, op.join(keep, frame))
+    return kept
+
+
+def refuse_single_shot(cap, mode, out, name, frame, why):
+    """The whole refusal arm of a single-frame driver: the sentence, the kept frames, the page.
+
+    `lock.py` and `testlock.py` photograph one page each, so a refusal is one sentence about one
+    file -- and it used to be a sentence about a file that had just been deleted, with the only other
+    picture it named being the previous run's `lock.png` sitting at `--out`, which the same sentence
+    declares stale (#296). Both halves of what #251 ended for `pages.py` are therefore this one call:
+
+      * the staged bytes and `REFUSED.txt` go to `runs/<mode>-refused/`. On the ordinary path nothing
+        is staged -- every guard runs before `write_png` -- so what lands is the frame of the page
+        that refused, named `lock@360.png` rather than `lock.png` so it cannot be opened as the
+        artifact;
+      * `--out` is left exactly as it was, and `report_refusal` names the file standing there with
+        its mtime instead of deleting it (#222: with `--out` pointing at the docs tree, that file is
+        the committed evidence).
+
+    Reported, then kept, then photographed, in the order the transcript is read: the refusal, the
+    stale file it did not write, the frame it did take, the count of what is in the directory.
+    `report_refusal` and `capture_refused` both report and never raise, because this runs from inside
+    a refusal handler and a diagnostic that dies replaces the real cause with the diagnostic's own.
+    """
+    keep = refused_dir(mode)
+    report_refusal(name, why)
+    env = op.join(RUNS, mode, "fixture.env")
+    kept = refused_frame(cap, keep, out,
+                         note=refusal_note(mode, out, [env] if op.exists(env) else [],
+                                            [f"  refused: {why}\n"]),
+                         frame=frame)
+    if kept is None:
+        # The keep was declined (nowhere safe to write), so the frames are gone and there is no
+        # directory to count. `keep_refused` has already said why this one was destroyed.
+        return None
+    left = sorted(f for f in os.listdir(keep) if f.endswith(".png")) if op.isdir(keep) else []
+    if left:
+        print(f"  {len(left)} frame(s) this run kept are in {keep}, with {REFUSED_NOTE} beside "
+              f"them; nothing was written to {out}, and none of these frames is evidence",
+              file=sys.stderr)
+    else:
+        # The refusal came from the fixture, before there was a page to photograph. "0 frame(s)" would
+        # be a true sentence that answers the wrong question -- the operator is looking for a picture
+        # and is owed the reason there is none, not a zero.
+        print(f"  no frame could be taken, so {keep} holds none: this run was refused before it had "
+              f"a page in a browser to photograph. {REFUSED_NOTE} is there with the refusal and the "
+              f"conditions; nothing was written to {out}", file=sys.stderr)
+    return kept
+
+
 def fixture(name):
     """The run directory for one capture, and the fixture's own answers."""
     d = op.join(RUNS, name)

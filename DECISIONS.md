@@ -2907,3 +2907,113 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the current commit with `check` back to 6 problems, and the three honest paths (first bare record of a
   directory, record over nine untracked frames, `pages.py`'s partial record with the POST frames
   carried) unchanged.
+
+## D-0058 · A POST refusal keeps the frame its sentence is about, taken while the browser that rendered it is still open
+
+- Question: #220 ended the keeping at `pages.py`. `lock.py` and `testlock.py` went on calling
+  `discard_stage()` on their refusal paths, so the two drivers whose artifact is ONE page — and the
+  two that post a real state change — were the two where a refusal deleted the only frame of the page
+  it had refused. #251's two properties have to reach them without changing what a refusal publishes:
+  the bytes go somewhere an operator can open, and the transcript says where in the same breath as
+  saying nothing was written. Measured on this branch's own base, `66c9162`, in a throwaway `lock`
+  fixture with the census declared `1` against a live census of `2`
+  (`/tmp/opencode/before-refuse2.log`) — the refusal printed two lines and stopped:
+
+  ```
+  REFUSED: the lock result page: the page renders 2 lockable session row(s) and the fixture declared 1. …
+    a previous lock.png is still at …/runs/lock/lock.png -- mtime 2026-11-11T16:23:35Z, 132550 bytes -- and it is NOT from this run. Do not quote it as current.
+  ```
+
+  exit 1, `runs/` holding only `lock/`. No drawer, no note, and the only file the refusal named was
+  the previous run's frame — the file the same sentence declares stale. Where does the keeping go,
+  and what does the transcript owe the operator?
+- Options: keep inside each driver's own handler through one shared `cdp` disposal, while the browser is still open | keep in `main()` after the `with cdp.Capture(...)`, sharing only the note text | keep `discard_stage()` and print the staged path before deleting it | change no code and record the loss in the capture notes a third time
+- Chose: keep inside each driver's own handler through one shared `cdp` disposal, while the browser is still open
+- Why: three things decided it, each measured before a line was written. (1) *Inside or outside the
+  `with` is not a style question.* `Capture.close()` closes the CDP websocket, and a real torn-down
+  session answers nothing: live Chrome on 11 Nov returned
+  `Browser.setDownloadBehavior: Browser context has been disposed` for the first call made after
+  `__exit__`. A keep outside the handler therefore keeps nothing — the driver's one frame is gone and
+  `REFUSED.txt` describes a page nobody looked at. `--self-test`'s fake browser used to answer
+  `screenshot()` forever, which is why this could only ever be a comment; `_FakeSession` now refuses
+  once `__exit__` has run, and the attack that moves the keeping back out fails 2 rules. (2) *The note
+  is what makes a kept frame mean something, and three drivers writing three versions of it is how one
+  ends up saying less than the others*, so the note became `cdp.refusal_note` and the whole disposal
+  became `cdp.refused_frame` / `cdp.refuse_single_shot`, which `pages.py`'s `_refused_frame` now calls
+  — one disposal for three drivers, and the same four sentences in each drawer. The shared call is also
+  what keeps the drawers honest with each other: `lock-refused` and `testlock-refused` are separate
+  for the reason `pages` and `pages-noprof` are, and a rule now says so rather than the name happening
+  to be built one way. (3) *The kept frame is named `lock@360.png`, never `lock.png`*, because
+  `report_refusal` reads the file at `--out/<artifact>.png` — measured live: `a previous lock.png is
+  still at …/runs/lock/lock.png -- mtime 2026-11-11T16:23:35Z, 132550 bytes` — so a kept frame wearing
+  the artifact's exact name, in a directory the operator is told to open, is #222's ambiguity rebuilt
+  inside the fix. Fourth, the harness: a rule that watched `keep_refused` being *handed* the bytes
+  passed with it hollowed to `return []`, so both new rules read the drawer off the disk, and
+  `_run_single_shot` boxes `cdp.RUNS` (which is what `--out` is stubbed for) and asserts the box is in
+  effect. That assertion is not theoretical: an intermediate version of this harness with no box wrote
+  `runs/lock-refused/REFUSED.txt` and `runs/testlock-refused/` into the worktree at 16:18:23Z while the
+  summary printed "nothing written outside a temp box" — `runs/` is gitignored, so `git status` stayed
+  clean and the write was invisible (both files moved to `/tmp/opencode/leak-evidence-296/`; a full
+  `--self-test` in the tree since then leaves `runs/` empty).
+- What lost: the exception identity is no longer pinned. `main()`'s `except Exception` now also
+  catches an error raised *while reporting*, because the shape it replaces (raise inside the handler)
+  could not catch anything after a refusal; nothing in the self-test pins which class arrives, and a
+  reporting bug now prints `RuntimeError: …` as the refusal instead of escaping as a traceback. On the
+  one path where `--out` overlaps the drawer the keep still declines and the frame is destroyed —
+  unchanged from #220, deliberately, because a frame in the publish directory is one `record` away
+  from a stamp it did not earn; what is new is that the file already there survives byte for byte and
+  the decline is announced. `EXPECTED_RULES` goes 76 → 77, the number D-0057's tie-break was chosen to
+  protect: `origin/issue-251` (#298) edits this same file, adds `_FakeSession.screenshot` returning
+  bytes independently of this branch, and edits the same README section, so whichever of the two
+  merges second will conflict — and the conflict is the price of pinning the POST drivers' behaviour
+  instead of leaving it in prose. The fixture-arm refusal prints no frame count at all, saying `no
+  frame could be taken` instead, because `0 frame(s)` answers a question the operator is not asking;
+  the count-agrees-with-the-directory rule therefore reads the page arm only. A refusal that never
+  staged anything now creates `runs/<fixture>-refused/` holding only `REFUSED.txt`, so the drawer's
+  existence no longer implies a frame exists — which is what the sentence beside it is for. And
+  `testing/capture/README.md:1005` still says the self-test "runs 48 rules" where `origin/main` runs
+  76: a pre-existing unenforced number, left alone here rather than touched twice by two open
+  branches.
+- Checkpoint: f25e6925fc78de6e4b7975b39aef133e4d7b54bb
+- Effect: `testing/capture/cdp.py` — `refusal_note` (the note `pages.py` used to own), `refused_frame`
+  (open the drawer, then photograph: the order *is* the function), `refuse_single_shot` (the whole POST
+  refusal arm: report → keep → frame → count, with a sentence for the arm that has no page to
+  photograph). `testing/capture/lock.py`, `testing/capture/testlock.py` — `capture(cap, name)` takes
+  the live `Capture` instead of opening one, `main()` refuses *inside* the `with`, an outer arm covers
+  a fixture that refuses before a browser exists, and `cdp.discard_stage()` is gone from both.
+  `testing/capture/pages.py` — `_refusal_note` deleted (its body moved), `_refused_frame` calls
+  `cdp.refused_frame`, `_FakeSession` returns bytes and refuses after `__exit__`, `_FakeCap.__exit__`
+  marks it closed, `_run_single_shot` replaced (boxes `RUNS` and trips on an unboxed box, plants bytes
+  at `--out` and reads them back), `single_shot` rewritten onto the disk,
+  `a_single_frame_keep_cannot_be_read_as_evidence` new, `EXPECTED_RULES` 76 → 77.
+  `testing/capture/README.md` — the paragraph that read "still discard their stage … wiring them is
+  open work, not an oversight" replaced by the behaviour, the live transcript and the four properties.
+  Read-backs, each run against the code it describes:
+  1. `python3 testing/capture/pages.py --self-test` → `capture self-test: 77 refusal rules hold`, exit
+     0; `python3 testing/capture/manifest.py --self-test` → `44 rules hold` (untouched).
+  2. the battery `/tmp/opencode/attack296.py` — a copy of the tree per attack, never the gated tree
+     (#1807), every anchor asserted to occur exactly once, baseline green first — 13 of 15 die:
+     `keep_refused` hollowed 14, `report_refusal` raising again 12, the drawer unnamed for the fixture
+     7, `capture_refused` writing nothing 6, the note hollowed 3, `cap` passed as None 2, the disposal
+     back to a discard 2, the disposal run twice 2, the keep-guard widened 2, the keeping moved outside
+     the `with` 2, the `@360` dropped 1, the stale sentence dropped 1, the announced count a constant 1;
+     the two honest edits print `77 refusal rules hold`.
+  3. the defect on this branch's base — `testing/capture` at `f25e692` over the same fixture, census
+     declared 1 against a live 2 → exit 1, two transcript lines, `runs/` holding only `lock/`
+     (`/tmp/opencode/before-refuse2.log`).
+  4. the same fixture, same condition, this tree → exit 1 and five lines
+     (`/tmp/opencode/lock-refuse.log`); `runs/lock-refused/` holds `lock@360.png` (132550 bytes, PNG
+     magic, 360x1536 — byte-identical to `docs/screenshots/360/lock.png`, because what disagreed here
+     was the fixture's declaration and not the page) and `REFUSED.txt` naming the fixture, the refusal
+     and `runs/lock/fixture.env`; `--out` unchanged at `df49958928685fa0…`.
+  5. the arm with no browser — `python3 testing/capture/lock.py --out testing/capture/runs/probe-a`
+     with no fixture → exit 1, `no frame could be taken, so … holds none`, and the 33-byte sentinel at
+     `--out` byte-identical afterwards (`efaa87fac0345b5d…`).
+  6. `git check-ignore -v` → `.gitignore:51:/testing/capture/runs/` on both the drawer's `REFUSED.txt`
+     and the `--out` frame; `git status --short` after every run above names the five source files and
+     nothing else.
+  7. this entry's own gate, re-run after the entry was written: `python3 scripts/check-decisions.py` →
+     `check-decisions: 170 entries across 2 log(s), every one with its question, options, choice,
+     reason and checkpoint`. The full `make verify` over the tree carrying this entry is quoted with
+     its exit status in the pull-request body rather than here, because an `Effect:` field written
+     before the gate runs is a prophecy (#1180).
