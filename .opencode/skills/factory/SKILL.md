@@ -90,8 +90,19 @@ after the announcement.
 
 ```bash
 gh pr view "$PR" --json reviewDecision,mergeable,mergeStateStatus,headRefOid,statusCheckRollup
-gh pr view "$PR" --json reviewRequests --jq '[.users[].login]'
+gh pr view "$PR" --json reviewRequests --jq '[.reviewRequests[].login]'
 ```
+
+`--json` hands `--jq` the whole payload object, so the program has to name the field the call asked for.
+`--json reviewRequests` yields `{"reviewRequests":[…]}`; `[.users[].login]` -- the right program for the
+REST `/pulls/N/requested_reviewers` envelope, which wraps the same rows as `{"users":[…]}`, and which is
+what `factory/factory.sh` and `factory/triage.sh` read -- answers `cannot iterate over: null` with exit 1
+against this payload (measured 10 Nov on gh 2.46.0 at `/usr/bin/gh`, PR 269: issue #270). The quiet
+variant is worse than that error: a program reading a field that is merely absent answers `[]`, which is
+one and the same sentence with "nobody has been asked" and with "asked, and already answered" -- and
+which of the three it is decides whether the supervisor nags a reviewer or stays quiet. Every `--jq`
+program quoted in this document is now executed by `factory/selftest.sh` against a canned payload,
+because this block is prose a tick runs verbatim and nothing until now had ever run it.
 
 Spell those reads as two calls, in this shape. A command the permission scanner cannot parse is refused
 outright, and the refusal looks like a tool bug rather than a denial: measured 5 Nov, a tick composed one
