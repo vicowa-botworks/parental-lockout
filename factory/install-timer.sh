@@ -353,6 +353,7 @@ render() {
 		-e "s#@STOP@#$(sed_replacement "$STOP")#g" \
 		-e "s#@STOP_TIMEOUT@#$(sed_replacement "$STOP_TIMEOUT")#g" \
 		-e "s#@REVIEWER@#$(sed_replacement "$FACTORY_REVIEWER")#g" \
+		-e "s#@REVIEWER_TEAM@#$(sed_replacement "$FACTORY_REVIEWER_TEAM")#g" \
 		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
 		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g"
 }
@@ -383,6 +384,15 @@ ExecStart=@REPO@/factory/factory.sh
 # The unit reads none of your shell profile: name the directories gh and opencode live in.
 Environment=PATH=@PATHS@
 Environment=FACTORY_REVIEWER=@REVIEWER@
+# Both halves of the review target, and the pair is the point. A review request goes to a TEAM by
+# default (#241) with an individual as the override, so a unit that named only `FACTORY_REVIEWER`
+# would bake a person into the install and the poke would keep asking one account long after the file
+# was changed to ask the team. The team line is the SLUG, and an empty one
+# (`Environment=FACTORY_REVIEWER_TEAM=`) is the documented override that
+# means "ask the individual on this repository": systemd reads `Environment=VAR=` as an empty value,
+# and common.sh reads the defaults with `${VAR-default}` so that empty survives instead of being
+# refilled with workers.
+Environment=FACTORY_REVIEWER_TEAM=@REVIEWER_TEAM@
 # Which unit this is, so the pass can read its own `ExecStart` back (#260). `install-timer.sh --name`
 # lets a person rename the pair, and a name chosen on a command line is recorded nowhere else a later
 # activation can read: without this line a pass has to resolve the file from the repository's name,

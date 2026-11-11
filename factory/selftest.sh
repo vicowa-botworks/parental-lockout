@@ -4386,6 +4386,12 @@ case "$1 $2" in
 	# pull request whose head predates it: the shipped fixture answered `needs_reviewer` with the
 	# detail `answered by the head commit ` -- the head commit missing from a sentence that prints
 	# `$head_date`, which is the read failing rather than the state being empty.
+	#
+	# #241's legs found the same index independently, from the other payload: a planted team request
+	# read `needs_reviewer` because the shim never emitted `reviewers.json`, and the fixture answered
+	# with `api_get`'s default -- an empty list, indistinguishable from a correct answer. Two sections
+	# each rediscovering one character is the reason both stories are told here: an unreachable arm
+	# fails as an empty queue, never as an error.
 	case "${2:-}" in
 	*requested_reviewers*) emit "$here/reviewers.json" ;;
 	*/reviews*) emit "$here/reviews.json" ;;
@@ -4750,6 +4756,9 @@ claim_reset() {
 	CLAIM_MERGED_GARBAGE=''
 	CLAIM_PAGE_PRS=''
 	CLAIM_PAGE_ISSUES=''
+	# Not a fixture to reset so much as a leak to close: a leg that points the harness at a mutated
+	# triage.sh for a control must not hand that copy to the next leg by accident.
+	claim_script=''
 	claim_window=100
 	claim_merged '.'
 	claim_issues '.'
@@ -5853,11 +5862,17 @@ claim_reset
 # sixth parameter. `--dry-run` prints what a tick would be told, so the transport can be watched end
 # to end without starting a model, and the shipped supervisor is the thing under test, from a copy of
 # the three scripts it needs beside each other.
+# `FACTORY_REVIEWER_TEAM` is pinned to the shipped default (`factory/common.sh:83`) for the same reason
+# `FACTORY_OPENCODE` is: inherited, the two legs that read this journal would be green or red depending
+# on what the operator exports. It is also the line that makes the ask below mean something -- the poke
+# prints the target it resolved, so `request review from team workers` is the shipped default asking
+# end to end through factory.sh, not a login pasted here.
 ask_dispatch() { # run the shipped supervisor, dry, over whatever is planted
 	mkdir -p "$claim_work/dtrees"
 	PATH="$claim_bin:$PATH" CLAIM_FIXTURE="$claim_fix" \
 		FACTORY_DIR="$claim_harness" FACTORY_ROOT="$claim_repo" \
 		FACTORY_REPO=example/repo FACTORY_REVIEWER=someoneelse \
+		FACTORY_REVIEWER_TEAM=workers \
 		FACTORY_OPENCODE=opencode \
 		FACTORY_LOG="$claim_work/dlog" FACTORY_LEDGER="$claim_work/dledger" \
 		FACTORY_RUN="$claim_work/drun" FACTORY_TREES="$claim_work/dtrees" \
@@ -6088,9 +6103,9 @@ claim_leg 'a verdict that still stands is not the new arm' claim_class_is 269 aw
 # one that must appear, and the one that must not.
 voided_asked() {
 	case "$(ask_journal)" in
-	*'WOULD-POKE pr:269 request review from someoneelse'*) return 0 ;;
+	*'WOULD-POKE pr:269 request review from team workers'*) return 0 ;;
 	esac
-	printf '            the supervisor took 269 somewhere other than a request. Its journal:\n' >&2
+	printf '            the supervisor took 269 somewhere other than a request to the team. Its journal:\n' >&2
 	printf '%s\n' "$(ask_journal)" | sed 's/^/              /' | grep -v '^[[:space:]]*$' >&2
 	return 1
 }
@@ -6308,6 +6323,583 @@ triage_arm_coverage() {
 	return 0
 }
 triage_arm_coverage
+claim_reset
+
+# --------------------------------------------------------------- who the review poke asks (#241)
+#
+# H-0116 moves the review request from one named person to the organisation's team, and H-0117 decides
+# what becomes of an individual request the poke did not make. Both are worth legs here rather than a
+# grep for `team_reviewers[]` in factory.sh, and the reason is #1048 in shell clothing: a pattern
+# matches text, so it reports the absence of a match as the absence of a bug. Delete the line and a
+# presence check goes blind; move the line into a function and it says "not found" about working code.
+# These legs therefore RUN the poke and read what it asked the API for -- and every load-bearing one
+# is run a second time against a copy with the change reverted, where it has to fail, because an
+# assertion that cannot tell `team_reviewers[]` from `reviewers[]` is not asserting #241 at all.
+#
+# How the function is run without starting the supervisor: `factory_request_review` lives in
+# factory.sh, which cannot be sourced -- sourcing it runs a pass. So the legs cut the function out of
+# the named file and source that into a shell holding common.sh, which is exactly its dependency set:
+# `log_event`, `factory_ledger_*`, `factory_age` and `run_action` all live there. The one factory.sh
+# call it makes is `factory_maybe_notice`, the operator-nudge, and the harness replaces it with a
+# printed line: the nudge is about how long a unit has been stuck, not about who is asked, and a leg
+# that reached it would want to see it happen rather than have it POST a comment.
+poke_root=$work/poke
+mkdir -p "$poke_root/bin"
+
+# A `gh` that keeps a copy of every argument list it was handed. The poke's contract is not "a call
+# happened" -- it is "a call happened against `team_reviewers[]`", and both halves of that are
+# invisible in an exit status: same endpoint, same verb, same 200 for either list.
+#
+# The patterns with a space in them are quoted (`*'-X POST'*`), which is not cosmetic: an unquoted
+# space ends the pattern, and bash reports the rest of the arm as `syntax error near unexpected
+# token 'POST*'` at parse time -- so the shim dies before its first line runs and records nothing.
+cat >"$poke_root/bin/gh" <<'POKEGH'
+#!/usr/bin/env bash
+# Fixture `gh` for the poke legs in factory/selftest.sh. Records, then answers what the poke needs to
+# hear. The POST branch comes before the requested_reviewers branch on purpose: a POST matches both.
+#
+# It answers the way the real binary does: the payload goes through the CALLER's own `--jq` program,
+# with any `--raw-field k=v` bound as `--arg k`. A shim that dumps the raw body instead makes every
+# read-back fail for a reason unrelated to the code under test -- which is how this fixture briefly
+# made the team's 422 path look like a POKE-FAILED and, worse, let the users-only control "pass" for
+# that reason rather than for the one it claims.
+printf '%s\n' "$*" >>"$POKE_CALLS"
+answer() { # answer <payload> -> through the caller's --jq, with --raw-field bound as --arg
+	local payload=$1 jqprog='' who='' pair
+	local args=("$@") i=0
+	while [ "$i" -lt "${#args[@]}" ]; do
+		case "${args[$i]}" in
+		--jq) jqprog=${args[$((i + 1))]} ;;
+		--raw-field)
+			pair=${args[$((i + 1))]}
+			case "$pair" in
+			who=*) who=${pair#*=} ;;
+			*)
+				printf 'poke-shim: a --raw-field this fixture does not bind: %s\n' "$pair" >&2
+				exit 9
+				;;
+			esac ;;
+		esac
+		i=$((i + 1))
+	done
+	if [ -n "$jqprog" ]; then
+		printf '%s\n' "$payload" | jq -r --arg who "$who" "$jqprog"
+	else
+		printf '%s\n' "$payload"
+	fi
+}
+# There is deliberately no `api user` arm. factory_preflight reads the caller's own login to refuse a
+# reviewer who is the same account, and `poke_run` runs the poke and nothing else -- an arm here would
+# be a fixture answering a question nobody asked, which is how this section went green in CI while
+# reading the host (#1048's shape, in a shim). If the poke ever learns to ask, the refusal below is
+# the leg's first sentence.
+case "$*" in
+*'-X POST'*)
+	if [ "${POKE_POST_FAIL-0}" = 1 ]; then
+		printf 'gh: HTTP 422: Review requests already requested reviewers: workers\n' >&2
+		exit 1
+	fi
+	answer '{"users":[],"teams":[]}' "$@"
+	exit 0
+	;;
+*requested_reviewers*)
+	list=${POKE_LIST-}
+	[ -n "$list" ] || list='{"users":[],"teams":[]}'
+	answer "$list" "$@"
+	exit 0
+	;;
+esac
+printf 'poke-shim: unhandled call: %s\n' "$*" >&2
+exit 9
+POKEGH
+chmod +x "$poke_root/bin/gh"
+
+poke_run() { # poke_run <factory.sh> <FACTORY_REVIEWER> <FACTORY_REVIEWER_TEAM>
+	local src=$1 reviewer=$2 team=$3
+	local dir rc=0
+	dir=$(mktemp -d "$poke_root/run-XXXXXX")
+	poke_dir=$dir
+	poke_calls=$dir/calls
+	poke_log=$dir/journal
+	: >"$poke_calls"
+	# The function, from the file the leg names. An empty extract is reported, not skipped: a leg
+	# that ran nothing would otherwise print an ok over the absence of the thing it tests.
+	awk '/^factory_request_review\(\)/{f=1} f{print} f&&/^\}/{exit}' "$src" >"$dir/poke.sh"
+	if [ ! -s "$dir/poke.sh" ]; then
+		printf '            no factory_request_review() could be cut out of %s -- every leg in\n' "$src" >&2
+		printf '            this section is reading nothing at all.\n' >&2
+		return 1
+	fi
+	(
+		set -eu
+		# shellcheck source=./common.sh
+		# shellcheck disable=SC1091
+		. "$HERE/common.sh"
+		# shellcheck disable=SC1090,SC1091  # the function cut out of factory.sh a few lines above
+		. "$dir/poke.sh"
+		# shellcheck disable=SC2317,SC2329
+		factory_maybe_notice() { printf 'NOTICE %s %s\n' "$1" "$2"; }
+		POKE_CALLS=$poke_calls POKE_POST_FAIL=${POKE_POST_FAIL-0} POKE_LIST=${POKE_LIST-} \
+			PATH="$poke_root/bin:$PATH" \
+			FACTORY_REPO=example/repo FACTORY_OWNER=example FACTORY_NAME=repo \
+			FACTORY_LOG=$dir/log FACTORY_LEDGER=$dir/ledger FACTORY_RUN=$dir/run \
+			FACTORY_REVIEW_POKES=1800 DRY_RUN=${DRY_RUN-0} \
+			FACTORY_REVIEWER=$reviewer FACTORY_REVIEWER_TEAM=$team \
+			factory_request_review 241
+	) >"$poke_log" 2>&1 || rc=$?
+	printf 'rc=%s\n' "$rc" >>"$poke_log"
+	return "$rc"
+}
+
+poke_post_has() { # <needle> -> the poke POSTed with this argument on the same line
+	if awk -v n="$1" '/-X POST/ && index($0, n) { f = 1 } END { exit !f }' "$poke_calls"; then
+		return 0
+	fi
+	printf '            the recorded calls were:\n' >&2
+	sed 's/^/              /' "$poke_calls" >&2
+	printf '            none of them a POST carrying %s\n' "$1" >&2
+	return 1
+}
+poke_no_post_with() { # <needle> -> no POST was made with this argument
+	if awk -v n="$1" '/-X POST/ && index($0, n) { f = 1 } END { exit !f }' "$poke_calls"; then
+		printf '            a POST carries %s, and it should not:\n' "$1" >&2
+		sed 's/^/              /' "$poke_calls" >&2
+		return 1
+	fi
+	return 0
+}
+poke_no_write_at_all() { # nothing at all was sent to the API
+	if [ -s "$poke_calls" ]; then
+		printf '            the poke was configured to ask nobody and still made %s call(s):\n' \
+			"$(wc -l <"$poke_calls")" >&2
+		sed 's/^/              /' "$poke_calls" >&2
+		return 1
+	fi
+	return 0
+}
+poke_no_delete() { # H-0117: the poke never un-asks somebody it did not ask
+	if grep -q -- '-X DELETE' "$poke_calls"; then
+		printf '            the poke revoked a request it did not make:\n' >&2
+		sed 's/^/              /' "$poke_calls" >&2
+		return 1
+	fi
+	return 0
+}
+poke_log_has() { # <needle> -> the supervisor's journal says this
+	if grep -qF -- "$1" "$poke_log"; then
+		return 0
+	fi
+	printf '            the journal was:\n' >&2
+	sed 's/^/              /' "$poke_log" >&2
+	printf '            with nothing matching %s\n' "$1" >&2
+	return 1
+}
+poke_log_says_nothing_about() { # <needle> -> the journal never printed this
+	if grep -qF -- "$1" "$poke_log"; then
+		printf '            the journal says %s, and it must stay silent:\n' "$1" >&2
+		sed 's/^/              /' "$poke_log" >&2
+		return 1
+	fi
+	return 0
+}
+poke_rc_is() { # <n> -> the function returned this, which is how a refusal is told from a success
+	local want=$1 got
+	got=$(sed -n 's/^rc=\(.*\)$/\1/p' "$poke_log" | tail -n 1)
+	[ "$got" = "$want" ] || {
+		printf '            factory_request_review returned %s, not %s:\n' "${got:-nothing}" "$want" >&2
+		sed 's/^/              /' "$poke_log" >&2
+		return 1
+	}
+}
+
+# 1. the default asks the team, and the journal says so. Two assertions with different teeth: the
+#    argument list, and the line a human reads in `journalctl` when a pull request stalls. Before
+#    #241 the journal printed `$FACTORY_REVIEWER` whatever had been POSTed, so the second one is not
+#    decoration on the first -- it is the only record of the request that anyone outside this run
+#    ever sees.
+poke_asks_the_team() {
+	poke_run "$1" hermesvicowa workers || true
+	poke_post_has 'team_reviewers[]=workers'
+}
+poke_never_asks_the_person_too() {
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_no_post_with 'reviewers[]=hermesvicowa'
+}
+poke_journal_names_the_team() {
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has 'POKED pr:241 asked team workers' &&
+		poke_log_says_nothing_about 'asked hermesvicowa' &&
+		poke_rc_is 0
+}
+claim_leg 'the poke asks the team' poke_asks_the_team "$HERE/factory.sh"
+claim_leg '…and does not also ask the login' poke_never_asks_the_person_too
+claim_leg '…and the journal says which it asked' poke_journal_names_the_team
+
+# 1b. control. The function exactly as shipped, with the team arm's argument and label put back the way
+#     they were on 4 Nov -- same endpoint, same verb, a green-looking poke, and one person notified.
+#     The leg above must go red over it, or that ok is the check being blind. The copy is made by
+#     replacing one exact line rather than by a `sed` pattern: a control that silently matches nothing
+#     is the control equivalent of a mutant that never applied (#1048), and the python below exits 3
+#     with the line it could not find if the arm is ever reworded.
+mkdir -p "$poke_root/reverted"
+python3 - "$HERE/factory.sh" "$poke_root/reverted/factory.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+old = '\tteam:*) arg="team_reviewers[]=$who" label="team $who" ;;'
+new = '\tteam:*) arg="reviewers[]=$who" label="$who" ;;'
+text = open(src, encoding='utf-8').read()
+if old not in text:
+    print('the team arm in factory.sh is not the line this control knows: ' + old)
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old, new, 1))
+PY
+if poke_asks_the_team "$poke_root/reverted/factory.sh" 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a function reverted to `reviewers[]` still passed the\n' "control: team arm"
+	printf '          team leg, so the ok above is the check being blind.\n'
+else
+	printf '        control: the same leg over a copy whose team arm posts `reviewers[]` says\n'
+	printf '        no, so the ok above is the poke asking a team and not the check being blind.\n'
+fi
+
+# 2. the individual form, kept working. This is the half that a repository outside this org lives on,
+#    and it is the half a "just use the team" change deletes: with the team set empty the poke must
+#    still POST `reviewers[]` and must not mention a team at all.
+poke_asks_the_person_when_no_team() {
+	poke_run "$HERE/factory.sh" someoneelse '' || true
+	poke_post_has 'reviewers[]=someoneelse' && poke_no_post_with 'team_reviewers[]'
+}
+poke_journal_names_the_person() {
+	poke_run "$HERE/factory.sh" someoneelse '' || true
+	poke_log_has 'POKED pr:241 asked someoneelse' && poke_rc_is 0
+}
+claim_leg 'an empty team leaves the individual form' poke_asks_the_person_when_no_team
+claim_leg '…named as a login, not a team' poke_journal_names_the_person
+
+# 3. neither configured. Not a silent no-op, and not a POST with an empty list: GitHub takes that as
+#    "no reviewers requested", triage reclassifies the pull request `needs_reviewer`, and the loop
+#    H-0016 was built to end comes back one argument shape away. It refuses, every pass, and says
+#    which two variables would fix it.
+poke_refuses_with_no_target() {
+	poke_run "$HERE/factory.sh" '' '' || true
+	poke_no_write_at_all && poke_log_has 'POKE-NONE pr:241' && poke_rc_is 1
+}
+claim_leg 'no target configured refuses, silently' poke_refuses_with_no_target
+# Its control, the other way round: a guard that cannot fire must be caught, because the dangerous
+# direction here is the empty POST -- a call that returns 200 and requests nobody. The planted copy
+# makes the guard's test false rather than deleting it, which is the difference between testing that
+# the guard fires and testing that the code still runs (#1048's lesson again: an inert mutation
+# reports a clean run).
+mkdir -p "$poke_root/noguard"
+python3 - "$HERE/factory.sh" "$poke_root/noguard/factory.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+old = '\tif [ -z "$target" ]; then'
+new = '\tif [ -n "$target" ] && [ -z "$target" ]; then'
+text = open(src, encoding='utf-8').read()
+if old not in text:
+    print('the no-target guard in factory.sh is not the line this control knows: ' + old)
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old, new, 1))
+PY
+if (
+	poke_run "$poke_root/noguard/factory.sh" '' '' || true
+	poke_no_write_at_all && poke_log_has 'POKE-NONE pr:241' && poke_rc_is 1
+) 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a poke whose no-target guard cannot fire still passed the\n' "control: no-target guard"
+	printf '          refusal leg, so the ok above is the check being blind.\n'
+else
+	printf '        control: with the guard made unable to fire the same leg goes red -- the empty\n'
+	printf '        POST is what it refuses, and nothing refuses it there.\n'
+fi
+
+# 4. 422 -- the request is already out there. The read-back is what tells this from a 404, and it has
+#    to look in `teams[]`: a reader that only knows `users[]` calls a team-requested pull request
+#    POKE-FAILED, which is a red line in the journal about a request that is sitting right there, and
+#    the same wrong answer reaches `--dry-run`'s only sibling, the throttle.
+poke_already_holds_a_team_request() {
+	local POKE_POST_FAIL=1
+	local POKE_LIST='{"users":[],"teams":[{"name":"Workers","slug":"workers","id":19038850}]}'
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has 'POKE-ALREADY pr:241 team workers already holds a request' && poke_rc_is 0
+}
+claim_leg 'a held team request is not a failure' poke_already_holds_a_team_request
+
+# 4b. the same read-back over the other two ways a team's name reaches a reader. `slug` is what the
+#     current REST schema makes required; `login` is the spelling that field had before the slug rename,
+#     and it is the one that arrives as `org/team`; `name` is the display name, which the fixture
+#     capitalises as `Workers` over the slug `workers`. The 11 Nov re-measure says the live team reads
+#     `workers` in both fields, but the case-fold must survive another rename. Each of the three has to answer ALREADY, because the
+#     alternative reading is POKE-FAILED -- a red journal line about a request that is sitting right
+#     there, retried forever.
+poke_reads_a_prefixed_login() {
+	local POKE_POST_FAIL=1
+	local POKE_LIST='{"users":[],"teams":[{"login":"vicowa-botworks/workers"}]}'
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has 'POKE-ALREADY pr:241 team workers already holds a request' && poke_rc_is 0
+}
+claim_leg '…an older payload spells it `login`' poke_reads_a_prefixed_login
+
+poke_reads_the_display_name() {
+	local POKE_POST_FAIL=1
+	local POKE_LIST='{"users":[],"teams":[{"id":19038850,"name":"Workers","privacy":"secret"}]}'
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has 'POKE-ALREADY pr:241' && poke_rc_is 0
+}
+claim_leg '…and a display name in another case' poke_reads_the_display_name
+
+# 4c. control for the read-back: the same two legs over a copy whose read-back is the shipped
+#     pre-#241 program, `[.users[].login]`. Both must go red -- that program answers "nobody holds
+#     this" to every team request whatever the schema, which is POKE-FAILED.
+mkdir -p "$poke_root/usersonly"
+python3 - "$HERE/factory.sh" "$poke_root/usersonly/factory.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+old = '--jq "$JQ_REQUESTED_HOLDS"'
+new = '--jq \'[.users[]? | .login // ""] | index($who) != null\''
+text = open(src, encoding='utf-8').read()
+if old not in text:
+    print('the read-back program in factory.sh is not the one this control knows: ' + old)
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old, new, 1))
+PY
+# The control passes when the leg it stands for goes red here: the users-only read must answer
+# POKE-FAILED to a request that is plainly in the payload, the way it answers to every team request
+# whatever the schema -- which is precisely the wrong report this change had to fix.
+poke_users_only_readback_red() {
+	local POKE_POST_FAIL=1
+	local POKE_LIST='{"users":[],"teams":[{"slug":"workers"}]}'
+	poke_run "$poke_root/usersonly/factory.sh" hermesvicowa workers || true
+	poke_log_has 'POKE-FAILED pr:241' && poke_rc_is 1
+}
+claim_leg 'control: a users-only read-back misses it' poke_users_only_readback_red
+
+# 5. 404 -- the name resolves to nobody. Failure, and the sentence has to carry the override that fixes
+#    it, because a rename leaves the old slug and the old display name looking alike to a reader who
+#     has not re-taken the org listing (`cinemAItor` asked after the move to `workers`), and the person
+#     reading the journal is not in the org's team settings page.
+poke_failed_names_the_override() {
+	local POKE_POST_FAIL=1
+	local POKE_LIST='{"users":[],"teams":[]}'
+	poke_run "$HERE/factory.sh" hermesvicowa cinemAItor || true
+	poke_log_has 'POKE-FAILED pr:241 team cinemAItor could not be requested' &&
+		poke_log_has 'FACTORY_REVIEWER_TEAM' && poke_rc_is 1
+}
+claim_leg 'an unknown team fails, and says what to set' poke_failed_names_the_override
+
+# 6. H-0117: a request the poke did not make stays where it is. Adding a team does not remove an
+#    individual from the list and this function does not either, on the success path or on the
+#    already-holding path. The leg is about a call that must NOT happen, so its control is the same
+#    function with the DELETE added -- the shape a "clean up the stale request" fix would take.
+poke_never_revokes_a_request() {
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_no_delete || return 1
+	local POKE_POST_FAIL=1
+	local POKE_LIST='{"users":[{"login":"hermesvicowa"}],"teams":[]}'
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_no_delete
+}
+claim_leg 'the poke leaves a request it did not make' poke_never_revokes_a_request
+# Its control: the same function with the tidy-up a reviewer would write -- revoke the stale individual
+# request once the team has been asked. That is the exact shape H-0117 refuses, and the leg above has
+# to go red over it.
+mkdir -p "$poke_root/revokes"
+python3 - "$HERE/factory.sh" "$poke_root/revokes/factory.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+anchor = '\t\tlog_event "POKED pr:$pr asked $label"'
+add = ('\t\trun_action gh api -X DELETE "repos/$FACTORY_OWNER/$FACTORY_NAME/pulls/$pr/requested_reviewers"'
+       ' -f "reviewers[]=$FACTORY_REVIEWER" --silent || true')
+text = open(src, encoding='utf-8').read()
+if anchor not in text:
+    print('the POKED line this control hangs the DELETE on is gone from factory.sh: ' + anchor)
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(anchor, anchor + '\n' + add, 1))
+PY
+poke_revokes_when_told_to() {
+	poke_run "$poke_root/revokes/factory.sh" hermesvicowa workers || true
+	poke_no_delete
+}
+if poke_revokes_when_told_to 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a poke that DELETEs the individual request still passed\n' "control: no revoke"
+	printf '          the leg, so the ok above is the check being blind.\n'
+else
+	printf '        control: the same function with a revoke added after the POST goes red on the\n'
+	printf '        same leg, so the ok above is the absence of a DELETE and not a blind grep.\n'
+fi
+
+# 7. --dry-run still prints and still does not write. The poke has always honoured that, and the new
+#    argument has to appear in the printed line for the same reason it has to appear in the POST:
+#    `--dry-run` is how an operator checks who a pass is about to ask before it asks them.
+poke_dry_run() {
+	local DRY_RUN=1
+	poke_run "$HERE/factory.sh" hermesvicowa workers || true
+	poke_log_has '-f team_reviewers[]=workers' &&
+		poke_log_has 'WOULD-POKE pr:241 request review from team workers' &&
+		[ ! -e "$poke_dir/ledger/pr:241.last-poke" ]
+}
+claim_leg '--dry-run prints the team and writes nothing' poke_dry_run
+
+# ------------------------------------------------------ who preflight is allowed to refuse (#241)
+#
+# `factory_preflight` refuses to start when FACTORY_REVIEWER is the same account the supervisor acts
+# as, because GitHub drops a self-review on the floor and the wait then looks like a slow reviewer.
+# That check was written when one variable named one person. With a team configured by default, the
+# person running the supervisor is very likely a member of it -- so the unconditioned check refuses to
+# start the supervisor over a request it would never have made, which is a false stall on the new
+# default's own happy path. These legs run the real preflight over the claim section's fixture: a real
+# `git init`-ed repository, the fixture `gh` whose `api user` answers `someone-else`, and
+# `FACTORY_REPO` set so the remote read is skipped.
+preflight_target() { # preflight_target <reviewer> <team> [common.sh] -> rc 0 when preflight starts
+	local reviewer=$1 team=$2 src=${3:-$HERE/common.sh}
+	local dir rc=0
+	dir=$(mktemp -d "$poke_root/pre-XXXXXX")
+	(
+		set -eu
+		# shellcheck disable=SC1090,SC1091  # the leg's own copy of common.sh, which may be a patched one
+		. "$src"
+		FACTORY_ROOT=$claim_repo FACTORY_REPO=example/repo \
+			FACTORY_REVIEWER=$reviewer FACTORY_REVIEWER_TEAM=$team \
+			FACTORY_OPENCODE=opencode CLAIM_FIXTURE="$claim_fix" \
+			FACTORY_LOG=$dir/log FACTORY_LEDGER=$dir/ledger FACTORY_RUN=$dir/run \
+			PATH="$claim_bin:$PATH" \
+			factory_preflight
+	) >"$dir/out" 2>&1 || rc=$?
+	poke_log=$dir/out
+	return "$rc"
+}
+preflight_refuses_a_self_review() {
+	# `preflight_target` returns 0 when the pass STARTS, so the refusal is the non-zero arm. Getting
+	# this backwards is how the leg first shipped: it read as a pass on the sentence in the log it was
+	# never supposed to be looking at.
+	if preflight_target someone-else ''; then
+		printf '            preflight accepted a reviewer who IS the supervisor:\n' >&2
+		sed 's/^/              /' "$poke_log" >&2
+		return 1
+	fi
+	poke_log_has 'FACTORY_REVIEWER is this same account' || return 1
+	poke_log_has 'FACTORY_REVIEWER_TEAM'
+}
+preflight_starts_for_a_team_it_belongs_to() {
+	preflight_target someone-else workers && return 0
+	printf '            preflight refused to start although the request goes to a team, and that\n' >&2
+	printf '            that is the new default asking a team, and its own happy path:\n' >&2
+	sed 's/^/              /' "$poke_log" >&2
+	return 1
+}
+claim_leg 'a self-review is still refused' preflight_refuses_a_self_review
+claim_leg '…and membership of the team is not one' preflight_starts_for_a_team_it_belongs_to
+
+# Control: the guard with its target condition taken out -- the pre-#241 form, which compares the two
+# logins whatever the target. It must refuse the leg above, or that ok is the guard being absent
+# rather than aimed.
+mkdir -p "$poke_root/alwaysself"
+python3 - "$HERE/common.sh" "$poke_root/alwaysself/common.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+old = '\tif [ "$(factory_review_target)" = "user:$FACTORY_REVIEWER" ] && [ -n "$FACTORY_REVIEWER" ] &&'
+new = '\tif [ -n "$FACTORY_REVIEWER" ] &&'
+text = open(src, encoding='utf-8').read()
+if old not in text:
+    print('the self-review guard in common.sh is not the line this control knows: ' + old)
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old, new, 1))
+PY
+if preflight_target someone-else workers "$poke_root/alwaysself/common.sh"; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a guard that ignores the target still started the pass,\n' "control: self-review guard"
+	printf '          so the ok above is the guard being gone, not aimed.\n'
+else
+	printf '        control: the same case over a copy whose guard compares the two logins whatever\n'
+	printf '        the target says no -- refused to start over a request it would never have made.\n'
+fi
+
+# ------------------------------------------------------ what the classifier counts (#241)
+#
+# The other half of the change, and the half the issue did not name. `triage.sh` decides
+# `needs_reviewer` from `/requested_reviewers`, and a team request arrives in `teams[]` while
+# `users[]` stays empty. So a classifier that reads only users calls every team-requested pull
+# request unasked -- which does not merely misreport it, it hands it back to the poke: the row is
+# `needs_reviewer`, the arm calls `factory_request_review`, GitHub 422s, and the queue re-reads a
+# request that is already outstanding every FACTORY_REVIEW_POKES forever. These legs run the shipped
+# classifier over a fixture whose only unusual fact is which list is populated. The payload goes in
+# through `claim_reviewers`, the helper #272 added for the same endpoint; a second helper writing the
+# same fixture file would be one more thing that can disagree about its default.
+claim_reset
+claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
+claim_reviewers '{"users":[],"teams":[{"name":"Workers","slug":"workers","id":19038850}]}'
+claim_rows >/dev/null
+claim_leg 'a team request is somebody being asked' claim_class_is 246 awaiting_review
+claim_leg '…named as a team in the row' claim_detail_has 246 'team:workers'
+
+claim_reset
+claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
+claim_reviewers '{"users":[{"login":"hermesvicowa"}],"teams":[]}'
+claim_rows >/dev/null
+claim_leg 'an individual request still counts' claim_class_is 246 awaiting_review
+
+# The other two spellings of the team's name, through the classifier rather than the poke. `login`
+# pre-dates the slug rename and arrives as `org/team`; `name` is the display name, which the fixture
+# capitalises differently from its slug. The 11 Nov reading says both fields currently read `workers`,
+# but the classifier must not depend on that agreement. A row that misses either one is not cosmetic: it
+# is `needs_reviewer`, and `needs_reviewer` is an instruction to poke again.
+claim_reset
+claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
+claim_reviewers '{"users":[],"teams":[{"login":"vicowa-botworks/workers"}]}'
+claim_rows >/dev/null
+claim_leg '…however the payload spells it' claim_class_is 246 awaiting_review
+claim_leg '…with the prefix off the row' claim_detail_has 246 'team:workers'
+
+claim_reset
+claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
+claim_reviewers '{"users":[],"teams":[{"id":19038850,"name":"Workers"}]}'
+claim_rows >/dev/null
+claim_leg '…or names it only to look at' claim_class_is 246 awaiting_review
+
+# Nobody asked at all. This is the leg that keeps the team half from being written as something that
+# is always true -- a program that emitted `team:` for an empty list would satisfy both legs above and
+# retire `needs_reviewer`, the class the whole supervisor exists for.
+claim_reset
+claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
+claim_reviewers '{"users":[],"teams":[]}'
+claim_rows >/dev/null
+claim_leg 'nobody on either list is still needs_reviewer' claim_class_is 246 needs_reviewer
+
+# Control: the shipped classifier with the read put back to `[.users[].login]`, over the team-only
+# fixture. It must answer `needs_reviewer` -- the re-poke loop this change is guilty of if the
+# classifier is not fixed with the poke.
+mkdir -p "$poke_root/clstriage"
+python3 - "$HERE/triage.sh" "$poke_root/clstriage/triage.sh" <<'PY'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+old = '"$JQ_REQUESTED_LIST"'
+new = '\'[.users[]? | .login] | join(",")\''
+text = open(src, encoding='utf-8').read()
+if old not in text:
+    print('the requested-reviewers read in triage.sh is not the one this control knows: ' + old)
+    sys.exit(3)
+open(dst, 'w', encoding='utf-8').write(text.replace(old, new, 1))
+PY
+cp "$HERE/common.sh" "$poke_root/clstriage/common.sh"
+chmod +x "$poke_root/clstriage/triage.sh"
+claim_reset
+claim_open '[{"number":246,"title":"fix(factory): the poke asks the team","body":"Planted for the #241 legs; no issue reference.\n","claims":[]}]'
+claim_reviewers '{"users":[],"teams":[{"slug":"workers"}]}'
+claim_script="$poke_root/clstriage/triage.sh" claim_rows >/dev/null
+if claim_class_is 246 needs_reviewer; then
+	printf '        control: the same fixture through a classifier that reads only `users[]` answers\n'
+	printf '        needs_reviewer -- the row that re-pokes a request already outstanding. So the\n'
+	printf '        ok above is the team being counted, and not the fixture forgetting to ask.\n'
+else
+	claim_script='' claim_rows >/dev/null
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a users-only classifier still called it awaiting_review,\n' "control: triage read"
+	printf '          so the ok above is the check being blind. It answered: %s\n' "$(row_for 246)"
+fi
+claim_script=''
+claim_reviewers '{"users":[],"teams":[]}'
 claim_reset
 
 # ------------------------------------------- the code the loop is running (#249)
@@ -9557,8 +10149,10 @@ fi
 #
 # `--json` hands `--jq` the WHOLE payload object, so the program has to name the field it asked for.
 # `[.users[].login]` is the right program for the REST `/pulls/N/requested_reviewers` envelope, which
-# wraps the same rows as `{"users":[…]}` -- what `factory/factory.sh:268` and `factory/triage.sh:283`
-# read -- and it had been copied out of that context into this one. Issue #270.
+# wraps the same rows as `{"users":[…]}` -- the shape `factory/factory.sh` and `factory/triage.sh` read
+# there, now through the shared `$JQ_REQUESTED_HOLDS` / `$JQ_REQUESTED_LIST` in `factory/common.sh`,
+# which count `teams[]` as well (#241) -- and it had been copied out of that context into this one.
+# Issue #270.
 #
 # The payload is DERIVED from the same line's own `--json` list rather than keyed by the program,
 # because a fixture keyed by the program can be invented to fit: `('.users', '{"users":[…]}')` is a

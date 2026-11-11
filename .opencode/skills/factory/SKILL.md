@@ -94,9 +94,11 @@ gh pr view "$PR" --json reviewRequests --jq '[.reviewRequests[].login]'
 ```
 
 `--json` hands `--jq` the whole payload object, so the program has to name the field the call asked for.
-`--json reviewRequests` yields `{"reviewRequests":[…]}`; `[.users[].login]` -- the right program for the
-REST `/pulls/N/requested_reviewers` envelope, which wraps the same rows as `{"users":[…]}`, and which is
-what `factory/factory.sh` and `factory/triage.sh` read -- answers `cannot iterate over: null` with exit 1
+`--json reviewRequests` yields `{"reviewRequests":[…]}`; `[.users[].login]` -- the program for the
+REST `/pulls/N/requested_reviewers` envelope, which wraps the same rows as `{"users":[…]}` and which is
+what `factory/factory.sh` and `factory/triage.sh` read there, each through one shared program
+(`$JQ_REQUESTED_HOLDS` and `$JQ_REQUESTED_LIST`, `factory/common.sh`, which counts `teams[]` as well as
+`users[]` -- #241) -- answers `cannot iterate over: null` with exit 1
 against this payload (measured 10 Nov on gh 2.46.0 at `/usr/bin/gh`, PR 269: issue #270). The quiet
 variant is worse than that error: a program reading a field that is merely absent answers `[]`, which is
 one and the same sentence with "nobody has been asked" and with "asked, and already answered" -- and

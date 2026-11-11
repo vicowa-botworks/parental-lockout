@@ -337,7 +337,13 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 			| if . == null then ""
 			  else "\(.user.login // "someone") at \(if .commit_id then (.commit_id[0:7]) else "an unreadable commit" end)"
 			  end' 2>/dev/null || printf '')
-	requested=$(api_get "pulls/$number/requested_reviewers" '[.users[].login]|join(",")' '')
+	# The program is `$JQ_REQUESTED_LIST` (common.sh), shared with the poke's own read-back so the two
+	# cannot disagree about who holds a request. It counts `teams[]` as well as `users[]`, because that
+	# is where a request addressed to a team lands -- and a row that called one `needs_reviewer` would
+	# hand it back to the poke every FACTORY_REVIEW_POKES for a request that is already outstanding.
+	# The `team:` prefix is what makes the detail column say who was asked instead of blending a team
+	# into a list of logins.
+	requested=$(api_get "pulls/$number/requested_reviewers" "$JQ_REQUESTED_LIST" '')
 	head_date=$(api_get "commits/$oid" '.commit.committer.date' '')
 
 	case "$mergeable" in

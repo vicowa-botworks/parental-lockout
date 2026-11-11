@@ -4268,6 +4268,28 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   it removes the named leg, the comparison and the `h2`/`hl2` reads, restoring `expect_halt` to the shape
   that deleted the conflict pass's marker unread.
 
+## H-0116 · The review poke addressed one named person, and a review request is a question put to whoever can answer it
+
+- Id: this entered the harness log as `H-0055` on `issue-241`, and `H-0056` as its second entry. Both numbers are published on `main` as other decisions -- `H-0055` there is *A dispatch carried the review's timestamp and not its text*, `H-0056` is *The supervisor runs whatever is checked out in its worktree* -- and a merged entry's id never moves, so these two, unmerged, yielded. They took `H-0116` and `H-0117`, the first ids no ref held at the merge (`origin/main` at `H-0114`, `origin/issue-237` at `H-0115`), read from `factory/next-decision-id.sh` rather than by eye. The two commits that made these decisions keep `Decision: H-0055` and `Decision: H-0056` in their messages: rewriting an in-flight branch is forbidden here, so the mapping lives in this line and `git log --grep='Decision: H-0116'` will not find the work.
+
+- Question: #241 says the `needs_reviewer` arm asks `hermesvicowa` and should ask `vicowa-botworks/cinemaitor` -- "ask the team, not a member, because we do not know who is online at what time". Does the poke change addressee, and what happens to the two readers that decide whether anybody has been asked at all?
+- Options: add `FACTORY_REVIEWER_TEAM` beside the individual and keep asking the individual by default | make the team the default and keep the individual as the override, one target with a kind | keep one variable and guess from its value whether it names a person or a team | ask the team and cancel whatever individual request is already on the list | change only the documentation and leave the poke asking a login
+- Chose: make the team the default and keep the individual as the override, one target with a kind
+- Why: the default this file carried for four days was justified by the wrong kind of evidence. "The account that has approved every PR in this repository's history" (measured 4 Nov: reviews on #195, #197, #201, #203, #206) is a prediction about who answered the past, and a request is not a prediction -- it is a question put to everyone who could answer it. A team request notifies every member and the first one online replies; an individual request waits for one particular person to appear. The clock on that needs stating, because it cuts against the change: #240 is `MERGED`, `mergedAt 19:50:20Z` on 8 Nov, carrying four reviews and all four from `hermesvicowa` (18:19:17Z, 18:41:12Z, 19:06:38Z, approved 19:49:56Z), and its request list reads empty on the read taken while this branch was being written. The two readings either side of the ask -- that login alone before, the team alone after -- were taken earlier the same day and cannot be re-taken now, because the pull request that carried them has merged; they are kept as readings, not offered as current state. What the day does not support is in `Effect:` below: the honest reading is that the same account reviewed it anyway. The team argument is one argument on the endpoint this script already posts to and already reads back -- the verb that moved #240 was a post with `team_reviewers[]`, then a delete with `reviewers[]` -- so no new permission and no new route, and `.opencode/opencode.jsonc:72-86` already records that the raw call is denied to a tick (`:120`) precisely so that the actor making this ask is `factory_request_review` in factory.sh rather than an agent. Tie-break 1 decided between options one and two: both notify the team, but a default is a guess about a repository nobody has asked yet, and option one keeps guessing wrong for every repository in the org while option two's failure is one variable in a unit. Tie-break 4 is what refuses option three -- guessing a kind from a value cannot be undone after a 404 that was really a slug spelled as a login -- and this org has the exact collision on the record: `slug=cinemaitor`, `name=cinemAItor` (the org team listing, 8 Nov), so a case-sensitive display name is a plausible value that fails. Option four is a second decision the issue did not ask for and is H-0117. Two things the work found that the issue did not name. (a) The classifier was the other half of the bug: `triage.sh` decided "nobody was asked" from the `users` list alone, and a team request arrives in `teams[]` with `users[]` empty -- so every team-requested pull request would read `needs_reviewer` forever, the arm would call the poke, the post would 422, the users-only read-back would deny the request exists, and the journal would fill with `POKE-FAILED` lines about a request sitting right there. Fixed by making both readers run one shared program (`$JQ_REQUESTED_LIST` and `$JQ_REQUESTED_HOLDS`, `common.sh`), the same reason `JQ_CHECKS` exists. The team's name is taken as `slug`, then `login`, then `name`, with the `org/` prefix stripped and the comparison case-folded, because `slug` is what the current REST schema makes required and the other two are the spellings that field has carried; that is read from the public schema, not from a payload this machine captured, because the raw API call is denied to a tick whole by D-0013 -- so `selftest.sh` carries a leg per spelling instead of a capture. (b) `factory_request_review` printed `$FACTORY_REVIEWER` in every journal line whatever it had posted, so a team request would have been journalled as asking a login; the target now comes from `factory_review_target` and the post, the read-back, the journal and the `--dry-run` echo all print that one string. `FACTORY_REVIEWER_TEAM=${VAR-default}` without the colon is load-bearing: the documented override is `FACTORY_REVIEWER_TEAM=` and the colon form would refill the empty value and keep asking cinemaitor -- the same absent-versus-false distinction #873 makes for a config key. `factory_preflight`'s self-review refusal had to follow the target rather than the variable, because the person running the supervisor is very likely a member of the team it asks, and the unconditioned check refused to start the supervisor over a request it would never have made.
+- Checkpoint: b4c52f071cba3e66e79320b3139585f5ecbf8610
+- Effect: `FACTORY_REVIEWER_TEAM` plus `factory_review_target` (`common.sh`), the target-shaped post, read-back and journal in `factory_request_review` (`factory.sh:170`), `$JQ_REQUESTED_*` shared with `triage.sh:248`, the second `Environment=` line generated into the unit (`install-timer.sh`), and `docs/factory.md` carrying the rule with the classifier table's row now reading "neither `users` nor `teams`". Legs 179 to 200 in this commit and 201 at the head of the branch, 0 failed at both -- CI had not seen the push when this was written, so those numbers are this box and H-0054's history says the two can differ. Six controls stand behind them. Four print the line that says the leg they stand for goes red over the reverted copy: the addressee put back to a login, the no-target guard made unable to fire, the preflight guard blinded to the target, the classifier put back to the `users` list. The fifth is a leg of its own -- a read-back put back to `users` only, which has to report failure about a request plainly in the payload -- and the sixth, a revoke planted after the post, is H-0117's. Three fixture bugs surfaced by writing these legs, all fixed here: a `case` pattern containing a space ends the pattern and kills the shim at parse time; the api dispatch read the third argument, which is the literal `--jq` in a `gh api` call, so no api arm could ever match and every one of those reads exited 9 and handed the caller `api_get`'s default -- an empty list, indistinguishable from a correct answer. That index arrived with 18ab007 (`git log -S`), #235's section, so the merged-claim legs have been green since then without ever being asked for a review payload; the proof it was never load-bearing is that the same suite read 179 passed, 0 failed the whole time, and the proof the read matters now is that putting the index back at this head turns exactly the six classifier legs red (195 passed, 6 failed) while leaving the poke legs alone, because the poke has its own shim. Nothing pins the shim's argument index with a leg, so the sentence before this one is how it was checked. And the poke shim dumped its payload instead of running the caller's own filter, which made a correct read-back look like a failure and let a wrong one look like a pass. What lost, as measured: the individual default, so a repository that wants a login asked must set `FACTORY_REVIEWER_TEAM=` and no leg catches a unit that forgets; and #240's own day does not show a second reviewer appearing -- all four reviews that evening came from `hermesvicowa` (18:19:17Z, 18:41:12Z, 19:06:38Z, approved 19:49:56Z, merged 19:50:20Z) and `cinemaitor` holds two members, one of them that account and the other the org's own machine user (the team's member list, read earlier the same day -- the raw call is withheld from a tick by D-0013, so it is a reading kept from earlier rather than one re-taken at this head). The claim this entry rests on is therefore about reach and about the issue's explicit instruction, not about an observed new name, and the day a team review is answered by a second human is the day this choice earns its keep in a measurement rather than an argument. Also unpaid, on the record: no leg proves the spelling GitHub actually sends, because the raw API is withheld from a tick (D-0013) -- the tolerance is a schema reading with three legs behind it, and a fourth spelling would need one; and `factory_preflight`'s runtime term is satisfied in this section by the `$claim_bin/opencode` stub (H-0054), which the new legs inherit rather than re-test. Re-measured on the merge with `origin/main` (163 commits, trunk at `075dede`): `factory/selftest.sh: 460 passed, 0 failed`, and the 22 `claim_leg` calls in this branch's #241 section are unchanged in number -- the 179/200/201 tallies above are the pre-merge base and are kept as the record of that tree, not as a claim about this one. Four collisions, none of them in the shipped behaviour, resolved in that merge: `#272` had rewritten the same `requested=` line in `triage.sh` to keep the whole `/reviews` array, so the shared program was re-pointed at main's shape rather than the old three-field projection; `#272` fixed the same `gh api` argument-index bug in the claim fixture independently, and its comment carries both stories because an unreachable fixture arm fails as an empty queue and not as an error; two fixture helpers collided by name and the trunk spelling won (`claim_requested` -> `claim_reviewers`, `CLAIM_TRIAGE` -> `claim_script`, the latter reset in `claim_reset` so a control's mutant classifier still cannot leak into the next leg); and one of main's own legs asserts the journal line this change renames -- `voided_asked` expected `WOULD-POKE pr:269 request review from someoneelse`, which the shipped default no longer prints, so it expects `request review from team cinemaitor` and `ask_dispatch` now pins `FACTORY_REVIEWER_TEAM` to the shipped default for the reason `FACTORY_OPENCODE` already gives in that file (inherited, the leg is green or red on what the operator exports). A fifth was documentation only: `docs/factory.md`'s #272 section quotes `POKED pr:269 requested review from hermesvicowa` from 10 Nov, and the quotation is kept and labelled as the older spelling rather than rewritten, because the same event now reads `asked team cinemaitor` and a doctored quotation is worth less than a dated one. Dated correction at `H-0127`, 11 Nov: the line cites above drifted after the merge -- `factory_request_review` is at `factory/factory.sh:245`, the shared requested-reviewers read at `factory/triage.sh:346`, the default and target at `factory/common.sh:83`/`:89`, the unit line at `factory/install-timer.sh:395`, and the documentation row at `docs/factory.md:322`; the original 8 Nov citations are kept as what they measured then.
+
+## H-0117 · A review request the poke did not make stays where it is: adding a team cancels nothing
+
+- Id: this entered the harness log as `H-0056` on `issue-241`; see `H-0116`'s `Id:` line for why both numbers moved and which commits still carry the old trailers.
+
+- Question: asking `cinemaitor` on #240 left `hermesvicowa` on the same list -- the live read at 22:04Z was a user request and a team request both outstanding, though the read-back two hours later finds the pull request merged with an empty list, which `Effect:` records. Does the poke cancel an individual request it did not make, and who owns that call?
+- Options: cancel every individual request as soon as the team is asked | leave it -- the poke adds and never removes | cancel only requests the poke itself made, named by a ledger marker | escalated to a maintainer
+- Chose: leave it -- the poke adds and never removes
+- Why: the owner was asked directly, at 22:04Z on 8 Nov, with the live state and both consequences named, and declined to hold the decision: "this is exactly the decision I shouldn't have to make. Tie-breaks 4 and 5 say stop, but stopping is the thing that costs the most here -- every unattended PR in the queue is holding a request someone else made while the question sits." So it is decided here, on the record, one `git revert` from being unmade. Given an explicit refusal to reserve the call, stopping would itself be the choice with the biggest footprint: it leaves the queue holding an unanswered question and delivers nothing. Tie-break 4 then decides it -- the action that keeps every option open wins. Adding a team is reversible in one call, and the state after is a superset of what anybody asked for. Cancelling a person destroys a fact this script did not create and cannot reconstruct: who asked, and why they thought that person owed this pull request an answer. Tie-break 5, the asymmetry this repository already encodes as `allow_squash_merge=false` and `allow_rebase_merge=false`, forbids the destructive default; it does not forbid the conservative one. The blast radius of leaving it is one extra notification to somebody who may not owe the review -- bounded, self-limiting the moment they review or decline, and the two kinds of request are counted separately so a review from either side clears the gate. The blast radius of the alternative is a human's routing decision silently revoked by a machine, with no record of the intent. The third option is what to build if this ever actually costs something -- it answers both halves exactly -- and it was not built now because a marker is a second writer to the per-PR ledger, which is H-0026's problem to solve, because the poke already stamps `last-poke` per pull request and a second file per request buys a new way to be out of date, and because nothing measured in #241 asks for it: #240 is the only row in the queue where the two kinds coexist.
+- Checkpoint: b4c52f071cba3e66e79320b3139585f5ecbf8610
+- Effect: `factory_request_review` has no revoke path on either the success arm or the already-holding arm, and the legs prove both the absence and its teeth -- one asserts no delete request reaches the API after a clean ask and after a 422, the other plants a revoke immediately after the `POKED` line and goes red on the same assertion. What lost: the poke has no way to tidy a list it did not create. Nothing in the queue is holding both kinds at the head of this branch, measured rather than assumed: #240, the row the question was raised on, reads `state: MERGED` with `mergedAt 19:50:20Z` and `reviewRequests: []`, which puts the 22:04Z observation two hours AFTER the merge timestamp -- so that state cannot be reproduced from here and this option was chosen on the owner's reading plus the rule, not on a state still on the board. The open queue at the same moment is #245 holding one individual request (`hermesvicowa`) and #243 holding none. That is also why the legs are the whole artifact here: they pin a behaviour no live row currently exercises. And if the org later decides a stale individual request is noise worth clearing, the fix is not just the delete but the marker that knows which requests are the poke's -- the ledger marker named above is the thing to build, and this entry is the thing to read before building it. Re-read on the merge with `origin/main` (`075dede`): the two legs that pin this still pass, at `factory/selftest.sh: 460 passed, 0 failed`, and no row in the open queue holds both kinds of request at that head -- the read this entry rests on is still the 8 Nov one and still two hours after #240's merge timestamp, which is said here rather than smoothed, because the option was chosen on the rule and the owner's reading, not on a state anyone can re-take.
+
 ## H-0118 · The reaping read is the unit's own journal, not `Result=`, because `Result=` is wrong on the polarity that matters
 
 - Question: `#246` shipped two deadlines in #254 and left the second half open -- the ticket says
@@ -4502,6 +4524,121 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   corrected decision log is indistinguishable from one that was always right. It was found by #283's
   reviewer re-measuring the head rather than by whoever wrote the sum, which is the same division of
   labour `H-0111`'s title records.
+
+## H-0121 · The log collides again with main's whole tail below this branch's, so the splice is one append at id position -- and the review's one-word slug fix is refused here because the read that settles it is denied to a tick
+
+- Question: `#282` reads `OPEN`, `reviewDecision=CHANGES_REQUESTED`, `mergeable=CONFLICTING`,
+  `mergeStateStatus=DIRTY`, `headRefOid=a2cce8e` -- read back before anything here was touched, with all
+  five checks `SUCCESS` (`verify`, `shellcheck`, `mutation sets`, `packages (amd64)`, `packages (arm64)`)
+  and `reviewRequests` answering `[]`, so nobody holds a request on it. The review is `submittedAt
+  2026-11-11T06:39:41Z` against a head committed `05:51:52Z`, so there IS feedback outstanding on this
+  branch; it is not this entry's subject and what happens to it is named in `Effect`. `origin/main` moved
+  `075dede` -> `1fedb2e` (PR #281, `issue-237`) while the pull request sat: `git rev-list --left-right
+  --count HEAD...origin/main` answers `5 11`. `git merge-tree --write-tree --name-only HEAD origin/main`
+  conflicts ONE file, `factory/DECISIONS.md`, and auto-merges three that carry the checks --
+  `factory/common.sh` (main +67 non-blank lines since base, this branch +92), `factory/factory.sh` (+6,
+  +40) and `factory/selftest.sh` (+461, +573) -- `H-0096`'s silent half again, in its widest instance:
+  three of the four files that moved merged without anyone reading them. The log shape is new only in
+  being easy. Base ends at `H-0114`. Main contributes two entries and this branch two, and this time they
+  do NOT interleave the way `H-0114`'s did: main's are `H-0113`, inserted *below* base's `H-0114` into a
+  gap base leaves clean (so it auto-merged, invisible), and `H-0115`, appended; this branch's `H-0116`
+  and `H-0117` are appended above where `H-0115` lands. One region conflicted because only the two
+  appends competed. What is the deliverable: the splice that clears the marker, or the count that says no
+  line either side wrote was edited -- and, sitting on top of it, the review's ask to change a shipped
+  default whose correct value is a fact about a live org?
+- Options: take git's side-order layout and delete the marker lines | cut the merged log at id position
+  out of the two parent blobs and count every line either side added | resolve the file with `--ours` or
+  `--theirs` | renumber this branch's `H-0116` and `H-0117` above main's new block | rebase onto
+  `origin/main` | resolve the conflict and ship the review's slug fix in the same commit
+- Chose: cut the merged log at id position out of the two parent blobs and count every line either side added
+- Why: the order is the shipped gate's and both layouts are the same length, so order is the only
+  difference between them and the only witness worth asking is the gate. Git's side-order layout -- main's
+  blob through `H-0114`, then this branch's two entries, then main's `H-0115` -- is 4291 lines and answers
+  `factory/DECISIONS.md:4166: H-0115 is out of order (H-0117 came before it)` at exit 1; the id-ordered
+  cut is 4291 lines and answers `check-decisions: 114 entries across 1 log(s)` at exit 0 (the same
+  witness `H-0110`, `H-0111` and `H-0114` cite). `diff` of the two sorted files is empty, so the layouts
+  hold the same lines in a different order and nothing but the order is being argued. `--ours`/`--theirs`
+  are arithmetic, not taste: `--theirs` deletes the 21 lines that ARE `H-0116` and `H-0117`, the whole
+  record of #241 including the provenance for the shipped team default; `--ours` deletes main's 127 --
+  `H-0115`, the record of #237 item 1 that merged forty minutes ago. Renumbering is not owed: nothing
+  collides this time (`grep -c '^## H-0115 '` is 0 in ours and 1 in main; `'^## H-0116 '` 1 and 0), and
+  `H-0116`'s `Id:` line already paid that cost once for exactly these two entries. Rebasing is refused by
+  the remote rather than by habit: `git rev-parse origin/issue-241` answers `a2cce8e`, so a rewrite needs
+  the `--force` `.opencode/opencode.jsonc` withholds from a tick, while a merge is undone by
+  `git revert -m 1` back to the checkpoint (tie-break 5), and tie-break 4 lands here too -- one file of
+  four resolved by hand. The last option was on the table and is refused on the rule this repository
+  already runs, not on effort: the slug is a claim about live state and the one read that settles it is
+  denied to this session (see `Effect`), so shipping it would replace one unmeasured value with a second
+  one inside the arm that wins by design and therefore fails totally rather than degraded -- `H-0116`
+  chose the team default, and the review's own arithmetic is that a stale slug means nobody is asked while
+  `main` still asks a login that works. Folding it into a merge commit is refused twice over: reverting a
+  merge takes everything the merge brought, so a behavior change parked inside a conflict resolution makes
+  `git revert -m 1` of that conflict the wrong size (tie-break 5 again), and this branch is under a review
+  that a fix push re-opens regardless.
+- Checkpoint: 272c0b582ffbdd92106e39aa6ecbecdbe87f059a
+- Effect: one file resolved by hand. The merged `factory/DECISIONS.md` is
+  `git show origin/main:factory/DECISIONS.md` (4269 lines) + a separator + `git show HEAD:...` from line
+  4061 (21 lines) = 4291 lines, cut by line range out of the two parent blobs rather than spliced out of
+  the conflicted file. That is measured two ways, and the two-way check is the whole claim that both
+  intents survived: `diff` against main's blob is ONE add-only hunk, `4269a4270,4291`; `diff` against
+  ours is two add-only hunks, `3919a3920,4002` (main's `H-0113`, 83 lines) and `4059a4143,4269` (main's
+  `H-0115` and its separator, 127). No hunk in either direction deletes or rewrites a line, so nothing
+  either side wrote was edited -- only placed. The tail is now `H-0112`, `H-0113`(main), `H-0114`(both --
+  the two blobs' `H-0114` blocks are byte-identical: `diff` empty), `H-0115`(main), `H-0116`, `H-0117`,
+  `H-0121`.
+- Counted, not read, for the three auto-merged files. Over `-U0` hunk headers the two sides' base ranges do
+  not intersect in any of them: `factory/common.sh` main `330`,`346` against ours `54-58`,`702-703`;
+  `factory/factory.sh` main `80`,`178` against our eleven hunks from `229` on; `factory/selftest.sh`
+  main's ten hunks from `351` against our eight from `3911` on. No function name is defined by BOTH sides
+  (`comm -12` over the `+name()` lines of the two diffs is empty) and no leg name occurs twice in the
+  merged `factory/selftest.sh`. So the merge is a union of disjoint edits, and both halves' legs run on
+  the merged tree: `factory/selftest.sh: 469 passed, 0 failed`, and `make verify` printed `verify: OK`.
+- What those numbers do NOT establish, kept in because it is the half a reader needs. `469` is this box at
+  this head; `H-0116` recorded `460` for this branch's own pre-merge head and the reviewer's box read
+  `459` for that same commit, which is `H-0104`'s box dependence, so `469 - 460 = 9` is consistent with
+  main's +461 lines and is not proof that every new leg passes elsewhere. And no leg was attacked on this
+  merged tree: disjointness plus a green suite says the two halves do not contradict each other, not that
+  each still fails when its own rule is removed -- that attack is the `make check-mutations` battery and
+  one leg per side on the merged tree, and it belongs to the next unit on this branch, in its own
+  uninterrupted run: `scripts/check-mutations.py` applies each mutant to the working tree in place, so a
+  sweep launched beside `make verify` gates a tree that is not the tree (measured 4 Nov on `wt-206`).
+- NOT in this commit, and that is the decision. The review at `06:39:41Z` requests changes for one thing:
+  `FACTORY_REVIEWER_TEAM` defaults to `cinemaitor` (`factory/common.sh:83`, baked into the generated unit
+  at `factory/install-timer.sh:395`, documented at `docs/factory.md:322`) while it measures the same team
+  -- `id=19038850`, the id `H-0116` cites for `slug=cinemaitor` -- now answering `slug=workers`, with
+  `/orgs/vicowa-botworks/teams/workers` at 403 (exists, no `org:read`) against `teams/cinemaitor` and a
+  fabricated slug both at 404. The reading is coherent, dated, and it is not mine to re-take: the endpoint
+  that settles it is `gh api`, denied to a tick by `.opencode/opencode.jsonc`, and the supervisor's log on
+  this box cannot arbitrate because the team arm has never run in production -- every `POKED` line in
+  `factory/log/supervisor.log`, `#283` included, names `hermesvicowa`, which is `main`'s code. What
+  settles it, for whoever holds the token, is one read and five edits:
+  `gh api /orgs/vicowa-botworks/teams --jq '.[].slug'`, then `grep -rn cinemaitor` for the blast radius --
+  48 occurrences in five files at this commit: the default (`factory/common.sh:83`) and four comment lines
+  beside it, one line in the unit template (`factory/install-timer.sh:394`), five in `docs/factory.md`,
+  thirty-three in `factory/selftest.sh` (the fixture pins the shipped value at `:5875` and the expectations
+  name it from `:6521` to `:6638`), and four in `factory/DECISIONS.md` that are history and must NOT be
+  rewritten -- then a dated re-measure written beside `H-0116`'s 8 Nov reading rather than over it, because
+  an entry silently corrected is indistinguishable from one that was always right.
+- Also NOT corrected here: the review's non-blocking finding that `H-0116`'s `Effect` cites
+  `factory.sh:170` and `triage.sh:248` and both have drifted. Still drifted at this commit, measured on
+  the merged tree -- the function is at `factory/factory.sh:245`, the read at `factory/triage.sh:346` --
+  and left for the commit that answers the review, not edited into a merge that has nothing to say about
+  them. Same reason the numbering this class's titles carry is not extended: `3c2e567` on main's spine
+  says "an eighth time", `0a3939d` on the unmerged `issue-246` says "a ninth", and this branch's own
+  previous merge `a2cce8e` took no number, so a number written now could not be reconciled by anyone
+  reading afterwards -- the honest spelling of that count is "again".
+- Dated correction at `H-0127`, 11 Nov: the merge census above is as counted *before this entry was
+  written*. Re-measured at `6577ba1`, the merge has ONE add-only hunk against `^2` (`4269a4270,4401`,
+  132 lines) and THREE against `^1` (`+83`, `+127`, `+110`); the omitted `+110` is this entry's own body,
+  and the recorded `4059a4143,4269` offsets are `git diff 075dede 1fedb2e`'s view, not the merge diff's
+  `4143a4144,4270`.
+- Roll back: `git revert -m 1 <this commit>` -- the merge brings main's eleven commits and nothing else,
+  and this branch's own work sits in the first-parent chain (`93ab835`, `aa1c82f`, `63464a4`).
+- Nothing here merges this pull request: merging is the supervisor's, and it merges only what the API still
+  reports approved, mergeable, clean and green at the moment of the merge. `#282`'s `reviewDecision` is
+  `CHANGES_REQUESTED` at the head this commit replaces and a push spends that approval's standing
+  (`H-0095`, `H-0097`), so whatever the API answers after this push is the API's verdict and belongs in the
+  pull-request body beside the push, not in a record written before it.
 
 ## H-0123 · The character holding the reaping number to the truth matches no line a journal contains, so the read now owns its own boundary -- and this box's live journal had already been answered `1s` for a 60.133 s hold
 
@@ -4767,3 +4904,156 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   measurement that retires it are separable: it now owes only the manager write, carries the
   five-row hold table, and says where every number on the `reaping:` line comes from. No dependency, no
   security property, no publish, no deletion. Nothing here merges -- merging is the supervisor's.
+## H-0127 · The team slug moved under the branch, so the shipped default follows the dated re-measure rather than the 8 Nov name
+
+- Question: #282's review at `2026-11-11T09:15:23Z` says the shipped default `FACTORY_REVIEWER_TEAM=cinemaitor`
+  now targets a 404 while the same team id `19038850` answers at slug `workers`. Is the answer to leave the
+  stale default and add a differential guard, to move the default with a dated re-measure, to do both in one
+  commit, or to refuse the change because this tick cannot re-take the org read?
+- Options: keep `cinemaitor` and make a dead slug impossible to miss with a 403/404 guard | change the default
+  to `workers`, move the unit default and docs with it, and write the 11 Nov re-measure beside `H-0116`'s
+  8 Nov reading | change the default and build the guard in the same decision | leave the default and escalate
+  because `gh api` is denied to a tick
+- Chose: change the default to `workers`, move the unit default and docs with it, and write the 11 Nov re-measure
+  beside `H-0116`'s 8 Nov reading
+- Why: the review is not an unattributed assertion. Its 11 Nov differential is dated, says the same token is
+  blind to `org:read`, and distinguishes `workers` (403: exists but unreadable here) from `cinemaitor` and a
+  fabricated slug (404: no such team); the stored `review_requested` events resolve the id, not today's slug.
+  This session still cannot re-take that read -- `gh api` is denied whole by `.opencode/opencode.jsonc` -- so
+  the honest record is the reviewer's dated read, not a second unmeasured claim. The old default is now a known
+  broken live target, while the reviewer offered the guard as the alternative that breaks the silence; doing
+  both is one commit too wide, and leaving the default or escalating keeps a measured failure on the shipped
+  path. Tie-break 3 selects the change because it makes the configured team mean what the pass can resolve,
+  tie-break 4 chooses it over the combined change because it moves one shipped value and its fixtures, not the
+  preflight API surface, and tie-break 5 keeps it reversible by reverting one effect commit. The 403/404 guard
+  is not refused: it is the larger design fix for the next rename and remains open.
+- Checkpoint: 70ed983dc2ec370f8e4d28d70909da87f2af3396
+- Effect: `FACTORY_REVIEWER_TEAM` now defaults to `workers` (`factory/common.sh:88`, rendered into the unit by
+  `factory/install-timer.sh:395`), with the 11 Nov reviewer re-measure written beside the dated 8 Nov
+  `cinemaitor` reading rather than over it. `factory/selftest.sh` pins the shipped default at `:5875`, checks
+  the dry-run and journal lines at `:6106` and `:6530`, and keeps a renamed `cinemAItor` leg so the old slug's
+  404 failure sentence stays pinned; the display fixture capitalises `Workers` only to prove the classifier does
+  not depend on today's agreement between slug and display name. `docs/factory.md` moves the five current
+  examples and the configuration table to `workers`; the 10 Nov quoted journal line remains history where it is
+  labelled history. Non-blocking review corrections are also answered here: `H-0116`'s drifted effect line
+  citations are dated, not silently rewritten, and `H-0121`'s self-census now says its counts were taken before
+  that entry existed, with the 132/110-line and offset re-measure beside it. Gate at this worktree:
+  `factory/selftest.sh: 469 passed, 0 failed`; `check-decisions: 154 entries across 2 log(s)` before this entry
+  was appended and the final gate below quotes the post-entry run; `make verify` last line `verify: OK`.
+
+## H-0128 · The log collides again and this time each side has entries on both sides of the other's, so the splice is a sort by id -- and the disjointness census only means anything if it counts main's zero-count hunks, which a `-U0` parse that drops `,0` reports as main changing nothing
+
+- Question: `#282` reads back `OPEN`, `reviewDecision=CHANGES_REQUESTED`, `mergeable=CONFLICTING`,
+  `mergeStateStatus=DIRTY`, `headRefOid=4115b23` -- asked before anything here was touched -- with five
+  checks `completed`/`success` (`verify`, `shellcheck`, `mutation sets`, `packages (amd64)`,
+  `packages (arm64)`) and `reviewRequests` answering `[{"__typename":"User","login":"hermesvicowa"}]`, so
+  one request IS outstanding; `--jq '[.users[].login]'` answers `cannot iterate over: null` because these
+  rows carry `login` directly, and a tick that reads `null` and concludes "nobody asked" is wrong. The two
+  `CHANGES_REQUESTED` reviews are `submittedAt` `06:39:41Z` and `09:15:23Z`; this head was committed
+  `09:41:05Z`, so the newer thing is the commit and the second review -- whose whole ask was the one-word
+  slug change -- is the one `H-0127` answers at `factory/common.sh:88`. `origin/main` moved `1fedb2e` ->
+  `e1633e1` (PR #283, `issue-246`) while the pull request sat: `git rev-list --left-right --count
+  HEAD...origin/main` answers `10 16`. `git merge-tree --write-tree --name-only HEAD origin/main` conflicts
+  ONE file, `factory/DECISIONS.md`, and auto-merges four that carry the checks -- `docs/factory.md` (main
+  +53/-6 since base, ours +34/-3), `factory/common.sh` (+296/-0, +100/-7), `factory/factory.sh` (+6/-0,
+  +40/-12), `factory/selftest.sh` (+434/-0, +598/-4) -- `H-0096`'s silent half again. The log shape is
+  `H-0114`'s hard instance, not `H-0121`'s easy one: base ends at `H-0115` (4269 lines), this branch appends
+  `H-0116`, `H-0117`, `H-0121`, `H-0127` (4443 lines), main appends `H-0118`, `H-0119`, `H-0120`, `H-0123`,
+  `H-0124`, `H-0125`, `H-0126` (4769), and each side has entries on both sides of the other's -- ours below
+  main's `H-0118` (`H-0116`/`H-0117`) and between main's `H-0120` and `H-0123` (`H-0121`), main's below our
+  `H-0127`. So the deliverable is the sort that clears the marker plus the count that says no line either
+  side wrote was edited, and a third thing this shape asks: does either side's intent depend on the other's,
+  when `H-0127` moved a shipped default in the same file main's 296 new lines sit in?
+- Options: take git's side-order layout and delete the markers | cut the merged log at id position out of the
+  two parent blobs and count every line either side added | resolve with `--ours` or `--theirs` | renumber
+  this branch's `H-0121` and `H-0127` above main's block | rebase onto `origin/main` | read both diffs and
+  settle the intent question by grepping main's diff for the thing `H-0127` moved
+- Chose: cut the merged log at id position out of the two parent blobs and count every line either side added
+- Why: the order is the shipped gate's, both layouts are the same length, and the gate says which one it
+  accepts. Git's side-order layout -- this branch's tail, then main's seven entries -- is 4942 lines and
+  answers SEVEN problems at exit 1, `…/sideorder-log.md:4444: H-0118 is out of order (H-0127 came before it)`
+  and the same sentence for `H-0119`, `H-0120`, `H-0123`, `H-0124`, `H-0125`, `H-0126`; the id-ordered cut is
+  the same 4942 lines and answers `check-decisions: 123 entries across 1 log(s)` at exit 0, and `sort` of the
+  two files is byte-identical, so they hold the same lines in a different order and nothing but the order is
+  being argued (the witness `H-0110`, `H-0111`, `H-0114` and `H-0121` cite). `--ours`/`--theirs` are
+  arithmetic, not taste: `--theirs` deletes the 174 lines that ARE this branch's four entries -- the whole
+  record of #241, `H-0127` included, which is the answer to the review outstanding on this very pull request
+  -- and `--ours` deletes main's 500, the record of #283, which merged into `main` an hour ago. Renumbering
+  is owed to nobody: nothing collides (`grep -c '^## H-0118 '` is 0 in ours and 1 in main; `'^## H-0123 '`
+  likewise; `'^## H-0127 '` 1 and 0) and `H-0116`'s `Id:` line already paid that cost once. Rebasing is
+  refused by the remote rather than by habit -- `git rev-parse origin/issue-241` answers `4115b23`, so a
+  rewrite needs the `--force` `.opencode/opencode.jsonc` withholds from a tick, while a merge is undone by
+  `git revert -m 1` back to the checkpoint (tie-break 5), and tie-break 4 lands here too: one file of five
+  touched is resolved by hand.
+- Checkpoint: 2504b6f23292ca4e447d7333870f09557d947268
+- Effect: one file resolved by hand, cut by line range out of the two parent blobs rather than spliced out of
+  the conflicted file. The prefix `1..4270` is byte-identical in the two blobs (`diff` of those ranges empty,
+  which is what makes taking it from either side safe), then, in id order: ours `4271..4292` (`H-0116`,
+  `H-0117`), main `4271..4505` (`H-0118`..`H-0120`), ours `4293..4407` (`H-0121`), main `4506..4769`
+  (`H-0123`..`H-0126`), ours `4408..4443` (`H-0127`) -- 4942 lines and 123 `H-` entries, as counted BEFORE
+  this entry was appended. The two-way census is the whole claim that both intents survived: `diff` against
+  main's blob is THREE add-only hunks -- `4270a4271,4292` (22 lines, our `H-0116`/`H-0117`),
+  `4505a4528,4642` (115, our `H-0121`) and `4769a4907,4942` (36, our `H-0127`) -- and `diff` against ours is
+  TWO add-only hunks -- `4292a4293,4527` (235, main's `H-0118`..`H-0120`) and `4407a4643,4906` (264, main's
+  `H-0123`..`H-0126`). Zero deleted lines in either direction, so nothing either side wrote was edited, only
+  placed. After this entry is appended -- measured at its final length, so the two numbers below are the
+  ones a re-run prints -- `diff` against ours gains a third add-only hunk, `4443a4943,5047` (105 lines), and
+  `diff` against main's last hunk grows to `4769a4907,5047` (141 lines, this entry plus `H-0127`); deleted
+  lines stay ZERO in both directions, and the pre-entry census above is labelled as pre-entry rather than
+  left to be discovered (`H-0121`'s omission, corrected at `H-0127`).
+- The census that would have lied, and the one line that fixes it. Measuring `H-0096`'s silent half by pulling
+  `-U0` hunk headers with `@@ -(\d+)(?:,(\d+))?` and skipping an empty count reports main changing NOTHING in
+  three of the four auto-merged files -- 0 hunks in `factory/common.sh`, `factory/factory.sh` and
+  `factory/selftest.sh` -- because a pure insertion is `-N,0` and a zero-count range is exactly what that
+  filter drops. An intersection of zero against an empty list is then a green that proves nothing about the
+  files carrying the checks, and `H-0121`'s method, repeated verbatim, is that filter. Counted with the
+  `,0` arm kept, main has one hunk in `factory/factory.sh` (base `147`) and `factory/selftest.sh` (base
+  `9795`), two in `factory/common.sh` (base `314`, `397`) and two in `docs/factory.md` (base `352`,
+  `354-358`), against this branch's eleven (from `233`), eight (from `4388`), two (`54-58`, `769-770`) and
+  six (from `54`) respectively -- and the two sides' base ranges intersect in NONE of the four files. No
+  function name is defined by BOTH sides (`comm -12` over the `+name()` lines: main's six new functions in
+  `factory/common.sh` against our one; main's `reap_leg_*` x11 and `rp_*`/`want` helpers against our
+  `poke_*`/`preflight_*` x22 in `factory/selftest.sh`), and the only function the merged suite defines twice,
+  `emit()`, is defined twice in BOTH parents as well -- pre-existing, not a merge artifact.
+- The intent question, measured rather than assumed, because this is the first collision where one side moved
+  a value the other side's tests could plausibly pin: `git diff 1fedb2e origin/main` contains ZERO
+  occurrences of `cinemaitor` and ZERO of `FACTORY_REVIEWER`, so #283's 296 new lines in `factory/common.sh`
+  do not read the default `H-0127` moved, and the merged tree still ships `FACTORY_REVIEWER_TEAM=${...
+  -workers}` at `factory/common.sh:88` with the 8 Nov `cinemaitor` readings left where they are labelled
+  history (5 comment lines there, 12 in this log). Both halves' legs run on the merged tree:
+  `factory/selftest.sh: 480 passed, 0 failed`, of which 11 lines are main's `reap_leg_*` and 16 this
+  branch's `poke_*`/`preflight_*`, and `python3 scripts/check-decisions.py` answers `check-decisions: 162
+  entries across 2 log(s)` at exit 0 with `--self-test` at exit 0.
+- What those numbers do NOT establish. `480` is this box at this head; `H-0127` recorded `469` for this
+  branch's own pre-merge head here and the reviewer's box read `459` for that same commit, which is
+  `H-0104`'s box dependence, so `480 - 469 = 11` matching main's eleven new reap legs is a consistency check
+  and not proof that every leg passes elsewhere. And no leg was attacked on this merged tree: disjointness
+  plus a green suite says the two halves do not contradict each other, not that each still fails when its own
+  rule is removed -- that attack is one leg per side on the merged tree and the `make check-mutations`
+  battery, and it belongs to the next unit on this branch in its own uninterrupted run, never beside
+  `make verify` in this tree (measured 4 Nov on `wt-206`, and `H-0121` says the same).
+- NOT in this commit, and that is the decision. It does not re-take the org team read (`gh api` is denied to
+  a tick), so nothing here changes the slug again: `H-0127`'s dated re-measure stays the record and the
+  shipped value stays whatever `workers` resolves to when a token holder re-reads it. It does not build the
+  403/404 preflight guard that `H-0127` left open on purpose -- a behaviour change parked inside a conflict
+  resolution makes `git revert -m 1` of that conflict the wrong size (tie-break 5). It does not answer the
+  review with `gh pr review` or `gh pr merge`, both denied: `#282`'s `reviewDecision` is `CHANGES_REQUESTED`
+  written at `6577ba1`, this push spends that standing regardless (`H-0095`, `H-0097`), and the re-review is
+  the reviewer's verdict, so whatever the API answers after this push belongs in the pull-request body beside
+  the push, not in a record written before it.
+- Dated correction, 11 Nov, in the commit that follows the merge it corrects. Two counts above were taken
+  before this entry existed -- the same self-blindness `H-0127` had to correct in `H-0121`, rediscovered one
+  entry later. The old slug's `12` mentions in this log is the pre-entry count: this entry writes the word
+  twice itself, so `grep -c cinemaitor factory/DECISIONS.md` printed `14` at the merge, prints `15` where
+  this sentence is read (this sentence is the extra one), and prints `5` in `factory/common.sh` -- and those
+  five are all comments; the shipped default is `workers`.
+  And the two post-entry offsets are true of the merge as pushed, so pin them: `git diff --unified=0
+  00ed490^1 00ed490 -- factory/DECISIONS.md` answers THREE add-only hunks ending `+4943,5047` (105 lines)
+  and `git diff --unified=0 00ed490^2 00ed490 -- factory/DECISIONS.md` a last hunk `+4907,5047` (141).
+  Neither number survives this correction, which adds lines to the same file; that is why they name a commit
+  rather than "a re-run". Deleted lines stay zero against BOTH parents either way, and that, not the
+  offsets, is the claim the census was ever for.
+- Roll back: `git revert -m 1 <this commit>` -- the merge brings main's sixteen commits and nothing else, and
+  this branch's own work sits in the first-parent chain (`93ab835`, `aa1c82f`, `63464a4`, `4115b23`).
+- Nothing here merges this pull request: merging is the supervisor's, and it merges only what the API still
+  reports approved, mergeable, clean and green at the moment of the merge.

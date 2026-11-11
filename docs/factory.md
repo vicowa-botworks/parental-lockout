@@ -51,7 +51,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | class | what it means | who acts |
 |---|---|---|
 | `merge_now` | approved, `MERGEABLE`, `CLEAN`, every check passed | supervisor, in bash, after re-reading all four from the API |
-| `needs_reviewer` | no verdict that still stands -- no rows at all, or every `APPROVED`/`CHANGES_REQUESTED` row voided by a push, or comments only -- **and** `/requested_reviewers` is empty | supervisor: request one, at most once per `FACTORY_REVIEW_POKES` |
+| `needs_reviewer` | no verdict that still stands -- no rows at all, or every `APPROVED`/`CHANGES_REQUESTED` row voided by a push, or comments only -- **and** `/requested_reviewers` has neither `users` nor `teams` | supervisor: ask the team, at most once per `FACTORY_REVIEW_POKES` |
 | `conflict` | `CONFLICTING/DIRTY` | supervisor: `git merge origin/main`; a tick only if that conflicts |
 | `address_review` | newest `CHANGES_REQUESTED` is newer than the head commit, **and its body carries an ask** | a tick, and the ask rides in its instruction |
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
@@ -164,6 +164,25 @@ asked" from "asked and answered" -- measured, four pull requests had an empty li
 exists because a branch with commits and no pull request is invisible to every queue that reads
 issues and pull requests; the first run of this script found five, one of them seven commits deep.
 
+**Who the `needs_reviewer` row asks.** The poke addresses a TEAM (`FACTORY_REVIEWER_TEAM`, a team
+slug), because a request is a question to whoever can answer it and a team request notifies every
+member: the first one online replies, while an individual request waits for one specific person to
+appear. Read the evidence for what it is, because it is thinner than the change: #240, the pull request
+#241 was filed against, merged at 19:50:20Z on 8 Nov carrying four reviews and all four came from
+`hermesvicowa` (18:19:17Z, 18:41:12Z, 19:06:38Z, approved 19:49:56Z), and the team's second member is
+the org's machine user. Nothing measured that day shows a team producing a *new* name. The claim is
+#241's and it is narrower: the poke should not have to guess who is online in order to reach everybody
+who could be. An individual stays available as the override for a repository with no org
+team: set the team empty and name the login. The classifier counts both lists, `users` and `teams`, so
+a request the supervisor already made reads as `awaiting_review` rather than being poked again as
+`needs_reviewer`, and the journal says which kind was asked (`POKED pr:<n> asked team workers`,
+where the older line read `asked <login>`) instead of printing a login whatever was POSTed. Two things
+the poke does not do: it does not ask a
+draft (`#230` and `#233` are drafts on purpose -- a draft pull request is the author's claim channel,
+not a review request, and the classifier routes it to `draft`, which is a wait and not a poke), and it
+does not cancel an individual request it did not make (H-0117) -- the person who holds it may hold it
+because somebody with better knowledge asked them.
+
 ### The approval a push voids
 
 `reviewDecision` is a fact about a pull request's head, not a record of its past. This repository does
@@ -186,6 +205,11 @@ were. So the queue watched the unit it had just asked about go unserved, in its 
 17:58:17Z POKED pr:269 requested review from hermesvicowa    no rows at all: it asked
 19:17:23Z WAIT  pr:269 awaiting_review                       one voided row: it did not
 ```
+
+The first line is that journal line as it read on 10 Nov, before #241. The poke then printed
+`$FACTORY_REVIEWER` whatever it had actually posted; it now prints the target it resolved, so the same
+event reads `POKED pr:269 asked team workers` -- see *Who the `needs_reviewer` row asks* above. The
+quotation is kept in the older spelling because that is what the box wrote that day.
 
 The second line is the defect. One `DISMISSED` row, an empty `/pulls/269/requested_reviewers`,
 `reviewDecision=REVIEW_REQUIRED`, and the count of rows answered "somebody has reviewed this". #269
@@ -295,6 +319,7 @@ ExecStart=/home/rodney/prj/parental-lockout/factory/factory.sh
 # pass the one gate it is required to pass, and finds that out 40 minutes into a run.
 Environment=PATH=/home/rodney/.local/bin:/home/rodney/.opencode/bin:/usr/bin:/usr/local/bin:/usr/bin:/bin
 Environment=FACTORY_REVIEWER=hermesvicowa
+Environment=FACTORY_REVIEWER_TEAM=workers
 # The project the CLI works in -- agent, deny rules, skills -- comes from $PWD, not from
 # WorkingDirectory. A unit exports a cwd and no PWD, so without this line every tick opens a session
 # in the background server's home directory and dies on `Agent not found: "factory"`.
@@ -806,7 +831,8 @@ Everything is an environment override with a default, in `factory/common.sh`.
 | variable | default | what it decides |
 |---|---|---|
 | `FACTORY_REPO` | from `origin` | `owner/name`; set it when the remote is a fork you do not want to file against |
-| `FACTORY_REVIEWER` | `hermesvicowa` | who a review is requested from |
+| `FACTORY_REVIEWER_TEAM` | `workers` | the team a review is requested from, as a **slug**; a team notifies every member, so this is the form that ends a wait |
+| `FACTORY_REVIEWER` | `hermesvicowa` | the individual a review is requested from -- used only when the team is set empty (`FACTORY_REVIEWER_TEAM=`), which is how a repository with no org team overrides this one |
 | `FACTORY_TREES` | `../wt` | where per-unit worktrees live; deliberately not under `/tmp` |
 | `FACTORY_AT_RISK` | `../at-risk` | where a stopped tick's unpushed commits are mirrored; beside `FACTORY_TREES`, never inside it |
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
@@ -1138,7 +1164,12 @@ every merge is permanent history.
 
 Nothing in `factory/` may name this repository. `FACTORY_REPO` comes from `origin`, the reviewer is
 an override, the gate it runs (`make verify`) is whatever the repository's Makefile calls verify,
-and the agent's deny list is generic except `go get`. That is the price of the second half of this
+and the agent's deny list is generic except `go get`. Say the honest half of that rather than leaving
+it out: the two review defaults do name this organisation (`workers`, `hermesvicowa`), exactly as
+they always did -- they are the *values* of two overrides, the same class of thing as a reviewer's
+login, and a repository that wants another target changes them in its unit or its environment rather
+than editing the file. What the rule forbids is a line that needs the repository's *name* to work.
+That is the price of the second half of this
 task: once this has survived a real queue, `factory/` moves to a shared location and each repository
 keeps only its `.opencode/opencode.jsonc` and `DECISIONS.md`. If a line here ever needs this
 repository's name to work, that is a defect in it, not a convenience.

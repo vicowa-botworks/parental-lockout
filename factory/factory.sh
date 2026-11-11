@@ -236,14 +236,35 @@ factory_refuseto_work() {
 	esac
 }
 
-# A review request, at most once per FACTORY_REVIEW_POKES per pull request.
+# A review request, at most once per FACTORY_REVIEW_POKES per pull request, addressed to the TEAM when
+# one is configured -- see `FACTORY_REVIEWER_TEAM` in common.sh for why that is the default and an
+# individual the override.
 #
 # Why this exists: `reviewRequests` was empty on #209, #212, #214 and #215 three days after they
 # opened, and REST `/pulls/N/requested_reviewers` was empty too. Nothing had ever asked. Neither
 # `issue-check` nor `review-loop` requests a reviewer, so a pull request could sit in
 # REVIEW_REQUIRED forever with every check reading green.
+#
+# What it must not become is a request nobody can answer. A request names whoever can act on it, so
+# the target comes from `factory_review_target` (common.sh) and the four places that mention it -- the
+# POST, the read-back, the journal line and the --dry-run echo -- print the same thing.
 factory_request_review() {
-	local pr=$1 last age
+	local pr=$1 last age target who arg label
+	target=$(factory_review_target)
+	who=${target#*:}
+	# Neither form configured. Asking nothing is not a silent no-op and it is not a POST with an empty
+	# list either -- GitHub would take that as "no reviewers requested" and the queue would read
+	# `needs_reviewer` again next pass, which is the loop H-0016 exists to end. It is a refusal, on
+	# every pass, until somebody says who to ask. No ledger stamp: the throttle records when a request
+	# was made, and nothing was.
+	if [ -z "$target" ]; then
+		log_event "POKE-NONE pr:$pr nobody is configured to be asked -- set FACTORY_REVIEWER_TEAM=<team slug> or FACTORY_REVIEWER=<login>"
+		return 1
+	fi
+	case "$target" in
+	team:*) arg="team_reviewers[]=$who" label="team $who" ;;
+	user:*) arg="reviewers[]=$who" label="$who" ;;
+	esac
 	last=$(factory_ledger_get "pr:$pr" last-poke)
 	age=$(factory_age "pr:$pr" last-poke)
 	if [ -n "$last" ] && [ "$age" -lt "$FACTORY_REVIEW_POKES" ]; then
@@ -257,17 +278,19 @@ factory_request_review() {
 	# because the CLI's pull-request update query still selects `projectCards`. Measured on #217 and
 	# three others on 4 Nov: every one exited 1 and left `/requested_reviewers` empty. So the request
 	# goes to the REST endpoint the docs give for it, which is also the endpoint this script reads back
-	# -- one route for writing and reading the same fact, so the two cannot disagree.
+	# -- one route for writing and reading the same fact, so the two cannot disagree. The same verb on
+	# #240 the same week: switching that pull request to the team was two calls to this endpoint,
+	# `team_reviewers[]` in and `reviewers[]` out, and the read-back that confirmed it was this GET.
 	if [ "$DRY_RUN" = "1" ]; then
-		printf 'DRY-RUN  gh api -X POST repos/%s/%s/pulls/%s/requested_reviewers -f reviewers[]=%s\n' \
-			"$FACTORY_OWNER" "$FACTORY_NAME" "$pr" "$FACTORY_REVIEWER"
-		log_event "WOULD-POKE pr:$pr request review from $FACTORY_REVIEWER"
+		printf 'DRY-RUN  gh api -X POST repos/%s/%s/pulls/%s/requested_reviewers -f %s\n' \
+			"$FACTORY_OWNER" "$FACTORY_NAME" "$pr" "$arg"
+		log_event "WOULD-POKE pr:$pr request review from $label"
 		return 0
 	fi
 	if run_action gh api -X POST "repos/$FACTORY_OWNER/$FACTORY_NAME/pulls/$pr/requested_reviewers" \
-		-f "reviewers[]=$FACTORY_REVIEWER" --silent; then
+		-f "$arg" --silent; then
 		factory_ledger_now "pr:$pr" last-poke
-		log_event "POKED pr:$pr requested review from $FACTORY_REVIEWER"
+		log_event "POKED pr:$pr asked $label"
 		factory_poke_ask_note "$pr"
 		return 0
 	fi
@@ -275,17 +298,22 @@ factory_request_review() {
 	# nobody. The first is the state wanted and must not be reported as a failure -- but it must not be
 	# counted as a fresh request either, so the two are logged differently. Both stamp the ledger, which
 	# is what keeps the throttle honest and stops a bad username being retried every ten minutes.
+	#
+	# The read-back is `$JQ_REQUESTED_HOLDS` (common.sh), the same program the queue classifier runs
+	# against the same payload. A reader that only knew `users[]` would report a request answered by a
+	# team as POKE-FAILED -- a red journal line about a request sitting right there -- and the two
+	# readers would then disagree about whether anybody had been asked, which is the one fact the whole
+	# class turns on.
 	if gh api "repos/$FACTORY_OWNER/$FACTORY_NAME/pulls/$pr/requested_reviewers" \
-		--jq '[.users[].login] | index($who) != null' --raw-field who="$FACTORY_REVIEWER" \
-		2>/dev/null | grep -q true; then
+		--jq "$JQ_REQUESTED_HOLDS" --raw-field who="$who" 2>/dev/null | grep -q true; then
 		factory_ledger_now "pr:$pr" last-poke
-		log_event "POKE-ALREADY pr:$pr $FACTORY_REVIEWER already holds a request"
+		log_event "POKE-ALREADY pr:$pr $label already holds a request"
 		factory_maybe_notice "pr:$pr" awaiting_review
 		factory_poke_ask_note "$pr"
 		return 0
 	fi
 	factory_ledger_now "pr:$pr" last-poke
-	log_event "POKE-FAILED pr:$pr $FACTORY_REVIEWER could not be requested (404 means the username is wrong; FACTORY_REVIEWER is the override)"
+	log_event "POKE-FAILED pr:$pr $label could not be requested (a team must exist in this organisation and an individual must be a member of the repository; FACTORY_REVIEWER_TEAM=<team slug> and FACTORY_REVIEWER=<login> are the overrides, and a team wants its SLUG)"
 	return 1
 }
 
