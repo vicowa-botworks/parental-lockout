@@ -164,6 +164,37 @@ asked" from "asked and answered" -- measured, four pull requests had an empty li
 exists because a branch with commits and no pull request is invisible to every queue that reads
 issues and pull requests; the first run of this script found five, one of them seven commits deep.
 
+### Which unit a pass takes first (#307)
+
+Within a class the queue is oldest-first, and the key that decides it counts **up**, so it sorts
+descending: `factory_age` answers elapsed seconds since `first-seen`, so `sort -t$'\037' -k1,1n
+-k2,2nr -k3,3n` puts the longest-waiting unit first and the number breaks the tie. The key shipped
+ascending from `88848c5` until `H-0135`, which is `H-0007` written backwards -- the row stamped most
+recently went first. On a live queue that is not a fairness problem but a starvation one, because every
+pass mints a younger `first-seen` for whatever arrived since. Measured off `factory/log/supervisor.log`:
+the pass at 20:22:20Z on 11 Nov printed `NEXT unclaimed 303 age=0s` -- a unit its own stamping loop had
+written `first-seen` into one second earlier -- while #296 and #297, first seen at 16:13:25Z and 14,935s
+old, sat in the same rank; all five `unclaimed` rows were still open two hours later
+(`factory/triage.sh --table`).
+
+Nothing in the suite noticed for seven days, because the fixture stamps both of its units inside one
+second, and equal ages fall to the number tie-break -- which sends unit 900 first, the same answer the
+correct key gives. What surfaced it was a second boundary: CI run 43105189339 stamped 900, did the
+worktree lookup and the `gh` shims, and stamped 901 in the next second, so that pass dispatched the
+younger unit first and `…then starts a tick for unit B` went red (`quarantine at line 12, tick at
+line 8`) while the same fixture stayed green where the inter-stamp gap measures 3.8-7.9 ms. The
+boundary is not the bug; it was the only witness the fixture had. `factory/selftest.sh` now plants the two
+`first-seen` values rather than waiting for a boundary, asks the question in **both** polarities -- one
+polarity alone is also satisfied by a dispatcher that sorts on the number and never reads the age -- and
+retires the `r` in a control, so the ok means the direction rather than the tie-break.
+
+The sentinel is the one behaviour that changes on the way. A unit with no `first-seen` answered
+999999999, which used to sort last and now sorts first -- what `factory_age`'s own comment has always
+promised ("never" means "ready"). It cannot reorder a queue whose ages are real, because the loop that
+builds the rows stamps every workable unit before the loop that ranks them reads the age; the only paths
+that skip a stamp are a dry run and a ledger that will not take a write, and both skip it for *every*
+row, so there the rows tie on the sentinel and the number decides exactly as before.
+
 ### What a branch has to hold to be offered (#291)
 
 Commits are not content. `rev-list --count` moves by one when `git commit --allow-empty` moves the

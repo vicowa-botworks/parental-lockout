@@ -1157,10 +1157,35 @@ factory_body() {
 		esac
 	done <<<"$rows"
 
-	# Oldest `first-seen` wins, so a stream of new arrivals cannot starve an old unit, and ties are
-	# broken by the lowest number because they are always tied on the first pass: every unit is
-	# stamped in the same pass, so the age test alone lets the row order decide -- and `gh pr list`
+	# Oldest `first-seen` wins, so a stream of new arrivals cannot starve an old unit (H-0007), and
+	# ties are broken by the lowest number because they are always tied on the first pass: every unit
+	# is stamped in the same pass, so the age test alone lets the row order decide -- and `gh pr list`
 	# answers newest first, which had this pass working the newest thing in the queue.
+	#
+	# That makes the age key DESCENDING, because `factory_age` answers elapsed seconds: an ascending
+	# numeric key on a duration is youngest-first, which is H-0007 read backwards. Measured on the
+	# live queue at 20:22:20Z on 11 Nov: the pass printed `NEXT unclaimed 303 age=0s` -- a unit the
+	# stamping loop above had written `first-seen` into one second earlier, in the same second as the
+	# line itself -- while #296 and #297 (first-seen 16:13:25Z,
+	# 14,935s old), #301 and #302 (18:28:50Z, 6,810s) and #304 sat in the same rank, and all five are
+	# still `unclaimed` at 22:24Z (`factory/triage.sh --table`). The oldest unit waits longest precisely
+	# because every pass mints a younger one. The same inversion turned the acceptance leg `…then
+	# starts a tick for unit B` red on CI run 43105189339 (21:40:59Z, `520 passed, 1 failed` -- the one
+	# leg of 521 that noticed) with no product change behind it: the fixture's two `first-seen` stamps
+	# are 3.8-7.9 ms apart, so a pass crosses a second boundary roughly once in 200 (measured: 0 of 40
+	# unseeded fixture runs on this box crossed it; that CI run did), and on the far side of the
+	# boundary the clean unit is dispatched BEFORE the quarantined one -- the leg printed
+	# `quarantine at line 12, tick at line 8`. `factory/selftest.sh` pins both polarities with planted
+	# stamps now, because nothing pinned either one before: the direction was a comment, and the
+	# comment was not what the code did.
+	#
+	# The never-seen sentinel (999999999) sorts FIRST under a descending key, which is what `factory_age`
+	# has promised since it was written -- "huge when there is no timestamp, so \"never\" means
+	# \"ready\"" -- and it sorted last under the retired ascending one. That is the only behaviour that
+	# changes on the way, and it cannot reorder a queue whose ages are real: the row loop above stamps
+	# every workable unit before this loop ranks it, and the two states that skip a stamp -- a dry run
+	# (`factory_ledger_set` returns before writing) and a ledger that will not take a write -- skip it
+	# for EVERY row, so those rows all carry the sentinel and the tie-break decides, as it did before.
 	workable=$(printf '%s' "$workable" | sed -e '/^[[:space:]]*$/d')
 	local ranked class2 key2 detail2 branch2 issue2 ask2 unit2 age2 rank2 row2
 	ranked=''
@@ -1171,7 +1196,7 @@ factory_body() {
 		# first-row-first.
 		age2=$(factory_age "$unit2:$(factory_slug "$key2")" first-seen)
 		rank2=$(factory_class_rank "$class2")
-		# The ask travels with the row and is not a sort key: `sort -k1,1n -k2,2n -k3,3n` reads the
+		# The ask travels with the row and is not a sort key: `sort -k1,1n -k2,2nr -k3,3n` reads the
 		# first three fields only, and the field is eighth so nothing a reviewer typed can move a unit
 		# up or down the queue by changing a byte count. It is the last field on purpose -- if it ever
 		# carries a delimiter the flattening in common.sh missed, it splices into nothing.
@@ -1226,7 +1251,7 @@ factory_body() {
 			;;
 		esac
 		now=$(date -u +%s)
-	done < <(printf '%s\n' "$ranked" | sort -t$'\037' -k1,1n -k2,2n -k3,3n)
+	done < <(printf '%s\n' "$ranked" | sort -t$'\037' -k1,1n -k2,2nr -k3,3n)
 
 	# "IDLE" means the queue was empty, not that this pass declined to work: the two read the same in
 	# the journal and mean opposite things to whoever is diagnosing a stalled queue.

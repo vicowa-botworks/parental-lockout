@@ -3498,6 +3498,141 @@ proc_next_activation_runs() {
 }
 proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
 
+# ---------------------------------------------------- queue order ranks the OLDER unit first (#307)
+#
+# Every leg above reads the shipped fixture, where both units are stamped in the same pass and the
+# tie-break by number decides. So `TICK-START` for A before B is true whether the dispatcher's age key
+# ranks oldest-first, youngest-first, or not at all -- and it was: the key shipped ascending, which on
+# a duration is youngest-first, and the only leg of 521 that ever noticed was `…then starts a tick for
+# unit B`, going red at a second boundary rather than on a diff (CI run 43105189339, 21:40:59Z on
+# 11 Nov: the two stamps are 4-8 ms apart, so the fixture lands on the far side about once in 200 runs;
+# 0 of 40 unseeded runs on this box crossed, that CI run did). On the live queue the same key is
+# H-0007 inverted: `NEXT unclaimed 303 age=0s` at 20:22:20Z on 11 Nov, with #296 and #297 waiting since
+# 16:13:25Z in the same rank.
+#
+# These legs plant the ages instead of hoping for a boundary -- a 4-8 ms crossing cannot be provoked by
+# running more times -- and they ask it in BOTH polarities. One polarity alone is not a test of the
+# age: a dispatcher that ignored `first-seen` and sorted on the number alone sends unit 900 first every
+# time, which is exactly what the first polarity looks like. The second polarity makes 901 the older
+# one, and only a key that really reads the age keeps it in front.
+proc_rank_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` that old, planted before the pass can
+	# stamp the row itself. The id is the kind and the number -- triage's first column is `kind`, so the
+	# dispatcher's ledger key is `issue:900`. Planting the class-shaped `unclaimed:900` instead writes a
+	# file nothing reads, which is the mistake factory.sh's own ranking comment names.
+	printf '%s\n' "$(date -u -d "-${2} seconds" +%Y-%m-%dT%H:%M:%SZ)" >"$proc_stash/$1.first-seen"
+}
+proc_rank_next_age() { # <journal> <key> -> the `age=` the pass printed for that unit; empty if it never ranked one
+	awk -v n="NEXT unclaimed $2 " \
+		'index($0, n) && match($0, /age=[0-9]+s/) { print substr($0, RSTART + 4, RLENGTH - 5); exit }' "$1"
+}
+proc_rank_first() { # <journal> -> 900 | 901 | neither: whose TICK-START the journal reached first
+	awk '
+		index($0, "TICK-START unclaimed:900") && !la { la = NR }
+		index($0, "TICK-START unclaimed:901") && !lb { lb = NR }
+		END {
+			if (!la && !lb) print "neither"
+			else if (!la) print "901"
+			else if (!lb) print "900"
+			else print (la < lb ? "900" : "901")
+		}' "$1"
+}
+proc_rank_run() { # <tag> <a-age-s> <b-age-s> -> a two-unit queue first seen THAT long ago, one pass over it
+	local tag=$1
+	proc_new "rank-$tag"
+	proc_rank_stamp 'issue:900' "$2"
+	proc_rank_stamp 'issue:901' "$3"
+	proc_plant
+	proc_run "rank-$tag"
+}
+proc_older_first() { # <900|901> -> that unit was dispatched first AND the pass ranked it the older one
+	local want=$1 other=901 aw ao got
+	[ "$want" = 901 ] && other=900
+	aw=$(proc_rank_next_age "$proc_journal" "$want")
+	ao=$(proc_rank_next_age "$proc_journal" "$other")
+	got=$(proc_rank_first "$proc_journal")
+	if [ -z "$aw" ] || [ -z "$ao" ]; then
+		printf '            one unit was never ranked -- unit %s printed `age=%s`, unit %s\n' \
+			"$want" "${aw:-nothing}" "$other" >&2
+		printf '            printed `age=%s` -- so there is no order here to read:\n' "${ao:-nothing}" >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	if [ "$got" != "$want" ]; then
+		printf '            unit %s was the older of the two (%ss against %ss) and unit %s was\n' \
+			"$want" "$aw" "$ao" "$got" >&2
+		printf '            dispatched first, so the queue is ordered by something other than age.\n' >&2
+		printf '            The young one gets the turn every pass, and the old one waits forever:\n' >&2
+		grep -E 'NEXT unclaimed|TREE-QUARANTINED|TICK-START' "$proc_journal" |
+			sed 's/^/              /' | cut -c1-150 >&2
+		return 1
+	fi
+	if [ "$aw" -le "$ao" ]; then
+		printf '            it went first, but the pass called it the YOUNGER of the two (%ss\n' "$aw" >&2
+		printf '            against %ss), so the order came from the number and not the age -- the\n' "$ao" >&2
+		printf '            tie-break wearing the age key'"'"'s clothes.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_rank_run old-first 2 1
+proc_leg 'the older unit is dispatched first' \
+	'A stamped 2s ago ticked before B stamped 1s ago, and the NEXT ages say so' proc_older_first 900
+
+proc_rank_run young-number 1 2
+proc_leg '…and the older one is not the lower number' \
+	'B stamped 2s ago ticked before A stamped 1s ago -- the age decides, not the key' proc_older_first 901
+
+# proc_mutate_sort -> the fixture's factory.sh with the age key put back the way it shipped until #307:
+# `-k2,2nr` becomes `-k2,2n`, one character, on the one line that ranks. The anchor carries the key's
+# neighbour (`-k2,2nr -k3,3n)`) because the comment above the line quotes the same flags, and a mutant
+# that edited only the prose would plant nothing while still reporting success.
+proc_mutate_sort() {
+	local hits
+	hits=$(awk 'index($0, "-k2,2nr -k3,3n)") { c++ } END { print c + 0 }' "$HERE/factory.sh")
+	if [ "$hits" != 1 ]; then
+		printf '            the age key occurs %s time(s) in factory/factory.sh, so this control\n' "$hits" >&2
+		printf '            cannot say which line it retired.\n' >&2
+		return 1
+	fi
+	awk 'index($0, "-k2,2nr -k3,3n)") { gsub(/-k2,2nr/, "-k2,2n") } { print }' \
+		"$HERE/factory.sh" >"$proc_dir/factory.sh" || return 1
+	if ! grep -qF -- '-k1,1n -k2,2n -k3,3n)' "$proc_dir/factory.sh" ||
+		grep -qF -- '-k2,2nr -k3,3n)' "$proc_dir/factory.sh"; then
+		printf '            the copy does not run the retired spelling, so the control below would be\n' >&2
+		printf '            shipped code describing a mutant that was never planted.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_new rank-sort-retired
+proc_rank_stamp 'issue:900' 2
+proc_rank_stamp 'issue:901' 1
+proc_mutate_sort || proc_sort_planted=0
+proc_plant
+proc_run rank-sort-retired
+proc_retired_key_ranks_youngest() {
+	if [ "${proc_sort_planted:-1}" = 0 ]; then
+		printf '            the mutant was never planted, so this leg ran shipped code.\n' >&2
+		return 1
+	fi
+	if proc_older_first 900 >/dev/null 2>&1; then
+		printf '            with the `r` taken off the age key the shipped predicate still passed, so\n' >&2
+		printf '            the ok above ranks nothing: it would pass on a queue that never read\n' >&2
+		printf '            `first-seen` at all. The direction is the whole content of that leg.\n' >&2
+		return 1
+	fi
+	if [ "$(proc_rank_first "$proc_journal")" != 901 ]; then
+		printf '            the retired key dispatched %s first, not 901 -- the fixture no longer\n' \
+			"$(proc_rank_first "$proc_journal")" >&2
+		printf '            reaches the state this mutant is described by, so neither leg here is\n' >&2
+		printf '            pinning a direction any more.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'control: the retired key ranks youngest' \
+	'`-k2,2n` puts B first; so the ok above really ranked the age' proc_retired_key_ranks_youngest
+
 # The healthy unit's own sentence, asserted (#267). A note used to sit here: it printed what the journal
 # said of unit B and pinned nothing, on the stated grounds that a leg on the wording would be a leg that
 # refuses the fix. The fix has landed, so the wording is now the thing under test and both halves get

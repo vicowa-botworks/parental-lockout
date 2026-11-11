@@ -5430,3 +5430,101 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   having run, not a defect left standing: the merge saw both entries, so it could arbitrate. What it could
   not do is tell the second unit, at the moment it asked, that the read behind its number was blind. This
   entry is that.
+
+## H-0135 · The queue ranked its own age ascending, so the youngest unit was always next
+
+- Question: `factory_body` ranks the workable rows of a pass by class, then by seconds since
+  `first-seen`, then by the unit's number, and reads the winner as "the next thing to tick". The middle
+  key shipped as `-k2,2n`, ascending, while `factory_age` answers *elapsed* seconds -- it counts UP from
+  the stamp, and answers 999999999 when there is no stamp at all. So the code sent the youngest row
+  first and the never-seen row last, and the comment sitting four lines above it, `docs/factory.md`'s
+  "`first-seen` decides queue order", and `H-0007` ("oldest `first-seen` wins, so a stream of new
+  arrivals cannot starve an old unit") all say the opposite. Which of the two is the rule -- the recorded
+  decision or the key that has been running since `88848c5`, seven days and 521 passing legs? And what
+  does the fix owe the two things that made it invisible: a CI leg that went red by crossing a second
+  boundary, and the fact that correcting the key changes what a live queue of 13 units does next?
+- Options: invert the age key (`-k2,2nr`) and pin both polarities with planted `first-seen` stamps |
+  keep the ascending key, name the rule newest-first, and rewrite `H-0007`, the comment and the journal
+  sentence to match the code | treat run 43105189339 as fixture flake and pin the fixture's two stamps so
+  a boundary cannot be crossed, leaving the key alone | make the direction per class -- pull requests
+  newest-first because a fresh head is the actionable one, issues oldest-first | leave the key and raise
+  `FACTORY_MAX_TICKS` until a pass works everything and the order stops mattering | rank on the
+  `first-seen` timestamp instead of the age derived from it
+- Chose: invert the age key (`-k2,2nr`) and pin both polarities with planted `first-seen` stamps
+- Why: one recorded decision against one character of code, and the consequence is the one `H-0007`
+  exists to prevent. Ascending on a duration is not merely unfair, it is starvation by construction:
+  every pass mints a younger `first-seen` for whatever arrived since, so under the retired key the old
+  unit loses to a newcomer that did not exist when it started waiting. Measured on the live queue, same
+  rank (`unclaimed`), same host: the pass at 20:22:20Z on 11 Nov printed `NEXT unclaimed 303 age=0s` --
+  a row its own stamping loop had written `first-seen` into one second earlier -- while #296 and #297
+  (`first-seen` 16:13:25Z, 14,935s old) and #301/#302 (18:28:50Z, 6,810s) were in the same rank and all
+  five were still rows in `factory/triage.sh --table` at 22:24Z, two hours later. Nothing ticked any of
+  them, because nothing was ever ranked to reach them.
+
+  The flake reading was tested rather than argued, and it is the option that would have cost the most.
+  The two stamps in the fixture are `date +…%SZ`, equal to the second, and the gap between them is the
+  worktree lookup plus the `gh` shims: measured over 43 fixture passes on this machine they are 3.8-7.9 ms
+  apart (1794435577.135272390 against .139691364), and 0 of 40 unseeded fixture runs crossed a
+  boundary -- so the crossing is rare, uncontrollable, and not reproducible on demand. Pinning the
+  stamps would therefore have done two things: silenced the only leg of 521 that ever read the queue's
+  direction, and left the product ranking youngest-first. That red leg was a true verdict about the
+  product, and `factory/selftest.sh` had no leg that asked the direction on purpose -- the direction was
+  carried by a comment, and the comment was not what the code did. The new legs plant the ages instead
+  of hoping for a boundary, and they plant them in both polarities, because a single polarity is also
+  satisfied by a dispatcher that ignores `first-seen` and sorts on the number: making 901 the older unit
+  is what tells those two apart.
+
+  Newest-first on purpose (option 2) is a defensible product stance and it is what the queue has
+  actually been doing, so it is the option this entry has to lose on evidence rather than taste. It
+  loses because the repo already answered: `H-0007` is on the books, `docs/factory.md` states that
+  `first-seen` decides queue order, and the dispatcher prints `NEXT <class> <key> age=<n>s` precisely so
+  an operator can read "this unit has been waiting 4h09m" off one journal line -- a number whose meaning
+  inverts if the queue works the small ones. A reversal of that belongs in the log as its own decision
+  with its own measured case, not slipped in behind a red check. `FACTORY_MAX_TICKS` (option 5) is not
+  the escape it looks like: the default is 3, the installed unit sets no override
+  (`~/.config/systemd/user/repo-factory.service` carries no such line), and 11 of the last 12 passes ran
+  exactly one tick before the budget or the queue ended it (`QUEUED 13 unit(s) remain after 1 tick(s)`),
+  so the rank order decides who gets that tick every single pass. Ranking on the raw timestamp (option
+  6) is arithmetically the same sort and was rejected for a smaller reason: the derived age is what the
+  `NEXT` line prints and what `factory_age`'s sentinel is for, and two clocks in one rank is how the
+  next reader gets this same bug.
+- Checkpoint: 83f54260c2c1fde4ce4df67833ff8a8d97b50792
+- Effect: `factory/factory.sh` (the key, `-k2,2n` -> `-k2,2nr`; the ranking comment, which now carries
+  the live measurement and the sentinel's new position; and the stale spelling in the "the ask is not a
+  sort key" note, which had to move with the key or the comment would have described a mutant).
+  `factory/selftest.sh` (five helpers -- `proc_rank_stamp`, `proc_rank_next_age`, `proc_rank_first`,
+  `proc_rank_run`, `proc_older_first` -- two polarity legs, `the older unit is dispatched first` and
+  `…and the older one is not the lower number`, and `control: the retired key ranks youngest`, whose
+  `proc_mutate_sort` retires exactly the `r` on the code line and refuses to plant if the anchor is not
+  unique). `docs/factory.md` (a new "Which unit a pass takes first (#307)" section: the direction, the
+  live starvation numbers, why the second boundary was a witness rather than a flake, and the one
+  behaviour that really changes -- the never-seen sentinel, which sorted last and now sorts first, and
+  cannot reorder a measured queue because the row loop stamps every workable unit before the ranking
+  loop reads it, while a dry run and an unwritable ledger skip the stamp for *every* row and leave the
+  tie-break exactly where it was). Measured after the change, in the order measured:
+  `bash factory/selftest.sh` **524 passed, 0 failed** (the CI head this replaces read `520 passed,
+  1 failed` -- 521 legs, so these are three added and none changed in meaning), 25.2s for the suite;
+  the planted fixtures print `NEXT unclaimed 900 age=2s` before `901 age=1s` and, with the ages
+  reversed, `NEXT unclaimed 901 age=3s` before `900 age=2s`, so both polarities are the age deciding and
+  not the number; the control's copy of `factory.sh` runs `-k1,1n -k2,2n -k3,3n)` and dispatches 901
+  first, which is what makes the first ok a direction rather than a tie-break. `make verify` OK
+  (`verify: OK`, exit 0), which is also the gate that read this entry: the command-shape guard, the
+  encoding guard, `check-decisions.py` both ways, shellcheck over the two scripts, and the attack suites.
+  Two facts
+  about this entry that are not compliments to the change. It is a **behaviour change on a live queue**:
+  the next pass works #296 -- 22,882s since `first-seen`, the lower number of the two tied at
+  16:13:25Z -- where the retired key worked #304 at 7,947s. The five `unclaimed` rows in
+  `factory/triage.sh --table`, re-sorted offline off `factory/ledger/issue:<n>.first-seen` with the two
+  keys side by side, come out 296, 297, 301, 302, 304 under `-k2,2nr` and the exact reverse under
+  `-k2,2n`; and if any part of the queue's recent stalling was being compensated by
+  youngest-first, the symptom changes shape rather than vanishing -- the tell is the same unit repeating
+  in `NEXT` across passes with a `TICK-DONE` and no pull request, and the repair is `git revert` of the
+  one commit. And this is not the first attempt: the tick before this one reached the same key and the
+  same `-k2,2nr` on the same unit, took the checkpoint above, and lost its tree to the pass that
+  dispatched this one -- its 16/4 in `factory/factory.sh` and 65 lines of legs are mirrored at
+  `~/prj/at-risk/issue-303-quarantine-20261111T221547Z-12c3c685f.patch` (git stash `12c3c685f`) and are
+  *not* in this commit, which carries this session's version of the same fix with the two-polarity and
+  control legs instead of its single set. That mirror is the only copy of that reasoning, so it stays
+  where it is until a person reads it; nothing here deletes it. Not one of the four classes a tick must
+  escalate: no dependency added (`go.mod` untouched), nothing published, nothing deleted, no merge, no
+  write to any pull request beyond this unit's own, and no change to what a `deny` refuses.
