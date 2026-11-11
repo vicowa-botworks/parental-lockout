@@ -145,6 +145,12 @@ EOF
 				"$(factory_units_dir)/$(factory_service_unit)" "$unit_tree"
 			;;
 		esac
+		# What the last pass cost the queue to tear down (#246). The line sits here because the question
+		# that makes anyone type `--status` is "is it working", and a held teardown is the failure where
+		# every other line on this output reads healthy: on 8 Nov the pass's own process exited at
+		# 22:18:51Z and the unit did not go inactive until 23:06:55Z, so `verdict:` still had a young
+		# journal, the timer still said `active`, and nothing printed `SubState=stop-sigterm`.
+		printf 'reaping: %s\n' "$(factory_reap_line)"
 		printf 'trees:   %s\n' "$FACTORY_TREES"
 		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
 		printf '\nledger:\n'
