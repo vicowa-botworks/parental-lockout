@@ -3413,3 +3413,67 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   are not `proc_leg` rows, so a total is the only honest number here. The per-line test above is the
   evidence that nothing stopped running: every line either side added is present in the merged tree.
 - Checkpoint: 3e135a78e80039c95041dca376073fb48f575180
+
+## H-0109 · The fixture answers fields nobody asked for, so the projection goes into `emit()` and not into another call site
+
+- Question: #279 found both fixture `gh` shims parsing `--json` for one thing only -- telling two
+  payloads apart -- and then printing the whole payload file. A shipped read that *stopped* asking for
+  a field therefore kept receiving it from the fixture, and every leg asserting something about that
+  field stayed green while the read went blind. The issue asked for `H-0108`'s projection lifted out of
+  its one branch and paired with a leg that fails when a caller asks for a field the fixture does not
+  carry, and it asked for its own plant to be run first. The plant was run first, and it is the whole
+  argument: `--json number,title,updatedAt` at `factory/triage.sh:563` reduced to `--json number,title`
+  left `bash factory/selftest.sh` at `387 passed, 0 failed` -- identical in tally to the unpunctured
+  run, exit 0 -- while the `CLAIM_DEBUG` rows still printed `issue 232 delivered`, a verdict
+  `delivered_claim` (triage.sh:509) refuses to render on an empty `updatedAt`. Six payload sites, one
+  demonstrated, none of them visible.
+- Options: project at each dispatch site, as `H-0108` did for the merged read alone | lift the
+  projection into each shim's `emit()` as two separate copies of the rule | one heredoc installed into
+  both payload directories and sourced by both `emit()`s, `gh`'s refusal of a field no row carried
+  included | leave the fixture alone and pin the field lists with a text check over `triage.sh`
+- Chose: one heredoc installed into both payload directories and sourced by both `emit()`s, `gh`'s
+  refusal of a field no row carried included
+- Why: the first option carries its own refutation, measured in the same week as its fix -- `H-0108`
+  projected the merged payload at the merged read, and #279 then counted **six** payload sites still
+  served blind, because a rule written at a call site is a rule for that call site. The fourth option
+  proves the shipped text says `updatedAt`; it does not prove the read *receives* it, and this class is
+  precisely a suite that could not see its own subject (`triage.sh:470-479`'s always-empty
+  `delivered_map`, and #242's `${3}` where `${2}` was meant), so a text check is that suite in a
+  different costume. Between the middle two the tie-breaks separate them on fewest files and then on
+  the reason `H-0108` exists at all: two copies is how one channel got fixed and six did not, and these
+  two shims already claim to share every other rule by pointing at each other in comments
+  (`CLAIMSHIM`'s write refusal, the process shim's `exit 9`) -- this makes one of those promises
+  mechanical instead of aspirational. The refusal is the half the issue named, and it follows the house
+  rule for a missing input: refuse rather than proceed. `gh` answers an unknown field with a non-zero
+  exit and the field's name, so the fixture does the same, and `labels` -- a field `gh issue list`
+  holds for every issue on GitHub and this fixture has never held -- now fails loudly where it used to
+  answer no column at all at exit 0, which is indistinguishable from the repository saying "none". That
+  is the moment a fixture quietly becomes the specification. `git revert` of the one commit below takes
+  all of it back.
+  **What lost.** Locality: a reader of one shim no longer sees the projection where the payload is
+  printed, and pays a `$here/fields.sh` hop instead -- paid back with a comment at each `emit()` naming
+  `install_gh_fields`, which is also where the measurement lives. The honest residue is
+  `gh_json_payload`'s empty payload: `gh` checks a field name against its own schema, a fixture has
+  only the rows in front of it, and every unlegged read runs against `[]` every pass, so an empty list
+  carries no verdict about the field list and is not refused. The check is therefore only as good as a
+  planted row, which is why the refusal leg asks the fixture that holds nine. And `H-0108`'s
+  site-level branch on `issue-277` becomes redundant beside this one; it is not broken by it --
+  re-projecting an already-projected payload to the same field list is the identity -- so whoever
+  resolves the shared region is deleting a branch, not correcting one.
+- Effect: `factory/selftest.sh` only, plus this entry. Both `emit()`s now answer
+  `gh_json_payload <payload> <--json list>`: the document verbatim when no field list was passed (the
+  `user` and `graphql` reads, where `gh` has no field contract to obey), otherwise the payload projected
+  through `with_entries` with what no row carries refused by name. Eight legs: three that a field not
+  named does not come back (the claim-shim, its control, and the same read off the **process** shim,
+  which serves the whole supervisor run), two that a field the fixture lacks is refused and one it
+  holds is not, and three that run #279's plant end to end -- the mutant's anchor counted before it is
+  believed (`proc_mutate`'s rule), then the shipped read one field short must not deliver, then the
+  shipped file as it ships must. Measured on rodney-9950x, btrfs, one `bash factory/selftest.sh` per
+  row, the same fixture as `H-0100`'s table: unpunctured `395 passed, 0 failed` (was 387; eight legs,
+  15.1 s -> 16.0 s); the plant with this fix in `375 passed, 20 failed`, exit 1, against the `0 failed`
+  the same plant produced above; and the fix with its projection neutralised in both `emit()`s --
+  everything else left in place -- `391 passed, 4 failed`, which is four of the eight saying the old
+  answer out loud. `make check-shell` clean, 0.10.0 over 28 scripts. No `.go` file is touched, so no
+  mutant anchor moves and `scripts/check-mutations.py` is not the gate this change needs (#1048's
+  surface is `.go` and `.tmpl`).
+- Checkpoint: 3de3544298fbbc5e1c0ca5b471bbab9542fc5579
