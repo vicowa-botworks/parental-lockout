@@ -3591,3 +3591,67 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   exits 1 at `34e7a8f`, this draft being the only text anywhere carrying the heading (#303: the read is
   the only lock there is). `python3 scripts/check-decisions.py` for the delivered head is quoted in the
   pull-request body, not here (#1180).
+
+
+## D-0066 · Seven published frames are dated at a page change their own pixels' history predates: re-take the set, or re-date the seven rows and ship the red gate #301 prefers
+
+- Question: seven rows of `docs/screenshots/360/manifest.json` carry `sources_rev` `2088043cb` while the
+  newest commit touching their own PNG is older -- `3bcbfdd` (8 Nov 12:13) for six of them and `b9eeec3`
+  (6 Nov 11:34) for `audit.png` -- and the commit that moved all nine revs, `7e65d3b`, landed eighteen
+  seconds after `2088043cb` and contains no photograph (`git show --name-only --format='' 7e65d3b |
+  grep -c '\.png$'` prints 0). `manifest.py check` answers *9 photographs current*, rc 0, with a clause
+  disclaiming the seven. #301 offers two remedies and prefers the second: re-date the seven rows to the
+  newest commit over each PNG first, "because it converts a silent lie into a red gate at the cost of one
+  edit", and only then re-take. Which one does the delivered evidence say -- and what does the re-take,
+  which is the only option whose premise can be checked, turn out to measure?
+- Options: re-take all nine through the README recipe and `record` them all named | re-date the seven rows to the newest commit touching each PNG and ship the red gate | leave the manifest alone and deliver only the measurement
+- Chose: re-take all nine through the README recipe and `record` them all named
+- Why: the re-take ran first and it refuted the remedy #301 prefers. Four fixtures re-seeded, four drivers
+  run with `--out docs/screenshots/360 --overwrite`, then one `record` naming all nine with `--shot` and
+  handing over all four `fixture.env` files: **all nine frames came back byte-identical to the committed
+  files** -- `sha256` equality, nine of nine, on two independent passes, `git diff` over the nine PNGs
+  empty -- including `audit.png`, the row #301 calls "the worst row and the oldest". So `2088043cb` moved
+  no pixel on those seven: the sentence its own message makes ("two PNGs changed and seven byte-identical
+  -- the browser's half of the claim that `.exempt` moved no pixels") holds, and the two frames that did
+  change are exactly the two rows #301 found honest. What #301 measured is real but it is a fact about
+  git, not about the pages -- nobody has been shown an old page -- and what is broken is that nothing in
+  this repository can tell a re-take from a re-dating. That settles option two on the tie-break order
+  rather than on taste. Measured in a clone of this branch, re-dating the seven makes `check` exit 1 over
+  exactly seven problems, every one of them ending "Re-take it and re-run `manifest.py record`" -- an
+  instruction this branch has just carried out, which silences none of the seven, because a re-take that
+  changes no bytes never produces a commit touching the PNG, so `newest_commit(png)` can never catch a
+  page commit that moved no pixels. Option two therefore does not report a defect, it asserts one: "The
+  page grew and the photograph did not" is false of these bytes and stays false through every future
+  re-take. Tie-break three -- refuse rather than proceed on what a measurement contradicts -- is what
+  refuses it; tie-break six is this folder's own sentence, "Closing it takes a re-take, not an edit".
+  Option three keeps seven `carried_from` fields whose stated purpose is "so a reader can ask that commit
+  what the frame was rendered from", answering `3bcbfdd41` for pixels whose certification is the mint:
+  custody paperwork that walks to a fabrication and calls it provenance.
+- What lost: the delivered diff is far smaller than the ticket promised -- seven deleted `carried_from`
+  lines plus `captured_at` and `head`; zero PNG bytes, zero `sources_rev` values and zero `capture` blocks
+  moved -- and being smaller, it is indistinguishable *in the file* from the hand edit #301 forbids. That
+  residue is not small: `current` is still `newest_commit(sources)`, so this commit is itself a run that
+  photographed nine frames with only its own word for it, the same shape as `7e65d3b`. Its transcript
+  lives in `testing/capture/runs/`, which is gitignored, so what a reviewer holds is a proof *procedure*
+  (re-seed, drive, compare nine digests) and not a proof -- the same "a notice, not a lock" limit
+  `D-0062` conceded for locator sentences. Deleting `carried_from` also removes the only in-file trace
+  that `7ff2a67` carried these revs forward; that chain now survives only in this file's parent commit
+  and on #301. And option two's finding outlives this entry in one place that matters: #302 proposes
+  detecting a minted rev by comparing `recorded == current` against `newest_commit(png)` -- the same arm
+  -- and it was measured here against the post-record manifest, where it refuses these same seven rows
+  with exit 1. A guard built that way can never be satisfied by an honest set, because which rows it
+  passes is a property of whether a page edit happened to move pixels. Recorded on #302; what closes it
+  is a field that says a run took the frame, not a second reading of history.
+- Checkpoint: 7506fad
+- Effect: three files, each read back before this line was written. `docs/screenshots/360/manifest.json`:
+  `captured_at` now `2026-11-11T23:45:35Z`, `head` now `7506fad0afb8…`, seven `carried_from` keys gone
+  (`grep -c` answers 0 where it answered 7), every `sources_rev`, every `png_sha256` and every `capture`
+  block byte-identical to `7506fad`'s copy, and `manifest.py check` lost its disclaimer -- it prints "9
+  photographs current … 9 of them also stating the fixture and conditions they were taken under", rc 0,
+  with no "7 of them are carried" clause. `testing/capture/README.md`: +37/-9 -- the paragraph that
+  opened "The published set carries the specimen" opens "The specimen one step further along is in `git
+  show 7e65d3b`, and it is the state of *that* tree" (old opener: 0 occurrences), followed by the 11 Nov
+  outcome and by the unsatisfiable-remedy note. `testing/capture/manifest.py`: five comment lines under
+  the unclaimed-frame clause naming `7e65d3b` as the specimen rather than the published file, no code
+  changed. Gate: `make verify` over the delivered tree answers `verify: OK`, and the log tail is quoted in
+  the pull-request body rather than this line asserting it (#1180).

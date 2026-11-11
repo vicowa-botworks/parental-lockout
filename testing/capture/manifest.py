@@ -531,6 +531,11 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
         # (they export `FIXTURE`/`ARTIFACT` for the pairing and leave the recording to whoever notices),
         # so this clause is the same mint one step earlier: a frame nobody has ever recorded, from
         # pixels older than its page.
+        #
+        # The specimen above is `git show 7e65d3b`'s tree, not the published file: #301 re-took all
+        # nine frames on 11 Nov and recorded them named, so no row carries anything now. What that
+        # re-take did NOT change is the clause below -- `current` is still the page's newest commit,
+        # so a named frame is still dated on the driver's word. #302 owns that half.
         if before is None and artifact not in shot and current:
             pixels = newest_commit([os.path.relpath(os.path.join(directory, name), ROOT)], run=run)
             if pixels and not is_ancestor(current, pixels, run=run):
