@@ -3128,6 +3128,36 @@ exit 0
 PROCRT
 chmod +x "$proc_bin/opencode"
 
+# systemd's journal, for the reaping read every activation now makes (#246). Without this the fixture
+# would read the OPERATOR's real journal: the leg's verdict would change whenever a real pass held, and
+# a check whose answer comes from the machine rather than from what was planted discriminates nothing --
+# the same objection `H-0125` raises about a `journalctl` stub that honours its own flags. `PROC_REAP`
+# picks the transcript so one stub serves both the shipped run (`clean`, the default, so an ordinary
+# activation looks ordinary) and a planted hold (`held`). The transcripts are the box's own 11 Nov
+# activations with the unit renamed, and they terminate on `Deactivated.` rather than `Finished <unit>`
+# on purpose: a fresh fixture box has no `$FACTORY_SERVICE_UNIT`, so its unit name is derived, and only
+# the name-blind arms of the parser may be load-bearing here.
+cat >"$proc_bin/journalctl" <<'PROCJ'
+#!/usr/bin/env bash
+case "${PROC_REAP:-clean}" in
+held)
+	printf '%s\n' \
+		'2026-11-11T08:44:08.869637+00:00 h factory.sh[1969281]: 2026-11-11T08:44:08Z END rc=0 ticks_started=1' \
+		'2026-11-11T08:45:08.999972+00:00 h systemd[4485]: fixture.service: State '"'"'stop-sigterm'"'"' timed out. Killing.' \
+		'2026-11-11T08:45:09.000077+00:00 h systemd[4485]: fixture.service: Killing process 1971081 (winedevice.exe) with signal SIGKILL.' \
+		'2026-11-11T08:45:09.002985+00:00 h systemd[4485]: fixture.service: Deactivated.'
+	;;
+none) : ;;
+clean)
+	printf '%s\n' \
+		'2026-11-10T17:09:10.131057+00:00 h factory.sh[828665]: 2026-11-10T17:09:10Z END rc=0 ticks_started=1' \
+		'2026-11-10T17:09:10.131574+00:00 h systemd[4485]: fixture.service: Deactivated.'
+	;;
+esac
+exit 0
+PROCJ
+chmod +x "$proc_bin/journalctl"
+
 # proc_new <name> -> a fresh clone of the fixture trunk in its own box, with every FACTORY_* path
 # beside it. A fixture per activation set, because the control has to be the same fixture as the
 # shipped run with ONE line different -- not a different queue, a different tree, a different shim.
@@ -3879,6 +3909,78 @@ printf '        note: the third control is the one #263 described. Its journal e
 printf '        while the shipped dispatcher reaches B with the same failing session. So the property\n'
 printf '        "the pass continued past the quarantine" is held by TWO lines -- tree_stop returning 0\n'
 printf '        on a rescue, and the `|| rc_tick=$?` that keeps a spent tick from ending the pass.\n'
+
+# ------------------------------------------------------- the reaping a pass reports about itself (#246)
+#
+# Two legs the reap section at the end of this file cannot write, because they need an activation, not
+# a transcript: that a real pass writes the reaping into the supervisor's journal, and writes it BEFORE
+# triage. The order is the claim worth a process -- `TRIAGE-FAILED` returns 3 four lines after the
+# reaping loop, so a pass that never got a queue still says what the last one cost; and on 8 Nov the
+# pass printed `END rc=4` and the journal's next line came 67 minutes later. The transcript comes from
+# the fixture's `journalctl` stub, so both legs answer the same way on a box with no user bus.
+proc_new reap-held
+# `export`, not a bare assignment: `proc_run` hands the pass to `env`, and a variable that is only set
+# in this shell never reaches the stub three processes down -- which is how this leg first failed, on a
+# pass that dutifully reported the clean transcript it was given.
+export PROC_REAP=held
+proc_run reap-held
+unset PROC_REAP
+
+proc_reap_written_by_the_pass() {
+	local line=''
+	line=$(proc_journal_line "$proc_journal" 'REAP-HELD ')
+	[ -n "$line" ] || {
+		printf '            an activation that held the queue for a minute was not written to the\n' >&2
+		printf '            supervisor journal by the next pass. That journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		printf '            If a REAP-UNKNOWN is above, the fixture'"'"'s journalctl stub was bypassed\n' >&2
+		printf '            and the pass read this machine instead of the planted transcript.\n' >&2
+		return 1
+	}
+	case "$line" in
+	*'hold=60s how=deadline'*) : ;;
+	*) printf '            it wrote the hold with the wrong number or the wrong cause:\n' >&2
+		printf '              %s\n' "$line" >&2
+		printf '            want hold=60s (the planted 60.133 s) and how=deadline.\n' >&2
+		return 1 ;;
+	esac
+	awk '
+		index($0, "REAP-HELD ") { r = NR }
+		index($0, " PASS ") { p = NR }
+		END { exit (r && p && r < p) ? 0 : 1 }' "$proc_journal" || {
+		printf '            the reaping is not in the journal BEFORE the PASS line, so a pass that\n' >&2
+		printf '            fails at triage never reports it: reaping at line %s, PASS at line %s.\n' \
+			"$(awk 'index($0,"REAP-HELD "){print NR; exit}' "$proc_journal")" \
+			"$(awk 'index($0," PASS "){print NR; exit}' "$proc_journal")" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the pass writes a held teardown down' \
+	'REAP-HELD hold=60s how=deadline, above the PASS line' proc_reap_written_by_the_pass
+
+proc_reap_clean_too() {
+	# The mark is unconditional, which is the half a hold-only leg would miss: `SUPERVISOR-AT` and
+	# `UNIT-AT` are on every pass for the reason H-0118 keeps re-learning -- a read nobody prints is a
+	# read that cannot be told apart from a read that is not there. So a healthy activation has to say
+	# so, and a journal with NO reap line at all is the failure, not the success.
+	local line=''
+	line=$(proc_journal_line "$proc_j1" 'REAP-CLEAN ')
+	[ -n "$line" ] || {
+		printf '            the shipped activation wrote no REAP-CLEAN line. Its journal:\n' >&2
+		sed 's/^/              /' "$proc_j1" | cut -c1-150 >&2
+		printf '            A REAP-UNKNOWN here means the fixture read this machine'"'"'s journal, and\n' >&2
+		printf '            a REAP-HELD means the planted transcript changed under the legs above.\n' >&2
+		return 1
+	}
+	case "$line" in
+	(*HELD*) printf '            a clean teardown was filed as a hold:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+proc_leg '…and a clean one, on every pass' \
+	'REAP-CLEAN on the shipped activation, with no hold word' proc_reap_clean_too
 
 # ---------------------------------------------------------------- one verdict: is the loop doing anything
 #
@@ -10540,6 +10642,19 @@ cat >"$rp_dir/half-second" <<'F'
 2026-11-11T03:00:03.900000+00:00 h factory.sh[5]: 2026-11-11T03:00:03Z END rc=0 ticks_started=1
 2026-11-11T03:00:09.100000+00:00 h systemd[4485]: Finished plrev283b.service - planted (one pass).
 F
+# Two completed activations inside one 400-line window, which is the ordinary state of a journal that
+# has been kept for an hour: the older one reaped clean, the newer one held 11 s. `reap: the newest
+# completed activation is the one reported` needs both, because one activation cannot tell a backwards
+# read from a forwards one.
+cat >"$rp_dir/two-activations" <<'F'
+2026-11-10T17:09:10.131018+00:00 h factory.sh[828665]: 2026-11-10T17:09:10Z END rc=0 ticks_started=1
+2026-11-10T17:09:10.131057+00:00 h factory.sh[828665]: factory: 1 tick(s), rc=0.
+2026-11-10T17:09:10.131574+00:00 h systemd[4485]: Finished plrev283b.service - planted (one pass).
+2026-11-11T04:00:00.000000+00:00 h systemd[4485]: Starting plrev283b.service - planted (one pass)...
+2026-11-11T04:00:01.000000+00:00 h factory.sh[7]: 2026-11-11T04:00:01Z END rc=0 ticks_started=1
+2026-11-11T04:00:11.999972+00:00 h systemd[4485]: plrev283b.service: State 'stop-sigterm' timed out. Killing.
+2026-11-11T04:00:12.000000+00:00 h systemd[4485]: Failed to start plrev283b.service - planted (one pass).
+F
 
 rp_ask() { # rp_ask <fixture> <dumb 0|1> -> the read's TAB line; the read's status is the status
 	local f=$1 dumb=${2:-0}
@@ -10820,6 +10935,168 @@ reap_leg_unloaded() {
 	return 0
 }
 claim_leg 'reap: not-loaded is not healthy' reap_leg_unloaded
+
+# --------------------------------------------------------------------------- the reaping in the journal
+#
+# `factory_reap_journal_lines` (#246) writes the previous activation's teardown into the pass's own
+# journal. These legs replay the same transcripts through the same stub, and add one thing the read's
+# legs did not need: a `systemctl` that reports being asked, because a pass that queried the manager
+# about its own unit would be a pass deciding about the timer that runs it -- the authority `H-0118`
+# had to disclose borrowing six times.
+
+rp_journal() { # rp_journal <fixture> <dumb> -> the `REAP*` line(s); rc is the composer's
+	local f=$1 dumb=${2:-0}
+	RP_FIXTURE=$f RP_DUMB=$dumb RP_UNIT=plrev283b.service PATH="$rp_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
+			factory_reap_journal_lines' _ "$HERE"
+}
+
+reap_leg_journal_held() {
+	local out='' n=0
+	out=$(rp_journal "$rp_dir/escalation" 1) || { rp_say "the composer refused a transcript it must answer"; return 1; }
+	n=$(printf '%s\n' "$out" | grep -c .)
+	[ "$n" = 1 ] || { rp_say "it printed $n lines for one activation, want exactly 1:"; rp_say "$out"; return 1; }
+	case $out in
+	('REAP-HELD hold=60s how=deadline '*'ended='*open=*) : ;;
+	(*) rp_say "a 60.133 s hold at the stop deadline was not filed as a hold:"; rp_say "$out"
+		rp_say "want REAP-HELD hold=60s how=deadline ... ended= ... open="; return 1 ;;
+	esac
+	case $out in
+	(*clean*) rp_say "the held teardown's line also says clean, so grepping HELD lies:"
+		rp_say "$out"; return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: a held teardown is written to the journal' reap_leg_journal_held
+
+reap_leg_journal_clean() {
+	local out=''
+	out=$(rp_journal "$rp_dir/clean" 1) || { rp_say "the composer refused the control transcript"; return 1; }
+	case $out in
+	('REAP-CLEAN hold=0s how=clean'*) : ;;
+	(*) rp_say "a 0.517 ms clean reaping is not filed as clean:"; rp_say "$out"; return 1 ;;
+	esac
+	case $out in
+	(*HELD*) rp_say "and it is filed as a hold as well:"; rp_say "$out"; return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: a clean reaping is not filed as a hold' reap_leg_journal_clean
+
+reap_leg_journal_unknown() {
+	local one='' two=''
+	one=$(rp_journal "$rp_dir/no-worker" 1) || rp_say "the composer's rc is the leg's, not its own"
+	two=$(rp_journal "$rp_dir/open" 1)
+	case $one in
+	('REAP-UNKNOWN rc=2 '*unread*) : ;;
+	(*) rp_say "an unread teardown is not the rc=2 unknown:"; rp_say "$one"; return 1 ;;
+	esac
+	case $two in
+	('REAP-UNKNOWN rc=1 nothing in the journal window has finished'*) : ;;
+	(*) rp_say "a pass that has not ended is not the rc=1 unknown:"; rp_say "$two"; return 1 ;;
+	esac
+	[ "$one" != "$two" ] || { rp_say "both unknowns printed one sentence, so the reader is sent to the wrong place"; return 1; }
+	# The polarity this mark exists for (#228): an unread teardown must not borrow the healthy case's
+	# number. `H-0124` removed exactly this from the `--status` sentence and it is cheaper to re-grow
+	# here, where nobody is reading the line aloud.
+	case $one$two in
+	(*hold=* | *reaped* | *HELD*)
+		rp_say "an unknown printed a hold anyway:"; rp_say "$one"; rp_say "$two"
+		rp_say 'want no hold= field and no verdict word on either'; return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: both unknowns are marked, and neither prints a hold' reap_leg_journal_unknown
+
+reap_leg_journal_latest() {
+	local out='' n=0
+	# Two completed activations in one window, the older clean and the newer held 11 s. The read walks
+	# the stream backwards and breaks at the `Starting` that follows the terminal line, so the newer
+	# activation is the one reported. A composer that took the oldest match instead -- the shape a
+	# forward grep falls into -- answers 0s/clean about the older one and the 11 s hold is never said.
+	out=$(rp_journal "$rp_dir/two-activations" 1) || { rp_say "the composer refused the two-activation transcript"; return 1; }
+	n=$(printf '%s\n' "$out" | grep -c .)
+	[ "$n" = 1 ] || { rp_say "it printed $n lines for a whole window of activations, want 1:"; rp_say "$out"; return 1; }
+	case $out in
+	('REAP-HELD hold=11s how=deadline'*) : ;;
+	(*) rp_say "it did not report the NEWEST completed activation:"; rp_say "$out"
+		rp_say "want REAP-HELD hold=11s how=deadline, from the second activation in the fixture"
+		rp_say "hold=0s how=clean is the older one, i.e. the read scanning forward"; return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'reap: the newest completed activation is the one reported' reap_leg_journal_latest
+
+reap_leg_journal_no_bus() {
+	local mark=$rp_bin/nomgr/systemctl out=''
+	# `factory_reap_line` appends `factory_unit_state`, and correctly: `--status` is a human asking. A
+	# pass writing its own journal must not. The marker stub shadows the inert one on PATH and files a
+	# note the moment anything runs it.
+	mkdir -p "$rp_bin/nomgr"
+	printf '#!/usr/bin/env bash\n: > "%s.asked"\nprintf %s\n' "$mark" "'ActiveState=inactive\n'" >"$mark"
+	chmod +x "$mark"
+	out=$(RP_FIXTURE=$rp_dir/escalation RP_DUMB=1 RP_UNIT=plrev283b.service \
+		PATH="$rp_bin/nomgr:$rp_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$RP_UNIT"; }
+			factory_reap_journal_lines' _ "$HERE") || rp_say "the composer failed with the marker stub first"
+	[ ! -e "$mark.asked" ] || { rp_say "the journal composer asked systemctl -- it wrote $mark.asked"
+		rp_say "a pass must not query the manager about the unit it is running inside (#246)"
+		rm -f "$mark.asked"; return 1; }
+	case $out in
+	(*REAP-HELD*) : ;;
+	(*) rp_say "and with the marker stub installed it did not even produce the line:"; rp_say "$out"
+		rm -f "$mark.asked"; return 1 ;;
+	esac
+	rm -f "$mark.asked"
+	return 0
+}
+claim_leg 'reap: the journal line never asks the manager' reap_leg_journal_no_bus
+
+reap_leg_journal_agrees() {
+	local sent='' mark='' want=''
+	# The two composers read one parse, and the thing that must not drift between them is the VERDICT,
+	# not the prose: a `--status` that says HELD over a journal line that says CLEAN is worse than either
+	# alone, because the operator and the watcher then disagree about whether to act. So each side is
+	# reduced to one word here and the words are compared -- a plant that retitles the journal mark while
+	# leaving `how=deadline` in it used to walk through the version of this leg that only looked at
+	# `how=`, which is how the comparison below got written.
+	rp_verdict_line() { # <line> -> held | clean | unknown | none. `--status` spells the verdict `HELD`
+		# or `reaped in`, the journal spells it `REAP-HELD`/`REAP-CLEAN`, and the unknown is the one word
+		# both sides share -- so the three arms are tried in this order and a line that matches none is
+		# `none`, which is a failure rather than a fourth state.
+		case $1 in
+		(*REAP-UNKNOWN* | *'unknown --'*) printf 'unknown' ;;
+		(*REAP-HELD* | *'HELD '*) printf 'held' ;;
+		(*REAP-CLEAN* | *'reaped in'*) printf 'clean' ;;
+		(*) printf 'none' ;;
+		esac
+	}
+	for f in escalation clean no-worker open; do
+		case $f in
+		escalation) want=held ;;
+		clean) want=clean ;;
+		*) want=unknown ;;
+		esac
+		sent=$(rp_sentence "$rp_dir/$f" 1)
+		mark=$(rp_journal "$rp_dir/$f" 1)
+		[ "$(rp_verdict_line "$sent")" = "$want" ] || {
+			rp_say "--status says $(rp_verdict_line "$sent") about the $f transcript, want $want:"
+			rp_say "$sent"; return 1; }
+		[ "$(rp_verdict_line "$mark")" = "$want" ] || {
+			rp_say "the journal says $(rp_verdict_line "$mark") about the $f transcript, want $want:"
+			rp_say "$mark"; return 1; }
+	done
+	return 0
+}
+claim_leg 'reap: the journal and --status agree on the verdict' reap_leg_journal_agrees
+
+# The call site is pinned by two process legs further up (`the pass writes a held teardown down`,
+# `…and a clean one, on every pass`), which run the shipped `factory.sh` and read its journal. A text
+# scan of `factory.sh` used to sit here; it is gone because it claimed no such harness existed and one
+# does -- `proc_leg` has been running the supervisor as a process since #262, and a scan that asserts
+# the absence of a stronger check is a lie waiting to be cited.
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
