@@ -443,14 +443,20 @@ factory_reap_lines() {
 #
 # Two things decide the answer, and #283's review measured both of them failing on this box:
 #
-#   the filter is what drops the manager's lines, so it has to match one. `journalctl -o short-*`
-#     renders an author as `<comm>[<pid>]: `, so systemd's lines read `systemd[4485]: `. The pattern
-#     this function shipped with looked for `systemd(4485): `, a rendering nothing emits -- measured in
-#     the live window below it matched 0 of the 4 manager lines there, so the filter excluded nothing
-#     and `State 'stop-sigterm' timed out. Killing.` was taken for the pass's last words. That is not
-#     a rounding: the read answered a 1 s hold for the 08:44 activation, whose measured hold is 60.13 s
-#     (last process line 08:44:08.869637, terminal line 08:45:09.002985), because the escalation opened
-#     at 08:45:08.999972 -- the second BEFORE the terminal one.
+#   the filter is what drops the manager's lines, so it has to match one -- and match only them.
+#     `journalctl -o short-*` renders a line as `<stamp> <host> <comm>[<pid>]: <message>`, so
+#     systemd's lines read `systemd[4485]: ` in the THIRD field. The pattern this function shipped
+#     with in `H-0123` looked for ` systemd\[[0-9]+\]: ` anywhere in the line, and the one before it
+#     looked for `systemd(4485): `, a rendering nothing emits: measured in the live window below, the
+#     earlier form matched 0 of the 4 manager lines, so the filter excluded nothing and `State
+#     'stop-sigterm' timed out. Killing.` was taken for the pass's last words. That is not a rounding:
+#     the read answered a 1 s hold for the 08:44 activation, whose measured hold is 60.13 s (last
+#     process line 08:44:08.869637, terminal line 08:45:09.002985), because the escalation opened at
+#     08:45:08.999972 -- the second BEFORE the terminal one. The anchored form is not pedantry: a
+#     substring match drops a line from the UNIT whose message quotes a journal line, and this file's
+#     own sentences do exactly that (`factory_reap_line` prints `systemd: "State 'stop-sigterm' timed
+#     out. Killing."`). Measured on the `reap: a quoted systemd line` leg, the substring form returns
+#     rc 2 -- unknown, no work line -- on a transcript that does have one.
 #
 #   the boundary belongs to this function, not to `--until`. `--until` truncates to the resolution of
 #     the stamp it is handed, and a second-resolution stamp silently deletes the whole terminal second
@@ -474,7 +480,7 @@ factory_reap_lastword() { # <terminal stamp> -> the stamp of the newest process 
 	out=$(journalctl --user --no-pager -u "$(factory_service_unit)" -o short-iso-precise --utc \
 		--until "$until" -n 25 2>/dev/null |
 		awk -v until="$until" '
-			$0 ~ / systemd\[[0-9]+\]: / { next }
+			/^[^ ]+ +[^ ]+ +systemd\[[0-9]+\]: / { next }
 			($1 "") > (until "") { next }
 			{ last = $1 }
 			END { if (last != "") print last }

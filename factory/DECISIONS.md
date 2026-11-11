@@ -4638,3 +4638,75 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `bash factory/selftest.sh` 447 passed 0 failed -- unchanged again, and for the same reason: no leg
   reads any of this yet; the legs are the next commit, and until they exist both this arm and
   `H-0123`'s exclusion can be edited back with the suite green. Nothing merges or publishes.
+
+## H-0125 · The legs replay a transcript through a stub `journalctl` with two personalities, and the second one is the only thing that can tell a read which owns its window from one that outsources it
+
+- Question: #283's review calls `H-0123`'s move of `factory_reap_lastword` to top level "a
+  precondition for the leg, not a cosmetic", and asks for three: the 11 Nov transcript, a control, and
+  one whose window holds a manager line in an EARLIER second than the terminal line -- the shape that
+  would have caught the bracket typo. #246 says the same thing from the other side: "the suite must
+  pass standalone with no host journal at all", so the legs cannot read this box. What is replayable,
+  given that `factory_reap_lines` and `factory_reap_lastword` each shell out to `journalctl` and the
+  parsing depends on how `journalctl` renders a line?
+
+- Options: fixtures under `$work` and a `PATH` stub, run in both a flag-honouring and a
+  flag-ignoring personality | boot a real journal into a `systemd-run --scope -p` sandbox and read it
+  with the real `journalctl` | stub `factory_reap_lines` only and hand `factory_reap_read` a pipe, so
+  no subprocess runs at all | drive `factory.sh --status` and assert on its prose
+
+- Chose: fixtures under `$work` and a `PATH` stub, run in both a flag-honouring and a flag-ignoring
+  personality
+- Why: option three is the tempting one and it is a trap -- it exercises the `case` and nothing else,
+  because the rendering (`<stamp> <host> <comm>[pid]: <message>`, which the parse splits on `"]: "`)
+  and the second `journalctl` call both live in `factory_reap_lastword`. Option two is refused on
+  cost and on a hard dependency: it needs a manager, and #246's whole premise is that the queue must
+  be diagnosable where the manager is not answering. Option four asserts on the sentence rather than
+  the number, which is how `H-0118`'s table got quoted as evidence for a reading nobody had tested.
+  The second personality is the part worth the entry. A stub that honours `--until` makes the
+  truncation of the anchor invisible: the read looks correct because `journalctl` did the bounding,
+  and `H-0123`'s point is that this box's `journalctl` truncates to the resolution of the stamp it is
+  handed (`--until 2026-11-11T08:45:09+00:00` stopping the window at 08:45:08.999972). `RP_DUMB=1`
+  implements neither `--until` nor `-n`, so every leg that reports the same shape both ways is
+  asserting the read survives a backend that does nothing for it. Measured, four plants against
+  `factory/common.sh`, each restored by `cp` and confirmed byte-identical: the inert `(` exclusion
+  turns SIX legs red including the live one; truncating each stamp to its own second in
+  `factory_reap_usec` turns three red; deleting the read's own comparison
+  `($1 "") > (until "")` turns exactly one red, `reap: nothing after the terminal line counts`, which
+  is the leg written for it; the `work=$term` fallback turns one red, `reap: no worker line is
+  unknown, not zero`. Two of the four were found by writing the fixtures rather than by the review,
+  and both are in the shipped text now. (a) The review's suggested `systemd\[[0-9]+\]`, applied as a
+  substring match anywhere in the line -- which is what `H-0123` shipped -- over-drops: a line from
+  the UNIT whose message quotes a manager line contains ` systemd[4485]: ` too, and on the
+  `reap: the exclusion matches a real rendering` transcript that form answers rc 2, unknown, for a
+  teardown the transcript plainly does describe. `factory_reap_line` prints such a quote itself
+  (`systemd: "State 'stop-sigterm' timed out. Killing."`), so this is not a hypothetical author. The
+  exclusion is now anchored to the field the author occupies, `/^[^ ]+ +[^ ]+ +systemd\[[0-9]+\]: /`,
+  which is also what the parse at `factory/common.sh:551` already assumes -- it requires `"]: "` in
+  the line and skips the line otherwise, which is why the reviewer's literal `systemd(4485): `
+  rendering was never a journal rendering and why the paren fixture this section first drafted
+  measured nothing: with parens the parser drops those lines before any filter runs. (b) The `case`
+  in `factory_reap_read` matches its cause sentences as substrings of the message, so a unit line
+  quoting `Failed with result 'timeout'.` sets the verdict word to `deadline` -- left as shipped,
+  because the quote does report the cause and changing it is a different claim than this entry's; the
+  fixture quotes a `Consumed` line instead and says so. Tie-break 4: no new tool, no manager, one
+  file plus the functions already written. Tie-break 5: `git revert` of the effect commit deletes the
+  section and nothing else. What lost: the stub accepts and discards `-u`, `-t`, `-o` and `--utc`, so
+  a leg cannot catch a wrong flag -- a missing `--utc` or a plain `-o short-iso` is caught only by
+  the live leg, and that leg prints `skip` on a machine with no user journal, which is the case #246
+  says must pass; and each transcript now costs up to two subprocess pairs, thirteen invocations for
+  eight legs.
+- Checkpoint: f2dc6b1
+- Effect: `factory/selftest.sh` gains eight legs between the skill-`--jq` section and the tally
+  (447 passed 0 failed at the checkpoint, 455 passed 0 failed here, the delta exactly this section,
+  `bash factory/selftest.sh` exit 0), and `factory/common.sh` gains the anchored exclusion plus the
+  docstring that says why an anchored match and not a substring one. Fixtures are this box's real
+  stamps -- 60.133 s, 0.517 ms, 5.2 s -- with the unit renamed `plrev283b.service`, the name #283's
+  review used. `python3 scripts/check-scripts.py` clean, `shellcheck -S style` clean on both files,
+  `python3 scripts/check-mutations.py` 847 mutants apply and compile. The checkpoint itself is a
+  finding: the first attempt at it, `70e6797`, was made with `git add -A` and so committed the effect
+  INTO the checkpoint -- the "checkpoint taken afterwards records the state the decision produced"
+  failure `AGENTS.md` names, caught before any push (the branch was 5 ahead, nothing published),
+  undone with `git reset --soft HEAD~1` plus `git restore --staged` so the effect returned to the
+  working tree, and re-taken as the empty `f2dc6b1` whose parent is `88451d9`; `70e6797` survives in
+  the reflog. `make verify` is not run by this entry and is owed before the branch is pushed. Nothing
+  merges or publishes: merging is the supervisor's.
