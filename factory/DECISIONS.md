@@ -4085,18 +4085,14 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   clause), but it is a window of one `TimeoutStopSec` inside a cadence of ten minutes: nothing whose
   attention is not already on the screen sees it.
 
-- Options:
-  - **`systemctl --user show -p Result -p SubState`, as the issue suggests.** Rejected twice over:
-    `Result` mis-polarises as measured above, and a tick is refused the manager on principle
-    (`.opencode/opencode.jsonc`: "systemctl is the wrong verb here, whatever the subcommand"), so a
-    read that needs the bus cannot be the read the harness makes about itself.
-  - **Poll `SubState` from a watcher.** Rejected: it answers only while someone is watching, which is
-    the failure mode #248 was filed about, and it costs a daemon.
-  - **Parse the unit's journal: the two systemd lines that name an escalation, and the unit's own last
-    line as the moment the work stopped.** Chosen.
-  - Read `Consumed ... over <n> wall clock` (systemd's own lifetime figure). Rejected: it is the
-    activation's whole life, and the number wanted is the part after the pass stopped working -- 17
-    minutes of real work and 60 seconds of freeze are one figure to that line.
+- Options: `systemctl --user show -p Result -p SubState`, as the issue suggests, as the source | poll
+  `SubState` from a watcher, so the answer is live whenever someone asks | parse the unit's journal for
+  the two systemd lines that name an escalation and the unit's own last line as the moment the work
+  stopped, with the live manager read appended as a clause that is dropped when the bus does not
+  answer | read systemd's own lifetime figure, `Consumed ... over <n> wall clock`
+- Chose: parse the unit's journal for the two systemd lines that name an escalation and the unit's own
+  last line as the moment the work stopped, with the live manager read appended as a clause that is
+  dropped when the bus does not answer
 
 - Why: the journal keeps the two facts apart and is readable by anyone, including a tick, with no
   grant. `State 'stop-sigterm' timed out. Killing.` and `Killed unit cgroup ... with SIGKILL on
@@ -4106,13 +4102,17 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   stdout and not from systemd: for a pass that exits 0 there is no `Main process exited` line at all,
   measured on tonight's incident, and a read filtered `-t systemd` timed that 60-second hold as 0s
   until it was widened. It is therefore an overestimate by whatever a silent pass does on its way out,
-  which is the conservative direction for an alarm.
+  which is the conservative direction for an alarm. The three that lost, with what killed each: the
+  manager read mis-polarises -- `Result` records what the main process returned, not what the stop path
+  waited for, so it is right on tonight's clean-exit hold and wrong on 8 Nov, the incident named in the
+  ticket -- and a tick is refused the manager on principle (`.opencode/opencode.jsonc`: "systemctl is
+  the wrong verb here, whatever the subcommand"), so a read that needs the bus cannot be the read the
+  harness makes about itself; a watcher polling `SubState` answers only while someone is watching, which
+  is the failure mode #248 was filed about, and it costs a daemon; `Consumed ... over <n> wall clock` is
+  the activation's whole life, and the number wanted is the part after the pass stopped working -- 17
+  minutes of real work and 60 seconds of freeze are one figure to that line.
 
-- Checkpoint: `pre-H-0118`, the two functions in `factory/common.sh` and the `reaping:` line in
-  `factory/factory.sh --status` with no entry and no tests.
-
-- Chose: journal, with the live manager read appended as a clause that is dropped when the bus does
-  not answer -- never as the source.
+- Checkpoint: 97b28e867bb5b5c0d7c68ae050591f92f5a6f193
 
 - Effect: `factory/common.sh` gains `factory_reap_lines`, `factory_reap_lastword`, `factory_reap_read`
   and `factory_reap_line` beside `factory_timer_state`, plus `FACTORY_REAP_NOTICE_SECS` (5 s, three
@@ -4123,3 +4123,81 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   00:56:06.070895 to 00:57:06.252797, 60.18 s. It does not merge or publish anything; merging stays
   the supervisor's, and the transient units this measurement created in the user manager are left for
   a human to remove, because removing one is a manager write (`plock246-*`, named in the pull request).
+- Correction (`H-0119`, 11 Nov, on #283's red `verify`): what was decided here is unchanged; what was
+  wrong is the record of it, and it shipped. As committed at `a99762e` the four options above sat as an
+  indented bullet list under `Options:`, which is not this log's grammar --
+  `scripts/check-decisions.py:182` splits the field on `|`, so a nested list folds into ONE option and
+  the gate read `H-0118` as a decision with no alternative (`:183`), with the `Chose:` sentence naming a
+  fifth thing none of the options was (`:189`). `Checkpoint:` held the sentence "`pre-H-0118`, the two
+  functions in `factory/common.sh` and the `reaping:` line in `factory/factory.sh --status` with no
+  entry and no tests" instead of a sha, so the rollback target this entry named was not something
+  `git revert` can be pointed at (`:203` on the shape, `:448` if the shape had been right and the object
+  absent). The words "with no entry and no tests" described the tree at `97b28e8` accurately; a
+  checkpoint field is not prose, it is the argument to `git revert`. Reshaped in place, the per-option
+  rejections moved out of the option text into `Why:` the way every other entry in this log carries
+  them, and the checkpoint written as the sha its heading names. Corrected in a dated line rather than
+  silently, because this entry is cited as evidence outside this repository -- `gh pr view 283 --json
+  body` carries a "Measurements (`H-0118`)" heading and the five-row table -- and a silently corrected
+  decision log is indistinguishable from one that was always right. It was never caught before because
+  it was never read: the tick that wrote it said in its own pull-request body that the full
+  `make verify` had not run.
+
+## H-0119 · A red decision-log gate is fixed by reshaping the entry, never by editing the checker
+
+- Question: #283's `verify` check concluded FAILURE at `a99762e` -- `gh run view --job 130362623877
+  --log-failed` prints `make: *** [Makefile:103: verify] Error 1` with three refusals above it, all
+  three naming `H-0118`, and the same three reproduce in the worktree in two seconds with
+  `python3 scripts/check-decisions.py` (exit 1). Two readings are live: the entry is the thing that is
+  wrong, or the grammar the gate enforces is. Which moves, and what does a later reader of `H-0118` get
+  either way?
+
+- Options: reshape `H-0118` in place and leave no trace of the earlier shape | reshape it in place and
+  leave a dated `Correction` bullet on the entry, with this entry recording the cause | widen
+  `scripts/check-decisions.py` so an indented bullet list under `Options:` counts as options | rewrite
+  `H-0118` from scratch in today's wording, options and reasoning re-derived
+- Chose: reshape it in place and leave a dated `Correction` bullet on the entry, with this entry
+  recording the cause
+- Why: widening the checker is the option this repository has refused every time it has been offered,
+  and here the refusal is measurable rather than temperamental: both arms that fired are asserted in the
+  gate's own self-test (`scripts/check-decisions.py:563` asserts the one-option refusal, `:566` the
+  not-a-sha refusal), so admitting the shape that was just refused means deleting those cases, and a
+  gate that bends to the entry it refused is a suggestion. The checkpoint arm is the youngest rule in
+  that file and the one with this session's own failure in its docstring -- `:388` records forty-hex
+  checkpoints typed in and reported clean, which is why `:448` asks git rather than a regex; loosening
+  it to let prose through is exactly the case it was written for. Silent reshaping is refused by this
+  log twice over (`H-0086`'s `Why:` at `:2444`, `H-0094`'s at `:2945`: a silently corrected log is
+  indistinguishable from one that was always right), and the two corrections already in this file are the
+  shapes to copy: `H-0049` left a bold `Superseded in part by H-0049` pointer inside the entry it
+  corrected (`:1001`) and carried its own entry, and `H-0073` carries a dated `- Correction` bullet added
+  afterwards by `c5946d4`, signed with its own id, correcting itself rather than taking a new one. This
+  does both at once -- the correction detail sits on `H-0118` signed `H-0119`, and the repair takes an id
+  of its own -- because the repair had the thing the two precedents did not: a live alternative, loosening
+  the gate, that has to be refused where a reader will find it. Rewriting from scratch is refused because
+  `H-0118` is quoted outside this repository by #283's own body, so re-deriving its prose risks moving a
+  number a reviewer is reading (`60.18 s`, `4084 s`, `0.3 ms`) when the defect was in the field
+  boundaries, not the sentences. Tie-break 4: one file, no code, no gate. Tie-break 5: `git revert` of
+  the effect commit restores the original entry whole. Tie-break 6: `H-0114`, the entry immediately
+  above (`:3921`), is the neighbour that shows the shape -- `- Options: a | b | c`, each verdict argued in
+  `Why:` rather than inside the option text. What
+  lost: `H-0118`'s option lines no longer carry their own rejection inline, so reading the options alone
+  no longer shows why three of them lost; you have to read `Why:` for that, as with every other entry
+  here.
+- Checkpoint: 2e45d66a38a68b342820a7f7a1a1f26e026f55fe
+- Effect: `factory/DECISIONS.md` only -- `H-0118`'s `Options:` becomes four pipe-separated options and
+  gains a `Chose:` that is one of them verbatim, its three rejections move into `Why:`, its
+  `Checkpoint:` becomes `97b28e8`, the correction bullet above is appended, and this entry is added. No
+  code and no checker changed; no `scripts/mutations/*.json` anchor is touched, so the anchor sweep is
+  out of scope here and was not run -- it mutates the working tree in place and must never overlap a gate
+  run (#1807, the reason `H-0107` gives for not running it at `:3577`). Witness, both directions: `python3 scripts/check-decisions.py` at `a99762e` prints
+  three problems and exits 1; after this commit it prints `check-decisions: 150 entries across 2 log(s)`
+  and exits 0, and the checkpoint `H-0118` now names resolves as a commit through
+  `git cat-file --batch-check` instead of being asserted. Every citation the bullet and this entry add was
+  resolved by measuring before the commit rather than recalled, and three of them failed that check in the
+  first draft: `H-0117` does not exist in this log (the entry above `H-0118` is `H-0114`), `:567` is the
+  `n/a`-without-escalation arm and not the not-a-sha arm, and the `#1807` reason is `H-0107`'s, not
+  `H-0104`'s -- which is `H-0111`'s claim in its own title, that the citation audit is the half that finds
+  something. What it does not establish: that the rest of
+  `make verify` is green -- the run aborts at `Makefile:103` today, so every leg after it is untested at
+  this head until the log leg stops failing -- and it does not answer #283's own disclosed gap, the
+  missing selftest legs for the four `factory_reap_*` functions. Nothing here merges or publishes:
+  merging is the supervisor's.
