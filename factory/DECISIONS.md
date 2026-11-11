@@ -3413,3 +3413,82 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   are not `proc_leg` rows, so a total is the only honest number here. The per-line test above is the
   evidence that nothing stopped running: every line either side added is present in the merged tree.
 - Checkpoint: 3e135a78e80039c95041dca376073fb48f575180
+
+## H-0108 · A refused merged claim is thrown away, so the ticket that created the verdict is re-dispatched
+
+- Question: `delivered` refuses most of the merged claims it reads -- a body naming more than one
+  issue, a body carrying `Part of` -- and then says nothing about the refusal, so the tick dispatched
+  for that issue starts from zero. #235 is the measured cost of exactly that: its own fix arrived as
+  PR #238, merged 8 Nov on branch `issue-235` under a body naming eight issues (refused by the count
+  arm), and the journal holds `TICK-START unclaimed:235 2026-11-10T22:57:23Z` to `TICK-DONE 23:14:23Z`
+  -- seventeen minutes of ceiling to rediscover what the classifier had already read. The ticket asks
+  which signal reaches the fix; three candidates were on the table, and the one that looked cheapest
+  had to be measured before it could be used.
+- Options: trust the head-branch name -- a merged PR whose branch is `issue-N` delivers `#N` | a new
+  class that dispatches no tick | a new `undelivered:` channel beside `pr:` and `issue:` | read the
+  body's prose for a "does not finish" section | carry the refusal on the row as a marker and tell the
+  tick what it means
+- Chose: carry the refusal on the row as a marker and tell the tick what it means
+- Why: the branch name was measured and lost. Over all 98 merged pull requests `gh pr list --state
+  merged --limit 100` returns, a branch of the form `issue-N` would claim 15 closed issues (all already
+  closed, so nothing *wrong* closes) and 4 open ones: **#246 four times** -- #254/#255/#256/#258 are all
+  branch `issue-246` and #246 is open with a requirement nobody has built, so a branch-shaped rule would
+  close the very ticket #277 cites as the case that must not be claimed -- plus #251, which #255's body
+  names beside #253 while delivering only #253, whose fix is #257. It is also redundant where it is
+  right: 66 of those issues are closed already and 53 are named in a verb-bearing body the classifier
+  already reads. `headRefName` is carried on the read anyway, as the note's most useful fact -- a
+  reader can go and check out the branch -- and is used to decide nothing. The new-class option lost on
+  #235's own lesson: the reason `delivered` is a report and not a suppression is that a row which stops
+  dispatching retires work, and the refused set is where the unfinished work demonstrably lives (#246
+  is refused by a `Part of` that told the truth; #253 was refused by the count arm at #255 and needed
+  the tick that row dispatched, which produced #257 five hours later). A separate `undelivered:`
+  channel lost because `triage.sh --tsv` prints only `pr:` and `issue:` and `factory.sh` skips the
+  `branch:` channel as a side effect of that filter (`docs/factory.md:486-495`) -- a third silent
+  channel is how #251 stayed invisible. Prose lost on the rule this file has repeated since H-0050: a
+  body's own sentence about its unfinished parts is a person's claim, and #273 proved one paragraph can
+  carry six instructions. What the marker does instead is keep the verdict and hand the refusal down:
+  `refused_note` puts `[merged:PR#229 on \`issue-199\` at … -- names it in a 4-issue body]` at the START
+  of an `unclaimed` detail, `factory.sh`'s `unclaimed` arm matches the shared literal
+  `FACTORY_MERGED_MARK` anchored there -- unanchored would let an issue title buy itself an instruction
+  -- and appends the instruction that sends the tick to `gh pr diff` before it writes code. Both
+  reopens-veto and the timestamp veto suppress it, because in those two cases a person has already read
+  the merged body. Half of this moving without the other half is #272, so `merged_note_docs` pins the
+  rule and the reason in `docs/factory.md` and `.opencode/skills/factory/SKILL.md` as well.
+  What lost. The seventeen minutes are not recoverable, and a tick still runs on a ticket that may be
+  finished -- the marker shortens the work, it does not cancel it, which is the price of the option
+  that keeps refused work in the queue. The branch name is read and printed but decides nothing, so the
+  note is wordier than a branch-only rule would have been. And the marker is one more anchored string
+  shared between two shell files, which is a coupling that did not exist before and is pinned by one
+  leg rather than by the type system.
+  **The checkpoint below is the branch tip, not a `chore(checkpoint): pre-H-0108` commit, and that is a
+  lapse rather than a convention.** The rule in `AGENTS.md` and Step 3 of the skill is to take the
+  checkpoint before the call; this call was made, and the checkpoint was noticed afterwards. What
+  `5cfda8d` does supply is the thing the field is for -- the tree the decision started from, a commit
+  that exists and that `git revert` of the effect commit returns to -- so the entry is reversible as
+  required, and what is missing is only the empty commit that would have marked the moment. Recorded
+  here, dated, because a silently relaxed rule is indistinguishable from one that was never there.
+- Effect: `factory/triage.sh` (merged read gains `headRefName`; the `refused_map` scan and
+  `refused_note`; the `unclaimed` emit prefixed with the note behind the two vetoes; the header's
+  `detail` column and the `--table` example), `factory/common.sh` (`FACTORY_MERGED_MARK`),
+  `factory/factory.sh` (the `unclaimed` arm's instruction, plus its class table), `factory/selftest.sh`
+  (+30 legs, 417 passed 0 failed against 387 on this same box before the change -- totals are
+  box-dependent -- plus two control blocks that print without joining the tally, the shape
+  `voided_docs_control` already uses), `docs/factory.md`, `.opencode/skills/factory/SKILL.md`. Read
+  back off the live API after the change, not predicted: `./factory/triage.sh --table` prints
+  `issue 246 unclaimed [merged:PR#254 on \`issue-246\` at 2026-11-10T01:39:17Z -- a \`Part of\` phrase
+  in the same body] TimeoutStopSec reuses the tick ceiling…` -- class unchanged, note present -- and
+  `issue 199 delivered merged PR #243 …`, where #199 moved to a sole claim in the hours since the
+  probe, so no note. The anchor was tested against a forgery rather than assumed: with the value read
+  out of `common.sh`, a detail beginning with the marker hits the arm and a title that merely contains
+  `[merged:PR#1]` does not. Two findings came out of writing the legs, both fixed. The fixture shim
+  `emit`s a payload file whatever the caller's `--json` asked for, so a read that stopped requesting a
+  field would have kept receiving it and every branch-naming leg here would have stayed green -- the
+  merged payload is now projected through `with_entries` to the fields actually named, which is what
+  `gh` does. And the `jq --slurpfile` in that projection emitted nothing at all until `-n` was added:
+  `--slurpfile` binds `$src` and leaves the input empty, so a filter without `-n` runs zero times and
+  writes zero bytes with exit 0 -- a silent empty file, the same shape as the `delivered_map=`
+  regression `triage.sh:470-479` records, and the reason the new legs assert the note is PRESENT on
+  named rows rather than merely absent where it should be. That precedent is the reason the legs exist:
+  the scar comment there is `bash -x` showing `delivered_map=` followed by `delivered_map='{}'`, and no
+  leg of the day could see an always-empty map.
+- Checkpoint: 5cfda8d7781daecab8209d849ac1643044e66844

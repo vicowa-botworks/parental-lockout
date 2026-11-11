@@ -56,7 +56,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `address_review` | newest `CHANGES_REQUESTED` is newer than the head commit, **and its body carries an ask** | a tick, and the ask rides in its instruction |
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
 | `checks_failing` | a check concluded failure | a tick |
-| `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body | a tick |
+| `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
 | `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected | nothing: the supervisor logs it, and closes nothing |
 | `branch_without_pr` | commits ahead of `main`, no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
@@ -103,10 +103,35 @@ arriving through a comma. Two sentences about two issues are still two sentences
 number has neither a verb nor a list marker in front of it, and that is what stops "Not here: #149"
 from retiring #149 out of the queue.
 
+A claim the arms refuse is reported, not thrown away. When the count rule or `Part of` refuses a merged
+body the issue keeps its `unclaimed` row and its tick -- both rules exist to stop a bundle over-claiming,
+and #246 is in the queue today because `Part of` told the truth about work nobody has finished -- but the
+row now opens with `[merged:PR#229 on \`issue-199\` at 2026-11-08T01:33:46Z -- names it in a 4-issue
+body]`. That marker is evidence handed to whoever reads the row and it is never a verdict: it changes no
+class, dispatches nothing extra, closes nothing, and the branch it names is a fact about the merged body
+rather than a reason to decide anything. Two tickets can share a branch -- #229, #240 and #243 are all
+`issue-199` -- and a branch can carry a body that only partly finished the ticket it is named for: #254
+merged on `issue-246` under a `Part of` that #246 is still open to complete.
+
+What the marker replaces is silence. A tick used to arrive at #235 with no way to know the question had
+already been asked of PR #238's body, and it spent seventeen minutes of ceiling -- `TICK-START
+unclaimed:235 2026-11-10T22:57:23Z` to `TICK-DONE 23:14:23Z` -- re-deriving what the classifier had
+already read and discarded. So the refusal is handed down instead: `factory/factory.sh`'s `unclaimed`
+arm matches the marker at the START of the detail, against the same literal the scan writes
+(`FACTORY_MERGED_MARK` in `factory/common.sh`), and adds the instruction that tells the tick to read
+that pull request's diff against the ticket's requirements before writing anything, and to use the
+"already satisfied by `main`" protocol if every requirement measures as met there. Anchored and not a
+substring, because the rest of the detail is an issue title somebody typed and a title must not be able
+to buy itself an instruction. An issue that has spoken since the merge, or whose closure was once
+rejected, is given no marker: in both cases a person has already read exactly that, and saying it again
+is noise. Both ends are one change and `factory/selftest.sh` says so -- the row that reaches the table
+with the note, the arm that reads it, and the two documents that explain it. (H-0108.)
+
 The read itself is one bulk call -- `gh pr list --state merged --limit $FACTORY_DELIVERED_WINDOW
---json number,body,mergedAt,baseRefName` -- because the per-PR shape the channels above use would cost
-one call per merged pull request. The window is a bound on the read, not on the claim: an issue whose
-fix landed outside it keeps the verdict it always had, `unclaimed`, and the row prints the window it
+--json number,body,mergedAt,baseRefName,headRefName` -- because the per-PR shape the channels above use
+would cost one call per merged pull request. The window is a bound on the read, not on the claim: an
+issue whose fix landed outside it keeps the verdict it always had, `unclaimed`, and the row prints the
+window it
 leaned on so a stale-looking verdict can be re-checked by raising it. It is a bound on the read and also
 on what a single pass costs, because merged bodies are big: 100 of them were 632,601 bytes on 8 Nov,
 which is why the payload is handed to `jq` on standard input rather than as an argument -- Linux
