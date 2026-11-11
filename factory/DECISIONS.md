@@ -4057,3 +4057,69 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `gh pr view 278` answers afterwards is the API's verdict and belongs in the pull-request body beside the
   push, not in this record written before it; if it reads `REVIEW_REQUIRED` again, asking is
   `factory_request_review`'s act on the next activation, not a tick's.
+## H-0118 · The reaping read is the unit's own journal, not `Result=`, because `Result=` is wrong on the polarity that matters
+
+- Question: `#246` shipped two deadlines in #254 and left the second half open -- the ticket says
+  "the teardown itself must be visible: the unit's `SubState` during the hold, and the residue
+  `Result=timeout` afterwards". Both of those signals were measured on this box on 11 Nov, against a
+  reproduction of the fault and against the real unit, and the suggested one fails on the case the
+  ticket was written about. What was wanted is a reading of "how did the last pass get reaped?" that
+  a person gets from `factory.sh --status`, the one command the ticket says a person types.
+
+  Measured, all of it on this box, systemd 259.9-0ubuntu0.1, user manager for uid 1000:
+
+  | activation | main exit | hold | `Result=` |
+  | --- | --- | --- | --- |
+  | control, nothing leaked | 4 | 0.3 ms | `exit-code` |
+  | one `trap '' TERM` descendant, `TimeoutStopSec=60` | 4 | **60.194 s** | `exit-code` |
+  | same, `TimeoutStopSec=20`, paired `OnUnitInactiveSec=10s` | 4 | **20.135 s**; next pass started **30.4 s** after the previous one's last line | `exit-code` |
+  | the factory unit, 11 Nov 00:56 -- `winedevice.exe` again | 0 | **60.18 s** | `timeout` |
+  | the factory unit, 8 Nov 22:18 -- the 91-minute outage | 4 | 4084 s, ended by a hand-escalated kill | `exit-code` |
+
+  So `Result=timeout` appears when the pass exited *cleanly* and `Result=exit-code` when it did not,
+  on held teardowns and clean ones alike. `Result` records what the main process returned, not what
+  the stop path waited for. It is right on tonight's clean-exit hold and wrong on 8 Nov -- the exact
+  incident named in the ticket, whose pass exited 4 -- so it would have answered "nothing to see" to
+  the only question this line exists to answer. `SubState=stop-sigterm` is a true signal and was
+  verified live (`SubState=stop-sigterm TasksCurrent=10 MainPID=0` is printed by the new `live:`
+  clause), but it is a window of one `TimeoutStopSec` inside a cadence of ten minutes: nothing whose
+  attention is not already on the screen sees it.
+
+- Options:
+  - **`systemctl --user show -p Result -p SubState`, as the issue suggests.** Rejected twice over:
+    `Result` mis-polarises as measured above, and a tick is refused the manager on principle
+    (`.opencode/opencode.jsonc`: "systemctl is the wrong verb here, whatever the subcommand"), so a
+    read that needs the bus cannot be the read the harness makes about itself.
+  - **Poll `SubState` from a watcher.** Rejected: it answers only while someone is watching, which is
+    the failure mode #248 was filed about, and it costs a daemon.
+  - **Parse the unit's journal: the two systemd lines that name an escalation, and the unit's own last
+    line as the moment the work stopped.** Chosen.
+  - Read `Consumed ... over <n> wall clock` (systemd's own lifetime figure). Rejected: it is the
+    activation's whole life, and the number wanted is the part after the pass stopped working -- 17
+    minutes of real work and 60 seconds of freeze are one figure to that line.
+
+- Why: the journal keeps the two facts apart and is readable by anyone, including a tick, with no
+  grant. `State 'stop-sigterm' timed out. Killing.` and `Killed unit cgroup ... with SIGKILL on
+  client request.` say not just that it was held but by what, which is the difference between
+  "shorten the ceiling" and "go reap it by hand" -- and the second is a manager write, so the
+  sentence has to name it rather than reach for it. The hold's start had to come from the unit's own
+  stdout and not from systemd: for a pass that exits 0 there is no `Main process exited` line at all,
+  measured on tonight's incident, and a read filtered `-t systemd` timed that 60-second hold as 0s
+  until it was widened. It is therefore an overestimate by whatever a silent pass does on its way out,
+  which is the conservative direction for an alarm.
+
+- Checkpoint: `pre-H-0118`, the two functions in `factory/common.sh` and the `reaping:` line in
+  `factory/factory.sh --status` with no entry and no tests.
+
+- Chose: journal, with the live manager read appended as a clause that is dropped when the bus does
+  not answer -- never as the source.
+
+- Effect: `factory/common.sh` gains `factory_reap_lines`, `factory_reap_lastword`, `factory_reap_read`
+  and `factory_reap_line` beside `factory_timer_state`, plus `FACTORY_REAP_NOTICE_SECS` (5 s, three
+  orders of magnitude away from the 0.3 ms of a clean reaping) and `FACTORY_REAP_TAIL`;
+  `factory/factory.sh --status` prints `reaping:` between `unit:` and `trees:`. Against the live
+  journal of the real unit on this box it prints `HELD 1m00s to the stop deadline -- a descendant of
+  the pass ignored SIGTERM ... Ended 25m22s ago.` for the 00:56 incident, with the measured truth being
+  00:56:06.070895 to 00:57:06.252797, 60.18 s. It does not merge or publish anything; merging stays
+  the supervisor's, and the transient units this measurement created in the user manager are left for
+  a human to remove, because removing one is a manager write (`plock246-*`, named in the pull request).
