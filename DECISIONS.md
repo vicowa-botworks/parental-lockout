@@ -3465,7 +3465,14 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   third end to end. Corrected as a bullet, not by editing the sentence (#1180). `testing/capture/pages.py`'s
   site comment now names the boundary the sentence skipped, in the same five lines it had, so that both
   locators the correction above cites -- `main()` at 897-1076 and the guard at
-  `scripts/attack-capture-self-test.py:573-576` -- still read true at this head.
+  `scripts/attack-capture-self-test.py:573` -- still read true at this head. One measure in that
+  correction is itself a line short, found by re-running the `grep -n 'if hits != 1:'` it prescribes in
+  order to check this claim: the arm is **573-577**, not 573-576, because the four statements it
+  enumerates -- `counts["invalid"] += 1`, the `problems.append`, the `INVALID` print, the `continue` --
+  end on the `continue`, which is line 577; 576 is the print. The start is where it says and the guard is
+  where it says, so nothing about that correction's argument moves, and #305's own body repeats the short
+  range. It is recorded here rather than written into the merged bullet above (#1180), and the bullet
+  above is otherwise left exactly as it was.
 
 ## D-0063 · The sentence #305 files has a twin one file away: row 2's own comment also promises a statement cannot move on an added field, and this branch corrects that one too
 
