@@ -432,8 +432,17 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
     than quietly reconciled either way -- usually the fixture moved and the frame is right, sometimes
     (measured, 4 Nov: `scripts` on the two POST fixtures) the old declaration was the bug.
 
-    With no `envs` at all this writes exactly what it used to, under `capture-manifest/1`. Recording
-    conditions is a choice the caller makes by handing over the files that state them.
+    `shot` is also what makes an unclaimed frame REFUSABLE instead of guessable (#294). A frame whose
+    bytes differ from the entry the manifest carries, and that this run did not name, is refused:
+    there is no prior rev worth carrying and no honest rev to mint, so every other outcome is the
+    invented date #222 was filed to stop -- and `check` cannot catch it afterwards, because the value
+    it compares is the one this function just wrote.
+
+    With no `envs` at all this writes what it used to, under `capture-manifest/1`. Recording
+    conditions is a choice the caller makes by handing over the files that state them. What no `envs`
+    does NOT buy is silence about the frames: both #294 refusals below fire from `shot` and the
+    manifest being read, and the bare command's honesty is a property of the set it is pointed at,
+    not of the flags it was given.
     """
     shot = set(shot)
     fixtures = {}
@@ -462,6 +471,8 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
     prior = {e.get("png"): e for e in prior_doc.get("pages", []) if e.get("png")}
     used = set()
     notes = []
+    replaced = []
+    unclaimed = []
     for name in pngs_in(directory):
         artifact = name[:-len(".png")]
         page = declared.get(artifact)
@@ -473,10 +484,58 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
                              f"evidence about anything.")
         digest = sha256(os.path.join(directory, name))
         before = prior.get(name)
+        current = newest_commit(sources, run=run)
         # "Unchanged" is a byte comparison with the entry the manifest already carries, not a guess
         # from timestamps: the only thing that makes re-attribution safe is knowing these exact pixels
         # were certified before.
         unchanged = bool(before) and before.get("png_sha256") == digest
+        # #294, the substitution half. A frame whose bytes are NOT the ones this manifest certified,
+        # and that this run did not name in `shot`, has no honest `sources_rev` to write at all: the
+        # pixels came from somewhere no declaration covers. The mint below would write the commit it
+        # is standing in, and `recorded == current` is exactly the arm `check` short-circuits on, so
+        # the mint does not merely mis-date the frame -- it switches the refusal off. Measured 11 Nov
+        # at d7a5149 through real git over a throwaway repository: nine frames recorded at `A`, the
+        # shared masthead moved at `B` with `profiles.png` re-taken in that commit, `audit.png` then
+        # replaced with another page's frame, one `record --shot profiles`. `check` refused the swap on
+        # identity before the record and said nothing about `audit.png` after it, its rev now the
+        # current commit; with the env supplied the frame also gained this run's `capture` block,
+        # conditions this run never applied to those pixels (#211 reopened for one frame). Nothing
+        # downstream can undo it either: the swap's own commit is the newest commit touching that PNG
+        # now, so `check`'s ancestry arm reads a substituted frame as a re-take. `--shot` is the only
+        # input that separates the two, which is why the refusal is here and cannot live in `check`.
+        # A refusal and not a carry, because there is no prior rev worth keeping -- the entry's old
+        # rev describes the file that used to be there, and pointing new bytes at it would be the same
+        # invented date with a longer pedigree.
+        if before and not unchanged and artifact not in shot:
+            replaced.append(name)
+        # #294, the other half: a frame the manifest has NEVER seen, that this run does not claim
+        # either. Nothing is here to carry, so the only value available is again the commit the run
+        # stands in -- and minting it also disarms the one gate that does see a frame like this:
+        # `check`'s `is committed with no entry in` arm stops firing the moment an entry exists, and
+        # the arm that replaces it opens `if recorded == current: continue`.
+        #
+        # It has to be a COMPARISON, not the absence, because "no entry" is also the ordinary shape of
+        # an honest run: every frame of an uncommitted capture is new to the manifest, and that is the
+        # documented ordering (`pages.py` records before anything of its run is committed; `fixture.sh`
+        # says "Commit last"). Refusing the absence is refusing `make capture`, which is #144's trap --
+        # see the rule below, which is written to fail if this clause ever stops being conditioned.
+        #
+        # The live specimen of this mint, measured 11 Nov on this branch, has an entry already and so
+        # is the clause above's class rather than this one's: `docs/screenshots/360/manifest.json`
+        # dates `lock.png` and `testlock.png` at `2088043cb`, they are the only two of the nine entries
+        # with no `carried_from` (both revs minted, not carried), `7e65d3b` is the commit that wrote
+        # them -- two minutes after `2088043` landed -- and the newest commit over each PNG's own pixels
+        # is `3bcbfdd`, an ANCESTOR of `2088043`. By this file's own model those two frames predate
+        # their page, and `check` answers `9 photographs current`, rc 0, because the rev it would
+        # compare is the one the record minted for them. `lock.py` and `testlock.py` write no manifest
+        # (they export `FIXTURE`/`ARTIFACT` for the pairing and leave the recording to whoever notices),
+        # so this clause is the same mint one step earlier: a frame nobody has ever recorded, from
+        # pixels older than its page.
+        if before is None and artifact not in shot and current:
+            pixels = newest_commit([os.path.relpath(os.path.join(directory, name), ROOT)], run=run)
+            if pixels and not is_ancestor(current, pixels, run=run):
+                unclaimed.append(f"{name} (its pixels were last committed at {pixels[:9]}..., "
+                                 f"its page at {current[:9]}...)")
         # `sources_rev` names the commit these pixels were rendered from, so it belongs to the frame
         # and not to whoever ran `record` last (#222) -- the same rule `shot` already applies to the
         # conditions block, extended to the field the gate reads. Without it a run that photographs
@@ -504,7 +563,7 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
                 # `rev-parse HEAD` with the shallow verdict).
                 entry["carried_from"] = prior_doc["head"]
         else:
-            entry = {"sources_rev": newest_commit(sources, run=run)}
+            entry = {"sources_rev": current}
         entry = {
             "page": page if page is not None
             else ("/" if artifact == "dashboard" else "/" + artifact),
@@ -577,6 +636,43 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
                 f"runs/{fixture}/fixture.env, or the frame will be committed as evidence about "
                 f"nothing (#207).")
         entries.append(entry)
+
+    # One message, both halves. The set is the finding: a run that left three frames unclaimed has
+    # three frames to re-take, and a refusal that reports one of them sends the operator through the
+    # loop three times. Raised before the notes are printed and before anything is written -- the
+    # manifest on disk stays the one from before this run, which is what keeps `check`'s findings
+    # about these frames alive over a refused record. Both refusals fire whatever the caller was
+    # given: they are about a frame nobody claims, and no `--fixture-env` describes one.
+    if replaced or unclaimed:
+        parts = []
+        if replaced:
+            parts.append(
+                f"{len(replaced)} frame(s) in {directory} are not the files this manifest recorded, "
+                f"and this run did not say it photographed them: {', '.join(replaced)}. Those bytes "
+                f"came from somewhere no declaration covers, so no commit honestly names what they "
+                f"were rendered from, and the only value this command could write is the commit it is "
+                f"standing in -- the value `check`'s drift arm `if recorded == current: continue` "
+                f"accepts without asking history anything. That is how a swapped frame stopped being "
+                f"a finding after one bare `record` (#222's mechanism, #294's measurement): `check` "
+                f"refuses these bytes on identity right now, and recording them spends that finding. "
+                f"Re-take them, or name every frame this run really photographed with `--shot "
+                f"<artifact>` and hand over the `--fixture-env` of the fixture that took it.")
+        if unclaimed:
+            parts.append(
+                f"{len(unclaimed)} frame(s) in {directory} have no entry in {MANIFEST}, this run did "
+                f"not name them, and each one's pixels are older than its page: {'; '.join(unclaimed)}"
+                f". Nothing is here to carry, so the only value this command could write is again the "
+                f"commit it is standing in -- #222's sentence with a different hand on the pen -- and "
+                f"recording them also removes the one gate that does see a frame like this, `check`'s "
+                f"`is committed with no entry in`, in favour of the drift arm that compares a "
+                f"fabricated rev against nothing (#294). This is the standing shape of the frames "
+                f"whose drivers write no manifest: `lock.py` and `testlock.py` photograph and leave "
+                f"the recording to whoever notices. Re-take them and name them (`--shot lock "
+                f"--fixture-env runs/lock/fixture.env`, and the same for `testlock`), or record them "
+                f"in the commit that photographs them -- a frame with no history yet is honestly dated "
+                f"at this commit, and a frame whose pixels are this old is not.")
+        parts.append("Nothing was written.")
+        raise SystemExit("\n".join(parts))
 
     for note in notes:
         print(f"note: {note}", file=sys.stderr)
@@ -1048,13 +1144,24 @@ def self_test():
             bad.append(f"{name}: {complaint}")
 
     def in_box(fn):
-        """Run `fn(box)` with ROOT pointed at a fresh box, and hand back its complaint."""
+        """Run `fn(box)` with ROOT pointed at a fresh box, and hand back its complaint.
+
+        A `SystemExit` that reaches here is a `record`/`check` call failing while the rule was setting
+        up or asking its question, which is a finding about the tree -- but a traceback that escapes
+        the loop aborts the run before the remaining rules speak, so the count it leaves behind is
+        wrong and the message reads as "something is wrong somewhere" rather than "this rule went
+        red". Rules that WANT a refusal catch it themselves with `refused`, so this only ever turns a
+        crash into a named failure.
+        """
         global ROOT
         box = _box()
         saved = ROOT
         ROOT = box
         try:
             return fn(box)
+        except SystemExit as exc:
+            return ("a record/check call this rule needs in order to ask anything refused instead: "
+                    f"{str(exc)[:220]}")
         finally:
             ROOT = saved
 
@@ -1501,11 +1608,15 @@ def self_test():
         if moved:
             return (f"{moved[0]['png']} was re-stamped to {moved[0]['capture']['stamp']!r} while its "
                     f"bytes were unchanged, so a frame taken under one clock now claims another")
-        # Now the frame really is new, and the fresh declaration is the honest one.
+        # Now the frame really is new, and the fresh declaration is the honest one -- and since #294
+        # it has to be DECLARED: a changed frame this run does not name is refused rather than
+        # re-dated, which is the same rule this file's recipes follow (`--shot` for every frame the
+        # run took). Silence here would be the refusal firing on the honest workflow.
         _png(box, "users.png", body=b"a re-taken frame")
         with contextlib.redirect_stderr(io.StringIO()):
             record(d, run=_fake_git(), now="2026-03-01T00:00:00Z",
-                   envs=[env_file(box, "pages", PLOCK_CAPTURE_STAMP="2027-01-01T00:00:00")])
+                   envs=[env_file(box, "pages", PLOCK_CAPTURE_STAMP="2027-01-01T00:00:00")],
+                   shot=["users"])
         retaken = read_manifest(d)
         fresh = [e for e in retaken["pages"] if e["png"] == "users.png"][0]
         if fresh["capture"]["stamp"] != "2027-01-01T00:00:00":
@@ -1786,13 +1897,16 @@ def self_test():
         with open(os.path.join(d, MANIFEST), "w", encoding="utf-8") as fh:
             json.dump(doc, fh)
 
-        # One page is re-taken; only its fixture's env is in hand, as pages.py hands it.
+        # One page is re-taken; only its fixture's env is in hand, as pages.py hands it -- with its
+        # `--shot` list too, because that is what `pages.py:1097` actually passes
+        # (`shot=[spec.artifact for spec in selected]`), and since #294 a changed frame that stays
+        # unnamed is a refusal rather than a re-dating.
         _png(box, "profiles.png", body=b"a re-taken frame")
         # `refused` and not a bare call: a rule that lets the SystemExit escape crashes the whole
         # self-test with a traceback instead of naming the rule, and a gate that crashes is read as
         # "something is wrong somewhere" rather than "this workflow went red".
         complaint = refused(lambda: record(d, run=_fake_git(), now="2026-02-01T00:00:00Z",
-                                           envs=[env_file(box, "pages")]))
+                                           envs=[env_file(box, "pages")], shot=["profiles"]))
         # `refused` reports silence as the sentinel string, because "nothing was refused" is the
         # answer a refusal-wanting rule needs to distinguish from a real message.
         if complaint and complaint != "REFUSED-NOTHING":
@@ -1977,6 +2091,115 @@ def self_test():
     rule("the green sentence names the frames the record did not take, and a full set clears it",
          in_box(the_green_sentence_names_the_frames_it_did_not_take))
 
+    # ---- #294: the frame nobody claimed ------------------------------------------------
+    #
+    # #222 stopped `record` moving a rev for a frame it did not take by CARRYING the prior entry's
+    # value, and the carry needs three things at once: a prior entry, identical bytes, and a rev to
+    # carry. Two inputs still reached the mint (issue #294, both measured at d7a5149 through real
+    # git over a throwaway repository, not read off this file): bytes swapped in from another page,
+    # and a frame the manifest has never seen. Both are refused at record time now, because `check`
+    # cannot be the last line -- by the time it runs, the value its drift arm compares is the one
+    # `record` invented, and the swap's own commit is the newest commit touching the PNG.
+
+    def a_changed_frame_nobody_named_is_refused(box):
+        """Arm A: bytes the manifest does not recognise, and no `--shot` claiming them."""
+        d = os.path.join(box, "docs", "screenshots", "360")
+        env = env_file(box, "pages")
+        before = recorded(box, envs=[env])
+        _png(box, "audit.png", body=b"another page's frame, swapped in")
+        message = refused(lambda: record(d, run=_fake_git(), now="2026-02-01T00:00:00Z",
+                                         envs=[env], shot=["profiles"]))
+        if message == "REFUSED-NOTHING":
+            return ("a frame whose bytes are not the ones the manifest recorded was re-dated by a run "
+                    "that did not claim it, and `recorded == current` is the arm `check` "
+                    "short-circuits on -- the re-dating is the identity finding deleted (#294)")
+        if "audit.png" not in message:
+            return f"the refusal does not name the frame it is refusing: {message[:120]!r}"
+        if "--shot" not in message:
+            return f"the refusal does not name the flag that resolves it: {message[:120]!r}"
+        # A refusal that wrote anything is the bug with extra steps: the manifest on disk has to stay
+        # the one that still describes the swap as a finding.
+        if read_manifest(d)["pages"] != before["pages"]:
+            return "the refused record rewrote the manifest, which is the thing #294 refuses to do"
+        problems = check(d, run=_fake_git(), pages=DRIVER)
+        if not any(p.startswith("audit.png") and "not the file" in p for p in problems):
+            return (f"after the refusal `check` no longer names the swap, so the finding is gone "
+                    f"either way: {problems[:1]}")
+        # The way out, because a refusal with no route through it is a dead directory: the frame is
+        # honest as soon as the run says it took it, and its conditions are then this run's.
+        again = refused(lambda: record(d, run=_fake_git(), now="2026-02-02T00:00:00Z",
+                                       envs=[env], shot=["profiles", "audit"]))
+        if again != "REFUSED-NOTHING":
+            return (f"naming the frame in `--shot` did not clear the refusal, so an honest re-take "
+                    f"has no route through it: {str(again)[:120]!r}")
+        after = {e["png"]: e for e in read_manifest(d)["pages"]}
+        if (after["audit.png"].get("capture") or {}).get("stamp") != "2026-03-18T21:34:05":
+            return ("the named frame did not take this run's conditions, so the declaration was "
+                    "believed for the rev and ignored for the block")
+        return None
+
+    rule("a frame whose bytes moved and nobody claimed is refused, and a named re-take clears it",
+         in_box(a_changed_frame_nobody_named_is_refused))
+
+    def a_frame_new_to_the_manifest_with_older_pixels_is_refused(box):
+        """Arm B: nothing to carry, and the only rev available is the one the run stands in.
+
+        `lock.py` and `testlock.py` write no manifest, so their frames reach the committed set with no
+        entry and pixels from whatever commit last touched them (#294 names `lock.png` and
+        `testlock.png` at `26f19f181`/`99099f982`, both behind the commit that moved the shared page).
+        The refusal is a comparison, not the absence: an uncommitted capture makes EVERY frame new to
+        the manifest, and that ordering is what the notes and `fixture.sh` tell people to do.
+        """
+        d = os.path.join(box, "docs", "screenshots", "360")
+        env = env_file(box, "pages")
+        before = recorded(box, envs=[env])
+        _png(box, "lock.png", body=b"a frame lock.py photographed and nobody recorded")
+        moved = _fake_git(rev="b" * 40)          # the page has moved since those pixels were taken
+        message = refused(lambda: record(d, run=moved, now="2026-02-01T00:00:00Z",
+                                         shot=["profiles"]))
+        if message == "REFUSED-NOTHING":
+            return ("a frame with no prior entry was dated at the current commit by a run that did "
+                    "not claim it, while its own pixels were last committed a commit earlier -- the "
+                    "mint writes #222's sentence and the drift arm then compares a fabricated rev "
+                    "against nothing (#294)")
+        if "lock.png" not in message:
+            return f"the refusal does not name the frame it is refusing: {message[:120]!r}"
+        if "have no entry in" not in message:
+            return (f"the refusal is not the unrecorded-frame arm, so something else fired first: "
+                    f"{message[:160]!r}")
+        if "--shot" not in message or "--fixture-env" not in message:
+            return f"the refusal names neither flag that resolves it: {message[:120]!r}"
+        if read_manifest(d)["pages"] != before["pages"]:
+            return "the refused record rewrote the manifest"
+        problems = check(d, run=moved, pages=DRIVER)
+        if not any(p.startswith("lock.png") and "no entry" in p for p in problems):
+            return (f"after the refusal `check` no longer calls the frame unrecorded, so the "
+                    f"finding is gone either way: {problems[:1]}")
+        # The honest ordering this file already tells people to use: record the frame in the commit
+        # that photographs it, bare. Then its pixels have nothing to disagree with and there is
+        # nothing to refuse -- which is why an absence of history is not the trigger above, and why a
+        # refusal keyed on "no entry" instead of on the comparison is #144's trap: `record` over a
+        # directory of frames nobody has committed yet is the normal thing to do, and `pages.py`
+        # records before anything of its run is committed. Both spellings of "this run's own frames"
+        # have to survive: untracked (`pages.py`'s ordering) and committed in the very commit the
+        # manifest is written at (the notes' ordering).
+        for label, honest in (("untracked", _fake_git(rev="b" * 40, png_rev=None)),
+                              ("committed in this very commit", _fake_git(rev="b" * 40,
+                                                                         png_rev="b" * 40))):
+            again = refused(lambda: record(d, run=honest, now="2026-02-02T00:00:00Z"))
+            if again != "REFUSED-NOTHING":
+                return (f"a frame with nothing to disagree with ({label}) was refused, so the "
+                        f"documented ordering -- record the run's own frames, bare -- is red: "
+                        f"{str(again)[:120]!r}")
+        entry = [e for e in read_manifest(d)["pages"] if e["png"] == "lock.png"]
+        if not entry or entry[0]["sources_rev"] != "b" * 40:
+            return f"the frame with no history was not recorded at the current commit: {entry[:1]}"
+        return None
+
+    rule("a frame new to the manifest with pixels older than its page is refused, and a frame with "
+         "no history at all is not",
+         in_box(a_frame_new_to_the_manifest_with_older_pixels_is_refused))
+
     def a_moved_declaration_is_said_not_reconciled(box):
         """An untouched frame whose env now disagrees keeps its block, and the file says so."""
         import contextlib
@@ -2018,7 +2241,7 @@ def self_test():
     rule("a run cannot report photographing a frame that is not there",
          in_box(a_shot_with_no_png_is_refused))
 
-    EXPECTED = 42
+    EXPECTED = 44
     if len(ran) != EXPECTED:
         bad.append(f"expected {EXPECTED} rules, ran {len(ran)} -- one was deleted, or never "
                    f"reached (a `return` in self_test() skips everything below it)")

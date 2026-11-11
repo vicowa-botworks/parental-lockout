@@ -600,7 +600,10 @@ of counting nine. Before that, pointed at the committed directory, a partial re-
 `origin/main` with each path's own commit supplied, one `record` over four untouched frames answered
 *0 problems* where the drift arm has four refusals to make. The identity check could not see it then
 and cannot now, because the recorded hash matches the stale file it was recorded from — which is why
-the carried rev, not the digest, is the thing that had to stop moving.
+the carried rev, not the digest, is the thing that had to stop moving. Since #294 the naming is not a
+courtesy but the precondition for recording at all: a frame whose bytes moved that the record does not
+name is refused, so `--shot` lists every frame this run photographed and every frame it did not stays
+carried.
 
 The stronger form of the same hole, measured 6 Nov on the merge of #221: substitution, not staleness.
 In a scratch copy of the committed directory with `main`'s `audit.png` — a photograph of the `MST`
@@ -610,15 +613,45 @@ bytes answers **`9 photographs current`, rc 0**. `record` writes `sources_rev = 
 from the commit and the clock and never asks the pixels what page they show, and `check`'s drift arm
 opens `if recorded == current: continue` — so the equality the recorder mints is the same equality the
 gate reads, and a re-dated frame cannot be seen to be wrong. D-0031 closes the staleness half, because
-the recorder is no longer allowed to move a rev for pixels it did not write. **The substitution half is
-open**, and the carry-over does not touch it by design: swapped bytes differ from the manifest, so they
-are a *changed* frame, and a changed frame nobody names is still re-dated. Two things hold it: `check`
-before `record` refuses the swap on identity, and `--shot` is the input that says which frames this run
-photographed, so a frame named without an env that states its fixture is a refusal rather than a guess.
-What is not there yet is a refusal for a frame whose bytes moved and nobody claimed it — the honest
-recipe for that is `--shot` for every frame the run took, including `lock.png` and `testlock.png`,
-which no driver records for. The bare command is still right for a set this folder took whole and
-honest; it is the *only* command that will not tell you it was wrong.
+the recorder is no longer allowed to move a rev for pixels it did not write. **The substitution half
+was open until #294**: the carry-over never touched it by design, because swapped bytes differ from the
+manifest, so they are a *changed* frame, and a changed frame nobody names used to be re-dated anyway.
+`record` refuses it now — a frame whose bytes are not the ones the manifest carries, and that this run
+did not name with `--shot`, exits 1 and writes nothing, because there is no prior rev worth carrying
+and no honest rev to mint. Re-measured 11 Nov at `d7a5149` through real git over a throwaway repository:
+nine frames recorded at `A`, the masthead moved at `B` with `profiles.png` re-taken in that commit,
+`audit.png` then replaced with another page's frame. `check` refused the swap on identity; one
+`record --shot profiles` made it vanish from `check` and re-dated `audit.png` at `B`; and with
+`--fixture-env runs/pages/fixture.env` supplied that frame also gained this run's `capture` block —
+conditions this run never applied to it, #211 reopened for one frame. A refused record leaves the file
+alone, so the identity finding is still there to be read afterwards. Two consequences: `--shot` is the
+only input separating a re-take from a substitution, so it names **every** frame the run took,
+including `lock.png` and `testlock.png`, which no driver records for; and the bare command is still
+right for a set this folder took whole and honest, because those frames are unchanged and carry.
+
+**A frame the manifest has never seen is the same mint with nothing to carry**, and `record` refuses
+that too (#294) — but on a comparison, never on the absence: named by nobody *and* its own pixels last
+committed at least one commit before its page. The absence cannot be the trigger, because "no entry" is
+also what an honest capture looks like before its commit — `pages.py` records the frames it has just
+photographed while every one of them is still untracked, and `fixture.sh` says *Commit last*. Refuse
+the absence and `make capture` is red on its first run, which is #144's trap wearing the fix's clothes;
+the rule `a frame new to the manifest with pixels older than its page is refused, and a frame with no
+history at all is not` tests both orderings so that mistake cannot be made quietly. Minting matters more
+for an unrecorded frame than for any other, because an unrecorded frame is the one case `check` *does*
+see — `is committed with no entry in` fires on it — and recording it deletes that finding and installs
+in its place the drift arm that compares a fabricated rev against nothing.
+
+The published set carries the specimen one step further along, in `git show 7e65d3b`: `lock.png` and
+`testlock.png` are the only two of the nine entries with no `carried_from` — both revs minted — both
+dated `2088043cb`, written eighteen seconds after that commit landed, while the newest commit over each PNG's
+own pixels is `3bcbfdd`, an ancestor of `2088043`. By this file's own model those two photographs predate
+their page, and `manifest.py check` on that tree answers *9 photographs current*, rc 0: the rev the gate
+would have compared is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so those
+revs are hand-typed from wherever whoever noticed was standing — the recipe below is what tells them what
+to type, and a commit eighteen seconds old is not evidence about a frame taken four hours and twenty-one minutes earlier. Closing it
+takes a re-take, not an edit: `./lock.py` and `./testlock.py`, then
+`record --fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock
+--shot testlock`.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver
@@ -652,7 +685,17 @@ a successful capture — the driver hands over the `fixture.env` of every fixtur
 the artifacts it just took — which is why the manifest and the PNGs land in the same commit as each
 other. Recording a frame a driver does not record (`lock.py` and `testlock.py` write no manifest) is
 the one case that takes the flags by hand: `record --dir … --fixture-env runs/lock/fixture.env
---shot lock`.
+--shot lock` — one `--fixture-env` per fixture re-seeded, and **one `--shot` per frame re-taken**, so
+once both POST drivers have run it is `--shot lock --shot testlock` with both envs. The flags are not
+interchangeable with the envs, and the difference is measured, not stylistic: against the pre-#294
+recorder, `--fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock`
+typed after *both* POST frames had been re-taken and the masthead had moved again recorded
+`testlock.png` at the masthead's commit while the newest commit touching its own pixels sat one commit
+behind — and `check`, which named the seven stale page frames one at a time, said nothing about that
+one (`recorded == current` is the arm it skips on). One flag per fixture is the mistake; a flag names a
+frame. Ordering is the other half of the honesty: type `record` in the same commit as the re-take, not
+several commits after it, because `--shot` is the only thing that says when a frame was taken while
+`sources_rev` is written from wherever the run is standing.
 
 `--overwrite` is a second flag on purpose. Writing this README and then testing its own
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the
