@@ -68,138 +68,6 @@ def discard_stage():
         os.rmdir(stage)
 
 
-# The directory a refused run leaves its frames in, and the note beside them. See `keep_refused`
-# for why the bytes are kept and `refused_dir` for why they can only ever land here.
-REFUSED_NOTE = "REFUSED.txt"
-_REFUSED = None
-
-
-def refused_dir(mode):
-    """`testing/capture/runs/<mode>-refused` -- the only directory a refusal may write into.
-
-    Named from the fixture and from `RUNS`, never from `--out`, because `--out` is where the
-    evidence lives and a refusal's whole contract is that nothing lands there (#222 is what a
-    half-replaced evidence set costs). `--out runs/pages-refused` is the one way an operator
-    could point the two at the same directory, so `keep_refused` asks about the run's own target
-    as well and declines the keep when they overlap.
-    """
-    return op.join(RUNS, f"{mode}-refused")
-
-
-def keep_refused(keep, note=None, out=None):
-    """Move what this run has staged into `keep`; write `note` beside it; touch nothing at `--out`.
-
-    Deleting the frames a refusal had already measured used to be the contract, and it made a
-    refusal an argument nobody could check. Measured 6 Nov on `main` with the condition the capture
-    notes already document as refusing this fixture
-    (`PLOCK_CAPTURE_SCRIPTS=on ./pages-setup.sh && ./pages.py`): one page refused, five measured
-    `FITS` and printed their artifact paths, and the run then deleted all five --
-
-        REFUSED: /: the 'casey' row says ['locked out until 18h 16m', ...]
-          no file was written
-          /users     @360   ... FITS  .../runs/pages/users.png
-          ... four more like it
-        Nothing was written to .../runs/pages.
-
-    Six sentences about files, and the directory held none of them. The operator had the refusal's
-    prose and nothing else, including no picture of the page that refused -- every guard runs
-    before `write_png`, which is correct for a publish and was silently correct for a look.
-
-    So the frames come here instead. Two properties are enforced below rather than trusted:
-
-      * **Moved, not copied from a live stage.** `_PENDING` is emptied, so `publish()` has no
-        entry left to copy even if a future caller reaches it with a broken refusal count. The
-        bytes are no longer addressed by a staged path at all.
-      * **Staleness cleared once, on opening, never again.** A frame from yesterday's refusal
-        sitting beside today's is the same lie in a new costume, so whatever is in the directory
-        when this run first opens it is deleted; what this run writes after that is left alone.
-
-    Safe to call more than once: it opens the directory on the first call and moves whatever has
-    been staged since the last. Returns the frames it moved this time, or None when it declined
-    to write there -- and declining destroys them, the old behaviour, because a keep directory
-    outside `runs/` or overlapping `--out` is a frame about to be read as evidence, which is worth
-    less than the bytes.
-    """
-    global _REFUSED
-    real_runs = op.realpath(RUNS)
-    real_keep = op.realpath(keep)
-    inside = real_keep != real_runs and (real_keep + op.sep).startswith(real_runs + op.sep)
-    real_out = op.realpath(out) if out else None
-    overlaps = real_out is not None and (real_keep == real_out
-                                         or real_keep.startswith(real_out + op.sep)
-                                         or real_out.startswith(real_keep + op.sep))
-    if not inside or overlaps:
-        why = (f"{keep} is not inside {real_runs}" if not inside else
-               f"{keep} is the directory this run publishes to (--out {out})")
-        print(f"REFUSED-KEEP: {why}, so a frame left here could be read as the evidence this run "
-              "refused to write. The frames it measured are destroyed instead.", file=sys.stderr)
-        discard_stage()
-        return None
-    if _REFUSED != real_keep:
-        os.makedirs(real_keep, exist_ok=True)
-        stale = sorted(f for f in os.listdir(real_keep)
-                       if f.endswith(".png") or f == REFUSED_NOTE)
-        for name in stale:
-            os.remove(op.join(real_keep, name))
-        _REFUSED = real_keep
-        if stale:
-            print(f"  {op.basename(real_keep)}/ cleared {len(stale)} file(s) from an earlier "
-                  "refusal; everything in it now came from this run", file=sys.stderr)
-    stage = _stage_dir()
-    moved = []
-    for name in sorted(os.listdir(stage)) if op.isdir(stage) else []:
-        dest = op.join(real_keep, name)
-        os.replace(op.join(stage, name), dest)
-        moved.append(dest)
-    _PENDING.clear()
-    if op.isdir(stage):
-        # An empty stage is what `publish` would walk; leave nothing behind to walk.
-        try:
-            os.rmdir(stage)
-        except OSError:
-            pass
-    if note:
-        with open(op.join(real_keep, REFUSED_NOTE), "a") as fh:
-            fh.write(note)
-    return moved
-
-
-def capture_refused(cap, path):
-    """Photograph the page a refusal just rejected, straight to a path nothing publishes from.
-
-    Every guard in a driver runs BEFORE the write, and that is right -- a photograph of a page in
-    a state nothing declares must not be published -- but it also meant the refusing page was
-    never photographed at all. The refusal is the only thing a driver says about a page, so that
-    sentence should travel with the picture it is a sentence about. Measured 6 Nov: `/` was
-    refused for reading `locked out until 18h 16m` where the fixture declares `locked out until
-    00:00`, and no amount of rerunning the recipe would have shown anyone the page.
-
-    This is deliberately NOT `session.write_png`: that stages into `_PENDING`, which is the queue
-    `publish()` copies into the artifact directory. These bytes go to the path named, full stop,
-    and the path comes from `refused_dir`.
-
-    It reports and does not raise, for the reason `report_refusal` gives for its own shape. This
-    runs from inside a refusal handler, and a diagnostic that dies replaces the real cause with
-    the diagnostic's own -- the browser is exactly as likely to be gone as still up at this
-    moment, since `require_running` raising is one of the refusals that gets here.
-    """
-    try:
-        cap.require_running()
-        data = cap.session.screenshot()
-        with open(path, "wb") as fh:
-            fh.write(data)
-    except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a diagnostic never outranks the refusal
-        # `SystemExit` is spelled out because it is not under `Exception`, and it is the arm this
-        # call is most likely to take: `require_running` raises it, and a dead browser is one of the
-        # refusals that reaches here. The rule that found this (`a dead browser still leaves the
-        # refusal standing`) is the reason it is not left as a bare `except Exception`.
-        print(f"  no frame of the refused page: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return None
-    print(f"  what the page actually renders is at {path} -- this run refused to publish it, so "
-          "it is not evidence; read it with REFUSED.txt beside it", file=sys.stderr)
-    return path
-
-
 def fixture(name):
     """The run directory for one capture, and the fixture's own answers."""
     d = op.join(RUNS, name)
@@ -719,6 +587,595 @@ def require_choice_groups(got, what):
             "an inline run of text lets the box wrap away from the words it belongs to (#202).")
 
 
+# The navigation census, spliced into the same measurement as the control census (#204).
+#
+# One row per `<nav>` element, and every anchor inside it with the four properties #204's
+# criterion names -- `color`, `font-weight`, `text-decoration-line`, `border-bottom-width` -- plus
+# the background it names as acceptable instead, the `aria-current` value the shell writes, and the
+# box. The box is here because criterion 4 is a position claim ("the marked entry is inside the
+# header on all five pages"), and a property comparison cannot answer a position claim; the
+# header's own rect comes back with it so "inside" is a comparison rather than an opinion.
+#
+# `vis` is `checkVisibility`, not `offsetParent`: an anchor can be legitimately hidden by the page
+# (a template that renders a link only when there is something to link to) and #204 counted what a
+# reader sees. Chrome's own answer, with the `visibility` property included so a link hidden by
+# the stylesheet is not counted as a link the palette has to explain.
+NAV_JS = (
+    "'nav':(function(){"
+    "var rows=[];"
+    "Array.prototype.forEach.call(document.querySelectorAll('nav'),function(n){"
+    "var ncs=getComputedStyle(n);"
+    "var items=[];"
+    "Array.prototype.forEach.call(n.querySelectorAll('a'),function(a){"
+    "var s=getComputedStyle(a);var r=a.getBoundingClientRect();"
+    "items.push({text:(a.textContent||'').replace(/\\s+/g,' ').trim(),"
+    "href:a.getAttribute('href'),cur:a.getAttribute('aria-current'),"
+    "color:s.color,weight:s.fontWeight,dec:s.textDecorationLine,"
+    "bw:s.borderBottomWidth,bc:s.borderBottomColor,bg:s.backgroundColor,"
+    "x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height),"
+    "vis:a.checkVisibility===undefined?true:a.checkVisibility({visibilityProperty:true})});});"
+    "rows.push({display:ncs.display,overflow:n.scrollWidth>n.clientWidth+1,items:items});});"
+    "return rows;})(),"
+    "'header':(function(){var h=document.querySelector('header');"
+    "if(!h){return null;}var r=h.getBoundingClientRect();"
+    "return {x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),"
+    "h:Math.round(r.height)};})()"
+)
+
+# The two values a link has when no stylesheet has touched it. Chrome's UA sheet puts
+# `color: -webkit-link` and `text-decoration: underline` on every anchor, and `-webkit-link`
+# resolves to this. #204 measured exactly these two on all five photographed pages: every link
+# `rgb(0, 0, 238)`, weight 400, underlined.
+UA_LINK_BLUE = "rgb(0, 0, 238)"
+UA_UNDERLINE = "underline"
+
+# The smallest box that is a target rather than a glyph, in pixels.
+#
+# #199 is a complaint about a hand as much as about a colour: "when accessing from a phone ... the
+# text is so small ... it is difficult to navigate". Measured on this stylesheet, a navigation entry
+# is 26 px tall with `nav a`'s padding gone and 40 px with it -- 23.6 px of line box, 14.4 px of
+# `.45rem` padding, 2 px of reserved border. `pages.py` transcribes the same 40 as its fixture's
+# `NAV_HEIGHT`; this is the floor the guard refuses under, and the two agree on the number while
+# doing different jobs, one a measurement of what the page renders and one a claim about what a thumb
+# can hit. #229's review is why it is a number at all: deleting the padding line was green in every
+# Go guard, every other capture guard, and a full nine-page capture run.
+NAV_MIN_TARGET = 40
+
+
+def _border_px(value):
+    """The pixel width a computed `border-bottom-width` reports, or None when it is not a length.
+
+    Chrome answers `2px`. A census from anything else could answer `2 px`, or a keyword like
+    `medium`, and a parser that read those as 0 would turn "the browser is not drawing this border"
+    into "it is drawing it at zero width" -- two different refusals collapsed into one wrong number.
+    So a value this cannot read comes back as None and the caller says it could not read it.
+    """
+    text = str(value or "").strip().lower()
+    if not text.endswith("px"):
+        return None
+    try:
+        return float(text[:-2])
+    except ValueError:
+        return None
+
+
+def _nav_rows(got, what):
+    """The navigation rows, or a refusal naming the census that was never taken.
+
+    The same shape as the three #202 guards, for the same reason: a check that reads a key nobody
+    measured does not pass because the page is fine, it passes because nothing was ever compared,
+    and the transcript cannot tell the two apart.
+    """
+    rows = (got or {}).get("nav")
+    if rows is None:
+        raise SystemExit(f"{what}: asked whether the navigation marks the current page when no "
+                         "navigation census was taken for it. The census has to be spliced into "
+                         "the measurement (cdp.NAV_JS), and a check that reads a key nobody "
+                         "measured is a check that always passes (#204).")
+    return rows
+
+
+def nav_census_line(got):
+    """What the #204 guards were shown, on the same line as the #202 census.
+
+    `nav=5 links marked=Status overflow=0` -- the marked entry named by its own text rather than by
+    an index, because the text is the only thing a reader of the transcript can check against the
+    photograph below it.
+
+    Where there is not exactly one mark the field is a COUNT, not a name: an empty navigation prints
+    `nav=0 links marked=0` and a doubly-marked one prints `marked=2`. It said `marked=none` for the
+    first of those until #229's review read the line the code actually writes, and the difference is
+    not cosmetic -- `none` is a word this file uses for a state it did not measure, and a transcript
+    reading `marked=none` on a page that measured zero marks would be the one place in the run where
+    a reader could not tell an absence from a gap. Zero is the case this folder refuses to let pass
+    silently (see `census_line`), and the refusal is the guard's job; this line's job is to report
+    what the census saw, in the units it counted in.
+    """
+    rows = (got or {}).get("nav") or []
+    items = [i for row in rows for i in row["items"]]
+    marked = [i for i in items if i["cur"] == "page"]
+    return (f"nav={len(items)} links marked={marked[0]['text'] if len(marked) == 1 else len(marked)}"
+            f" overflow={sum(1 for row in rows if row['overflow'])}")
+
+
+def nav_names(items, limit=4):
+    """Navigation entries by their own text, the way a refusal has to name them.
+
+    Not `_listed`, which names a *control* by its tag and `name` attribute: an anchor has neither
+    in the way a reader of the transcript could check, and the artifact below the refusal line
+    shows these links by their words. Falls back to the href for an anchor with no text, because
+    the refusal still has to point at something.
+    """
+    def one(item):
+        return repr(item["text"]) if item["text"] else f"href={item['href']!r} (no text)"
+    head = ", ".join(one(i) for i in items[:limit])
+    return head if len(items) <= limit else f"{head}, and {len(items) - limit} more"
+
+
+def require_nav_marked(got, what, nav):
+    """Exactly one entry per navigation row says "this is the page you are on" (#204), and it is the
+    entry this page belongs to.
+
+    `nav` is the href the fixture declares for this page's section, and it is what turns a count
+    into criterion 1. Without it the strongest thing this function could say is "one of these five
+    is marked", which a stylesheet gets right on every page by marking the first -- and nine
+    photographs of a wrong mark are nine photographs of the wrong page. The alternative source for
+    that string, deriving the section from the URL here, would be a second copy of the segment rule
+    `internal/web/sources.go` already owns; D-0025 refused that duplication for the browser, and
+    the same reason applies a layer out.
+
+    The count is the whole of #199's first sentence -- "indicate clearly which page is currently
+    selected" -- and #204 measured it as zero everywhere: five links per page, none carrying
+    `aria-current`, on all five photographed pages.
+
+    Zero and two are different failures and both are refused by name. Zero is the reported defect.
+    Two is what happens when the site's name stays an anchor to the root while the row also carries
+    an entry for the root: two elements marked current on one page turns the mark into decoration,
+    which is the belief the issue was filed against.
+
+    Then the position, because criterion 4 is a position claim and property comparisons cannot
+    answer it: the marked box has to be inside the header's box. A navigation moved out of the
+    header -- into a footer, or into a `<div>` after `</header>` -- would keep marking the right
+    entry and would satisfy every property check in this file while photographing something the
+    report did not ask for.
+
+    Then the box's own height, because #199's first sentence is about a thumb and not only about an
+    eye. `NAV_JS` has always recorded `h` per entry and the header check has always read `y`, and
+    until #229's review nothing in the repository read `h`: deleting `nav a`'s padding left every Go
+    guard green, left `require_nav_in_palette` and `require_nav_distinguishable` green (padding moves
+    no colour, weight, decoration or border), and let a full nine-page capture exit 0 while the
+    profiles frame genuinely moved 17 px. A census that measures a box and refuses nothing about it
+    is a census that was never asked the question. The floor is the marked entry's own -- the one a
+    reader is aiming at -- and `NAV_MIN_TARGET` says why 40.
+
+    What this does NOT ask is whether the marked entry's *name* is the page's name. The row's first
+    entry reads "Status", its `<title>` reads "Status", and no heading on the page says either word
+    (#219). That is a page-identity question and a census of computed style cannot settle it.
+    """
+    rows = _nav_rows(got, what)
+    header = (got or {}).get("header")
+    for row in rows:
+        items = [i for i in row["items"] if i["vis"]]
+        marks = [i for i in items if i["cur"] == "page"]
+        if len(items) < 2:
+            raise SystemExit(
+                f"{what} has a <nav> holding {len(items)} visible links, so nothing in it can be "
+                "marked out of a set. #204 asks which entry is the current page *of the row*; a row "
+                "of one has no other entry, and a page that lost its links fits at any width "
+                "(#140's lesson, applied to the header).")
+        if not marks:
+            raise SystemExit(
+                f"{what} has {len(items)} links in its navigation and marks none of them current. "
+                "No entry carries `aria-current=\"page\"`, so the row cannot be told which page it "
+                "is on by anything except reading the URL -- which is the defect #204 was filed "
+                "about, measured as zero marks on all five photographed pages.")
+        if len(marks) > 1:
+            raise SystemExit(
+                f"{what} marks {len(marks)} navigation entries current "
+                f"({', '.join(repr(i['text']) for i in marks)}). `aria-current=\"page\"` is one "
+                "fact about one location; two of them is the header containing a second route to "
+                "the root, and the reader cannot tell which one the page is.")
+        marked = marks[0]
+        if not marked["text"]:
+            raise SystemExit(
+                f"{what} marks a navigation entry with no text as the current page. A screen reader "
+                "announces the mark and nothing to announce with it, and the parent looking at the "
+                "photograph sees a mark on blank space.")
+        if not any(i["href"] == nav for i in items):
+            raise SystemExit(
+                f"{what} declares its section as {nav!r} and the rendered row offers no such href "
+                f"({nav_names(items, limit=8)}). Either the shell lost an entry or this page's "
+                "declaration is stale -- and with no entry for this page, there is nothing the mark "
+                "could correctly be on, so criterion 1 cannot be answered at all.")
+        if marked["href"] != nav:
+            raise SystemExit(
+                f"{what} is photographed in the {nav!r} section and marks {marked['href']!r} "
+                f"({marked['text']!r}) current. Criterion 1 is about the link whose href resolves to "
+                "the page being photographed; this is what a stylesheet that marks the first entry "
+                "on every page looks like, and it would have been photographed, plausibly, nine times "
+                "over.")
+        if header is None:
+            raise SystemExit(
+                f"{what} marks an entry current and renders no <header> for the mark to be inside. "
+                "#204's criterion 4 is that the mark is the header's current-page mark; measured "
+                "against no header, that claim is about nothing.")
+        if not (header["x"] <= marked["x"] and header["y"] <= marked["y"]
+                and marked["y"] <= header["y"] + header["h"]):
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current at ({marked['x']},{marked['y']}) while "
+                f"the header spans y={header['y']}..{header['y'] + header['h']}, so the mark is not "
+                "the header's. A navigation moved out of the header keeps marking the right entry "
+                "and photographs a different page than the one #204 asked about.")
+        # The target, measured on the one entry the reader is aiming at. The comparison is on the
+        # rounded number NAV_JS records -- the same one the census prints -- because a floor is a
+        # claim about a thumb, and a thumb does not care about the tenth of a pixel the browser
+        # rounded away.
+        if marked["h"] < NAV_MIN_TARGET:
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current in a box {marked['h']} px tall, under the "
+                f"{NAV_MIN_TARGET} px this row is required to offer. #199 is a complaint about "
+                "navigating a phone with a thumb: the mark being on the right link, in the right "
+                "colour, at the right weight, says nothing about the link being hittable. That is "
+                "`nav a`'s padding -- 26 px without it, 40 with it, measured on this stylesheet -- "
+                "and no other guard in this repository reads a box's height, which is how deleting "
+                "it stayed green through nine photographs (#229).")
+
+
+def require_nav_in_palette(got, what):
+    """No link in the navigation is still the browser's own link (#204's first sentence).
+
+    The scope is the navigation, and it is worth saying because the sentence above it does not carry
+    it: #204's table is the five links in `<nav>` on five pages, so the loop below walks the rows
+    `NAV_JS` censused and nothing else. A link in the page's own body that still computes to the
+    user-agent's blue is outside this census -- `NAV_JS` selects `nav`, and a guard can only refuse
+    what it was shown. Widening it would mean widening the census to every anchor on nine pages,
+    which is a different claim about a different set of links than the one the report measured.
+
+    #199 opens with "it doesn't match the color palette of the system" and #204 measured why: the
+    stylesheet's only rule for `a` was `:focus-visible`, so every anchor kept Chrome's user-agent
+    `color: -webkit-link` -- `rgb(0, 0, 238)` -- and its underline, next to a page that says
+    `--ink: #1a1c20` in its first lines. The first committed artifact even shows the visited half:
+    the site's name rendered `rgb(100, 0, 100)` because the capture browser had already been to the
+    root and the UA's visited rule was the only rule about that anchor's color.
+
+    Two properties, both the UA's signature, checked on every link in every navigation row. This
+    refuses on the value, not on the presence of a rule: a stylesheet that reaches these links by
+    any selector at all passes, and one that greps beautifully while a typo keeps the UA value on
+    the page fails.
+
+    The visited state is NOT observable here and this says so rather than pretending: a fresh
+    profile has no history, so `a:visited` never matches in the capture browser. What protects it
+    is the same author declaration -- an author `color` on the anchor outranks the UA's visited rule
+    for the same reason it outranks the UA's unvisited one -- and the artifact above is why the
+    check is worth having even so.
+    """
+    rows = _nav_rows(got, what)
+    blue = []
+    underlined = []
+    for row in rows:
+        for item in row["items"]:
+            if not item["vis"]:
+                continue
+            if item["color"] == UA_LINK_BLUE:
+                blue.append(item)
+            elif item["dec"] == UA_UNDERLINE:
+                underlined.append(item)
+    if blue or underlined:
+        parts = []
+        if blue:
+            parts.append(f"{nav_names(blue)} still user-agent blue {UA_LINK_BLUE}")
+        if underlined:
+            parts.append(f"{nav_names(underlined)} still carries the user-agent's underline")
+        raise SystemExit(
+            f"{what} has {len(blue) + len(underlined)} navigation link(s) the stylesheet never "
+            f"claimed ({' | '.join(parts)}). The palette in `app.css` says `--ink: #1a1c20` and "
+            "`--muted: #5b6270`; a link reading neither is not in the palette (#204, #199).")
+
+
+def require_nav_distinguishable(got, what, nav):
+    """The entry for this page differs from every sibling on something a browser agrees is visible.
+
+    The first four properties are the issue's own list -- `color`, `font-weight`,
+    `text-decoration-line`, `border-bottom-width` -- and the reason all of them are read is the
+    failure this rule exists for: a stylesheet can mark the current page with a rule the engine
+    throws away, or with a rule whose effect is invisible, and every grep in the repository stays
+    green while the reader sees the same row. #204's wording is that the current link "does not
+    differ from its siblings in any property a reader can see", so that is exactly the comparison.
+
+    `border-bottom-color` is the fifth and it is here because the four as written cannot see the
+    design this stylesheet chose: every link reserves a 2px border so marking the current one does
+    not move the row, so `border-bottom-width` is `2px` everywhere and only its COLOR changes. A
+    comparison limited to the width would call this page unmarked. Adding a property makes the
+    guard more accepting, never less: it still refuses the case where nothing at all differs, which
+    is the regression that actually ships.
+
+    The obvious cheap compliance -- `text-decoration: underline` on the current page alone --
+    satisfies "at least one of them" and is the worst answer available, because the row's links
+    just stopped being underlined when they stopped being plain anchors. That is not written as a
+    rule here: a rule saying "the mark must not be an underline" is a rule about one design, and
+    the next designer argues with it and wins. It is written as the comment on the stylesheet rule
+    instead, where the person editing that rule reads it.
+
+    The reservation itself is the exception to that paragraph, and it is measured here rather than
+    left to the comment, because #229's review showed what leaving it costs: deleting
+    `border-bottom: 2px solid transparent` from `nav a` was green in the whole `internal/web`
+    package AND green through a full capture run. With the reservation gone every link computes
+    `0px`, the current-page rule's `border-bottom-color` is a colour on a border the browser never
+    draws, and the comparison above still passes on colour and weight alone -- so the third visible
+    part of the mark silently stops existing while every property named in the issue's own list
+    still differs. That is not a sixth property added to the comparison, it is the fifth one made
+    honest: `bc` only means anything on a border that is drawn.
+
+    So two things are asserted about the width, on the whole row rather than on the marked entry
+    alone. It is non-zero -- otherwise nothing is drawn -- and every entry computes the same value,
+    because "marking the current entry cannot move the row's baseline" is a claim about the row: a
+    width that differs between siblings is the design D-0035 refused, and it would have put 2 px of
+    vertical jump on every page the shell renders.
+    """
+    rows = _nav_rows(got, what)
+    for row in rows:
+        items = [i for i in row["items"] if i["vis"]]
+        # The entry this page belongs to, by href -- not "the marked one", which is the same row
+        # only after require_nav_marked has run. Criterion 1 names the link "whose href resolves to
+        # that page", so this guard asks about that link; in `shoot()` the marked guard runs first
+        # and has already refused the case where the two disagree, and a caller that runs this one
+        # alone gets no comparison rather than a second, weaker opinion about the wrong element.
+        marks = [i for i in items if i["href"] == nav]
+        if len(marks) != 1:
+            continue  # require_nav_marked owns the count and the identity, and says more about both
+        marked = marks[0]
+        same = [i for i in items if i is not marked and all(
+            marked[k] == i[k] for k in ("color", "weight", "dec", "bw", "bc"))]
+        if same:
+            raise SystemExit(
+                f"{what} is in the {nav!r} section and that entry ({marked['text']!r}) looks exactly "
+                f"like {len(same)} of its siblings ({nav_names(same)}) -- "
+                f"color {marked['color']}, weight {marked['weight']}, decoration "
+                f"{marked['dec']}, border-bottom {marked['bw']} {marked['bc']}. The attribute is in "
+                "the DOM and nothing in the stylesheet turns it into something a parent can see, "
+                "which is the half of #204 a grep of `app.css` cannot tell apart from a rule that "
+                "works.")
+        # The reservation the mark is drawn on, asserted on every entry rather than on the marked one.
+        # `reserved` is None when the census reports a width this parser cannot read at all, and that
+        # is said as itself -- a comparison that read `medium` as 0 would refuse with a sentence about
+        # a border nobody drew.
+        reserved = _border_px(marked["bw"])
+        others = sorted({i["bw"] for i in items if i is not marked and i["bw"] != marked["bw"]})
+        if reserved is None:
+            raise SystemExit(
+                f"{what} marks {marked['text']!r} current with a border-bottom-width the capture "
+                f"driver cannot read ({marked['bw']!r}). The mark in this repository is drawn as the "
+                "COLOUR of a reserved border, so an unreadable width is not a harmless extra digit: "
+                "it means the census stopped reporting the number this guard compares.")
+        if reserved <= 0 or others:
+            why = (f"its border-bottom-width computes {marked['bw']!r}, so the browser draws no "
+                   "border at all and the current page's `border-bottom-color` is a colour on "
+                   "nothing" if reserved <= 0 else
+                   f"the entries do not compute it the same: {marked['bw']!r} on "
+                   f"{marked['text']!r} against "
+                   f"{', '.join(repr(w) for w in others)} on its siblings")
+            raise SystemExit(
+                f"{what} marks the current entry on a border that is not the row's reservation: "
+                f"{why}. `nav a` reserves one border on every link precisely so that marking "
+                "the current entry cannot move the row's baseline, and this is the only place that "
+                "reservation is measured: deleting `border-bottom: 2px solid transparent` was green "
+                "package-wide and green through nine photographs, and a future rule that marks by "
+                "width would put a vertical jump in the header of every page the shell renders "
+                "(#229, D-0035).")
+
+
+# The words the pages use to report a state the daemon reached (#199).
+#
+# This is a census of the templates, not a wish list: every name here is one a `.tmpl` file puts on
+# an element, and `every_state_class_the_pages_render_is_in_the_census` below refuses the day one of
+# them stops being rendered -- a guard that measures a class nobody emits passes on nothing. The
+# matching seam on the Go side is `TestEveryStateClassTheTemplatesNameIsDrawn` in internal/web, which
+# refuses the other direction: a word the pages say and app.css never mentions. Since #239 that seam
+# reads the whole vocabulary named here, not only the `state-` prefixed half of it.
+#
+# `state-free` is deliberately absent. app.css has drawn it since before this folder existed and no
+# template has ever rendered it, so it is the one entry in the stylesheet's state block a browser
+# could not be asked about; the Go test asserts both halves of that sentence stay true.
+#
+# #239 moved two names in and moved no pixels out. `.problem` was carrying six jobs at once -- a
+# refused write, a per-account fact, a backend's detail, the standing "enforcement is switched off"
+# sentence, one paragraph of help prose and a missing value -- and `.override` carried both the open
+# hold and the self-session sentence whose whole content is that nothing is held. Two of those jobs had
+# no name, so they are in this census: `refusal` (the write that did not happen, the evaluator's
+# complaint) and `exempt` (the session the daemon runs inside, which no schedule will lock). The other
+# three went to names already listed here or to no state at all -- the mode notice to `disabled`, the
+# missing value to `state-gap`, the help prose to `muted`, which is not a state and stays out. A name
+# this list gains is a name Chrome is now asked about on every photographed page, which is the half of
+# the guard a rename cannot quietly opt out of.
+# The four row-level state names, named separately because nothing outside this file can find them.
+#
+# They are the finding the coverage rule in `pages.py --self-test` produced the first time it was run,
+# and the reason that rule's first version was wrong. `dashboard.tmpl:33` writes
+# `class="{{if .LockedOutNow}}held{{end}}{{if .CannotEvaluate}}unreadable{{end}}"` and `users.tmpl:43`
+# writes `class="{{if .Stale}}stale{{end}}{{if not .Configured}}unmanaged{{end}}"`, so the four names
+# exist only as the text BETWEEN template actions and carry none of the `state-` prefix. A reader that
+# scans class attributes for literal words finds them; a reader that requires the prefix does not; and
+# `app.css` on the head this branch started from had no rule for any of the four -- measured with
+# `grep -n "tr\.\|tbody tr" internal/web/static/app.css`, which answered nothing at all. So a row whose
+# account is switched off, unreadable, stale or unmanaged was marked only by whichever word one of its
+# cells happened to hold, and the row -- the thing a parent's eye travels down when it is not reading --
+# said nothing. That is #199's report one level above the sentence. The list is here by name because the
+# browser is the only reader that can see a composed class on a page, and a census that silently omits
+# four names is a census that passes on them.
+ROW_STATE_CLASSES = ("held", "unreadable", "stale", "unmanaged")
+
+STATE_CLASSES = ("state-held", "state-unknown", "state-gap", "problem", "refusal", "override",
+                 "override-expired", "exempt", "disabled", "flag", "banner") + ROW_STATE_CLASSES
+
+
+# The state census (#199): every element on the page carrying one of those classes, with the four
+# properties that travel to it from the sentence it sits in -- computed for the element AND for its
+# own parent -- plus the two that belong to its box.
+#
+# The parent is the whole point. #199's report is that the UI "is very basic", and the located cause
+# on the pages a parent actually reads is that the stylesheet wrote a rule for one of these classes
+# and left the rest. Measured in Chrome on the pre-fix tree, `/users` at both viewports: six state
+# words on the page, ZERO drawn differently from the prose around them -- "in the configuration, not
+# on the machine" (`state-unknown`), "not managed" (`state-gap`), "the account no longer exists"
+# (`problem`) and the page's own banner paragraph. `/` drew one of its four, the red bold "locked
+# out", beside a "no desktop session" in the same ink and weight as the sentence next to it.
+#
+# A class can be in the DOM, and named in the stylesheet's prose, and do nothing at all -- so the
+# question is not "does app.css mention `.state-gap`", it is "does the browser draw this word
+# differently from the sentence it is sitting in".
+STATE_JS = (
+    "'states':(function(){var out=[];"
+    "[" + ",".join(f"'{c}'" for c in STATE_CLASSES) + "].forEach(function(c){"
+    "Array.prototype.forEach.call(document.querySelectorAll('.'+c),function(e){"
+    "var s=getComputedStyle(e),p=e.parentElement,ps=p?getComputedStyle(p):s;"
+    "out.push({cls:c,text:(e.textContent||'').replace(/\\s+/g,' ').trim().slice(0,48),"
+    "color:s.color,weight:s.fontWeight,style:s.fontStyle,dec:s.textDecorationLine,"
+    "bw:s.borderLeftWidth,bg:s.backgroundColor,"
+    "pcolor:ps.color,pweight:ps.fontWeight,pstyle:ps.fontStyle,pdec:ps.textDecorationLine,"
+    "vis:e.checkVisibility===undefined?true:e.checkVisibility({visibilityProperty:true})});});});"
+    "return out;})()"
+)
+
+# The four properties that travel from the text an element sits in, as
+# (the name a refusal prints, the element's own key, its parent's key), and the two that are the
+# element's own paint.
+#
+# The split is the whole rule. Colour, weight, style and decoration are INHERITED: an element that
+# does not change them is being drawn in the voice of the sentence around it, and the parent's value
+# is the right thing to compare against. A border and a background are not inherited -- they belong
+# to the box -- so the honest question about them is what THIS element has, never what its parent
+# has. Comparing them against the parent was the first version of this guard and it was wrong in the
+# direction that matters: the `.problem` paragraph in `/settings` sits inside a `fieldset`, whose own
+# border makes the child's `border-left-width` differ from it, so the guard called a rule-less
+# `<p class="problem">` "drawn as a state" on a stylesheet that never mentioned the class. Measured
+# on the pre-fix tree, 360 px and 1024 px alike.
+STATE_PROPS = (("color", "color", "pcolor"), ("font-weight", "weight", "pweight"),
+               ("font-style", "style", "pstyle"),
+               ("text-decoration-line", "dec", "pdec"))
+
+# What a box reports when nothing paints it: Chrome's answer for `background-color` at its initial
+# value, and a border whose width is zero is not drawn whatever colour it is given.
+STATE_NO_PAINT = ("rgba(0, 0, 0, 0)", "transparent")
+
+
+# What a page that has its states drawn answers, transcribed from the measured `/` frame at 360 px
+# after #199's block went into app.css (the values are Chrome's `getComputedStyle` output for the
+# stylesheet as shipped, not a design sketch). `_fake_browser` in pages.py defaults this key the way
+# it defaults `CLEAN_CENSUS` and `clean_nav`, so a rule about something else is not defeated by a
+# guard it was never about -- and a rule that wants a defect passes its own `states` and wins.
+CLEAN_STATES = [{"cls": "state-held", "text": "locked out", "color": "rgb(179, 38, 30)",
+                 "weight": "600", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "state-unknown", "text": "no desktop session", "color": "rgb(91, 98, 112)",
+                 "weight": "400", "style": "italic", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "disabled", "text": "account switched off", "color": "rgb(132, 86, 0)",
+                 "weight": "400", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True},
+                {"cls": "banner", "text": "casey is locked out now", "color": "rgb(26, 28, 32)",
+                 "weight": "600", "style": "normal", "dec": "none", "bw": "0px",
+                 "bg": "rgba(0, 0, 0, 0)", "pcolor": "rgb(26, 28, 32)", "pweight": "400",
+                 "pstyle": "normal", "pdec": "none", "vis": True}]
+
+
+def _state_painted(r):
+    """True when the element carries a mark of its own -- a border drawn, or a background painted."""
+    return (_border_px(r["bw"]) or 0) > 0 or r["bg"].strip().lower() not in STATE_NO_PAINT
+
+
+def _state_rows(got, what):
+    """The state census, or a refusal naming the census that was never taken.
+
+    The same shape as `_nav_rows` and the #202 guards: a check that reads a key nobody measured does
+    not pass because the page is fine, it passes because nothing was compared.
+    """
+    rows = (got or {}).get("states")
+    if rows is None:
+        raise SystemExit(f"{what}: asked whether the page's states are drawn as states when no "
+                         "state census was taken for it. The census has to be spliced into the "
+                         "measurement (cdp.STATE_JS), and a check that reads a key nobody measured "
+                         "is a check that always passes (#199).")
+    return rows
+
+
+def state_census_line(got):
+    """`states=4 drawn=1` on the driver's measurement line, zeros included.
+
+    `states=0` is a legitimate reading of a page that renders no state word -- `/audit` with rows in
+    it is one -- and this folder's house rule is that a guard which examined nothing says so on the
+    line instead of reporting a silence as a pass (see `census_line`). `drawn` is the number the
+    guard was willing to accept, so `states=6 drawn=0` reads as what it is: six words reporting six
+    states, none of them drawn differently from the prose around them.
+    """
+    rows = (got or {}).get("states") or []
+    seen = [r for r in rows if r.get("vis")]
+    return f"states={len(seen)} drawn={len(seen) - len(_state_lookalikes(seen))}"
+
+
+def _state_lookalikes(rows):
+    """The state elements the browser draws in exactly the voice of the text they sit in.
+
+    An element passes when one inherited property differs from its parent's, or when it carries a
+    border or a background of its own. Any one of those is something a parent can see, and the point
+    of the rule is that a reader can tell the word apart from the sentence -- so this refuses the
+    case where the stylesheet said nothing about the class, and prescribes nothing about which of
+    the four channels a design should move.
+    """
+    bad = []
+    for r in rows:
+        inherited = [name for name, mine, parent in STATE_PROPS if r[mine] != r[parent]]
+        if not inherited and not _state_painted(r):
+            bad.append(r)
+    return bad
+
+
+def require_state_legible(got, what):
+    """Every word the page uses to report a state has to look like a state.
+
+    The refusal is the defect #199 reported, measured rather than read out of the stylesheet. On the
+    pre-fix tree, at both viewports: `/users` reported six state words and drew none of them --
+    "in the configuration, not on the machine" (`state-unknown`), "not managed" (`state-gap`), "the
+    account no longer exists" (`problem`) and the page's own banner paragraph each computed the same
+    colour, weight, style and decoration as the prose they sat in, with no border or background of
+    their own. `/` drew one of its four: the red bold `state-held` "locked out", beside an italic-less
+    muted-less "no desktop session" that a parent reads as the same kind of sentence.
+
+    Nothing here says WHICH treatment a state gets. Colour-blindness, dark mode, and the difference
+    between "cannot be decided" and "locked out" are all arguments about specific properties, and the
+    last time this repository put one designer's answer into a guard -- `nav a:hover` above the
+    current-page rule, #229 -- the guard had to grow three more properties to stay honest. The choice
+    lives in app.css, where the person editing it reads it; the guard only refuses the case where the
+    browser was told nothing.
+
+    An element the browser does not draw is skipped, for the same reason #204 counted only visible
+    links: a state the page is not showing cannot be looked at, and refusing it would mean the next
+    template that renders a row conditionally has to style the case nobody sees.
+    """
+    rows = _state_rows(got, what)
+    visible = [r for r in rows if r.get("vis")]
+    bad = _state_lookalikes(visible)
+    if not bad:
+        return
+    shown = ", ".join(f"{r['cls']!r} {r['text']!r}" for r in bad[:4])
+    more = "" if len(bad) <= 4 else f", and {len(bad) - 4} more"
+    one = bad[0]
+    raise SystemExit(
+        f"{what} reports {len(bad)} of {len(visible)} state(s) the stylesheet never drew "
+        f"({shown}{more}). {one['cls']!r} computes color {one['color']}, weight {one['weight']}, "
+        f"style {one['style']} and decoration {one['dec']} -- every one of them the same as the text "
+        f"it is sitting in, and it carries no border or background of its own (border-left "
+        f"{one['bw']}, background {one['bg']}). The class is in the markup and nothing in app.css "
+        "turns it into something a parent can see, which is what #199 measured: `.state-held` was "
+        "red and bold and every other state word on the page was ordinary prose, so \"no desktop "
+        "session\" and \"locked out\" read as the same kind of sentence. "
+        f"{len(rows) - len(visible)} element(s) carried a state class the browser was not showing "
+        "and were skipped."
+    )
+
+
 def session_rows(session):
     """Every row of every `table.rows` table, as (data-label, text) pairs.
 
@@ -736,6 +1193,49 @@ def session_rows(session):
 # The first words of the self-session note, as one string in one place. Both result pages render
 # the same Detail cell, and the check below is about the seam between that cell's two sentences.
 SELF_SESSION_NOTE = "This is the session the daemon runs"
+
+
+def session_census(rows):
+    """How many of `rows` are the account's own session rows.
+
+    Both POST pages draw the census as a `table.rows` table whose rows carry a `Where` cell, and
+    `testlock` draws a second `table.rows` table above it — one row per configured backend, labelled
+    `Can lock` and `Detail`. Counting `tbody tr` over the whole page therefore counts two different
+    things on the two pages, which is the mistake this function exists to make impossible: the census
+    is the rows with a `Where`, on both pages, whatever else the page has grown beside them.
+    """
+    return sum(1 for r in rows if "Where" in [str(x) for x in (r.get("result") or [])])
+
+
+def require_declared_sessions(rows, declared, what):
+    """The page shows exactly the number of lockable sessions the fixture declared (#213).
+
+    The sibling of `pages.py`'s `require_declared_rows`, one layer down: that one pins a row count to
+    a seeded file, this one pins a row count to a census the machine was asked for before the browser
+    started. Both exist because the alternative is a frame whose shape belongs to whatever the
+    capturing machine happened to be, and both are checks of the *page* rather than of the source
+    they were declared from — the reader of the artifact is counting rows on paper.
+
+    What this catches that `scrollWidth` never could: the census is what decides how tall these two
+    pages are. `lock.png` was re-taken on 8 Nov on a machine holding two lockable sessions for the
+    target — `tty` plus `x11`, both of them `isLockable` at `internal/platform/platform.go:241-258` —
+    and the artifact changed shape by 394 px while every guard in this file stayed green, because
+    nothing anywhere said how many rows the frame was supposed to have. The README that describes
+    these two frames still quotes the 1-session transcript from 27 Oct.
+
+    A refusal here is not a broken page. It is a different page: the same template over another
+    machine's logins. Re-take it deliberately, on a machine whose census is the one the artifact is
+    meant to show, and let the manifest say which that was.
+    """
+    shown = session_census(rows)
+    if shown != declared:
+        raise SystemExit(
+            f"{what}: the page renders {shown} lockable session row(s) and the fixture declared "
+            f"{declared}. The census decides this artifact's height, so a frame taken over a "
+            f"different census is a different page — re-run the setup script on a machine whose "
+            f"census is the one you mean to publish, or declare PLOCK_CAPTURE_SESSIONS={shown} if "
+            f"this one is right and the fixture is out of date (#213).")
+    return shown
 
 
 def require_detail_terminated(rows, what):
@@ -1055,6 +1555,27 @@ class Capture:
             # are the thing a reader of the artifact cannot recover from the pixels afterwards.
             print(f"page scripts: {'off' if scripts_off else 'ON'} for this frame "
                   f"(PLOCK_CAPTURE_SCRIPTS in {op.basename(self.dir)}/fixture.env)", flush=True)
+            # #213, in the same breath: the census is the condition these two frames' height comes
+            # from, and the three things that decided it are named with it. Not the session bus and
+            # not the timezone — `fixture.sh`'s note on `capture_declare_census` carries the
+            # measurements that show why it is the system bus and the loginctl that matter here.
+            if self.env.get("PLOCK_CAPTURE_SESSIONS"):
+                uid = self.env.get("PLOCK_CAPTURE_CENSUS_UID")
+                through = self.env.get("PLOCK_CAPTURE_CENSUS_LOGINCTL")
+                if uid and through:
+                    line = (f"session census: {self.env['PLOCK_CAPTURE_SESSIONS']} lockable "
+                            f"session(s), as uid {uid} through {through}")
+                    if self.env.get("PLOCK_CAPTURE_CENSUS_SYSTEM_BUS"):
+                        line += (f" on DBUS_SYSTEM_BUS_ADDRESS="
+                                 f"{self.env['PLOCK_CAPTURE_CENSUS_SYSTEM_BUS']}")
+                else:
+                    # No loginctl and no uid with it: nobody asked the machine, so the number came
+                    # from a person. Said as plainly as the measured case, because the two support
+                    # different sentences about the frame (#213).
+                    line = (f"session census: {self.env['PLOCK_CAPTURE_SESSIONS']} lockable "
+                            "session(s), declared by the operator rather than taken from the machine")
+                print(f"{line} (PLOCK_CAPTURE_SESSIONS in "
+                      f"{op.basename(self.dir)}/fixture.env)", flush=True)
         except BaseException:
             self.close()
             raise
@@ -1095,6 +1616,32 @@ class Capture:
                 "count. The fixture's declared number is what the audit page's row count is compared "
                 "against, so it has to be a plain integer.")
         return raw
+
+    def declared_sessions(self):
+        """The session census this fixture declares, or a refusal that says where the number comes from.
+
+        #213, and the reason it is a refusal rather than a default: these two pages render one row per
+        lockable session of the target account, so the count is the shape of the artifact — its height
+        with it. `0` read out of an absent key would be a fixture confidently photographing the empty
+        case, and a default of "whatever the page shows" is the check not happening, which is the state
+        the two frames were in until now: the committed `lock.png` is a 2-session page and the README
+        that describes it still quotes the 1-session transcript.
+
+        There is one way for this to be missing legitimately: a `runs/<fixture>/fixture.env` written by
+        a setup script older than the census. The message says so, because the alternative reading —
+        that this file is where the number belongs — would put a second copy of a machine's logins in
+        the driver.
+        """
+        raw = self.env.get("PLOCK_CAPTURE_SESSIONS", "")
+        if not raw.isdigit():
+            raise SystemExit(
+                f"{op.basename(self.dir)} declares PLOCK_CAPTURE_SESSIONS={raw!r}, which is not a "
+                "count. The census decides how many rows this page has and therefore how tall the "
+                "artifact is, so it is declared before the browser starts and checked against the "
+                "page. `capture_declare_census` in fixture.sh writes it into fixture.env from the "
+                "machine's own census: re-run the setup script, or name the count yourself with "
+                "PLOCK_CAPTURE_SESSIONS=<n> in front of it.")
+        return int(raw)
 
     def require_running(self):
         """The daemon and the browser this fixture started must still be the ones in use.

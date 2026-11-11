@@ -90,7 +90,12 @@
                separator alone was still not enough: a space is not a sentence boundary, so
                the detail now arrives from DetailText already terminated, and this stays a
                space rather than becoming one (#108). */ -}}
-        {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="override">This is the session the daemon runs
+        {{- /* `.exempt`, not the `.override` this sentence used to share with the status page's
+               open hold (#239): its whole content is that nothing is held here and nothing can be,
+               and a reader who had learned that voice meant "a hold is open" read the daemon's own
+               exemption as one. The voice itself is unchanged -- muted is the note beside the
+               quoted detail, and #108's seam depends on the two staying distinguishable. */ -}}
+        {{- if .SelfSession}}{{if .Detail}} {{end}}<span class="exempt">This is the session the daemon runs
           inside. Its schedule never locks it, because the daemon cannot lock itself out of
           enforcing; {{if .Locked}}you asked for this one, so it happened.{{else}}you asked for
           this one, and the column beside it says what came of it.{{end}}</span>{{end -}}

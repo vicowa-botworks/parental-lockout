@@ -22,7 +22,7 @@ LDFLAGS_ASM = ld="-s -w -X \"$${PKG}.Version=$${VERSION}\" -X \"$${PKG}.Commit=$
 
 .DEFAULT_GOAL := build
 
-.PHONY: build fmt vet test verify check-scripts check-shell check-mutations mutate package package-verify clean install uninstall run-dev
+.PHONY: build fmt vet test selftest verify check-scripts check-shell check-denies check-mutations mutate package package-verify clean install uninstall run-dev
 
 build:
 	@mkdir -p bin
@@ -75,15 +75,44 @@ fmt:
 # --self-test`, so deleting a step here leaves `verify` green. That is why the shape is shared by
 # both steps rather than fixed in one of them -- two invocations of the same script must not be
 # asserted in two different strengths.
+# The factory step (#228) is the first gate `factory/*.sh` has ever had. Measured on this branch:
+# `grep -rn factory Makefile .github/workflows/` returns nothing, so the four scripts that decide
+# which issue is worked next, when the queue halts, and what gets merged were linted and tested by
+# no job at all -- including the dirt verdict that halts the whole pass, which is the one command in
+# the loop that refuses to do work. It goes in this target rather than in a job of its own for the
+# reason given twenty lines above, where the attack suite is placed: a guard that runs only when
+# somebody remembers it is a guard whose evidence nobody can reproduce. It starts no repository of
+# its own -- the fixture is a throwaway under $TMPDIR -- writes nothing outside it, and costs 0.4 s
+# measured, against the 3m9s this target already costs.
+#
+# The decision-log gate (#216) is here for the same reason the two above it are: the delivery
+# supervisor runs sessions with nobody in the loop, and the whole licence for that is that every
+# judgement call it makes is written down with its alternatives and a checkpoint to roll back to.
+# A log that is not checked is a list of conclusions, and a list of conclusions is what is useless
+# six weeks later. It costs milliseconds -- it parses one markdown file -- and it pins its own
+# invocation, so the two lines below cannot be deleted without this target refusing.
+# The harness's own suite, on its own. `factory/selftest.sh` is pure bash and git, and every other way
+# to run it goes through `verify`, which begins with gofmt and the Go guards -- so on a machine with no
+# Go toolchain (a CI runner before the setup step, a fresh box, anyone debugging the delivery loop) the
+# suite that checks the delivery loop cannot be invoked at all. Measured 9 Nov on the #238 runner: the
+# diagnosis needed the harness suite and the only documented entry point was `make verify`.
+selftest:
+	@bash factory/selftest.sh
+
 verify:
 	@set -e; \
 	echo "==> gofmt"; \
 	dirty=$$($(GOFMT) -l .); \
 	if [ -n "$$dirty" ]; then echo "not gofmt-clean:"; echo "$$dirty"; exit 1; fi; \
+	echo "==> shell command-shape guard"; python3 scripts/check-scripts.py --self-test; \
 	echo "==> script and set-file encoding guards"; python3 scripts/check-scripts.py; \
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
 	echo "==> mutation-gate self-test"; python3 scripts/check-mutations.py --self-test; \
+	echo "==> decision-log contract"; python3 scripts/check-decisions.py --self-test; \
+	echo "==> decision log"; python3 scripts/check-decisions.py; \
+	echo "==> factory dirt verdict"; bash factory/selftest.sh; \
 	echo "==> shellcheck"; $(MAKE) --no-print-directory check-shell; \
+	echo "==> agent deny list"; python3 scripts/check-denies.py --self-test; python3 scripts/check-denies.py; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
 	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \
@@ -157,6 +186,13 @@ check-scripts:
 
 check-shell:
 	@SHELLCHECK="$${SHELLCHECK:-shellcheck}" ./scripts/check-shell.sh
+
+# The same skip-when-absent contract as check-shell, and the same reason: CI has no opencode, and a
+# gate that fails on a fresh clone is a gate people route around. `CHECK_DENIES_REQUIRED=1` is how a
+# box that does have it says the skip is not acceptable there.
+check-denies:
+	@python3 scripts/check-denies.py --self-test
+	@FACTORY_OPENCODE="$${FACTORY_OPENCODE:-opencode}" python3 scripts/check-denies.py
 
 # mutate puts each known bug back into the source one at a time and insists the suite
 # notices. A green `go test` says the code passes the tests; it does not say the tests

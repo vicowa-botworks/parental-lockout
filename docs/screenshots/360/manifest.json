@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-11-06T09:12:46Z",
-  "head": "45977d6817cb71cb3e798e0dc0c6fec6ae5eb624",
+  "captured_at": "2026-11-10T13:59:03Z",
+  "head": "cff128e5b08e0b117f6c9ad36f021107973d5eb4",
   "pages": [
     {
       "capture": {
@@ -18,16 +18,17 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/audit",
       "png": "audit.png",
-      "png_sha256": "0cfe9973711b38fe627f1db6c310a2c39e29858e047a653bfc7223a9b1720671",
+      "png_sha256": "fc37cd9adcc5d0a87c77a903b8a93453a18a638575673e70a4c7c1ea726d7902",
       "sources": [
         "internal/web/templates/audit.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "d1ee983743fdd427bd17f1d9200c16baae4e89dc"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -61,34 +62,36 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/",
       "png": "dashboard.png",
-      "png_sha256": "1ec41100f43b8abc96a37b004c36088799aa477d36d862e8c2ebdace79003b8d",
+      "png_sha256": "d4d7ed12f2b8fc0ca6018a74d9e6a2a5dcc5a3da1ec76113c4aba29cd95ecbb2",
       "sources": [
         "internal/web/templates/dashboard.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
         "fixture": "lock",
         "scripts": "off",
+        "sessions": "2",
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
       "page": "/lock",
       "png": "lock.png",
-      "png_sha256": "7ec1a6642e111ad267316f857ca8fa0c83326b16bde7fe13f5a325e3adb4551b",
+      "png_sha256": "df49958928685fa0c66ebcdc7ff115e9d8b3dbfbfbfc2f3c11aa573a3d990f3a",
       "sources": [
         "internal/web/templates/lock.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -100,16 +103,17 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/profiles",
       "png": "profiles-refused.png",
-      "png_sha256": "5206d9078d88365ef50fb57b7983c20343e7988a0978a2aa355c57c467351209",
+      "png_sha256": "9a62a2cd948101b23e62c9e8bf3f3509c0c0b635c54d2c22317114d3aed22101",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -121,16 +125,17 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/profiles",
       "png": "profiles.png",
-      "png_sha256": "8eae33ea34b27e0a6627e80cc138a751681fa9867c5059aebda36a509559ee89",
+      "png_sha256": "a2bede881152d65e5f55e1a8daa39cd46549895291d6b5612c234d3fd8797944",
       "sources": [
         "internal/web/templates/profiles.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -142,34 +147,36 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/settings",
       "png": "settings.png",
-      "png_sha256": "7bfacb6fe5dcc8afe608bfd08949ddb9deeac11d279a1bb198ddc678299b2216",
+      "png_sha256": "c47e16d6de93c4be756c470b15aa1730d4837079dfc7f98cf0925c1c83569b80",
       "sources": [
         "internal/web/templates/settings.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
         "fixture": "testlock",
         "scripts": "off",
+        "sessions": "2",
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
       "page": "/testlock",
       "png": "testlock.png",
-      "png_sha256": "d008fdf9d3901c73c22928de1e835fc21a17657748a88f24c88575d31620551a",
+      "png_sha256": "d285d1cd0d0389b6a0c662035113ec967e5575af8d5e8702381709cbd4d886ab",
       "sources": [
         "internal/web/templates/testlock.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -178,16 +185,17 @@
         "stamp": "2026-03-18T21:34:05",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/users",
       "png": "users-no-profiles.png",
-      "png_sha256": "dac864f4cc1405c65a84fabd652ecda199fe756e1b0f751b2596bbed076ec76f",
+      "png_sha256": "4f505c2e37a6f155e104d240528a600f3c8df33d915e3fa80b078963e17768d0",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     },
     {
       "capture": {
@@ -199,16 +207,17 @@
         "tz": "America/New_York",
         "zone": "-04:00"
       },
+      "carried_from": "2088043cb13fb21c97b9f16af53e1e16156ec50b",
       "page": "/users",
       "png": "users.png",
-      "png_sha256": "81f976b79f5b327fe343bbe3678e31c0583cf7d6f9f97a75177629f77ab5c89e",
+      "png_sha256": "b1974aaa29c841c3820a89d4ee7de9f1e979ce10cb5985c22f8b86256cd21e7e",
       "sources": [
         "internal/web/templates/users.tmpl",
         "internal/web/templates/page.tmpl",
         "internal/web/static/app.css",
         "internal/web/static/app.js"
       ],
-      "sources_rev": "9ccbe466e7e5033cf94862d1bcb18eabbbd26d5e"
+      "sources_rev": "2088043cb13fb21c97b9f16af53e1e16156ec50b"
     }
   ],
   "schema": "capture-manifest/2",

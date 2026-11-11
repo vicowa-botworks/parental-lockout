@@ -1339,9 +1339,9 @@
     {
       "id": "W199",
       "file": "internal/web/templates/lock.tmpl",
-      "old": "<span class=\"override\">This is the session the daemon runs",
+      "old": "<span class=\"exempt\">This is the session the daemon runs",
       "new": "<span class=\"state-held\">This is the session the daemon runs",
-      "note": "the self-session note wearing the proved-lock colour: prose about the schedule reads as a proved lock. TestLockingTheDaemonsOwnAccountSaysBothHalves."
+      "note": "the self-session note wearing the proved-lock colour: prose about the schedule reads as a proved lock. TestLockingTheDaemonsOwnAccountSaysBothHalves. Re-pointed when #239 renamed the self-session note's class from `override` to `exempt`: the old text stopped existing, which is how check-mutations reports a mutant that tests nothing. What it kills is unchanged -- the note wearing the colour of a proved lock."
     },
     {
       "id": "W200",
@@ -1465,16 +1465,16 @@
     {
       "id": "W204",
       "file": "internal/web/templates/lock.tmpl",
-      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"override\">",
-      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"override\">",
-      "note": "#103's separator deleted, so the two spans land against each other and the cell renders '...confirmed.This is the session...'. The terminator is still correct, which is exactly why the terminator assertion alone cannot see it -- the killer is the separation half of assertTheDetailCellEndsWhereTheNoteBegins, restored after the first review round found this hole. TestTheSelfSessionNoteDoesNotRunIntoTheDetail."
+      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"exempt\">",
+      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"exempt\">",
+      "note": "#103's separator deleted, so the two spans land against each other and the cell renders '...confirmed.This is the session...'. The terminator is still correct, which is exactly why the terminator assertion alone cannot see it -- the killer is the separation half of assertTheDetailCellEndsWhereTheNoteBegins, restored after the first review round found this hole. TestTheSelfSessionNoteDoesNotRunIntoTheDetail. Re-pointed when #239 renamed the self-session note's class from `override` to `exempt` for the same reason: the separator it deletes is the same byte behind a different name."
     },
     {
       "id": "W205",
       "file": "internal/web/templates/testlock.tmpl",
-      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"override\">",
-      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"override\">",
-      "note": "the same separator deleted on the probe page, the copy of this cell. The lock page is untouched and stays green, so only this page's own guard can see it. TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail."
+      "old": "{{- if .SelfSession}}{{if .Detail}} {{end}}<span class=\"exempt\">",
+      "new": "{{- if .SelfSession}}{{if .Detail}}{{end}}<span class=\"exempt\">",
+      "note": "the same separator deleted on the probe page, the copy of this cell. The lock page is untouched and stays green, so only this page's own guard can see it. TestTheProbePagesSelfSessionNoteDoesNotRunIntoItsDetail. Re-pointed when #239 renamed the self-session note's class from `override` to `exempt` for the same reason: the separator it deletes is the same byte behind a different name."
     },
     {
       "id": "W206",
@@ -1535,9 +1535,9 @@
     {
       "id": "W214",
       "file": "internal/web/templates/page.tmpl",
-      "old": "    <a href=\"/settings\">Settings</a>",
+      "old": "    <a {{if .IsCurrent \"/settings\"}}aria-current=\"page\" {{end}}href=\"/settings\">Settings</a>",
       "new": "",
-      "note": "the shell stops linking to the page, so the route exists and is reachable only by typing a URL -- the control a parent is told about in the banner has no way to be reached from the sentence that mentions it. TestTheSettingsPageIsReachableFromTheNavigation."
+      "note": "the shell stops linking to the page, so the route exists and is reachable only by typing a URL -- the control a parent is told about in the banner has no way to be reached from the sentence that mentions it. TestTheSettingsPageIsReachableFromTheNavigation. Re-pointed in the #204 merge (D-0033), which put an `aria-current` action on every entry in the shell: the bare anchor then matched 0 places, and a mutant whose pattern matches nothing tests nothing while the tests beside it keep passing -- `check-mutations.py` names it in seconds, twelve minutes before a battery would print it as NOT APPLIED. The whole anchor is still what goes away, so the behaviour under test is the one this row was written for."
     },
     {
       "id": "W215",
@@ -1912,9 +1912,9 @@
       "id": "W264",
       "package": "./internal/web/",
       "file": "internal/web/templates/settings.tmpl",
-      "old": "    <p class=\"problem\">\n      A change here takes effect the <strong>next time the daemon starts</strong>, not now. You are\n      reading this page over the transport the daemon chose when it came up, so switching to\n      \"no TLS\" does not make this connection plain, and switching to a certificate does not make\n      it secure. Restart the daemon to apply it.\n    </p>\n    <p class=\"muted\">\n      Under \"no TLS\" the admin password and the session cookie cross the network in clear text, and\n      anything on the same network can read them. Under \"automatic\" the daemon mints its own\n      certificate and your browser warns that it is not signed by an authority it knows -- that\n      warning is expected, and it is still better than the line above. The two paths are ignored\n      unless you chose \"my own certificate\".\n    </p>\n    <p class=\"muted\">\n      If a certificate you later move, or that expires, stops the daemon from starting, the daemon\n      says so in its log and <code>plock doctor</code> names the file. Getting this page back means\n      editing <code>settings.tls</code> in the config file as root.\n    </p>",
+      "old": "    <p class=\"muted\">\n      A change here takes effect the <strong>next time the daemon starts</strong>, not now. You are\n      reading this page over the transport the daemon chose when it came up, so switching to\n      \"no TLS\" does not make this connection plain, and switching to a certificate does not make\n      it secure. Restart the daemon to apply it.\n    </p>\n    <p class=\"muted\">\n      Under \"no TLS\" the admin password and the session cookie cross the network in clear text, and\n      anything on the same network can read them. Under \"automatic\" the daemon mints its own\n      certificate and your browser warns that it is not signed by an authority it knows -- that\n      warning is expected, and it is still better than the line above. The two paths are ignored\n      unless you chose \"my own certificate\".\n    </p>\n    <p class=\"muted\">\n      If a certificate you later move, or that expires, stops the daemon from starting, the daemon\n      says so in its log and <code>plock doctor</code> names the file. Getting this page back means\n      editing <code>settings.tls</code> in the config file as root.\n    </p>",
       "new": "",
-      "note": "the form stops saying the change waits for a restart. This is the sentence that keeps an operator from believing the wire changed the moment they pressed Save, and it is the one most likely to be tidied away as repetition of the confirmation. TestTheTransportFormSaysWhatEachPositionMeansAndWhenItApplies."
+      "note": "the form stops saying the change waits for a restart. This is the sentence that keeps an operator from believing the wire changed the moment they pressed Save, and it is the one most likely to be tidied away as repetition of the confirmation. TestTheTransportFormSaysWhatEachPositionMeansAndWhenItApplies. Re-pointed when #239 moved the help paragraph to `muted`, the voice the three paragraphs around it already had: the paragraph is the same bytes under the new name, and the restart sentence it deletes is still the one most likely to be tidied away as repetition of the confirmation."
     },
     {
       "id": "W265",
@@ -2054,9 +2054,9 @@
       "id": "W282",
       "package": "./internal/web/",
       "file": "internal/web/templates/profiles.tmpl",
-      "old": "{{if .Notice}}\n<p id=\"refusal\" class=\"problem\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
-      "new": "{{if false}}\n<p id=\"refusal\" class=\"problem\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
-      "note": "the handler sets the sentence and the template drops it: the Go-side assertions on page.Notice would all still pass, which is why the sentence is also pinned from the markup side. postRefusal refuses a page with no sentence."
+      "old": "{{if .Notice}}\n<p id=\"refusal\" class=\"refusal\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
+      "new": "{{if false}}\n<p id=\"refusal\" class=\"refusal\" role=\"alert\">{{.Notice}}</p>\n{{end}}",
+      "note": "the handler sets the sentence and the template drops it: the Go-side assertions on page.Notice would all still pass, which is why the sentence is also pinned from the markup side. postRefusal refuses a page with no sentence. Re-pointed when #239 renamed the refused-write paragraph's class from `problem` to `refusal`: the paragraph this mutant drops is the same one, and postRefusal still refuses a page with no sentence."
     },
     {
       "id": "W283",

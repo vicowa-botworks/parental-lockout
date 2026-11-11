@@ -1,0 +1,755 @@
+#!/usr/bin/env python3
+"""The decision-log gate. Fast enough to belong in `make verify`, and in it for that reason.
+
+Why this file exists. The delivery supervisor runs sessions with no human in the loop, and the deal
+that makes that tolerable is written in three parts: take a checkpoint before a judgement call,
+record what was decided and what else was on the table, and make the rollback one command. The first
+and third parts are git and need no guard. The second is a markdown file, and a markdown file that
+nobody checks is how a log becomes a list of conclusions -- which is exactly the thing that is
+useless six weeks later when someone asks what the alternative was and why it lost.
+
+So this gate checks the shape of an entry, never its judgement. It cannot tell you a decision was
+wrong. It refuses the entries that cannot be argued with later:
+
+  * missing a field -- "Chose: the simple one" is not a record
+  * one option -- a decision with no alternative is a description of what happened
+  * a `Chose:` that is not one of the listed options, unless it is `escalated`
+  * `escalated` without `Awaiting:`, which is a unit that stopped and did not say what it is waiting
+    for -- the failure mode where a ticket goes quiet and nobody knows it is blocked on a person
+  * a `Checkpoint:` that is not a commit, except on an escalated entry, which changed nothing
+  * a reused or out-of-order id, which makes "roll back to before D-0012" ambiguous
+
+An entry is `## D-0007 · title` followed by `- Field: value` lines, and the six field names are the
+contract this file and `.opencode/skills/factory/SKILL.md` share.
+
+The self-test is in `make verify` next to this check, and the first assertion is that `verify` still
+invokes this script: the cheapest way to pass a gate is to stop calling it, and nothing in the
+mutation battery names a file under `scripts/` (all rows checked -- see the note above `verify:` in
+the Makefile), so a deleted step here would otherwise stay green forever.
+
+Exit 0 clean · 1 the log has problems · 2 usage.
+"""
+
+import os
+import re
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOGS = (os.path.join(ROOT, "DECISIONS.md"), os.path.join(ROOT, "factory/DECISIONS.md"))
+LOG = LOGS[0]
+MAKEFILE = os.path.join(ROOT, "Makefile")
+
+USAGE = """usage: check-decisions.py [--self-test] [--log PATH]
+
+Checks every entry in DECISIONS.md has the fields that make it arguable later, and that the log is
+still being invoked by `make verify`. Takes no positional arguments: a filename in a shell variable
+that expanded to nothing is a silent change of subject, which is what `--log` is for.
+
+--log PATH checks that one file: the same entry rules, the same checkpoint
+existence rule, and the Makefile invocation rule whenever this checkout has a
+Makefile. Narrowing the file is not narrowing the rules -- the old wording
+promised checkpoint existence here while the code skipped it, which is how a
+fabricated checkpoint survived four passes of exactly this invocation. A `--log` run over one file still
+asks the duplicate-id rule, but against that file alone -- that is the only thing about `--log` that
+narrows.
+"""
+
+FIELDS = ("Question", "Options", "Chose", "Why", "Checkpoint")
+ENTRY = re.compile(r"^## ([DH]-(\d{4}))\s*(?:·|\||-)\s*(.+?)\s*$")
+FIELD = re.compile(r"^\s*[-*]\s*([A-Za-z][A-Za-z ]*):\s*(.*)$")
+SHA = re.compile(r"^[0-9a-f]{7,40}$")
+ID_NUM = re.compile(r"[DH]-(\d{4})$")
+# Two shapes an id takes inside a refusal's own prose. A *citation* names an entry (`D-0082 came
+# before it`), an example shows a heading to write -- always printed between backticks, and always read
+# here exactly as printed (`## H-0001 · …`). They owe the reader different things: a citation has to
+# resolve in the log being read, an example has to be a heading `ENTRY` accepts. Telling them apart is
+# what lets one rule hold both messages to their obligation, and taking the example as printed is what
+# gives the second half teeth -- a check that rebuilds the heading from the id it extracted would be
+# matching its own string and could never fail.
+ID_TOKEN = re.compile(r"\b[DH]-\d{4}\b")
+EXAMPLE_HEADING = re.compile(r"`(#+\s*[DH]-\d+[^`]*)`")
+
+
+def parse(text, label="<log>"):
+    """Every entry in the log, as (id, number, title, {field: value}, line-no).
+
+    A field continues onto the next line, and only onto the next line. This repository's prose is
+    hand-wrapped near 88 columns and so is a real `Options:` line, and a field parser that reads one
+    line and stops does not fail on a wrapped entry -- it silently stores half of it. That is the
+    worst shape a gate can have: the check then compares a `Chose:` against a truncated option list
+    and reports the *entry* as the problem. Measured on the first run of this script against the log
+    it ships with, four of five entries came back as "chose something not among the options".
+
+    So a continuation is a more-indented line with no field name on it, and only while the previous
+    line was that field or another continuation. A blank line closes it, which is what keeps an
+    entry's own prose paragraph from being swallowed into the last field.
+    """
+    entries = []
+    current = None
+    pending = None
+    for n, line in enumerate(text.splitlines(), 1):
+        m = ENTRY.match(line)
+        if m:
+            if current is not None:
+                entries.append(current)
+            current = {"id": m.group(1), "num": int(m.group(2)), "title": m.group(3),
+                       "fields": {}, "line": n, "label": label}
+            pending = None
+            continue
+        if current is None:
+            continue
+        if not line.strip():
+            pending = None
+            continue
+        fm = FIELD.match(line)
+        if fm:
+            name = fm.group(1).strip()
+            value = fm.group(2).strip()
+            if name in FIELDS + ("Awaiting", "Effect"):
+                if name in current["fields"]:
+                    current["fields"].setdefault("_dup", []).append(name)
+                current["fields"][name] = value
+                pending = name
+            else:
+                pending = None
+            continue
+        if pending is not None and line[:1].isspace():
+            current["fields"][pending] = "%s %s" % (current["fields"][pending], line.strip())
+            continue
+        pending = None
+    if current is not None:
+        entries.append(current)
+    return entries
+
+
+def check(entries):
+    """Problems as strings. Empty means the log is usable as a record."""
+    problems = []
+    seen = {}
+    prev_num = 0
+    prev_id = None
+
+    if not entries:
+        # Both id spaces are offered because this arm cannot know which one the file writes: it
+        # returns before a single entry has been parsed, `--log` accepts any path, and `parse` imposes
+        # no prefix on it -- both logs match the same `ENTRY`. Guessing one from the path or from a
+        # caller's label is the assumption H-0091 refused to make about the out-of-order predecessor's
+        # prefix, and measured there it is wrong for a file holding both spaces. So the example names
+        # what the grammar accepts: a lone `D-` told whoever pointed this at an empty harness log to
+        # grep for a heading that file can never hold (#268).
+        return ["no entry found: the file exists and nothing in it matched `## D-0001 · …` or "
+                "`## H-0001 · …`, which is what a log that has stopped being written looks like"]
+
+    for e in entries:
+        at = "%s:%d" % (e["label"], e["line"])
+        if e["id"] in seen:
+            problems.append("%s: id %s is already used at %s:%d; 'revert to before %s' would name "
+                            "two commits" % (at, e["id"], e["label"], seen[e["id"]], e["id"]))
+        seen[e["id"]] = e["line"]
+
+        # The predecessor is printed exactly as it was parsed, never rebuilt from its number. This
+        # formatter used to write `"D-%04d" % prev_num`: the number comes from whichever log is being
+        # read (`e["num"]`), so re-attaching a `D-` means the harness log can only ever be told the
+        # wrong name. Measured 10 Nov in /home/rodney/prj/wt/issue-263 while resolving PR #264's
+        # `factory/DECISIONS.md` conflict -- both sides appended at the same offset, so `H-0079`
+        # landed after `H-0082` and the refusal read:
+        #   factory/DECISIONS.md:2159: H-0079 is out of order (D-0082 came before it)
+        # `D-0082` exists in neither log (`DECISIONS.md` carries 39 entries and stops at `D-0052`), so
+        # the sentence a person reads while the gate is red sends them looking for an entry that is
+        # not there. Number and id now move together and cannot name two different decisions.
+        if e["num"] < prev_num:
+            problems.append("%s: %s is out of order (%s came before it); the log is a history and a "
+                            "history that jumps around cannot be bisected"
+                            % (at, e["id"], prev_id))
+        if e["num"] > prev_num:
+            prev_num, prev_id = e["num"], e["id"]
+
+        f = e["fields"]
+        missing = [k for k in FIELDS if not f.get(k)]
+        if missing:
+            problems.append("%s: %s is missing %s -- an entry without these is a conclusion, not a "
+                            "record" % (at, e["id"], ", ".join(missing)))
+
+        for name, value in f.items():
+            if name.startswith("_"):
+                continue
+            if not value:
+                problems.append("%s: %s has an empty `%s:` field" % (at, e["id"], name))
+        if f.get("_dup"):
+            problems.append("%s: %s repeats %s; the last one wins and the first one is silently the "
+                            "one nobody reads" % (at, e["id"], ", ".join(sorted(set(f["_dup"])))))
+
+        options = [o.strip() for o in re.split(r"\s*\|\s*", f.get("Options", "")) if o.strip()]
+        if f.get("Options") and len(options) < 2:
+            problems.append("%s: %s lists one option -- a decision with no alternative on the record "
+                            "is a description of what happened, not a decision" % (at, e["id"]))
+
+        chose = f.get("Chose", "").strip()
+        escalated = chose.lower().startswith("escalat")
+        if chose and not escalated and options and chose not in options:
+            problems.append("%s: %s chose %r, which is not among the recorded options (%s) -- either "
+                            "the option was not written down or the entry was edited afterwards"
+                            % (at, e["id"], chose, "; ".join(options)))
+        if escalated:
+            if not f.get("Awaiting"):
+                problems.append("%s: %s escalated without `Awaiting:` -- a unit that stopped and did "
+                                "not say what it is waiting for is indistinguishable from one that "
+                                "died" % (at, e["id"]))
+        elif chose and not escalated and f.get("Awaiting", "").strip() not in ("", "-"):
+            problems.append("%s: %s has `Awaiting:` but did not escalate; delete the field or set "
+                            "`Chose: escalated`" % (at, e["id"]))
+
+        cp = f.get("Checkpoint", "").strip()
+        if cp and cp != "n/a" and not SHA.match(cp):
+            problems.append("%s: %s checkpoint %r is not a commit sha (7-40 hex) or `n/a`, so it is "
+                            "not something `git revert` can be pointed at" % (at, e["id"], cp))
+        if cp == "n/a" and not escalated:
+            problems.append("%s: %s has no checkpoint and did not escalate; the checkpoint is the "
+                            "rollback target and it is taken before the decision, never after"
+                            % (at, e["id"]))
+    return problems
+
+
+# The two `verify` recipe lines this file insists on, in the Makefile's own shape: `echo "..."` and
+# the command share a line, so the guard below reads command chunks rather than whole lines.
+RECIPE_GOOD = ('\t@set -e; \\\n'
+               '\techo "== decision-log contract"; python3 scripts/check-decisions.py --self-test; \\\n'
+               '\techo "== decision log"; python3 scripts/check-decisions.py; \\\n'
+               '\techo "== shellcheck"; $(MAKE) --no-print-directory check-shell; \\\n')
+
+# Three edits that all delete the gate. Each is a `make verify` that runs nothing and reports success,
+# and each keeps the string "check-decisions.py" somewhere in the file, which is what a substring
+# guard reads. Reported by review on #217 (5 Nov) as a guard satisfied by the text that removes it; the
+# shapes here are the ones a person reaches for -- comment a step out, rename the file it calls, or
+# replace the step with one that only mentions it.
+RECIPE_BAD = {
+    "commented": ('\t@set -e; \\\n'
+                  '\techo "== decision-log contract"; \n'
+                  '#\tpython3 scripts/check-decisions.py --self-test; \\\n'
+                  '#\tpython3 scripts/check-decisions.py; \\\n'),
+    "renamed": RECIPE_GOOD.replace("check-decisions.py", "check-decisions-OLD.py"),
+    "mentioned": ('\t@set -e; \\\n'
+                  '\techo "== decision log (check-decisions.py)"; $(MAKE) --no-print-directory quiet; \\\n'),
+    # The one that survived the guard until 6 Nov: the whole step commented out at column 0, with the
+    # invocation sitting after a `;` on the same line. `make verify` here runs nothing, and the file
+    # still contains the command as plain text for any guard that reads lines instead of chunks.
+    "commented-line": ('\t@set -e; \\\n'
+                       '#\techo "== decision log"; python3 scripts/check-decisions.py --self-test; \\\n'
+                       '#\techo "== decision log again"; python3 scripts/check-decisions.py; \\\n'
+                       '\techo "== shellcheck"; $(MAKE) --no-print-directory check-shell; \\\n'),
+}
+
+
+def invocation_problems(recipe):
+    """Given the text of a Makefile, say whether `verify` still runs this script and its self-test.
+
+    A filename substring is the wrong assertion: it is satisfied by a comment, by a commented-out
+    recipe line, and by an `echo` that names the script while running something else. So the anchor is
+    a *command chunk* -- the text between `;` on a recipe line -- that starts with the interpreter and
+    names `scripts/check-decisions.py` as one whole word, and the word boundary bars a longer filename
+    that merely starts the same way. The shapes in `RECIPE_BAD` are asserted against this function in
+    `--self-test`, so a later edit that weakens the match has to delete those cases as well.
+
+    A comment is tested at the *line*, before the split, not at the chunk. Reported by review on #217
+    at 869564a: with the step commented as `#\techo "== decision log"; python3
+    scripts/check-decisions.py; ` followed by a line-continuation backslash, make hands that line
+    to no shell at all, but splitting on `;` first
+    put the invocation in chunk two where a `chunk.startswith("#")` test could not see it -- so both
+    this gate and its own self-test returned 0 while `make verify` ran neither command. The premise the
+    docstring used to carry, that a chunk beginning with `#` cannot match, is what the shell refuted.
+    """
+    problems = []
+    tails = []
+    for raw in recipe.splitlines():
+        if raw.lstrip().startswith("#"):
+            # make never hands this line to a shell; nothing on it runs, including whatever follows a `;`.
+            continue
+        for chunk in raw.split(";"):
+            chunk = chunk.strip()
+            if chunk.startswith("#"):
+                continue
+            found = re.match(r"python3[ \t]+scripts/check-decisions\.py(?![^\s])(.*)$", chunk)
+            if found:
+                tails.append(found.group(1))
+    if not tails:
+        problems.append("Makefile: no recipe command runs `python3 scripts/check-decisions.py`; a gate "
+                        "whose invocation has been deleted, commented out, or renamed is a suggestion")
+        return problems
+    if not any("--self-test" in tail for tail in tails):
+        problems.append("Makefile: nothing runs `python3 scripts/check-decisions.py --self-test`; the "
+                        "assertions below then run only when someone remembers they exist")
+    return problems
+
+
+def verify_invocation():
+    """That `make verify` still calls this script, and calls its self-test.
+
+    Reading the Makefile rather than trusting memory: the failure this guards is the deleted line,
+    and the deleted line is exactly what a later edit that "simplifies the gate" produces.
+    """
+    try:
+        with open(MAKEFILE, encoding="utf-8") as fh:
+            recipe = fh.read()
+    except OSError as exc:
+        return ["Makefile: cannot be read (%s), so nothing can be claimed about the gate" % exc]
+    return invocation_problems(recipe)
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read(), None
+    except OSError as exc:
+        return None, "%s cannot be read (%s); the log either does not exist or cannot be opened, " \
+                     "and a run that reads nothing must not report that as clean" % (path, exc)
+
+
+GOOD = """
+## D-0001 · Keep the harness in the repository
+
+- Question: where does the delivery loop live?
+- Options: in this repository | in the shared skills repository
+- Chose: in this repository
+- Why: the loop is only trustworthy where its own gate runs; a shared skill cannot pin this
+  repository's `make verify`.
+- Checkpoint: 2f4c1ab9
+- Effect: factory/factory.sh
+
+## D-0002 · Dependency question
+
+- Question: may a tick add a third-party module?
+- Options: yes, if it is justified | escalated to a maintainer
+- Chose: escalated to a maintainer
+- Why: the zero-dependency rule is the user's decision, recorded as a project rule with a gate.
+- Checkpoint: n/a
+- Awaiting: a maintainer answer on the issue
+"""
+
+WRAPPED = """## D-0001 · A wrapped entry
+
+- Question: does a field continue onto the next line, when the prose is hand-wrapped the way this
+  repository wraps it?
+- Options: fold the continuation into the field | read one line per field and stop
+- Chose: fold the continuation into the field
+- Why: a parser that stops at the newline does not fail on a wrapped entry, it stores half of it and
+  then blames the entry.
+- Checkpoint: 2f4c1ab9
+"""
+
+PROSE = WRAPPED + "\nA paragraph after a blank line, which is not part of `Checkpoint:`.\n"
+
+BAD = {
+    "no-entries": "# Decisions\n\nNothing here yet.\n",
+    # The same arm reached from the other log. This fixture is the whole reason the bug shipped: every
+    # case in `BAD` is a `D-` log, where the single `D-` example in the empty-log refusal happens to be
+    # right, and the needle was the phrase "no entry found" -- printed whichever example the sentence
+    # carries, so the arm looked covered while its only id was wrong for half its readers (#268).
+    "no-entries-harness": "# Harness decisions\n\nNothing here yet.\n",
+    "missing-field": "## D-0001 · X\n\n- Question: q?\n- Chose: a\n",
+    "one-option": "## D-0001 · X\n\n- Question: q?\n- Options: only this\n- Chose: only this\n"
+                  "- Why: because.\n- Checkpoint: abc1234\n",
+    "chose-unknown": "## D-0001 · X\n\n- Question: q?\n- Options: a | b\n- Chose: c\n"
+                     "- Why: because.\n- Checkpoint: abc1234\n",
+    "escalated-no-await": "## D-0001 · X\n\n- Question: q?\n- Options: a | escalated to a maintainer"
+                          "\n- Chose: escalated to a maintainer\n- Why: not mine.\n- Checkpoint: n/a\n",
+    "bad-sha": "## D-0001 · X\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+               "- Why: because.\n- Checkpoint: HEAD~1\n",
+    "checkpoint-na": "## D-0001 · X\n\n- Question: q?\n- Options: a | b\n- Chose: b\n"
+                     "- Why: because.\n- Checkpoint: n/a\n",
+    "duplicate": GOOD + "\n## D-0001 · Again\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                        "- Why: because.\n- Checkpoint: abc1234\n",
+    "out-of-order": "## D-0009 · Later\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                    "- Why: because.\n- Checkpoint: abc1234\n" + GOOD,
+    # The same arm reached from the other id space, which is the case that did not exist and so the
+    # bug that survived: every other fixture here is a `D-` log, where a hardcoded `D-` in the
+    # message happens to be right. `GOOD.replace("D-", "H-")` keeps the two fixtures identical apart
+    # from the prefix -- the only thing that differs -- and the numbers are the measured pair from
+    # PR #264's conflict (`H-0079` after `H-0082`).
+    "out-of-order-harness": "## H-0082 · Later\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                            "- Why: because.\n- Checkpoint: abc1234\n" + GOOD.replace("D-", "H-"),
+    # One file holding both id spaces. Reachable by design: `--log` takes any path and `parse` imposes
+    # no prefix on a file (both logs match the same `ENTRY`), and a merge that took both sides into one
+    # file produces exactly this. It is the fixture that separates the two candidate fixes -- printing
+    # the predecessor as parsed names `D-0082`, which is what is really above the entry, while
+    # re-deriving the prefix from the offending entry names `H-0082`, an id in neither log. Measured
+    # 10 Nov: with the re-derived prefix the two fixtures above both still pass, so without this row
+    # that variant is green and one edit away.
+    "out-of-order-mixed": "## D-0082 · Later\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                          "- Why: because.\n- Checkpoint: abc1234\n"
+                          "## H-0079 · Earlier\n\n- Question: q?\n- Options: a | b\n- Chose: a\n"
+                          "- Why: because.\n- Checkpoint: abc1234\n",
+}
+
+
+def git_checkpoint_resolver(shas):
+    """Which of these objects exist in this repository, and are commits. One batch call, not one per entry.
+
+    The gate used to stop at "is this 7-40 hex characters", which is a shape test, not an existence test:
+    written minutes after H-0021..H-0023 were committed, this session typed an invented 40-hex checkpoint
+    into three entries and the checker reported 45 entries clean. A checkpoint is the one field whose whole
+    job is to be typed into `git revert`, so a plausible one that resolves to nothing is worse than a
+    missing one -- it reads like a rollback exists.
+    """
+    if not shas:
+        return {}
+    import subprocess
+    try:
+        out = subprocess.run(["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                             input="\n".join(shas) + "\n", capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", cwd=ROOT, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        # None means "could not ask", and it has to be distinguishable from {}. This used to return
+        # an empty mapping, which `checkpoint_problems` read with `resolve.get(cp, True)` -- so no
+        # git on PATH, or a wedged `cat-file` past its timeout, produced a clean gate in which the
+        # existence rule was never asked. Found on #217 round four by the same reflex that found the
+        # rest of them: ask what the checker does when it cannot do it. A refusal is already correct
+        # when git is present and the tree is not a repository (a `.git`-less copy produced 49
+        # refusals), so the only hole left was the one where nothing answered at all.
+        return None
+    # One line per input, in order: `<sha> commit` for a commit, `<obj> missing` for anything else.
+    lines = out.stdout.splitlines()
+    return {s: (i < len(lines) and lines[i].endswith(" commit")) for i, s in enumerate(shas)}
+
+
+def checkpoint_problems(entries, resolve):
+    """That every named checkpoint is a commit the resolver can see.
+
+    `resolve` is injected so `--self-test` can assert both answers: the same sample must refuse when told
+    the object is absent and pass when told it is present. It may be a mapping or a one-argument callable. Without that the rule would be a git call
+    nobody can prove still fires -- the failure mode this script keeps being written about.
+    """
+    problems = []
+    named = [e for e in entries
+             if e["fields"].get("Checkpoint", "").strip() not in ("", "n/a")
+             and SHA.match(e["fields"].get("Checkpoint", "").strip())]
+    if not named:
+        # Nothing to ask, so nothing to claim either way. `main` only builds a resolver when some
+        # entry names a checkpoint, so this is the self-test's artificial case -- and it is the
+        # boundary of the rule below: a log with no checkpoints must not be refused for a git
+        # problem it does not have.
+        return []
+    if resolve is None:
+        # The resolver could not ask git. Worded like `verify_invocation`'s unreadable-Makefile case,
+        # because it is the same claim being withheld: an unevaluated rule is not a passed rule.
+        return ["%s: git could not be asked whether the named checkpoints exist, so nothing can be "
+                "claimed about them -- the existence rule did not run. (A missing git, a wedged "
+                "`git cat-file`, or a tree this is not a repository of: fix that before trusting a "
+                "clean run of this gate.)" % label_of(entries[0])]
+    for e in entries:
+        cp = e["fields"].get("Checkpoint", "").strip()
+        if not cp or cp == "n/a" or not SHA.match(cp):
+            continue
+        # The default used to be True -- "the resolver did not mention it, so it must exist" -- which
+        # is the same fail-open one level down: a mapping that does not cover a sha is an unanswered
+        # question, not a voucher. `main` builds the mapping over every checkpoint it found, so an
+        # uncovered one means the entry appeared after the batch, and the honest answer is no.
+        known = resolve(cp) if callable(resolve) else resolve.get(cp, False)
+        if not known:
+            problems.append("%s: %s names checkpoint %s, which is not a commit in this repository -- "
+                            "`git revert` cannot be pointed at it, so the entry is not reversible the way "
+                            "it claims" % (label_of(e), e["id"], cp))
+    return problems
+
+
+def label_of(e):
+    return "%s:%d" % (e["label"], e["line"])
+
+
+def cross_log_problems(where_seen):
+    """That no decision id is claimed by two logs.
+
+    The rule H-0021 leaves behind: product decisions are `D-` in `DECISIONS.md`, harness decisions are
+    `H-` in `factory/DECISIONS.md`, and a citation is only worth anything while it resolves to one entry.
+    `where_seen` maps an id to the logs that carry it, so this is testable without touching either file --
+    which matters, because a rule that lives inline in `main` has no case, and review on #217 measured
+    that deleting the loop entirely left `--self-test` green.
+
+    The clean case is asserted too, and it is the whole point of the prefix split: `D-0012` and `H-0012`
+    are two different decisions in two different logs and must not be reported as a collision.
+    """
+    problems = []
+    for ident in sorted(where_seen):
+        if len(where_seen[ident]) > 1:
+            problems.append(
+                "%s is used in %s -- one id, %d decisions; a citation to it does not resolve. "
+                "Renumber the later entry in its own log." %
+                (ident, " and ".join(sorted(where_seen[ident])), len(where_seen[ident])))
+    return problems
+
+
+def self_test():
+    """Every rule above has a case that trips it, and the good sample trips none of them.
+
+    The cases are in-memory rather than in fixtures for the same reason `mutate.py --self-test`
+    keeps its rows inline: a fixture a person can edit is a fixture that quietly stops asserting.
+    """
+    fails = []
+    counts = [0, 0]
+
+    def expect_ok(text, name):
+        counts[1] += 1
+        problems = check(parse(text, name))
+        if problems:
+            fails.append("%s: expected clean, got %s" % (name, problems))
+
+    def expect_fail(text, name, needle):
+        counts[0] += 1
+        problems = check(parse(text, name))
+        if not problems:
+            fails.append("%s: expected a problem, got none -- the rule is not being applied" % name)
+        elif not any(needle in p for p in problems):
+            fails.append("%s: expected a problem containing %r, got %s" % (name, needle, problems))
+
+    expect_ok(GOOD, "good")
+    expect_ok(WRAPPED, "wrapped")
+
+    # A continuation is a *more-indented line with no field name*, and it ends at a blank line. If it
+    # did not, the paragraph after an entry would be folded into `Checkpoint:` and the sha test below
+    # would be reporting the entry's own prose as a malformed commit.
+    counts[1] += 1
+    folded = parse(PROSE, "prose")
+    tail = folded[-1]["fields"].get("Checkpoint", "") if folded else ""
+    if tail != "2f4c1ab9":
+        fails.append("prose-after-blank-line: `Checkpoint:` reads %r, so the paragraph after the "
+                     "entry was folded into it" % tail)
+
+    # An empty log has nothing parsed to tell it which id space it writes, so the example it offers is
+    # a claim about the grammar rather than about the file -- and it used to be the same `D-` claim for
+    # every log, which is false of the harness log (#268). The needle here used to be "no entry found",
+    # a phrase the message prints whichever example sits in it: the rule was covered, the id was not.
+    # Each empty log is now answered with the heading its own space writes.
+    for name, want in (("no-entries", "## D-0001 · …"), ("no-entries-harness", "## H-0001 · …")):
+        counts[0] += 1
+        got = check(parse(BAD[name], name))
+        if not got:
+            fails.append("%s: expected a problem, got none -- the rule is not being applied" % name)
+        elif not any(want in p for p in got):
+            fails.append("%s: the refusal does not offer `%s`, the heading this log writes -- %s"
+                         % (name, want, got))
+
+    # The rule that row is one instance of, stated once for every refusal this file prints: an id in
+    # the sentence has to be something the reader can resolve. A citation has to be an entry in the log
+    # being read -- an invented one sends a person to grep for an entry that is not there; an example
+    # has to be a heading `ENTRY` parses -- an example the parser does not match keeps the log refused
+    # after they do what it says. Iterating `BAD` instead of naming an arm is what makes it the same
+    # rule for both messages that name an id in prose, and it costs no edit when a fixture is added:
+    # the out-of-order refusal is held to it exactly as this one is.
+    for name, text in sorted(BAD.items()):
+        counts[0] += 1
+        parsed = parse(text, name)
+        known = set(e["id"] for e in parsed)
+        for p in check(parsed):
+            snippets = EXAMPLE_HEADING.findall(p)
+            # A citation is whatever id survives removing every printed example, so a message cannot
+            # exempt its own invention by writing it as a heading.
+            elsewhere = p
+            for snippet in snippets:
+                elsewhere = elsewhere.replace(snippet, " ")
+            for invented in sorted(set(ID_TOKEN.findall(elsewhere))):
+                if invented in known:
+                    continue
+                fails.append("%s: the refusal cites %s, which is not an entry in the log it is reading"
+                             " -- a reader sent to grep for it finds nothing: %s" % (name, invented, p))
+            for snippet in sorted(set(snippets)):
+                # `…` stands for the title, so the example is completed before it is asked whether
+                # ENTRY would take it -- but from the printed bytes, not from an id lifted out of them.
+                # The digits, the prefix and the separator are the thing under test, and a check that
+                # rebuilt the heading itself could never fail.
+                if not ENTRY.match(snippet.rstrip("…").rstrip() + " Example"):
+                    fails.append("%s: the refusal offers %r as the heading to write, which this file's "
+                                 "own ENTRY does not parse -- %s" % (name, snippet, p))
+
+    expect_fail(BAD["missing-field"], "missing-field", "missing Options")
+    expect_fail(BAD["one-option"], "one-option", "one option")
+    expect_fail(BAD["chose-unknown"], "chose-unknown", "not among the recorded options")
+    expect_fail(BAD["escalated-no-await"], "escalated-no-await", "without `Awaiting:`")
+    expect_fail(BAD["bad-sha"], "bad-sha", "not a commit sha")
+    expect_fail(BAD["checkpoint-na"], "checkpoint-na", "no checkpoint")
+    expect_fail(BAD["duplicate"], "duplicate", "already used")
+    # Out of order, in every id-space arrangement -- and asserting the *id* named, not just the phrase.
+    # The case used to be a single `expect_fail(..., "out of order")`, a needle the buggy message also
+    # printed: the arm was covered and the wrong name still shipped, because the only fixture reaching
+    # it was a `D-` log. Each row now has to name its own predecessor; the two single-space logs must
+    # not cite the other space at all, and the mixed log has no such assertion to make (both prefixes
+    # are legitimately in that file) so its whole weight is on which id the parenthetical names.
+    for name, want, foreign in (("out-of-order", "D-0009 came before it", r"\bH-\d"),
+                                ("out-of-order-harness", "H-0082 came before it", r"\bD-\d"),
+                                ("out-of-order-mixed", "D-0082 came before it", None)):
+        counts[0] += 1
+        got = [p for p in check(parse(BAD[name], name)) if "out of order" in p]
+        if not got:
+            fails.append("%s: expected a problem, got none -- the rule is not being applied" % name)
+        elif not any(want in p for p in got):
+            fails.append("%s: the refusal does not name %s -- %s" % (name, want, got))
+        elif foreign and any(re.search(foreign, p) for p in got):
+            fails.append("%s: the refusal cites an id from the other log's id space, which is an id "
+                         "nothing in this file resolves -- %s" % (name, got))
+
+    # The self-pinning pair: this file's own invocations, asserted the way the screenshot manifest
+    # asserts its own. Deleting either line from `verify` makes this run refuse.
+    counts[1] += 2
+    invocation = verify_invocation()
+    if any("no recipe command runs" in p for p in invocation):
+        fails.append("verify-invocation: `make verify` no longer calls check-decisions.py -- %s"
+                     % invocation)
+    if any("nothing runs" in p for p in invocation):
+        fails.append("verify-invocation: nothing runs `check-decisions.py --self-test` -- %s"
+                     % invocation)
+
+    # And the guard on the guard. Asserting only against the live Makefile proves the Makefile is
+    # fine today; it says nothing about whether this function would notice it stop being fine, which
+    # is the whole job. Each case below is a Makefile in which `make verify` runs no decision gate at
+    # all while still containing the words "check-decisions.py", so a match weakened back to a
+    # substring turns one of these into a pass and this run refuses.
+    counts[1] += 1
+    if invocation_problems(RECIPE_GOOD):
+        fails.append("recipe-good: the Makefile's own shape is refused by the guard -- %s"
+                     % invocation_problems(RECIPE_GOOD))
+    for name, recipe in sorted(RECIPE_BAD.items()):
+        counts[0] += 1
+        found = invocation_problems(recipe)
+        if not found:
+            fails.append("recipe-%s: a Makefile that runs no decision gate passed the guard; a "
+                         "substring is not an invocation" % name)
+        elif not any("no recipe command runs" in p for p in found):
+            # The reason is asserted, not just the refusal. All three Makefiles lack the *command*,
+            # so "nothing runs --self-test" as the only complaint would mean the guard matched
+            # something in a file that runs nothing -- which is the substring behaviour this case
+            # exists to catch.
+            fails.append("recipe-%s: refused for the wrong reason -- %s" % (name, found))
+
+    # The cross-log id rule, asserted both ways. A collision must be named, and the D-/H- pair that the
+    # split exists to allow must not be. Deleting `cross_log_problems`' loop would otherwise leave this
+    # script advertising a check in SKILL.md that nothing runs.
+    counts[0] += 1
+    collided = cross_log_problems({"D-0012": ["DECISIONS.md", "factory/DECISIONS.md"],
+                                   "H-0001": ["factory/DECISIONS.md"]})
+    if not any("one id, 2 decisions" in p for p in collided):
+        fails.append("cross-log-collision: an id used in both logs passed the rule -- %s" % collided)
+    # A checkpoint that is well-shaped and does not exist. The shape test alone let an invented sha
+    # through in this very session, so both answers are asserted against the injected resolver.
+    counts[0] += 1
+    absent = checkpoint_problems(parse(GOOD, "sample"), resolve=lambda s: False)
+    if not any("not a commit in this repository" in p for p in absent):
+        fails.append("checkpoint-absent: a checkpoint the repository does not have passed the rule -- %s" % absent)
+    counts[1] += 1
+    present = checkpoint_problems(parse(GOOD, "sample"), resolve=lambda s: True)
+    if present:
+        fails.append("checkpoint-present: a checkpoint the resolver vouches for was refused -- %s" % present)
+    # And the third answer: nobody answered. `git_checkpoint_resolver` returns None when the call
+    # raised or timed out, and the rule used to read that as "present" via `resolve.get(cp, True)` --
+    # a clean gate in which the existence rule had never run. Asserted as its own case so deleting
+    # the arm turns this self-test red rather than quietly returning the count to what it was.
+    counts[0] += 1
+    unknown = checkpoint_problems(parse(GOOD, "sample"), resolve=None)
+    if not any("could not be asked" in p for p in unknown):
+        fails.append("checkpoint-unknown: a resolver that could not ask produced no refusal, so the "
+                     "rule passes when it has not run -- %s" % unknown)
+    # The default, not just the sentinel. `checkpoint_problems` asks `resolve.get(cp, False)`, and
+    # `None` and `{}` are different failures with opposite consequences: `None` is "git did not answer",
+    # `{}` is "git answered that this object is nothing" -- and a resolver that built its mapping over
+    # the shas it *validated*, rather than the shas it *found*, hands back exactly that `{}`. With the
+    # default flipped to True the entry above still refuses (a callable returning False answers) and this
+    # case is the only thing left that notices, so it is asserted here rather than reasoned about.
+    # Measured on #217 round five: flipping the default left the self-test green at rc 0 until this row
+    # was added, at which point it named `names checkpoint 2f4c1ab9, which is not a commit`.
+    counts[0] += 1
+    empty = checkpoint_problems(parse(GOOD, "sample"), resolve={})
+    if not any("not a commit in this repository" in p for p in empty):
+        fails.append("checkpoint-empty-map: an empty resolver answered the existence rule with a pass "
+                     "-- %s" % empty)
+    counts[1] += 1
+    no_checkpoints = checkpoint_problems(parse("## D-0001 · Title\n\n- Question: q\n- Checkpoint: n/a\n",
+                                              "sample"), resolve=None)
+    if no_checkpoints:
+        fails.append("checkpoint-unknown-nothing-to-ask: a log with no named checkpoints was refused "
+                     "for a git problem it does not have -- %s" % no_checkpoints)
+
+    counts[1] += 1
+    separated = cross_log_problems({"D-0012": ["DECISIONS.md"], "H-0012": ["factory/DECISIONS.md"]})
+    if separated:
+        fails.append("cross-log-clean: `D-0012` and `H-0012` are different decisions in different logs "
+                     "and the rule refused them -- %s" % separated)
+
+    if fails:
+        print("check-decisions --self-test FAILED:")
+        for f in fails:
+            print("  %s" % f)
+        return 1
+    print("check-decisions --self-test: %d cases that must fail, %d that must pass, the two "
+          "invocations in `verify`, four Makefiles that delete this gate, the cross-log id rule, "
+          "checkpoint existence, and the out-of-order refusal in both logs and in a file holding "
+          "both, each asserted both ways" % (counts[0], counts[1]))
+    return 0
+
+
+def main(argv):
+    if len(argv) > 1 and argv[1] in ("-h", "--help"):
+        print(USAGE)
+        return 0
+    if len(argv) > 1 and argv[1] == "--self-test":
+        return self_test()
+
+    path = LOG
+    if len(argv) > 2 and argv[1] == "--log":
+        if len(argv) < 3 or not argv[2]:
+            print("check-decisions: --log wants a path; an empty one is a change of subject, not a "
+                  "default", file=sys.stderr)
+            return 2
+        path = argv[2]
+    elif len(argv) > 1:
+        print("check-decisions: unknown argument %r\n%s" % (argv[1], USAGE), file=sys.stderr)
+        return 2
+
+    paths = [path] if path != LOG else list(LOGS)
+    problems = []
+    total = 0
+    where_seen = {}
+    for p in paths:
+        text, problem = read(p)
+        if problem:
+            print(problem, file=sys.stderr)
+            return 1
+        label = os.path.relpath(p, ROOT)
+        entries = parse(text, label)
+        total += len(entries)
+        problems += check(entries)
+        # Both of these used to sit behind `if path == LOG`, and `LOG` is this script's own default
+        # path -- so `--log SOMETHING` was precisely the invocation that skipped them. Measured 8 Nov
+        # while checking #229's review: the same script, the same file,
+        #   --log DECISIONS.md -> 3 problems, the fabricated checkpoint absent
+        #   (no argument)       -> 5 problems, "D-0034 names checkpoint e2dbd46e..., not a commit"
+        # A fabricated checkpoint is the rule an agent walking one branch's log most needs, and the
+        # usage text promised it in this mode. There is no reason for either rule to depend on which
+        # path the caller named: a checkpoint resolves against git whatever the file is called, and the
+        # Makefile guard asks about a file in this checkout.
+        for e in entries:
+            where_seen.setdefault(e["id"], []).append(label)
+        shas = sorted({e["fields"].get("Checkpoint", "").strip() for e in entries
+                       if SHA.match(e["fields"].get("Checkpoint", "").strip())})
+        problems += checkpoint_problems(entries, git_checkpoint_resolver(shas))
+
+    if os.path.exists(os.path.join(ROOT, "Makefile")):
+        problems += verify_invocation()
+        # One id in two logs is not a duplicate to dedupe: it is a citation that points at two
+        # decisions. Measured 6 Nov, when merging origin/main into the harness branch: `main` carried
+        # D-0011..D-0015 as product decisions (a control's typeface, `:has()` reaching a tick box's
+        # words) while the harness log had D-0011..D-0015 as harness decisions (the tick's `$PWD`, the
+        # worktree cut, the deny keying), because a tick numbers from the highest id it can *see*, and
+        # a tree cut before this file existed sees none of it. Both files now have their own id space,
+        # so the only thing left to enforce is that they do not meet.
+        problems += cross_log_problems(where_seen)
+
+    if problems:
+        print("\n%d decision-log problem(s):" % len(problems))
+        for p in problems:
+            print("  %s" % p)
+        return 1
+
+    print("check-decisions: %d entries across %d log(s), every one with its question, options, "
+          "choice, reason and checkpoint" % (total, len(paths)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
