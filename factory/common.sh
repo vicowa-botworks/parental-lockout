@@ -412,18 +412,75 @@ factory_halt_report() { # -> 'cause recorded <age> ago, and not re-probed since:
 		"$(factory_age_human "$((now - mtime))")" "$reason"
 }
 
-# systemd's own lines about this unit, plus the unit's own lines, oldest first, newest `FACTORY_REAP_TAIL`
-# of them. Both are needed and neither alone is enough. The systemd lines are the only account of the
-# stop path -- `State 'stop-sigterm' timed out. Killing.` is the sentence that says the queue was held
-# open. The unit's own lines are the only record of when the pass's WORK stopped: systemd logs nothing
-# at all when an oneshot exits 0, and the 11 Nov incident at 00:56 was exactly that -- `END rc=0` at
-# 00:56:06Z, then a silent minute, then the escalation -- so a read filtered to systemd's identifier
-# alone reports that 60-second hold as 0s.
+# systemd's own lines about this unit, oldest first, newest `FACTORY_REAP_TAIL` of them -- and only
+# systemd's. `-t systemd` is a filter, not an addition: measured on the live unit here on 11 Nov, a
+# 400-line window asked for with it holds 0 of the 325 lines the unit's own processes wrote in the
+# same window without it. So this is the account of the STOP path and nothing else -- `State
+# 'stop-sigterm' timed out. Killing.` is the sentence that says the queue was held open -- and the
+# record of when the pass's WORK stopped comes from `factory_reap_lastword`, which makes its own call
+# without the filter. It has to: systemd logs nothing at all when an oneshot exits 0, and the 11 Nov
+# incident at 00:56 was exactly that -- `END rc=0` at 00:56:06Z, then a silent minute, then the
+# escalation -- so a read filtered to systemd's identifier alone reports that 60-second hold as 0s.
+#
+# `-o short-iso-precise --utc`, not the plain `-o short-iso` this shipped with: microsecond stamps in
+# one zone, so the stamp `factory_reap_read` hands to `factory_reap_lastword` as its window anchor is
+# the instant the terminal line happened rather than the second it falls in. Both flags have been in
+# `journalctl` since v239. A local-zone stamp would not order across a DST fall-back, where the
+# repeated hour appears twice with two different offsets.
 factory_reap_lines() {
 	# shellcheck disable=SC2312  # the unit name is a lookup, and a failing lookup prints nothing here
-	journalctl --user --no-pager -u "$(factory_service_unit)" -t systemd -o short-iso -n "$FACTORY_REAP_TAIL" 2>/dev/null
+	journalctl --user --no-pager -u "$(factory_service_unit)" -t systemd -o short-iso-precise --utc \
+		-n "$FACTORY_REAP_TAIL" 2>/dev/null
 }
 
+# The pass's last words: the newest line written by a process of the unit at or before the moment its
+# activation ended. Read separately from `factory_reap_lines`, and read short, because a bounded tail of
+# the whole stream is not bounded in TIME: a pass 25 minutes old had already written past any line-count
+# window, so a fixed `-n` would find the terminal line only on a machine where the last pass said
+# nothing. `-n 25` reaches back over the handful of lines between the pass's last stdout line and the
+# terminal one.
+#
+# Two things decide the answer, and #283's review measured both of them failing on this box:
+#
+#   the filter is what drops the manager's lines, so it has to match one. `journalctl -o short-*`
+#     renders an author as `<comm>[<pid>]: `, so systemd's lines read `systemd[4485]: `. The pattern
+#     this function shipped with looked for `systemd(4485): `, a rendering nothing emits -- measured in
+#     the live window below it matched 0 of the 4 manager lines there, so the filter excluded nothing
+#     and `State 'stop-sigterm' timed out. Killing.` was taken for the pass's last words. That is not
+#     a rounding: the read answered a 1 s hold for the 08:44 activation, whose measured hold is 60.13 s
+#     (last process line 08:44:08.869637, terminal line 08:45:09.002985), because the escalation opened
+#     at 08:45:08.999972 -- the second BEFORE the terminal one.
+#
+#   the boundary belongs to this function, not to `--until`. `--until` truncates to the resolution of
+#     the stamp it is handed, and a second-resolution stamp silently deletes the whole terminal second
+#     from the window (measured: `--until 2026-11-11T08:45:09+00:00` stops at 08:45:08.999972). On the
+#     11-Nov shape that accident is the only reason the number came out right, because there every
+#     escalation line lands inside the terminal second -- and it drops the pass's own last line with
+#     the manager's, in the same direction, so nothing here was ever tested. With microsecond stamps
+#     the window is complete and the comparison below is the boundary. `--until` stays, as a bound on
+#     how much is read: systemd 259 honours it to the microsecond, and on a build that rounds it the
+#     comparison is still exact.
+#
+# Stamps compare as text and that IS the instant comparison, because both sides carry the same
+# fixed-width `...Z|+00:00` rendering of the same zone -- which is why `--utc` is load-bearing here
+# and not cosmetic. Concatenating with `""` is what forces awk's lexical comparison: neither operand
+# would be read as a number anyway, and a guard whose teeth depend on a coercion nobody checked is
+# the kind this file has written nine entries about.
+factory_reap_lastword() { # <terminal stamp> -> the stamp of the newest process line at or before it
+	local until=$1 out=''
+	[ -n "$until" ] || return 1
+	# shellcheck disable=SC2312  # the unit name is a lookup, and a failing lookup prints nothing here
+	out=$(journalctl --user --no-pager -u "$(factory_service_unit)" -o short-iso-precise --utc \
+		--until "$until" -n 25 2>/dev/null |
+		awk -v until="$until" '
+			$0 ~ / systemd\[[0-9]+\]: / { next }
+			($1 "") > (until "") { next }
+			{ last = $1 }
+			END { if (last != "") print last }
+		') || out=''
+	[ -n "$out" ] || return 1
+	printf '%s\n' "$out"
+}
 
 # The live state of the unit, the way `factory_timer_state` gives the live state of the timer. This is
 # the half that can see a hold while it is happening -- `SubState=stop-sigterm` with `TasksCurrent=10`
@@ -437,11 +494,40 @@ factory_unit_state() {
 	return 0
 }
 
+# The stamp's instant, in microseconds since the epoch, or nothing and rc 1.
+#
+# `journalctl -o short-iso-precise --utc` renders every stamp as exactly `YYYY-MM-DDTHH:MM:SS.ffffff
+# +00:00` -- 32 characters, the fraction always at offset 20 -- so the whole-second part is `date`'s
+# business (it floors at the second) and the fraction is a substring. Nothing here recomputes a
+# calendar: the zone is fixed by `--utc`, so there is no offset to fold in and no repeated hour to
+# order wrongly.
+#
+# Why it exists rather than a plain `date +%s` on each side of the subtraction: the difference of two
+# stamps each truncated to its own second is off by up to 1 s in either direction, and this file uses
+# that number to choose a verdict -- `hold > FACTORY_REAP_NOTICE_SECS` is the line between `clean` and
+# `unexplained`. Measured on the live journal on 11 Nov: the 08:44 activation's real hold is 60.133 s
+# (08:44:08.869637 to 08:45:09.002985) and stamp-truncated arithmetic prints 61 s. The fraction is in
+# the journal already; ignoring it is a choice, and it is the wrong one.
+factory_reap_usec() { # <stamp> -> epoch microseconds
+	local s=${1:-} base='' frac=''
+	[ -n "$s" ] || return 1
+	base=$(date -u -d "$s" +%s 2>/dev/null) || return 1
+	case $s in
+	(*.??????+00:00) frac=${s:20:6} ;;
+	(*) frac=000000 ;;
+	esac
+	case $frac in
+	(*[!0-9]*) return 1 ;;
+	esac
+	printf '%s%06d\n' "$base" "$((10#$frac))"
+}
+
 # Reads `factory_reap_lines` back and says what the last COMPLETED activation did -- completed, because
 # the newest block is usually the pass running right now, which has no verdict in it yet.
 #
 #   stdout  <hold>TAB<how>TAB<age>TAB<open>
 #             hold   seconds from the main process exiting to the unit going inactive, whole seconds
+#                    rounded from the microsecond stamps both sides carry (see `factory_reap_usec`)
 #             how    clean | deadline (the stop deadline expired) | client (a hand-escalated SIGKILL)
 #                    | unexplained (it was held and nothing in the log says why)
 #             age    seconds since that teardown
@@ -461,22 +547,6 @@ factory_reap_read() {
 		msgs+=("$msg")
 		stamps+=("$stamp")
 	done
-# The pass's last words: the newest line written by a process of the unit at or before the moment its
-# activation ended. Read separately, and read short, because a bounded tail of the whole stream is not
-# bounded in TIME: a pass 25 minutes old had already written past any line-count window, so a fixed
-# `-n` would find the terminal line only on a machine where the last pass said nothing. `-n 25` reaches
-# back over the handful of systemd lines that sit between the last stdout line and the terminal one.
-factory_reap_lastword() { # <terminal stamp> -> the stamp of the newest process line at or before it
-	local until=$1 out=''
-	[ -n "$until" ] || return 1
-	out=$(journalctl --user --no-pager -u "$(factory_service_unit)" -o short-iso --until "$until" -n 25 2>/dev/null |
-		awk '
-			$0 !~ / systemd\([0-9]+\): / { last = $1 }
-			END { if (last != "") print last }
-		') || out=''
-	[ -n "$out" ] || return 1
-	printf '%s\n' "$out"
-}
 
 	local unit="" i=0 msg2="" hold=0 how='' sig='' work='' term='' open=0 t=0 w=0 now=0
 	unit=$(factory_service_unit)
@@ -506,19 +576,24 @@ factory_reap_lastword() { # <terminal stamp> -> the stamp of the newest process 
 			[ -n "$term" ] || term=$stamp
 			;;
 		esac
-		# Anything the activation itself wrote, once the terminal line has been passed walking
-		# backwards, is the pass's last words: the newest one first, so the first one met wins. It
-		# predates the main process's actual exit by whatever the pass did without logging on its way
-		# out, which makes the hold an overestimate -- the conservative direction for an alarm. A line
+		# The work line, if this stream has one -- and it has exactly one candidate, systemd's own
+		# `Main process exited`, which names the instant the main process stopped and needs no
+		# correction. An activation that exits 0 writes no such line: measured on the live unit on
+		# 11 Nov, 4 of the last 15 activations logged `Main process exited, code=exited,
+		# status=4/NOPERMISSION` and the other 11 logged nothing of the kind, because `-t systemd`
+		# excludes the unit's own stdout altogether. So the clean case is settled below by
+		# `factory_reap_lastword`, from the unit's own lines. Whichever way it arrives, the reading is
+		# conservative: a process line predates the exit by whatever the pass did without logging on
+		# its way out, which overestimates the hold -- the right direction for an alarm. A `Starting`
 		# from the activation running right now is met before any terminal line, so it is not counted.
 	done
 	[ -n "$term" ] || return 1
-	t=$(date -u -d "$term" +%s 2>/dev/null) || return 1
+	t=$(factory_reap_usec "$term") || return 1
 	if [ -z "$work" ]; then
 		work=$(factory_reap_lastword "$term") || work=$term
 	fi
-	w=$(date -u -d "$work" +%s 2>/dev/null) || w=$t
-	hold=$((t > w ? t - w : 0))
+	w=$(factory_reap_usec "$work") || w=$t
+	hold=$((t > w ? (t - w + 500000) / 1000000 : 0))
 	now=$(date -u +%s)
 	case $sig in
 	(deadline | client) how=$sig ;;
@@ -530,7 +605,8 @@ factory_reap_lastword() { # <terminal stamp> -> the stamp of the newest process 
 		fi
 		;;
 	esac
-	printf '%s\t%s\t%s\t%s\n' "$hold" "$how" "$((now > t ? now - t : 0))" "$open"
+	printf '%s\t%s\t%s\t%s\n' "$hold" "$how" \
+		"$((now > (t + 500000) / 1000000 ? now - (t + 500000) / 1000000 : 0))" "$open"
 }
 
 # The `reaping:` line of `factory.sh --status`, in one sentence: what the last pass cost the queue to

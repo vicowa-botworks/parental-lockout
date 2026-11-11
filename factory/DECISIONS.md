@@ -4484,3 +4484,99 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   first one; reverting it restores both conflicted files to their `1b7a660` contents and touches none of
   this branch's own commits. Nothing here merges this pull request: merging is the supervisor's, and it
   merges only what the API still reports approved, mergeable, clean and green at the moment of the merge.
+- Correction (`H-0123`, 11 Nov, on #283's review): what was decided here is unchanged and every count
+  in it reproduces; what is wrong is one parent's label and one total. Measured with `wc -l` on the
+  blobs at the four shas this entry names -- `factory/DECISIONS.md` is 4059 at `075dede`, 4269 at
+  `1fedb2e`, 4203 at `1b7a660`, 4486 at `0a3939d` -- so `4059 + 210 + 144 = 4413` is right, the `4414`
+  it prints is one line above that sum (which no blob can confirm on its own, because the cut and this
+  entry were committed together), and the merged file is **4486**: the entry doing the counting left
+  its own 72 lines (71 plus the blank before it, `4415..4486` of that blob) out of the sum it offered
+  as "checkable as arithmetic rather than as assurance". `factory/common.sh` is 2306 at `075dede`, 2373
+  at `1fedb2e`, 2487 at `1b7a660`, 2553 at `0a3939d`, so the printed identity `2553 = 2306 + 181 +
+  67 - 1` sums only because `2306 + 67 = 2373`: the word "base" belongs to `1fedb2e`'s 2373, and the
+  67 is main's own move already inside it. The spellings that name one parent each are `2553 = 2373 +
+  181 - 1` against the base and `2553 = 2487 + 67 - 1` against ours; both hold. Neither slip moves a
+  byte of content -- the zero-deletion diff against each parent is the stronger of the two proofs and
+  still stands -- and both are corrected in a dated line rather than silently, for the reason this
+  log has now given three times (`H-0086`, `H-0094`, and `H-0119` applying it to `H-0118`): a silently
+  corrected decision log is indistinguishable from one that was always right. It was found by #283's
+  reviewer re-measuring the head rather than by whoever wrote the sum, which is the same division of
+  labour `H-0111`'s title records.
+
+## H-0123 · The character holding the reaping number to the truth matches no line a journal contains, so the read now owns its own boundary -- and this box's live journal had already been answered `1s` for a 60.133 s hold
+
+- Question: #283's review (11 Nov, review `5856028275`, `CHANGES_REQUESTED` at head `0a3939d`, newer
+  than every commit on the branch) reports that the exclusion in `factory_reap_lastword`
+  (`factory/common.sh:474`) cannot match anything, and that the hold it guards is correct only when
+  the escalation happens to land inside the terminal second. Reproduced on this box first, because
+  the review's fixture is a fixture: `journalctl -o short-*` renders an author as `<comm>[<pid>]: `,
+  so systemd's lines read `systemd[4485]: `, and the pattern here was `/ systemd\([0-9]+\): /`. In
+  the live window of the 08:44 activation -- `END rc=0` at 08:44:08.869637, terminal line
+  `Failed to start parental-lockout-factory.service` at 08:45:09.002985, real hold **60.133 s** --
+  the escalation opens at 08:45:08.999972, one displayed second BEFORE the terminal line, so the
+  second-resolution anchor does not exclude it and the inert filter does not either. Running the
+  journal half as shipped, `factory_reap_lines | factory_reap_read`, returned `hold=1
+  how=deadline`. So the sentence `factory.sh --status` prints for the fault #246 exists to make
+  visible said the queue was held for one second. And this is not a rare shape here: 14 of the last
+  15 activations in this unit's journal ended in `State 'stop-sigterm' timed out. Killing.`, because
+  the leaked `winedevice.exe` is still leaking. What is the repair -- the character, the window, or
+  the read?
+
+- Options: change `(` to `[` and leave `--until` deciding the boundary | hand `--until` a microsecond
+  stamp (`-o short-iso-precise --utc`) and leave the boundary to `journalctl` | microsecond stamps
+  AND the read's own comparison, with `--until` demoted to a bound on how much is read | rewrite both
+  reads on `journalctl -o json` typed fields (`__REALTIME_TIMESTAMP`, `RESULT=`, `MESSAGE_ID`)
+  instead of rendered text
+- Chose: microsecond stamps AND the read's own comparison, with `--until` demoted to a bound on how
+  much is read
+- Why: the single character is necessary and not sufficient, and the live journal is the proof --
+  with the bracket pattern in place but the anchor still doing the bounding, the same window answers
+  60 only because every manager line except one sits in the terminal second, and the one that does
+  not (08:45:08.999972) is the line that produced `1s`. So option one passes the review's first
+  bullet and re-fails it the next time an escalation opens early, which on this box is 14 times in
+  15. Option two is refused for a testability reason, not a taste one: the exactness would belong to
+  `journalctl`, so any fixture that honours `--until` correctly is checking its own arithmetic and
+  nothing of the read's, and a build that rounds the anchor -- which this one demonstrably does at
+  the resolution of the stamp it is handed, `--until 2026-11-11T08:45:09+00:00` stopping the window
+  at 08:45:08.999972 -- puts the accident back with no leg able to see it. Option three makes the
+  comparison the code's own and therefore plantable: a fixture may hand over the whole stream and the
+  read still has to refuse the lines after the terminal one. Option four is the review's own
+  "not this slice's job", and tie-break 4 agrees with the review: the typed-field rewrite also
+  replaces the four English sentences `factory_reap_read`'s `case` matches on, which is a verdict
+  parser, not a window, and doing both in one commit would leave a review of #283 unable to tell
+  which half moved a number. It is named here so it stops being a footnote: the next unit after the
+  legs. Tie-break 3 is served by the same arm -- an empty window returns 1 and the line reads
+  `unknown`, never a clean read. Two things travel with the choice because the measurement demanded
+  them rather than for tidiness: `factory_reap_usec`, because the repaired filter printed `61s` for
+  the 60.133 s hold the moment it stopped being fed a truncated anchor -- the two stamps were being
+  truncated to their own seconds before subtraction, which is ±1 s on a number this file uses to
+  pick a verdict at `FACTORY_REAP_NOTICE_SECS=5`; and the move of `factory_reap_lastword` to top
+  level, because it was defined inside `factory_reap_read`'s body whose only call site is the right
+  end of a pipeline, so the definition was created in a subshell and died there (`type
+  factory_reap_lastword` after `factory_reap_lines | factory_reap_read` answers `not found`, the
+  review's measurement reproduced here) -- every leg that wants to replay one transcript through a
+  `PATH` stub is a call from outside, which is rc 127 as shipped. What lost: option three keeps a
+  *text* comparison where `journalctl` offers a typed field, so the fixed-width single-zone rendering
+  of `-o short-iso-precise --utc` is now load-bearing in a place it was not before -- `($1 "") >
+  (until "")` is an instant comparison only because both sides carry the same 32-character `+00:00`
+  form -- and that contract is pinned by a leg and by a comment rather than by a schema; option two
+  was two lines shorter; option one is what a 1 s error on a 60 s alarm looks like from the queue.
+- Checkpoint: c151347
+- Effect: `factory/common.sh` only. The exclusion is `/ systemd\[[0-9]+\]: /`; both reads ask for `-o
+  short-iso-precise --utc` (both flags present since systemd v239, checked against the upstream man
+  page at `v239`, `v246`, `v251`); `factory_reap_lastword` is a top-level definition that applies the
+  boundary itself; `factory_reap_usec` is new; `factory_reap_read`'s arithmetic, its `hold`/`age`
+  fields and its contract header, the `work`-line comment inside its loop, and `factory_reap_lines`'
+  docstring -- which claimed the filtered stream also carries the unit's own lines and is measured
+  above not to (0 of the 325 in the same window) -- are corrected. Witness, both directions, same
+  window, same box, same command (`factory_reap_lines | factory_reap_read` against the live user
+  journal): `hold=1` at `0a3939d`, `hold=60` after this commit, the truth 60.133 s. `bash -n` clean,
+  `shellcheck -S style` clean, `bash factory/selftest.sh` 447 passed 0 failed -- which is this
+  entry's own bad news and not a pass: the count is unchanged because no leg reads any of it
+  (`grep -c factory_reap factory/selftest.sh` is 0 at this commit), so the legs the review asks for
+  are the next commit and until they exist nothing here is guarded against being edited back. The
+  line-count identity `H-0120` states wrongly is left to a dated `Correction` bullet on that entry,
+  where a reader of it will find it, rather than folded in here. No dependency, no security
+  property, no publish, no deletion, so this is not
+  one of the four classes held for a person; nothing here merges or publishes -- merging is the
+  supervisor's.
