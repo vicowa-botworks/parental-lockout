@@ -629,6 +629,30 @@ only input separating a re-take from a substitution, so it names **every** frame
 including `lock.png` and `testlock.png`, which no driver records for; and the bare command is still
 right for a set this folder took whole and honest, because those frames are unchanged and carry.
 
+**A frame the manifest has never seen is the same mint with nothing to carry**, and `record` refuses
+that too (#294) — but on a comparison, never on the absence: named by nobody *and* its own pixels last
+committed at least one commit before its page. The absence cannot be the trigger, because "no entry" is
+also what an honest capture looks like before its commit — `pages.py` records the frames it has just
+photographed while every one of them is still untracked, and `fixture.sh` says *Commit last*. Refuse
+the absence and `make capture` is red on its first run, which is #144's trap wearing the fix's clothes;
+the rule `a frame new to the manifest with pixels older than its page is refused, and a frame with no
+history at all is not` tests both orderings so that mistake cannot be made quietly. Minting matters more
+for an unrecorded frame than for any other, because an unrecorded frame is the one case `check` *does*
+see — `is committed with no entry in` fires on it — and recording it deletes that finding and installs
+in its place the drift arm that compares a fabricated rev against nothing.
+
+The published set carries the specimen one step further along, in `git show 7e65d3b`: `lock.png` and
+`testlock.png` are the only two of the nine entries with no `carried_from` — both revs minted — both
+dated `2088043cb`, written eighteen seconds after that commit landed, while the newest commit over each PNG's
+own pixels is `3bcbfdd`, an ancestor of `2088043`. By this file's own model those two photographs predate
+their page, and `manifest.py check` on that tree answers *9 photographs current*, rc 0: the rev the gate
+would have compared is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so those
+revs are hand-typed from wherever whoever noticed was standing — the recipe below is what tells them what
+to type, and a commit eighteen seconds old is not evidence about a frame taken four hours and twenty-one minutes earlier. Closing it
+takes a re-take, not an edit: `./lock.py` and `./testlock.py`, then
+`record --fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock
+--shot testlock`.
+
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver
 against a fixture it has already signed into is refused --
