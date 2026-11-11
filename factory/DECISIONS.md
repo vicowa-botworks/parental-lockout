@@ -3545,6 +3545,82 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   leg of the day could see an always-empty map.
 - Checkpoint: 5cfda8d7781daecab8209d849ac1643044e66844
 
+## H-0109 · The fixture answers fields nobody asked for, so the projection goes into `emit()` and not into another call site
+
+- Question: #279 found both fixture `gh` shims parsing `--json` for one thing only -- telling two
+  payloads apart -- and then printing the whole payload file. A shipped read that *stopped* asking for
+  a field therefore kept receiving it from the fixture, and every leg asserting something about that
+  field stayed green while the read went blind. The issue asked for `H-0108`'s projection lifted out of
+  its one branch and paired with a leg that fails when a caller asks for a field the fixture does not
+  carry, and it asked for its own plant to be run first. The plant was run first, and it is the whole
+  argument: `--json number,title,updatedAt` at `factory/triage.sh:563` reduced to `--json number,title`
+  left `bash factory/selftest.sh` at `387 passed, 0 failed` -- identical in tally to the unpunctured
+  run, exit 0 -- while the `CLAIM_DEBUG` rows still printed `issue 232 delivered`, a verdict
+  `delivered_claim` (triage.sh:509) refuses to render on an empty `updatedAt`. Six payload sites, one
+  demonstrated, none of them visible.
+- Options: project at each dispatch site, as `H-0108` did for the merged read alone | lift the
+  projection into each shim's `emit()` as two separate copies of the rule | one heredoc installed into
+  both payload directories and sourced by both `emit()`s, `gh`'s refusal of a field no row carried
+  included | leave the fixture alone and pin the field lists with a text check over `triage.sh`
+- Chose: one heredoc installed into both payload directories and sourced by both `emit()`s, `gh`'s
+  refusal of a field no row carried included
+- Why: the first option carries its own refutation, measured in the same week as its fix -- `H-0108`
+  projected the merged payload at the merged read, and #279 then counted **six** payload sites still
+  served blind, because a rule written at a call site is a rule for that call site. The fourth option
+  proves the shipped text says `updatedAt`; it does not prove the read *receives* it, and this class is
+  precisely a suite that could not see its own subject (`triage.sh:470-479`'s always-empty
+  `delivered_map`, and #242's `${3}` where `${2}` was meant), so a text check is that suite in a
+  different costume. Between the middle two the tie-breaks separate them on fewest files and then on
+  the reason `H-0108` exists at all: two copies is how one channel got fixed and six did not, and these
+  two shims already claim to share every other rule by pointing at each other in comments
+  (`CLAIMSHIM`'s write refusal, the process shim's `exit 9`) -- this makes one of those promises
+  mechanical instead of aspirational. The refusal is the half the issue named, and it follows the house
+  rule for a missing input: refuse rather than proceed. `gh` answers an unknown field with a non-zero
+  exit and the field's name, so the fixture does the same, and `labels` -- a field `gh issue list`
+  holds for every issue on GitHub and this fixture has never held -- now fails loudly where it used to
+  answer no column at all at exit 0, which is indistinguishable from the repository saying "none". That
+  is the moment a fixture quietly becomes the specification. `git revert` of the one commit below takes
+  all of it back.
+  **What lost.** Locality: a reader of one shim no longer sees the projection where the payload is
+  printed, and pays a `$here/fields.sh` hop instead -- paid back with a comment at each `emit()` naming
+  `install_gh_fields`, which is also where the measurement lives. The honest residue is
+  `gh_json_payload`'s empty payload: `gh` checks a field name against its own schema, a fixture has
+  only the rows in front of it, and every unlegged read runs against `[]` every pass, so an empty list
+  carries no verdict about the field list and is not refused. The check is therefore only as good as a
+  planted row, which is why the refusal leg asks the fixture that holds nine. And `H-0108`'s
+  site-level branch on `issue-277` becomes redundant beside this one; it is not broken by it --
+  re-projecting an already-projected payload to the same field list is the identity -- so whoever
+  resolves the shared region is deleting a branch, not correcting one.
+- Effect: `factory/selftest.sh` only, plus this entry. Both `emit()`s now answer
+  `gh_json_payload <payload> <--json list>`: the document verbatim when no field list was passed (the
+  `user` and `graphql` reads, where `gh` has no field contract to obey), otherwise the payload projected
+  through `with_entries` with what no row carries refused by name. Eight legs: three that a field not
+  named does not come back (the claim-shim, its control, and the same read off the **process** shim,
+  which serves the whole supervisor run), two that a field the fixture lacks is refused and one it
+  holds is not, and three that run #279's plant end to end -- the mutant's anchor counted before it is
+  believed (`proc_mutate`'s rule), then the shipped read one field short must not deliver, then the
+  shipped file as it ships must. Measured on rodney-9950x, btrfs, one `bash factory/selftest.sh` per
+  row, the same fixture as `H-0100`'s table: unpunctured `395 passed, 0 failed` (was 387; eight legs,
+  15.1 s -> 16.0 s); the plant with this fix in `375 passed, 20 failed`, exit 1, against the `0 failed`
+  the same plant produced above; and the fix with its projection neutralised in both `emit()`s --
+  everything else left in place -- `391 passed, 4 failed`, which is four of the eight saying the old
+  answer out loud. `make check-shell` clean, 0.10.0 over 28 scripts. No `.go` file is touched, so no
+  mutant anchor moves and `scripts/check-mutations.py` is not the gate this change needs (#1048's
+  surface is `.go` and `.tmpl`).
+  **Corrected at the merge, 11 Nov, and not quietly.** This entry said the measurement ran on
+  `btrfs`; it copied that from #279's table and from `H-0100` instead of reading it. `H-0104`, which
+  arrived on `origin/main` in `afeb148` while this entry was being written, is the decision that the
+  filesystem which decides a count is the one under `$TMPDIR` holding the *fixture root* -- not the one
+  the worktree is on -- and the merged runner now prints it: `407 passed, 0 failed (fixture root
+  /tmp/plock-factoryselftest-… on tmpfs, git 2.53.0)`. So the box was right and the filesystem was
+  wrong: every count above was taken with `$TMPDIR` at its default, which on this machine is tmpfs.
+  What that class costs a count is `H-0045`'s measured ±1 -- one exclude-file leg flips its verdict
+  between tmpfs and btrfs -- which is why the numbers above are stated as the plant's tallies and the
+  deltas (`387 -> 395`, `0 -> 20 failed`, `4 failed` with the projection neutralised) rather than as a
+  bare absolute: both ends of a delta are counted in one world. The counts themselves are unaffected by
+  the correction, because none of them is the ±1 leg.
+- Checkpoint: 3de3544298fbbc5e1c0ca5b471bbab9542fc5579
+
 
 ## H-0110 · The log collides with the same neighbour a fifth time, and this time it is the shipped gate, not the author, that says which order is right
 
@@ -3554,3 +3630,158 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Why: git's layout is red, and it was measured rather than argued -- the conflict was resolved both ways into `/tmp` and each copy run through the shipped gate. Ours-first answers five problems (`factory/DECISIONS.md:3496: H-0102 is out of order (H-0108 came before it)`, and the same sentence for `H-0103`..`H-0106`), exit 1; id-ordered answers `check-decisions: 102 entries across 1 log(s)`, exit 0. So the order is not taste, it is `scripts/check-decisions.py:161`. Renumbering lost on a number this branch has already published: `gh pr view 278 --json body` carries `H-0108` at body line 36, so a renumber moves an id a reader outside this repository holds -- the exact cost `H-0105` paid only because two ids were genuinely taken, and none is here (measured: no ref but this branch holds a `## H-0108 ` heading, and this branch holds none of `H-0102`..`H-0106`). Rebasing is refused by the remote rather than by rule-of-thumb: `git rev-parse origin/issue-277` answers `b60fd1c`, so the branch is pushed and a rewrite needs `--force` -- denied to this agent by `.opencode/opencode.jsonc` and forbidden on an in-flight branch by `AGENTS.md` -- while a merge is undone by `git revert -m 1` (tie-break 5). The fifth option was prepared and never needed: the projection is the very thing `H-0108`'s legs exist to pin, and nothing went red to tempt it. Tie-break 4 lands here too -- one file resolved by hand out of the seven in the change set. Then the proof, because four files took git's auto-merge: per-file multiset presence over every non-blank `+` line each side added against base `5cfda8d`, run against the merged working tree, script kept outside the repository as `H-0096` did -- `factory/selftest.sh` main 137 added / 0 missing and this branch 340 / 0; `factory/triage.sh` 45/0 and 114/0; `factory/DECISIONS.md` 38/0 and 77/0; `docs/factory.md` 18/0 and 27/0; `factory/common.sh` 0/10; `factory/factory.sh` 0/31; `.opencode/skills/factory/SKILL.md` 0/8. Zero absent from the merged tree, in all seven. **What that number cannot see is the finding, and it is stated rather than assumed away:** 0 missing is equally consistent with two changes each correct and the composition wrong -- one entry ago `main`'s planted payload had no `pageInfo`, `H-0103`'s rule read the missing bound as a stopped page, and twelve legs went red over a merge that lost no line. So the composition was tested twice more. Where the two sides did touch one name: `emit()` is defined TWICE in `factory/selftest.sh`, at `:2766` (`main`'s supervisor shim, which grew to seven `%s`) and `:3731` (this branch's claim shim, which gained `with_entries`), and all four trees -- base `5cfda8d`, `HEAD`, `origin/main`, the merged tree -- carry exactly those two definitions at the same two addresses, so the two edits live in different fixtures and never met. And the suite: `bash factory/selftest.sh` prints `factory/selftest.sh: 429 passed, 0 failed (fixture root /tmp/plock-factoryselftest-AvYiOz on tmpfs, git 2.53.0)`. The 429 is the only figure measured in this commit; 399 (`H-0106`'s count on `main`) and 417 (`H-0108`'s count on this branch) are records, so `399 + 30 = 429` is a consistency check that both sides' legs ran, not a measurement. Then the live read, taken after the merge instead of predicted: `./factory/triage.sh --table` exits 0 and prints both halves in one table -- `issue 246 unclaimed [merged:PR#254 on \`issue-246\` at 2026-11-10T01:39:17Z -- a \`Part of\` phrase in the same body] TimeoutStopSec…` (this branch's note, class unchanged) beside `main`'s `issue 272 delivered merged PR #273 … (window 100)` -- with no pagination-bound line. Last, the mutant surface: neither side's change set contains a `.go` or a `.tmpl` file (`git diff --name-only 5cfda8d origin/main | grep -E '\\.(go|tmpl)$'` and the same against `HEAD` both print nothing), and the 80 distinct `"file"` values across `scripts/mutations/*.json` have zero overlap with the seven touched files (set intersection, measured), so `scripts/check-mutations.py` is not a gate this merge can need (#1048's surface is `.go`/`.tmpl`). What lost. A linear history, never on the table while the branch is pushed. The empty checkpoint `5e688b4` now stands for a tree state nothing can rebuild -- `H-0100`'s cost, paid a fifth time. And `H-0106`'s real fix is still not in this tree: nothing asserts that the fixtures answer every field the shipped reads name, so the next field either side adds to a query repeats this exactly, and this entry adds a number to that debt rather than paying it. Nothing of either side's prose yielded -- no line was traded for the other's wording, which is what `H-0106` lost ten lines to -- because this time the two sides did not write over the same sentence.
 - Checkpoint: 5e688b42d6982fea22384b6823cb982d24dbc967
 - Effect: the merge of `origin/main` (`7fa162b`) into `issue-277`; `factory/DECISIONS.md` is the only file resolved by hand -- one region, the append offset after `H-0100`, resolved as `main`'s `H-0102`..`H-0106` then this branch's `H-0108`, ascending because that is what `check-decisions.py:161` enforces, then this entry -- and the other six files took git's auto-merge and were counted, not read. Read back in this tree before the merge commit existed: `python3 scripts/check-decisions.py` answers `check-decisions: 142 entries across 2 log(s)` (141 one run earlier, this record being the one), and `make verify` -- run with the merge in progress, because this merge stages no static source and so does not trip `dirty_sources()` the way `H-0106`'s did -- exits 0 with `verify: OK`, `factory/selftest.sh: 429 passed, 0 failed`, `check-deps: stdlib only`, `screenshot manifest: 9 photographs current`, and `git status --short` carrying no `UU`. The branch is 13 commits ahead of `origin/main`'s merge base and `gh pr view 278` will be re-read after the push; the `mergeable` flip from `CONFLICTING` is the API's verdict, not this entry's. What lost is in the `Why:` above: the linear history, the rebuildable checkpoint, and the still-unpaid `H-0106` leg.
+
+
+## H-0112 · The log collides a seventh time, and the second conflict is a rule this branch wrote at one call site that `main` has just generalised -- so the copy goes on a measurement, not on `main`'s word
+
+- Question: `#278` reads `OPEN`, `reviewDecision=APPROVED`, `mergeable=CONFLICTING`,
+  `mergeStateStatus=DIRTY` at head `dba8477` -- read back before anything here was touched, and the
+  head is the sha this worktree holds, so the branch is pushed and a rewrite needs the `--force` this
+  agent is denied. `origin/main` moved `7fa162b` -> `4405119` (`#280`, `issue-279`) while it sat; the
+  merge base is `7fa162b`; `git merge-tree --write-tree` names TWO conflicted paths. The log is the
+  settled class seventh time over (`H-0093`, `H-0096`, `H-0099`, `H-0100`, `H-0106`, `H-0110`,
+  `H-0111`), and this branch's two entries straddle `main`'s -- ours are `H-0108` and `H-0110`,
+  `main`'s is `H-0109` -- so git's layout puts `H-0110` above `H-0109`. The second file is the half
+  that has always been silent: both sides inserted a new leg section at the same offset in
+  `factory/selftest.sh`, and above that region `main` rewrote both fixture `emit()`s to obey the
+  caller's `--json` list -- which is the same rule `H-0108` (this branch) wrote at ONE dispatch site,
+  and `H-0109`'s `Effect:` tells whoever resolves the shared region to delete it. So: which splice,
+  does this branch keep its copy of the rule, and what counts as proof that a leg from each side
+  still says no on the merged tree and that the `file:line` citations the colliding entries wrote
+  down still resolve there?
+- Options: take git's conflict layout and keep both copies of the projection rule | re-cut the log at
+  id positions from the two parent blobs and keep both copies | re-cut at id positions and delete this
+  branch's copy because `main`'s entry says to | re-cut at id positions, delete the copy on a
+  measurement that the trunk's rule pins the same three legs, and re-open every `file:line` the
+  colliding entries cite | resolve the log with `--ours` | resolve the log with `--theirs` and append
+  this branch's two entries at the end | leave the conflict for the supervisor's own conflict path
+- Chose: re-cut at id positions, delete the copy on a measurement that the trunk's rule pins the same
+  three legs, and re-open every `file:line` the colliding entries cite
+- Why: tie-breaks 1 and 2 have nothing to bite on -- no `require` line is at stake (#856) and no config
+  key decodes toward or away from a lockout (#873, #872). Option 1 is red, measured rather than argued:
+  the two splices were written to `/tmp` at the same 3632 lines and each run through the shipped gate
+  -- git's layout answers `H-0109 is out of order (H-0110 came before it)` at `:3558`, exit 1, and the
+  id-ordered cut answers `check-decisions: 104 entries across 1 log(s)`, exit 0. That is
+  `scripts/check-decisions.py`'s order rule, the same one `H-0110` was written for. Options 5 and 6 are
+  arithmetic and a stall: `--theirs` deletes 84 log lines and 340 `factory/selftest.sh` lines that are
+  this branch's whole delivery of #277, `--ours` deletes `main`'s 74 log lines and 240 fixture lines
+  together with the #279 class `H-0109` exists to pin, and Step 3 refuses the seventh. Between the
+  middle three, tie-break 3 -- refuse rather than proceed -- is what settles it, pointed at the
+  resolver rather than at the outcome: option 2 ships a tree holding two copies of one rule and neither
+  copy fails on its own, so nothing in it would ever report the duplication; option 3 accepts a claim
+  read out of the other side's decision entry, which is a prophecy about a tree the author never saw --
+  `H-0109` says the site-level branch "is not broken by it", which is true, and says nothing about
+  whether the legs still bite without it. So the copy was deleted on this tree's own numbers, taken
+  twice: unpunctured, `437 passed, 0 failed` with the copy in place and `437 passed, 0 failed` with it
+  gone; and under the plant `H-0109` itself prescribes -- `--json number,body,mergedAt,baseRefName` at
+  `factory/triage.sh:713`, the shipped merged read one field short -- `434 passed, 3 failed` both times,
+  the SAME three legs (`…naming the branch that carried it`, `…and the branch, as a fact to go and
+  read`, `…on a branch that is not its own ticket`). Two trees, one behaviour: the trunk's rule alone
+  holds this branch's legs. Tie-break 6 was consulted before any of this and is the reason the
+  measurement was expected to agree: the merged file ships the rule once, in `install_gh_fields` ->
+  `gh_json_payload`, and its own comment at `factory/selftest.sh:2742-2745` names `H-0108`'s site-level
+  copy as the thing #279 was filed to end -- keeping the copy would have kept the tree disagreeing with
+  its own prose. Tie-break 4 does not separate 2-4 (the same two files move either way); tie-break 5
+  covers all of them: the whole merge comes back with `git revert -m 1`, and `git revert` of `b60fd1c`
+  would have taken the copy back anyway had the plant disagreed.
+- Checkpoint: 6f51edb2b89f327d7ad0bf8cc15f41c3b538fb86
+- Effect: the merge of `origin/main` (`4405119`) into `issue-277`; two files resolved by hand, and
+  nothing else in the change set needed a marker (`git diff --name-only 7fa162b origin/main` is those
+  two paths -- `main` touched no other file).
+  **The log.** Cut out of `git show` output by heading position (`/tmp/opencode/resolve-278-log.py`,
+  kept outside the repository as `H-0096` onward each did), with `main`'s blob as the trunk and this
+  branch's two entries re-inserted at their id position: the tail reads `H-0106`(base) `H-0108`(ours)
+  `H-0109`(main) `H-0110`(ours) then this entry -- ours on BOTH sides of main's, which is what no
+  side-order splice writes. The cut refused to run twice before it ran: the script asserts this
+  branch's prefix equals the base's (it does, one hunk, the append), asserts every difference `main`
+  left above the append point is a blank line (it is exactly one, at base line 3417, and taking `main`
+  as trunk keeps it -- `H-0111`'s warning is that a trunk cut from the base silently reverts whatever
+  the trunk changed above the conflict), and asserts both sides' new entries appear verbatim as
+  unbroken blocks. Against `main`'s blob the whole change is `91 0` -- insertions, deletions -- and
+  against this branch's it is `76 0`, so neither side's text was edited, only ordered. 3632 lines, 104
+  entries before this one.
+  **`factory/selftest.sh`.** Both sections kept whole, this branch's #277 section first and `main`'s
+  #279 section after it (`main`'s own header sentence reads the sections above it as the queue half),
+  joined by the blank line the file uses between sections. The three conflict markers are the only
+  lines that splice removes: 9088 lines, `bash -n` clean. That splice was then re-run from the saved
+  conflicted file a second time with `--drop-site-branch`, and the first version of the tool had
+  deleted one side's entire 287-line section before the arithmetic caught it -- the check that caught
+  it is now in the script (`len(out) != len(lines) - 3 + 1`, plus a multiset pass over every
+  non-marker line), because a splice that reads correctly at the seam can still be 287 lines short.
+  The deletion is 16 lines: this branch's 8-line comment and its 8-line `jq -n --slurpfile` projection
+  at the `pr list --state merged` site, back to the base's `emit "$here/pr-merged.json" ;;`. Three more
+  lines of this branch's prose were corrected in place, not deleted: the #277 section's header promised
+  the projection was supplied "`with_entries`, above", which the merge made false, so the sentence now
+  names `install_gh_fields` / `gh_json_payload` and quotes both plant tallies -- the precedent for
+  correcting shipped prose a merge falsifies is `H-0106`'s three sentences.
+  **Additivity, counted.** Per file, non-blank lines each side added since `7fa162b` and how many are
+  ABSENT from the merged tree as a multiset, then the merged tree's drops against lines BOTH parents
+  still hold (`/tmp/opencode/additivity-278.py`): `DECISIONS.md` ours 84 added / 0 absent, main 74 / 0,
+  0 dropped; `selftest.sh` ours 340 / 19, main 240 / 0, 0 dropped; `triage.sh` 114 / 0 and 0 / 0;
+  `factory.sh` 31 / 0; `common.sh` 10 / 0; `docs/factory.md` 27 / 0; `SKILL.md` 8 / 0. Every `main` cell
+  is zero, every auto-merged file is zero, and the 19 are enumerated line by line by the script: 16 are
+  the deleted copy, 3 are the corrected sentence. No marker anywhere; `git status --short` carries no
+  `UU` after the two paths are staged.
+  **The merged tree, measured.** `bash factory/selftest.sh` -> `437 passed, 0 failed` (fixture root
+  `/tmp/plock-factoryselftest-…` on tmpfs, git 2.53.0), exit 0. 437 is the only figure measured here;
+  399 (`H-0106`'s count on `main`), 30 (`H-0108`'s legs) and 8 (`H-0109`'s legs) are records, so
+  `399 + 30 + 8 = 437` is a consistency check that both sides' legs ran, not a measurement. Four plants,
+  each anchor asserted to occur exactly once before it is believed, applied to a `cp` backup and
+  restored by `cp` -- never `git checkout`, which would have taken the merge with it -- each proven
+  byte-identical on `sha256sum` with `git status --short` unchanged after: (A) this branch's legs,
+  WITHOUT the copy -- the merged read one field short -> `434 passed, 3 failed`, the three
+  branch-naming legs; (B) the same plant WITH the copy restored -> the same `434 / 3`, the same three
+  legs, which is the measurement option 3 could not offer; (C) `main`'s projection neutralised in the
+  CLAIM shim (`gh_json_payload "$file" "$json"` -> `cat`) -> `434 passed, 3 failed`, failing
+  `the shim answers only the fields named`, `a field the fixture lacks is refused`, `a read one field
+  short delivers nothing` (`factory/selftest.sh:5049`, `:5052`, `:5058`) -- `main`'s legs are live and
+  aimed at the merged fixture; (D) the same in the PROCESS shim (`"$jsonf"`) -> `436 passed, 1 failed`,
+  `…and the process shim obeys it too` (`:5051`), which is what proves `main`'s auto-merged
+  `install_gh_fields "$proc_fix"` and `. "$here/fields.sh"` survived a region neither side conflicted
+  in. After the restores, `437 passed, 0 failed`. The live read, taken after the merge rather than
+  predicted: `./factory/triage.sh --table` exits 0 with both halves in one table -- `pr 278 conflict
+  CONFLICTING/DIRTY; checks pass`, `issue 279 delivered merged PR #280 … (window 100)` (`main`), `issue
+  246 unclaimed [merged:PR#254 on \`issue-246\` … -- a \`Part of\` phrase in the same body]` (this
+  branch's note, class unchanged), `pr 274 needs_reviewer every verdict voided by a push …` -- and no
+  pagination-bound line.
+  **`#1048` has no surface here, measured:** zero `.go` and zero `.tmpl` paths on either side of the
+  change set; 13 mutation sets, 847 anchors naming a file, 80 distinct files, kinds `.go` 72 / `.tmpl`
+  8; the intersection with the seven touched paths is empty. Nothing could have been retired by this
+  merge, so `scripts/check-mutations.py` was not run -- it rewrites this working tree in place and must
+  not overlap the gate (#1807).
+  **Citations re-opened, and four are wrong -- none of them by this merge alone.** On the merged tree,
+  with the position on `origin/main` beside it: `H-0109`'s `--json number,title,updatedAt` at
+  `factory/triage.sh:563` is at **`:713`** here and was at **`:600`** on `main` and on the base --
+  `main` touched no other line of `triage.sh`, so that citation never resolved and this merge moves it
+  113 further. `H-0109`'s `delivered_claim (triage.sh:509)` is at **`:608`** here and **`:536`** on
+  `main`. The `delivered_map=` scar cited by BOTH `H-0108` and `H-0109` as `triage.sh:470-479` sits at
+  **`:506-509`** here and **`:494-497`** on the base -- wrong before either branch existed. And `H-0108`'s
+  own `docs/factory.md:486-495`, cited for the `branch:`-channel filter, names text that file does not
+  contain at all: `:486-495` is the `install-timer` refusal, `docs/factory.md` has no `--tsv` or
+  `branch:`-skip passage, and `main` never touched the file -- so it was wrong in the commit that wrote
+  it. Neither entry was edited, for the reason all six collision entries give: an edit turns the `91 0`
+  above into a deletion and destroys the evidence this entry spent its ceiling producing. This
+  paragraph is the dated correction `#1180` asks for, and it is the second collision running that a
+  citation audit found breakage rather than confirming the last one (`H-0111` found two).
+  **Gates, on the tree this commit leaves:** `bash factory/selftest.sh` -> `437 passed, 0 failed`, exit
+  0; `python3 scripts/check-decisions.py` -> `check-decisions: 144 entries across 2 log(s)`, exit 0
+  (143 before this entry); `make verify` -> `verify: OK`, exit 0, with `check-deps: stdlib only` and the
+  screenshot manifest inside it; `git status --short` clean. `verify` runs the fixture suite and both
+  decision gates inside itself, so those numbers are quoted as its parts, not as a substitute for it.
+  **What lost, and what is still not established.** (a) Sixteen lines and one sentence of this branch's own
+  prose, to the trunk's single copy of the rule -- the intent survives and is pinned from both
+  directions (A pins the read, C and D pin the fixture), but a reader of `b60fd1c` alone will look for a
+  projection at the dispatch site and find an `emit` call, and this entry is the only thing linking
+  them. (b) A linear history, never on the table while the branch is pushed, and the checkpoint
+  `6f51edb` now stands for a tree state nothing can rebuild -- `H-0100`'s cost, paid a sixth time.
+  (c) Whether the push voids `#278`'s `APPROVED` row under the rule `H-0095`/`H-0097` wrote into Step 5
+  is a read AFTER the push, not a claim here; the same live table already shows the class on the
+  sibling (`pr 274 needs_reviewer every verdict voided by a push`), and the pull request carries its own
+  answer. (d) Plants A-D are canned legs against a fixture: `434 passed, 3 failed` pins the suite's
+  arithmetic, not GitHub's behaviour. (e) The citation audit is a property of these seven files, and the
+  four findings say nothing about citations nobody re-opened: nothing in this harness resolves a
+  `file:line` written in prose, which is why `H-0111` found two and this found four. A leg that greps
+  both logs for `path:N` and asserts the named text is at that line is the unpaid work, and it is this
+  unit's `NEXT:`. (f) The two `/tmp` scripts that produced this evidence are not repository artifacts and
+  die with the session -- the eighth collision re-derives them unless someone lands them, which is
+  `H-0101`'s and `H-0111`'s residue, repeated a third time.
