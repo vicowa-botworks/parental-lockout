@@ -2760,3 +2760,71 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   five fitted frames came back byte-identical to the committed set: `users b1974aaa...`,
   `profiles a2bede88...`, `profiles-refused 9a62a2cd...`, `audit fc37cd9a...`,
   `settings c47e16d6...`.
+
+## D-0055 · `record` refuses a frame whose bytes moved and nobody claimed it, instead of dating it at the commit it happens to stand in
+
+- Question: #222 stopped `manifest.py record` moving `sources_rev` for a frame it did not take by
+  *carrying* the prior entry's value, and the carry needs three things at once: a prior entry, byte
+  identity, and a rev worth carrying. A frame whose bytes differ from the entry the manifest carries,
+  and that this run did not name in `--shot`, still reaches the mint (`testing/capture/manifest.py:507`
+  at `d7a5149`), which writes the commit the run is standing in -- and `check`'s drift arm opens
+  `if recorded == current: continue`, so the mint is not a wrong sentence about the frame, it is the
+  refusal switched off. Where does that get refused, and is refusal the right verb when there is no
+  prior rev to keep?
+- Options: refuse in `record` and write nothing | keep minting and teach `check` to catch it afterwards
+  | mint the frame's OWN newest commit instead of the page's | carry the prior entry's rev, as #222
+  does for an unchanged frame | print a warning to stderr and record anyway
+- Chose: refuse in `record` and write nothing
+- Why: option two is not available, and the measurement is the issue's and this file's both: the
+  equality `check` short-circuits on is the one `record` just wrote, and the swap's own commit is now
+  the newest commit touching the PNG, so `check`'s ancestry arm reads a substituted frame as a re-take.
+  Measured 11 Nov at `d7a5149` through real git over a throwaway repository (nine frames recorded at
+  `A`, the masthead moved at `B` with `profiles.png` re-taken in that commit, `audit.png` replaced with
+  another page's frame): before the record `check` refuses the swap on identity, after one
+  `record --shot profiles` it names nothing about `audit.png` while naming the six frames that honestly
+  carried, and with `--fixture-env runs/pages/fixture.env` supplied the swapped frame gains this run's
+  `capture` block as well -- #211 reopened for one frame. Option three is laundering with better
+  grammar: for a substituted frame the newest commit over the pixels IS the swap commit, so the
+  manifest would certify the substitution as the rendering. Option four dates new bytes by the file
+  that used to be there -- the same invented date with a longer pedigree, and a `png_sha256` paired
+  with a `sources_rev` that never coexisted. Option five leaves the green sentence counting the frame
+  as current, which is the claim #222 was filed over. Tie-break order picks option one without
+  reaching for taste: tie-break 3 is "refuse rather than proceed when the input that decides is
+  missing", and `--shot` is that input; tie-break 2's direction (ambiguity never resolves toward
+  certifying) points the same way; option one touches one function and one message (tie-break 4) and
+  reverts cleanly, changing no schema and no `/1`-vs-`/2` promise (tie-break 5). Say what it costs.
+  `--shot` stops being advisory: two of this file's own self-test recipes were re-takes with no
+  `--shot` and go red until they name the frame, and README:653-655's by-hand sentence names one frame
+  where a run that took both POST frames must name two -- measured against the pre-fix recorder here,
+  `--fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock` typed after
+  both POST frames had been re-taken and the masthead had moved again wrote
+  `testlock.png: sources_rev 8af51e245 -> c89ae7fe8` with the newest commit over its own pixels at
+  `a5dd8d141`, and `check` named the seven stale page frames one by one and said nothing about that
+  one. All three recipes were edited in this commit rather than left for someone to find. What the
+  refusal does NOT establish: a *named* frame is still taken on the driver's word, so
+  `record --shot lock` typed three commits after `lock.py` ran mints the current rev for pixels whose
+  own history says otherwise (the same run above shows it for `lock.png`, which was named). `--shot`
+  says whether a run took a frame and nothing about when it took it, both of #294's arms are about
+  frames nobody named, and the ordering obligation now lives in the notes instead of in a check.
+- Checkpoint: 8204da291931a3e940568a1855086297115e6a11
+- Effect: `testing/capture/manifest.py` -- `record`'s loop collects `replaced` and raises once, naming
+  every unclaimed frame together, before the notes print and before anything is written (so the
+  manifest on disk stays the one that still describes the swap as a finding), and `record`'s docstring
+  now says `shot` is what makes an unclaimed frame refuseable; two existing rules
+  (`conditions_follow_the_frame_not_the_recorder`, `a re-take of one page demands nothing of the frames
+  it never touched`) pass `shot=` because that is what `pages.py:1097` actually hands over, and
+  `EXPECTED` 42 -> 43 with `a frame whose bytes moved and nobody claimed is refused, and a named
+  re-take clears it`; `testing/capture/README.md` -- the substitution paragraph (open -> closed, with
+  this measurement), the "Record last, and name what you took" paragraph, and the by-hand recipe
+  (one `--shot` per frame, record in the same commit as the re-take). Read-backs, each run against the
+  code it describes: `python3 testing/capture/manifest.py --self-test` -> `capture manifest self-test:
+  43 rules hold`; hollowing the new clause to `if False and before and not unchanged …` on a copy of
+  the tree under `/tmp` (never the gated tree, #1807) -> `1 of 43` failing, and that one is this rule;
+  restored -> `43 rules hold`. Real git over throwaway repositories (`/tmp/opencode/p294/probe294.py`,
+  package copied from this tree): arm A bare and arm A with `--fixture-env` -> refused, names the
+  frame and `--shot`, manifest identical afterwards, `check` still refuses the swap, no `capture` stamp
+  gained, and `--shot profiles --shot audit` records; the documented sentence with both POST frames
+  re-taken and one `--shot` -> refused naming `testlock.png`, with both `--shot` flags -> records; the
+  honest paths unchanged -- the first bare record of a directory with no prior manifest records and
+  `check` answers 0 problems, `record` over nine untracked frames before committing records, and
+  `pages.py`'s own partial record over the committed set records with the two POST frames carried.
