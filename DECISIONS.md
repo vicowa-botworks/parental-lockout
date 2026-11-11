@@ -2972,7 +2972,206 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `make verify` exit 0, last line `verify: OK`; the nine-attack loop above -> six unchanged tallies
   and three new catches.
 
-## D-0058 · A POST refusal keeps the frame its sentence is about, taken while the browser that rendered it is still open
+## D-0058 · The #297 attacks become a suite in the tree, and the suite carries the holes it cannot close as rows rather than closing them
+
+- Question: `#297` says nothing attacks `pages.py --self-test`: three of the nine attacks on its
+  refusal contract printed green, and the attacks live in prose in `D-0057`. What shape does the
+  runner take -- and what does it do about the attacks the *current* guard does not see, which are
+  most of the ones that probe the guard itself rather than the driver?
+- Options: `copy-in-depth`: sandbox `testing/capture/*.py` plus `internal/web/templates/*.tmpl`
+  (13 files, 599 KB), re-run the baseline before trusting any row, and assert the copy holds what
+  the driver reads | `symlink-the-root`: box holds copies of the `.py` files and symlinks `internal/`
+  at the real tree, so the box is cheap and can never go stale as the driver's reads widen |
+  `shallow-copy`: sandbox only `pages.py` and `cdp.py`, the two files the rows patch |
+  `fix-the-guard-first`: strengthen `pages.py`'s verdict (a third canary, a per-rule probe) before
+  writing the runner, so the suite is green on arrival | `holes-as-rows`: write the runner against
+  the guard as it stands and carry every attack it does not see as a `DOCUMENTED_HOLES` row whose
+  class is named and whose disappearance is as loud as a new hole appearing
+- Chose: `copy-in-depth`: sandbox `testing/capture/*.py` plus `internal/web/templates/*.tmpl`
+  (13 files, 599 KB), re-run the baseline before trusting any row, and assert the copy holds what
+  the driver reads
+- Second choice: `holes-as-rows`, taken alongside the box decision because both were forced by the
+  same fact -- the guard as it stands does not see most of the attacks that probe the guard. It is
+  recorded as its own choice because it is the half with a cost, argued under `What lost:`.
+- Why: `symlink-the-root` and `shallow-copy` both trade away the one thing this suite exists to
+  provide. Measured, not reasoned: a box with `pages.py` alone comes back `ModuleNotFoundError: No
+  module named 'cdp'`, and a box with `pages.py` and `cdp.py` comes back the same for `manifest` --
+  and `attack-self-test.py`'s docstring records that exact shape of accident, where 42 rows reported
+  `CAUGHT` because every patched run died on a missing import before printing anything. A symlinked
+  `internal/` keeps the baseline green but makes the box unstatable: the guard's whole claim is
+  "nothing written outside a temp box", and the assertion that proves it is a set difference over the
+  box's own file list, which a symlink silently widens to the repository. So the box is a copy, its
+  contents are named (`capture_modules()` globs `testing/capture/*.py` rather than listing three
+  names, so a new sibling module joins the box on the day it appears), and the baseline is re-run
+  and required green before a single row is believed -- with a printed diagnosis naming the two
+  directories the box holds, so the next time the driver starts reading something new the run says
+  what to add instead of reporting 41 phantom catches. The 3.4 s the 41 rows now cost every `make
+  verify` is the same trade the Makefile already documents for the mutation attack suite at 2.5 s --
+  against `D-0057`'s 0.06 s for the self-test and ~3m9s for the target -- on the same grounds:
+  #124's eviction hazard is cheaper than a gate whose evidence nobody can reproduce.
+- What lost: `fix-the-guard-first` lost, and losing it is the point of the row set. Strengthening
+  the verdict first buys a green suite and throws away the measurement: writing the rows against the
+  guard as it stands is what produced the five classes below, and a suite written after a fix would
+  have listed none of them. Two prices were paid for that and both are still on the desk. One: the
+  holes are not closed, so `make verify` now runs a suite that prints `9 holes` and exits 0, which
+  reads worse than it is -- the run's contract is that a hole is a finding and an *unexpected* hole
+  is a failure, so the list cannot rot in either direction, and that both directions work is driven
+  in `Re-checks:` rather than claimed. Two: three of the five classes are one small edit from closed
+  and were left open on purpose -- the third canary is four lines of `pages.py`, the byte-for-byte
+  frame comparison is one clause of `a_refused_run_says_where_its_frames_are`. Closing them here
+  would have changed a verdict #297 did not ask to change and would have removed the rows that prove
+  the runner can see a hole at all; they are filed as issues instead, so the queue owns them and the
+  rows go `HOLE CLOSED` -- a failure naming the class -- on the day somebody else closes them.
+- Checkpoint: 4537b9d1b8528fc6c1ff78216530e367f5be42bb
+- Effect: `scripts/attack-capture-self-test.py`, new -- 41 rows (26 expected catches, 9 holes, 6
+  honest edits that must stay green), each row an exact-once anchor assertion against a copy of the
+  tree, plus `shape_problems()` (the static joins between the row list, the class map and the hole
+  list) and `wiring_problems()` (both `make verify` steps, read from the recipe and not the prose).
+  `Makefile`: the `==> capture refusal attack suite` step beside the `==> capture refusal contract`
+  step at former line 117, the two empty-filter steps folded into one loop over both attack suites,
+  and the comment above them rewritten to say what is now cross-witnessed. `docs/issues-from-d-0058.md`,
+  new: the five findings as issuable work, each with its title, its `gh issue create` invocation, its
+  body, and the row in the suite that will go `HOLE CLOSED` when it is closed -- committed rather than
+  filed, because #297 says do not open issues and a claim that something was filed is exactly the kind
+  of claim this log has been wrong about twice (`Effect:` fields describing writes the server never
+  received). Nothing under `testing/capture/` is touched: the guard is attacked, not changed, and
+  `EXPECTED_RULES` is still 76. The nine rows `D-0057` left as prose are rows 1-9 here and all nine
+  come back `CAUGHT`, so they are regression rows now instead of a recollection.
+- What this found (each row re-measured on every `make verify`, each filed as its own issue): a
+  hollowed rule body is invisible to the count -- all three refusal rules emptied came back green,
+  which is #297's title read literally and the class #125 tracks from the other end;
+  `if counts != [1, 0]` is the only sentence proving the rule helper is not hollow and nothing
+  polices *it*; `if bad:`, the reach comparison and its `return 1` are one edit above anything a rule
+  compares; a rule that throws is recorded as a passing rule, which is invisible until the exact
+  moment it matters; and a kept frame's bytes are never compared to the bytes the browser returned,
+  so writing an empty PNG at the announced path keeps the transcript and the directory in perfect
+  agreement about a frame with no picture in it. The last three are findings about the guard, not
+  about the driver: no committed behaviour is wrong today, and none of them was closed here because
+  closing them changes a verdict and #297 asked for the runner.
+- What lost, second entry, and the hazard this file already carries: `wiring_problems()` asserts
+  this suite is called from TWO steps and that each survives, so deleting one makes the other refuse
+  -- the `manifest.py` #144 trick, which works only because the two calls are independent. It is
+  written against `verify_recipe()` rather than the file, because a sentence in the comment above the
+  recipe names this script and must not be able to satisfy the assertion the step exists to make
+  (driven: a Makefile whose two steps are deleted but whose prose remains still refuses). The
+  mutation attack suite beside it has no such pin, and neither does `==> capture refusal contract`;
+  that gap is older than this entry and is not narrowed here.
+- Re-checks, each run after the sentence it certifies was written:
+  `python3 scripts/attack-capture-self-test.py` -> `VERDICT: 41 attacks, 0 problem(s), 5 hole
+  class(es), 9 hole row(s)`, exit 0, 3.4 s; `python3 testing/capture/pages.py --self-test` -> `76
+  refusal rules hold` (untouched); nine self-attacks on broken copies of the runner itself, each
+  producing the branch it claims -- a renamed row name -> `HARNESS ... malformed` exit 2, an anchor
+  that matches nothing -> `INVALID`, an honest edit turned red -> `OVER-STRICT`, an unseen attack
+  expected as a catch -> `NEW HOLE`, a patched guard that now refuses a listed hole -> `HOLE CLOSED`,
+  a box without the templates -> `HARNESS ... does not pass its own self-test (caught)` exit 2,
+  `EXPECTED_ROWS` off by one -> a problem, a wrapped `tree_state()` -> `this suite modified the tree
+  it was checking`, a stray file planted in the box -> `wrote into the tree it was copied into` exit
+  2; the filter contract -> `zzzznomatch` exit 1 and `""` exit 1, both saying `no row matched`, and
+  `announcement` selecting 4 rows and printing the `SELECTED RUN -- not a gate` banner.
+
+## D-0059 · The merge orders the log by id because the shipped gate refuses the order git handed back, and the file that carried both behaviours was the one that merged without a word
+
+- Question: `#299` reads `CONFLICTING` / `DIRTY` against `origin/main` `4901264` — read back
+  before anything was touched (`gh pr view 299 --json headRefName` first, because that is the read
+  that answers "is this a pull request" and `--json number` does not, #2027): `reviewDecision`
+  `APPROVED`, `headRefOid` `06b7c29`, five checks `COMPLETED`/`SUCCESS`, `reviewRequests` `[]`, two
+  commits here against three on `main`, `git ls-remote origin refs/heads/issue-296` answering
+  `06b7c29` so the branch is pushed. One file conflicted: `DECISIONS.md`, both parents byte-identical
+  through line 2910 and each appending one entry at 2911 — `main` `D-0057` (#298, issue #251), this
+  branch `D-0058` (#296). The file that actually carries both behaviours, `testing/capture/pages.py`,
+  auto-merged without a word: `main` added 48 non-blank lines of assertions inside
+  `a_refused_run_says_where_its_frames_are` and this branch rewrote the disposal those assertions
+  read, so `H-0096`'s silent half is not incidental to this collision, it is the subject of it. What
+  is the deliverable — the splice that clears the marker, or the splice plus evidence that neither
+  side's checks were retired inside the auto-merge?
+- Options: delete the three marker lines and keep both blocks in the order git produced | splice the two parent BLOBS by line range into id order and commit that | splice in id order, then count both sides' added and deleted lines against the merged tree and attack one check from EACH side on the merged tree | rebase this branch onto `origin/main` so no merge commit exists | resolve `DECISIONS.md` with `--ours` and re-append `main`'s entry afterwards
+- Chose: splice in id order, then count both sides' added and deleted lines against the merged tree and attack one check from EACH side on the merged tree
+- Why: the order is settled by the shipped gate, not by taste. Over the bytes git handed back,
+  `python3 scripts/check-decisions.py` answers `DECISIONS.md:3022: D-0057 is out of order (D-0058
+  came before it); the log is a history and a history that jumps around cannot be bisected`, exit 1;
+  the same lines cut from the two parent blobs in id order answer `171 entries across 2 log(s)`,
+  exit 0. So option one does not produce a mergeable tree at all, and it is the same refusal `H-0107`
+  and `H-0114` were settled with. Option four is refused for the reason `H-0106` gives: the branch is
+  on `origin` (`git ls-remote` above), so a rewrite needs a force-push, which is denied to a tick and
+  barred by `AGENTS.md`, while a merge is undone by `git revert -m 1` — tie-break 5. Option five
+  deletes merged history: `main`'s 62 non-blank log lines are the only record of what #298 measured,
+  and a deleted entry is not repaired by anything the gate can see. Tie-breaks 1 and 2 have nothing
+  to bite on — no `require` line is at stake (#856) and no config key decodes toward or away from a
+  lockout (#873, #872). Option two versus three is tie-break 3, refuse to proceed when the input that
+  decides is missing: the auto-merged `pages.py` is exactly that input, and a green suite is equally
+  consistent with "both halves alive" and "one half retired by the other's rewrite" (#1048's shape,
+  arrived at by a merge instead of an edit). Tie-break 6 was consulted first and names `H-0096`,
+  `H-0100`, `H-0107`: re-measure on the merged tree, never trust the automatic half.
+- What lost: the log now interleaves sides — `main`'s `D-0057` sits *below* this branch's `D-0058`
+  neighbours in merge order but above it in id order, so reading the tail of the file top-to-bottom
+  no longer reads chronologically, and that is the price of a bisection-ordered log over two open
+  siblings. `EXPECTED_RULES` is 77 on this tree, which kills the number `D-0057`'s tie-break was
+  written to protect (stay at 76, to avoid exactly this append-vs-append collision); it lost because
+  #296 adds a rule and a rule is coverage, which is the cost `D-0058`'s `What lost:` already named.
+  Two claims in `D-0058`'s `What lost:` did not survive being read, and this merge is where it
+  surfaces: it says `origin/issue-251` (#298) "edits `pages.py`'s `_FakeSession` — adding a
+  `screenshot()` that returns bytes, independently of this branch — and the same README section".
+  Measured against `git diff 66c9162 origin/main`: `#298` is two files, +112 lines,
+  `testing/capture/README.md` does not appear in it at all, and the diff contains zero occurrences of
+  `_FakeSession` or `def screenshot` — its whole contribution is one hunk inside
+  `a_refused_run_says_where_its_frames_are`. The conflict it forecast did arrive, but from both sides
+  appending at line 2911, not from either fake. `D-0058` is left exactly as written (#1180: a
+  silently corrected decision log is indistinguishable from one that was always right); this entry is
+  the dated correction and the pull-request body carries the same sentence. And the composition
+  itself is still unpinned: the battery below was run by hand from `/tmp` and nothing in the tree
+  attacks a merge, so the next bad splice is found by whoever remembers to re-run it — `#124`'s
+  eviction hazard, open at this end in `D-0057`'s words too.
+- Checkpoint: bd9889a82c36bca378337fc32a84a756362dec51
+- Effect: the merge of `origin/main` (`4901264`) into `issue-296`. `DECISIONS.md` is the whole of the
+  hand-resolution, cut by `sed` line range out of `git show HEAD:DECISIONS.md` and
+  `git show origin/main:DECISIONS.md` — never out of the conflicted file, so no hunk can be dropped by
+  a hand edit — common `1..2910`, `main`'s `2911..2973` (`D-0057`), one blank separator, ours
+  `2911..3019` (`D-0058`); 3083 lines, markers gone, ids ascending `D-0011`…`D-0059`.
+  `testing/capture/pages.py` is `git`'s automatic merge, not one edited line.
+  **Nothing vanished, counted both directions** (`/tmp/opencode/p299-merged-lines.py`, kept outside
+  the repository; run against the merged tree before this entry existed, which only adds lines):
+  non-blank lines added since the base `66c9162` and ABSENT from the merged tree — `DECISIONS.md`
+  ours 106 added / 0 absent, `main` 62 / 0; `pages.py` ours 267 / 0, `main` 48 / 0. The deletion side
+  needs the second test because a merge that reorders also shows deletions: what the merged tree lacks
+  against `main` (`DECISIONS.md` 0, `pages.py` 65) is multiset-equal to what this branch itself
+  deleted against the base (0 and 65 — the equality printed `True` in both files), and what it lacks
+  against ours is 0 and 0 against `main`'s 0 and 0. Unexplained in either direction: zero.
+  **Both sides attacked on the merged tree** (`/tmp/opencode/p299/attack299.py`, one throwaway copy
+  per attack, never the gated tree (#1807), every anchor asserted to occur exactly once, baseline
+  green first): baseline `capture self-test: 77 refusal rules hold`, exit 0. A1, `main`'s symptom —
+  the announcement counts `{0}` while the drawer holds two → `1 of 77 rules failed`, exit 1, naming
+  its own sentence `the refusal announces 0 frame(s) and …/pages-refused holds 2: ['audit@1024.png',
+  'audit@360.png']`. A2, A1 plus `main`'s comparison hollowed (`if int(said.group(1)) !=
+  len(frames):` → `if False:`) → `77 refusal rules hold`: that clause is the *only* witness for the
+  lying count and the auto-merge left it alive, which is the half a green suite cannot say. B1, the
+  cross-side plant — `cdp.refused_frame`'s `capture_refused(cap, op.join(keep, frame))` → `pass`, i.e.
+  the refusing page is never photographed by the disposal #296 introduced — → `7 of 77 rules failed`,
+  and the failing set spans both halves: `main`'s new pointer clause fires at both viewports
+  (`nothing at the refusal points at the kept frame of /audit at 360 px`, `… at 1024 px`) while this
+  branch's fires four times over (`lock/page: a SystemExit refusal kept [], want ['lock@360.png']`)
+  plus the sentence-order rule twice. C1, ours — `lock.py`'s kept frame drops its `@360` →
+  `1 of 77 rules failed` on both exception shapes (`kept ['lock.png'], want ['lock@360.png']`).
+  **Gates read against this tree before the commit:** `python3 testing/capture/pages.py --self-test` →
+  `77 refusal rules hold`; `python3 testing/capture/manifest.py --self-test` → `44 rules hold`
+  (`manifest.py` is untouched by the merge); `python3 scripts/check-decisions.py` →
+  `171 entries across 2 log(s)` on the spliced log, exit 0. `make verify` is NOT quoted here, for the
+  reason `D-0058` gives: an `Effect:` field written before the gate runs is a prophecy (#1180), so the
+  gate's own line and exit status are in the pull-request body. **What this does not take:** no
+  behaviour changes on either side — no rule was edited, added or dropped by this commit, no `@360`
+  name, note or drawer moved, and nothing was renumbered; no leg pins the splice (above); and
+  `scripts/mutations/*.json` has no surface here, because all 847 anchors name `.go` or `.tmpl` files
+  and this merge touches one `.md` and one `.py` — so `scripts/check-mutations.py` was not run, and
+  `#1807`'s overlap rule was never engaged.
+- Correction (`D-0061`, 11 Nov): every `D-0058` cited above names *this branch's* #296 entry, which now
+  carries `D-0060`; the `D-0058` a reader finds in this file today is #297's attack suite, merged at
+  `fd82903`. The sentence "nothing was renumbered" in the paragraph above was true of `b4584bf` and is
+  false of the log this merge leaves: `origin/main` arrived carrying a **second** `D-0058`, and one log
+  cannot hold an id twice — over the log this merge hands back with both entries kept,
+  `python3 scripts/check-decisions.py` exits 1 (`id D-0058 is already used at …:2975; 'revert to before
+  D-0058' would name two commits`). Everything else above is left exactly as written at `b4584bf`
+  (#1180: a silently corrected log is indistinguishable from one that was always right).
+
+## D-0060 · A POST refusal keeps the frame its sentence is about, taken while the browser that rendered it is still open
 
 - Question: #220 ended the keeping at `pages.py`. `lock.py` and `testlock.py` went on calling
   `discard_stage()` on their refusal paths, so the two drivers whose artifact is ONE page — and the
@@ -3081,97 +3280,84 @@ Three consequences, all deliberate, and the third is no longer a prediction:
      reason and checkpoint`. The full `make verify` over the tree carrying this entry is quoted with
      its exit status in the pull-request body rather than here, because an `Effect:` field written
      before the gate runs is a prophecy (#1180).
+- Correction (`D-0061`, 11 Nov): this entry is #296's, written as `D-0058` at `06b7c29` on 11 Nov at
+  11:32:24−0500. `origin/main` now carries a *different* `D-0058` — #297's capture attack suite, merged
+  at `fd82903` — because both units were handed the same id by `factory/next-decision-id.sh` 38 minutes
+  apart, and `scripts/check-decisions.py` refuses one log holding an id twice. So this entry moved to
+  `D-0060` and sits below `D-0059`, which is what the gate's ascending-id rule allows; its title,
+  question, options, choice, reason, losses, checkpoint and effect are unchanged in wording, and
+  `Checkpoint:` still reads `f25e692`, the checkpoint its own tick took under the old number (a
+  checkpoint is a commit, not an id). `D-0061` records the collision and why this side moved rather
+  than #297's. One consequence for the reader: `06b7c29`'s trailer says `Decision: D-0058` and always
+  will — force-pushing an in-flight branch is denied here — so that trailer resolves to this entry by
+  date and diff, not by id.
 
-## D-0059 · The merge orders the log by id because the shipped gate refuses the order git handed back, and the file that carried both behaviours was the one that merged without a word
+## D-0061 · The merge moves this branch’s `D-0058` to `D-0060` because `main` arrived carrying a second `D-0058`, and the entry that moves is the one no reader outside this branch has cited
 
-- Question: `#299` reads `CONFLICTING` / `DIRTY` against `origin/main` `4901264` — read back
-  before anything was touched (`gh pr view 299 --json headRefName` first, because that is the read
-  that answers "is this a pull request" and `--json number` does not, #2027): `reviewDecision`
-  `APPROVED`, `headRefOid` `06b7c29`, five checks `COMPLETED`/`SUCCESS`, `reviewRequests` `[]`, two
-  commits here against three on `main`, `git ls-remote origin refs/heads/issue-296` answering
-  `06b7c29` so the branch is pushed. One file conflicted: `DECISIONS.md`, both parents byte-identical
-  through line 2910 and each appending one entry at 2911 — `main` `D-0057` (#298, issue #251), this
-  branch `D-0058` (#296). The file that actually carries both behaviours, `testing/capture/pages.py`,
-  auto-merged without a word: `main` added 48 non-blank lines of assertions inside
-  `a_refused_run_says_where_its_frames_are` and this branch rewrote the disposal those assertions
-  read, so `H-0096`'s silent half is not incidental to this collision, it is the subject of it. What
-  is the deliverable — the splice that clears the marker, or the splice plus evidence that neither
-  side's checks were retired inside the auto-merge?
-- Options: delete the three marker lines and keep both blocks in the order git produced | splice the two parent BLOBS by line range into id order and commit that | splice in id order, then count both sides' added and deleted lines against the merged tree and attack one check from EACH side on the merged tree | rebase this branch onto `origin/main` so no merge commit exists | resolve `DECISIONS.md` with `--ours` and re-append `main`'s entry afterwards
-- Chose: splice in id order, then count both sides' added and deleted lines against the merged tree and attack one check from EACH side on the merged tree
-- Why: the order is settled by the shipped gate, not by taste. Over the bytes git handed back,
-  `python3 scripts/check-decisions.py` answers `DECISIONS.md:3022: D-0057 is out of order (D-0058
-  came before it); the log is a history and a history that jumps around cannot be bisected`, exit 1;
-  the same lines cut from the two parent blobs in id order answer `171 entries across 2 log(s)`,
-  exit 0. So option one does not produce a mergeable tree at all, and it is the same refusal `H-0107`
-  and `H-0114` were settled with. Option four is refused for the reason `H-0106` gives: the branch is
-  on `origin` (`git ls-remote` above), so a rewrite needs a force-push, which is denied to a tick and
-  barred by `AGENTS.md`, while a merge is undone by `git revert -m 1` — tie-break 5. Option five
-  deletes merged history: `main`'s 62 non-blank log lines are the only record of what #298 measured,
-  and a deleted entry is not repaired by anything the gate can see. Tie-breaks 1 and 2 have nothing
-  to bite on — no `require` line is at stake (#856) and no config key decodes toward or away from a
-  lockout (#873, #872). Option two versus three is tie-break 3, refuse to proceed when the input that
-  decides is missing: the auto-merged `pages.py` is exactly that input, and a green suite is equally
-  consistent with "both halves alive" and "one half retired by the other's rewrite" (#1048's shape,
-  arrived at by a merge instead of an edit). Tie-break 6 was consulted first and names `H-0096`,
-  `H-0100`, `H-0107`: re-measure on the merged tree, never trust the automatic half.
-- What lost: the log now interleaves sides — `main`'s `D-0057` sits *below* this branch's `D-0058`
-  neighbours in merge order but above it in id order, so reading the tail of the file top-to-bottom
-  no longer reads chronologically, and that is the price of a bisection-ordered log over two open
-  siblings. `EXPECTED_RULES` is 77 on this tree, which kills the number `D-0057`'s tie-break was
-  written to protect (stay at 76, to avoid exactly this append-vs-append collision); it lost because
-  #296 adds a rule and a rule is coverage, which is the cost `D-0058`'s `What lost:` already named.
-  Two claims in `D-0058`'s `What lost:` did not survive being read, and this merge is where it
-  surfaces: it says `origin/issue-251` (#298) "edits `pages.py`'s `_FakeSession` — adding a
-  `screenshot()` that returns bytes, independently of this branch — and the same README section".
-  Measured against `git diff 66c9162 origin/main`: `#298` is two files, +112 lines,
-  `testing/capture/README.md` does not appear in it at all, and the diff contains zero occurrences of
-  `_FakeSession` or `def screenshot` — its whole contribution is one hunk inside
-  `a_refused_run_says_where_its_frames_are`. The conflict it forecast did arrive, but from both sides
-  appending at line 2911, not from either fake. `D-0058` is left exactly as written (#1180: a
-  silently corrected decision log is indistinguishable from one that was always right); this entry is
-  the dated correction and the pull-request body carries the same sentence. And the composition
-  itself is still unpinned: the battery below was run by hand from `/tmp` and nothing in the tree
-  attacks a merge, so the next bad splice is found by whoever remembers to re-run it — `#124`'s
-  eviction hazard, open at this end in `D-0057`'s words too.
-- Checkpoint: bd9889a82c36bca378337fc32a84a756362dec51
-- Effect: the merge of `origin/main` (`4901264`) into `issue-296`. `DECISIONS.md` is the whole of the
-  hand-resolution, cut by `sed` line range out of `git show HEAD:DECISIONS.md` and
-  `git show origin/main:DECISIONS.md` — never out of the conflicted file, so no hunk can be dropped by
-  a hand edit — common `1..2910`, `main`'s `2911..2973` (`D-0057`), one blank separator, ours
-  `2911..3019` (`D-0058`); 3083 lines, markers gone, ids ascending `D-0011`…`D-0059`.
-  `testing/capture/pages.py` is `git`'s automatic merge, not one edited line.
-  **Nothing vanished, counted both directions** (`/tmp/opencode/p299-merged-lines.py`, kept outside
-  the repository; run against the merged tree before this entry existed, which only adds lines):
-  non-blank lines added since the base `66c9162` and ABSENT from the merged tree — `DECISIONS.md`
-  ours 106 added / 0 absent, `main` 62 / 0; `pages.py` ours 267 / 0, `main` 48 / 0. The deletion side
-  needs the second test because a merge that reorders also shows deletions: what the merged tree lacks
-  against `main` (`DECISIONS.md` 0, `pages.py` 65) is multiset-equal to what this branch itself
-  deleted against the base (0 and 65 — the equality printed `True` in both files), and what it lacks
-  against ours is 0 and 0 against `main`'s 0 and 0. Unexplained in either direction: zero.
-  **Both sides attacked on the merged tree** (`/tmp/opencode/p299/attack299.py`, one throwaway copy
-  per attack, never the gated tree (#1807), every anchor asserted to occur exactly once, baseline
-  green first): baseline `capture self-test: 77 refusal rules hold`, exit 0. A1, `main`'s symptom —
-  the announcement counts `{0}` while the drawer holds two → `1 of 77 rules failed`, exit 1, naming
-  its own sentence `the refusal announces 0 frame(s) and …/pages-refused holds 2: ['audit@1024.png',
-  'audit@360.png']`. A2, A1 plus `main`'s comparison hollowed (`if int(said.group(1)) !=
-  len(frames):` → `if False:`) → `77 refusal rules hold`: that clause is the *only* witness for the
-  lying count and the auto-merge left it alive, which is the half a green suite cannot say. B1, the
-  cross-side plant — `cdp.refused_frame`'s `capture_refused(cap, op.join(keep, frame))` → `pass`, i.e.
-  the refusing page is never photographed by the disposal #296 introduced — → `7 of 77 rules failed`,
-  and the failing set spans both halves: `main`'s new pointer clause fires at both viewports
-  (`nothing at the refusal points at the kept frame of /audit at 360 px`, `… at 1024 px`) while this
-  branch's fires four times over (`lock/page: a SystemExit refusal kept [], want ['lock@360.png']`)
-  plus the sentence-order rule twice. C1, ours — `lock.py`'s kept frame drops its `@360` →
-  `1 of 77 rules failed` on both exception shapes (`kept ['lock.png'], want ['lock@360.png']`).
-  **Gates read against this tree before the commit:** `python3 testing/capture/pages.py --self-test` →
-  `77 refusal rules hold`; `python3 testing/capture/manifest.py --self-test` → `44 rules hold`
-  (`manifest.py` is untouched by the merge); `python3 scripts/check-decisions.py` →
-  `171 entries across 2 log(s)` on the spliced log, exit 0. `make verify` is NOT quoted here, for the
-  reason `D-0058` gives: an `Effect:` field written before the gate runs is a prophecy (#1180), so the
-  gate's own line and exit status are in the pull-request body. **What this does not take:** no
-  behaviour changes on either side — no rule was edited, added or dropped by this commit, no `@360`
-  name, note or drawer moved, and nothing was renumbered; no leg pins the splice (above); and
-  `scripts/mutations/*.json` has no surface here, because all 847 anchors name `.go` or `.tmpl` files
-  and this merge touches one `.md` and one `.py` — so `scripts/check-mutations.py` was not run, and
-  `#1807`'s overlap rule was never engaged.
+- Question: `git merge origin/main` (`fd82903`, #300) makes `CONFLICTING` #299 in exactly one file,
+  `DECISIONS.md`: the two sides are byte-identical through line 2974 and each appends an entry at 2975
+  (measured by a line-by-line prefix compare of `git show HEAD:DECISIONS.md` against
+  `git show origin/main:DECISIONS.md` — first difference at index 2974, both sides). The two entries
+  carry the **same id for two different decisions**: `D-0058` is this branch’s #296 POST-refusal
+  keeping (`06b7c29`, 11 Nov 11:32:24−0500) and `main` also carries a `D-0058`, #297’s capture
+  attack suite (`1d3470b`, 11 Nov 12:10:04−0500). Both units were handed the id by
+  `factory/next-decision-id.sh`, 38 minutes apart. What does the log do?
+- Options: keep both entries under `D-0058` and let the gate decide | renumber #297’s entry (the one already on `main`) upward and leave this branch’s alone | renumber this branch’s entry to the next free id and record the collision in a new entry | fold the two texts into one `D-0058` entry | escalate: label #296 `needs-human` and stop the unit
+- Chose: renumber this branch’s entry to the next free id and record the collision in a new entry
+- Why: the first option is not on the table, and the shipped gate says so. Over the log the merge hands
+  back with both entries kept (`/tmp/opencode/p299/naive.md`, assembled from the same line ranges as
+  this file, only without the renumbering), `python3 scripts/check-decisions.py --log` exits **1** with
+  two problems: `id D-0058 is already used at …:2975; ‘revert to before D-0058’ would name two
+  commits` and `D-0058 is used in … — one id, 2 decisions; a citation to it does not resolve.
+  Renumber the later entry in its own log` (`scripts/check-decisions.py:145`, `:471`). Folding is worse
+  than folding away: two questions, two option sets and two checkpoints cannot share a heading without
+  deleting one of them, and the record being deleted would be a merged one (#1180: a decision record
+  gets a dated correction, never an edit). So the choice is which side moves, and three reads decide it.
+  (1) *Whose citations break.* #297’s `D-0058` is named by a committed **filename** —
+  `docs/issues-from-d-0058.md`, four references inside it (`git grep -n ‘D-0058’ origin/main` →
+  5 lines) — which no renumbering reaches, plus the trailer of `1d3470b`, which is an ancestor of
+  `main`. This branch’s is named by `git grep -n ‘D-0058’ HEAD` → one heading and eight
+  lines inside `D-0059`, plus `06b7c29`’s trailer. Both trailers are already immovable (a force-push
+  is denied to a tick), so the asymmetry is the *other* readers: main’s id is read from a filename and
+  from issues filed off that document, ours is read from one entry on this same branch. (2) Fewest files,
+  the tie-break order’s fourth rung: moving #297’s id means editing `DECISIONS.md` on `main`, a doc
+  rename, and a correction on every issue filed from it; moving ours is this file, in this commit.
+  (3) Reversibility, fifth rung: `git revert` of the merge commit restores both ids in both positions,
+  because nothing here exists on the remote before the commit. Taking `D-0060` was measured, not
+  assumed: `factory/next-decision-id.sh DECISIONS.md` prints `D-0060` (re-read with `D-0059` in the log
+  and this entry uncommitted), and no ref in this clone carries `D-0060` or `D-0061` at all — a loop
+  over `git for-each-ref refs/heads refs/remotes` doing `git show “$r:DECISIONS.md”` matches neither
+  heading. None of the four classes that are not a tick’s decision is in play: no dependency, no
+  safety or tamper property, no publish, no deletion.
+- What lost: ids no longer run in the order the decisions were taken. `D-0060` was decided at 11:32 and
+  `D-0059` at 12:32; the log now prints them the other way round, because ascending order is what the
+  gate enforces (`:161`) and free ids only grow upward — the allocator is “the first free id ABOVE
+  every id seen”, not the lowest gap (`factory/next-decision-id.sh:12-13`), so a renumbering can only
+  ever be a demotion in the chronology. `D-0059` states “nothing was renumbered”, true of `b4584bf`
+  and false of this tree; it gets a dated correction bullet rather than an edit (#1180), and the eight
+  `D-0058` citations inside it are now ambiguous to a reader who does not reach that bullet. The
+  **cause** is untouched, only its consequence: the allocator reads the four ref sets this machine
+  already has and “deliberately never fetches” (`:30-32`), and #300 was cut from a clone this one
+  has never seen — `git show-ref | grep 297` prints **nothing** and `git worktree list` has no
+  `issue-297` row, while `origin/main` merged that branch at `fd82903`. So the id was durable for
+  38 minutes before the second unit was handed it, and the next two concurrent units collide the same
+  way. Filed as #303 (open, read back) with the timestamps and the two candidate repairs; not fixed
+  here, because the fix belongs in `factory/` and this unit’s file is the log. And `D-0060` still
+  carries `Checkpoint: f25e692`, the checkpoint its own tick took under the old number — a checkpoint
+  is a commit, not an id, so it stays correct while reading oddly.
+- Checkpoint: 402e5ef
+- Effect: `DECISIONS.md` only, three edits in this merge commit, each read back against the file rather
+  than believed from the edit: `D-0059` gains a `- Correction (‘D-0061’, 11 Nov)` bullet naming
+  which `D-0058` its citations mean; this branch’s entry is retitled `## D-0060 ·`, moved below
+  `D-0059`, its text unchanged word for word, with its own dated bullet recording where it came from;
+  this entry is new. The log then reads `… D-0057, D-0058` (#297’s, from `main`), `D-0059,
+  D-0060, D-0061`, and `python3 scripts/check-decisions.py` is quoted with its exit status in the
+  pull-request body, not here (#1180: an `Effect:` written before the gate runs is a prophecy). Nothing
+  else is renumbered — `docs/issues-from-d-0058.md` keeps its name and correctly names #297’s
+  entry. The rest of the merge is `main`’s `Makefile` (clean), and two new files from #300,
+  `docs/issues-from-d-0058.md` and `scripts/attack-capture-self-test.py`, both clean. One row of that
+  suite, `“the refusal branch goes back to `discard_stage()`”`, anchors on the three-line
+  `cdp.keep_refused(…)` call this branch rewrote (`git show 4901264:testing/capture/pages.py` matches
+  it once, this head matches it **0** times), so it arrives `INVALID`; that is a second decision and the
+  next entry, not this commit. **What this does not take:** no behaviour in `testing/capture/` is
+  changed by this commit, no rule is added or dropped, and no row of the suite is edited here.
