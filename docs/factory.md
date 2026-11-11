@@ -94,6 +94,18 @@ out of `delivered` by the claim count. So `delivered` means "the queue will not 
 is the merged pull request it is leaning on", and it does not mean "every finished ticket appears
 here" -- an open body naming an issue hides it from both classes at once.
 
+Both reads are bounded, and a bounded read says so rather than answering as if it had seen everything.
+The GraphQL call asks for the first 100 open pull requests and the first 100 open issues, so each
+connection is also asked for `pageInfo{hasNextPage}`; either one answering `true` skips the whole issue
+half for that pass with a line naming the pagination bound, because a truncated issue page is not a
+smaller verdict but a `stateReason` veto that went missing -- and a claim with its veto gone reads
+`delivered`, which is the one error this class was built not to make. A missing `pageInfo` reads as
+truncated, not as `false`. The other bound is the open-issue listing itself, at `--limit 100`: past it
+an issue gets no row of any class, so the pass counts the rows it read and warns at the limit. Measured
+against GitHub at 16:29Z on 8 Nov on eleven open pull requests and three open issues, both connections
+answered `false` and neither warning printed; neither is due to go quiet on its own, and a queue that
+has outgrown its read should say so in the log rather than look finished.
+
 A claim is a verb plus **every** number still in the same list, which is a rule that only measurement
 would have produced. #221's shipped body has `Refs #219, #220, #204` on one line with
 `(Part of #219 only; the umbrella is not finished …)` eight lines above it, and open PR #233 says
@@ -799,8 +811,13 @@ refuses the moment the mistyped directory contains anything, on btrfs included, 
 an *empty* directory on a filesystem that gives empty directories no size -- which is what the
 fixture's directory is. There the patterns are dropped silently, the operator's own ignored files come
 back as work, and the halt stops the queue over work that is not work.
-`factory/selftest.sh` measures which of the two the box is running on and asserts only that one, with
-a note naming the filesystem when the refusal is unreachable. A stat-only difference, the report #228
+`factory/selftest.sh` measures which of the two it is running on and asserts only that one, with
+a note naming the filesystem when the refusal is unreachable. The filesystem that decides it is the one
+under `$TMPDIR`, where the fixture is built, and not the one the repository sits on: measured at
+`f60c367` on one machine with only `TMPDIR` moved, the same commit reads 191 legs with `$TMPDIR` on
+tmpfs and 190 with it on btrfs, one leg of the exclude pair appearing and disappearing with the arm.
+The tally line therefore prints its own fixture root, filesystem and git version, so a leg count quoted
+anywhere carries the world it was counted in (H-0104). A stat-only difference, the report #228
 came in with, was tried in six variants and does *not* reproduce on this git, which refreshes the
 index in memory before reporting; the verdict no longer depends on that question either way.
 
