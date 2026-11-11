@@ -5216,3 +5216,95 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `gh pr list --state open` until then, which is the cost of making a nothing visible; and the defect
   itself is not fixed here, because a rule edited in a branch cut 187 commits behind `main` cannot
   reach `triage.sh` or a leg, and #291 is where that work belongs.
+
+- Correction (`H-0130`, 11 Nov, by `H-0133`, in the commit that also opens the artifact): what was
+  decided here is unchanged; what this `Effect:` reports as written was not written. Artifacts (1)
+  and (2) exist and read back as recorded -- #291 is `OPEN`, created `2026-11-11T13:02:36Z`, titled
+  "A merged pull request's branch is re-offered as a stranded work unit, and an empty checkpoint
+  commit counts as work already written", and the comment on #249 is `issuecomment-6796549664`,
+  created `2026-11-11T13:02:45Z`. Artifact (3) does not exist. Measured in this worktree on 11 Nov
+  before a single byte of the correcting commit was written:
+
+  ```
+  $ git ls-remote origin refs/heads/issue-249     # no output: the branch was never pushed
+  $ gh pr list --head issue-249 --state all --json number,state,isDraft,title
+  [{"isDraft":false,"number":252,"state":"MERGED","title":"fix(factory): report the tree a pass runs, refuse to arm a stale one"}]
+  ```
+
+  No pull request has ever carried `issue-249` as its head, so "`gh pr list --head issue-249 --state
+  all` names it" described a call that had not been made. The clock proves it, the same clock that
+  proved `DECISIONS.md:1921` (`D-0046`) and `DECISIONS.md:2268` (`D-0049`): this entry's own commit,
+  `649fe37`, carries committer date `2026-11-11T13:03:30Z` -- 45 s after the last write that did
+  land. Whether the tick was then killed at its ceiling, or exited believing it had delivered, is not
+  measurable from inside this worktree, because the journal is in the supervisor's tree and this unit
+  is fenced to one directory; it is therefore not claimed. What is claimed is only that the write
+  never happened, and what that cost is the exact row this entry predicted it would stop: with the ref
+  still local, `git rev-list --count origin/main..HEAD` reads 4 at `origin/main` `4357cbd`, so
+  `triage.sh:761` counted the branch as ahead and `:758` found no open pull request to skip it with,
+  and `factory/factory.sh:675` handed the same zero-byte assessment to a second model on 11 Nov. The
+  draft is opened by `H-0133`. The false sentence is left standing above this line rather than edited
+  out, because a silently corrected `Effect:` is indistinguishable from one that was always right.
+
+## H-0133 · The artifact a decision recorded as delivered had never been written, so the same zero-byte branch was dispatched a second time -- and a pull request cannot be named in an `Effect:` committed before the push
+
+- Question: `H-0130` chose a **draft** pull request for a branch whose content delta against `main`
+  was zero bytes, and the reason recorded for the draft was that a ready one "asks a reviewer for a
+  decision about nothing". That premise has since stopped being true of the branch it describes:
+  `git diff --stat origin/main...HEAD` at `649fe37` reads `factory/DECISIONS.md | 89 ++++...`, the
+  disposition entry itself. So two things are owed. First, the record whose `Effect:` names an
+  artifact the server never received. Second, an answer to what this unit delivers now: the queue has
+  already been told once that this branch is invisible because there was no pull request, and the
+  next thing it does is decide what to merge. What goes on the branch, and in what state does the
+  pull request open?
+
+- Options: rewrite `H-0130`'s `Effect:` to match what exists and open the pull request ready for
+  review | add a dated `Correction:` and open it ready, on the grounds that the diff is real text now
+  | add a dated `Correction:` and open it as a **draft**, as `H-0130` decided | open the draft and
+  leave the false record standing, since the pull-request body will contradict it anyway | comment on
+  #291 that the artifact is still owed and push nothing | delete the local ref and stop
+
+- Chose: add a dated `Correction:` and open it as a **draft**, as `H-0130` decided
+
+- Why: the correction's shape is not this entry's judgement to make -- the log already owns it, five
+  times over (`H-0073` at `:1761`, `H-0118` at `:4359`, `H-0120` at `:4509`, `D-0046` and `D-0049` at
+  `DECISIONS.md:1921` and `:2268`): a claim that turns out false gets a dated line naming the
+  measurement that refuted it. What is new here, and why it belongs in a heading rather than only in
+  the correction, is the mechanism: #291 says the classifier counts an `--allow-empty` checkpoint as
+  work, and this is the same failure one level up -- a decision log counting its own intention as a
+  write. Rewriting the `Effect:` in place would delete the only evidence that a tick can commit an
+  `Effect:` 45 seconds after its last successful write, which is the finding no issue carries yet.
+  Draft over ready: tie-breaks 1-3 do not separate the two (no dependency, no config decode, no empty
+  input), and tie-break 4 does not either -- both are one file. Tie-break 5, reversibility, does. A
+  draft is one click from reviewable for a person who wants these two entries on `main`; a ready pull
+  request is one APPROVED review from `factory/factory.sh:415`, the arm that merges whatever the API
+  says is `APPROVED`/`MERGEABLE`/`CLEAN`/green, and with `allow_squash_merge=false` and
+  `allow_rebase_merge=false` that merge is permanent history written for a decision-log entry about
+  itself. The draft is the state in which no automation can be talked into that, and it is verified
+  rather than assumed: `triage.sh:285-287` classes a pull request marked draft as `draft` before it
+  reaches any review arm, and `factory/factory.sh:1135` puts `draft` in the wait arm. Tie-break 6, the
+  shape the surrounding work already takes: #285 arrived here on 11 Nov as "A disposition record, not
+  a candidate". Both states satisfy the queue, and that too was measured at these lines rather than
+  remembered -- `triage.sh:124` builds the table from `gh pr list --state open --limit 100`, which
+  lists drafts, and `:758` drops the `branch_without_pr` row when any row's `headRefName` equals the
+  branch name, which is the only read that stops a third dispatch of this unit.
+
+- Checkpoint: 970a0849a9e8343806e8d22966b0038452f1b6b1
+
+- Effect: `factory/DECISIONS.md` -- this entry plus one dated correction inside `H-0130`. One file,
+  no code, no leg. **It deliberately names no pull-request number.** `H-0130`'s mistake is structural
+  and this entry says so instead of repeating it: an `Effect:` is committed while the branch is still
+  local, so every artifact on the far side of the push is a prophecy at the moment it is written and
+  becomes a record only if someone reads it back afterwards. The pull request is therefore written
+  down in the artifact that genuinely is composed after the run -- the pull-request body, which quotes
+  the gate and is then read back against the file it was posted from, byte for byte -- and this entry
+  points there. What lost, as measured: the ref stays and the draft occupies a row in
+  `gh pr list --state open` until a person reads the body and either marks it ready or closes it
+  (`git worktree remove` plus `git branch -d` afterwards; `H-0130` is the record that they are safe to
+  run); making the draft unmergeable-by-automation also means these two entries cannot reach `main`
+  without a person asking for the review, so if the record is wanted on the trunk that is a human
+  click, not a tick; this branch appends to the same file tail as #292's `H-0131`/`H-0132`, so
+  whichever of the two merges second hits the tail conflict and the sort-by-id splice `H-0128`
+  recorded; the classifier defect itself is untouched here, because `issue-291` already has a branch
+  and an open pull request carrying that fix; and nothing here says why the previous tick stopped
+  between its entry commit and its push -- that journal is outside this unit's fence, and a guess
+  about it in a decision log is the same species of claim this entry exists to correct.
