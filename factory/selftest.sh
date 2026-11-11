@@ -2714,8 +2714,14 @@ git -C "$proc_up" commit -qm 'fixture harness: the shipped scripts, and a file t
 # The queue, as the shim serves it: two open issues, no pull request in any state, nothing merged. So
 # `triage.sh` answers exactly two `unclaimed` rows, and the unit behind the quarantined one is a row
 # the pass has to reach on its own -- not a row this file planted as an expectation.
+#
+# Both connections carry `pageInfo.hasNextPage: false` because the shipped query asks for it: a page
+# that does not answer the bound reads as a page that stopped short (H-0103), and the refusal takes
+# the whole issue half with it -- which is how this fixture came to print `PASS units=0` and eleven
+# red legs the day the two changes met. A fake that answers less than the code asks for is not a
+# smaller GitHub; it is a different one.
 printf '{"login":"supervisor"}\n' >"$proc_fix/user.json"
-printf '{"data":{"repository":{"pullRequests":{"nodes":[]},"issues":{"nodes":[{"number":900,"stateReason":"NONE"},{"number":901,"stateReason":"NONE"}]}}}}\n' >"$proc_fix/graphql.json"
+printf '{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]},"issues":{"pageInfo":{"hasNextPage":false},"nodes":[{"number":900,"stateReason":"NONE"},{"number":901,"stateReason":"NONE"}]}}}}\n' >"$proc_fix/graphql.json"
 printf '[]\n' >"$proc_fix/pr-open.json"
 printf '[]\n' >"$proc_fix/pr-bodies.json"
 printf '[]\n' >"$proc_fix/pr-merged.json"
@@ -2724,6 +2730,77 @@ printf '[{"number":900,"title":"unit A: the tree a dead tick left dirty","update
 # is answered so a tick ends the way a delivered tick ends, and the journal carries only the property
 # under test rather than `TICK-UNDELIVERED` and a bundle write for a unit that never existed.
 printf '[{"number":9001}]\n' >"$proc_fix/pr-head.json"
+
+# `--json` is a field list, and a fixture that ignores it answers a question nobody asked.
+#
+# `gh pr list --json a,b` replies with exactly `a` and `b`, and refuses a name the payload has not
+# got. Both fixture shims used to parse `--json` for one thing only -- telling two payloads apart --
+# and then hand over the whole file. So a shipped read that STOPPED asking for a field kept receiving
+# it, and every leg that asserts something about that field stayed green while the read went blind.
+# This is the inverse of the hazard this file's own header names ("a change to what triage.sh asks
+# for ... changes what these legs see"), and #279 measured the sentence false at this commit:
+#
+#   `--json number,title,updatedAt` at factory/triage.sh:563 reduced to `--json number,title`,
+#   `bash factory/selftest.sh` -> `387 passed, 0 failed`, identical to the unpunctured run, while the
+#   debug rows still printed `issue 232 delivered` -- a verdict `delivered_claim` (triage.sh:509)
+#   refuses to render on an empty `updatedAt`. The field arrived from the fixture, not from the read.
+#
+# One heredoc, installed into both payload directories, because the rule being fixed here is one that
+# lived in a single branch of one shim and nowhere else: H-0108 (PR #278) projected the merged
+# payload at its own dispatch site, and #279 counted six payload sites still served blind. A rule
+# written at a call site is a rule for that call site.
+install_gh_fields() { # install_gh_fields <payload-dir> -> the --json semantics both fixture shims obey
+	[ -d "$1" ] || {
+		printf 'selftest: no payload directory at %s, so the field list would go unenforced\n' "$1" >&2
+		return 1
+	}
+	cat >"$1/fields.sh" <<'GHFIELDS'
+# fields.sh -- what `gh --json` does to a payload, for the fixture `gh` in factory/selftest.sh.
+# Installed by `install_gh_fields`, sourced by both fixture shims, never run directly.
+#
+# `jq -n` in the projection is not decoration: `--slurpfile` binds the payload and leaves the input
+# empty, so a filter written against `.` runs zero times and writes nothing at exit 0 (H-0108's
+# discovery, written out because it fails silently and in exactly the direction that reads as green).
+gh_json_payload() { # <payload-file> <field-list> -> that payload as `gh --json` answers it
+	local file=$1 want=${2:-} carry missing field
+	# No `--json` means the caller asked for the endpoint's own document -- `gh api user`,
+	# `gh api graphql` -- which has no field list to obey. Verbatim, as before.
+	if [ -z "$want" ]; then
+		cat "$file"
+		return 0
+	fi
+	# `--json` answers a list of rows. Anything else behind it means the dispatch above served the
+	# wrong payload to this call, which is the failure that makes a claim list silently empty.
+	if ! jq -e 'type == "array"' "$file" >/dev/null 2>&1; then
+		printf '%s: --json was asked of a payload that is not a list of rows: %s\n' \
+			"${0##*/}" "$file" >&2
+		return 9
+	fi
+	carry=$(jq -r '[.[] | keys[]] | unique | join(",")' "$file") || return 9
+	# A field no row carries is refused out loud, the way `gh` refuses it, rather than answered with
+	# an empty column. Silence is how a fixture quietly becomes the specification: a read that asks
+	# for something the repository holds and the fixture does not would get nothing back and every
+	# leg beside it would call that a pass. An EMPTY payload carries nothing by definition, so it
+	# says nothing about the field list -- `gh` checks a name against its own schema, not against the
+	# rows that happen to be in the window, and the unlegged reads run against `[]` every pass.
+	missing=$(jq -rn --arg j "$want" --arg c "$carry" '
+		($j | split(",")) as $want | ($c | split(",")) as $have
+		| if $c == "" then "" else (($want - $have) | join(",")) end') || return 9
+	if [ -n "$missing" ]; then
+		local IFS=,
+		for field in $missing; do
+			printf 'Unknown JSON field: "%s"\n' "$field" >&2
+		done
+		printf 'Available fields: %s\n' "$carry" >&2
+		return 1
+	fi
+	jq -c --arg j "$want" '
+		($j | split(",")) as $f
+		| [.[] | with_entries(select(.key as $k | $f | index($k)))]' "$file"
+}
+GHFIELDS
+}
+install_gh_fields "$proc_fix"
 
 cat >"$proc_bin/gh" <<'PROCGH'
 #!/usr/bin/env bash
@@ -2739,6 +2816,8 @@ cat >"$proc_bin/gh" <<'PROCGH'
 set -eu
 here=${PROC_FIXTURE:?PROC_FIXTURE names the payload directory}
 rec=${PROC_GH_REC:?PROC_GH_REC names the record file}
+# shellcheck disable=SC1090 -- installed by install_gh_fields, beside the payloads it projects
+. "$here/fields.sh"
 printf '%s\n' "$*" >>"$rec"
 
 case "$1:$2" in
@@ -2763,13 +2842,20 @@ while [ "$i" -lt "${#args[@]}" ]; do
 	i=$((i + 1))
 done
 
-emit() { # emit <payload> -> through the caller's own --jq, run by the real jq
-	local file=$1
+emit() { # emit <payload> -> the fields the caller named, then its own --jq, both run by the real jq
+	local file=$1 src
 	if [ ! -f "$file" ]; then
 		printf 'proc-shim: no payload for this call: %s\n' "$file" >&2
 		exit 8
 	fi
-	if [ -n "$jqprog" ]; then jq -r "$jqprog" <"$file"; else cat "$file"; fi
+	# The field list is obeyed, not merely parsed to choose a payload. gh_json_payload is the same
+	# file CLAIMSHIM sources, because #279 is a fix that existed in one shim and not the other.
+	src=$(gh_json_payload "$file" "$jsonf") || exit 1
+	if [ -n "$jqprog" ]; then
+		printf '%s\n' "$src" | jq -r "$jqprog"
+	else
+		printf '%s\n' "$src"
+	fi
 }
 
 case "$1 $2" in
@@ -3652,9 +3738,13 @@ FACTORY_AT_RISK=$work/at-risk
 #     the same window is 632,601 bytes and the fixture is about two kilobytes, and that gap is exactly
 #     where the first version of this verdict died on the live repository. The leg that reproduces it
 #     pads a body back past 128 KiB rather than pretending the fixture is the repository.
-#   * The payloads go through the caller's OWN `--jq` and `--limit`, run by the real jq. A change to
-#     what triage.sh asks for -- its field list, its `join`, its window -- changes what these legs
-#     see, so the reads are under test and not a transcription of them.
+#   * The payloads go through the caller's OWN `--json`, `--limit` and `--jq`, run by the real jq. A
+#     change to what triage.sh asks for -- its field list, its `join`, its window -- changes what
+#     these legs see, so the reads are under test and not a transcription of them. That is what the
+#     sentence said when this section was written, and `--json` made it untrue for the field list
+#     half: the shims parsed the flag to choose a payload and then answered the whole file whatever
+#     was named, so reducing a read's field list changed nothing these legs could see (#279, and the
+#     measurement under `install_gh_fields`). `gh_json_payload` is what makes it true again.
 #   * The shim exits 9 on any call it has no payload for and 77 on anything that writes. A leg cannot
 #     write to the queue it is only supposed to describe, and cannot go green by answering a call
 #     nobody planned for.
@@ -3701,6 +3791,8 @@ git init -q "$claim_repo"
 git -C "$claim_repo" -c user.email=fixture@invalid -c user.name=fixture \
 	commit -q --allow-empty -m 'fixture seed'
 
+install_gh_fields "$claim_fix"
+
 cat >"$claim_bin/gh" <<'CLAIMSHIM'
 #!/usr/bin/env bash
 # Fixture gh for the merged-claim legs in factory/selftest.sh. It answers exactly the reads
@@ -3712,6 +3804,8 @@ cat >"$claim_bin/gh" <<'CLAIMSHIM'
 # on a real issue would be writing to the queue it exists only to describe.
 set -eu
 here=${CLAIM_FIXTURE:?CLAIM_FIXTURE names the payload directory}
+# shellcheck disable=SC1090 -- installed by install_gh_fields, beside the payloads it projects
+. "$here/fields.sh"
 jqprog=''
 limit=''
 json=''
@@ -3728,26 +3822,29 @@ while [ "$i" -lt "${#args[@]}" ]; do
 	i=$((i + 1))
 done
 
-emit() { # emit <payload> -> through the caller's own --limit and --jq, both run by the real jq
-	local file=$1
+emit() { # emit <payload> -> the fields the caller named, then its --limit and --jq, all real jq
+	local file=$1 src
 	if [ ! -f "$file" ]; then
 		printf 'claim-shim: no payload for this call: %s\n' "$file" >&2
 		exit 8
 	fi
+	# `--json` used to be read only to tell two payloads apart (see the dispatch below) and then
+	# dropped, so every payload here answered for fields nobody asked for. #279.
+	src=$(gh_json_payload "$file" "$json") || exit 1
 	if [ -n "$jqprog" ]; then
 		if [ -n "$limit" ]; then
 			# --limit is under test, not worked around: the window leg means nothing unless a
 			# smaller --limit really returns fewer rows. A non-numeric --limit makes jq fail,
 			# which is the right answer to a caller that passed one.
-			jq -c --argjson n "$limit" 'if type == "array" then .[:$n] else . end' <"$file" |
+			printf '%s\n' "$src" | jq -c --argjson n "$limit" 'if type == "array" then .[:$n] else . end' |
 				jq -r "$jqprog"
 		else
-			jq -r "$jqprog" <"$file"
+			printf '%s\n' "$src" | jq -r "$jqprog"
 		fi
 	elif [ -n "$limit" ]; then
-		jq -c --argjson n "$limit" 'if type == "array" then .[:$n] else . end' <"$file"
+		printf '%s\n' "$src" | jq -c --argjson n "$limit" 'if type == "array" then .[:$n] else . end'
 	else
-		cat "$file"
+		printf '%s\n' "$src"
 	fi
 }
 
@@ -3903,18 +4000,29 @@ cp "$claim_fix/issues.json" "$claim_work/issues.live.json"
 # The queue query's payload, derived from the two lists the legs actually edit. Deriving it is what
 # stops the state reason a leg planted in `issues.json` from disagreeing with the one triage.sh
 # reads: two copies of one fact, and one gate blind to the other, is #189's whole complaint.
+# The fixture is not a GraphQL server: it answers the same file whatever the query asks for, so the
+# bound has to be planted here rather than derived from the query text. `CLAIM_PAGE_PRS` and
+# `CLAIM_PAGE_ISSUES` trip `pageInfo.hasNextPage` on one connection each; both default to `false`,
+# which is what every other leg in this section reads. Because the fixture cannot notice the query
+# forgetting to ask, a leg over the shipped source does that instead -- see
+# `claim_query_asks_for_its_bound`.
 claim_graphql() {
-	jq -cn --slurpfile i "$claim_fix/issues.json" --slurpfile c "$claim_fix/open-claims.json" '
+	jq -cn --slurpfile i "$claim_fix/issues.json" --slurpfile c "$claim_fix/open-claims.json" \
+		--argjson prs "${CLAIM_PAGE_PRS:-false}" --argjson iss "${CLAIM_PAGE_ISSUES:-false}" '
 		{data: {repository: {
-			pullRequests: {nodes: ($c[0] | map({number: .number,
+			pullRequests: {pageInfo: {hasNextPage: $prs}, nodes: ($c[0] | map({number: .number,
 				closingIssuesReferences: {nodes: (.claims | map({number: .}))}}))},
-			issues: {nodes: ($i[0] | map({number: .number, stateReason: .stateReason}))}
+			issues: {pageInfo: {hasNextPage: $iss}, nodes: ($i[0] | map({number: .number, stateReason: .stateReason}))}
 		}}}' >"$claim_fix/graphql.json"
 }
 claim_graphql
 
 # The shipped classifier, end to end, with the fixture's gh first on PATH. Nothing is stubbed between
 # the two: preflight, the jq programs, the claim channels and the emit line all run.
+#
+# `claim_script` is for the one leg that has to run a single-edit mutant of triage.sh -- a read whose
+# field list is one field short. Empty, every leg runs the shipped file, and that is the default this
+# section was written with.
 #
 # `FACTORY_OPENCODE` is pinned to the shipped default (`factory/common.sh:62`) rather than inherited,
 # so the runtime preflight finds is the fixture's in $claim_bin on every host. Left to the
@@ -3930,7 +4038,8 @@ claim_rows() {
 		FACTORY_DELIVERED_WINDOW="$claim_window" CLAIM_FIXTURE="$claim_fix" \
 		CLAIM_MERGED_FAIL="${CLAIM_MERGED_FAIL:-}" CLAIM_GRAPHQL_FAIL="${CLAIM_GRAPHQL_FAIL:-}" \
 		CLAIM_MERGED_GARBAGE="${CLAIM_MERGED_GARBAGE:-}" \
-		"$HERE/triage.sh" 2>"$claim_err" | tr '\037' '\t' >"$claim_rows_file" || true
+		"${claim_script:-$HERE/triage.sh}" 2>"$claim_err" |
+		tr '\037' '\t' >"$claim_rows_file" || true
 	if [ -n "${CLAIM_DEBUG:-}" ]; then
 		printf 'CLAIM DEBUG triage rc-carrying stderr:\n' >&2
 		sed 's/^/    /' "$claim_err" >&2
@@ -4009,8 +4118,25 @@ claim_err_has() { # claim_err_has <needle> -> the pass said this on stderr
 	printf '            stderr was: %s\n' "$(tr '\n' '|' <"$claim_err")" >&2
 	return 1
 }
+claim_detail_wider_than() { # claim_detail_wider_than <key> <columns>
+	local d n
+	d=$(row_for "$1" | cut -f4)
+	n=${#d}
+	[ "$n" -gt "$2" ] || {
+		printf '            key %s detail is %s columns, not more than %s: %s\n' "$1" "$n" "$2" "$d" >&2
+		return 1
+	}
+}
 claim_rows_say_nothing_about() { # claim_rows_say_nothing_about <kind>
 	! grep -q "^$1"$'\t' "$claim_rows_file"
+}
+claim_issue_rows_at_least() { # claim_issue_rows_at_least <n> -> the table printed at least n issue rows
+	local n
+	n=$(awk -F'\t' '$1 == "issue"' "$claim_rows_file" | wc -l)
+	[ "$n" -ge "$1" ] || {
+		printf '            the table printed %s issue rows, not %s or more\n' "$n" "$1" >&2
+		return 1
+	}
 }
 
 # The runtime question, asked as legs. This section execs the shipped triage.sh, so it inherits
@@ -4042,6 +4168,12 @@ claim_runtime_is_the_fixtured_one() { # the runtime the legs resolve lives in th
 }
 claim_preflight_asks_for_a_runtime() { # claim_preflight_asks_for_a_runtime <common.sh>
 	grep -qF -- 'for tool in git gh "$FACTORY_OPENCODE"; do' "$1" 2>/dev/null
+}
+claim_query_asks_for_its_bound() { # claim_query_asks_for_its_bound <triage.sh> -> both connections ask
+	# The fixture is not a GraphQL server -- it answers the same file whatever the query asks for --
+	# so a query that stopped requesting `pageInfo` would keep every planted leg green. Two
+	# occurrences are the two connections; a third would only ever make this more true.
+	[ "$(grep -oF -- 'pageInfo{hasNextPage}' "$1" 2>/dev/null | wc -l)" -ge 2 ]
 }
 
 # One leg, with the reporter this section needs. `check`'s FAIL sentence blames a plant that did not
@@ -4101,6 +4233,8 @@ claim_reset() {
 	CLAIM_MERGED_FAIL=''
 	CLAIM_GRAPHQL_FAIL=''
 	CLAIM_MERGED_GARBAGE=''
+	CLAIM_PAGE_PRS=''
+	CLAIM_PAGE_ISSUES=''
 	claim_window=100
 	claim_merged '.'
 	claim_issues '.'
@@ -4123,8 +4257,12 @@ claim_leg '#235 has nothing merged for it' claim_class_is 235 unclaimed
 claim_leg '#212 has nothing merged for it' claim_class_is 212 unclaimed
 
 # The row is the deliverable, so it has to be checkable without re-running anything: which PR, merged
-# when, found in what window. `emit` caps the detail at 80 columns, which is why the row carries a
-# number and an instant rather than a sentence about them.
+# when, found in what window. Nothing truncates the column to hold any of that -- `emit` prints every
+# field with a bare `%s` and no slice, and 12d below measures how long it can get -- so the row
+# carries a number and an instant rather than a sentence about them because a person reads this table
+# at a glance. The field COUNT is deliberately not quoted here: `emit` grew a seventh field on `main`
+# one day after this sentence was first written, and a comment that counts fields ages the same way
+# the comment that invented an 80-column cap did.
 claim_leg 'the row names PR #234' claim_detail_has 232 'PR #234'
 claim_leg 'the row names the merge instant' claim_detail_has 232 '2026-11-08T14:26:31Z'
 claim_leg 'the row says which window it read' claim_detail_has 232 'window 100)'
@@ -4258,6 +4396,65 @@ claim_rows >/dev/null
 claim_leg 'an unreadable queue prints no issue rows' claim_rows_say_nothing_about issue
 claim_leg '…and the merged claims went with them' bash -c '! grep -q delivered "$1"' _ "$claim_rows_file"
 
+# 11b. the payload answering only as far as its own bound. Both connections ask for the first 100
+#      rows, so a busier repository gets a true answer to a smaller question -- and the smaller
+#      question is not the one `delivered` asks. The harm is asymmetric across the two sides: an
+#      issue cut off the end of the issue page loses its `stateReason`, and a reopened closure with
+#      its veto gone reads as DELIVERED; a pull request cut off the end hides an OPEN claim, which is
+#      the duplicate tick H-0053 was written about. So the read asks each connection for
+#      `pageInfo{hasNextPage}` and either `true` routes into the refusal the unreadable payload above
+#      already takes -- "the read stopped" and "the read did not happen" both mean this table cannot
+#      speak, and neither may print `unclaimed`. The refusal says which, because an operator reading
+#      the log needs to know whether to fix the connection or the token.
+claim_reset
+CLAIM_PAGE_ISSUES=true
+claim_issues '.'
+claim_rows >/dev/null
+claim_leg 'a truncated issue page is not a verdict' claim_rows_say_nothing_about issue
+claim_leg '…and the merged claims go with it' bash -c '! grep -q delivered "$1"' _ "$claim_rows_file"
+claim_leg '…and the refusal names the bound, not an empty queue' claim_err_has 'pagination bound'
+claim_reset
+
+# …and the same tripped on the pull-request connection, with an open pull request planted so the half
+# that is NOT refused has a row to point at: the veto stops the issue half, never the whole table.
+claim_open '[{"number":237,"title":"fix(web): the users page names its own blocking profile","body":"Refs #212.\n","claims":[212]}]'
+CLAIM_PAGE_PRS=true
+claim_graphql
+claim_rows >/dev/null
+claim_leg 'a truncated pull-request page is not a verdict either' claim_rows_say_nothing_about issue
+claim_leg '…and the pull-request rows are untouched' claim_table_has pr 237 needs_reviewer
+
+# The fixture answers the same file whatever the query asks for, so nothing above can notice the
+# shipped query forgetting to ask. This scans the source instead, with a control that deletes both
+# occurrences from a copy: a leg that cannot go quiet is a leg that is not reading anything.
+claim_leg 'the queue query asks for its own bound' claim_query_asks_for_its_bound "$HERE/triage.sh"
+mkdir -p "$work/nobound"
+sed 's/pageInfo{hasNextPage}//g' "$HERE/triage.sh" >"$work/nobound/triage.sh"
+if claim_query_asks_for_its_bound "$work/nobound/triage.sh" 2>/dev/null; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s a triage.sh with both occurrences deleted still asks for a bound,\n' "control: query bound term"
+	printf '          so the ok above is the scan being blind.\n'
+else
+	printf '        control: a copy with both deleted reads as no bound asked for, so the ok\n'
+	printf '        above is the scan working and not the check being blind.\n'
+fi
+CLAIM_PAGE_ISSUES=
+CLAIM_PAGE_PRS=
+claim_reset
+
+# 11c. the OTHER bound, which fails quietly. `gh issue list --limit 100` gives the 101st open issue no
+#      row at all -- not `unclaimed`, not `delivered`, nothing -- and silence about a bound is how a
+#      queue gets read as a census. The pass counts the rows it read and says so at the limit, so the
+#      pair of legs is the warning and its absence at nine rows.
+claim_reset
+claim_issues '[range(1;101)] | map({number: ., title: "A planted open issue", updatedAt: "2026-11-01T00:00:00Z", stateReason: null})'
+claim_rows >/dev/null
+claim_leg 'a full issue page says the read stopped short' claim_err_has 'at its own limit'
+claim_leg '…and it still printed the rows it did read' claim_issue_rows_at_least 100
+claim_reset
+claim_rows >/dev/null
+claim_leg '…and says nothing below the limit' bash -c '! grep -q "at its own limit" "$1"' _ "$claim_err"
+
 # ------------------------------------------------------ a list, and a payload with a size
 #
 # 12. a claim can name several issues in one sentence, and this repository's shipped bodies spell it
@@ -4313,6 +4510,27 @@ claim_merged '. + [{number: 221, baseRefName: "main", mergedAt: "2026-11-06T03:3
 	body: "feat(web): the 360 px pass, first tranche\n\nI could not tell what the palette said am I\" once it had loaded (Part of #219 only; the umbrella is not finished — the nine 360 px frames are still open).\n\nRefs #219, #220, #204\n"}]'
 claim_rows >/dev/null
 claim_leg '#219 refused on Part of and on the list' claim_class_is 219 unclaimed
+
+# 12d. how long the delivered row's detail can be -- a question a comment on that row used to answer
+#      by claiming `emit()` caps it at 80 columns. Nothing caps anything: `emit` prints every field
+#      with a bare `%s` and nothing is truncated on its way out. The sole-claim rule is what bounds the
+#      phrase, and it bounds DISTINCT numbers, not characters -- so the route to a long column is a
+#      list that repeats one number, and the row is still a legitimate `delivered` when it does.
+#      The plant below is that body: forty `#232`s in one sentence, which is what a real body looks
+#      like when someone pastes a checklist into the verb line. Measured at this commit and again
+#      after the merge with `origin/main` below: the detail is 302 columns, the row is still
+#      `delivered`, and the `(window 100)` tail is intact.
+claim_reset
+claim_merged 'map(if .number == 234 then .body = ("fix: one issue, a long list\n\nRefs "
+	+ ([range(40)] | map("#232") | join(", ")) + ".\n") else . end)'
+claim_rows >/dev/null
+claim_leg 'a list of one number repeated is one claim' claim_class_is 232 delivered
+claim_leg '…and no cap shortens what lands in the detail' claim_detail_wider_than 232 80
+# The width alone is not the property. A cap at 200 would clear that leg and still eat the end of
+# the row, and the end is the part a person re-checks -- so the assertion that matters is that the
+# tail is still there after 302 columns of it.
+claim_leg '…and the tail of the row survives the length' claim_detail_has 232 '(window 100)'
+claim_reset
 
 # 13. the payload has a SIZE. Every other leg in this section feeds triage.sh a fixture of about two
 #     kilobytes; the live read it stands for returned 632,601 bytes for 100 merged bodies on 8 Nov.
@@ -4379,6 +4597,140 @@ else
 	printf '        control: a copy with the term deleted reads as no requirement, so the ok\n'
 	printf '        above is the scan working and not the check being blind.\n'
 fi
+
+# ------------------------------------------------------ the field list, as a contract (#279)
+#
+# Everything above asks triage.sh questions about a queue. These ask the FIXTURE whether it answers
+# the way `gh` does, and they exist because for six of its seven payload sites the answer was no:
+# both shims' `emit()` parsed `--json` to choose WHICH file to print and then printed the whole file.
+# A read that stopped requesting a field therefore kept receiving it from the fixture, and every leg
+# that asserts something about that field stayed green while the shipped read went blind. That is the
+# inverse of the hazard this section's own header promises against, and #279 is the second time in a
+# week the promise was the thing that was false -- H-0108 (PR #278) was written while adding
+# `headRefName` to the merged read, because the branch-naming legs would otherwise have proved
+# nothing, and it projected that one channel at its one call site.
+#
+# Three groups, for the three shapes the blindness takes:
+#
+#   A  a field the caller did NOT name does not come back;
+#   B  a field the payload does NOT carry is refused out loud, not answered with an empty column;
+#   C  the shipped read, one field shorter, stops producing the verdict that field carries.
+#
+# B is the one that keeps the fixture from quietly becoming the specification. `labels` is a field
+# `gh issue list` answers for every issue on GitHub and this fixture has never held; asked for before
+# #279 it came back as no column at all, at exit 0, which is indistinguishable from the repository
+# saying "no labels". A is the one #279 measured. C is the demonstration the issue said to run first:
+# it is written here as a leg so the plant cannot rot back into a sentence in a pull request.
+claim_reset
+claim_gh() { # claim_gh <gh args…> -> the claim fixture's own gh, payload directory wired in
+	PATH="$claim_bin:$PATH" CLAIM_FIXTURE="$claim_fix" "$claim_bin/gh" "$@"
+}
+claim_proc_gh() { # claim_proc_gh <gh args…> -> the PROCESS fixture's gh. Its record file is a scratch
+	# one: this probe is not an activation, and a line in $proc_rec would be a gh call no supervisor
+	# pass made in the journal every leg above reads.
+	PATH="$proc_bin:$PATH" PROC_FIXTURE="$proc_fix" \
+		PROC_GH_REC="$work/fields-proc.rec" "$proc_bin/gh" "$@"
+}
+# A. the projection, on stdout, where the shipped read will look at it.
+claim_json_names_only() { # --json number,title answers exactly number and title, on every row
+	local out rc=0 err=$work/fields.err
+	out=$(claim_gh issue list --state open --limit 100 --json number,title 2>"$err") || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            the read failed (rc %s): %s\n' "$rc" "$(tr '\n' '|' <"$err")" >&2
+		return 1
+	fi
+	# `stateReason` is in issues.json and is not in the field list. It used to be handed over, and
+	# triage.sh reads stateReason from GraphQL -- triage.sh:154 records why not from `gh issue list`
+	# -- so nothing else here can tell the two channels apart.
+	if ! printf '%s' "$out" |
+		jq -e 'length > 0 and all(.[]; (keys | sort) == ["number","title"])' >/dev/null; then
+		printf '            --json number,title answered: %s\n' "${out:0:160}" >&2
+		return 1
+	fi
+}
+claim_proc_json_names_only() { # …and the process shim, which serves the whole supervisor run
+	local out rc=0
+	out=$(claim_proc_gh issue list --state open --limit 100 --json number,title 2>&1) || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            the read failed (rc %s): %s\n' "$rc" "${out:0:160}" >&2
+		return 1
+	fi
+	if ! printf '%s' "$out" |
+		jq -e 'length > 0 and all(.[]; (keys | sort) == ["number","title"])' >/dev/null; then
+		printf '            --json number,title answered: %s\n' "${out:0:160}" >&2
+		return 1
+	fi
+}
+claim_json_answers_known() { # the same call with a field the payload DOES carry is not refused
+	local out rc=0
+	out=$(claim_gh issue list --state open --json number,updatedAt 2>&1) || rc=$?
+	if [ "$rc" != 0 ]; then
+		printf '            a field the payload carries was refused (rc %s): %s\n' "$rc" "${out:0:160}" >&2
+		return 1
+	fi
+	if ! printf '%s' "$out" | jq -e 'length > 0 and all(.[]; has("updatedAt"))' >/dev/null; then
+		printf '            --json number,updatedAt answered: %s\n' "${out:0:160}" >&2
+		return 1
+	fi
+}
+# B. the refusal, shaped like `gh`'s own: a non-zero exit that names the field.
+claim_json_refuses_unknown() {
+	local out rc=0
+	out=$(claim_gh issue list --state open --json number,updatedAt,labels 2>&1) || rc=$?
+	if [ "$rc" = 0 ]; then
+		printf '            --json …,labels exited 0 answering %s, so a field this fixture has\n' "${out:0:80}" >&2
+		printf '            never carried reads as GitHub saying "none", and the fixture is the spec.\n' >&2
+		return 1
+	fi
+	case "$out" in
+	*'Unknown JSON field: "labels"'*) return 0 ;;
+	esac
+	printf '            it refused (rc %s) without naming the field: %s\n' "$rc" "${out:0:200}" >&2
+	return 1
+}
+# C. the plant. One field off one read -- `factory/triage.sh:563`, the queue read -- planted the way
+#    proc_mutate plants its two: the anchor must occur exactly once, or the leg under it is the
+#    fixture being blind rather than the read being short. Measured before gh_json_payload existed,
+#    this exact edit left the suite at `387 passed, 0 failed` while #232 still printed `delivered`.
+claim_mutate_triage() { # <dest> <anchor> <replacement> -> one edit of the shipped triage.sh, or a refusal
+	local dest=$1 anchor=$2 repl=$3 hits
+	mkdir -p "$work/mutant"
+	cp "$HERE/common.sh" "$work/mutant/common.sh" || return 1
+	hits=$(awk -v a="$anchor" 'index($0, a) { c++ } END { print c + 0 }' "$HERE/triage.sh")
+	[ "$hits" = 1 ] || {
+		printf '            the anchor occurs %s time(s) in factory/triage.sh, so the edit would\n' "$hits" >&2
+		printf '            not land where it is described. Anchor:\n              %s\n' "$anchor" >&2
+		return 1
+	}
+	sed "s/$anchor/$repl/" "$HERE/triage.sh" >"$dest" || return 1
+	if ! grep -qF -- "$repl" "$dest"; then
+		printf '            the edit is not in the copy, so the leg under it ran shipped code\n' >&2
+		return 1
+	fi
+	if grep -qF -- "$anchor" "$dest"; then
+		printf '            the shipped field list is still in the copy beside the edit, so the\n' >&2
+		printf '            read would not have been short after all\n' >&2
+		return 1
+	fi
+	chmod +x "$dest"
+	return 0
+}
+claim_leg 'the shim answers only the fields named' claim_json_names_only
+claim_leg '…and a named field still arrives' claim_json_answers_known
+claim_leg '…and the process shim obeys it too' claim_proc_json_names_only
+claim_leg 'a field the fixture lacks is refused' claim_json_refuses_unknown
+claim_leg '…and a field it carries is not' claim_json_answers_known
+claim_leg 'the plant edits one read, once' claim_mutate_triage \
+	"$work/mutant/triage.sh" '--json number,title,updatedAt' '--json number,title'
+claim_script=$work/mutant/triage.sh
+claim_rows >/dev/null
+claim_leg 'a read one field short delivers nothing' claim_class_is 232 unclaimed
+claim_script=''
+# The shipped read beside it, so the FAIL above cannot be the mutant dir being broken rather than the
+# field being load-bearing: the same fixture, the same legs, the file as it ships.
+claim_rows >/dev/null
+claim_leg '…while the shipped read still does' claim_class_is 232 delivered
+claim_reset
 
 # ============================================ the reviewer's ask, and the review that has none (#242)
 #
@@ -8627,7 +8979,20 @@ skill_jq_leg() { # the document a tick actually reads, and the three refusals
 }
 skill_jq_leg
 
-printf 'factory/selftest.sh: %d passed, %d failed\n' "$pass" "$fail"
+# The tally names the world it was counted in, because it is not one number everywhere. H-0045
+# measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
+# and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
+# by the repository: measured at f60c367 on one machine with only `TMPDIR` moved, 191 passed 0 failed
+# under a tmpfs `$TMPDIR` and 190 passed 0 failed under a btrfs one, the leg's own line switching
+# from `an exclude file git refused` to `an exclude file git swallowed`. So a tally quoted without its
+# world is a number nobody can re-check, which is what this log has kept tripping over -- and a delta
+# is safe where an absolute is not, because both ends of one move together. No `|| printf 'unknown'`
+# behind either substitution: a fallback nobody can make fail is a branch nobody has seen run, and a
+# blank field on this line is already the evidence that the command behind it failed.
+printf 'factory/selftest.sh: %d passed, %d failed  (fixture root %s on %s, git %s)\n' \
+	"$pass" "$fail" "$work" \
+	"$(stat -f -c %T -- "$work")" \
+	"$(git --version | sed 's/^git version //')"
 reached_verdict=1
 if [ "$fail" -ne 0 ]; then
 	exit 1
