@@ -3425,6 +3425,16 @@ proc_plant
 proc_ph=$proc_planted
 proc_run halt-1
 proc_jh=$proc_journal
+# #237, planted rather than waited for: by the time the NEXT pass prints the halt, the cause is two
+# hours old. A marker aged here is the whole of the leg -- the second activation must not be able to
+# print the first activation's line verbatim, and the only fact that could tell them apart is the
+# marker's own age, which is the mtime `factory_tree_halt` just stamped by writing the file.
+if [ -e "$proc_halt" ]; then
+	touch -d '2 hours ago' "$proc_halt"
+else
+	printf '        note: the halting control left no marker, so the aged-marker assertion below has\n'
+	printf '        nothing to age. `proc_halt_freezes` reports the missing marker as its own failure.\n'
+fi
 proc_run halt-2
 
 proc_halt_freezes() {
@@ -3463,6 +3473,18 @@ proc_halt_freezes() {
 	if [ -z "$(proc_journal_line "$proc_journal" 'HALTED ')" ]; then
 		printf '            the second activation did not report the halt:\n' >&2
 		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	# #237: the line has to say how old its own cause is, not merely that a halt exists. Three
+	# activations seconds apart over one eight-hour-old marker wrote byte-identical `HALTED` lines
+	# until this branch; the marker above was aged by hand before the second pass, so a `2h` in this
+	# line can only have come from asking the marker, and a line without it is a nine-hour outage
+	# printing as news.
+	if ! proc_journal_line "$proc_journal" 'HALTED ' | grep -q 'cause recorded 2h'; then
+		printf '            the second activation reported the halt but not its age, so the line\n' >&2
+		printf '            still reads as a fresh detection of a cause planted two hours old for\n' >&2
+		printf '            this very assertion. Its line:\n' >&2
+		printf '              %s\n' "$(proc_journal_line "$proc_journal" 'HALTED ')" >&2
 		return 1
 	fi
 	awk '/TICK-START/ { found = 1 } END { exit found ? 1 : 0 }' "$proc_journal" || {
@@ -3709,6 +3731,245 @@ q_expect_verdict "verdict: no journal at all" STALLED none
 # sentence is the whole of what an operator gets. `factory_halted()` is also the first branch of every
 # other leg's state, so this is the leg that stops HALTED from meaning merely "some word".
 q_expect_verdict "verdict: HALTED quotes the reason" HALTED marker
+
+# ------------------------------------------------- the halt line names its own age (#237)
+#
+# `factory/HALT` is written once and then merely read: the first thing every later activation does is
+# print the stored sentence and exit. So a line carrying only that sentence says the same thing at
+# 04:30 and at 14:42, and #237 is the record of what that costs -- four identical `HALTED` lines on
+# 8 Nov over a tree that had been cleaned an hour before the last of them, #248 counting 115 of them
+# across 15h57m. Measured again on this branch before the fix: one marker with an eight-hour-old
+# mtime, three passes at 03:37:54Z, :57 and :59, three `HALTED` lines byte-identical once their own
+# stamps are stripped.
+#
+# These legs plant the marker's mtime, because the mtime IS the instant the cause was seen --
+# `factory_tree_halt` is that file's only writer -- so every claim below is about a line printed from
+# a state this file set, not about a journal this file hopes for.
+q_halt_plant() { # minutes_ago -> a marker whose mtime says its cause was recorded then
+	local age=$1
+	rm -f -- "$FACTORY_HALT"
+	printf 'a working tree was found with uncommitted work: %s -- what it holds: tracked.txt\n' \
+		"$q_verdict_tree" >"$FACTORY_HALT"
+	touch -d "-${age} minutes" "$FACTORY_HALT"
+}
+q_halt_wants() { # label needle line why
+	local label=$1 want=$2 line=$3 why=$4
+	case "$line" in
+	*"$want"*)
+		pass=$((pass + 1))
+		printf '  ok    %-34s %s\n' "$label" "$why"
+		;;
+	*)
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s %s\n' "$label" "${line:-<the composer printed nothing>}"
+		printf '          want `%s` in the line. The marker was planted aged for it, so a line\n' "$want"
+		printf '          without it is the composer not saying the thing, not the state being wrong.\n'
+		;;
+	esac
+	return 0
+}
+
+echo "factory/selftest.sh: the halt line names its own age (#237)"
+q_halt_plant 90
+q_halt_line=$(factory_halt_report)
+q_halt_wants "halt line: names the age" "1h30m" "$q_halt_line" \
+	"a cause recorded 90 minutes ago reads as 1h30m, the unit every other elapsed figure uses"
+q_halt_wants "halt line: says it was not re-probed" "not re-probed" "$q_halt_line" \
+	"the halted path never asks the tree again, and the line may not imply that it did"
+q_halt_wants "halt line: still quotes the sentence" "tracked.txt" "$q_halt_line" \
+	"the age is added to the operator's sentence, never traded for it"
+
+# Two shapes of marker a naive reuse of #248's primitive reads as a fresh detection, both measured on
+# this branch before the composer was written. It clamps -- its answer is `$((now > m ? now - m : 0))`
+# -- so a marker whose time is ahead of this clock (an NTP correction after a suspend, a VM restored
+# to a snapshot, a marker copied back with a future stamp) comes back 0 and the line reads `cause
+# recorded 0s ago`, which is the sentence a detection three seconds old prints; planted 7200s ahead it
+# printed that sentence verbatim. And when `stat` cannot read the marker it answers 999999999, which
+# `factory_age_human` spells `never`, dating the cause before the machine. Both are wrong-as-its-own-
+# opposite, the class #237 is filed against, so the composer asks `stat` itself and refuses both in
+# words -- while still speaking the age in `factory_age_human`'s unit, which is the drift H-0113
+# exists to prevent.
+q_halt_plant_at() { # epoch -> a marker carrying that exact mtime
+	local e=$1
+	rm -f -- "$FACTORY_HALT"
+	printf 'a working tree was found with uncommitted work: %s -- what it holds: tracked.txt\n' \
+		"$q_verdict_tree" >"$FACTORY_HALT"
+	touch -d "@$e" "$FACTORY_HALT"
+}
+q_halt_now=$(date -u +%s)
+
+q_halt_plant_at "$((q_halt_now + 7200))"
+q_halt_line=$(factory_halt_report)
+q_halt_wants "halt line: ahead of this clock" "ahead of this clock" "$q_halt_line" \
+	"a marker 7200s newer than now is said to be ahead, not clamped into a fresh detection"
+case "$q_halt_line" in
+*"0s ago"*)
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s %s\n' "control: not clamped to 0s" "$q_halt_line"
+	printf '          `factory_file_age` answers 0 for a time ahead of the clock, and `0s ago` is what\n'
+	printf '          a detection three seconds old prints: the line would say the opposite.\n'
+	;;
+*)
+	printf '        control: the same line never prints `0s ago`, so the ok above is a verdict about\n'
+	printf '        the future time and not the generic youngest-possible answer.\n'
+	;;
+esac
+
+# The other polarity, planted rather than assumed: a cause seen a few seconds ago STILL reads in
+# seconds. Without it the arm above could be the composer's default, and `0s` is a reading the truth
+# needs. Planted 7s back and matched to 59s so the leg cannot flake on a second boundary.
+q_halt_plant_at "$((q_halt_now - 7))"
+q_halt_line=$(factory_halt_report)
+case "$q_halt_line" in
+*"cause recorded "[0-9]"s ago"* | *"cause recorded "[0-9][0-9]"s ago"*)
+	pass=$((pass + 1))
+	printf '  ok    %-34s a cause seen seconds ago is still read in seconds\n' "halt line: young is young"
+	;;
+*)
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s %s\n' "halt line: young is young" "$q_halt_line"
+	printf '          want a seconds reading for a marker planted 7s ago. The future arm must be an\n'
+	printf '          arm, not the shape every halt line takes.\n'
+	;;
+esac
+
+# The unreadable time. Nothing on this filesystem reports an mtime it cannot read while the file
+# exists -- `chmod 000` still answers `stat`, measured -- so the arm is reached the way `no_capture_
+# says_unknown` reaches its own: shadow the command for one call, inside a substitution so it cannot
+# leak into the legs below. Reachable for real when the marker is removed between `factory_halted()`
+# and this read.
+q_halt_time_unreadable() {
+	# shellcheck disable=SC2317  # the shadow reads as unreachable code, and it is: to everything
+	# except the `stat` call the composer makes. Restoring the pass-through, so the line prints an age
+	# for a file whose time was never read, is this leg turning red.
+	stat() { return 1; }
+	factory_halt_report
+}
+q_halt_line=$(q_halt_time_unreadable)
+q_halt_wants "halt line: an unreadable time is said" "could not be read" "$q_halt_line" \
+	"an absent time is reported as absent -- no age is exactly what a fresh detection looks like"
+
+# One line, three readers. `factory_verdict`, `factory.sh --status` and the journal's `HALTED` line
+# all print this composer, for H-0044's reason one field over: readers each composing their own line
+# are readers free to disagree about what whoever finds a stopped queue is told. The journal's own
+# line is pinned at the process level, in `proc_halt_freezes` below, over a marker aged by that leg.
+q_halt_plant 90
+q_halt_line=$(factory_halt_report)
+q_halt_verdict=$(factory_verdict)
+if [ "$q_halt_verdict" = "HALTED $q_halt_line" ]; then
+	pass=$((pass + 1))
+	printf '  ok    %-34s the verdict is the composer with its verb on the front\n' "halt readers: one line"
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-34s %s\n' "halt readers: one line" "$q_halt_verdict"
+	printf '          want the verdict to be `HALTED ` plus exactly:\n            %s\n' "$q_halt_line"
+	printf '          Two formats for one fact is how #237'"'"'s four prints stopped meaning anything.\n'
+fi
+
+ageless_halt_prints() { # dir -> shipped lines under factory/ that print the sentence with no age
+	if [ ! -d "$1/factory" ]; then
+		printf 'no factory/ directory under %s -- the scan has nothing to read\n' "$1"
+		return 0
+	fi
+	local f
+	# Each FILE is walked, not grep's matching lines: the guard has to know which function body a hit
+	# sits in, and a stream filtered to the matches has no headers in it to say so. `selftest.sh` is
+	# skipped because the probe carries the shape it refuses -- the controls below plant it as a
+	# string, and a guard that flags its own fixture is a guard that gets deleted. The exclusion is
+	# honest only because the controls are planted OUTSIDE $1, so the answer about the repository
+	# stays an answer about what is shipped.
+	for f in "$1"/factory/*.sh; do
+		[ -f "$f" ] || continue
+		case "$f" in
+		*/selftest.sh) continue ;;
+		esac
+		awk -v path="${f#"$1"/}" '
+			# A header opens a body and `^}` closes it -- the shape every function in factory/ is
+			# written in, and the shape `halt_call_sites_in` already reads the same files with.
+			/^[a-z_]+\(\) \{/ { fn = $1; sub(/\(\).*/, "", fn); next }
+			/^\}/ { fn = ""; next }
+			{
+				code = $0
+				sub(/#.*/, "", code)           # prose is not a print: the file that explains the
+				                              # rule must not be the file the rule stops (H-0040)
+				# The two allowed holders: the composer itself, and `factory_notice_halt`, which
+				# quotes the sentence ONCE into the issue of the unit at the moment of detection --
+				# an age there would always read `0s`, and the notice carries its own timestamp.
+				if (index(code, "factory_halt_reason") && fn != "factory_halt_report" &&
+					fn != "factory_notice_halt") printf "%s:%d: %s\n", path, NR, $0
+			}
+		' "$f"
+	done | head -n 5 || true
+}
+
+ageless_halt_refused() {
+	local label="no ageless halt line" root hits
+	root=$(cd -- "$HERE/.." && pwd)
+	hits=$(ageless_halt_prints "$root")
+	if [ -n "$hits" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s a shipped script prints the stored halt without saying how old it\n' "$label"
+		printf '          is, which is the line that made eleven hours read as eleven detections:\n'
+		printf '%s\n' "$hits" | while IFS= read -r hit; do printf '            %s\n' "$hit"; done
+	else
+		pass=$((pass + 1))
+		printf '  ok    %-34s every reader of the marker prints it through the composer\n' "$label"
+	fi
+
+	# Control one, the shipped shape this branch deleted, verbatim and planted outside the repository:
+	# a scan that cannot see it is blind, and its silence about the tree would certify nothing.
+	mkdir -p "$work/ageless/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# a halt reader that went back to the bare sentence' \
+		'log_event "HALTED $(factory_halt_reason)"' \
+		>"$work/ageless/factory/planted.sh"
+	if [ -z "$(ageless_halt_prints "$work/ageless")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the deleted line, planted, was not flagged, so the ok above is\n' "control: $label"
+		printf '          the scan being blind. Fix the pattern.\n'
+	else
+		printf '        control: the line this branch replaced is refused when it is planted in a\n'
+		printf '        shipped script, so the ok above is the check working and not the check being blind.\n'
+	fi
+
+	# Control two, the same text inside a comment. Refusing prose is how this guard dies: the file
+	# that explains the rule would be the file the rule stops (H-0040, same argument as `naive:`).
+	mkdir -p "$work/ageless-prose/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'# this used to be `log_event "HALTED $(factory_halt_reason)"`, and that is the bug' \
+		'log_event "HALTED $(factory_halt_report)"' \
+		>"$work/ageless-prose/factory/prose.sh"
+	if [ -n "$(ageless_halt_prints "$work/ageless-prose")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the scan refuses a comment that only quotes the line, so it reads\n' "control: $label"
+		printf '          prose and will be widened away inside a week.\n'
+	else
+		printf '        control: the same text inside a comment is not refused, and the line that\n'
+		printf '        prints it through the composer is not refused either.\n'
+	fi
+
+	# Control three, the allowed polarity: the composer's own body must NOT be flagged. Without this
+	# the ok above could just as well mean the scan matches nothing at all.
+	mkdir -p "$work/ageless-allowed/factory"
+	printf '%s\n' '#!/usr/bin/env bash' \
+		'factory_halt_report() {' \
+		'	local reason' \
+		'	reason=$(factory_halt_reason)' \
+		'	printf "%s" "$reason"' \
+		'}' \
+		>"$work/ageless-allowed/factory/composer.sh"
+	if [ -n "$(ageless_halt_prints "$work/ageless-allowed")" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-34s the composer'"'"'s own body was flagged, so the guard does not know\n' "control: $label"
+		printf '          which holder it allows, and every real reader would be reported too.\n'
+	else
+		printf '        control: the composer holding the sentence is allowed, so the refusal above\n'
+		printf '        names a reader outside it and not the primitive everybody shares.\n'
+	fi
+	return 0
+}
+ageless_halt_refused
+
 FACTORY_AT_RISK=$work/at-risk
 
 # ---------------------------------------------------------------- the merged claim (#235)

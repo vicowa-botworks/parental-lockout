@@ -3675,3 +3675,87 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   - **The audit's own probe lied once, and it is the same class of failure it is looking for.** `grep '\.users\[\]\[\]\.login' factory/factory.sh` answers "no match" on a file that holds that text at `:268` -- exit 1, no stderr -- while `grep -c 'users\[\]'` on the same file answers 1: in GNU BRE a DOUBLED escaped bracket pair matches nothing. Fixed strings find both sites. So every "no match" in an audit gets re-run with `-F` before it is believed, or the audit reports absence for presence and the citation looks fine.
   - **Gates, on the tree this commit leaves:** `python3 scripts/check-decisions.py` -> `145 entries across 2 log(s)` (144 before this entry), exit 0; `--self-test` -> 32 must-fail / 9 must-pass, exit 0; `python3 scripts/check-denies.py` -> 23 deny rules resolved by opencode v2.2.5 from disk `--standalone`, 34 commands refused or allowed as declared, exit 0; `bash factory/selftest.sh` -> `408 passed, 0 failed` (fixture root on tmpfs, git 2.53.0), exit 0; `make verify` -> `verify: OK`, exit 0. `verify` runs this suite and both decision gates and the deny gate inside itself (`Makefile:102-116`), so those numbers are quoted as its parts, not as a substitute for it.
   - **What lost, and what is still not established.** (a) The push this merge makes is expected to void `#274`'s approving row under the rule `H-0095`/`H-0097` wrote into Step 5; whether it did is a read after the push, and the pull request carries the answer, not this entry. (b) Plants B, C and D are canned legs under `H-0054`'s rule -- `385 passed, 23 failed` pins the classifier's arithmetic against a fixture, not GitHub's behaviour. (c) Main's `H-0102`..`H-0106` prose carries counts true of the tree each was measured on (182 -> 191 legs, 302 columns, 395 and 387 passed) and stale here by construction; deliberately not edited, and named so no reader takes them for this tree. (d) The three `/tmp` scripts that produced this evidence are not repository artifacts and die with the session -- the seventh collision re-derives them unless someone lands them, which is the residue `H-0101` disclosed and this entry repeats. (e) The zero-anchor `#1048` finding is a property of THIS file set; a merge that touches a `.go` file gets no comfort from it.
+
+## H-0113 · The halted pass reprints the stored sentence as news: the journal's `HALTED` line now names its own age, from one composer three readers share
+
+- Id: this opened as `H-0054` on this branch -- `90c537b` is a checkpoint that names it -- taken
+  before `#248` and `#228` had reached this checkout. `H-0054` is published on `main` as *Forty-five
+  legs exec'd the shipped classifier through a preflight check for a binary the gate does not
+  install*, and a merged entry's id never moves, so the number yielded: the allocator, re-run after
+  the merge of `origin/main` (`d735667`, 175 commits ahead of this branch's base) and again before
+  this commit, answers `H-0113`. The half the earlier tick wrote is inside this decision, not in an
+  entry of its own -- it died with none -- and its helper is retired below rather than shipped.
+- Question: #237 filed two defects. Its item 1 -- the conflict-path halt `:339` names its tree but
+  not its resume step, while the tick halt `:490` carries one -- was answered on `main` by a change
+  that postdates the ticket: H-0044 unified both writers into `factory_tree_halt`, whose sentence now
+  ends ``then `rm $FACTORY_HALT` to resume`` for BOTH verbs (measured on this branch: driving each
+  verb writes the same marker, and both marker texts contain the resume clause). Its item 2 landed
+  half: #248 added `factory_file_age`, `factory_age_human` and `factory_verdict`, so `--status` can be
+  asked how long the queue has been stopped -- but the line the outage was actually read from,
+  `log_event "HALTED $(factory_halt_reason)"` at `factory/factory.sh:177`, still prints the stored
+  sentence with no age. Measured here before touching anything: one marker with an 8-hour-old mtime,
+  three shipped passes at 03:37:54Z, 03:37:57Z and 03:37:59Z, three `HALTED` lines byte-identical once
+  their own stamps are stripped, and `--status` answering `HALTED 8h00m --` on one line against
+  `marker written 2026-11-10T19:37:54Z, 28807s ago` on the next -- two formats for one fact, and the
+  journal with neither. So: does the halted pass date its own cause, and where does the age come from
+  -- a new helper, or the ones #248 left behind?
+- Options: the journal line prints the marker's age through one composer all three readers share,
+  speaking it in `factory_age_human`'s unit with the marker staying sticky | the halted path re-probes
+  the named tree and self-clears the marker when it reads clean | ship the draft's own
+  `factory_halt_age`, its own `stat`/`date` pair and its absolute-UTC format and all | leave the
+  journal alone, because #248's verdict now answers the age
+- Chose: the journal line prints the marker's age through one composer all three readers share,
+  speaking it in `factory_age_human`'s unit with the marker staying sticky
+- Why: the ticket itself called the re-probe worth deciding, and the measurement decides it against.
+  Asking the tree again starts with `git update-index --refresh`, which is measured (the comment above
+  `factory_tree_dirt`) to rewrite `.git/index`'s stat entries -- so a pass that refuses to touch a
+  tree it does not own would write into it on the way out. The four reads that do not write are no
+  better: their false-clean direction is what the `naive:` column in `factory/selftest.sh` exists to
+  record, and a report-only verdict assembled from them would tell a person to `rm factory/HALT` over
+  work it cannot see. A verdict that also self-cleared would resume the queue, unattended, over a
+  state the supervisor had just declared somebody else's -- tie-break 3, refuse rather than proceed,
+  and the reason the marker stays sticky while the line stops pretending to be new. The draft versus
+  main's helpers is tie-break 6 settled by the merged tree itself, with one correction the first
+  version of this commit got wrong and a probe caught: what had to be shared with #248 is the SPOKEN
+  unit, `factory_age_human`, and shipping the draft alongside would have printed `written
+  2026-11-10T19:37:54Z, 28807s ago` beside `HALTED 8h00m` in one `--status` output -- the drift H-0044
+  gives the halt one writer to prevent. Reusing `factory_file_age` for the arithmetic, though, is
+  wrong twice over and measured so. It clamps: its answer is `$((now > m ? now - m : 0))`, so a marker
+  whose time is ahead of this clock -- an NTP correction after a suspend, a VM restored to a snapshot,
+  a marker copied back with a future stamp -- comes back `0`, and the line says `cause recorded 0s
+  ago`, which is exactly what a detection three seconds old says; measured on this branch with a
+  marker planted 7200s ahead, printing the same sentence as the fresh one. And when `stat` fails it
+  answers 999999999, which `factory_age_human` spells `never`, dating the cause before the machine.
+  Both are the wrong-as-its-own-opposite class #237 is filed against, so the composer holds one `stat`
+  and one `date`, refuses both readings in words, and still says the age in `factory_age_human`'s
+  unit. Leaving the journal alone loses on where a stall is actually read from: `factory_verdict` is a
+  command a person has to think to type, and #248 exists precisely because nobody typed it while 115
+  `HALTED` lines went by -- the journal is the artifact the outage was diagnosed from and the only one
+  that keeps being written. Tie-break 4 kept it to three files; tie-break 5 kept it reversible as one
+  commit.
+- What this costs, stated rather than glossed. (1) The draft's absolute instant is gone: the line says
+  `cause recorded 8h00m ago`, not `written 2026-11-10T19:37:54Z`, and `stat -c %Y factory/HALT` is
+  where the instant still lives. (2) `factory_age_human` truncates to the minute above an hour, so two
+  activations inside the same minute print the same age for an hours-old cause -- measured here with
+  activations 3 seconds apart on an 8-hour marker, all three reading `8h00m`. The journal's own stamp
+  separates those lines, the shipped cadence between activations is minutes, and what #237 asked for
+  was never a clock reading to the second. (3) The composer carries its own `stat`/`date` pair, which
+  is the thing reusing #248's primitive was meant to avoid; what it does not duplicate is the
+  formatting, which is the drift that mattered. (4) The guard allows `factory_notice_halt` to hold the
+  bare sentence, because the notice is written once at the moment of detection into the unit's issue
+  and an age there would always read `0s`; if a later change re-sends a notice on a fresh activation,
+  that allowance is the hole, and the reason is in the scan's comment as well as here. (5) The scan
+  skips `factory/selftest.sh`, because the probe carries the shape it refuses in its own planted
+  controls -- so a regression written inside the probe is not flagged, which is why every control is
+  planted outside the root it scans. (6) Item 1 is delivered by someone else's change and measured
+  only as a property of the shipped writer, not by a new test: `factory/selftest.sh` already asserts
+  both verbs write the marker (`the journal line is not the tick's`, `the conflict pass journaled the
+  tick's verb`), and nothing here pins the words `to resume` inside the marker text.
+- Checkpoint: fffdf8bcd224bdaff5f96d961d5ea3d0acc9b847
+- Effect: `factory/common.sh` (`factory_halt_report` is the composer, one `stat` and one
+  `factory_age_human`; `factory_verdict`'s HALTED arm calls it; the draft's `factory_halt_age` and its
+  absolute-UTC format are retired), `factory/factory.sh` (the top-of-pass `HALTED` line),
+  `factory/selftest.sh` (the age, the not-re-probed clause, the quoted sentence, the unreadable-time
+  arm and the ahead-of-the-clock arm with their controls, the one-line-three-readers equality leg,
+  `ageless_halt_prints` with its three controls, and an assertion in `proc_halt_freezes` that the
+  second activation's line dates a marker that leg aged by hand), `factory/DECISIONS.md`

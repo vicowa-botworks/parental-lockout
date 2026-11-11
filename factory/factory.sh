@@ -174,7 +174,11 @@ fi
 factory_preflight
 
 if factory_halted; then
-	log_event "HALTED $(factory_halt_reason)"
+	# The marker's age, from the one composer (#237): this line is printed on EVERY activation for
+	# one cause, so without the age a halt that has stood for nine hours and one that is three
+	# seconds old are the same sentence. Measured on this branch: three passes over one
+	# eight-hour-old marker wrote three byte-identical `HALTED` lines.
+	log_event "HALTED $(factory_halt_report)"
 	# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
 	# something that broke. See H-0036 for why the difference is not cosmetic.
 	exit "$FACTORY_EXIT_HALT"
