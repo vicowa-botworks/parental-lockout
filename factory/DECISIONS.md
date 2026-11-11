@@ -5302,3 +5302,131 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   deleted, no merge, and no write to any pull request. What it leaves for a person, stated in
   `docs/factory.md` and on #291: whether #241 should now be closed, whether #285 and #233 should be
   deleted, and whether #222 still owes anything.
+
+## H-0134 · The allocator answered #303 correctly twice, 2260s apart, and was silent about the refs it could not see
+
+- Question: `next-decision-id.sh` reads a union -- the working log, `HEAD`, `refs/heads`,
+  `refs/remotes` -- and deliberately never fetches, because a blocking network read ahead of a pass
+  budget is priced at 5min2s by `H-0013` and refused inside a verdict outright by `H-0056`. So the answer
+  is only as wide as the last fetch, and the command has always said nothing about that. #303 is what the
+  silence costs: `D-0058` went to two units. Three timestamps, all re-measured off the live objects:
+  `06b7c29` (issue-296) committed its entry at 11:32:24-0500; issue-297's own `pre-D-0058` checkpoint
+  `4537b9d` is dated 12:10:04-0500, 2260s later, and that is when its allocator ran, because the skill
+  takes the id immediately before the checkpoint; its entry `1d3470b` followed at 12:14:46-0500, 2542s
+  after the first. #303 pairs 12:10:04 with `1d3470b`, so the "38 minutes" the incident is cited by and
+  the 42min22s between the two entries are both true, of different pairs -- and the second allocator was
+  right about every ref it could reach. What does a read that cannot see the sibling owe the caller -- a
+  number, a refusal, or a number plus the provenance of the read that produced it? And who decides
+  "blind", on what evidence, when the whole point is that the command stays offline?
+- Options: answer in stderr, refuse nothing, and make the unit's re-read conditional on the marker |
+  refuse the id until the read is proven current, and let the session fetch and ask again | keep the
+  silence and have the supervisor refuse to dispatch a unit whose tree cannot see `origin/<its branch>` |
+  bind each id to a per-unit identity registered on origin, consumable once, expiring | print the
+  provenance and change no procedure | exit 7 with no id and let the caller retry
+- Chose: answer in stderr, refuse nothing, and make the unit's re-read conditional on the marker
+- Why: the answer is a *read*, so the tie-break is what a caller does differently once it knows -- and
+  that was measured on live state before the arm was chosen, in both directions. The healthy direction,
+  in this tree, the day this was written: the working log stops at `H-0132`, `refs/remotes` carries
+  `refs/remotes/origin/issue-249` at `H-0133`, and the allocator answers `H-0134`. That is the union
+  working, and it is precisely the read #303's second unit did not have -- a sibling landed on `origin`
+  and nothing in that clone moved. The blind direction then has to be *named*, because a correct-looking
+  number is what makes the collision invisible until the two logs meet in one merge.
+
+  Refusing (the ticket's option 2, and `exit 7` is the same arm with a code on it) was rejected on this
+  script's own recorded history, not on taste. Its header carries #253's finding: a caller reduced to
+  "the allocator is broken" goes back to numbering by eye, which is the defect the command exists to end
+  -- so a refusal in front of a session holding a half-written entry does not prevent a duplicate, it
+  picks the number by hand. Measured, the refusal is also always true rather than sometimes true: the
+  ticket's literal test, no `refs/remotes/origin/<the branch you are on>`, answers `0` here while
+  `git worktree list` names `issue-303`, because dispatch pushes no unit branch -- the branch exists only
+  after the tick pushes it. A guard that fires on every allocation is read as noise and re-run until it
+  goes away, which is the same reason `docs/factory.md` forbids `check-decisions.py` from ever
+  enumerating refs: a verdict that changes with what a tree last fetched disagrees with itself, and a
+  gate that disagrees with itself gets re-run until it agrees.
+
+  The supervisor variant loses on the same measurement with a worse verb. Refusing to *dispatch* a unit
+  whose tree cannot see `origin/<its branch>` denies the work instead of correcting the read, on a
+  trigger that is true before every dispatch; and #256 already carries the ref-policy argument (one
+  bounded activation fetch, which `H-0075` built) separately from this command's verdict.
+
+  The registered identity (the ticket's option 3) is a lease wearing another name, and "Why there is no
+  reservation" above already priced it: a claim that outlives the session that made it needs an owner and
+  an expiry, or a killed tick reserves a number forever and nothing here reaps it; the claim ref is a
+  state-changing write in front of the tick budget where `H-0013` priced a blocking *read*; and it does
+  not close the window it is for, because two allocations in the same second still register two
+  identities only if the registration itself is atomic on a server both sides can reach -- which is a
+  fourth ref, new shared state with no reaper, and a dependency on infrastructure this harness does not
+  have. Adding it is a third-party-dependency-class call, not a tick's.
+
+  "Print it and change no procedure" is the marker without the point: a fact nobody is told to act on is
+  a log line, and the activation has been journaling `REFRESH-BLIND` since `H-0071` while the command
+  answering inside the unit said nothing at all. So the procedure travels with the marker, in both
+  documents, and `alloc_docs_reference` now refuses a copy of the skill or the guide that keeps the
+  marker and drops the sentence telling a session to act on it.
+
+  The bound is what the two arms disagree about, so it is pinned from both sides. `REFRESH-BLIND` comes
+  from one of two offline verdicts: *coverage* (can `refs/remotes` here learn a sibling exists at all --
+  no origin, a refspec naming one branch, no remote refs), and *clock* (when did this repository last
+  hear from origin). The clock is the newest of three sources because none of the three is always there:
+  measured in this tree, own `FETCH_HEAD` 145s, common dir's 202s, newest `refs/remotes` reflog 1724s --
+  and `max` is what stops the arm crying wolf about a refresh the activation did in the primary and this
+  worktree never saw, since a `git clone` writes no `FETCH_HEAD` at all and `git worktree add` writes none
+  in the new tree (both on git 2.53.0) and a fetch that moves nothing reflogs nothing. The default is
+  300s rather than 900s on the tie-break that takes the option which refuses rather than proceeding,
+  once a later tie is left: the residual is identical at both bounds -- a push inside the read's age is
+  invisible either way -- so the smaller bound is strictly less silence, and its cost is one `git fetch`
+  per entry commit, measured at 0.679s against this origin in the no-op case and re-measured at
+  0.53-0.60s over three runs the same day, against
+  `FACTORY_FETCH_TIMEOUT`'s 120s ceiling. What a sibling needs to write an entry and push it is minutes,
+  which is where 300 came from and why it is not 5s.
+
+  What this does not buy is written down because it is the rule's cost, and the suite pins it as an ok
+  rather than leaving it to prose: #303's own shape -- a clone seconds old whose sibling has already
+  pushed `D-0007` -- reads CLEAN and answers `D-0002`, and no offline read can do otherwise, because
+  between the last contact and this read anything could have arrived. `alloc_boundary` measures that same
+  tree after a fetch, `D-0002` before and `D-0008` after, which is what the marker points a tick at. The
+  merge stays the arbiter and the yield rule still decides who renumbers; closing the last window means
+  fetching inside the allocator, which is the one thing `H-0013` and `H-0056` settle, and `H-0061` is
+  what an unbounded network read in a verdict costs when it is added anyway.
+- Checkpoint: fb5e61cb9221cde61c666ce66fe10f8e96a0f2f8
+- Effect: `factory/next-decision-id.sh` (the `REFRESH`/`REFRESH-BLIND` verdict on stderr beside an
+  unchanged stdout: `blind_coverage` and `blind_clock`, read in a `for arm in coverage clock` loop that
+  two controls each delete one arm from, the three-clock `max` with the negative-age arm, and
+  `FACTORY_ID_MAX_AGE` refused unless it is a whole number so a typo cannot silently disable the bound),
+  `factory/selftest.sh` (five counted legs and four control rows -- a clone-plus-worktree fixture whose
+  sibling pushes `D-0007` from a second clone, the clean read pinned *without* a marker on the duplicate
+  it cannot see, one plant per arm, the bound pinned by widening it on the same aged tree, and the
+  `alloc_docs_reference` clause `means fetch and re-read` with a second plant that keeps the marker and
+  deletes the procedure), `.opencode/skills/factory/SKILL.md` (Step 3 reads the stderr line beside the id,
+  and the marker's one sentence), `docs/factory.md` (the allocator section's verdict, the three-clock
+  measurement, why the ticket's literal test was measured and not used, and the `FACTORY_ID_MAX_AGE` row
+  in Configuration). In all four documents the incident carries the re-measured timestamps instead of the
+  ticket's pairing -- `06b7c29` 11:32:24-0500, issue-297's `pre-D-0058` checkpoint `4537b9d`
+  12:10:04-0500, its entry `1d3470b` 12:14:46-0500 -- because #303's table dates `1d3470b` at 12:10:04,
+  which is `4537b9d`'s date on the live object, and the two intervals it is quoted by are true of
+  different pairs (2260s entry to the second allocator's checkpoint, 2542s entry to entry); the guide now
+  says which is which rather than picking one and calling the other a mistake. Measured, in the order measured: `factory/selftest.sh` **521 passed, 0 failed**,
+  nine of those rows new (five counted legs; four controls, which print their discrimination and do not
+  enter the tally) -- the arm controls because deleting either arm makes the same fixture read clear, the
+  clean-read control because making the verdict unconditional makes it call a seconds-old tree blind.
+  Live against GitHub in this tree: `git fetch --prune origin` and the call answers `REFRESH … 0s old
+  (bound 300s)` with the id on stdout alone, and `FACTORY_ID_MAX_AGE=1` on that same 0s-old read answers
+  `REFRESH` too -- the bound compares the read's age, it is not a "did you fetch" flag. The blind arm was
+  measured on the same tree before the fetch, at `REFRESH-BLIND … last refreshed 265s ago, past the 1s
+  bound` with the exact `git -C … fetch --prune origin` to run, still exit 0 and still the id on stdout,
+  and it is pinned at 7200s against the 300s default by the aged fixture. Two more live facts came out of
+  writing the entry: the same call, made after `## H-0134` existed in the working file, answers `H-0135`
+  -- the working log counts in the union, which is what makes the re-read before the entry commit the arm
+  that sees a sibling -- and the clock ages on its own, so a session that sits on an answer for five
+  minutes gets `REFRESH-BLIND` from the default bound without being asked. `make verify` OK.
+  Not one of the four classes a tick must escalate: no dependency added (the fix is four `git` reads that
+  were already the shape of the code, and `go.mod` is untouched), nothing published, nothing deleted, no
+  merge, no write to any pull request, and no change to what a `deny` refuses. What it leaves for a
+  person, in `docs/factory.md`: whether the 300s bound is the number the queue wants now that the marker
+  exists to make a refresh cheap. Nothing here re-opens `D-0058` itself: measured on `origin/main` today
+  the log holds one `## D-0058` heading -- #297's -- because the merge that joined the two already
+  renumbered #296's entry to `D-0060` and recorded the alias, quoting the gate's own line (`id D-0058 is
+  already used at …:2975; 'revert to before D-0058' would name two commits`). That is the yield rule
+  having run, not a defect left standing: the merge saw both entries, so it could arbitrate. What it could
+  not do is tell the second unit, at the moment it asked, that the read behind its number was blind. This
+  entry is that.

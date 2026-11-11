@@ -180,6 +180,18 @@ When you reach a decision point, do this instead, in this order:
    a sibling pushed. When the journal holds `REFRESH-TIMEOUT` or `REFRESH-BLIND` for your tree, that
    activation dispatched on refs it could not check, and the re-read immediately before the entry
    commit is the only thing left between you and a duplicate id.
+   Read the stderr line the allocator prints beside the id, not only the id. It says `REFRESH` with the
+   age of the union behind the answer, or `REFRESH-BLIND` with the reason a sibling cut from another
+   clone is not in that union at all -- a refspec that fetches one branch, or refs older than
+   `FACTORY_ID_MAX_AGE` (300s). `REFRESH-BLIND` means fetch and re-read before you write the entry: run
+   the `git fetch --prune origin` the line names, then take the number that comes back. That is the
+   window #303 measured: two units were handed `D-0058` 2260s apart -- `06b7c29` wrote its entry at
+   11:32:24-0500 and the second unit took its `pre-D-0058` checkpoint `4537b9d` at 12:10:04-0500, the
+   moment its allocator ran -- because that allocator had a true answer about refs it could not see and
+   said nothing about them. The marker
+   never changes the id you were handed; it changes whether you may trust it. A clean read is not a
+   promise either -- a sibling that pushed since the last refresh is invisible to any offline read -- so
+   the merge stays the arbiter and the yield rule in `docs/factory.md` still applies.
 2. **Checkpoint next**, always before the decision, never after:
    `git commit --allow-empty -m "chore(checkpoint): pre-D-<NNNN> <why>"`. That commit is the
    rollback target, and it is worthless if it is taken after the change.

@@ -9258,9 +9258,17 @@ alloc_docs_reference() { # [root] -> 0 when both documents name the allocator an
 	# The refresh is part of what gets pinned, not a garnish beside it. An allocator that stays offline
 	# is safe only while the one thing that closes the other window is written down where a session
 	# reads it, and H-0071 is the correction for a sentence that claimed the window was already closed.
+	#
+	# And so is the verdict's procedure (#303). A marker nobody is told to act on is a log line: the
+	# allocator can say REFRESH-BLIND in perfect accuracy and the tick writes the entry anyway, which is
+	# why the sentence a session has to obey -- `REFRESH-BLIND` means fetch and re-read -- is pinned in
+	# both documents rather than left in the script's own help text.
 	grep -q 'factory/next-decision-id\.sh' "$skill" &&
 		grep -q 'factory/next-decision-id\.sh' "$guide" &&
-		grep -q 'git fetch' "$skill" && grep -q 'git fetch' "$guide"
+		grep -q 'git fetch' "$skill" && grep -q 'git fetch' "$guide" &&
+		grep -qF 'REFRESH-BLIND' "$skill" && grep -qF 'REFRESH-BLIND' "$guide" &&
+		grep -qF 'means fetch and re-read' "$skill" &&
+		grep -qF 'means fetch and re-read' "$guide"
 }
 
 # The control for the leg above, planted outside the repository: the same two documents with every
@@ -9296,9 +9304,50 @@ alloc_docs_control() {
 		printf '          so the ok above pins a mention and not the boundary.\n'
 		return 0
 	fi
+	# The second plant, aimed at the half the leg above gained in #303: the same two documents with the
+	# verdict's procedure deleted and the marker left in place. A copy that still passes would mean the
+	# leg is satisfied by the word REFRESH-BLIND appearing somewhere, which is what the activation's own
+	# journal line already was -- a fact nobody was told to do anything with.
+	local ctrl2=$alloc_work/docs-no-verdict-procedure
+	if ! mkdir -p -- "$ctrl2/.opencode/skills/factory" "$ctrl2/docs" ||
+		! grep -vF 'means fetch and re-read' "$HERE/../.opencode/skills/factory/SKILL.md" \
+			>"$ctrl2/.opencode/skills/factory/SKILL.md" ||
+		! grep -vF 'means fetch and re-read' "$HERE/../docs/factory.md" \
+			>"$ctrl2/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the second control copies could not be\n' \
+			'control: the procedure, not just the marker'
+		printf '          written.\n'
+		return 0
+	fi
+	if grep -qF 'means fetch and re-read' "$ctrl2/.opencode/skills/factory/SKILL.md" \
+		"$ctrl2/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the procedure in place, so the\n' \
+			'control: the procedure, not just the marker'
+		printf '          leg above was never aimed at the sentence it names.\n'
+		return 0
+	fi
+	if ! grep -qF 'REFRESH-BLIND' "$ctrl2/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant deleted the marker as well as the\n' \
+			'control: the procedure, not just the marker'
+		printf '          procedure, so a refusal here proves nothing about either one.\n'
+		return 0
+	fi
+	if alloc_docs_reference "$ctrl2"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted documents that name the marker and\n' \
+			'control: the procedure, not just the marker'
+		printf '          tell nobody to act on it, so the ok above pins a word and not a rule.\n'
+		return 0
+	fi
 	printf '  ok    %-40s it refuses documents with the refresh deleted, so\n' \
 		'control: the refresh, not just the path'
 	printf '          the ok above pins the boundary, not just the path.\n'
+	printf '  ok    %-40s it refuses documents that keep the marker and drop\n' \
+		'control: the procedure, not just the marker'
+	printf '          the sentence telling a session to act on it.\n'
 	return 0
 }
 
@@ -9468,6 +9517,178 @@ alloc_boundary() { # <label> <repo> <log path> <prefix> <stale id> <fresh id> <w
 	fi
 	pass=$((pass + 1))
 	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# ------------------------------------------------------------------ what the read says about itself
+#
+# Everything above asks the allocator for a number, and every one of those legs passes today on the
+# version that handed `D-0058` to two units 2260s apart (#303: `06b7c29` at 11:32:24-0500, the second
+# unit's `pre-D-0058` checkpoint `4537b9d` at 12:10:04-0500). That is not a hole in those legs:
+# both units were handed the *right* number for the refs they could see. What was missing is the
+# command saying that its union was not the world, so the legs below read stderr as well as stdout.
+#
+#   the marker  REFRESH-BLIND on stderr, naming the reason, and the id still on stdout at exit 0. A
+#               refusal is the wrong arm for a blind read, and `selftest.sh` already pins why: a
+#               session handed an allocator that will not answer goes back to numbering by eye (#253),
+#               which is the defect this script exists to end.
+#   the arms    coverage (can `refs/remotes` here learn a sibling at all?) and clock (when did this
+#               repository last hear from origin?). One control per arm deletes that arm from the arm
+#               list and the leg that pins it has to go silent -- which is also the proof that the
+#               other arm is not quietly carrying the leg.
+#   the limit   #303's own shape, 0 seconds after a clone: the sibling pushed after the last contact,
+#               so no offline read can see it and the marker is correctly ABSENT. Pinned as an ok with
+#               the id still a duplicate (`alloc_boundary` measures the same tree after a fetch:
+#               D-0002 before, D-0008 after) because a guard whose boundary is not pinned gets read as
+#               a guarantee by whoever finds it next.
+#   the bound   the aged fixture again, quiet under a generous FACTORY_ID_MAX_AGE -- the knob pinned by
+#               a difference in verdict rather than by a grep for its name.
+
+# shellcheck disable=SC2317  # reached through the command substitutions in the legs below
+alloc_run_one() { # <script> <repo> <path> <prefix> <max-age|-> -> the id; stderr in $alloc_err
+	local script=$1 repo=$2 path=$3 prefix=$4 maxage=$5
+	if [ "$maxage" = '-' ]; then
+		if [ -n "$prefix" ]; then
+			bash "$script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err"
+		else
+			bash "$script" --repo "$repo" "$path" 2>"$alloc_err"
+		fi
+	else
+		if [ -n "$prefix" ]; then
+			env FACTORY_ID_MAX_AGE="$maxage" \
+				bash "$script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err"
+		else
+			env FACTORY_ID_MAX_AGE="$maxage" \
+				bash "$script" --repo "$repo" "$path" 2>"$alloc_err"
+		fi
+	fi
+}
+
+# One blind shape. The marker has to be there, name the reason this leg is about, and not name the other
+# arm's reason -- a leg that fires for either reason pins neither.
+# shellcheck disable=SC2317  # reached from the legs below
+alloc_blind_leg() { # <label> <repo> <path> <prefix> <id> <says> <not-says> <max-age|-> <fact>
+	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 says=$6 nosay=$7 maxage=$8 fact=$9
+	local got='' rc=0
+	if ! got=$(alloc_run_one "$alloc_script" "$repo" "$path" "$prefix" "$maxage"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the verdict moved the id: got %s, expected %s.\n' "$label" "$got" "$want"
+		printf '          A blind read still owes the caller the best number it has, and stdout is the\n'
+		printf '          only stream a caller captures. %s\n' "$fact"
+		return 0
+	fi
+	if ! grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it answered %s and said nothing about the read:\n' "$label" "$got"
+		sed 's/^/          /' "$alloc_err"
+		printf '          That is #303 exactly: the number went out as though the union were the world.\n'
+		return 0
+	fi
+	if ! grep -qF -- "$says" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it went blind without naming "%s":\n' "$label" "$says"
+		sed 's/^/          /' "$alloc_err"
+		printf '          A marker with no reason in it is a shrug, and a tick cannot fetch its way out\n'
+		printf '          of a shrug.\n'
+		return 0
+	fi
+	if [ -n "$nosay" ] && grep -qF -- "$nosay" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the other arm is doing this leg'"'"'s work:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		printf '          %s must not be in the verdict this leg is about.\n' "$nosay"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# The clean shape: the id, no marker, and the provenance line that says how old the read was.
+# shellcheck disable=SC2317  # reached from the legs below
+alloc_clear_leg() { # <label> <repo> <path> <prefix> <id> <max-age|-> <fact>
+	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 maxage=$6 fact=$7
+	local got='' rc=0
+	if ! got=$(alloc_run_one "$alloc_script" "$repo" "$path" "$prefix" "$maxage"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s got %s, expected %s.\n' "$label" "$got" "$want"
+		return 0
+	fi
+	if grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it called a %s a blind read:\n' "$label" "$repo"
+		sed 's/^/          /' "$alloc_err"
+		printf '          A verdict that fires on a provably current tree is noise, and noise gets\n'
+		printf '          ignored -- which is why the ticket'"'"'s literal test (no\n'
+		printf '          refs/remotes/origin/<my branch>) was measured and not used: dispatch pushes no\n'
+		printf '          unit branch, so that arm is true of every allocation this harness has made.\n'
+		return 0
+	fi
+	if ! grep -q 'REFRESH' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it printed no provenance line at all:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		printf '          Silence is what the read said when it was blind, so silence here cannot mean\n'
+		printf '          it was clear.\n'
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# A control for the two helpers above: the shipped script with one arm deleted from the arm list (or
+# with the verdict made unconditional), run against the SAME fixture. Either way the id must not move --
+# the plant narrows the verdict, not the arithmetic.
+# shellcheck disable=SC2317  # reached from the controls below
+alloc_verdict_control() { # <label> <dir> <sed> <repo> <path> <prefix> <id> <silent|loud> <fact>
+	local label=$1 dir=$2 expr=$3 repo=$4 path=$5 prefix=$6 want=$7 expect=$8 fact=$9
+	local bad got='' rc=0
+	bad=$(alloc_plant "$dir" "$expr" || true)
+	if [ -z "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the check has stopped pinning the read it names.\n'
+		return 0
+	fi
+	if [ -n "$prefix" ]; then
+		got=$(bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$bad" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if [ "$rc" != 0 ] || [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator stopped answering\n' "control: $label"
+		printf '          %s: got %s at status %s, so there is nothing to compare the\n' \
+			"$want" "${got:-<nothing>}" "$rc"
+		printf '          leg above against.\n'
+		return 0
+	fi
+	if [ "$expect" = silent ] && grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator still called it blind, so the\n' "control: $label"
+		printf '          leg above was never decided by the arm this plant removes.\n'
+		return 0
+	fi
+	if [ "$expect" = loud ] && ! grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s an unconditional verdict still left the clean tree\n' "control: $label"
+		printf '          quiet, so the ok above pins a fixture, not a reading.\n'
+		return 0
+	fi
+	printf '  ok    %-40s %s\n' "control: $label" "$fact"
 	return 0
 }
 
@@ -9808,6 +10029,108 @@ decision_ids() {
 		's|factory/DECISIONS.md) prefix=H|factory/DECISIONS.md) :|' \
 		"$alloc_nopfx" factory/DECISIONS.md '' D-0001 \
 		'without the path rule it answers in D, the wrong log, for the file it is standing in'
+
+	# ------------------------------------- what the command says when its union is blind (#303)
+	#
+	# Every leg above asks for a number, and every one of them passed on the version that handed
+	# `D-0058` to two units 2260s apart on 11 Nov -- `06b7c29` (issue-296) wrote its entry at
+	# 11:32:24-0500; the second unit's `pre-D-0058` checkpoint `4537b9d` (issue-297, PR #300) is dated
+	# 12:10:04-0500, and its entry `1d3470b` followed at 12:14:46-0500, in a tree where
+	# `git show-ref | grep 297` answers nothing. Those legs are not wrong; both units were handed the
+	# right number for the refs they could see. What was missing was the command saying that its union
+	# was not the world. So these legs read
+	# stderr as well as stdout, one per arm, each on a fixture built to trip that arm alone, and each
+	# with a control that deletes the arm from the arm list to show the leg goes silent without it.
+	#
+	# The fixture is the incident rather than a caricature of it: a bare origin, a clone with a unit
+	# worktree (the shape `common.sh` cuts), and a second clone that writes `D-0007` and pushes it while
+	# the first is asleep. `git clone` is the detail that makes it #303 and not a general ref test: a
+	# clone writes no FETCH_HEAD at all (measured on git 2.53.0), and neither does `git worktree add`, so the
+	# clock that keeps a fresh unit tree quiet is the shared remote reflog -- the source that a clock
+	# built on FETCH_HEAD alone would have missed, calling every clean tree blind.
+	blind_root=$alloc_work/blind-read
+	blind_origin=$blind_root/origin.git
+	if ! mkdir -p -- "$blind_root"; then
+		printf '  SKIP  %-40s the blind-read fixture could not be\n' 'the blind-read legs'
+		printf '          written; every leg below is about a tree that does not exist.\n'
+		return 0
+	fi
+	git init -q --bare "$blind_origin" || return 0
+	git --git-dir="$blind_origin" config user.email fixture@invalid || return 0
+	git --git-dir="$blind_origin" config user.name fixture || return 0
+	git clone -q "$blind_origin" "$blind_root/main" >/dev/null 2>&1 || return 0
+	git -C "$blind_root/main" config user.email fixture@invalid || return 0
+	git -C "$blind_root/main" config user.name fixture || return 0
+	git -C "$blind_root/main" checkout -qb trunk || return 0
+	printf '## D-0001 · fixture trunk\n' >"$blind_root/main/DECISIONS.md" || return 0
+	git -C "$blind_root/main" add -A >/dev/null || return 0
+	git -C "$blind_root/main" commit -qm 'fixture: the trunk a queue runs from' || return 0
+	git -C "$blind_root/main" push -q -u origin trunk || return 0
+	# The tree a tick is actually started in, so the legs run where a tick runs and not where the clone
+	# was made.
+	git -C "$blind_root/main" worktree add -qb unit "$blind_root/unit" trunk >/dev/null 2>&1 || return 0
+	# The sibling: its own clone, an entry far above the trunk, delivered while nobody is looking.
+	git clone -q "$blind_origin" "$blind_root/other" >/dev/null 2>&1 || return 0
+	git -C "$blind_root/other" config user.email fixture@invalid || return 0
+	git -C "$blind_root/other" config user.name fixture || return 0
+	git -C "$blind_root/other" checkout -qb issue-z origin/trunk || return 0
+	printf '\n## D-0007 · an entry pushed from a second clone\n' >>"$blind_root/other/DECISIONS.md" ||
+		return 0
+	git -C "$blind_root/other" add -A >/dev/null || return 0
+	git -C "$blind_root/other" commit -qm 'fixture: a sibling pushed while the first machine slept' ||
+		return 0
+	git -C "$blind_root/other" push -q origin issue-z || return 0
+
+	# The residual, pinned on the shape that produces it rather than argued in prose. This clone is
+	# seconds old and origin already holds `D-0007`: the number is a duplicate and the marker is
+	# correctly absent, because between the last contact and this read anything could have been pushed
+	# and no offline read can tell that from "nothing new anywhere". `alloc_boundary` above measures the
+	# same tree after a fetch -- `D-0002` before, `D-0008` after -- which is what the marker points a
+	# tick at, and `FACTORY_ID_MAX_AGE` is how wide a window the command refuses to be silent about.
+	alloc_clear_leg 'a current read says so, quietly' "$blind_root/unit" DECISIONS.md D D-0002 - \
+		'no marker on a 0s read and D-0002 while origin holds D-0007: the bound is a risk window, not a promise'
+	# The control for the leg above, planted the other way round: a verdict made unconditional has to
+	# call this same clean tree blind. If it does not, the ok above is a fixture agreeing and not a
+	# reading -- the shape H-0069 counts quiet SKIPs for.
+	alloc_verdict_control 'the clean read is a reading, not silence' "$alloc_work/ctrl-blind-always" \
+		's|if \[ -n "\$blind_why" \]; then|if [ -n planted ]; then|' \
+		"$blind_root/unit" DECISIONS.md D D-0002 loud \
+		'make the verdict unconditional and the clean tree is called blind too'
+
+	# Coverage: the shape `factory/factory.sh` journals once per activation as REFRESH-BLIND (H-0071)
+	# while the command answering inside the unit said nothing at all.
+	git -C "$blind_root/main" config remote.origin.fetch \
+		'+refs/heads/trunk:refs/remotes/origin/trunk' || return 0
+	alloc_blind_leg 'a narrow refspec is refused as blind' "$blind_root/unit" DECISIONS.md D D-0002 \
+		'fetches only' 'last refreshed' - \
+		'the refspec is named and the widen command printed, and the id is still D-0002'
+	alloc_verdict_control 'a narrow refspec is refused as blind' "$alloc_work/ctrl-no-coverage-arm" \
+		's|for arm in coverage clock|for arm in clock|' \
+		"$blind_root/unit" DECISIONS.md D D-0002 silent \
+		'drop the coverage arm and the same tree reads clear, so the leg above is the arm'
+	git -C "$blind_root/main" config remote.origin.fetch \
+		'+refs/heads/*:refs/remotes/origin/*' || return 0
+
+	# The clock: nothing wrong with the clone, the refs are just old. This is the shape #303 was -- a
+	# sibling wrote and pushed an entry in a window nobody in this tree had looked at since.
+	find "$blind_root/main/.git/logs/refs/remotes" -type f -exec touch -d '2 hours ago' {} + || return 0
+	alloc_blind_leg 'a stale union is refused as blind' "$blind_root/unit" DECISIONS.md D D-0002 \
+		'last refreshed' 'fetches only' - \
+		'2h past the 300s bound, with the age and the exact fetch to run in the sentence'
+	alloc_verdict_control 'a stale union is refused as blind' "$alloc_work/ctrl-no-clock-arm" \
+		's|for arm in coverage clock|for arm in coverage|' \
+		"$blind_root/unit" DECISIONS.md D D-0002 silent \
+		'drop the clock arm and the same aged tree reads clear, so the leg above is the arm'
+	# The bound is a knob, pinned on the fixture from the two legs above with nothing about the tree
+	# changed -- a widening of the bound, and the verdict is what moves.
+	alloc_clear_leg 'the bound is the knob, not the fixture' "$blind_root/unit" DECISIONS.md D D-0002 \
+		86400 'the aged tree reads clear at FACTORY_ID_MAX_AGE=86400, so the bound is what fired'
+	# The third coverage shape, on a checkout with no remote at all: both arms agree here (there is no
+	# origin and no record of ever contacting one), so the leg asks only for the reason a person can act
+	# on first. `$alloc_bleed` is the fixture the cross-repo leg above already answers at D-0004.
+	alloc_blind_leg 'a clone with no origin is refused as blind' "$alloc_bleed" DECISIONS.md D D-0004 \
+		'no origin remote' '' - \
+		'a checkout that has never had a sibling to learn from says so instead of answering quietly'
 
 	return 0
 }
