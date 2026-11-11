@@ -3414,7 +3414,6 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   evidence that nothing stopped running: every line either side added is present in the merged tree.
 - Checkpoint: 3e135a78e80039c95041dca376073fb48f575180
 
-
 ## H-0102 · A comment told the next author that `emit()` caps the detail column at 80 columns, and `emit()` has never capped anything
 
 - Question: `factory/triage.sh:444` says "emit() caps the detail at 80 columns, so this is sized for that cap", and `factory/selftest.sh` repeats it. `emit` is a six-field `printf` with no width directive and nothing in either file truncates a field. Does the column grow a cap to match the sentence, or does the sentence go?
@@ -3464,3 +3463,79 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Why: the rebase was available and refused. `git ls-remote origin refs/heads/issue-235` prints nothing, so no force-push is needed to rewrite these six commits -- what refused it is the rule that decided `H-0096` and `H-0105` one entry apart: `2462994`, `f60c367` and `afeb148` are cited by sha in `#235`'s own handoff comment and inside `H-0104`'s text ("measured at `f60c367` ... 191 passed 0 failed"), and a rebase mints three new shas for them, so the reader who follows a citation lands on a commit that no longer exists. A merge keeps both those shas and `main`'s 121. Tie-break 5: a merge is undone by `git revert -m 1`; a six-commit rewrite held in no remote is undone only from a log entry. This is written down as a deviation from the instruction in the ticket, which is the whole reason `H-0096` gave for choosing a merge over the rebase the ticket asked for too. What collided is three files, one region each. `factory/triage.sh`: both sides had already deleted the false 80-column clause from the same comment independently -- `main` in `34f95f7`, this branch in `2462994` -- so the conflict is two correct rewrites of one sentence, and `main`'s wording is the merged history's own account of its `H-0055`; `main` also grew `emit` to seven fields there, which is why its sentence says `seven %s`. `main`'s comment won and ten lines of prose yielded; every measurement leg survived, which is the distinction that matters, and `main`'s copy of `factory/selftest.sh` still carried the 80-column sentence at `origin/main:factory/selftest.sh:4120` -- that one was never touched on `main` and it now carries the true claim, so the false sentence exists nowhere in the tree. `factory/selftest.sh`: the region is the end of the file, `main`'s new supervisor section plus its bare tally against this branch's tally-with-its-world; resolved as `main`'s section, then this branch's `printf` in `main`'s slot, before `reached_verdict=1`, so `cleanup()`'s incomplete-run trap at `factory/selftest.sh:96` still sees the flag it tests -- and the leg that exercises that trap, `incomplete_reports_itself`, fabricates its own verdict line rather than reading the shipped one, which is why replacing the line cannot blind it. `factory/DECISIONS.md`: one region *inside* `H-0054`'s entry, because both sides edited that entry's `Effect:` line and both then appended at the same offset; resolved as this branch's `Effect:` (it carries `H-0104`'s re-attribution of the `176 -> 179` count, and taking `main`'s line would delete that correction), then `main`'s `H-0055` .. `H-0100`, then this branch's `H-0102` .. `H-0105` -- ascending, which is what the gate's order rule enforces. Then the count, because three auto-merged files carry more risk than the three that conflicted: a per-file presence test over every non-blank line each side added against the merge base, run against the merged tree -- `python3 /tmp/merged-lines-kept.py 358fad3 HEAD origin/main factory/selftest.sh factory/triage.sh docs/factory.md factory/DECISIONS.md`, kept outside the repository as `H-0096` did. `main` added 6623 / 148 / 470 / 2247 and this branch 126 / 55 / 18 / 31 -- the `added` columns are counted against `HEAD`, so the figure for `factory/DECISIONS.md` rises once this commit exists and carries this entry; `missing` is the column that carries the verdict and it does not move -- and the only gaps are 6 lines against `main` and 7 against this branch, both in `factory/selftest.sh`, plus the ten yielded comment lines in `factory/triage.sh` -- 23 lines, and every one is a line a hunk of this merge rewrote or superseded on purpose: three of `claim_graphql`'s jq program that gained `--argjson` and `pageInfo`, two of the 80-column comment, the supervisor fixture's payload line, this branch's own six-field and 302-column sentences, which the merge made false and this commit corrects, and the ten prose lines. Nothing vanished. What the line count could not see is the finding. `main`'s supervisor fixture planted a GraphQL queue payload with no `pageInfo`, and `H-0103`'s rule reads a missing bound as a page that stopped short, so the refusal took the issue half with it: `PASS units=0`, `IDLE no unit needs a model this pass`, and the eleven dispatch legs of `main`'s new quarantine section red -- `387 passed, 12 failed` on the first run. No line was missing from either side; the two changes were each correct and the composition was not. The fix is in the fake, not the rule (the fifth option was tried in reasoning and rejected: loosening the refusal so a payload without a bound reads as complete deletes `H-0103` and re-opens the false `delivered` it was written for -- a fixture is not a specification). `factory/selftest.sh:2712` now plants `hasNextPage: false` on both connections. The twelfth failure was `the timer's scripts are executable` reading `triage.sh(100755 100755 100755)` -- three stage entries for a file still unmerged in the index -- and it is recorded here so nobody re-reads it as a finding: it disappeared on `git add`.
 - Checkpoint: cd25f052367b7453526b322a667d81f5374d92f1
 - Effect: the merge of `origin/main` (`5cfda8d`) into `issue-235`, resolved in three files; `factory/selftest.sh:2712`, the supervisor fixture's queue payload, which gained `pageInfo` on both connections with the reason above it; three sentences of this branch's own prose corrected because the merge made them false -- `emit` is no longer countable as six fields (`grep -m1 '^emit()' factory/triage.sh | grep -o '%s' | wc -l` prints `7`), so both comments now assert the property (a bare `%s`, nothing sliced) and say in words why they refuse to name a field count, and the 302-column figure was re-measured rather than trusted: a probe leg `claim_detail_wider_than 232 999999` printed `key 232 detail is 302 columns`, the probe was deleted, and the sentence now names both commits it was measured at. Read back: `bash factory/selftest.sh` prints `factory/selftest.sh: 399 passed, 0 failed  (fixture root /tmp/plock-factoryselftest-<random> on tmpfs, git 2.53.0)` -- 387 from `main` plus this branch's 12, and the fixture root is a fresh `mktemp -d` per run, so only the two counts, the filesystem and the git version re-appear -- where the same command on the same tree an hour earlier printed `387 passed, 12 failed`; `python3 scripts/check-decisions.py` prints `140 entries across 2 log(s)` including this record; `git status --short` lists no `UU`. Two dated corrections about `H-0102`, which was written when `main`'s changes were not in this tree: its `Question:` says "`emit` is a six-field `printf`", true at `358fad3` and false now, and left as written; its `Effect:` claims the `factory/triage.sh` comment as its work, and `main` had made the same correction independently in `34f95f7`, so what survives of `2462994` there is the measurement, not the sentence. A third, about `H-0104`: its `Effect:` promises the gate number "printed by the bare `printf 'factory/selftest.sh: %d passed, %d failed\\n'` line", and this merge is the commit that moves that line into the world-naming one -- so the number the CI read-back quotes now arrives with the parenthetical, exactly as `H-0104`'s `Why:` asked it to. `make verify` has NOT been quoted here: run before this commit it exits 2 with `screenshot manifest: 9 problem(s)`, every one of them `internal/web/static/app.css has an uncommitted change`, which is the mid-merge tree (`git status --short` shows `M  internal/web/static/app.css` and four templates, staged by the merge) meeting `dirty_sources()` -- `H-0104`'s `Effect:` records the same gate refusing a merge in progress and the same order: commit, then gate. The full gate number belongs to the CI read-back on the pull request. What lost: ten lines of comment this branch wrote, to a sentence that says the same thing in the trunk's words -- the legs are the deliverable and the prose was the duplicate; a linear history, which was not on the table without rewriting cited shas; the checkpoint commit `cd25f05`, which now stands for a tree state nothing can rebuild (`H-0100`'s cost, paid again); and `H-0103`'s fixture coupling, which nothing pins -- the planted `pageInfo` at `factory/selftest.sh:2712` is coupled to the shipped query only by this entry, so the next field the queue query asks for does this again, and the leg that would catch it (assert the fixture answers every field the shipped query names) is NOT in this commit and is the `NEXT:` line of this unit's hand-off comment.
+
+## H-0109 · The fixture answers fields nobody asked for, so the projection goes into `emit()` and not into another call site
+
+- Question: #279 found both fixture `gh` shims parsing `--json` for one thing only -- telling two
+  payloads apart -- and then printing the whole payload file. A shipped read that *stopped* asking for
+  a field therefore kept receiving it from the fixture, and every leg asserting something about that
+  field stayed green while the read went blind. The issue asked for `H-0108`'s projection lifted out of
+  its one branch and paired with a leg that fails when a caller asks for a field the fixture does not
+  carry, and it asked for its own plant to be run first. The plant was run first, and it is the whole
+  argument: `--json number,title,updatedAt` at `factory/triage.sh:563` reduced to `--json number,title`
+  left `bash factory/selftest.sh` at `387 passed, 0 failed` -- identical in tally to the unpunctured
+  run, exit 0 -- while the `CLAIM_DEBUG` rows still printed `issue 232 delivered`, a verdict
+  `delivered_claim` (triage.sh:509) refuses to render on an empty `updatedAt`. Six payload sites, one
+  demonstrated, none of them visible.
+- Options: project at each dispatch site, as `H-0108` did for the merged read alone | lift the
+  projection into each shim's `emit()` as two separate copies of the rule | one heredoc installed into
+  both payload directories and sourced by both `emit()`s, `gh`'s refusal of a field no row carried
+  included | leave the fixture alone and pin the field lists with a text check over `triage.sh`
+- Chose: one heredoc installed into both payload directories and sourced by both `emit()`s, `gh`'s
+  refusal of a field no row carried included
+- Why: the first option carries its own refutation, measured in the same week as its fix -- `H-0108`
+  projected the merged payload at the merged read, and #279 then counted **six** payload sites still
+  served blind, because a rule written at a call site is a rule for that call site. The fourth option
+  proves the shipped text says `updatedAt`; it does not prove the read *receives* it, and this class is
+  precisely a suite that could not see its own subject (`triage.sh:470-479`'s always-empty
+  `delivered_map`, and #242's `${3}` where `${2}` was meant), so a text check is that suite in a
+  different costume. Between the middle two the tie-breaks separate them on fewest files and then on
+  the reason `H-0108` exists at all: two copies is how one channel got fixed and six did not, and these
+  two shims already claim to share every other rule by pointing at each other in comments
+  (`CLAIMSHIM`'s write refusal, the process shim's `exit 9`) -- this makes one of those promises
+  mechanical instead of aspirational. The refusal is the half the issue named, and it follows the house
+  rule for a missing input: refuse rather than proceed. `gh` answers an unknown field with a non-zero
+  exit and the field's name, so the fixture does the same, and `labels` -- a field `gh issue list`
+  holds for every issue on GitHub and this fixture has never held -- now fails loudly where it used to
+  answer no column at all at exit 0, which is indistinguishable from the repository saying "none". That
+  is the moment a fixture quietly becomes the specification. `git revert` of the one commit below takes
+  all of it back.
+  **What lost.** Locality: a reader of one shim no longer sees the projection where the payload is
+  printed, and pays a `$here/fields.sh` hop instead -- paid back with a comment at each `emit()` naming
+  `install_gh_fields`, which is also where the measurement lives. The honest residue is
+  `gh_json_payload`'s empty payload: `gh` checks a field name against its own schema, a fixture has
+  only the rows in front of it, and every unlegged read runs against `[]` every pass, so an empty list
+  carries no verdict about the field list and is not refused. The check is therefore only as good as a
+  planted row, which is why the refusal leg asks the fixture that holds nine. And `H-0108`'s
+  site-level branch on `issue-277` becomes redundant beside this one; it is not broken by it --
+  re-projecting an already-projected payload to the same field list is the identity -- so whoever
+  resolves the shared region is deleting a branch, not correcting one.
+- Effect: `factory/selftest.sh` only, plus this entry. Both `emit()`s now answer
+  `gh_json_payload <payload> <--json list>`: the document verbatim when no field list was passed (the
+  `user` and `graphql` reads, where `gh` has no field contract to obey), otherwise the payload projected
+  through `with_entries` with what no row carries refused by name. Eight legs: three that a field not
+  named does not come back (the claim-shim, its control, and the same read off the **process** shim,
+  which serves the whole supervisor run), two that a field the fixture lacks is refused and one it
+  holds is not, and three that run #279's plant end to end -- the mutant's anchor counted before it is
+  believed (`proc_mutate`'s rule), then the shipped read one field short must not deliver, then the
+  shipped file as it ships must. Measured on rodney-9950x, btrfs, one `bash factory/selftest.sh` per
+  row, the same fixture as `H-0100`'s table: unpunctured `395 passed, 0 failed` (was 387; eight legs,
+  15.1 s -> 16.0 s); the plant with this fix in `375 passed, 20 failed`, exit 1, against the `0 failed`
+  the same plant produced above; and the fix with its projection neutralised in both `emit()`s --
+  everything else left in place -- `391 passed, 4 failed`, which is four of the eight saying the old
+  answer out loud. `make check-shell` clean, 0.10.0 over 28 scripts. No `.go` file is touched, so no
+  mutant anchor moves and `scripts/check-mutations.py` is not the gate this change needs (#1048's
+  surface is `.go` and `.tmpl`).
+  **Corrected at the merge, 11 Nov, and not quietly.** This entry said the measurement ran on
+  `btrfs`; it copied that from #279's table and from `H-0100` instead of reading it. `H-0104`, which
+  arrived on `origin/main` in `afeb148` while this entry was being written, is the decision that the
+  filesystem which decides a count is the one under `$TMPDIR` holding the *fixture root* -- not the one
+  the worktree is on -- and the merged runner now prints it: `407 passed, 0 failed (fixture root
+  /tmp/plock-factoryselftest-… on tmpfs, git 2.53.0)`. So the box was right and the filesystem was
+  wrong: every count above was taken with `$TMPDIR` at its default, which on this machine is tmpfs.
+  What that class costs a count is `H-0045`'s measured ±1 -- one exclude-file leg flips its verdict
+  between tmpfs and btrfs -- which is why the numbers above are stated as the plant's tallies and the
+  deltas (`387 -> 395`, `0 -> 20 failed`, `4 failed` with the projection neutralised) rather than as a
+  bare absolute: both ends of a delta are counted in one world. The counts themselves are unaffected by
+  the correction, because none of them is the ±1 leg.
+- Checkpoint: 3de3544298fbbc5e1c0ca5b471bbab9542fc5579
