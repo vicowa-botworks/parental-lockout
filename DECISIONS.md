@@ -3442,3 +3442,27 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   locators and the 6-of-77 failing set were all measured *after* the edit, and they say what they say. The
   reason this is a bullet rather than an edit is #1180 -- a silently corrected record is indistinguishable
   from one that was always right.
+- Correction (`D-0062`, 11 Nov -- second correction, after the one above): the clause "what changed is that
+  only a change to the attacked behaviour can now do it, not a reformat" is false as written, and what
+  falsifies it is a rename of a local. Three probes at `14f1826`, each counting the anchor string in
+  `testing/capture/pages.py` and then run end to end against a copy of the tree (`/tmp/opencode/p305/box1`
+  and `box2`, never the gated tree -- #1807), row 2 selected. Growing the `cdp.refusal_note(…)` call until
+  it rewraps: **1** match, `py_compile` clean, the row prints `CAUGHT`, exit 0. Adding a keyword argument to
+  `cdp.keep_refused(…)` -- signature and call site, so `pages.py --self-test` still answers "77 refusal
+  rules hold" and nothing but the locator notices: **0** matches, the row answers `INVALID … 0 anchor
+  matches` and exits 1; that is the case `What lost:` names. Renaming the local, `note` to `note_text` --
+  an edit with no behaviour in it at all, `py_compile` clean, every rule still holding: **0** matches, the
+  same INVALID line, the same exit 1. A rename is neither a
+  reformat nor a change to the attacked behaviour, so the third probe refutes the bolded clause instead of
+  confirming it. What the hoist bought is immunity from a **rewrap** -- from the operand rewrapping, which
+  is what #296 actually did -- and the anchor is still this call's own text, so any edit to that one line,
+  including the identifier inside it, retires the row. The rename is the likelier of the two that remain,
+  because renaming a local is what every style pass does, and it is the one this entry never names. What
+  keeps the gap loud rather than dangerous is already in the entry: the `if hits != 1:` arm counts a 0-match
+  anchor as INVALID and the suite exits 1, so the cost of the overstatement is a spurious red gate and a
+  confused reader, not a retired attack -- more than the mutation battery's silent NOT APPLIED can claim
+  (#1048). #305 files it, and counted these three before this round re-counted them and ran the middle and
+  third end to end. Corrected as a bullet, not by editing the sentence (#1180). `testing/capture/pages.py`'s
+  site comment now names the boundary the sentence skipped, in the same five lines it had, so that both
+  locators the correction above cites -- `main()` at 897-1076 and the guard at
+  `scripts/attack-capture-self-test.py:573-576` -- still read true at this head.
