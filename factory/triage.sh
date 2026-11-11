@@ -13,7 +13,7 @@
 #   pr      240       review_unreadable    21 bytes of body, no ask       …       240    -
 #   issue   213       unclaimed            <title>                        -       213    -
 #   issue   199       unclaimed            [merged:PR#229 on `issue-199`  -       199    -
-#   issue   232       delivered            delivered by merged PR #234 …  -       232    -
+#   issue   232       delivered            merged PR #234 on `issue-232` at 2026-…  -   232   -
 #   branch  fix/x     branch_without_pr    3 file(s) across 2 commit(s)   fix/x   -      -
 #
 # `class` is a verdict, not a field. The classes factory.sh calls workable are the ones worth a
@@ -120,6 +120,11 @@ mheader=$'kind\037key\037class\037detail\037branch\037issue\037ask'
 # One `gh pr list` carries every PR's own fields; the per-PR calls are only for what the list
 # payload does not carry (review timestamps, outstanding requests, head commit date). Keeping the
 # bulk read bulk is what makes a wait-state poll cheap enough to run from a timer.
+#
+# Nothing is added to this list for the delivered half of the scan (#291). An open pull request's
+# `mergedAt` is null by construction, so asking for it would buy a column of nulls and invite the
+# wrong test: "is this row merged" is answered by WHICH LIST the row came from, and a null-check
+# written for the closed list reads a healthy open pull request as a missing input.
 
 pr_json=$(gh pr list --state open --limit 100 \
 	--json number,title,headRefName,isDraft,reviewDecision,mergeable,mergeStateStatus,updatedAt,headRefOid,statusCheckRollup 2>/dev/null) ||
@@ -266,7 +271,66 @@ mentioned_issues=$(printf '%s' "$body_json" | jq -c --arg re "$CLAIM_RE" '
   [ .[] | (.body // "")
     | scan($re)
     | scan("#[1-9][0-9]*") | ltrimstr("#") | tonumber ] | unique' 2>/dev/null || printf '[]')
+# GitHub's own list, kept apart before the body claims are merged into it. An issue GitHub says an OPEN
+# pull request closes really is in flight; an issue a prose body merely mentions is not, and the draft
+# sentence below has to be able to tell those two apart.
+closing_issues=$claimed_issues
 claimed_issues=$(jq -cn --argjson a "$claimed_issues" --argjson b "$mentioned_issues" '($a + $b) | unique' 2>/dev/null || printf '%s' "$claimed_issues")
+
+# ------------------------------------------------ the claims no pull request can deliver
+#
+# The suppression above is silent, and silence is what #235 was filed about. An issue any open pull
+# request names gets no row of any class -- not `unclaimed`, not `delivered`, nothing -- on the argument
+# that the open channel outranks a merged claim (#216's stacked chain). While that pull request is a
+# real one the argument holds, because it eventually merges and the merged scan reports the issue.
+#
+# A DRAFT is the case where it does not. A draft never merges, so the merged scan can never pick the
+# issue up, and the open channel that was supposed to deliver it says `do not merge` in its own title.
+# Measured on the live queue at 13:3xZ on 11 Nov, from this repository as it stands: #241 and #284 have
+# no row of any class, and the only thing in the world that connects either of them to a pull request is
+# draft #285 -- branch `backup-tip`, title beginning `do not merge: the real bug is unfixable, so this
+# is the record of a drop` -- which names #241 with `Refs #241` and #284 with `fix in #284`. #241's own
+# fix merged as #273 on 10 Nov, so the queue is not merely quiet about a ticket that deserves a second
+# look; it is quiet about it forever, and `#291`'s own report of "#241 is not in the queue" is that
+# silence being read as a verdict.
+#
+# So: named, not swallowed. What is said is a sentence on stderr, the channel this file already uses for
+# every read that came back degraded (#494, the merged-window bound, the issue-list bound), and what is
+# NOT said is a row. A row is an offer and this offer is the one #277 measured the price of: a class
+# that starts a tick at an issue whose work is sitting in a draft re-implements the draft, and a class
+# that starts no tick retires real work -- #253 was refused by a claim arm and needed the tick that
+# row dispatched. Whether #241 should be closed, and whether #285 should be un-drafted or deleted, are
+# both judgement calls about somebody else's in-flight pull request, and the harness's job here is to
+# stop hiding them, not to make them.
+#
+# An issue a NON-draft pull request names is excluded from this, and so is one GitHub itself says an
+# open pull request closes (`closing_issues`), which is the difference between a tombstone and work in
+# progress that has not been marked ready yet. Nothing here changes a class or a verdict.
+draft_only_map=$(jq -cn --argjson prs "$pr_json" --argjson bodies "$body_json" --arg re "$CLAIM_RE" \
+	--argjson closing "$closing_issues" '
+  ($bodies | map({key: (.number | tostring), value: (.body // "")}) | from_entries) as $body_of
+  | [ $prs[] | . as $p
+      | [ ($body_of[($p.number | tostring)] // "") | scan($re) | scan("#[1-9][0-9]*")
+          | ltrimstr("#") | tonumber ]
+      | .[] | {issue: ., pr: $p.number, head: ($p.headRefName // ""), draft: ($p.isDraft == true)} ] as $rows
+  | ($rows | map(select(.draft | not) | .issue) + $closing | unique) as $live
+  | [ $rows[] | select(.draft) | .issue as $i | select(($live | index($i)) | not) ]
+  | group_by(.issue)
+  | map({key: (.[0].issue | tostring),
+         value: {prs: (map("#" + (.pr | tostring)
+                           + (if .head == "" then "" else " on `" + .head + "`" end)) | unique)}})
+  | from_entries' 2>&1) || :
+# `|| :` and the shape check are the same pair `delivered_map` carries, for the same reason: this runs
+# under `set -e` inside an assignment, and a jq that refuses must cost a sentence, not the table. The
+# map is a join over two reads, so it is the one claim scan in this file that CAN fail for a reason
+# unrelated to the queue's shape -- which is exactly why it says so rather than answering `{}` quietly.
+if ! printf '%s' "$draft_only_map" | jq -e 'type == "object"' >/dev/null 2>&1; then
+	printf 'triage: the draft-claim scan refused, so an issue hidden only by a draft is not reported this pass: %s\n' \
+		"${draft_only_map:0:200}" >&2
+	draft_only_map='{}'
+fi
+draft_hidden=''
+draft_hidden_count=0
 
 rows=''
 
@@ -525,7 +589,8 @@ delivered_map=$(printf '%s' "$merged_json" | jq -c --arg base "$FACTORY_BASE" --
     | ($all | unique_by(.n)) as $one
     | select(($one | length) == 1)
     | select(($all | map(.phrase | ascii_downcase | startswith("part of")) | any) | not)
-    | {issue: $one[0].n, pr: $p.number, at: .mergedAt, phrase: $one[0].phrase}
+    | {issue: $one[0].n, pr: $p.number, at: .mergedAt, phrase: $one[0].phrase,
+       branch: (.headRefName // "")}
   ]
   | group_by(.issue) | map(max_by(.at))
   | map({(.issue | tostring): .}) | add // {}' 2>&1) || :
@@ -617,7 +682,14 @@ delivered_claim() { # delivered_claim <issue> <issue updatedAt>
 		| if $c == null then ""
 		  elif $updated == "" then ""
 		  elif ($updated[0:19]) > ($c.at[0:19]) then ""
-		  else "merged PR #\($c.pr) at \($c.at) says `\($c.phrase)`"
+		  # The branch that carried it, from the SAME row the claim was read out of -- never derived from
+		  # the issue number. A branch is deleted when its pull request merges, so this is the only
+		  # moment its name exists to be reported: the tip of `issue-249` was unreachable six hours after
+		  # #252 merged, and #291 had to be written from a commit id instead. When the payload carries
+		  # no head branch the sentence says nothing rather than printing a name nobody read.
+		  else "merged PR #\($c.pr)"
+		    + (if $c.branch == "" then "" else " on `\($c.branch)`" end)
+		    + " at \($c.at) says `\($c.phrase)`"
 		  end' || printf ''
 		# No `2>/dev/null` on that jq, and not for tidiness. The empty answer is the conservative one
 		# -- the issue stays `unclaimed` and gets its tick -- so a refusal here is invisible in the
@@ -675,6 +747,16 @@ if [ "$CLOSING_OK" = "1" ]; then
 		issue_rows=$((issue_rows + 1))
 		# GitHub says an open PR closes it, or an open PR body claims it with a verb.
 		if printf '%s' "$claimed_issues" | jq -e --argjson n "$number" 'index($n) != null' >/dev/null 2>&1; then
+			# The one suppression that can never resolve itself gets a sentence on the way out, because
+			# `no row` and `nothing to report` look identical in the table and are not the same fact. See
+			# the draft-claim map above for the measurement and for why this is stderr and not a class.
+			hidden_by=$(printf '%s' "$draft_only_map" | jq -r --argjson n "$number" '
+				.[$n | tostring] as $c | if $c == null then "" else $c.prs | join(", ") end' 2>/dev/null ||
+				printf '')
+			if [ -n "$hidden_by" ]; then
+				draft_hidden="${draft_hidden} #${number} (named only by ${hidden_by})"
+				draft_hidden_count=$((draft_hidden_count + 1))
+			fi
 			continue
 		fi
 		# Reaching this line is itself a fact: no OPEN pull request claims the issue, so the open
@@ -724,6 +806,13 @@ if [ "$CLOSING_OK" = "1" ]; then
 	if [ "$issue_rows" -ge "$issue_limit" ]; then
 		printf 'triage: the open-issue read is at its own limit (%s rows); an issue past it gets no row of any class this pass\n' \
 			"$issue_limit" >&2
+	fi
+	# Printed once for the whole pass rather than once per issue, and named: a count alone says the scan
+	# is odd, the list of `#241 (named only by #285 on \`backup-tip\`)` says what to go and look at. The
+	# backticks are the file's own spelling for a ref, so the sentence can be pasted into a shell.
+	if [ "$draft_hidden_count" -gt 0 ]; then
+		printf 'triage: %s open issue(s) get no row of any class because the only pull requests naming them are drafts: %s -- a draft never merges, so neither scan reports these again\n' \
+			"$draft_hidden_count" "${draft_hidden# }" >&2
 	fi
 fi
 

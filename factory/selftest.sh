@@ -4828,7 +4828,13 @@ claim_open() { # claim_open <json array of {number,title,body,claims,reviewDecis
 	# door that cannot be opened: the CHANGES_REQUESTED arm -- the one that decides between a tick,
 	# a wait and #242's new refusal -- is unreachable from a fixture that can only say "no decision".
 	# Defaulting it to "" inside jq keeps all eighteen existing callers answering what they answered.
-	jq -c '[.[] | {number, title, headRefName: "fix/planted", isDraft: false,
+	# `isDraft` and `headRefName` join `reviewDecision` as pass-throughs for the same reason and with the
+	# same safety: they used to be constants, and a constant is a door that cannot be opened. #291 needs
+	# a DRAFT pull request in this fixture -- an issue that only a draft names is the one suppression
+	# that can never resolve itself -- and a head branch of its own, because the sentence that names the
+	# suppression prints it. Defaults kept identical to the constants, so all the existing callers answer
+	# exactly what they answered.
+	jq -c '[.[] | {number, title, headRefName: (.headRefName // "fix/planted"), isDraft: (.isDraft // false),
 		reviewDecision: (.reviewDecision // ""), mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN",
 		updatedAt: "2026-11-08T05:00:00Z", headRefOid: "0000000", statusCheckRollup: []}]' \
 		"$claim_fix/open-claims.json" >"$claim_fix/pr-open.json"
@@ -5359,6 +5365,185 @@ CLAIM_MERGED_FAIL=1
 claim_rows >/dev/null
 CLAIM_MERGED_FAIL=
 claim_leg 'a merged read that fails notes nothing' claim_row_says_nothing_about 199 '[merged:PR#'
+claim_reset
+
+# ------------------------------------------------ the branch a delivered row names, and the draft (#291)
+#
+# Two halves, one measurement behind each.
+#
+# (1) A `delivered` row used to name the pull request and the instant and the phrase, and not the branch
+# -- although the payload has carried `headRefName` on this very read since #277. A branch is deleted
+# when its pull request merges, so the pass that reports delivery is the LAST moment the name exists:
+# #291 had to reconstruct `issue-249` from a commit id six hours after #252 merged, because six hours
+# earlier the row could have said it. The name must come out of the same row the claim came out of and
+# never be assembled from the issue number -- which is the shape this repository has already refused
+# twice (#254 merged on `issue-246` under `Part of #246` with #246 unfinished; #253's third instruction
+# was reported delivered by #255 and was not on `main`). So the discriminating plant is a merged pull
+# request whose head branch is NOT `issue-<n>`: `fix/weird-branch` naming #212. On that row the shipped
+# code prints the branch it read, and a copy that builds the name from the number prints `issue-212`,
+# which is a sentence about a branch that does not exist. The control runs exactly that copy.
+#
+# (2) An issue any open pull request names gets no row at all (triage.sh:682). While that pull request
+# can still merge, the silence ends when it does. A DRAFT never merges, so the silence has no end:
+# measured on the live queue at 13:36Z on 11 Nov, #241, #284 and #222 have no row of any class and the
+# only thing naming them is draft #285 (`backup-tip`, title ending `reference only, do not merge`) or
+# draft #233 -- #241's own fix having merged as #282 at 11:01:37Z that morning, so nobody will be told
+# about that ticket again. The fix is a sentence, not a class, for the two reasons #277 measured: a
+# class that starts a tick re-implements the draft, and a class that starts no tick retires real work.
+# Whether #241 should be closed and #285 deleted are two judgement calls about somebody else's pull
+# request, and they are the operator's; the harness's failure was hiding the pair.
+#
+# The polarities are the point again: a draft is reported, a mergeable pull request is not, a draft
+# GitHub itself says closes the issue is work in flight and is not, and one real claim anywhere on the
+# issue is enough to leave the sentence unsaid. The control deletes the filter that makes those four
+# answers differ and demands the sentence fire on a pull request that can still deliver.
+
+claim_err_says_nothing() { # claim_err_says_nothing <needle> -- paired with a positive leg beside it
+	if grep -qF -- "$1" "$claim_err"; then
+		printf '            stderr said %s; it said:\n' "$1" >&2
+		sed 's/^/            /' "$claim_err" >&2
+		return 1
+	fi
+}
+# One exact-string edit of the shipped `triage.sh`, run as the classifier. This section's two controls
+# both change text inside a jq program, where `claim_mutate_triage`'s `sed "s/$anchor/$repl/"` would
+# read `\(` as a group -- and that helper is defined below this point besides, so bash has not met it
+# yet when these legs run. Exact strings, one occurrence or a refusal, and the same two refusals the
+# helper makes: no change at all, and a copy that does not parse.
+claim_mutate_text() { # claim_mutate_text <dest> <exact old> <new>
+	local dest=$work/$1/triage.sh old=$2 new=$3
+	mkdir -p "$work/$1" || return 1
+	cp "$HERE/common.sh" "$work/$1/common.sh" || return 1
+	python3 - "$HERE/triage.sh" "$dest" "$old" "$new" <<'PY' || return 1
+import io
+import sys
+
+src, dst, old, new = sys.argv[1:5]
+text = io.open(src, encoding="utf-8").read()
+if text.count(old) != 1:
+    sys.exit("the text to replace occurs %d time(s) in factory/triage.sh, so the mutant\n"
+             "would not land where it is described:\n  %s" % (text.count(old), old))
+io.open(dst, "w", encoding="utf-8").write(text.replace(old, new, 1))
+PY
+	if ! bash -n "$dest"; then
+		printf '            the mutant does not even parse\n' >&2
+		return 1
+	fi
+	chmod +x "$dest"
+	claim_script=$dest
+	claim_rows >/dev/null
+	claim_script=''
+	# A mutant whose jq died is not a mutant that changed its verdict. The shape checks in `triage.sh`
+	# are good enough that a broken program still prints a table, so the only sign is the diagnostic --
+	# and a leg that goes on to assert "the bug came back" against a run that computed nothing would
+	# report a reproduction it never saw. H-0131's controls failed this exact way, on `common.sh`.
+	if grep -qF 'jq: error' "$claim_err"; then
+		printf '            the mutant died rather than changed its verdict:\n' >&2
+		tr '\n' '|' <"$claim_err" | sed 's/^/            /' >&2
+		printf '\n' >&2
+		return 1
+	fi
+}
+
+claim_rows >/dev/null
+claim_leg 'the delivered row names the branch that carried it' claim_detail_has 232 'on `issue-232`'
+
+# A head branch that is not the issue's own name, so a name built from the number cannot pass for it.
+claim_merged '. + [{number: 258, baseRefName: "main", headRefName: "fix/weird-branch",
+	mergedAt: "2026-11-09T00:00:00Z", body: "fix(capture): the rig names the rev its frames came from\n\nRefs #212.\n"}]'
+claim_rows >/dev/null
+claim_leg '…and it is the branch the payload named' claim_detail_has 212 'on `fix/weird-branch`'
+claim_leg '…not the one the issue number would suggest' claim_row_says_nothing_about 212 'issue-212'
+
+claim_branch_from_number() { # the mutant: the branch assembled from the number, as `#291` forbids
+	claim_mutate_text delivmut \
+		'else " on `\($c.branch)`" end)
+		    + " at \($c.at) says' \
+		'else " on `issue-\($c.issue)`" end)
+		    + " at \($c.at) says'
+}
+if claim_branch_from_number; then
+	if claim_detail_has 212 'on `issue-212`'; then
+		printf '        control: the same fixture through a copy that builds the branch name from the\n'
+		printf '        issue number prints `issue-212` for a pull request that sat on\n'
+		printf '        `fix/weird-branch` -- so the ok above is the row quoting the payload, and not\n'
+		printf '        a name that happens to agree with it.\n'
+		claim_rows >/dev/null
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a branch name built from the number printed the same thing the\n' "control: triage read"
+		printf '          shipped code prints, so the ok above proves nothing about where the\n'
+		printf '          name came from. The mutant answered: %s\n' "$(row_for 212)"
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the mutant refused to build, so nothing was compared\n' "control: triage plant"
+fi
+claim_reset
+
+# A merged row whose head branch GitHub no longer names at all: the row keeps its verdict and keeps
+# quiet about a branch, rather than printing a name nobody read.
+claim_merged '. + [{number: 259, baseRefName: "main", headRefName: null,
+	mergedAt: "2026-11-09T00:00:00Z", body: "feat: packages\n\nCloses #149.\n"}]'
+claim_rows >/dev/null
+claim_leg 'a merged row with no head branch says nothing about one' claim_row_says_nothing_about 149 'on `'
+claim_leg '…and it is still delivered' claim_class_is 149 delivered
+claim_reset
+
+# The draft, exactly as the live one is shaped: not a draft of a work in progress, but a tombstone that
+# says do not merge in its title, on a `backup/`-shaped branch, naming the issue with `Refs`.
+claim_open '[{"number":260,"title":"do not merge: the record of a drop","body":"Refs #212.\n","claims":[],
+	"isDraft":true,"headRefName":"backup-tip"}]'
+claim_rows >/dev/null
+claim_leg 'an issue only a draft names is named on stderr' claim_err_has '#212 (named only by #260 on `backup-tip`)'
+claim_leg '…and it still gets no row, because a row is an offer' claim_no_row 212
+claim_reset
+
+# The same pull request one click from ready is a different fact, and the sentence has to know that.
+claim_open '[{"number":260,"title":"the record of a drop, marked ready","body":"Refs #212.\n","claims":[],
+	"isDraft":false,"headRefName":"issue-212"}]'
+claim_rows >/dev/null
+claim_leg 'a pull request that can still deliver is not named' claim_err_says_nothing 'named only by'
+claim_leg '…and its issue is still the one row that is missing' claim_no_row 212
+
+# GitHub's own `closingIssuesReferences` is the other way a draft is work in progress rather than a
+# tombstone: the pull request is a draft today and the link says what it will close.
+claim_open '[{"number":260,"title":"work in progress on the capture rig","body":"Refs #212.\n","claims":[212],
+	"isDraft":true,"headRefName":"issue-212"}]'
+claim_rows >/dev/null
+claim_leg 'a draft GitHub says closes the issue is in flight' claim_err_says_nothing 'named only by'
+
+# One real claim anywhere outranks the tombstone, even beside one.
+claim_open '[{"number":260,"title":"do not merge: the record of a drop","body":"Refs #212.\n","claims":[],
+		"isDraft":true,"headRefName":"backup-tip"},
+	{"number":261,"title":"the capture rig, again","body":"Fixes #212.\n","claims":[],
+		"isDraft":false,"headRefName":"issue-212"}]'
+claim_rows >/dev/null
+claim_leg 'one claim from a pull request that can merge is enough' claim_err_says_nothing 'named only by'
+claim_leg '…while the issue stays off the table either way' claim_no_row 212
+
+claim_draft_filter_off() { # the mutant: every claim counts as draft-hidden
+	claim_mutate_text draftmut \
+		'| [ $rows[] | select(.draft) | .issue as $i | select(($live | index($i)) | not) ]' \
+		'| [ $rows[] ]'
+}
+# The plant still in the fixture is the pair above: the issue is named by a draft AND by a mergeable
+# pull request, which is the case the shipped code stays silent about.
+if claim_draft_filter_off; then
+	if claim_err_has 'named only by'; then
+		printf '        control: the same fixture, with the filter that separates a draft from a\n'
+		printf '        mergeable pull request deleted, names an issue a real pull request is still\n'
+		printf '        about to deliver -- so the ok above is the filter deciding, not the sentence\n'
+		printf '        never being reached.\n'
+	else
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s deleting the draft filter changed nothing, so the ok above is\n' "control: triage read"
+		printf '          the sentence being unreachable for a reason of its own.\n'
+	fi
+else
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the mutant refused to build, so nothing was compared\n' "control: triage plant"
+fi
 claim_reset
 
 # The other half of the change: `factory.sh`'s `unclaimed` arm turns the marker into the instruction
