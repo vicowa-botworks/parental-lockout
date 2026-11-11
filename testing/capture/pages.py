@@ -3412,6 +3412,54 @@ def self_test():
             if "did NOT write" not in err:
                 problems.append("the transcript still prints FITS paths for files this run did not "
                                 "write, without saying so")
+            # The count and the list inside that announcement, and the pointer at each refused
+            # page's own frame. Both sentences were unpinned until 11 Nov, measured with three
+            # attacks on `origin/main` at 66c9162 -- each applied to its own copy of the tree so
+            # the gated tree was never itself the mutant (#1807) and its anchor asserted before
+            # the tally was believed -- and all three printed `76 refusal rules hold`: deleting
+            # the announcement outright, making it say `0 frame(s)` while two frames sat in the
+            # directory, and deleting the sentence `cdp.capture_refused` prints beside the frame
+            # it had just taken. The clause above cannot catch the first of those: it asks only
+            # that the directory be named SOMEWHERE in the transcript, and the retraction below
+            # names it. A count that is not compared to the disk leaves the transcript free to
+            # say anything about the files it is describing, which is #251's silence back in the
+            # costume of the sentence that was written to end it.
+            frames = sorted(f for f in os.listdir(keep) if f.endswith(".png"))
+            said = re.search(r"^  (\d+) frame\(s\) this run measured are in (\S+), with "
+                             r"REFUSED\.txt beside them(?:: (.*))?$", err, re.M)
+            if said is None:
+                problems.append("nothing says how many frames the refusal kept or which ones, so "
+                                "the count an operator would quote is not checkable against "
+                                f"anything: {err.strip()[-160:]!r}")
+            else:
+                if int(said.group(1)) != len(frames):
+                    problems.append(f"the refusal announces {said.group(1)} frame(s) and {keep} "
+                                    f"holds {len(frames)}: {frames}")
+                if said.group(2) != keep:
+                    problems.append(f"the refusal sends the reader to {said.group(2)!r} while the "
+                                    f"frames are in {keep!r}")
+                if frames and sorted(x.strip() for x in said.group(3).split(",")) != frames:
+                    problems.append(f"the refusal lists {said.group(3)!r} and the directory holds "
+                                    f"{frames}")
+            # One line per refused frame, naming it. #251's first requirement is the refusal and
+            # the place to look in the same breath, and that line is `cdp.capture_refused`'s --
+            # whose failure arm has had a rule since #211 ("no frame of the refused page") while
+            # its success arm had none, which is the third attack above. Ask for it at every
+            # viewport this run refused at, by the artifact's own name, and ask for the
+            # disclaimer in the same line: a kept frame announced without "not evidence" is one
+            # `grep` away from being quoted as evidence, which is the property D-0054's `What
+            # lost:` says carries the whole difference between a kept frame and a published one.
+            for width in WIDTHS:
+                named = f"{keep}/audit@{width}.png"
+                line = [ln for ln in err.splitlines()
+                        if "what the page actually renders is at" in ln and named in ln]
+                if not line:
+                    problems.append(f"nothing at the refusal points at the kept frame of /audit "
+                                    f"at {width} px ({named}) -- the bytes are on disk and the "
+                                    "transcript never mentions them")
+                elif "not evidence" not in line[0]:
+                    problems.append("the kept frame is announced without saying it is not "
+                                    f"evidence: {line[0].strip()!r}")
             note_path = op.join(keep, cdp.REFUSED_NOTE)
             if not op.isfile(note_path):
                 problems.append("no REFUSED.txt beside the kept frames -- a frame with no sentence "

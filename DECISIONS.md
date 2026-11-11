@@ -2907,3 +2907,67 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the current commit with `check` back to 6 problems, and the three honest paths (first bare record of a
   directory, record over nine untracked frames, `pages.py`'s partial record with the POST frames
   carried) unchanged.
+
+## D-0057 · A refusal's own sentences are read back off the transcript, and the frame count it announces is compared to the directory it names
+
+- Question: #251's keeping is pinned and its prose is not. Measured 11 Nov on `origin/main` at
+  `66c9162` with nine attacks, each applied to its own copy of the tree so the gated tree was never
+  itself the mutant (#1807), and every anchor asserted before its tally was believed. Six die:
+  `keep_refused` hollowed 12/76, the refusal branch restored to `discard_stage()` 6/76, `refused_dir`
+  without the fixture 6/76, the opened-once guard removed 5/76, the keep-guard removed 1/76, a rule
+  unregistered 75/76. Three print `capture self-test: 76 refusal rules hold` with the symptom live:
+  deleting `main()`'s announcement outright (`pages.py:1063`), making it print `0 frame(s)` while two
+  frames sat in the kept directory, and deleting the line `cdp.capture_refused` prints beside the
+  frame it has just taken (`cdp.py:198`). The third is this issue's requirement 1 read literally --
+  the refusal and the place to look in one breath -- and the first two are its "the journal line and
+  the finding must agree". Where do the assertions go?
+- Options: extend `a_refused_run_says_where_its_frames_are` to read the announcement back and compare
+  it to the kept directory | add two rules for the two sentences and take `EXPECTED_RULES` from 76 to
+  78 | pin only `cdp.capture_refused`'s success arm, beside the existing dead-browser rule | change no
+  rule and file the three attacks as open work
+- Chose: extend `a_refused_run_says_where_its_frames_are` to read the announcement back and compare it
+  to the kept directory
+- Why: the tie-break that separates first is the fewest-moving-parts one -- one file, one rule, and
+  the count stays 76. `EXPECTED_RULES` is itself load-bearing (unregistering one rule is a catch at
+  75/76) and bumping it in a branch whose neighbours merge into the same capture tree invites the
+  append-vs-append conflict this log has already recorded twice, for a number that buys no coverage
+  the clauses do not buy. Option three pins the half an operator follows and leaves the half an
+  operator quotes, which is the count. Option four is what produced the hole: #220 was closed on 5 Nov
+  as satisfied by D-0031 and again on 6 Nov as satisfied by main, both on prose nobody had attacked,
+  and D-0054's `Why:` carries the measurement that refuted each -- three green summaries this morning
+  are that failure still running. Reading the sentence back rather than watching a helper get called
+  is also the property itself, because requirement 1 is a claim about the transcript; a rule that
+  watched `keep_refused` being handed the bytes passed with it hollowed to `return []`, and the
+  disk-reading rules that replaced that class are the 12/76. Re-run after the change, each attack
+  against the fixed tree: `0 frame(s)` now reports `the refusal announces 0 frame(s) and <keep> holds
+  2: ['audit@1024.png', 'audit@360.png']`, the deleted announcement reports `nothing says how many
+  frames the refusal kept or which ones`, the deleted pointer reports `nothing at the refusal points
+  at the kept frame of /audit at 360 px (<keep>/audit@360.png)`; the six that already died still die,
+  at 12, 6, 6, 5, 1 and 75/76.
+- What lost: one rule now carries five claims, so a failure prints one sentence among five under a
+  name that reads as though it says one thing -- splitting them would attribute each finding on its
+  own line, and that attribution is the price of holding 76. The announced count is compared against
+  the directory `main()` itself listed, so an edit changing the listing and the number together stays
+  green: what is pinned is that the transcript agrees with the disk, not that the disk holds the right
+  number of frames (that is `keep_refused` hollowed, 12/76). The refused page's pointer is asked for
+  by the literal `audit@<width>.png` because `/audit` is this rule's victim; a rule refusing another
+  page would have to derive the name from `CENSUS`. And the three attacks are still prose in this log
+  rather than a runner in the tree: `scripts/attack-self-test.py` attacks `scripts/mutate.py
+  --self-test`, and nothing in the tree attacks `pages.py --self-test`, so a rule that quietly stops
+  being load-bearing is found by whoever remembers to run a copy-and-patch loop again -- #124's
+  eviction hazard, still open at this end.
+- Checkpoint: 7c87924d16ba934d3879d8e6e788bbf35394314c
+- Effect: `testing/capture/pages.py`, inside `a_refused_run_says_where_its_frames_are` -- the
+  announcement line parsed out of the run's own stderr (count, directory, frame list), each compared
+  against the kept directory's listing, plus one expected pointer per viewport asserted against
+  `cdp.capture_refused`'s sentence including the words `not evidence` -- and `DECISIONS.md`. What this
+  does NOT take: no behaviour moves. `cdp.py`, `main()`, `refused_dir`, `keep_refused` and
+  `EXPECTED_RULES` are untouched, every finding above was reproduced on `origin/main` at `66c9162`
+  before a line was written, so none of it is inferred from the merged branch's prose. `lock.py` and
+  `testlock.py` still dispose of their staged frame with `discard_stage()`, exactly as D-0054's
+  `Effect:` says, and that half is filed as its own issue rather than folded in here -- #251 did not
+  ask for it, and their `--out` is a single named file, which is a different question about a
+  different directory. Re-checks, each run after the sentence it certifies was written:
+  `python3 testing/capture/pages.py --self-test` -> `capture self-test: 76 refusal rules hold`;
+  `make verify` exit 0, last line `verify: OK`; the nine-attack loop above -> six unchanged tallies
+  and three new catches.
