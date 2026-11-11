@@ -92,14 +92,43 @@ if [ ! -x "$FACTORY_ROOT/factory/factory.sh" ]; then
 	exit 1
 fi
 
-UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+# One formula for where user units live, and it is `factory_units_dir`'s. Composing
+# `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user` a second time here is how a pass ends up reading a
+# file the installer never wrote -- two definitions of one path, the class H-0077 records -- and the
+# second copy was also the one that was not guarded for an unset `$HOME`, which under `set -u` dies on
+# line 89 before any refusal prints (H-0076, same file, same cause).
+UNITS=$(factory_units_dir)
 SERVICE="$UNITS/$NAME.service"
 TIMER="$UNITS/$NAME.timer"
 INTERVAL=${FACTORY_INTERVAL:-10m}
-# The timer's ceiling has to clear the supervisor's own budget. systemd kills a oneshot at
-# TimeoutStopSec, and a tick killed mid-commit leaves a dirty worktree -- which the next pass finds,
-# refuses to touch, and halts on. Deriving it here is what keeps the two numbers from drifting apart.
+# Two deadlines, two numbers, because they bound two different moments. They were one token until
+# 8 Nov, and that coupling is what issue #246 is about: it cost 67 minutes of silence.
+#
+# START bounds the pass. A `Type=oneshot` has no start timeout by default -- systemd.service(5): the
+# default is "disabled by default" for that Type -- so without a number here a wedged pass holds
+# `factory/run/lock` for as long as it lives and every later activation prints "another supervisor
+# holds the lock" and does nothing. It has to clear the supervisor's own budget, and deriving it from
+# FACTORY_BUDGET rather than writing a literal is what keeps the two from drifting apart. This is also
+# the deadline that fires if a tick is ever killed mid-commit, which is the hazard the comment used to
+# sit on the *stop* line.
 STOP=$((FACTORY_BUDGET + 60))
+#
+# STOP_TIMEOUT bounds the reaping, once the pass has already printed its last line. systemd sends
+# SIGTERM to every process in the unit's cgroup (KillMode=control-group is the default) and escalates
+# to SIGKILL when this expires, and the unit is not `inactive` until that has finished -- while
+# `OnUnitInactiveSec=` on the timer starts counting its interval only at that moment. So this number
+# is precisely how long one descendant that ignores SIGTERM can hold the whole queue. Measured 8 Nov:
+# a Wine grandchild a tick had spawned (`C:\windows\system32\winedevice.exe`, started 14 s into the
+# activation) was still in the cgroup with the main process gone -- `ActiveState=deactivating
+# SubState=stop-sigterm MainPID=0 TasksCurrent=10` -- while the timer read `active`/`running` with an
+# empty `TriggerNextElapseUSecRealtime` and did not fire for 1 h 07 min. Nothing legitimate is running
+# at that point, so what the deadline is waiting for is a process that is not going to die: 60 s is
+# generous for reaping a process group, and 60 s is the whole outage now instead of 91 minutes.
+#
+# Deliberately not an environment override, unlike every other number here. START is a property of the
+# budget this machine gives a pass; this one is a property of how long a reaper should wait. A knob for
+# it is one setting away from re-merging the two numbers, and the merge is the defect.
+STOP_TIMEOUT=60
 
 systemctl_user() {
 	if [ "$DRY_RUN" = "1" ]; then
@@ -144,10 +173,82 @@ EOF
 pos_base=$(factory_supervisor_base)
 pos_base=${pos_base#refs/remotes/}
 
+# Which checkout the loop runs TODAY, read off the unit that is installed, before this script says
+# anything about it (#260). The sentences this replaces asserted `The unit execs
+# $FACTORY_ROOT/factory/factory.sh` -- composed from the template this script is about to write, never
+# asked of the unit -- and on 10 Nov that claim was false: the installed unit execed
+# `wt/factory-harness`, this refusal was about `parental-lockout`, and the operator was sent to
+# fast-forward a tree the loop never ran while the tree that did run sat 38 commits behind and was
+# never named.
+UNIT_FILE="$UNITS/$NAME.service"
+inst_rc=0
+inst_tree=$(factory_installed_tree "$UNIT_FILE") || inst_rc=$?
+
+# What the installed unit says runs, and where that tree stands. Printed by every refusal arm,
+# because the question an operator is actually asking is "is the loop running merged code", and until
+# #260 the answer was computed for whichever tree `--install` happened to be pointed at.
+describe_installed() {
+	local ipos='' irc=0 isha='' ibran='' ibehind='' iahead='' idirty=''
+	if [ "$inst_rc" != 0 ]; then
+		case "$inst_rc" in
+		1)
+			printf '  No unit is armed at %s, so nothing runs today.\n' "$UNIT_FILE" >&2
+			printf '  This install would arm %s.\n\n' "$FACTORY_ROOT" >&2
+			;;
+		4)
+			printf '  A unit file at %s cannot be read, so which checkout the loop runs today\n' "$UNIT_FILE" >&2
+			printf '  is unknown. Read it before installing over it (#260).\n\n' >&2
+			;;
+		*)
+			printf '  The unit at %s does not exec this harness (ExecStart=%s), so no checkout\n' \
+				"$UNIT_FILE" "${inst_tree:-nothing}" >&2
+			printf '  here describes what the loop runs today. Read it before installing over it (#260).\n\n' >&2
+			;;
+		esac
+		return 0
+	fi
+	if [ "$inst_tree" = "$FACTORY_ROOT" ]; then
+		printf '  The installed unit execs this checkout, so this tree IS the supervisor: every merge\n' >&2
+		printf '  since its checkout is invisible to the loop that exists to act on them, and every\n' >&2
+		printf '  other check in this harness reads healthy while that is true (#249).\n\n' >&2
+		return 0
+	fi
+	printf '  Two trees are in play. The loop runs today from the one the unit execs: %s\n' "$inst_tree" >&2
+	printf '  The unit execs %s/factory/factory.sh, NOT %s/factory/factory.sh (#260).\n' \
+		"$inst_tree" "$FACTORY_ROOT" >&2
+	irc=0
+	ipos=$(factory_supervisor_position "$inst_tree") || irc=$?
+	case "$irc" in
+	0)
+		IFS=$'\t' read -r isha ibran ibehind iahead idirty <<EOF
+$ipos
+EOF
+		printf '  That tree is at %s on %s: %s %s behind %s' "$isha" "$ibran" "$ibehind" \
+			"$(factory_plural "$ibehind")" "$pos_base" >&2
+		[ "$iahead" = "0" ] || printf ', %s ahead of it' "$iahead" >&2
+		[ "$idirty" = "0" ] || printf ', %s uncommitted' "$idirty" >&2
+		printf '.\n' >&2
+		;;
+	2)
+		printf '  git cannot read %s, so the position of the tree that runs is unknown.\n' "$inst_tree" >&2
+		;;
+	*)
+		printf '  %s cannot resolve %s, so the position of the tree that runs is unknown.\n' \
+			"$inst_tree" "$pos_base" >&2
+		;;
+	esac
+	printf '\n  The tree above is the code the queue is running right now. This install replaces\n' >&2
+	printf '  the unit, so after it the loop moves to:\n    %s\n' "$FACTORY_ROOT" >&2
+	printf '  Fix both, or read the journal the way it will read: a healthy-looking pass, from a\n' >&2
+	printf '  stale tree nothing here reported as stale.\n\n' >&2
+	return 0
+}
+
 if [ "$pos_rc" -eq 2 ]; then
 	printf 'install-timer: %s is not a readable git checkout, so there is no way to say what code the unit would run.\n' \
 		"$FACTORY_ROOT" >&2
-	printf '  The unit execs %s/factory/factory.sh. Point the install at a real checkout:\n' "$FACTORY_ROOT" >&2
+	describe_installed
+	printf '  Point the install at a real checkout:\n' >&2
 	printf '      FACTORY_ROOT=<checkout> %s --install\n' "$0" >&2
 	exit 1
 fi
@@ -157,6 +258,7 @@ if [ "$pos_rc" -eq 3 ] && [ "$FORCE" != "1" ]; then
 	printf '  Nothing here can say whether this tree is merged code, and installing it arms a timer\n' >&2
 	printf '  running code nobody has checked against the trunk. Fetch the trunk or move the tree:\n\n' >&2
 	printf '      git -C %s fetch origin %s\n\n' "$FACTORY_ROOT" "${FACTORY_BASE:-main}" >&2
+	describe_installed
 	printf '  --force installs it anyway.\n' >&2
 	exit 1
 fi
@@ -170,9 +272,7 @@ if [ "$pos_rc" -eq 0 ] && { [ "$pos_behind" != "0" ] || [ "$pos_ahead" != "0" ];
 	[ "$pos_ahead" = "0" ] || printf ', %s ahead of it' "$pos_ahead" >&2
 	[ "$pos_dirty" = "0" ] || printf ', %s uncommitted' "$pos_dirty" >&2
 	printf '.\n' >&2
-	printf '  The unit execs %s/factory/factory.sh, so this tree IS the supervisor: every merge\n' "$FACTORY_ROOT" >&2
-	printf '  since its checkout is invisible to the loop that exists to act on them, and every other\n' >&2
-	printf '  check in this harness reads healthy while that is true (#249).\n\n' >&2
+	describe_installed
 	if [ "$pos_ahead" = "0" ]; then
 		# A pure fast-forward exists here, so name it. This is the only arm allowed to: a fork has no
 		# fast-forward, and sending an operator to a command git refuses is its own wasted evening.
@@ -251,7 +351,9 @@ render() {
 		-e "s#@PATHS@#$(sed_replacement "$BIN_DIRS:/usr/local/bin:/usr/bin:/bin")#g" \
 		-e "s#@INTERVAL@#$(sed_replacement "$INTERVAL")#g" \
 		-e "s#@STOP@#$(sed_replacement "$STOP")#g" \
+		-e "s#@STOP_TIMEOUT@#$(sed_replacement "$STOP_TIMEOUT")#g" \
 		-e "s#@REVIEWER@#$(sed_replacement "$FACTORY_REVIEWER")#g" \
+		-e "s#@REVIEWER_TEAM@#$(sed_replacement "$FACTORY_REVIEWER_TEAM")#g" \
 		-e "s#@AGENT@#$(sed_replacement "$FACTORY_AGENT")#g" \
 		-e "s#@HALT_EXIT@#$(sed_replacement "$FACTORY_EXIT_HALT")#g"
 }
@@ -282,6 +384,21 @@ ExecStart=@REPO@/factory/factory.sh
 # The unit reads none of your shell profile: name the directories gh and opencode live in.
 Environment=PATH=@PATHS@
 Environment=FACTORY_REVIEWER=@REVIEWER@
+# Both halves of the review target, and the pair is the point. A review request goes to a TEAM by
+# default (#241) with an individual as the override, so a unit that named only `FACTORY_REVIEWER`
+# would bake a person into the install and the poke would keep asking one account long after the file
+# was changed to ask the team. The team line is the SLUG, and an empty one
+# (`Environment=FACTORY_REVIEWER_TEAM=`) is the documented override that
+# means "ask the individual on this repository": systemd reads `Environment=VAR=` as an empty value,
+# and common.sh reads the defaults with `${VAR-default}` so that empty survives instead of being
+# refilled with workers.
+Environment=FACTORY_REVIEWER_TEAM=@REVIEWER_TEAM@
+# Which unit this is, so the pass can read its own `ExecStart` back (#260). `install-timer.sh --name`
+# lets a person rename the pair, and a name chosen on a command line is recorded nowhere else a later
+# activation can read: without this line a pass has to resolve the file from the repository's name,
+# which is the same answer only for a default install. It belongs in the unit and not in a file this
+# repository owns because the answer is a property of the install, exactly like the PATH above.
+Environment=FACTORY_SERVICE_UNIT=@NAME@.service
 # Not a convenience, and not the same thing as WorkingDirectory above. The CLI takes its project --
 # the agent, the agent's deny rules, and the skill the instruction points at -- from $PWD, and
 # chdirs there; a unit chdirs and exports no PWD, so the CLI never moves and the session opens in
@@ -290,11 +407,9 @@ Environment=FACTORY_REVIEWER=@REVIEWER@
 # defined out there. factory.sh sets the same variable at the call site too, so a pass started from a
 # terminal is correct as well; this line is the half a person can see in systemctl cat.
 Environment=PWD=@REPO@
-# Both bounds are the same number, and both are wider than FACTORY_BUDGET.
-#
-# TimeoutStopSec: systemd kills a oneshot at this point on stop, and a tick killed mid-commit leaves a
-# dirty worktree -- which the next pass finds, refuses to touch, and halts on. Deriving it from the
-# budget at the top of the generator is what keeps the two numbers from drifting apart.
+# Two numbers, because they bound two different moments. Until 8 Nov they were one token, and that
+# coupling is why the queue went silent for 1 h 07 min while every status command said it was fine --
+# `docs/factory.md` carries the measurement and the reasoning; the short version is below.
 #
 # TimeoutStartSec is written down because the default for this Type is not a number anybody would
 # guess. systemd.service(5): TimeoutStartSec "Defaults to DefaultTimeoutStartSec= set in the manager,
@@ -307,7 +422,17 @@ Environment=PWD=@REPO@
 # journal line a pass as the only symptom. An explicit start deadline is the whole fix, and it is here
 # rather than in a comment because a default that depends on `Type` is a default that changes when
 # someone changes `Type`.
-TimeoutStopSec=@STOP@
+#
+# TimeoutStopSec bounds the reaping, after the pass has said its last line: SIGTERM to the whole
+# cgroup, SIGKILL when this expires, and the unit is not `inactive` until that is done -- and the
+# timer's `OnUnitInactiveSec=`, the setting that re-arms the queue, starts its interval at that
+# moment. So this value is exactly how long one descendant that ignores SIGTERM can hold the factory:
+# a leaked `winedevice.exe` sat in this unit's cgroup on 8 Nov with the main process already gone
+# (`SubState=stop-sigterm`, `MainPID=0`, `TasksCurrent=10`) and the timer held no elapse for an hour.
+# What it is NOT is the guard against a tick being killed mid-commit -- that is TimeoutStartSec above,
+# because the start deadline is the one that fires while the pass is still running. Nothing legitimate
+# is executing during stop, which is why this one is a minute and the other is the budget.
+TimeoutStopSec=@STOP_TIMEOUT@
 TimeoutStartSec=@STOP@
 # A halt is not a failure, and saying so is not decoration. `factory/factory.sh` exits
 # FACTORY_EXIT_HALT when factory/HALT exists, and until this line existed the very first halted pass
@@ -386,6 +511,13 @@ if [ "$DRY_RUN" = "1" ]; then
 	printf 'DRY-RUN  write %s\n%s\n' "$TIMER" "$timer_unit"
 	printf 'DRY-RUN  systemctl --user daemon-reload && systemctl --user enable --now %s.timer\n' "$NAME"
 	printf 'DRY-RUN  (or, if the timer is already active) systemctl --user daemon-reload && systemctl --user restart %s.timer\n' "$NAME"
+	if [ "$inst_rc" -eq 0 ] && [ "$inst_tree" != "$FACTORY_ROOT" ]; then
+		# The part of an install that is not a file write: it moves which checkout the loop runs, and
+		# with it the journal, the HALT path, and the tree a tick may dirty (#260). Printed here too,
+		# because a dry run exists to show what the real one would do.
+		printf 'DRY-RUN  the loop MOVES from %s to %s\n' "$inst_tree" "$FACTORY_ROOT"
+		printf 'DRY-RUN   (journal, HALT path, and the working tree a tick may dirty both move with it)\n'
+	fi
 	exit 0
 fi
 
@@ -427,8 +559,28 @@ if [ "$linger" = "no" ]; then
 	log_event "LINGER-OFF user=$(id -un) timer=$NAME"
 fi
 
+# Which checkout the loop runs is part of what an install *does*, and it is operator-visible in three
+# places that all go quiet at the same moment: the journal path (it lives inside the tree), the HALT
+# path, and the working tree a tick may dirty. On 10 Nov it happened as the side effect of clearing an
+# install refusal -- `TIMER-INSTALLED` at 13:39:05Z in one tree's log, the next `PASS` in another
+# tree's -- and the operator reading the old path had nothing in that file explaining the silence.
+# So the move gets its own journal line and its own sentence in the block a person reads.
+if [ "$inst_rc" -eq 0 ] && [ "$inst_tree" != "$FACTORY_ROOT" ]; then
+	log_event "UNIT-TREE old=$inst_tree new=$FACTORY_ROOT unit=$NAME"
+fi
 log_event "TIMER-INSTALLED $NAME interval=$INTERVAL repo=$FACTORY_ROOT"
 printf '\nInstalled:\n  %s\n  %s\n\n' "$SERVICE" "$TIMER"
+if [ "$inst_rc" -eq 0 ] && [ "$inst_tree" != "$FACTORY_ROOT" ]; then
+	# What is asserted here is only what the unit file says: the path it execs changes. Not that the
+	# old path is a readable checkout -- an ExecStart aimed at a directory git cannot read, or at a
+	# second repository that carries this same `factory/factory.sh` shape, is still a path the timer
+	# ran, and that is the fact the operator needs before the old journal goes quiet.
+	printf '  The loop MOVES. The unit installed today execs:\n    %s\n' "$inst_tree"
+	printf '  this install replaces it with one that execs:\n    %s\n\n' "$FACTORY_ROOT"
+	printf '  That changes the journal, the HALT path, and which working tree a tick may dirty. An\n'
+	printf '  operator tailing the old journal will watch a healthy queue go silent at this moment:\n\n'
+	printf '    %s\n\n' "$inst_tree/factory/log/supervisor.log"
+fi
 systemctl --user list-timers "$NAME.timer" --no-pager 2>&1 | sed -n '1,3p'
 printf '\nJournal:  journalctl --user -u %s.service -n 50\nRemove:   %s --remove\n' \
 	"$NAME" "$0"

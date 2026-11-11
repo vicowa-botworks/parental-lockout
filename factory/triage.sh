@@ -12,6 +12,7 @@
 #   pr      240       address_review       review asked for changes …     …       240    <the ask>
 #   pr      240       review_unreadable    21 bytes of body, no ask       …       240    -
 #   issue   213       unclaimed            <title>                        -       213    -
+#   issue   199       unclaimed            [merged:PR#229 on `issue-199`  -       199    -
 #   issue   232       delivered            delivered by merged PR #234 …  -       232    -
 #   branch  fix/x     branch_without_pr    2 ahead of main, no open PR    fix/x   -      -
 #
@@ -61,7 +62,10 @@ thing that needs something (or, for `delivered`, one row per thing that needs no
   class  merge_now | conflict | checks_failing | checks_pending | address_review |
          review_unreadable | needs_reviewer | awaiting_review | awaiting_merge | draft |
          unclaimed | delivered | branch_without_pr
-  detail why that class, with the timestamps the verdict was made from
+  detail why that class, with the timestamps the verdict was made from. One `unclaimed` row may open
+         with `$FACTORY_MERGED_MARK` -- a merged pull request named the issue and the sole-claim or
+         `Part of` arm refused it, so part of this ticket may already be on the trunk. The class and
+         the tick are unchanged; see the refused-claim block.
   branch the PR head / orphan branch
   issue  the issue GitHub says the PR closes, when there is one
   ask    the reviewer's own words for `address_review`, bounded at
@@ -160,15 +164,30 @@ pr_rows=$(printf '%s' "$pr_json" | jq -r "
 # doing nothing for ten minutes.
 CLOSING_OK=1
 queue_json=$(gh api graphql \
-	-f query='query($o:String!,$n:String!){repository(owner:$o,name:$n){pullRequests(states:OPEN,first:100){nodes{number closingIssuesReferences(first:20){nodes{number}}}}issues(states:OPEN,first:100){nodes{number stateReason}}}}' \
+	-f query='query($o:String!,$n:String!){repository(owner:$o,name:$n){pullRequests(states:OPEN,first:100){pageInfo{hasNextPage}nodes{number closingIssuesReferences(first:20){nodes{number}}}}issues(states:OPEN,first:100){pageInfo{hasNextPage}nodes{number stateReason}}}}' \
 	-f o="$FACTORY_OWNER" -f n="$FACTORY_NAME" 2>/dev/null) ||
 	queue_json=''
 
 # Both halves come out of the one payload, so `delivered` cannot cost a second call. Either half
 # failing means the payload is not what was asked for, and the whole issue side of the table is
 # skipped for the pass rather than rebuilt from a guess.
+#
+# A payload that answers PART of the question is the same hazard wearing a friendlier face, and both
+# connections here are capped at `first:100` -- eleven open issues today, so the cap is invisible
+# until the day it is not. A truncated issue list does not merely miss a `delivered` row: the
+# `stateReason` veto for the reopened issue it fell off disappears, and a claim that lost its only
+# veto reads as delivered -- the one mistake this class was built to refuse. A truncated PR list
+# hides an OPEN claim, which is the duplicate-tick failure H-0053 was written about, arriving because
+# the queue has more pull requests than the read asks for. So each connection is asked for
+# `pageInfo{hasNextPage}` and `true` on either one routes into the same refusal as a payload that
+# did not answer at all. `false` on BOTH is the only answer that clears it: a missing `pageInfo` is
+# not a `false`, it is a payload that is not the one that was asked for, and tie-break 3 keeps that
+# reading on the refusal side. The bound itself is not a verdict either way -- `hasNextPage` says the
+# read stopped, which is a different sentence from "nothing is delivered", and it is printed as its
+# own line so a log can tell the two apart.
 closing_json=''
 reopen_json=''
+queue_truncated=''
 if [ -n "$queue_json" ]; then
 	closing_json=$(printf '%s' "$queue_json" | jq -c \
 		'[.data.repository.pullRequests.nodes[]|{n:.number,c:[.closingIssuesReferences.nodes[].number]}]' 2>/dev/null) ||
@@ -178,12 +197,25 @@ if [ -n "$queue_json" ]; then
 	reopen_json=$(printf '%s' "$queue_json" | jq -c \
 		'[.data.repository.issues.nodes[]|{(.number|tostring):(.stateReason // "NONE")}] | add // {}' 2>/dev/null) ||
 		reopen_json=''
+	# Deliberately not `if … then "yes" else "no"`: `all(… == false)` makes the explicit `false` the
+	# only clearing value, so null (a renamed field, a payload with the connection missing) lands on
+	# the refusal side rather than the verdict side. A jq that cannot answer is `yes` as well, by the
+	# `||`, because a scan nobody read is not a scan that found nothing.
+	queue_truncated=$(printf '%s' "$queue_json" | jq -r \
+		'[.data.repository.pullRequests.pageInfo.hasNextPage, .data.repository.issues.pageInfo.hasNextPage]
+		 | if all(.[]; . == false) then "no" else "yes" end' 2>/dev/null) ||
+		queue_truncated='yes'
 fi
 if [ -z "$closing_json" ] || [ -z "$reopen_json" ]; then
 	CLOSING_OK=0
 	closing_json='[]'
 	reopen_json='{}'
 	printf 'triage: the queue payload did not answer; issues skipped this pass\n' >&2
+elif [ "$queue_truncated" = "yes" ]; then
+	CLOSING_OK=0
+	closing_json='[]'
+	reopen_json='{}'
+	printf 'triage: the queue read stopped at its pagination bound (first:100); issues skipped this pass\n' >&2
 fi
 
 issue_for_pr() {
@@ -279,8 +311,39 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 		ask_bytes=${ask_verdict##* }
 		ask_verdict=${ask_verdict%% *}
 	fi
+	# A review ROW is not a verdict, and counting rows is the wrong question. `DISMISSED` is what every
+	# approval on a pull request becomes the moment anybody pushes to it -- this repository does not carry
+	# a stale approval across a new head -- and `COMMENTED` was never a verdict whatever the endpoint
+	# calls it. Measured on #269 (10 Nov) across one fast-forward push: one `DISMISSED` row and an empty
+	# `/requested_reviewers` printed `WAIT pr:269 awaiting_review` in the supervisor's journal at
+	# 19:17:23Z, where the never-reviewed case had printed `POKED pr:269` at 17:58:17Z. The row survived
+	# the push; the review did not. #272.
+	#
+	# A payload that cannot be read leaves all three at their refusal values, and the refusal asks: an
+	# unreadable `/reviews` answers `verdicts=0` and lands in the arm below, which costs one throttled
+	# `gh` call. The other direction is the silence every arm above exists to prevent.
 	any_review=$(printf '%s' "$reviews" | jq -r 'length' 2>/dev/null || printf '0')
-	requested=$(api_get "pulls/$number/requested_reviewers" '[.users[].login]|join(",")' '')
+	verdicts=$(printf '%s' "$reviews" |
+		jq -r '[.[] | select((.state // "") == "APPROVED" or (.state // "") == "CHANGES_REQUESTED")] | length' \
+			2>/dev/null || printf '0')
+	# The newest voided verdict, in the shape a person reads off a journal line: who filed it and the
+	# commit it was filed against, at the seven characters every other sha in this file uses.
+	# `commit_id` is REST's field for `gh pr view --json reviews`'s `commit.oid`, and it is the reviewed
+	# commit, NOT the moment of the dismissal -- there is no dismissal timestamp anywhere in the payload,
+	# and `submitted_at` on a voided row is still the approval's own stamp, twenty minutes before the
+	# push that voided it on #269. So the sentence names the push and never a time.
+	voided=$(printf '%s' "$reviews" |
+		jq -r '[.[] | select((.state // "") == "DISMISSED")] | max_by(.submitted_at // "")
+			| if . == null then ""
+			  else "\(.user.login // "someone") at \(if .commit_id then (.commit_id[0:7]) else "an unreadable commit" end)"
+			  end' 2>/dev/null || printf '')
+	# The program is `$JQ_REQUESTED_LIST` (common.sh), shared with the poke's own read-back so the two
+	# cannot disagree about who holds a request. It counts `teams[]` as well as `users[]`, because that
+	# is where a request addressed to a team lands -- and a row that called one `needs_reviewer` would
+	# hand it back to the poke every FACTORY_REVIEW_POKES for a request that is already outstanding.
+	# The `team:` prefix is what makes the detail column say who was asked instead of blending a team
+	# into a list of logins.
+	requested=$(api_get "pulls/$number/requested_reviewers" "$JQ_REQUESTED_LIST" '')
 	head_date=$(api_get "commits/$oid" '.commit.committer.date' '')
 
 	case "$mergeable" in
@@ -352,11 +415,22 @@ while IFS=$'\x1f' read -r number title branch draft decision mergeable merge_sta
 		;;
 	esac
 
-	# No decision at all. Measured 4 Nov: #212, #214 and #215 had zero rows in /reviews and zero
+	# No verdict that still stands. Measured 4 Nov: #212, #214 and #215 had zero rows in /reviews and zero
 	# entries in /requested_reviewers three days after opening. That is not a slow reviewer, it is
 	# an unaddressed PR, and the two look identical to anything that reads only reviewDecision.
-	if [ "$any_review" = "0" ] && [ -z "$requested" ]; then
-		rows+="$(emit pr "$number" needs_reviewer "no review and nobody asked since it opened ($updated)" "$branch" "$issue")"$'\n'
+	#
+	# The question is now "is there a verdict", not "are there rows", and the three details are the three
+	# ways to have no answer: never reviewed (the 4 Nov shape, whose sentence the legs pin unchanged),
+	# reviewed without approving (`COMMENTED`, which `reviewDecision` reads as REVIEW_REQUIRED exactly as
+	# it reads a dismissal), and reviewed then voided by a push -- the last one printed a wait until #272.
+	if [ "$verdicts" = "0" ] && [ -z "$requested" ]; then
+		if [ -n "$voided" ]; then
+			rows+="$(emit pr "$number" needs_reviewer "every verdict voided by a push ($voided); nobody holds a request" "$branch" "$issue")"$'\n'
+		elif [ "$any_review" != "0" ]; then
+			rows+="$(emit pr "$number" needs_reviewer "no verdict, $any_review comment row(s); nobody holds a request since it opened ($updated)" "$branch" "$issue")"$'\n'
+		else
+			rows+="$(emit pr "$number" needs_reviewer "no review and nobody asked since it opened ($updated)" "$branch" "$issue")"$'\n'
+		fi
 	elif [ "$checks" = "pending" ]; then
 		rows+="$(emit pr "$number" checks_pending "checks running; request outstanding with ${requested:-nobody}" "$branch" "$issue")"$'\n'
 	else
@@ -406,8 +480,16 @@ done <<<"$pr_rows"
 # why the row is printed instead of dropped. Dropping it is what the `unclaimed` channel does with an
 # over-claim, and that is the lesson the open-body scan above carries in its own comment -- a dropped
 # issue is work nobody will look for again.
+# `headRefName` is in this field list for the refused-claim note below, and it is NOT an input to
+# either verdict: `delivered` still reads four facts and no branch name. It is carried because it is
+# the one fact that tells a reader whether a merged body was written FOR this ticket (`issue-235`) or
+# merely mentions it while delivering another (`issue-253` naming #251, measured 10 Nov) -- and as a
+# verdict a branch name is measurably false. Three merged pull requests sit on the branch `issue-199`
+# (#229, #240, #243), #231 and #236 both sit on `issue-228`, and #254 was merged on `issue-246` under
+# a `Part of #246` that #246 is still open to finish. So it is evidence handed to the reader and never
+# the thing the scan decides with (H-0108).
 merged_json=$(gh pr list --state merged --limit "$FACTORY_DELIVERED_WINDOW" \
-	--json number,body,mergedAt,baseRefName 2>/dev/null || printf '')
+	--json number,body,mergedAt,baseRefName,headRefName 2>/dev/null || printf '')
 if [ -z "$merged_json" ]; then
 	printf 'triage: merged pull requests unreadable; nothing is reported delivered this pass\n' >&2
 	merged_json='[]'
@@ -463,6 +545,66 @@ if ! printf '%s' "$delivered_map" | jq -e 'type == "object"' >/dev/null 2>&1; th
 	delivered_map='{}'
 fi
 
+# ------------------------------------------------------- the claims the arms refused (#277)
+#
+# The arms above refuse a claim for two reasons, and both of them are honest: a body naming several
+# issues does not say which ones it finished, and `Part of #N` is this repository's own spelling of
+# partial work. Refusing is right. What was wrong is that the refusal was then thrown away, so the
+# next tick started from nothing and re-derived the answer by hand. Measured in the supervisor's own
+# journal: `TICK-START unclaimed:235 2026-11-10T22:57:23Z`, `TICK-DONE 23:14:23Z` -- seventeen minutes
+# of ceiling to discover that PR #238, merged 8 Nov on branch `issue-235` under a body naming eight
+# issues, had already delivered #235's three requirements. The classifier had read that body, had
+# refused it, and had said nothing about the refusal to anybody.
+#
+# So the refusal is kept and carried: this map holds, per issue, the newest MERGED claim that named it
+# and was refused, with the reason the arms gave. It changes no verdict -- the class stays `unclaimed`,
+# the tick still runs, nothing is closed, and `delivered` still needs all five facts it always needed.
+# That is deliberate, and it is what separates this from the two shapes #277 proposed:
+#
+#   * A branch name is not a verdict. #254 merged on `issue-246` under `Part of #246` and #246 is
+#     still open with a requirement nobody has built; #255 merged on `issue-253` naming #251 beside
+#     #253, and `factory/selftest.sh` carries the record that #253's third instruction was reported
+#     delivered by #255 and was not on `main`. Both would have been claimed by a branch-shaped signal.
+#   * A class that starts no tick retires real work. #253 was refused by the count arm at #255 and
+#     NEEDED the tick that row dispatched: #257 delivered it five hours later. #246 is in the queue as
+#     `unclaimed` right now, on the strength of a refusal that was correct.
+#
+# The note is therefore evidence for the reader the arms decline to be, and the veto pair below is the
+# same pair the verdict uses: an issue that spoke after the merge has already been re-queued by a
+# person, and an issue whose closure was once rejected has already proved it needs one. Neither is
+# given a note, because in both cases somebody has already read exactly this.
+refused_map=$(printf '%s' "$merged_json" | jq -c --arg base "$FACTORY_BASE" --arg re "$CLAIM_RE" '
+  def claims: (.body // "") as $b
+    | [ $b | scan($re) | . as $p
+        | [ $p | scan("#[1-9][0-9]*") | {phrase: $p, n: (ltrimstr("#") | tonumber)} ] ]
+    | flatten;
+  [ .[]
+    | select(.baseRefName == $base)
+    | select((.mergedAt // "") != "")
+    | . as $p
+    | claims as $all
+    | ($all | unique_by(.n) | length) as $k
+    | ($all | map(.phrase | ascii_downcase | startswith("part of")) | any) as $partial
+    | $all[]
+    | ( (if $k == 1 then [] else ["names it in a \($k)-issue body"] end)
+      + (if $partial then ["a `Part of` phrase in the same body"] else [] end) ) as $why
+    | select(($why | length) > 0)
+    | {n, pr: $p.number, at: $p.mergedAt, branch: ($p.headRefName // ""), why: $why}
+  ]
+  | group_by(.n)
+  | map(max_by(.at) + {bodies: (map(.pr) | unique | length)})
+  | map({(.n | tostring): .}) | add // {}' 2>&1) || :
+# Same `|| :` and the same reason: under `set -e` a failed substitution in an assignment ends the
+# pass, and the second scan must not be able to take the table -- or the first scan's verdicts -- down
+# with it. Checked by shape for the same reason as the map above: `{}` is a legitimate answer, so only
+# the shape says whether the scan ran. What is lost when it does not is the note and nothing else, and
+# that is said out loud rather than left as a silently shorter row.
+if ! printf '%s' "$refused_map" | jq -e 'type == "object"' >/dev/null 2>&1; then
+	printf 'triage: the refused-claim scan refused, so an `unclaimed` row says nothing about merged bodies: %s\n' \
+		"${refused_map:0:200}" >&2
+	refused_map='{}'
+fi
+
 # The verdict for one open issue, or nothing when nothing may be claimed about it. `updated` is the
 # issue's own last activity and the comparison is on the first nineteen characters of GitHub's
 # second-precision UTC stamps, so a payload that grew milliseconds cannot invert it. An unreadable
@@ -484,6 +626,32 @@ delivered_claim() { # delivered_claim <issue> <issue updatedAt>
 		# itself instead of quietly reproducing the bug.
 }
 
+# The refused-claim note for one open issue, or nothing. Three answers are nothing, and each of them
+# is a different reason: no merged body named it at all (a stranger, not a refused claim -- the
+# #149 case, where #218's "Not here: #149's per-control commit policy" carries no verb and so is not a
+# claim for either scan), the issue spoke after the merge (a person has re-queued it deliberately), or
+# a closure of it was already rejected (a person has already read exactly this). The stamp comparison
+# is the same nineteen characters `delivered_claim` uses, so the two scans cannot disagree about
+# whether an issue has been quiet.
+refused_note() { # refused_note <issue> <issue updatedAt>
+	printf '%s' "$refused_map" | jq -r \
+		--argjson n "$1" --arg updated "${2:-}" --arg mark "$FACTORY_MERGED_MARK" '
+		.[$n | tostring] as $c
+		| if $c == null then ""
+		  elif $updated == "" then ""
+		  elif ($updated[0:19]) > ($c.at[0:19]) then ""
+		  else
+		    $mark + ($c.pr | tostring)
+		    + (if $c.branch == "" then "" else " on `\($c.branch)`" end)
+		    + " at \($c.at) -- \($c.why | join("; "))"
+		    + (if $c.bodies > 1 then " (\($c.bodies) merged bodies name it)" else "" end)
+		    + "] "
+		  end' || printf ''
+	# No `2>/dev/null`, for the reason `delivered_claim` carries: an empty answer here is invisible in
+	# the table, so a refusal has to be able to speak. Without the redirect a jq complaint on stderr
+	# names the payload that broke, and the row that quietly lost its note does not.
+}
+
 # Has a closure of this issue already been rejected? `REOPENED` is GitHub's own record of it, and one
 # rejection is enough to disqualify the mechanical verdict for good: an issue that has already had a
 # fix declared satisfied and withdrawn has, by the record, proved it needs a reader.
@@ -494,8 +662,17 @@ was_reopened() { # was_reopened <issue>
 # --------------------------------------------------------------------- issues
 
 if [ "$CLOSING_OK" = "1" ]; then
+	# The row list has a bound of its own, and it fails differently from the one above: a GraphQL
+	# connection that stops mid-page loses a veto and can hand out a false `delivered`, while 101
+	# open issues simply means the 101st gets no row at all -- not `unclaimed`, not `delivered`,
+	# nothing. That is silent today, and silence about a bound is how a queue comes to be read as a
+	# census. The counter costs nothing and the sentence names the number, so an operator can see
+	# the table has stopped short instead of concluding the repository has no more open work.
+	issue_limit=100
+	issue_rows=0
 	while IFS=$'\x1f' read -r number title updated; do
 		[ -n "${number:-}" ] || continue
+		issue_rows=$((issue_rows + 1))
 		# GitHub says an open PR closes it, or an open PR body claims it with a verb.
 		if printf '%s' "$claimed_issues" | jq -e --argjson n "$number" 'index($n) != null' >/dev/null 2>&1; then
 			continue
@@ -522,11 +699,32 @@ if [ "$CLOSING_OK" = "1" ]; then
 			# column's job (H-0055).
 			rows+="$(emit issue "$number" delivered "$claim (window $FACTORY_DELIVERED_WINDOW)" '' "$number")"$'\n'
 		else
-			rows+="$(emit issue "$number" unclaimed "$title" '' "$number")"$'\n'
+			# The refusal travels with the row instead of being dropped (#277). A tick that arrives at
+			# this issue knowing `merged PR #229 named it on `issue-199` and the sole-claim rule
+			# refused` starts from a diff to read; the same tick without the note starts from zero and
+			# spends the ceiling re-deriving what the scan already knew, which is the seventeen minutes
+			# measured above. It is put at the START of the detail because `factory.sh` matches the
+			# marker anchored there, and what follows it is a title somebody typed.
+			#
+			# The class does not move. This row is still `unclaimed`, it still gets its tick, and the
+			# only thing that changes is what the tick is told on the way in -- because the refusal
+			# being right is exactly why the issue must keep being worked: #246 is here now, refused by
+			# a `Part of` that told the truth about unfinished work.
+			note=''
+			if ! was_reopened "$number"; then
+				note=$(refused_note "$number" "$updated")
+			fi
+			rows+="$(emit issue "$number" unclaimed "${note}${title}" '' "$number")"$'\n'
 		fi
-	done < <(gh issue list --state open --limit 100 --json number,title,updatedAt \
+	done < <(gh issue list --state open --limit "$issue_limit" --json number,title,updatedAt \
 		--jq '.[] | [.number, (.title | gsub("[\t\r\n]"; " ")), (.updatedAt // "")] | join("\u001f")' 2>/dev/null) ||
 		printf 'triage: gh issue list failed; the issue half is empty this pass\n' >&2
+	# `>=`, so exactly 100 warns too and the sentence is worded for that: it says the read is AT its
+	# limit, not that work is waiting past it, because the read cannot tell those two apart either.
+	if [ "$issue_rows" -ge "$issue_limit" ]; then
+		printf 'triage: the open-issue read is at its own limit (%s rows); an issue past it gets no row of any class this pass\n' \
+			"$issue_limit" >&2
+	fi
 fi
 
 # --------------------------------------------------------------------- orphaned branches

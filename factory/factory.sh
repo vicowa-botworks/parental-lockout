@@ -16,7 +16,8 @@
 #   merge_now          merge, after reading    bash, never a model
 #   conflict           merge origin/main in    bash when git resolves it, else one tick
 #   awaiting_review    wait, re-poke, notify   bash, throttled
-#   unclaimed          implement               one tick
+#   unclaimed          implement               one tick (a refused merged claim rides in the
+#                                              instruction as `[merged:PR#…]`, never as a verdict)
 #   address_review     respond to review       one tick, WITH the ask in its prompt
 #   checks_failing     fix red checks          one tick
 #   branch_without_pr  assess stranded work    one tick
@@ -46,7 +47,9 @@ usage: factory.sh [--dry-run] [--max-ticks N] [--budget SECS] [--once] [--status
 --max-ticks N model ticks this pass may start (default FACTORY_MAX_TICKS=3).
 --budget S    stop opening new ticks after S seconds (default FACTORY_BUDGET=5400).
 --once        at most one tick; the same as --max-ticks 1.
---status      print the halt state and the ledger, then exit without reading GitHub.
+--status      print one verdict -- WORKING, IDLE, HALTED or STALLED -- then the halt state and the
+              ledger, and exit without reading GitHub. The verdict is local state only: the halt of
+              9 Nov was exactly the moment a read of GitHub was not the useful one.
 
 A tick runs the `factory` agent in a per-unit worktree through
 `opencode run --auto --agent factory`. The instruction tells it to stop at the pull request and
@@ -70,8 +73,11 @@ while [ $# -gt 0 ]; do
 	--once) FACTORY_MAX_TICKS=1 ;;
 	--status)
 		factory_paths
+		# First line, before the details: the question that makes anyone type this is "is it working",
+		# and the answer used to require reading a journal timestamp and comparing it to `date`.
+		printf 'verdict: %s\n' "$(factory_verdict)"
 		if factory_halted; then
-			printf 'halt:    YES -- %s\n' "$(factory_halt_reason)"
+			printf 'halt:    YES -- %s\n' "$(factory_halt_report)"
 		else
 			printf 'halt:    no\n'
 		fi
@@ -111,6 +117,40 @@ EOF
 			;;
 		esac
 		printf 'repo:    %s\n' "$(git -C "$FACTORY_ROOT" remote get-url origin 2>/dev/null)"
+		# Which checkout the timer is armed to exec (#260). `code:` above answers for the tree you are
+		# standing in, and that is a different question: the incident this line is the answer to was a
+		# unit installed from one checkout while the guard reported on another, and the person holding
+		# the ticket had to read `systemctl --user cat` by hand to find out which tree ran.
+		unit_rc=0
+		unit_tree=$(factory_installed_tree) || unit_rc=$?
+		case "$unit_rc" in
+		0)
+			if [ "$unit_tree" = "$FACTORY_HARNESS" ]; then
+				unit_says='this tree'
+			else
+				unit_says="NOT the tree running this (--status reads $FACTORY_HARNESS)"
+			fi
+			printf 'unit:    %s -- %s\n' "$unit_tree" "$unit_says"
+			;;
+		1)
+			printf 'unit:    none armed at %s -- the loop is not started by systemd on this box\n' \
+				"$(factory_units_dir)/$(factory_service_unit)"
+			;;
+		4)
+			printf 'unit:    %s cannot be read, so what the timer would exec is unknown\n' \
+				"$(factory_units_dir)/$(factory_service_unit)"
+			;;
+		*)
+			printf 'unit:    %s execs %s, which is not this harness'"'"'s script\n' \
+				"$(factory_units_dir)/$(factory_service_unit)" "$unit_tree"
+			;;
+		esac
+		# What the last pass cost the queue to tear down (#246). The line sits here because the question
+		# that makes anyone type `--status` is "is it working", and a held teardown is the failure where
+		# every other line on this output reads healthy: on 8 Nov the pass's own process exited at
+		# 22:18:51Z and the unit did not go inactive until 23:06:55Z, so `verdict:` still had a young
+		# journal, the timer still said `active`, and nothing printed `SubState=stop-sigterm`.
+		printf 'reaping: %s\n' "$(factory_reap_line)"
 		printf 'trees:   %s\n' "$FACTORY_TREES"
 		printf 'journal: %s\n' "$FACTORY_LOG/supervisor.log"
 		printf '\nledger:\n'
@@ -141,7 +181,11 @@ fi
 factory_preflight
 
 if factory_halted; then
-	log_event "HALTED $(factory_halt_reason)"
+	# The marker's age, from the one composer (#237): this line is printed on EVERY activation for
+	# one cause, so without the age a halt that has stood for nine hours and one that is three
+	# seconds old are the same sentence. Measured on this branch: three passes over one
+	# eight-hour-old marker wrote three byte-identical `HALTED` lines.
+	log_event "HALTED $(factory_halt_report)"
 	# Named in the unit's `SuccessExitStatus=`, because a halt is a decision the supervisor made and not
 	# something that broke. See H-0036 for why the difference is not cosmetic.
 	exit "$FACTORY_EXIT_HALT"
@@ -192,14 +236,35 @@ factory_refuseto_work() {
 	esac
 }
 
-# A review request, at most once per FACTORY_REVIEW_POKES per pull request.
+# A review request, at most once per FACTORY_REVIEW_POKES per pull request, addressed to the TEAM when
+# one is configured -- see `FACTORY_REVIEWER_TEAM` in common.sh for why that is the default and an
+# individual the override.
 #
 # Why this exists: `reviewRequests` was empty on #209, #212, #214 and #215 three days after they
 # opened, and REST `/pulls/N/requested_reviewers` was empty too. Nothing had ever asked. Neither
 # `issue-check` nor `review-loop` requests a reviewer, so a pull request could sit in
 # REVIEW_REQUIRED forever with every check reading green.
+#
+# What it must not become is a request nobody can answer. A request names whoever can act on it, so
+# the target comes from `factory_review_target` (common.sh) and the four places that mention it -- the
+# POST, the read-back, the journal line and the --dry-run echo -- print the same thing.
 factory_request_review() {
-	local pr=$1 last age
+	local pr=$1 last age target who arg label
+	target=$(factory_review_target)
+	who=${target#*:}
+	# Neither form configured. Asking nothing is not a silent no-op and it is not a POST with an empty
+	# list either -- GitHub would take that as "no reviewers requested" and the queue would read
+	# `needs_reviewer` again next pass, which is the loop H-0016 exists to end. It is a refusal, on
+	# every pass, until somebody says who to ask. No ledger stamp: the throttle records when a request
+	# was made, and nothing was.
+	if [ -z "$target" ]; then
+		log_event "POKE-NONE pr:$pr nobody is configured to be asked -- set FACTORY_REVIEWER_TEAM=<team slug> or FACTORY_REVIEWER=<login>"
+		return 1
+	fi
+	case "$target" in
+	team:*) arg="team_reviewers[]=$who" label="team $who" ;;
+	user:*) arg="reviewers[]=$who" label="$who" ;;
+	esac
 	last=$(factory_ledger_get "pr:$pr" last-poke)
 	age=$(factory_age "pr:$pr" last-poke)
 	if [ -n "$last" ] && [ "$age" -lt "$FACTORY_REVIEW_POKES" ]; then
@@ -213,17 +278,19 @@ factory_request_review() {
 	# because the CLI's pull-request update query still selects `projectCards`. Measured on #217 and
 	# three others on 4 Nov: every one exited 1 and left `/requested_reviewers` empty. So the request
 	# goes to the REST endpoint the docs give for it, which is also the endpoint this script reads back
-	# -- one route for writing and reading the same fact, so the two cannot disagree.
+	# -- one route for writing and reading the same fact, so the two cannot disagree. The same verb on
+	# #240 the same week: switching that pull request to the team was two calls to this endpoint,
+	# `team_reviewers[]` in and `reviewers[]` out, and the read-back that confirmed it was this GET.
 	if [ "$DRY_RUN" = "1" ]; then
-		printf 'DRY-RUN  gh api -X POST repos/%s/%s/pulls/%s/requested_reviewers -f reviewers[]=%s\n' \
-			"$FACTORY_OWNER" "$FACTORY_NAME" "$pr" "$FACTORY_REVIEWER"
-		log_event "WOULD-POKE pr:$pr request review from $FACTORY_REVIEWER"
+		printf 'DRY-RUN  gh api -X POST repos/%s/%s/pulls/%s/requested_reviewers -f %s\n' \
+			"$FACTORY_OWNER" "$FACTORY_NAME" "$pr" "$arg"
+		log_event "WOULD-POKE pr:$pr request review from $label"
 		return 0
 	fi
 	if run_action gh api -X POST "repos/$FACTORY_OWNER/$FACTORY_NAME/pulls/$pr/requested_reviewers" \
-		-f "reviewers[]=$FACTORY_REVIEWER" --silent; then
+		-f "$arg" --silent; then
 		factory_ledger_now "pr:$pr" last-poke
-		log_event "POKED pr:$pr requested review from $FACTORY_REVIEWER"
+		log_event "POKED pr:$pr asked $label"
 		factory_poke_ask_note "$pr"
 		return 0
 	fi
@@ -231,17 +298,22 @@ factory_request_review() {
 	# nobody. The first is the state wanted and must not be reported as a failure -- but it must not be
 	# counted as a fresh request either, so the two are logged differently. Both stamp the ledger, which
 	# is what keeps the throttle honest and stops a bad username being retried every ten minutes.
+	#
+	# The read-back is `$JQ_REQUESTED_HOLDS` (common.sh), the same program the queue classifier runs
+	# against the same payload. A reader that only knew `users[]` would report a request answered by a
+	# team as POKE-FAILED -- a red journal line about a request sitting right there -- and the two
+	# readers would then disagree about whether anybody had been asked, which is the one fact the whole
+	# class turns on.
 	if gh api "repos/$FACTORY_OWNER/$FACTORY_NAME/pulls/$pr/requested_reviewers" \
-		--jq '[.users[].login] | index($who) != null' --raw-field who="$FACTORY_REVIEWER" \
-		2>/dev/null | grep -q true; then
+		--jq "$JQ_REQUESTED_HOLDS" --raw-field who="$who" 2>/dev/null | grep -q true; then
 		factory_ledger_now "pr:$pr" last-poke
-		log_event "POKE-ALREADY pr:$pr $FACTORY_REVIEWER already holds a request"
+		log_event "POKE-ALREADY pr:$pr $label already holds a request"
 		factory_maybe_notice "pr:$pr" awaiting_review
 		factory_poke_ask_note "$pr"
 		return 0
 	fi
 	factory_ledger_now "pr:$pr" last-poke
-	log_event "POKE-FAILED pr:$pr $FACTORY_REVIEWER could not be requested (404 means the username is wrong; FACTORY_REVIEWER is the override)"
+	log_event "POKE-FAILED pr:$pr $label could not be requested (a team must exist in this organisation and an individual must be a member of the repository; FACTORY_REVIEWER_TEAM=<team slug> and FACTORY_REVIEWER=<login> are the overrides, and a team wants its SLUG)"
 	return 1
 }
 
@@ -462,7 +534,11 @@ factory_resolve_conflict() {
 	# saw: the old line asserted "a person or a dead tick owns it", which on a tree whose bytes match
 	# HEAD is false about the work, and a reader who follows its advice commits nothing, discards
 	# nothing, and halts again next pass.
-	factory_tree_halt CONFLICT-HALTED "pr:$pr" "$tree" || return $?
+	#
+	# `factory_tree_stop`, not `_halt`, since #248: a tree left dirty by a dead tick is mirrored to
+	# `$FACTORY_AT_RISK` and cleaned so the rest of the queue runs, and the halt is what happens when
+	# that cannot be done for certain, or when the same unit goes dirty twice without a tick between.
+	factory_tree_stop CONFLICT-HALTED "pr:$pr" "$tree" || return $?
 
 	# The base is not always `main`. Pull request #215 is based on `fix/audit-row-label` -- another open
 	# pull request, because its capture work needs the audit-row change -- and this function merged
@@ -508,6 +584,11 @@ factory_resolve_conflict() {
 	fi
 	log_event "CONFLICT-RESOLVED pr:$pr merged origin/$base into $branch"
 	factory_ledger_clear "pr:$pr" stuck-since
+	# The one progress a `pr:` unit can make on a conflict, and it ends a quarantine streak for the same
+	# reason a finished tick does -- see `factory_quarantine_after_tick`. This site is not redundant with
+	# that one: the conflict pass's streak is kept under `pr:$pr` while a conflict tick's is kept under
+	# `conflict:<pr>`, two ledger keys, so each needs its own clearing.
+	factory_quarantine_reset "pr:$pr"
 	return 0
 }
 
@@ -557,6 +638,37 @@ factory_tick() {
 	unclaimed)
 		branch="issue-$key"
 		id_line="Issue #$key: $detail"
+		# The classifier's refused-claim note (#277): a merged pull request named this issue and the
+		# sole-claim / `Part of` arms refused the claim, which is why the row is `unclaimed` rather
+		# than `delivered`. The refusal is the honest half; saying nothing about it was the dishonest
+		# half, because the tick then had no way to know the question had already been asked of a
+		# merged body. Measured: `TICK-START unclaimed:235 2026-11-10T22:57:23Z` to `TICK-DONE
+		# 23:14:23Z`, seventeen minutes to work out that PR #238 had delivered #235 three days
+		# earlier, from a row that carried nothing but the title.
+		#
+		# Matched at the START of the detail, against the same literal the classifier writes
+		# (`FACTORY_MERGED_MARK`), because the rest of the column is a title somebody typed: a title
+		# that happened to contain the token must not be able to buy itself an instruction.
+		case "$detail" in
+		"$FACTORY_MERGED_MARK"*)
+			id_line="$id_line
+
+The bracketed note above your title is a REFUSED claim, not a verdict. A merged pull request named
+this issue and the classifier declined to read that as delivery -- the note says which pull request,
+on which branch, when it merged, and which rule refused it. It is not evidence the ticket is done and
+it is not evidence it is not: a body naming several issues does not say which of them it finished,
+and \`Part of\` says only that some of it landed.
+
+So read it before you write anything. \`git log --oneline origin/main\` and \`gh pr diff <N>\` for the
+number in the note, then hold what that pull request changed against each requirement in the ticket.
+If every requirement measures as met on \`main\`, that is the case
+\`.opencode/skills/factory/SKILL.md\` calls \"already satisfied by \`main\`\": measure it rather than
+quoting the old pull request's body, post the measurements on the issue, file whatever the
+measurements show is still owed as its own issue, and stop at the gate before touching code. If a
+requirement is missing, build that requirement and only that. Either way say in the pull request, or
+in the comment, which merged pull request you read and what you found in it."
+			;;
+		esac
 		;;
 	branch_without_pr)
 		branch=$key
@@ -643,14 +755,20 @@ is the failure this repository has written up more often than any other (#1180, 
 		log_event "TICK-SKIPPED $unit no worktree for $branch :: ${why:-common.sh gave no reason}"
 		return 5
 	fi
-	# The content verdict and the halt, both in common.sh (#228, H-0044): a halt stops the whole pass
-	# -- every other unit, every review answer, every merge -- so it must not rest on a filesystem
-	# timestamp, it must say what it found, and the one place that decides must be the place the probe
-	# drives.
-	factory_tree_halt TICK-HALTED "$unit" "$tree" || return $?
+	# The content verdict and the response to it, both in common.sh (#228, H-0044): a halt stops the
+	# whole pass -- every other unit, every review answer, every merge -- so it must not rest on a
+	# filesystem timestamp, it must say what it found, and the one place that decides must be the place
+	# the probe drives. Since #248 the response is a quarantine first and a halt only when the work
+	# cannot be mirrored, because one dead tick's four modified files froze 22 units for 15h57m.
+	factory_tree_stop TICK-HALTED "$unit" "$tree" || return $?
 
 	log="$FACTORY_LOG/$(date -u +%Y%m%dT%H%M%SZ).$(factory_slug "$unit").log"
 	log_event "TICK-START $unit tree=$tree log=$(basename -- "$log")"
+	# Nothing clears the quarantine streak here. It used to: `TICK-START` -> reset, in the same pass as
+	# the `factory_tree_stop` above, so the counter was back to 0 before the tick that would have shown
+	# whether this tree is one that keeps dying -- `attempt=2` was unreachable for every tick unit, and
+	# the review of #250 drove five abandoned ticks through the shipped functions to prove it. The reset
+	# now happens after the session, against the tree's verdict, at `factory_quarantine_after_tick`.
 
 	# `--auto` approves permissions that are not explicitly denied; the deny rules in
 	# .opencode/opencode.jsonc are what bounds that, and the `factory` agent denies `question`, so a
@@ -689,6 +807,15 @@ trailer, DECISIONS.md updated in the same commit as what it decides, and stop on
 is open or updated. Merging belongs to the supervisor and is denied to you." \
 		>"$log" 2>&1 || status=$?
 
+	# The quarantine streak is settled here, after the session has run, because this is the first moment
+	# the question has an answer: did work appear in this tree again? It used to sit three lines below
+	# `TICK-START`, which meant every pass cleared the counter before the tick that could have proved the
+	# pattern, and #248's streak could not fire on the tick path at all -- see
+	# `factory_quarantine_after_tick` in common.sh for the measurement. It is above both exits below, so
+	# the `TICK-UNDELIVERED` return and the failed-tick return are both covered, and it returns 0
+	# whatever it found: what the tick achieved remains the tick's own answer.
+	factory_quarantine_after_tick "$unit" "$tree"
+
 	if [ "$status" -eq 0 ]; then
 		# Exit 0 means the session stopped cleanly; it does not mean anything was delivered. The two
 		# came apart on the first unclaimed unit this harness worked properly: issue #199, started
@@ -721,7 +848,25 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 				# A read that failed is not a delivery that failed: say which of the two happened.
 				log_event "TICK-UNCHECKED $unit delivery could not be confirmed (gh exit=$pr_read)"
 			elif [ -z "$pr_now" ]; then
-				log_event "TICK-UNDELIVERED $unit exit=0 with no pull request on $branch -- it stays where it was"
+				# A clean stop with nothing to show for it. `exit=0` is the CLI's verdict on whether the
+				# session closed its turn; it is not a verdict on whether the turn said anything, and
+				# the two came apart on 8 Nov in two ticks that both reported 0 -- one ended on a tool
+				# call the harness never dispatched (`<function=executae>`, 115 s alive), one on a turn
+				# opener with nothing after it over a clean tree holding four finished commits. The
+				# reason is read off the end of the log, and an undelivered turn is now said out loud
+				# rather than being reported as a stop.
+				#
+				# What this does NOT do is re-run the unit. The queue already re-offers it on a later
+				# pass, and that is what rescued #239: two undelivered stops at 17:56 and 18:12 and a
+				# 2700 s ceiling at 21:47, then pull request #245 delivered it. Spending a second model
+				# run inside the same pass buys nothing when the cause is a typo in a tool name, and
+				# #241's tree was clean with four finished commits -- neither of tonight's stops was
+				# shown to be transient, so an immediate retry would be correct only by luck.
+				log_event "$(factory_stop_marker TICK-UNDELIVERED "$unit" "$branch" "$log")"
+				# Mirror what it left behind, here and now: everything after this point is somebody
+				# else's chance to prune the tree. The mirror's own failure never changes the tick's
+				# verdict -- the unit goes back to the queue either way -- but it gets its own line.
+				factory_preserve_unpushed "$unit" "$tree" "$branch" || true
 				factory_ledger_now "$unit" last-tick
 				return 4
 			fi
@@ -754,14 +899,133 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 	[ -n "$reason" ] || reason=$(tr -d '\033\r' <"$log" 2>/dev/null |
 		grep -v '^[[:space:]]*$' | grep -v '^[[:space:]]*>[[:space:]]' | tail -n 1 | cut -c1-160) || true
 	log_event "TICK-FAILED $unit exit=$status (124 means the ${FACTORY_TICK_TIMEOUT}s ceiling) see $(basename -- "$log") :: ${reason:-the tick wrote nothing}"
+	# The same mirror as the `exit=0` arm, and for the same reason: exit 124 is the ceiling firing
+	# mid-message, which is exactly when a branch holds commits nobody has pushed. Measured on the
+	# tick this repository came here for: `15:30:32Z TICK-FAILED unclaimed:235 exit=124`, and the
+	# branch kept six commits that no pull request ever carried.
+	factory_preserve_unpushed "$unit" "$tree" "$branch" || true
 	factory_ledger_now "$unit" last-tick
 	return 4
+}
+
+# --------------------------------------------------------------------------- the refs this pass reads
+
+# #256: everything here decides against refs. `triage.sh` reads `origin/main` to judge every branch
+# that has no pull request (`:538` takes the sha, `:563` counts `$main_sha..$sha` for the
+# `branch_without_pr` detail), `factory_worktree` cuts every new unit's branch from `origin/main`, and
+# the allocator a tick runs before it numbers an entry (H-0070) reads every `refs/heads` and
+# `refs/remotes` blob. Until now nothing in the harness fetched, so all three read whatever ref state
+# this clone last happened to have -- measured on 9 Nov in this very tree: `origin/issue-253` was
+# holding `H-0073` and `H-0074` while `origin/main` stopped at `H-0072`, and a clone that had not
+# fetched would have handed out `H-0073` a fourth time. `docs/factory.md` told the operator to run
+# `git fetch --prune origin` before allocating on a second machine; `H-0056` refused to run it for
+# them inside a *verdict*, because a verdict's answer has to be identical in CI, in the review loop
+# and at the merge (H-0072). The dispatch path is not a verdict. It is already a network path -- every
+# triage, review-poke and merge in this file is a `gh` call -- so one fetch per activation, ahead of
+# the first dispatch, is where the refresh belongs, and it is what closes the second row of H-0071's
+# table for a queue that runs on two machines.
+#
+# Three measurements, each in a fixture with a local bare origin under /tmp/opencode, decide the shape.
+#
+#   which fetch  `git fetch --prune origin trunk` does NOT move the allocator: `D-0002` before it and
+#                `D-0002` after, while `git fetch --prune origin` on the same fixture answers `D-0008`.
+#                A sibling's ids sit on the branch it pushed, and a refspec-limited fetch updates the
+#                trunk only -- so `git fetch --prune origin <base>`, the command #256 asked for,
+#                refreshes the one ref that was never the problem. The unrefspec'd form is also the
+#                one `docs/factory.md` already tells a person to type.
+#   which tree   one fetch in the primary checkout moved the allocator's answer in a *linked worktree*
+#                of the same clone: `D-0002` in both trees before, `D-0008` in both after.
+#                `refs/remotes` lives in the common directory -- the same sharing H-0074 cites for the
+#                worktree half of the boundary, running the other way -- so the tree to fetch is the
+#                one `factory_worktree` cuts unit trees from, and one call covers every tick the pass
+#                will start.
+#   can it hurt  `timeout --signal=TERM --kill-after=5 3 git fetch --prune origin` against an origin
+#                that accepts the connection and never answers returned 124 at 3s, left no `.lock`
+#                file behind, and the clone worked afterwards. Same under `-s KILL`. And `--prune` with
+#                a single-branch fetch refspec does not wipe the other remote refs (a planted
+#                `refs/remotes/origin/ghost` survived it), so the prune cannot destroy the union the
+#                allocator reads.
+#
+# What it must never be is fatal, and that is the ticket's own counter-argument answered rather than
+# waved away: a hung fetch holds `factory/run/lock`, which is the file every later activation is
+# waiting on. `FACTORY_FETCH_TIMEOUT` bounds that hold (measured above: the bound is real, and a
+# killed fetch costs seconds and nothing else), and returning 0 whatever the fetch did is the rest. A
+# `git` that cannot reach its origin must not stop a queue whose other reads all answer per unit.
+
+# factory_refresh_origin <tree> -- every branch, once per activation, before anything is dispatched.
+# Prints one journal line either way. Returns 0 whatever the fetch did.
+factory_refresh_origin() {
+	local tree=${1:-$FACTORY_ROOT} rc=0 started elapsed before changed age refspec why
+	# The log directory is created before the fetch is aimed at it. `log_event` calls `factory_paths`
+	# on every line, so the pass has always made it by the time anything is logged -- but this function
+	# writes its own file first, and a redirect to a directory that is not there yet fails as status 1
+	# with nothing in it: measured in the selftest fixture, that arrived as `REFRESH-FAILED (1)` over an
+	# with nothing in it: measured in the selftest fixture, that arrived as `REFRESH-FAILED (1)` over an
+	# empty log, which is how a missing directory reports itself when the only thing a caller can see is
+	# a status code.
+	factory_paths
+	if [ "$DRY_RUN" = "1" ]; then
+		printf 'DRY-RUN  timeout --signal=TERM --kill-after=5 %s git -C %s fetch --prune origin\n' \
+			"$FACTORY_FETCH_TIMEOUT" "$tree"
+		return 0
+	fi
+	before=$(git -C "$tree" for-each-ref --format='%(refname)' refs/remotes/origin 2>/dev/null |
+		grep -c . || true)
+	started=$(date -u +%s)
+	timeout --signal=TERM --kill-after=5 "$FACTORY_FETCH_TIMEOUT" \
+		git -C "$tree" fetch --prune origin >"$FACTORY_LOG/refresh.log" 2>&1 || rc=$?
+	elapsed=$(($(date -u +%s) - started))
+	# Counted out of the fetch's own report, which is the only thing that says what moved:
+	# `+ abc1234..def5678 main -> origin/main`, `* [new branch] x -> origin/x`,
+	# `- [deleted] (none) -> origin/x`. Every line that names a branch ref moving ends `-> origin/<name>`,
+	# so this counts the refs the activation actually learned about. `->` alone would count one line too
+	# many for any fetch given an explicit refspec -- `* branch trunk -> FETCH_HEAD` -- and that is how
+	# the trunk-limited shape, the one that learns nothing about a sibling, would have reported itself as
+	# a refresh. The selftest's control measures exactly that line.
+	changed=$(grep -c -- '-> origin/' "$FACTORY_LOG/refresh.log" 2>/dev/null || true)
+	if [ "$rc" -eq 0 ]; then
+		log_event "REFRESH origin in $tree: ${before:-0} branch ref(s) before, ${changed:-0} moved, ${elapsed}s"
+	else
+		# How blind this activation is, in the unit a person asks for: the trunk ref's own clock. The
+		# same read answers `no ref` for a single-branch or shallow clone, which is the other way this
+		# line can be true -- and it is the diagnosis `factory_resolve_conflict` already makes when
+		# `git fetch origin <branch>` exits 0 and creates nothing.
+		age=$(git -C "$tree" log -1 --format=%ct "refs/remotes/origin/${FACTORY_BASE}" 2>/dev/null) || age=''
+		if [ -n "$age" ]; then
+			age="$(( $(date -u +%s) - age ))s since origin/$FACTORY_BASE last moved"
+		else
+			age="origin/$FACTORY_BASE is not visible in $tree"
+		fi
+		why=$(grep -m1 -E '^(fatal|error)' "$FACTORY_LOG/refresh.log" 2>/dev/null) || true
+		[ -n "$why" ] || why=$(grep -v '^[[:space:]]*$' "$FACTORY_LOG/refresh.log" 2>/dev/null | tail -n 1) || true
+		why=$(printf '%s' "${why:-}" | cut -c1-160)
+		if [ "$rc" -eq 124 ]; then
+			log_event "REFRESH-TIMEOUT origin did not answer in ${FACTORY_FETCH_TIMEOUT}s in $tree -- ${age}; the dispatch goes ahead on those refs, which is the cost of the bound (${why:-the fetch wrote nothing, which is what a parked connection does})"
+		else
+			log_event "REFRESH-FAILED ($rc) origin in $tree -- ${age}; the dispatch goes ahead on those refs, because a fetch is not a verdict (${why:-see $FACTORY_LOG/refresh.log})"
+		fi
+	fi
+	# The one shape where a successful fetch still cannot see a sibling, said out loud instead of
+	# leaving `REFRESH … 0 moved` to be read as "nothing new anywhere". A single-branch clone's refspec
+	# names one branch, so `refs/remotes` here can never learn the branch another machine pushed --
+	# the exact window H-0071 measured, and it is widened by an operator, not by this script. The test
+	# is a literal `*` anywhere in the refspec: the whole line is matched, so a pattern that merely
+	# *starts* with a star would call the wildcard form blind, which is the bug the control for this
+	# leg plants.
+	refspec=$(git -C "$tree" config --get remote.origin.fetch 2>/dev/null) || refspec=''
+	case "$refspec" in
+	'' | *\**) : ;;
+	*)
+		log_event "REFRESH-BLIND $tree fetches only '$refspec', so refs/remotes here cannot learn a branch another clone pushed; widen it with \`git -C $tree config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'\` (H-0071)"
+		;;
+	esac
+	return 0
 }
 
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
-	local rows rc=0 started=0
+	local rows rc=0 started=0 unit_line reap_line
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
 	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
 	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before
@@ -769,6 +1033,36 @@ factory_body() {
 	local started_at end_at now
 	started_at=$(date -u +%s)
 	end_at=$((started_at + FACTORY_BUDGET))
+	# The refs come next (H-0075), and inside the budget rather than outside it: the triage read on the
+	# next line reports this tree's position against `origin/main`, `factory_worktree` cuts every new
+	# unit's branch from `origin/main`, and a tick's allocator reads the branch refs -- so all three
+	# read origin or they read the last time this clone looked, and nothing until now ever made it
+	# look. Charged to the budget because it is time the pass spends, and bounded by
+	# `FACTORY_FETCH_TIMEOUT` because it is the one read here that can accept a connection and never
+	# answer. It runs inside `factory/run/lock` on purpose: `flock -n` means a second activation is
+	# never waiting here, it reports 7 and leaves, so the worst a parked fetch costs is one missed
+	# activation and one sentence in the journal.
+	# Which checkout the timer is armed to exec, and which one this pass is running from (#260). Read
+	# from the installed unit, because every other claim this harness made about the unit was composed
+	# from `$FACTORY_ROOT` and on 10 Nov was false: the installer refused a tree saying the unit execed
+	# it while the unit execed another checkout 38 commits behind, and the staleness line that would
+	# have said so printed zero times in that tree's 3,861-line journal. Before triage, not after --
+	# a pass that cannot reach GitHub is exactly the pass an operator goes looking for, and on 9 Nov
+	# the queue was unreachable for 3h13m.
+	while IFS= read -r unit_line; do
+		[ -n "$unit_line" ] || continue
+		log_event "$unit_line"
+	done < <(factory_unit_lines "$FACTORY_HARNESS")
+	# What the pass BEFORE this one cost the queue to tear down (#246). Same place and same reason as
+	# the two lines above: before the fetch and the triage, because the pass an operator goes looking
+	# for is the one that cannot be reached. Measured on this box on 11 Nov: five activations held the
+	# queue about a minute each between 08:05 and 09:42, and every line those passes wrote to
+	# `supervisor.log` read `PASS`. A read of systemd's journal, never a manager call.
+	while IFS= read -r reap_line; do
+		[ -n "$reap_line" ] || continue
+		log_event "$reap_line"
+	done < <(factory_reap_journal_lines)
+	factory_refresh_origin "$(factory_main_checkout)"
 	if ! rows=$("$FACTORY_DIR/triage.sh"); then
 		log_event "TRIAGE-FAILED the queue could not be read; nothing was attempted"
 		return 3
