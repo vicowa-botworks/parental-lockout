@@ -3429,3 +3429,16 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   every row of every set file), so #1048 has no surface in this commit and the anchor battery was not
   run — and it must never overlap the gate in this tree anyway (#1807). `make verify` for the delivered
   head is quoted in the pull-request body, not here (#1180).
+- Correction (`D-0062`, 11 Nov): two locators in this entry are stale against the tree the entry describes,
+  and the commit that describes them is the thing that moved them. `main()` is given as
+  `testing/capture/pages.py:897-1072`; the hoist plus its four comment lines make it **897-1076**, and
+  `main()` now *does* bind `note` -- written at `:1019`, read at `:1020` -- which is the binding this commit
+  introduced, so the claim the parenthetical was supporting ("no prior binding of `note` in `main()`")
+  survives while the parenthetical does not. And the anchor guard is given as
+  `scripts/attack-capture-self-test.py:566-570`; the six comment lines this commit adds above row 2 put it at
+  **`:573-576`** -- the `if hits != 1:` arm: `counts["invalid"] += 1`, the `problems.append`, the `INVALID`
+  print, the `continue`. Re-read at this head with an `ast.parse` walk for the span and
+  `grep -n 'if hits != 1:'` for the arm. Nothing else in the entry moves: the tallies, the two rejected
+  locators and the 6-of-77 failing set were all measured *after* the edit, and they say what they say. The
+  reason this is a bullet rather than an edit is #1180 -- a silently corrected record is indistinguishable
+  from one that was always right.
