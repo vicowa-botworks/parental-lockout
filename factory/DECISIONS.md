@@ -5127,3 +5127,94 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   runs `factory.sh` as a process" is false at the tip and the text scan it asks for is the weaker of the
   two checks -- this branch's legs are process legs for that reason. No dependency, no security or
   tamper-resistance semantics, no publish, no deletion. Nothing here merges -- merging is the supervisor's.
+
+## H-0131 · A stranded branch is bought with a commit count, and a checkpoint commit is one commit of nothing -- so the queue paid a model to assess a zero-byte difference
+
+- Question: `factory/triage.sh:761` (at `a0c7fce`) decides a branch is stranded work with
+  `git rev-list --count "$main_sha..$sha" > 0`, and `factory/factory.sh:675` turns that number into
+  the instruction "The work is already written. Assess it against the gate, then open its pull
+  request." Step 3 of `.opencode/skills/factory/SKILL.md` makes every tick take a
+  `git commit --allow-empty` rollback checkpoint *before* the judgement call it may never reach, so a
+  tick killed by the wall-clock ceiling between the checkpoint and its effect commit leaves a ref ahead
+  of `main` whose whole delta is zero bytes -- and the queue calls that work already paid for. What is
+  the delivery test for a branch?
+- Options: keep the count and filter the empties out of it | diff the file list from the merge base | compare patch-ids with `git cherry` | count changed bytes with `diff --shortstat` from the merge base | have a tick journal its open checkpoint and skip journalled branches | escalate
+- Chose: diff the file list from the merge base
+- Why: this is a measurement question, so the tie-breaks only break ties -- none of the five adds a
+  dependency (#856), none touches a config default (#873), none needs a write. They separate on what
+  each instrument can see, and the first is that a commit count cannot see content at all. That is the
+  defect, measured at `origin/main a0c7fce`: `issue-249` at `f64ddcd` is one commit ahead,
+  `git show --numstat` prints no file list, and `git diff --stat c98f75f f64ddcd` prints nothing.
+  Filtering empties out of the count was the smallest edit on the list and it is wrong twice over: no
+  `rev-list` flag sees an `--allow-empty` non-merge commit, which is exactly what a checkpoint is, and
+  `--no-merges` removes the merge from the count -- so a branch whose only content is a conflict
+  resolution would count zero and be dropped. `#291` states the same finding as "the count moves with
+  the commit count and not with the content".
+
+  `git cherry` was the strongest rival and it answers a different question. A patch-id comparison asks
+  "is this change already upstream", which is the squash-and-rebase question; this repository sets
+  `allow_squash_merge=false` and `allow_rebase_merge=false`, so a delivered branch's tip is an
+  ancestor of `main` and the test above it (`[ "$ahead" -gt 0 ]`) already drops it. It is also
+  per-commit where the deliverable is a tree: a branch that adds a file and reverts it is two non-empty
+  patches and a zero-byte delta, and a pull request would carry the tree, not the patches. It loses
+  because it is a sharper answer to a question this queue is not asking.
+
+  `diff --shortstat` is the count fallacy moved one unit along: a mode change, a rename and a
+  one-line semantic revert each say something about size and nothing about whether the trunk lacks the
+  file. It also puts a parse in the row -- "14 files changed, 3 insertions(+)" -- where a file count is
+  a command the reader can run and re-check (`git diff --name-only <base> <branch> | wc -l`).
+
+  Journaling the open checkpoint was the only option that would also have explained *why* a branch was
+  empty: a tick that wrote down "I have an un-finished checkpoint" would let the queue tell a dead tick
+  from a person's abandoned probe. It loses on three counts. It is new state every other read then has
+  to trust and retire; the tick that most needs it is the one the ceiling killed before it wrote; and
+  `factory/factory.sh:913` records the rule this scan is built on -- "#256: everything here decides
+  against refs" -- so a verdict resting on a side file is a verdict that a `git worktree prune`, or a
+  second machine, silently changes. Tie-break 6 (what the surrounding code already does) is against it
+  too: nothing in `triage.sh` consults a journal today.
+
+  The merge base is not a detail; it is where this fix would have gone quietly wrong. Measured on the
+  branch as `#291` found it: 0 files from the merge base (`c98f75f`, the head of the pull request that
+  had already delivered it) against **21 files** from `main`'s tip, because 187 commits of other
+  people's work sit between the two. Ask the content question of the tip and the empty branch is
+  charged with 21 files of borrowed content and offered with a confident sentence about them. That is
+  why `br-empty` in the fixture is cut before the trunk moves on and never merges it in, and why
+  control 4 asks the shipped code's question of `main_sha` and requires `br-empty` back: the legs pass
+  for the right reason and not for a convenient one.
+
+  Two judgements ride with the choice. (a) A branch whose content cannot be compared -- no merge base,
+  or a git that refused the diff -- keeps its row, with `content not comparable to main` printed where
+  the byte count would have been and a warning naming the branch. Tie-break 3, refuse to proceed on
+  missing input, in the direction #873 sets for ambiguity: dropping a person's work here is the
+  irreversible side, and re-offering an empty branch costs one tick. (b) A skipped branch is not a row.
+  It is a count and a name-list on stderr, printed on every pass that still sees the ref. A row is an
+  offer and the ticket asks for this offer to stop; silence is what `factory/factory.sh:1143` names --
+  "a queue that reports a thing once and then goes quiet is a queue nobody can audit" -- and stderr is
+  the channel `triage.sh` already uses for every degraded read (`:494`). A fourth class was the other
+  shape of (b) and it loses because a new class needs an arm in `factory.sh` for a thing that must
+  never dispatch, which is more surface around the one row that must stay inert.
+- Checkpoint: c396a55d45221ba858ac358774aca40983404eb1
+- Effect: `factory/triage.sh` (the branch scan: merge base, `git diff --name-only`, the skip tally and
+  the unjudged tally, and the row detail as `N file(s) across M commit(s)`; the header table's branch
+  row), `factory/selftest.sh` (a new section: five planted branches in a real fixture repository --
+  `br-work`, `br-delete`, `br-empty`, `br-merge-empty`, `br-nobase` -- twelve legs and four control
+  legs), `docs/factory.md` (the `branch_without_pr` row of the class table, and a new subsection
+  "What a branch has to hold to be offered"). Measured, in the order measured: `bash
+  factory/selftest.sh` **504 passed, 0 failed**, against the 488 that `H-0129` recorded at its own tip
+  -- the delta is these sixteen legs. The suite's first run of these legs is part of the finding: two of
+  the four controls were green while their mutant had *died* (`triage.sh:51` sources `common.sh` from
+  its own directory, and the runner execs the copy directly, so a staged copy without the bit and
+  without that file prints no rows at all) -- and an empty rows file makes every "this branch got no
+  row" assertion true, including the control that asserts the bug came back. `branch_mutate` now stages
+  both, and refuses any mutant that prints no branch row as dead rather than guilty; control 2 gained a
+  positive half (`br-nobase` must stay) for the same reason. Running the shipped classifier against
+  GitHub and this machine's own refs at 13:21Z on 11 Nov moved **no** row: all eight
+  `branch_without_pr` rows carry content, and the file counts the new detail prints (58, 15, 14, 6, 4,
+  4, 2, 1) match an independent `git diff --name-only` census taken before the edit. What this does not
+  establish, stated because the next reader has to decide with it: it moves no row *today*, because no
+  branch on this machine is content-free now -- `issue-249` acquired a real commit (H-0130's entry) at
+  13:0xZ on 11 Nov, after `#291` was filed, so the live instance of the defect has become ordinary
+  stranded work with no pull request; and a content-free branch is absent from `--table` by choice, so
+  an operator reading only the table sees a count and a name-list on stderr or nothing at all. Not one
+  of the four classes a tick must escalate: no dependency, no change to what a `deny` refuses, nothing
+  published, nothing deleted, no merge.

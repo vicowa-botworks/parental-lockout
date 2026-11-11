@@ -14,7 +14,7 @@
 #   issue   213       unclaimed            <title>                        -       213    -
 #   issue   199       unclaimed            [merged:PR#229 on `issue-199`  -       199    -
 #   issue   232       delivered            delivered by merged PR #234 …  -       232    -
-#   branch  fix/x     branch_without_pr    2 ahead of main, no open PR    fix/x   -      -
+#   branch  fix/x     branch_without_pr    3 file(s) across 2 commit(s)   fix/x   -      -
 #
 # `class` is a verdict, not a field. The classes factory.sh calls workable are the ones worth a
 # model; the rest are waits, and a wait costs no tokens. `delivered` is neither: it is a report
@@ -735,6 +735,14 @@ fi
 
 main_sha=$(git -C "$FACTORY_ROOT" rev-parse origin/main 2>/dev/null || printf '')
 seen_branches=''
+# The two tallies the content verdict can end up with, kept as space-separated name lists because a
+# git ref name cannot contain whitespace at all (`git check-ref-format` refuses it), so the list is
+# also the sentence. Neither one is a row: both are said on stderr, the way every other degraded read
+# in this file is said, because a queue row is an offer and neither of these has anything to offer.
+empty_branches=''
+empty_count=0
+unjudged_branches=''
+unjudged_count=0
 # The branch this harness is standing on is, by definition, work in progress with no PR yet, and
 # it is the tree the supervisor itself would have to work in. Without this the harness's own branch
 # is the first orphan every pass reports and the supervisor starts by being handed its own
@@ -760,13 +768,71 @@ if [ -n "$main_sha" ]; then
 		fi
 		ahead=$(git -C "$FACTORY_ROOT" rev-list --count "$main_sha..$sha" 2>/dev/null || printf '0')
 		[ "$ahead" -gt 0 ] || continue
-		rows+="$(emit branch "$branch" branch_without_pr "$ahead commit(s) ahead of main, no open PR ($where)" "$branch" '')"$'\n'
+		# Commits are not content (#291). `rev-list --count` cannot tell a branch that changes 400
+		# lines from a branch whose only commit is the `git commit --allow-empty` rollback target that
+		# Step 3 of the factory skill makes every tick take *before* a judgement call -- and a tick
+		# killed by the wall-clock ceiling between that checkpoint and its effect commit leaves
+		# exactly that: a ref ahead of `main` holding zero bytes. Measured 11 Nov on `issue-249`, one
+		# commit ahead: `git show --numstat` printed no file list and `git diff --stat c98f75f f64ddcd`
+		# printed nothing, and `factory.sh:675` turned the count into "The work is already written" and
+		# dispatched a model at it. So the row is bought with a content question -- does this branch
+		# carry a single byte the trunk lacks -- asked from the MERGE BASE and not from `main`'s tip,
+		# so a branch that merged the trunk in is not charged for the trunk's own files.
+		merge_base=$(git -C "$FACTORY_ROOT" merge-base "$main_sha" "$sha" 2>/dev/null || printf '')
+		delta=''
+		comparable=1
+		if [ -z "$merge_base" ]; then
+			comparable=0
+		elif ! delta=$(git -C "$FACTORY_ROOT" diff --name-only "$merge_base" "$sha" 2>/dev/null); then
+			comparable=0
+			delta=''
+		fi
+		if [ "$comparable" = 1 ] && [ -z "$delta" ]; then
+			# Nothing to deliver. Counted and said out loud instead of skipped in silence: a class
+			# that quietly stops printing rows is the failure this harness refuses everywhere else
+			# (`factory.sh:1143`: "A queue that reports a thing once and then goes quiet is a queue
+			# nobody can audit"), and the pass cannot know from here whether the branch is a dead
+			# tick's checkpoint or a person's abandoned probe. What it CAN say is that the difference
+			# is empty -- which is a different sentence from "there is no branch", and gets said every
+			# pass that still sees the ref rather than once.
+			empty_branches="$empty_branches $branch"
+			empty_count=$((empty_count + 1))
+			continue
+		fi
+		# Unjudgeable keeps the row. Not being able to compare is not evidence there is nothing
+		# there: two histories with no merge base in common, or a git that refused the diff, are both
+		# reads that failed, and the tie-break for a missing input is to report rather than to drop
+		# (#873's direction of travel -- ambiguity goes toward the safe side, and here the safe side
+		# is that a person's work gets looked at). The detail says it is unverified rather than
+		# asserting a byte count this pass could not measure.
+		if [ "$comparable" != 1 ]; then
+			unjudged_branches="$unjudged_branches $branch"
+			unjudged_count=$((unjudged_count + 1))
+		fi
+		if [ "$comparable" = 1 ]; then
+			nfiles=$(printf '%s\n' "$delta" | wc -l | tr -d '[:space:]')
+			content="$nfiles file(s) across $ahead commit(s)"
+		else
+			content="$ahead commit(s), content not comparable to main"
+		fi
+		rows+="$(emit branch "$branch" branch_without_pr "$content ahead of main, no open PR ($where)" "$branch" '')"$'\n'
 	done < <(
 		git -C "$FACTORY_ROOT" for-each-ref --format="%(objectname)"$'\t'"%(refname)"$'\torigin' \
 			refs/remotes/origin/ 2>/dev/null
 		git -C "$FACTORY_ROOT" for-each-ref --format="%(objectname)"$'\t'"%(refname)"$'\tlocal only' \
 			refs/heads/ 2>/dev/null
 	)
+	# Both tallies speak on every pass that sees such a branch, and neither one is a row. Naming the
+	# branches is the point: a count alone says the scan is odd, a list of names says where to look.
+	if [ "$empty_count" -gt 0 ]; then
+		printf 'triage: %s branch(es) ahead of main hold no content the trunk lacks, so none is '\
+			'offered: %s\n' "$empty_count" "${empty_branches# }" >&2
+	fi
+	if [ "$unjudged_count" -gt 0 ]; then
+		printf 'triage: %s branch(es) ahead of main have no merge base with main, so their content '\
+			'could not be compared; they are still offered, unverified: %s\n' \
+			"$unjudged_count" "${unjudged_branches# }" >&2
+	fi
 fi
 
 rows=${rows%$'\n'}

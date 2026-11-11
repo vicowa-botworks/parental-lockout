@@ -58,7 +58,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
 | `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected | nothing: the supervisor logs it, and closes nothing |
-| `branch_without_pr` | commits ahead of `main`, no open pull request | a tick, to adopt or refuse the stranded work |
+| `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
 
 `delivered` is the fourth class the queue could not see, and it was measured twice in one day before
@@ -163,6 +163,50 @@ asked" from "asked and answered" -- measured, four pull requests had an empty li
 `/pulls/N/requested_reviewers`, three days after opening, with every check green. `branch_without_pr`
 exists because a branch with commits and no pull request is invisible to every queue that reads
 issues and pull requests; the first run of this script found five, one of them seven commits deep.
+
+### What a branch has to hold to be offered (#291)
+
+Commits are not content. `rev-list --count` moves by one when `git commit --allow-empty` moves the
+tree by nothing, and Step 3 of `.opencode/skills/factory/SKILL.md` makes every tick take exactly such a
+commit -- the `chore(checkpoint): pre-H-…` rollback target -- *before* the judgement call it may never
+reach. A tick killed by the wall-clock ceiling between the checkpoint and its effect commit therefore
+leaves a ref ahead of `main` whose whole delta is zero bytes, and the arm at `factory.sh:675` announces
+"The work is already written" and spends a model on it. Measured 11 Nov on `issue-249`, one commit
+ahead: `git show --numstat` printed no file list and `git diff --stat c98f75f f64ddcd` printed nothing.
+
+So the row is bought with a content question: `git merge-base origin/main <branch>`, then `git diff
+--name-only <base> <branch>`, and a branch that changes no file is not offered. Three things are the
+rule rather than the one-liner, and each has legs in `factory/selftest.sh`:
+
+* **From the merge base, not from `main`'s tip.** The branch above had also merged the trunk in, and
+  between its merge base (`c98f75f`, the head of the pull request that had already delivered it) and
+  `main`'s tip sat 187 more commits. Ask the same question of the tip and that zero-byte branch reads
+  as **21 changed files** -- other people's work, billed to it. Measured, not reasoned: 0 files from
+  the base, 21 from the tip, at `origin/main` `a0c7fce`. Control 4 in the fixture asks it the wrong way
+  and demands the branch come back.
+* **A deletion is content.** `--name-only` lists removals, so a branch whose only act is deleting a
+  file keeps its row. A verdict that counted added bytes would lose a person's work exactly the way the
+  count lost a checkpoint's.
+* **A read that failed is not a verdict.** No merge base -- unrelated history, or a git that refused the
+  diff -- keeps the row, with `content not comparable to main` printed in its place and a warning naming
+  the branch. Ambiguity about a missing input goes toward looking at the work, the same direction
+  #873 takes for the config decoder.
+
+What is dropped is said out loud every pass that still sees it -- `triage: 2 branch(es) ahead of main
+hold no content the trunk lacks, so none is offered: br-empty br-merge-empty` -- on stderr rather than
+as a row, because a row is an offer and there is nothing to offer, and because a class that quietly
+stops printing rows is the failure `factory.sh` calls "a queue nobody can audit". The dangerous edit here
+is one character: "skip branches with no content" becomes "skip branches" and every real stranded branch
+leaves the queue with the fake ones. That is why the fixture plants `br-work` and `br-delete` beside
+`br-empty` and demands they stay, and why a control deletes the content test and demands the empty
+branch returns.
+
+The detail reports what was measured now -- `14 file(s) across 3 commit(s) ahead of main, no open PR
+(local only)` -- because "2 commit(s) ahead" was a number that could be true about nothing. Running this
+against GitHub and this machine's refs at 13:21Z on 11 Nov moved no row: all eight `branch_without_pr`
+rows carry content (58, 15, 14, 6, 4, 4, 2 and 1 files) and none was empty. The live instance of the
+defect, `issue-249`, had acquired a real commit of its own -- H-0130's -- two hours before this was
+written. The fix is for the next one.
 
 **Who the `needs_reviewer` row asks.** The poke addresses a TEAM (`FACTORY_REVIEWER_TEAM`, a team
 slug), because a request is a question to whoever can answer it and a team request notifies every
