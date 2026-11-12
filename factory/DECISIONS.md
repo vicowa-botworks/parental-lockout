@@ -5381,7 +5381,15 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
     --remove-label blocked --remove-label question` dying on the retired `projectCards` field with the
     read-back unchanged, while `gh issue edit 240 --remove-label …` exited 0 and read back `labels: []`
     (`DECISIONS.md:2221-2231`). Neither option as written says which verb to name, and the sentence at
-    `:725` needs it whatever the label turns out to be called.
+    `:725` needs it whatever the label turns out to be called. Re-measured on this branch's own pull
+    request, and it is worse than a naming problem: `gh pr edit 314 --add-label needs-human` exits 1 with
+    `GraphQL: Projects (classic) is being deprecated … (repository.pullRequest.projectCards)` — the
+    retired field kills the call *before* gh resolves the label name, so the tick `:725` is talking to
+    gets a diagnostic that says nothing about labels at all. Its two routes are dead for two different
+    reasons: the pull-request verb never reaches the name, and the issue verb reaches the name and
+    refuses it. #314's `labels` read `[]` afterwards, so neither route wrote anything, and the
+    `review_unreadable` branch that ends "label it needs-human, and stop there" has no working spelling
+    today at any label name.
   - One thing has already happened, differently from how #311 expects. The instruction has been followed
     to a *substituted* label before: `D-0047`'s Effect (`DECISIONS.md:2112-2114`) records "the `blocked`
     and `question` labels on #240", and #240 reads `labels=[]` right now. That loss is not this defect —
@@ -5394,9 +5402,10 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   renaming the five mentions and `factory/selftest.sh:6199-6220` to a label that exists — `blocked`,
   whose own description ("the blocking artifact is named on the issue") an escalation comment does
   satisfy, at the cost of one label carrying two meanings. Also owed, and independent of which is chosen:
-  whether the `SKILL.md:222-228` reorder (record first, label second, read back) and the verb naming at
-  `factory/factory.sh:725` ship with the answer or as their own unit, and #313, which is the queue half
-  nobody has taken.
+  whether the `SKILL.md:222-228` reorder (record first, label second, read back) and a workable verb at
+  `factory/factory.sh:725` — which needs more than a name, because as measured above neither verb reaches
+  a label on a pull request today — ship with the answer or as their own unit, and #313, which is the
+  queue half nobody has taken.
 - Checkpoint: bd2d9cd70508d5125a6b49bb7e3daffa751fd3c7
 - Effect: this entry and nothing else in the tree — `git diff --stat origin/main...HEAD` on the pull
   request from this branch is one file. On the tracker: the executed step and its transcript on #311,
