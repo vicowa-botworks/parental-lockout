@@ -68,6 +68,343 @@ def discard_stage():
         os.rmdir(stage)
 
 
+# The directory a refused run leaves its frames in, and the note beside them. See `keep_refused`
+# for why the bytes are kept and `refused_dir` for why they can only ever land here.
+REFUSED_NOTE = "REFUSED.txt"
+_REFUSED = None
+
+
+def refused_dir(mode):
+    """`testing/capture/runs/<mode>-refused` -- the only directory a refusal may write into.
+
+    Named from the fixture and from `RUNS`, never from `--out`, because `--out` is where the
+    evidence lives and a refusal's whole contract is that nothing lands there (#222 is what a
+    half-replaced evidence set costs). `--out runs/pages-refused` is the one way an operator
+    could point the two at the same directory, so `keep_refused` asks about the run's own target
+    as well and declines the keep when they overlap.
+    """
+    return op.join(RUNS, f"{mode}-refused")
+
+
+def keep_refused(keep, note=None, out=None):
+    """Move what this run has staged into `keep`; write `note` beside it; touch nothing at `--out`.
+
+    Deleting the frames a refusal had already measured used to be the contract, and it made a
+    refusal an argument nobody could check. Measured 6 Nov on `main` with the condition the capture
+    notes already document as refusing this fixture
+    (`PLOCK_CAPTURE_SCRIPTS=on ./pages-setup.sh && ./pages.py`): one page refused, five measured
+    `FITS` and printed their artifact paths, and the run then deleted all five --
+
+        REFUSED: /: the 'casey' row says ['locked out until 18h 16m', ...]
+          no file was written
+          /users     @360   ... FITS  .../runs/pages/users.png
+          ... four more like it
+        Nothing was written to .../runs/pages.
+
+    Six sentences about files, and the directory held none of them. The operator had the refusal's
+    prose and nothing else, including no picture of the page that refused -- every guard runs
+    before `write_png`, which is correct for a publish and was silently correct for a look.
+
+    So the frames come here instead. Two properties are enforced below rather than trusted:
+
+      * **Moved, not copied from a live stage.** `_PENDING` is emptied, so `publish()` has no
+        entry left to copy even if a future caller reaches it with a broken refusal count. The
+        bytes are no longer addressed by a staged path at all.
+      * **Staleness cleared once, on opening, never again.** A frame from yesterday's refusal
+        sitting beside today's is the same lie in a new costume, so whatever is in the directory
+        when this run first opens it is deleted; what this run writes after that is left alone.
+
+    Safe to call more than once: it opens the directory on the first call and moves whatever has
+    been staged since the last. Returns the frames it moved this time, or None when it declined
+    to write there -- and declining destroys them, the old behaviour, because a keep directory
+    outside `runs/` or overlapping `--out` is a frame about to be read as evidence, which is worth
+    less than the bytes.
+    """
+    global _REFUSED
+    real_runs = op.realpath(RUNS)
+    real_keep = op.realpath(keep)
+    inside = real_keep != real_runs and (real_keep + op.sep).startswith(real_runs + op.sep)
+    real_out = op.realpath(out) if out else None
+    overlaps = real_out is not None and (real_keep == real_out
+                                         or real_keep.startswith(real_out + op.sep)
+                                         or real_out.startswith(real_keep + op.sep))
+    if not inside or overlaps:
+        why = (f"{keep} is not inside {real_runs}" if not inside else
+               f"{keep} is the directory this run publishes to (--out {out})")
+        print(f"REFUSED-KEEP: {why}, so a frame left here could be read as the evidence this run "
+              "refused to write. The frames it measured are destroyed instead.", file=sys.stderr)
+        discard_stage()
+        return None
+    if _REFUSED != real_keep:
+        os.makedirs(real_keep, exist_ok=True)
+        stale = sorted(f for f in os.listdir(real_keep)
+                       if f.endswith(".png") or f == REFUSED_NOTE)
+        for name in stale:
+            os.remove(op.join(real_keep, name))
+        _REFUSED = real_keep
+        if stale:
+            print(f"  {op.basename(real_keep)}/ cleared {len(stale)} file(s) from an earlier "
+                  "refusal; everything in it now came from this run", file=sys.stderr)
+    stage = _stage_dir()
+    moved = []
+    for name in sorted(os.listdir(stage)) if op.isdir(stage) else []:
+        dest = op.join(real_keep, name)
+        os.replace(op.join(stage, name), dest)
+        moved.append(dest)
+    _PENDING.clear()
+    if op.isdir(stage):
+        # An empty stage is what `publish` would walk; leave nothing behind to walk.
+        try:
+            os.rmdir(stage)
+        except OSError:
+            pass
+    if note:
+        with open(op.join(real_keep, REFUSED_NOTE), "a") as fh:
+            fh.write(note)
+    return moved
+
+
+def capture_refused(cap, path):
+    """Photograph the page a refusal just rejected, straight to a path nothing publishes from.
+
+    Every guard in a driver runs BEFORE the write, and that is right -- a photograph of a page in
+    a state nothing declares must not be published -- but it also meant the refusing page was
+    never photographed at all. The refusal is the only thing a driver says about a page, so that
+    sentence should travel with the picture it is a sentence about. Measured 6 Nov: `/` was
+    refused for reading `locked out until 18h 16m` where the fixture declares `locked out until
+    00:00`, and no amount of rerunning the recipe would have shown anyone the page.
+
+    This is deliberately NOT `session.write_png`: that stages into `_PENDING`, which is the queue
+    `publish()` copies into the artifact directory. These bytes go to the path named, full stop,
+    and the path comes from `refused_dir`.
+
+    It reports and does not raise, for the reason `report_refusal` gives for its own shape. This
+    runs from inside a refusal handler, and a diagnostic that dies replaces the real cause with
+    the diagnostic's own -- the browser is exactly as likely to be gone as still up at this
+    moment, since `require_running` raising is one of the refusals that gets here.
+    """
+    try:
+        cap.require_running()
+        data = cap.session.screenshot()
+        with open(path, "wb") as fh:
+            fh.write(data)
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a diagnostic never outranks the refusal
+        # `SystemExit` is spelled out because it is not under `Exception`, and it is the arm this
+        # call is most likely to take: `require_running` raises it, and a dead browser is one of the
+        # refusals that reaches here. The rule that found this (`a dead browser still leaves the
+        # refusal standing`) is the reason it is not left as a bare `except Exception`.
+        print(f"  no frame of the refused page: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return None
+    print(f"  what the page actually renders is at {path} -- this run refused to publish it, so "
+          "it is not evidence; read it with REFUSED.txt beside it", file=sys.stderr)
+    return path
+
+
+def refusal_note(mode, out, envs, notes):
+    """REFUSED.txt: what the run refused, under what conditions, and what it left next to this file.
+
+    The frames in the refused directory are worthless on their own. A PNG with no sentence next to it
+    is the exact thing #211 was filed about -- a frame that looks current and states nothing about
+    the state it was taken in -- and these frames state less than most, because the whole reason
+    they exist is that the state was NOT the declared one. So the sentences and the conditions come
+    here, in the directory, where they travel with the bytes.
+
+    The conditions are named by their files rather than copied out. `fixture.env` is still on disk
+    beside the run directory and is the only thing that can change; a copy made here would be a
+    second answer to the same question, and #213 is what those two do when they drift.
+
+    This used to be `pages.py`'s `_refusal_note`. It moved here when #296 wired the two single-frame
+    drivers into the same keeping, because the text is the thing that makes a kept frame mean
+    something and three drivers writing three versions of it is how one of them ends up saying less
+    than the others.
+    """
+    when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = [
+        "# What this run refused, and what it left here.\n",
+        "#\n",
+        "# These are the frames a run measured and then declined to publish, and they are\n",
+        "# not evidence: nothing records them, --out was left untouched, and any artifact\n",
+        "# path this run printed names a file that is not there. Read them to see what the\n",
+        "# page actually rendered; never quote them as current.\n",
+        f"\nfixture: {mode}\nrefused at: {when}\n--out (untouched): {out}\n",
+        "conditions stated in:\n"
+        + ("".join(f"  {p}\n" for p in envs) if envs
+           else "  (none: no setup script has run, so no fixture.env declares anything here)\n"),
+        f"\nrefusals ({len(notes)}):\n" + ("".join(notes) if notes else "  (none recorded)\n"),
+    ]
+    return "".join(lines)
+
+
+def refused_frame(cap, keep, out, note=None, frame=None):
+    """Move what this run staged into `keep` with `note` beside it, then photograph the refused page.
+
+    The order is the whole function: `keep_refused` opening the directory is what clears a previous
+    refusal's frames, so a frame written before that open would be deleted by the run that wrote it.
+    Then the page is photographed, because the refusal is the only sentence a driver says about a
+    page and it should travel with the picture it is a sentence about.
+
+    One call per refusal is the property its name keeps: this is the disposal of the stage on the
+    refusal path, and `pages.py --self-test` counts it at exactly one for every refusal arm. Before
+    #220 the disposal was `discard_stage()` and the count was pinned the same way, which is how
+    `lock.py` and `testlock.py` were found to have been running theirs as dead code -- an exit code
+    laundered the fact that the statement after a raising helper never ran. A keep that never runs
+    leaves nothing on disk, so the count and the directory together are what make the statement live.
+
+    Returns what `keep_refused` returned: the frames it moved, or None when it declined to write
+    there and destroyed them instead -- in which case there is no directory to photograph into.
+    """
+    kept = keep_refused(keep, note=note, out=out)
+    if kept is None or cap is None or not frame:
+        return kept
+    capture_refused(cap, op.join(keep, frame))
+    return kept
+
+
+def refuse_single_shot(cap, mode, out, name, frame, why):
+    """The whole refusal arm of a single-frame driver: the sentence, the kept frames, the page.
+
+    `lock.py` and `testlock.py` photograph one page each, so a refusal is one sentence about one
+    file -- and it used to be a sentence about a file that had just been deleted, with the only other
+    picture it named being the previous run's `lock.png` sitting at `--out`, which the same sentence
+    declares stale (#296). Both halves of what #251 ended for `pages.py` are therefore this one call:
+
+      * the staged bytes and `REFUSED.txt` go to `runs/<mode>-refused/`. On the ordinary path nothing
+        is staged -- every guard runs before `write_png` -- so what lands is the frame of the page
+        that refused, named `lock@360.png` rather than `lock.png` so it cannot be opened as the
+        artifact;
+      * `--out` is left exactly as it was, and `report_refusal` names the file standing there with
+        its mtime instead of deleting it (#222: with `--out` pointing at the docs tree, that file is
+        the committed evidence).
+
+    Reported, then kept, then photographed, in the order the transcript is read: the refusal, the
+    stale file it did not write, the frame it did take, the count of what is in the directory.
+    `report_refusal` and `capture_refused` both report and never raise, because this runs from inside
+    a refusal handler and a diagnostic that dies replaces the real cause with the diagnostic's own.
+
+    That rule is a wish about a `print`, and a `print` can die: a closed stderr, an `EPIPE` from
+    `| head`, and the sentence after the note is on disk raises `OSError`. So the rule is not left to
+    good behaviour -- `SingleRefusal` below is what makes a disposal that raises unable to be refused
+    a second time, and `pages.py --self-test`'s rule "a refusal whose own report raises is disposed
+    of once" is what keeps it true (#304 measures the broken version: two `refusals (1):` blocks in
+    one `REFUSED.txt`, the second one quoting the diagnostic instead of the page).
+    """
+    keep = refused_dir(mode)
+    report_refusal(name, why)
+    env = op.join(RUNS, mode, "fixture.env")
+    kept = refused_frame(cap, keep, out,
+                         note=refusal_note(mode, out, [env] if op.exists(env) else [],
+                                            [f"  refused: {why}\n"]),
+                         frame=frame)
+    if kept is None:
+        # The keep was declined (nowhere safe to write), so the frames are gone and there is no
+        # directory to count. `keep_refused` has already said why this one was destroyed.
+        return None
+    left = sorted(f for f in os.listdir(keep) if f.endswith(".png")) if op.isdir(keep) else []
+    if left:
+        print(f"  {len(left)} frame(s) this run kept are in {keep}, with {REFUSED_NOTE} beside "
+              f"them; nothing was written to {out}, and none of these frames is evidence",
+              file=sys.stderr)
+    else:
+        # The refusal came from the fixture, before there was a page to photograph. "0 frame(s)" would
+        # be a true sentence that answers the wrong question -- the operator is looking for a picture
+        # and is owed the reason there is none, not a zero. The reason has TWO cases though, and the
+        # sentence used to name only one of them: `capture_refused` reports a failed photograph and
+        # returns None instead of raising, so an empty drawer also means the page WAS up and the
+        # browser is what failed. Measured 11 Nov with the fake session refusing one screenshot: the
+        # transcript told an operator whose browser had just answered a page that it "was refused
+        # before it had a page in a browser to photograph", which sends them to `lock-setup.sh` for a
+        # websocket problem. `cap is None` is the fixture, and nothing else -- which is true of these
+        # two drivers only because `SingleRefusal` suppresses the retry: the outer arm also disposes
+        # with `cap=None`, and before #304 that second call reached this same sentence for a run that
+        # had a live browser in its first attempt.
+        why_none = ("this run was refused before it had a page in a browser to photograph"
+                    if cap is None else
+                    "the page was up and the photograph of it is what failed -- the line above this "
+                    "one is what the browser answered")
+        print(f"  no frame could be taken, so {keep} holds none: {why_none}. {REFUSED_NOTE} is there "
+              f"with the refusal and the conditions; nothing was written to {out}", file=sys.stderr)
+    return kept
+
+
+def refusal_reason(exc):
+    """The one sentence a refusal is stated in, from either exception shape a driver catches.
+
+    `SystemExit` already carries the operator's sentence, so it is printed as written; anything else
+    has to name its type, because a bare `the connection was reset` in `REFUSED.txt` is a `RuntimeError`
+    or an `OSError` and the difference is the diagnosis. Both single-frame drivers catch the two shapes
+    in two nested handlers and now a third time in the outer one, so six call sites used to spell this
+    expression out -- and a note whose sentence depends on which handler happened to catch the page is
+    the same drift `refusal_note` was moved here to stop.
+    """
+    return str(exc) if isinstance(exc, SystemExit) else f"{type(exc).__name__}: {exc}"
+
+
+class SingleRefusal:
+    """One disposal per refusal for a driver that photographs one page, decided in one place.
+
+    `lock.py` and `testlock.py` catch their refusal twice, and they have to: the inner arms sit
+    inside the `with` because `capture_refused` needs the browser this run opened, and the outer arm
+    catches `Exception` as well because a fixture that refuses before a browser exists still owes the
+    operator the note and the stale-file sentence. Nested handlers mean one more thing, though --
+    anything that raises *inside* the first disposal is caught by the outer arm and read as a second
+    refusal. Measured 11 Nov on `origin/main` at `1e31cac`, driving the real `lock.py` `main()` with a
+    faked browser and a stderr that dies once (the pointer sentence `capture_refused` prints after the
+    note has already landed): `REFUSED.txt` came back with two `# What this run refused` headers and
+    two `refusals (1):` blocks, the second block's sentence was `OSError: [Errno 9] Bad file
+    descriptor` rather than the page's, `keep_refused` had run twice against a drawer holding one
+    frame, and the last thing the operator read was a refusal of the diagnostic. #304.
+
+    So this object holds the flag the outer arm checks, and it lives here rather than in each driver
+    for the reason #296 moved the note into `refusal_note`: the two drivers are one shape, and a rule
+    written twice is a rule one of them can stop meaning.
+
+    The flag is set BEFORE the call, never after. A disposal that died is still a disposal -- it
+    wrote the note and moved the stage, and what killed it was its last sentence -- so the retry is
+    the thing being refused, not something to be earned by a clean exit. A driver that wants to know
+    whether it was refused reads `disposed`; nothing else in the package does.
+    """
+
+    def __init__(self, mode, out, name, frame):
+        self.mode = mode
+        self.out = out
+        self.name = name
+        self.frame = frame
+        self.disposed = False
+
+    def refuse(self, cap, why):
+        """Dispose of this run once, however many handlers its refusal passes through.
+
+        Returns what `refuse_single_shot` returned on the one call this makes, and None on every call
+        after it. On those, `why` is no longer a refusal -- it is a diagnostic about the report -- so
+        it is reported as one, and the sentence is chosen from what is actually on disk rather than
+        from the flag: a disposal that died in its FIRST print never wrote the note, and telling the
+        operator that a note exists which does not is the same invention in the opposite direction.
+        Measured 11 Nov on the page arm with the sink dying on `report_refusal`'s headline: `rc 1`, no
+        `REFUSED.txt`, the drawer never created, `--out` untouched.
+
+        The failed disposal is not retried when it wrote nothing either. A stderr that refused one
+        write refuses the retry's first print as well, and that second death lands in the outer
+        handler with nothing left to catch it -- a traceback over a run that had already decided to
+        return 1. Saying what is missing costs nothing and cannot fail twice.
+        """
+        if self.disposed:
+            note = op.join(refused_dir(self.mode), REFUSED_NOTE)
+            if op.isfile(note):
+                print(f"  this refusal was already disposed of: the report about it raised ({why}), "
+                      f"and a second disposal would append a second block to {note} for one "
+                      f"refusal. {note} holds the one note this run wrote, and nothing was "
+                      f"appended to it.", file=sys.stderr)
+            else:
+                print(f"  this run's refusal was disposed of once already, and that disposal wrote "
+                      f"nothing: the report about it raised ({why}) before {REFUSED_NOTE} existed. "
+                      f"There is no {REFUSED_NOTE} for this refusal and it will not be retried on a "
+                      f"stderr that has already refused one write; anything this run staged is still "
+                      f"in the stage, and nothing was written to {self.out}.", file=sys.stderr)
+            return None
+        self.disposed = True
+        return refuse_single_shot(cap, self.mode, self.out, self.name, self.frame, why)
+
+
 def fixture(name):
     """The run directory for one capture, and the fixture's own answers."""
     d = op.join(RUNS, name)

@@ -2619,3 +2619,1070 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the *driver's* missing-key refusal firing on a stale `fixture.env` — a green-looking "census undeclared"
   about a fixture that had simply died early. The fix is one line and the lesson is #1180's: a refusal
   observed before the thing it guards was reachable is not a control that fired)
+
+## D-0054 · A refused capture run keeps the frames it measured, in a directory nothing certifies
+
+- Question: `pages.py` disposes of a refused run with `cdp.discard_stage()`, which is right for a
+  publish and was silently right for a look: the frames a refusal exists to explain left with it.
+  Measured 11 Nov on `origin/main` at `a0c7fce` by driving the real `main()` with only `Capture`,
+  `capture_out` and `shoot` replaced -- `cdp.Session.write_png` staging real bytes into
+  `cdp._stage_dir()`, the disposal path neither stubbed nor faked -- one page refusing at both
+  viewports while five fitted: the stage held `dashboard.png, profiles-refused.png, profiles.png,
+  settings.png, users.png` with five `_PENDING` entries when `discard_stage()` ran, once; afterwards
+  the stage directory was gone, `runs/` held nothing, `--out` was not a directory, and the refusing
+  page had never been photographed at all. The same harness on this branch: no `discard_stage()`
+  call, and `runs/pages-refused/` holding seven PNGs -- the five measured frames plus
+  `audit@360.png` and `audit@1024.png`, the refusing page at each viewport that refused it -- with
+  `REFUSED.txt` beside them, `_PENDING` empty, and `--out` still not a directory. Where do kept
+  frames go, so a refusal can be looked at without a kept byte ever readable as the evidence the run
+  refused to produce?
+- Options: write them into `--out` beside the published set under a `.refused` suffix | move them out
+  of the publish queue into `runs/<fixture>-refused/` with `REFUSED.txt` beside them and photograph
+  the refusing page too | keep only the refusing page's frame | leave the disposal as it was and treat
+  the refusal's prose as the record
+- Chose: move them out of the publish queue into `runs/<fixture>-refused/` with `REFUSED.txt` beside
+  them and photograph the refusing page too
+- Why: option four is refuted by the measurement above rather than argued. The prose is five `FITS`
+  sentences naming files that do not exist -- once on 6 Nov, re-run here against main's own code --
+  and it is why an undiagnosable refusal got closed twice: #220 on 5 Nov as satisfied by D-0031,
+  which fixed the *stamp* of a frame (`manifest.py record` dates what it is handed, so a frame that
+  never landed keeps the `sources_rev` of the commit its bytes were rendered from), and again on 6 Nov
+  as satisfied by main, when neither half said anything about the frames themselves. Option one is
+  refused by #222, the failure this driver exists to prevent: `--out` is the certified surface,
+  `manifest.py check` reads the manifest that lives in it, and `record` stamps any file handed to it
+  with this run's `sources_rev` and `captured_at` -- a refused frame parked there is one `record` away
+  from carrying a stamp it did not earn, same bytes, same filename, a `captured_at` from a run that
+  refused. Option three keeps the frame that explains the refusal and throws the five that explain the
+  count: `5/6 pages fit` is only checkable against the other five, and the whole 6 Nov mystery was
+  which of the five sentences were true. Four properties are then enforced in code rather than left to
+  a note: the frames are moved and not copied and `_PENDING` is emptied with them, so no staged path
+  survives to be published beside them; the directory is cleared when opened, once, and the clear is
+  announced; it is never `--out` or anything inside it -- `keep_refused` declines a target outside
+  `runs/` or one overlapping `--out`, and says the frames are being destroyed when it declines; it is
+  named for the fixture, so a `pages-noprof` refusal cannot land in `pages`' kept set. Each of those
+  four was then cut and the self-test run, every mutation applied to its own copy under
+  `/tmp/opencode` so the gated tree was never itself a mutant (#1807, one step further than the
+  runner's own restore-on-exit):
+
+  | mutation | rules red | the finding it produces |
+  |---|---|---|
+  | `keep_refused` hollowed to `return []` | 12/76 | `FileNotFoundError` from every rule that reads a kept frame back |
+  | the refusal branch restored to `discard_stage()` | 6/76 | `every page refused -> discard_stage() ran 1 times` |
+  | `refused_dir` drops the fixture from the name | 5/76 | `no refused directory at all, so the run destroyed the twelve frames it had measured` |
+  | the stale clear deletes nothing | 1/76 | `pages-refused still holds a frame from before this run` |
+  | the clear goes unannounced | 1/76 | `cleared yesterday's frames without saying it did` |
+  | the keep-guard accepts any target | 1/76 | `keep_refused accepted a directory outside the scratch tree` |
+  | `_PENDING.clear()` removed | 1/76 | a kept frame still queued to publish |
+  | the handler reads `Exception`, not `(Exception, SystemExit)` | 1/76 | `capture_refused raised SystemExit out of a refusal handler` |
+  | `REFUSED.txt` not written | 2/76 | `a frame with no sentence under it is what #211 says a frame is not` |
+  | the retracting sentence dropped | 1/76 | `the transcript still prints FITS paths for files this run did NOT write` |
+  | the kept frame loses its `@width` | 3/76 | `kept ['settings.png'], want ['settings@1024.png', 'settings@360.png']` |
+  | one rule's registration deleted | 1/76 | `75 rules ran, want 76` -- the count is load-bearing |
+
+  The first three rows are #251's four requirements and the rest are the properties above; the counts
+  are this tree's, against main's 76 rules -- the earlier attempt on `wip/issue-220-refused-frames`
+  reported 12/7/6 against a 54-rule file and never ran against main at all.
+- What lost: a refused run is no longer silent on disk -- `runs/` holds one kept set per
+  fixture, emptied by that fixture's next refusal and by nothing else, so a set outlives its own
+  explanation until the next refusal; the refusing page is photographed inside its own refusal
+  handler, so a failure there is swallowed into a line (`capture_refused caught: …`, `page not
+  photographed`) instead of stopping the run; that photograph is a second render and can differ from
+  what was measured; and a refused page's own guard reaches that handler as `SystemExit`, so the outer
+  handler keeps having to read `(Exception, SystemExit)` or the diagnostic takes the refusal's exit
+  code with it. One more, measured rather than predicted: the five frames that fitted in the live run
+  below are byte-identical to the committed set (`users b1974aaa…`, `profiles a2bede88…`,
+  `profiles-refused 9a62a2cd…`, `audit fc37cd9a…`, `settings c47e16d6…`). So the kept directory holds
+  the committed filenames holding the committed bytes, and what separates them from evidence is the
+  manifest, the note, and `testing/capture/runs/` being gitignored -- not the filename. Say that to
+  anyone handed a PNG out of it.
+- Checkpoint: a0c904afe819e17b40f7c7260ca69799433abf5e
+- Effect: `testing/capture/cdp.py` (`REFUSED_NOTE`, `refused_dir`, `keep_refused`, `capture_refused`,
+  `_REFUSED`), `testing/capture/pages.py` (`capture_refused_frame`, `_refusal_note`, the refusal
+  branch of `main()` in place of `discard_stage()`, the retracting sentence, six rules,
+  `EXPECTED_RULES` 70 → 76, and `_refusal_box` so a rule that reads files back does it inside its own
+  temp directory and every other rule writes none), and `testing/capture/README.md` -- plus
+  `DECISIONS.md`. What this does NOT take: the two single-frame drivers, `lock.py` and `testlock.py`,
+  still dispose of their staged frame with `discard_stage()`, and the notes now say so under open
+  work, because their `--out` is a single named file and #251 did not ask about them. This yields a
+  decision rather than a design: the id the preserved branch carried (`D-0031`) has belonged since
+  7 Nov to the manifest's `sources_rev` stamping, of which this is a consequence and not a restatement
+  -- a frame that landed under `--out` and a frame that was refused both need the same reader told
+  what they are, and this entry is the second of those two sentences. Read-backs this field rests on,
+  each run after the code it describes: `make verify` exit 0, quoting `capture self-test: 76 refusal
+  rules hold`, `capture manifest self-test: 42 rules hold`, and `screenshot manifest: 9 photographs
+  current`; then the live refusal on this branch, `PLOCK_CAPTURE_SCRIPTS=on ./pages-setup.sh &&
+  PLOCK_CAPTURE_SCRIPTS=on ./pages.py`, setup exit 0 and driver exit 1, refusing `/` because casey's
+  row reads `locked out until 16h 48m` where the artifact is a photograph of `locked out until
+  00:00` -- the one condition these notes already document as refusing this fixture -- printing
+  `5/6 pages fit at 360 px (fixture pages); refused: /`, then `Nothing was written to
+  …/runs/pages.`, then `6 frame(s) this run measured are in …/runs/pages-refused, with REFUSED.txt
+  beside them`, then the retraction; `runs/pages/` left holding the fixture's own `config.json`,
+  `audit.jsonl` and `fixture.env` and no PNG; `runs/pages-refused/` holding `REFUSED.txt` naming the
+  refusal, the fixture, the UTC minute, the untouched `--out` and the `fixture.env` that states the
+  conditions, beside `dashboard@360.png` and the five fitted frames; the fixture's daemon and Chrome
+  gone with the run, nothing listening on 8501 or 9333.
+
+  **Correction, 11 Nov, taken while the pull request was being opened — three findings, each with
+  the command that re-checks it.**
+
+  1. `Effect:` names `capture_refused_frame` as a `pages.py` symbol. This tree never had that name;
+     the helper is `_refused_frame`. Re-check: `grep -rn 'capture_refused_frame' .` answers nothing,
+     `grep -n 'def _refused_frame' testing/capture/pages.py` answers the definition. The wrong name
+     is left standing above rather than edited out, because a silently corrected `Effect:` field is
+     indistinguishable from one that was always right.
+  2. `Why:` says the mutation counts were taken "against main's 76 rules". `main` has 70
+     (`git show origin/main:testing/capture/pages.py` at `EXPECTED_RULES`); 76 is this tree's count,
+     which `Effect:` records correctly as `70 -> 76`. The counts themselves are this tree's and were
+     re-measured before this correction, each on a copy of the tree under `/tmp/opencode` so the
+     gated tree was never itself the mutant (#1807): hollowed `keep_refused` -> `12 of 76 rules
+     failed`, restored `discard_stage()` -> `6 of 76`, `refused_dir` without the fixture ->
+     `5 of 76`.
+  3. `manifest_never_over_a_refusal` reported the opposite of what it saw, and this one was in the
+     code rather than the prose. Its clause read `if discarded and not published:` above the
+     sentence "a refused run neither moved its frames out of the stage nor destroyed them" -- so it
+     fired on exactly the mutation where `discard_stage()` HAD run and destroyed the frames, and
+     stayed silent on the case the sentence describes. Measured on the restored-disposal mutant
+     before the fix, the finding printed beside its own contradiction: `capture self-test: a refused
+     run neither moved its frames out of the stage nor destroyed them`. Fixed in this commit into
+     two arms that each mean what they say: `discarded` -> "destroyed the frames it measured
+     (discard_stage ran)", and `kept is None` -> the "neither moved" sentence, which now fires only
+     when both halves are true (verified on a second mutant that leaves the stage live: 7 of 76,
+     with this rule's line among them). Detection is not weaker for the change -- the
+     restore-disposal mutant is still 6 of 76, and the strong form of the live-queue property stays
+     where it always was, in `a_kept_frame_is_moved_out_of_the_publish_queue`, which reads
+     `_PENDING` and the stage directly.
+
+  Checkpoint for the correction: 8cb0d6d2be3365e570d29f803a9a3dad835a15ae. What it does not touch:
+  the behaviour, the six rules, or the counts -- two findings are in the record and one is in a
+  self-test sentence. The live refusal was re-run end to end against this branch before the pull
+  request (setup 0, driver 1, refusing `/` on casey's countdown, `runs/pages-refused/` left holding
+  six PNGs and `REFUSED.txt` while `runs/pages/` held the fixture's own files and no PNG), and the
+  five fitted frames came back byte-identical to the committed set: `users b1974aaa...`,
+  `profiles a2bede88...`, `profiles-refused 9a62a2cd...`, `audit fc37cd9a...`,
+  `settings c47e16d6...`.
+
+## D-0055 · `record` refuses a frame whose bytes moved and nobody claimed it, instead of dating it at the commit it happens to stand in
+
+- Question: #222 stopped `manifest.py record` moving `sources_rev` for a frame it did not take by
+  *carrying* the prior entry's value, and the carry needs three things at once: a prior entry, byte
+  identity, and a rev worth carrying. A frame whose bytes differ from the entry the manifest carries,
+  and that this run did not name in `--shot`, still reaches the mint (`testing/capture/manifest.py:507`
+  at `d7a5149`), which writes the commit the run is standing in -- and `check`'s drift arm opens
+  `if recorded == current: continue`, so the mint is not a wrong sentence about the frame, it is the
+  refusal switched off. Where does that get refused, and is refusal the right verb when there is no
+  prior rev to keep?
+- Options: refuse in `record` and write nothing | keep minting and teach `check` to catch it afterwards
+  | mint the frame's OWN newest commit instead of the page's | carry the prior entry's rev, as #222
+  does for an unchanged frame | print a warning to stderr and record anyway
+- Chose: refuse in `record` and write nothing
+- Why: option two is not available, and the measurement is the issue's and this file's both: the
+  equality `check` short-circuits on is the one `record` just wrote, and the swap's own commit is now
+  the newest commit touching the PNG, so `check`'s ancestry arm reads a substituted frame as a re-take.
+  Measured 11 Nov at `d7a5149` through real git over a throwaway repository (nine frames recorded at
+  `A`, the masthead moved at `B` with `profiles.png` re-taken in that commit, `audit.png` replaced with
+  another page's frame): before the record `check` refuses the swap on identity, after one
+  `record --shot profiles` it names nothing about `audit.png` while naming the six frames that honestly
+  carried, and with `--fixture-env runs/pages/fixture.env` supplied the swapped frame gains this run's
+  `capture` block as well -- #211 reopened for one frame. Option three is laundering with better
+  grammar: for a substituted frame the newest commit over the pixels IS the swap commit, so the
+  manifest would certify the substitution as the rendering. Option four dates new bytes by the file
+  that used to be there -- the same invented date with a longer pedigree, and a `png_sha256` paired
+  with a `sources_rev` that never coexisted. Option five leaves the green sentence counting the frame
+  as current, which is the claim #222 was filed over. Tie-break order picks option one without
+  reaching for taste: tie-break 3 is "refuse rather than proceed when the input that decides is
+  missing", and `--shot` is that input; tie-break 2's direction (ambiguity never resolves toward
+  certifying) points the same way; option one touches one function and one message (tie-break 4) and
+  reverts cleanly, changing no schema and no `/1`-vs-`/2` promise (tie-break 5). Say what it costs.
+  `--shot` stops being advisory: two of this file's own self-test recipes were re-takes with no
+  `--shot` and go red until they name the frame, and README:653-655's by-hand sentence names one frame
+  where a run that took both POST frames must name two -- measured against the pre-fix recorder here,
+  `--fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock` typed after
+  both POST frames had been re-taken and the masthead had moved again wrote
+  `testlock.png: sources_rev 8af51e245 -> c89ae7fe8` with the newest commit over its own pixels at
+  `a5dd8d141`, and `check` named the seven stale page frames one by one and said nothing about that
+  one. All three recipes were edited in this commit rather than left for someone to find. What the
+  refusal does NOT establish: a *named* frame is still taken on the driver's word, so
+  `record --shot lock` typed three commits after `lock.py` ran mints the current rev for pixels whose
+  own history says otherwise (the same run above shows it for `lock.png`, which was named). `--shot`
+  says whether a run took a frame and nothing about when it took it, both of #294's arms are about
+  frames nobody named, and the ordering obligation now lives in the notes instead of in a check.
+- Checkpoint: 8204da291931a3e940568a1855086297115e6a11
+- Effect: `testing/capture/manifest.py` -- `record`'s loop collects `replaced` and raises once, naming
+  every unclaimed frame together, before the notes print and before anything is written (so the
+  manifest on disk stays the one that still describes the swap as a finding), and `record`'s docstring
+  now says `shot` is what makes an unclaimed frame refuseable; two existing rules
+  (`conditions_follow_the_frame_not_the_recorder`, `a re-take of one page demands nothing of the frames
+  it never touched`) pass `shot=` because that is what `pages.py:1097` actually hands over, and
+  `EXPECTED` 42 -> 43 with `a frame whose bytes moved and nobody claimed is refused, and a named
+  re-take clears it`; `testing/capture/README.md` -- the substitution paragraph (open -> closed, with
+  this measurement), the "Record last, and name what you took" paragraph, and the by-hand recipe
+  (one `--shot` per frame, record in the same commit as the re-take). Read-backs, each run against the
+  code it describes: `python3 testing/capture/manifest.py --self-test` -> `capture manifest self-test:
+  43 rules hold`; hollowing the new clause to `if False and before and not unchanged …` on a copy of
+  the tree under `/tmp` (never the gated tree, #1807) -> `1 of 43` failing, and that one is this rule;
+  restored -> `43 rules hold`. Real git over throwaway repositories (`/tmp/opencode/p294/probe294.py`,
+  package copied from this tree): arm A bare and arm A with `--fixture-env` -> refused, names the
+  frame and `--shot`, manifest identical afterwards, `check` still refuses the swap, no `capture` stamp
+  gained, and `--shot profiles --shot audit` records; the documented sentence with both POST frames
+  re-taken and one `--shot` -> refused naming `testlock.png`, with both `--shot` flags -> records; the
+  honest paths unchanged -- the first bare record of a directory with no prior manifest records and
+  `check` answers 0 problems, `record` over nine untracked frames before committing records, and
+  `pages.py`'s own partial record over the committed set records with the two POST frames carried.
+## D-0056 · `record` refuses a frame the manifest has never seen whose pixels are older than its page, and refuses it on the comparison, not on the absence
+
+- Question: arm A of #294 (D-0055) refuses a frame whose bytes differ from the entry the manifest
+  carries and that this run did not name. The second input the issue names is a frame the manifest has
+  never seen — `before is None` — which has no prior rev to carry, so the mint writes the commit the run
+  stands in. When is that a lie, given that every frame of a capture that has not been committed yet is
+  also new to the manifest?
+- Options: refuse every frame with no entry, on arm A's rule | refuse on the ancestry comparison, and
+  only when the run does not name the frame | keep minting and leave it to `check`'s `is committed with
+  no entry in` arm | mint the frame's OWN newest commit instead of the page's
+- Chose: refuse on the ancestry comparison, and only when the run does not name the frame
+- Why: "the ancestry comparison" is the newest commit over the frame's own pixels strictly older than the
+  newest commit over its page, and "does not name the frame" is `--shot`, the flag that already decides
+  whose conditions a frame gets. The absence cannot be the trigger, and the first draft of this commit
+  proved it by going red.
+  Extending arm A's rule to `before is None` refuses this file's own `recorded()` helper and `pages.py`'s
+  ordering: every frame of a run that has not been committed yet is new to the manifest, `fixture.sh`
+  says *Commit last*, and a `make capture` that cannot record its first set is #144's trap wearing the
+  fix's clothes. Measured on the acceptance rules with the keying swapped (`if pixels:` where the
+  ancestry test now stands): 23 of the 44 rules go red, naming frames whose pixels have no history at
+  all. The
+  comparison says the thing that is actually wrong — these pixels were last committed at least one
+  commit before this page — and stays silent exactly where silence is honest: an untracked frame, or one
+  committed in the very commit the manifest is written at, has nothing to be older than. Minting also
+  costs the one gate that does see such a frame: `check`'s `is committed with no entry in` arm stops
+  firing the moment an entry exists, and the arm that replaces it opens `if recorded == current:
+  continue`. Measured 11 Nov at `148c4d4` through real git over a throwaway repository: seven frames
+  recorded, `lock.png` and `testlock.png` photographed and never recorded; `check` names both as
+  unrecorded; one bare `record` exits 0 and writes nine entries, both new ones dated `1e3e2ac42` — the
+  commit that moved the shared masthead — while the newest commit over their own pixels stays
+  `151b6ebe9`; `check` then reports 7 problems and neither of those two frames, and the green sentence
+  says *9 photographs current*. The record did not describe those frames, it deleted the findings about
+  them, which is option three's whole content. Option four is laundering with better grammar: for a
+  frame copied in from another page the newest commit over the pixels IS the copy (measured for the same
+  shape under D-0055). Tie-break 3 — refuse rather than proceed when the input that decides is missing —
+  picks refusal over minting without reaching for taste, and tie-break 2 is why "probably it was just
+  taken" is not an answer. Costs, stated. (i) A frame added by hand and recorded late now needs `--shot`
+  plus its fixture's env — the recipe the notes already print, in both directions. (ii) In a shallow
+  clone, and for any frame whose pixels the checkout cannot see, the comparison has no input and the
+  frame records as it used to: the same blind spot D-0030 quotes for `is_ancestor`, and it fails open.
+  (iii) A frame re-taken and not yet committed is silent, so the worst named case — `--shot lock` typed
+  from a stale working tree — is D-0055's residual and this commit does not touch it. Fourth, and it
+  belongs in the record: two of the claims #294 gives for this arm did not survive being read.
+  `docs/screenshots/360/manifest.json` has carried entries for `lock.png` and `testlock.png` since
+  `7544a31` (27 Oct), so on no head this repository publishes are they frames "with no entry", and
+  neither `26f19f181` nor `99099f982` — the commits the issue quotes as their newest — is an object here.
+  What is true is the specimen one step further along, and it is worse: those two entries are the only
+  two of nine with no `carried_from` (both revs minted), both dated `2088043cb`, written by `7e65d3b`
+  eighteen seconds after `2088043` landed, while the newest commit over each PNG's own pixels is `3bcbfdd`
+  (12:13:58, against 16:35:37), an ancestor of it. So the published manifest dates two photographs at a
+  page change they predate, and `manifest.py check` on this tree exits 0 saying *9 photographs current*
+  — the rev the gate would compare is the one the record wrote. Refusing future mints does not correct
+  those two rows; only re-taking them does, and that needs the browser.
+- Checkpoint: 148c4d4640bb729579aaafe42f5c4eba1d949ff2
+- Effect: `testing/capture/manifest.py` — `record` hoists `current = newest_commit(sources, run=run)`
+  above the entry build (the value the mint already computed, now computed once and read by the refusal),
+  collects `unclaimed` beside `replaced`, and raises one message carrying both halves so a run that left
+  frames in either class is told about all of them at once; the arm's condition is
+  `before is None and artifact not in shot and current` together with
+  `pixels and not is_ancestor(current, pixels, run=run)`; `EXPECTED` 43 -> 44 with
+  `a frame new to the manifest with pixels older than its page is refused, and a frame with no history
+  at all is not`, which asserts the refusal, that it names the frame and both resolving flags, that
+  nothing was written, that `check` still calls the frame unrecorded afterwards, and that both
+  no-history orderings — untracked, and committed in this very commit — record; `in_box` now turns a
+  `SystemExit` that escapes a rule into that rule's failure, measured as necessary because the trap
+  mutant above used to abort at rule 1 of 44 with a traceback and no count, the failure D-0030's entry
+  names. `testing/capture/README.md` — a paragraph for the arm, the published specimen in
+  `git show 7e65d3b`, and the re-take that closes it. Read-backs, each run against the code it describes:
+  `python3 testing/capture/manifest.py --self-test` -> `capture manifest self-test: 44 rules hold`;
+  hollowing each arm on a copy of the tree under `/tmp` (never the gated tree, #1807) -> arm A hollowed
+  fails exactly 1 of 44 rules (`a frame whose bytes moved and nobody claimed…`), arm B hollowed fails
+  exactly 1 (`a frame new to the manifest with pixels older than its page is refused…`), the
+  absence-keyed mutant fails 23 of 44 starting with `a consistent tree passes…`, and restored ->
+  `44 rules hold`; real git over throwaway repositories (`/tmp/opencode/p294/probe294.py`, package
+  copied from this tree) -> `VERDICT: 45/45 expectations met`, including the unrecorded pair refused
+  with both frames named and the manifest identical afterwards, both named with their envs recorded at
+  the current commit with `check` back to 6 problems, and the three honest paths (first bare record of a
+  directory, record over nine untracked frames, `pages.py`'s partial record with the POST frames
+  carried) unchanged.
+
+## D-0057 · A refusal's own sentences are read back off the transcript, and the frame count it announces is compared to the directory it names
+
+- Question: #251's keeping is pinned and its prose is not. Measured 11 Nov on `origin/main` at
+  `66c9162` with nine attacks, each applied to its own copy of the tree so the gated tree was never
+  itself the mutant (#1807), and every anchor asserted before its tally was believed. Six die:
+  `keep_refused` hollowed 12/76, the refusal branch restored to `discard_stage()` 6/76, `refused_dir`
+  without the fixture 6/76, the opened-once guard removed 5/76, the keep-guard removed 1/76, a rule
+  unregistered 75/76. Three print `capture self-test: 76 refusal rules hold` with the symptom live:
+  deleting `main()`'s announcement outright (`pages.py:1063`), making it print `0 frame(s)` while two
+  frames sat in the kept directory, and deleting the line `cdp.capture_refused` prints beside the
+  frame it has just taken (`cdp.py:198`). The third is this issue's requirement 1 read literally --
+  the refusal and the place to look in one breath -- and the first two are its "the journal line and
+  the finding must agree". Where do the assertions go?
+- Options: extend `a_refused_run_says_where_its_frames_are` to read the announcement back and compare
+  it to the kept directory | add two rules for the two sentences and take `EXPECTED_RULES` from 76 to
+  78 | pin only `cdp.capture_refused`'s success arm, beside the existing dead-browser rule | change no
+  rule and file the three attacks as open work
+- Chose: extend `a_refused_run_says_where_its_frames_are` to read the announcement back and compare it
+  to the kept directory
+- Why: the tie-break that separates first is the fewest-moving-parts one -- one file, one rule, and
+  the count stays 76. `EXPECTED_RULES` is itself load-bearing (unregistering one rule is a catch at
+  75/76) and bumping it in a branch whose neighbours merge into the same capture tree invites the
+  append-vs-append conflict this log has already recorded twice, for a number that buys no coverage
+  the clauses do not buy. Option three pins the half an operator follows and leaves the half an
+  operator quotes, which is the count. Option four is what produced the hole: #220 was closed on 5 Nov
+  as satisfied by D-0031 and again on 6 Nov as satisfied by main, both on prose nobody had attacked,
+  and D-0054's `Why:` carries the measurement that refuted each -- three green summaries this morning
+  are that failure still running. Reading the sentence back rather than watching a helper get called
+  is also the property itself, because requirement 1 is a claim about the transcript; a rule that
+  watched `keep_refused` being handed the bytes passed with it hollowed to `return []`, and the
+  disk-reading rules that replaced that class are the 12/76. Re-run after the change, each attack
+  against the fixed tree: `0 frame(s)` now reports `the refusal announces 0 frame(s) and <keep> holds
+  2: ['audit@1024.png', 'audit@360.png']`, the deleted announcement reports `nothing says how many
+  frames the refusal kept or which ones`, the deleted pointer reports `nothing at the refusal points
+  at the kept frame of /audit at 360 px (<keep>/audit@360.png)`; the six that already died still die,
+  at 12, 6, 6, 5, 1 and 75/76.
+- What lost: one rule now carries five claims, so a failure prints one sentence among five under a
+  name that reads as though it says one thing -- splitting them would attribute each finding on its
+  own line, and that attribution is the price of holding 76. The announced count is compared against
+  the directory `main()` itself listed, so an edit changing the listing and the number together stays
+  green: what is pinned is that the transcript agrees with the disk, not that the disk holds the right
+  number of frames (that is `keep_refused` hollowed, 12/76). The refused page's pointer is asked for
+  by the literal `audit@<width>.png` because `/audit` is this rule's victim; a rule refusing another
+  page would have to derive the name from `CENSUS`. And the three attacks are still prose in this log
+  rather than a runner in the tree: `scripts/attack-self-test.py` attacks `scripts/mutate.py
+  --self-test`, and nothing in the tree attacks `pages.py --self-test`, so a rule that quietly stops
+  being load-bearing is found by whoever remembers to run a copy-and-patch loop again -- #124's
+  eviction hazard, still open at this end.
+- Checkpoint: 7c87924d16ba934d3879d8e6e788bbf35394314c
+- Effect: `testing/capture/pages.py`, inside `a_refused_run_says_where_its_frames_are` -- the
+  announcement line parsed out of the run's own stderr (count, directory, frame list), each compared
+  against the kept directory's listing, plus one expected pointer per viewport asserted against
+  `cdp.capture_refused`'s sentence including the words `not evidence` -- and `DECISIONS.md`. What this
+  does NOT take: no behaviour moves. `cdp.py`, `main()`, `refused_dir`, `keep_refused` and
+  `EXPECTED_RULES` are untouched, every finding above was reproduced on `origin/main` at `66c9162`
+  before a line was written, so none of it is inferred from the merged branch's prose. `lock.py` and
+  `testlock.py` still dispose of their staged frame with `discard_stage()`, exactly as D-0054's
+  `Effect:` says, and that half is filed as its own issue rather than folded in here -- #251 did not
+  ask for it, and their `--out` is a single named file, which is a different question about a
+  different directory. Re-checks, each run after the sentence it certifies was written:
+  `python3 testing/capture/pages.py --self-test` -> `capture self-test: 76 refusal rules hold`;
+  `make verify` exit 0, last line `verify: OK`; the nine-attack loop above -> six unchanged tallies
+  and three new catches.
+
+## D-0058 · The #297 attacks become a suite in the tree, and the suite carries the holes it cannot close as rows rather than closing them
+
+- Question: `#297` says nothing attacks `pages.py --self-test`: three of the nine attacks on its
+  refusal contract printed green, and the attacks live in prose in `D-0057`. What shape does the
+  runner take -- and what does it do about the attacks the *current* guard does not see, which are
+  most of the ones that probe the guard itself rather than the driver?
+- Options: `copy-in-depth`: sandbox `testing/capture/*.py` plus `internal/web/templates/*.tmpl`
+  (13 files, 599 KB), re-run the baseline before trusting any row, and assert the copy holds what
+  the driver reads | `symlink-the-root`: box holds copies of the `.py` files and symlinks `internal/`
+  at the real tree, so the box is cheap and can never go stale as the driver's reads widen |
+  `shallow-copy`: sandbox only `pages.py` and `cdp.py`, the two files the rows patch |
+  `fix-the-guard-first`: strengthen `pages.py`'s verdict (a third canary, a per-rule probe) before
+  writing the runner, so the suite is green on arrival | `holes-as-rows`: write the runner against
+  the guard as it stands and carry every attack it does not see as a `DOCUMENTED_HOLES` row whose
+  class is named and whose disappearance is as loud as a new hole appearing
+- Chose: `copy-in-depth`: sandbox `testing/capture/*.py` plus `internal/web/templates/*.tmpl`
+  (13 files, 599 KB), re-run the baseline before trusting any row, and assert the copy holds what
+  the driver reads
+- Second choice: `holes-as-rows`, taken alongside the box decision because both were forced by the
+  same fact -- the guard as it stands does not see most of the attacks that probe the guard. It is
+  recorded as its own choice because it is the half with a cost, argued under `What lost:`.
+- Why: `symlink-the-root` and `shallow-copy` both trade away the one thing this suite exists to
+  provide. Measured, not reasoned: a box with `pages.py` alone comes back `ModuleNotFoundError: No
+  module named 'cdp'`, and a box with `pages.py` and `cdp.py` comes back the same for `manifest` --
+  and `attack-self-test.py`'s docstring records that exact shape of accident, where 42 rows reported
+  `CAUGHT` because every patched run died on a missing import before printing anything. A symlinked
+  `internal/` keeps the baseline green but makes the box unstatable: the guard's whole claim is
+  "nothing written outside a temp box", and the assertion that proves it is a set difference over the
+  box's own file list, which a symlink silently widens to the repository. So the box is a copy, its
+  contents are named (`capture_modules()` globs `testing/capture/*.py` rather than listing three
+  names, so a new sibling module joins the box on the day it appears), and the baseline is re-run
+  and required green before a single row is believed -- with a printed diagnosis naming the two
+  directories the box holds, so the next time the driver starts reading something new the run says
+  what to add instead of reporting 41 phantom catches. The 3.4 s the 41 rows now cost every `make
+  verify` is the same trade the Makefile already documents for the mutation attack suite at 2.5 s --
+  against `D-0057`'s 0.06 s for the self-test and ~3m9s for the target -- on the same grounds:
+  #124's eviction hazard is cheaper than a gate whose evidence nobody can reproduce.
+- What lost: `fix-the-guard-first` lost, and losing it is the point of the row set. Strengthening
+  the verdict first buys a green suite and throws away the measurement: writing the rows against the
+  guard as it stands is what produced the five classes below, and a suite written after a fix would
+  have listed none of them. Two prices were paid for that and both are still on the desk. One: the
+  holes are not closed, so `make verify` now runs a suite that prints `9 holes` and exits 0, which
+  reads worse than it is -- the run's contract is that a hole is a finding and an *unexpected* hole
+  is a failure, so the list cannot rot in either direction, and that both directions work is driven
+  in `Re-checks:` rather than claimed. Two: three of the five classes are one small edit from closed
+  and were left open on purpose -- the third canary is four lines of `pages.py`, the byte-for-byte
+  frame comparison is one clause of `a_refused_run_says_where_its_frames_are`. Closing them here
+  would have changed a verdict #297 did not ask to change and would have removed the rows that prove
+  the runner can see a hole at all; they are filed as issues instead, so the queue owns them and the
+  rows go `HOLE CLOSED` -- a failure naming the class -- on the day somebody else closes them.
+- Checkpoint: 4537b9d1b8528fc6c1ff78216530e367f5be42bb
+- Effect: `scripts/attack-capture-self-test.py`, new -- 41 rows (26 expected catches, 9 holes, 6
+  honest edits that must stay green), each row an exact-once anchor assertion against a copy of the
+  tree, plus `shape_problems()` (the static joins between the row list, the class map and the hole
+  list) and `wiring_problems()` (both `make verify` steps, read from the recipe and not the prose).
+  `Makefile`: the `==> capture refusal attack suite` step beside the `==> capture refusal contract`
+  step at former line 117, the two empty-filter steps folded into one loop over both attack suites,
+  and the comment above them rewritten to say what is now cross-witnessed. `docs/issues-from-d-0058.md`,
+  new: the five findings as issuable work, each with its title, its `gh issue create` invocation, its
+  body, and the row in the suite that will go `HOLE CLOSED` when it is closed -- committed rather than
+  filed, because #297 says do not open issues and a claim that something was filed is exactly the kind
+  of claim this log has been wrong about twice (`Effect:` fields describing writes the server never
+  received). Nothing under `testing/capture/` is touched: the guard is attacked, not changed, and
+  `EXPECTED_RULES` is still 76. The nine rows `D-0057` left as prose are rows 1-9 here and all nine
+  come back `CAUGHT`, so they are regression rows now instead of a recollection.
+- What this found (each row re-measured on every `make verify`, each filed as its own issue): a
+  hollowed rule body is invisible to the count -- all three refusal rules emptied came back green,
+  which is #297's title read literally and the class #125 tracks from the other end;
+  `if counts != [1, 0]` is the only sentence proving the rule helper is not hollow and nothing
+  polices *it*; `if bad:`, the reach comparison and its `return 1` are one edit above anything a rule
+  compares; a rule that throws is recorded as a passing rule, which is invisible until the exact
+  moment it matters; and a kept frame's bytes are never compared to the bytes the browser returned,
+  so writing an empty PNG at the announced path keeps the transcript and the directory in perfect
+  agreement about a frame with no picture in it. The last three are findings about the guard, not
+  about the driver: no committed behaviour is wrong today, and none of them was closed here because
+  closing them changes a verdict and #297 asked for the runner.
+- What lost, second entry, and the hazard this file already carries: `wiring_problems()` asserts
+  this suite is called from TWO steps and that each survives, so deleting one makes the other refuse
+  -- the `manifest.py` #144 trick, which works only because the two calls are independent. It is
+  written against `verify_recipe()` rather than the file, because a sentence in the comment above the
+  recipe names this script and must not be able to satisfy the assertion the step exists to make
+  (driven: a Makefile whose two steps are deleted but whose prose remains still refuses). The
+  mutation attack suite beside it has no such pin, and neither does `==> capture refusal contract`;
+  that gap is older than this entry and is not narrowed here.
+- Re-checks, each run after the sentence it certifies was written:
+  `python3 scripts/attack-capture-self-test.py` -> `VERDICT: 41 attacks, 0 problem(s), 5 hole
+  class(es), 9 hole row(s)`, exit 0, 3.4 s; `python3 testing/capture/pages.py --self-test` -> `76
+  refusal rules hold` (untouched); nine self-attacks on broken copies of the runner itself, each
+  producing the branch it claims -- a renamed row name -> `HARNESS ... malformed` exit 2, an anchor
+  that matches nothing -> `INVALID`, an honest edit turned red -> `OVER-STRICT`, an unseen attack
+  expected as a catch -> `NEW HOLE`, a patched guard that now refuses a listed hole -> `HOLE CLOSED`,
+  a box without the templates -> `HARNESS ... does not pass its own self-test (caught)` exit 2,
+  `EXPECTED_ROWS` off by one -> a problem, a wrapped `tree_state()` -> `this suite modified the tree
+  it was checking`, a stray file planted in the box -> `wrote into the tree it was copied into` exit
+  2; the filter contract -> `zzzznomatch` exit 1 and `""` exit 1, both saying `no row matched`, and
+  `announcement` selecting 4 rows and printing the `SELECTED RUN -- not a gate` banner.
+
+## D-0059 · The merge orders the log by id because the shipped gate refuses the order git handed back, and the file that carried both behaviours was the one that merged without a word
+
+- Question: `#299` reads `CONFLICTING` / `DIRTY` against `origin/main` `4901264` — read back
+  before anything was touched (`gh pr view 299 --json headRefName` first, because that is the read
+  that answers "is this a pull request" and `--json number` does not, #2027): `reviewDecision`
+  `APPROVED`, `headRefOid` `06b7c29`, five checks `COMPLETED`/`SUCCESS`, `reviewRequests` `[]`, two
+  commits here against three on `main`, `git ls-remote origin refs/heads/issue-296` answering
+  `06b7c29` so the branch is pushed. One file conflicted: `DECISIONS.md`, both parents byte-identical
+  through line 2910 and each appending one entry at 2911 — `main` `D-0057` (#298, issue #251), this
+  branch `D-0058` (#296). The file that actually carries both behaviours, `testing/capture/pages.py`,
+  auto-merged without a word: `main` added 48 non-blank lines of assertions inside
+  `a_refused_run_says_where_its_frames_are` and this branch rewrote the disposal those assertions
+  read, so `H-0096`'s silent half is not incidental to this collision, it is the subject of it. What
+  is the deliverable — the splice that clears the marker, or the splice plus evidence that neither
+  side's checks were retired inside the auto-merge?
+- Options: delete the three marker lines and keep both blocks in the order git produced | splice the two parent BLOBS by line range into id order and commit that | splice in id order, then count both sides' added and deleted lines against the merged tree and attack one check from EACH side on the merged tree | rebase this branch onto `origin/main` so no merge commit exists | resolve `DECISIONS.md` with `--ours` and re-append `main`'s entry afterwards
+- Chose: splice in id order, then count both sides' added and deleted lines against the merged tree and attack one check from EACH side on the merged tree
+- Why: the order is settled by the shipped gate, not by taste. Over the bytes git handed back,
+  `python3 scripts/check-decisions.py` answers `DECISIONS.md:3022: D-0057 is out of order (D-0058
+  came before it); the log is a history and a history that jumps around cannot be bisected`, exit 1;
+  the same lines cut from the two parent blobs in id order answer `171 entries across 2 log(s)`,
+  exit 0. So option one does not produce a mergeable tree at all, and it is the same refusal `H-0107`
+  and `H-0114` were settled with. Option four is refused for the reason `H-0106` gives: the branch is
+  on `origin` (`git ls-remote` above), so a rewrite needs a force-push, which is denied to a tick and
+  barred by `AGENTS.md`, while a merge is undone by `git revert -m 1` — tie-break 5. Option five
+  deletes merged history: `main`'s 62 non-blank log lines are the only record of what #298 measured,
+  and a deleted entry is not repaired by anything the gate can see. Tie-breaks 1 and 2 have nothing
+  to bite on — no `require` line is at stake (#856) and no config key decodes toward or away from a
+  lockout (#873, #872). Option two versus three is tie-break 3, refuse to proceed when the input that
+  decides is missing: the auto-merged `pages.py` is exactly that input, and a green suite is equally
+  consistent with "both halves alive" and "one half retired by the other's rewrite" (#1048's shape,
+  arrived at by a merge instead of an edit). Tie-break 6 was consulted first and names `H-0096`,
+  `H-0100`, `H-0107`: re-measure on the merged tree, never trust the automatic half.
+- What lost: the log now interleaves sides — `main`'s `D-0057` sits *below* this branch's `D-0058`
+  neighbours in merge order but above it in id order, so reading the tail of the file top-to-bottom
+  no longer reads chronologically, and that is the price of a bisection-ordered log over two open
+  siblings. `EXPECTED_RULES` is 77 on this tree, which kills the number `D-0057`'s tie-break was
+  written to protect (stay at 76, to avoid exactly this append-vs-append collision); it lost because
+  #296 adds a rule and a rule is coverage, which is the cost `D-0058`'s `What lost:` already named.
+  Two claims in `D-0058`'s `What lost:` did not survive being read, and this merge is where it
+  surfaces: it says `origin/issue-251` (#298) "edits `pages.py`'s `_FakeSession` — adding a
+  `screenshot()` that returns bytes, independently of this branch — and the same README section".
+  Measured against `git diff 66c9162 origin/main`: `#298` is two files, +112 lines,
+  `testing/capture/README.md` does not appear in it at all, and the diff contains zero occurrences of
+  `_FakeSession` or `def screenshot` — its whole contribution is one hunk inside
+  `a_refused_run_says_where_its_frames_are`. The conflict it forecast did arrive, but from both sides
+  appending at line 2911, not from either fake. `D-0058` is left exactly as written (#1180: a
+  silently corrected decision log is indistinguishable from one that was always right); this entry is
+  the dated correction and the pull-request body carries the same sentence. And the composition
+  itself is still unpinned: the battery below was run by hand from `/tmp` and nothing in the tree
+  attacks a merge, so the next bad splice is found by whoever remembers to re-run it — `#124`'s
+  eviction hazard, open at this end in `D-0057`'s words too.
+- Checkpoint: bd9889a82c36bca378337fc32a84a756362dec51
+- Effect: the merge of `origin/main` (`4901264`) into `issue-296`. `DECISIONS.md` is the whole of the
+  hand-resolution, cut by `sed` line range out of `git show HEAD:DECISIONS.md` and
+  `git show origin/main:DECISIONS.md` — never out of the conflicted file, so no hunk can be dropped by
+  a hand edit — common `1..2910`, `main`'s `2911..2973` (`D-0057`), one blank separator, ours
+  `2911..3019` (`D-0058`); 3083 lines, markers gone, ids ascending `D-0011`…`D-0059`.
+  `testing/capture/pages.py` is `git`'s automatic merge, not one edited line.
+  **Nothing vanished, counted both directions** (`/tmp/opencode/p299-merged-lines.py`, kept outside
+  the repository; run against the merged tree before this entry existed, which only adds lines):
+  non-blank lines added since the base `66c9162` and ABSENT from the merged tree — `DECISIONS.md`
+  ours 106 added / 0 absent, `main` 62 / 0; `pages.py` ours 267 / 0, `main` 48 / 0. The deletion side
+  needs the second test because a merge that reorders also shows deletions: what the merged tree lacks
+  against `main` (`DECISIONS.md` 0, `pages.py` 65) is multiset-equal to what this branch itself
+  deleted against the base (0 and 65 — the equality printed `True` in both files), and what it lacks
+  against ours is 0 and 0 against `main`'s 0 and 0. Unexplained in either direction: zero.
+  **Both sides attacked on the merged tree** (`/tmp/opencode/p299/attack299.py`, one throwaway copy
+  per attack, never the gated tree (#1807), every anchor asserted to occur exactly once, baseline
+  green first): baseline `capture self-test: 77 refusal rules hold`, exit 0. A1, `main`'s symptom —
+  the announcement counts `{0}` while the drawer holds two → `1 of 77 rules failed`, exit 1, naming
+  its own sentence `the refusal announces 0 frame(s) and …/pages-refused holds 2: ['audit@1024.png',
+  'audit@360.png']`. A2, A1 plus `main`'s comparison hollowed (`if int(said.group(1)) !=
+  len(frames):` → `if False:`) → `77 refusal rules hold`: that clause is the *only* witness for the
+  lying count and the auto-merge left it alive, which is the half a green suite cannot say. B1, the
+  cross-side plant — `cdp.refused_frame`'s `capture_refused(cap, op.join(keep, frame))` → `pass`, i.e.
+  the refusing page is never photographed by the disposal #296 introduced — → `7 of 77 rules failed`,
+  and the failing set spans both halves: `main`'s new pointer clause fires at both viewports
+  (`nothing at the refusal points at the kept frame of /audit at 360 px`, `… at 1024 px`) while this
+  branch's fires four times over (`lock/page: a SystemExit refusal kept [], want ['lock@360.png']`)
+  plus the sentence-order rule twice. C1, ours — `lock.py`'s kept frame drops its `@360` →
+  `1 of 77 rules failed` on both exception shapes (`kept ['lock.png'], want ['lock@360.png']`).
+  **Gates read against this tree before the commit:** `python3 testing/capture/pages.py --self-test` →
+  `77 refusal rules hold`; `python3 testing/capture/manifest.py --self-test` → `44 rules hold`
+  (`manifest.py` is untouched by the merge); `python3 scripts/check-decisions.py` →
+  `171 entries across 2 log(s)` on the spliced log, exit 0. `make verify` is NOT quoted here, for the
+  reason `D-0058` gives: an `Effect:` field written before the gate runs is a prophecy (#1180), so the
+  gate's own line and exit status are in the pull-request body. **What this does not take:** no
+  behaviour changes on either side — no rule was edited, added or dropped by this commit, no `@360`
+  name, note or drawer moved, and nothing was renumbered; no leg pins the splice (above); and
+  `scripts/mutations/*.json` has no surface here, because all 847 anchors name `.go` or `.tmpl` files
+  and this merge touches one `.md` and one `.py` — so `scripts/check-mutations.py` was not run, and
+  `#1807`'s overlap rule was never engaged.
+- Correction (`D-0061`, 11 Nov): every `D-0058` cited above names *this branch's* #296 entry, which now
+  carries `D-0060`; the `D-0058` a reader finds in this file today is #297's attack suite, merged at
+  `fd82903`. The sentence "nothing was renumbered" in the paragraph above was true of `b4584bf` and is
+  false of the log this merge leaves: `origin/main` arrived carrying a **second** `D-0058`, and one log
+  cannot hold an id twice — over the log this merge hands back with both entries kept,
+  `python3 scripts/check-decisions.py` exits 1 (`id D-0058 is already used at …:2975; 'revert to before
+  D-0058' would name two commits`). Everything else above is left exactly as written at `b4584bf`
+  (#1180: a silently corrected log is indistinguishable from one that was always right).
+
+## D-0060 · A POST refusal keeps the frame its sentence is about, taken while the browser that rendered it is still open
+
+- Question: #220 ended the keeping at `pages.py`. `lock.py` and `testlock.py` went on calling
+  `discard_stage()` on their refusal paths, so the two drivers whose artifact is ONE page — and the
+  two that post a real state change — were the two where a refusal deleted the only frame of the page
+  it had refused. #251's two properties have to reach them without changing what a refusal publishes:
+  the bytes go somewhere an operator can open, and the transcript says where in the same breath as
+  saying nothing was written. Measured on this branch's own base, `66c9162`, in a throwaway `lock`
+  fixture with the census declared `1` against a live census of `2`
+  (`/tmp/opencode/before-refuse2.log`) — the refusal printed two lines and stopped:
+
+  ```
+  REFUSED: the lock result page: the page renders 2 lockable session row(s) and the fixture declared 1. …
+    a previous lock.png is still at …/runs/lock/lock.png -- mtime 2026-11-11T16:23:35Z, 132550 bytes -- and it is NOT from this run. Do not quote it as current.
+  ```
+
+  exit 1, `runs/` holding only `lock/`. No drawer, no note, and the only file the refusal named was
+  the previous run's frame — the file the same sentence declares stale. Where does the keeping go,
+  and what does the transcript owe the operator?
+- Options: keep inside each driver's own handler through one shared `cdp` disposal, while the browser is still open | keep in `main()` after the `with cdp.Capture(...)`, sharing only the note text | keep `discard_stage()` and print the staged path before deleting it | change no code and record the loss in the capture notes a third time
+- Chose: keep inside each driver's own handler through one shared `cdp` disposal, while the browser is still open
+- Why: three things decided it, each measured before a line was written. (1) *Inside or outside the
+  `with` is not a style question.* `Capture.close()` closes the CDP websocket, and a real torn-down
+  session answers nothing: live Chrome on 11 Nov returned
+  `Browser.setDownloadBehavior: Browser context has been disposed` for the first call made after
+  `__exit__`. A keep outside the handler therefore keeps nothing — the driver's one frame is gone and
+  `REFUSED.txt` describes a page nobody looked at. `--self-test`'s fake browser used to answer
+  `screenshot()` forever, which is why this could only ever be a comment; `_FakeSession` now refuses
+  once `__exit__` has run, and the attack that moves the keeping back out fails 2 rules. (2) *The note
+  is what makes a kept frame mean something, and three drivers writing three versions of it is how one
+  ends up saying less than the others*, so the note became `cdp.refusal_note` and the whole disposal
+  became `cdp.refused_frame` / `cdp.refuse_single_shot`, which `pages.py`'s `_refused_frame` now calls
+  — one disposal for three drivers, and the same four sentences in each drawer. The shared call is also
+  what keeps the drawers honest with each other: `lock-refused` and `testlock-refused` are separate
+  for the reason `pages` and `pages-noprof` are, and a rule now says so rather than the name happening
+  to be built one way. (3) *The kept frame is named `lock@360.png`, never `lock.png`*, because
+  `report_refusal` reads the file at `--out/<artifact>.png` — measured live: `a previous lock.png is
+  still at …/runs/lock/lock.png -- mtime 2026-11-11T16:23:35Z, 132550 bytes` — so a kept frame wearing
+  the artifact's exact name, in a directory the operator is told to open, is #222's ambiguity rebuilt
+  inside the fix. Fourth, the harness: a rule that watched `keep_refused` being *handed* the bytes
+  passed with it hollowed to `return []`, so both new rules read the drawer off the disk, and
+  `_run_single_shot` boxes `cdp.RUNS` (which is what `--out` is stubbed for) and asserts the box is in
+  effect. That assertion is not theoretical: an intermediate version of this harness with no box wrote
+  `runs/lock-refused/REFUSED.txt` and `runs/testlock-refused/` into the worktree at 16:18:23Z while the
+  summary printed "nothing written outside a temp box" — `runs/` is gitignored, so `git status` stayed
+  clean and the write was invisible (both files moved to `/tmp/opencode/leak-evidence-296/`; a full
+  `--self-test` in the tree since then leaves `runs/` empty).
+- What lost: the exception identity is no longer pinned. `main()`'s `except Exception` now also
+  catches an error raised *while reporting*, because the shape it replaces (raise inside the handler)
+  could not catch anything after a refusal; nothing in the self-test pins which class arrives, and a
+  reporting bug now prints `RuntimeError: …` as the refusal instead of escaping as a traceback. On the
+  one path where `--out` overlaps the drawer the keep still declines and the frame is destroyed —
+  unchanged from #220, deliberately, because a frame in the publish directory is one `record` away
+  from a stamp it did not earn; what is new is that the file already there survives byte for byte and
+  the decline is announced. `EXPECTED_RULES` goes 76 → 77, the number D-0057's tie-break was chosen to
+  protect: `origin/issue-251` (#298) edits this same file, adds `_FakeSession.screenshot` returning
+  bytes independently of this branch, and edits the same README section, so whichever of the two
+  merges second will conflict — and the conflict is the price of pinning the POST drivers' behaviour
+  instead of leaving it in prose. The fixture-arm refusal prints no frame count at all, saying `no
+  frame could be taken` instead, because `0 frame(s)` answers a question the operator is not asking;
+  the count-agrees-with-the-directory rule therefore reads the page arm only. A refusal that never
+  staged anything now creates `runs/<fixture>-refused/` holding only `REFUSED.txt`, so the drawer's
+  existence no longer implies a frame exists — which is what the sentence beside it is for. And
+  `testing/capture/README.md:1005` still says the self-test "runs 48 rules" where `origin/main` runs
+  76: a pre-existing unenforced number, left alone here rather than touched twice by two open
+  branches.
+- Checkpoint: f25e6925fc78de6e4b7975b39aef133e4d7b54bb
+- Effect: `testing/capture/cdp.py` — `refusal_note` (the note `pages.py` used to own), `refused_frame`
+  (open the drawer, then photograph: the order *is* the function), `refuse_single_shot` (the whole POST
+  refusal arm: report → keep → frame → count, with a sentence for the arm that has no page to
+  photograph). `testing/capture/lock.py`, `testing/capture/testlock.py` — `capture(cap, name)` takes
+  the live `Capture` instead of opening one, `main()` refuses *inside* the `with`, an outer arm covers
+  a fixture that refuses before a browser exists, and `cdp.discard_stage()` is gone from both.
+  `testing/capture/pages.py` — `_refusal_note` deleted (its body moved), `_refused_frame` calls
+  `cdp.refused_frame`, `_FakeSession` returns bytes and refuses after `__exit__`, `_FakeCap.__exit__`
+  marks it closed, `_run_single_shot` replaced (boxes `RUNS` and trips on an unboxed box, plants bytes
+  at `--out` and reads them back), `single_shot` rewritten onto the disk,
+  `a_single_frame_keep_cannot_be_read_as_evidence` new, `EXPECTED_RULES` 76 → 77.
+  `testing/capture/README.md` — the paragraph that read "still discard their stage … wiring them is
+  open work, not an oversight" replaced by the behaviour, the live transcript and the four properties.
+  Read-backs, each run against the code it describes:
+  1. `python3 testing/capture/pages.py --self-test` → `capture self-test: 77 refusal rules hold`, exit
+     0; `python3 testing/capture/manifest.py --self-test` → `44 rules hold` (untouched).
+  2. the battery `/tmp/opencode/attack296.py` — a copy of the tree per attack, never the gated tree
+     (#1807), every anchor asserted to occur exactly once, baseline green first — 13 of 15 die:
+     `keep_refused` hollowed 14, `report_refusal` raising again 12, the drawer unnamed for the fixture
+     7, `capture_refused` writing nothing 6, the note hollowed 3, `cap` passed as None 2, the disposal
+     back to a discard 2, the disposal run twice 2, the keep-guard widened 2, the keeping moved outside
+     the `with` 2, the `@360` dropped 1, the stale sentence dropped 1, the announced count a constant 1;
+     the two honest edits print `77 refusal rules hold`.
+  3. the defect on this branch's base — `testing/capture` at `f25e692` over the same fixture, census
+     declared 1 against a live 2 → exit 1, two transcript lines, `runs/` holding only `lock/`
+     (`/tmp/opencode/before-refuse2.log`).
+  4. the same fixture, same condition, this tree → exit 1 and five lines
+     (`/tmp/opencode/lock-refuse.log`); `runs/lock-refused/` holds `lock@360.png` (132550 bytes, PNG
+     magic, 360x1536 — byte-identical to `docs/screenshots/360/lock.png`, because what disagreed here
+     was the fixture's declaration and not the page) and `REFUSED.txt` naming the fixture, the refusal
+     and `runs/lock/fixture.env`; `--out` unchanged at `df49958928685fa0…`.
+  5. the arm with no browser — `python3 testing/capture/lock.py --out testing/capture/runs/probe-a`
+     with no fixture → exit 1, `no frame could be taken, so … holds none`, and the 33-byte sentinel at
+     `--out` byte-identical afterwards (`efaa87fac0345b5d…`).
+  6. `git check-ignore -v` → `.gitignore:51:/testing/capture/runs/` on both the drawer's `REFUSED.txt`
+     and the `--out` frame; `git status --short` after every run above names the five source files and
+     nothing else.
+  7. this entry's own gate, re-run after the entry was written: `python3 scripts/check-decisions.py` →
+     `check-decisions: 170 entries across 2 log(s), every one with its question, options, choice,
+     reason and checkpoint`. The full `make verify` over the tree carrying this entry is quoted with
+     its exit status in the pull-request body rather than here, because an `Effect:` field written
+     before the gate runs is a prophecy (#1180).
+- Correction (`D-0061`, 11 Nov): this entry is #296's, written as `D-0058` at `06b7c29` on 11 Nov at
+  11:32:24−0500. `origin/main` now carries a *different* `D-0058` — #297's capture attack suite, merged
+  at `fd82903` — because both units were handed the same id by `factory/next-decision-id.sh` 38 minutes
+  apart, and `scripts/check-decisions.py` refuses one log holding an id twice. So this entry moved to
+  `D-0060` and sits below `D-0059`, which is what the gate's ascending-id rule allows; its title,
+  question, options, choice, reason, losses, checkpoint and effect are unchanged in wording, and
+  `Checkpoint:` still reads `f25e692`, the checkpoint its own tick took under the old number (a
+  checkpoint is a commit, not an id). `D-0061` records the collision and why this side moved rather
+  than #297's. One consequence for the reader: `06b7c29`'s trailer says `Decision: D-0058` and always
+  will — force-pushing an in-flight branch is denied here — so that trailer resolves to this entry by
+  date and diff, not by id.
+
+## D-0061 · The merge moves this branch’s `D-0058` to `D-0060` because `main` arrived carrying a second `D-0058`, and the entry that moves is the one no reader outside this branch has cited
+
+- Question: `git merge origin/main` (`fd82903`, #300) makes `CONFLICTING` #299 in exactly one file,
+  `DECISIONS.md`: the two sides are byte-identical through line 2974 and each appends an entry at 2975
+  (measured by a line-by-line prefix compare of `git show HEAD:DECISIONS.md` against
+  `git show origin/main:DECISIONS.md` — first difference at index 2974, both sides). The two entries
+  carry the **same id for two different decisions**: `D-0058` is this branch’s #296 POST-refusal
+  keeping (`06b7c29`, 11 Nov 11:32:24−0500) and `main` also carries a `D-0058`, #297’s capture
+  attack suite (`1d3470b`, 11 Nov 12:10:04−0500). Both units were handed the id by
+  `factory/next-decision-id.sh`, 38 minutes apart. What does the log do?
+- Options: keep both entries under `D-0058` and let the gate decide | renumber #297’s entry (the one already on `main`) upward and leave this branch’s alone | renumber this branch’s entry to the next free id and record the collision in a new entry | fold the two texts into one `D-0058` entry | escalate: label #296 `needs-human` and stop the unit
+- Chose: renumber this branch’s entry to the next free id and record the collision in a new entry
+- Why: the first option is not on the table, and the shipped gate says so. Over the log the merge hands
+  back with both entries kept (`/tmp/opencode/p299/naive.md`, assembled from the same line ranges as
+  this file, only without the renumbering), `python3 scripts/check-decisions.py --log` exits **1** with
+  two problems: `id D-0058 is already used at …:2975; ‘revert to before D-0058’ would name two
+  commits` and `D-0058 is used in … — one id, 2 decisions; a citation to it does not resolve.
+  Renumber the later entry in its own log` (`scripts/check-decisions.py:145`, `:471`). Folding is worse
+  than folding away: two questions, two option sets and two checkpoints cannot share a heading without
+  deleting one of them, and the record being deleted would be a merged one (#1180: a decision record
+  gets a dated correction, never an edit). So the choice is which side moves, and three reads decide it.
+  (1) *Whose citations break.* #297’s `D-0058` is named by a committed **filename** —
+  `docs/issues-from-d-0058.md`, four references inside it (`git grep -n ‘D-0058’ origin/main` →
+  5 lines) — which no renumbering reaches, plus the trailer of `1d3470b`, which is an ancestor of
+  `main`. This branch’s is named by `git grep -n ‘D-0058’ HEAD` → one heading and eight
+  lines inside `D-0059`, plus `06b7c29`’s trailer. Both trailers are already immovable (a force-push
+  is denied to a tick), so the asymmetry is the *other* readers: main’s id is read from a filename and
+  from issues filed off that document, ours is read from one entry on this same branch. (2) Fewest files,
+  the tie-break order’s fourth rung: moving #297’s id means editing `DECISIONS.md` on `main`, a doc
+  rename, and a correction on every issue filed from it; moving ours is this file, in this commit.
+  (3) Reversibility, fifth rung: `git revert` of the merge commit restores both ids in both positions,
+  because nothing here exists on the remote before the commit. Taking `D-0060` was measured, not
+  assumed: `factory/next-decision-id.sh DECISIONS.md` prints `D-0060` (re-read with `D-0059` in the log
+  and this entry uncommitted), and no ref in this clone carries `D-0060` or `D-0061` at all — a loop
+  over `git for-each-ref refs/heads refs/remotes` doing `git show “$r:DECISIONS.md”` matches neither
+  heading. None of the four classes that are not a tick’s decision is in play: no dependency, no
+  safety or tamper property, no publish, no deletion.
+- What lost: ids no longer run in the order the decisions were taken. `D-0060` was decided at 11:32 and
+  `D-0059` at 12:32; the log now prints them the other way round, because ascending order is what the
+  gate enforces (`:161`) and free ids only grow upward — the allocator is “the first free id ABOVE
+  every id seen”, not the lowest gap (`factory/next-decision-id.sh:12-13`), so a renumbering can only
+  ever be a demotion in the chronology. `D-0059` states “nothing was renumbered”, true of `b4584bf`
+  and false of this tree; it gets a dated correction bullet rather than an edit (#1180), and the eight
+  `D-0058` citations inside it are now ambiguous to a reader who does not reach that bullet. The
+  **cause** is untouched, only its consequence: the allocator reads the four ref sets this machine
+  already has and “deliberately never fetches” (`:30-32`), and #300 was cut from a clone this one
+  has never seen — `git show-ref | grep 297` prints **nothing** and `git worktree list` has no
+  `issue-297` row, while `origin/main` merged that branch at `fd82903`. So the id was durable for
+  38 minutes before the second unit was handed it, and the next two concurrent units collide the same
+  way. Filed as #303 (open, read back) with the timestamps and the two candidate repairs; not fixed
+  here, because the fix belongs in `factory/` and this unit’s file is the log. And `D-0060` still
+  carries `Checkpoint: f25e692`, the checkpoint its own tick took under the old number — a checkpoint
+  is a commit, not an id, so it stays correct while reading oddly.
+- Checkpoint: 402e5ef
+- Effect: `DECISIONS.md` only, three edits in this merge commit, each read back against the file rather
+  than believed from the edit: `D-0059` gains a `- Correction (‘D-0061’, 11 Nov)` bullet naming
+  which `D-0058` its citations mean; this branch’s entry is retitled `## D-0060 ·`, moved below
+  `D-0059`, its text unchanged word for word, with its own dated bullet recording where it came from;
+  this entry is new. The log then reads `… D-0057, D-0058` (#297’s, from `main`), `D-0059,
+  D-0060, D-0061`, and `python3 scripts/check-decisions.py` is quoted with its exit status in the
+  pull-request body, not here (#1180: an `Effect:` written before the gate runs is a prophecy). Nothing
+  else is renumbered — `docs/issues-from-d-0058.md` keeps its name and correctly names #297’s
+  entry. The rest of the merge is `main`’s `Makefile` (clean), and two new files from #300,
+  `docs/issues-from-d-0058.md` and `scripts/attack-capture-self-test.py`, both clean. One row of that
+  suite, `“the refusal branch goes back to `discard_stage()`”`, anchors on the three-line
+  `cdp.keep_refused(…)` call this branch rewrote (`git show 4901264:testing/capture/pages.py` matches
+  it once, this head matches it **0** times), so it arrives `INVALID`; that is a second decision and the
+  next entry, not this commit. **What this does not take:** no behaviour in `testing/capture/` is
+  changed by this commit, no rule is added or dropped, and no row of the suite is edited here.
+
+## D-0062 · The merge repairs the witness it retired: the attack’s anchor moves onto a one-line statement, because an aligned continuation line is the thing that went stale
+
+- Question: `origin/main` (`fd82903`, #300) added `scripts/attack-capture-self-test.py` to `verify:`, and its
+  row “the refusal branch goes back to `discard_stage()`” anchors on the three-line
+  `kept = cdp.keep_refused(keep, note=_refusal_note(…))` call that #296 rewrote onto
+  `cdp.refusal_note`. On the merged tree that anchor matches **0** times, the row reports `INVALID`, and
+  the suite exits 1 (`TOTAL 41 attacks: 25 caught, … 1 invalid`), so `make verify` is red on the merge
+  commit `4cb16fd`. Where does the row’s anchor go, and does anything else move to keep it there?
+- Options: re-point `old` onto the wrapped three-line call exactly as it now stands, so only the suite moves | re-point onto the guard `if kept is not None:` and leave the keep call alone, so only the suite moves and no product line is touched | re-point onto a one-line keep call, hoisting the refusal note onto its own statement in `pages.py` to make that shape true | delete the row and carry the disposal as a `DOCUMENTED_HOLES` class | leave the row stale and let the next tick re-point it
+- Chose: re-point onto a one-line keep call, hoisting the refusal note onto its own statement in `pages.py` to make that shape true
+- Why: the last two are not decisions. The row is one of the nine #297 was filed with and its `CAUGHT`
+  is the only thing between a future edit and the disposal destroying what it measured, so deleting it
+  trades a red gate for a smaller green one; and leaving it stale leaves `make verify` red for whoever
+  merges. The middle option was measured before it was rejected, and the measurement is the reason:
+  replacing `            if kept is not None:` with `kept = None` above it (a copy of the tree at
+  `/tmp/opencode/p299/boxv2`, never the gated tree — #1807) comes back `capture self-test: 1 of 77
+  rules failed`, exit 1 — so it *would* report `CAUGHT`, and the catch is a lie. The single failing
+  rule is the announcement one (“nothing says how many frames the refusal kept or which ones”); no
+  disposal rule fires, because `cdp.discard_stage()` never runs and the frames are still moved. A row
+  that attacks the transcript while describing the disposal is a silent weakening, the same class as
+  the retired anchor that motivated this entry. Against the first option the tie-break order’s fourth
+  rung (fewest files) does point, and it is overridden by a standing constraint rather than by taste:
+  #1048 is the rule “an anchor a mutant on a **statement**, never on an aligned composite-literal
+  line, since a statement’s text is alignment-independent”, and the third line of the retired anchor
+  (`                                    out=out)`) is aligned to an opening paren thirty columns away —
+  the retirement this commit repairs was a rename *and* a rewrap. The repository repaired the identical
+  accident once before by taking the durable line over the nearby one: `35f2a41` re-pointed W214 onto
+  “the `{if .IsCurrent “/settings”}` line itself — an action, not an aligned literal, so no future
+  gofmt pass or added field can retire it”. The hoist is behaviour-neutral: `cdp.refusal_note(…)` was
+  already the first operand evaluated, so the call order is what it was, and `note` is not a name
+  `main()` uses — read off the AST, not by eye: `main` spans `pages.py:897-1072` and binds no `note`
+  (the only occurrence was the keyword argument at `:1014`). Whether the row still attacks what it says
+  it attacks was then measured rather than assumed: the re-pointed row on a copy of the tree
+  (`/tmp/opencode/p299/boxv3`) fails **6 of 77** rules, and the failing set is the disposal set —
+  `every page refused -> discard_stage() ran 1 times`, `a refused run destroyed the frames it measured
+  (discard_stage ran) instead of keeping them in the refused directory (D-0054)`, `a refusal at 1024 px
+  only discarded the stage 1 times`, plus the `REFUSED.txt` and count clauses. Against the claim that
+  the first option is cheap: this suite exits 1 on a 0-match anchor
+  (`anchor matched 0 times in pages.py, want exactly 1`, `scripts/attack-capture-self-test.py:566-570`),
+  unlike the mutation battery where a 0-match mutant is counted NOT APPLIED and the battery stays green
+  (#1048) — so option one costs a chore at the next rewrap, not a hole. Option three just buys that
+  the chore does not come.
+- What lost: two files carry one repair, so `git revert` of this commit moves the product’s statement
+  order back with the row’s anchor — behaviour-neutral, but not the one-file revert a reader might
+  expect. `pages.py`’s refusal branch is one line longer and the note no longer reads inline with the
+  call it fills, which is worse prose bought with a locator that stops moving; four comment lines at the
+  site name the gate that reads it so the next reader does not “tidy” it back into a wrapped call.
+  The re-point is not immunity either: a new keyword argument on `keep_refused` retires this anchor too,
+  because the anchor is the call and the call is what the row attacks — what changed is that only a
+  change to the attacked behaviour can now do it, not a reformat. And `new` is deliberately unchanged,
+  so the row’s claim is the same claim on both sides of the merge.
+- Checkpoint: 7997878
+- Effect: `testing/capture/pages.py` — the refusal note built on its own statement, the keep call now
+  one line, four comment lines naming the gate that reads it; `scripts/attack-capture-self-test.py` —
+  row 2’s `old` only (its `new` byte-identical), plus six comment lines above the row recording the
+  retirement and the rule that keeps it a statement. Read back against the code each one describes: the
+  new anchor occurs exactly **1** time in `pages.py` and the old three-line form **0**;
+  `python3 -m py_compile` clean on both files; `python3 testing/capture/pages.py --self-test` →
+  `capture self-test: 77 refusal rules hold`, exit 0, so no rule was added or dropped by a commit that
+  touched a driver; the row alone → `CAUGHT`, `VERDICT: 1 attacks, 0 problem(s)`, exit 0; the whole
+  suite → `TOTAL 41 attacks: 26 caught, 6 honest edits still green, 9 holes, 0 invalid, 0 unexpected` /
+  `VERDICT: 41 attacks, 0 problem(s), 5 hole class(es), 9 hole row(s)`, exit 0 — 26 caught where the
+  merged tree printed 25 caught *plus* 1 invalid, so the repair moved exactly one row and nothing else.
+  `scripts/mutations/*.json` names 797 `.go` and 50 `.tmpl` targets and no `.py` or `.md` (counted over
+  every row of every set file), so #1048 has no surface in this commit and the anchor battery was not
+  run — and it must never overlap the gate in this tree anyway (#1807). `make verify` for the delivered
+  head is quoted in the pull-request body, not here (#1180).
+- Correction (`D-0062`, 11 Nov): two locators in this entry are stale against the tree the entry describes,
+  and the commit that describes them is the thing that moved them. `main()` is given as
+  `testing/capture/pages.py:897-1072`; the hoist plus its four comment lines make it **897-1076**, and
+  `main()` now *does* bind `note` -- written at `:1019`, read at `:1020` -- which is the binding this commit
+  introduced, so the claim the parenthetical was supporting ("no prior binding of `note` in `main()`")
+  survives while the parenthetical does not. And the anchor guard is given as
+  `scripts/attack-capture-self-test.py:566-570`; the six comment lines this commit adds above row 2 put it at
+  **`:573-576`** -- the `if hits != 1:` arm: `counts["invalid"] += 1`, the `problems.append`, the `INVALID`
+  print, the `continue`. Re-read at this head with an `ast.parse` walk for the span and
+  `grep -n 'if hits != 1:'` for the arm. Nothing else in the entry moves: the tallies, the two rejected
+  locators and the 6-of-77 failing set were all measured *after* the edit, and they say what they say. The
+  reason this is a bullet rather than an edit is #1180 -- a silently corrected record is indistinguishable
+  from one that was always right.
+- Correction (`D-0062`, 11 Nov -- second correction, after the one above): the clause "what changed is that
+  only a change to the attacked behaviour can now do it, not a reformat" is false as written, and what
+  falsifies it is a rename of a local. Three probes at `14f1826`, each counting the anchor string in
+  `testing/capture/pages.py` and then run end to end against a copy of the tree (`/tmp/opencode/p305/box1`
+  and `box2`, never the gated tree -- #1807), row 2 selected. Growing the `cdp.refusal_note(…)` call until
+  it rewraps: **1** match, `py_compile` clean, the row prints `CAUGHT`, exit 0. Adding a keyword argument to
+  `cdp.keep_refused(…)` -- signature and call site, so `pages.py --self-test` still answers "77 refusal
+  rules hold" and nothing but the locator notices: **0** matches, the row answers `INVALID … 0 anchor
+  matches` and exits 1; that is the case `What lost:` names. Renaming the local, `note` to `note_text` --
+  an edit with no behaviour in it at all, `py_compile` clean, every rule still holding: **0** matches, the
+  same INVALID line, the same exit 1. A rename is neither a
+  reformat nor a change to the attacked behaviour, so the third probe refutes the quoted clause instead of
+  confirming it. What the hoist bought is immunity from a **rewrap** -- from the operand rewrapping, which
+  is what #296 actually did -- and the anchor is still this call's own text, so any edit to that one line,
+  including the identifier inside it, retires the row. The rename is the likelier of the two that remain,
+  because renaming a local is what every style pass does, and it is the one this entry never names. What
+  keeps the gap loud rather than dangerous is already in the entry: the `if hits != 1:` arm counts a 0-match
+  anchor as INVALID and the suite exits 1, so the cost of the overstatement is a spurious red gate and a
+  confused reader, not a retired attack -- more than the mutation battery's silent NOT APPLIED can claim
+  (#1048). #305 files it, and counted these three before this round re-counted them and ran the middle and
+  third end to end. Corrected as a bullet, not by editing the sentence (#1180). `testing/capture/pages.py`'s
+  site comment now names the boundary the sentence skipped, in the same five lines it had, so that both
+  locators the correction above cites -- `main()` at 897-1076 and the guard at
+  `scripts/attack-capture-self-test.py:573` -- still read true at this head. One measure in that
+  correction is itself a line short, found by re-running the `grep -n 'if hits != 1:'` it prescribes in
+  order to check this claim: the arm is **573-577**, not 573-576, because the four statements it
+  enumerates -- `counts["invalid"] += 1`, the `problems.append`, the `INVALID` print, the `continue` --
+  end on the `continue`, which is line 577; 576 is the print. The start is where it says and the guard is
+  where it says, so nothing about that correction's argument moves, and #305's own body repeats the short
+  range. It is recorded here rather than written into the merged bullet above (#1180), and the bullet
+  above is otherwise left exactly as it was.
+
+## D-0063 · The sentence #305 files has a twin one file away: row 2's own comment also promises a statement cannot move on an added field, and this branch corrects that one too
+
+- Question: `D-0062` and `testing/capture/pages.py` both claimed the re-pointed anchor can only be retired
+  by a change to the attacked behaviour; #305 measures that false and files a fix in two named places.
+  `scripts/attack-capture-self-test.py`'s comment above row 2 makes the same promise in its own words -- "a
+  statement's text does not move when a field is added or a literal realigns, an aligned continuation
+  line's does" -- and the ticket does not name it. Does this branch leave that sentence for another unit,
+  or correct it here?
+- Options: leave it and file the third site as its own issue | name the boundary here too, in this branch, in its own checkpointed commit separate from the ticket's deliverable | delete the durability claim from the comment and keep only the retirement story
+- Chose: name the boundary here too, in this branch, in its own checkpointed commit separate from the ticket's deliverable
+- Why: option one is what #305 itself is evidence against -- it exists because the site sentence was left
+  alone in the round that could have fixed it -- and a queue item filed against a comment one file away
+  from the comment this branch is already rewriting costs a whole tick to say what one clause says now.
+  It would also leave the two comments in contradiction: the commit before this one makes `pages.py` say a
+  rewrap is all the hoist buys off, while row 2 still promises a statement cannot move on an added field.
+  One anchor, two comments, and the more generous of the two wins for whoever reads the row first -- and the
+  row is what a future editor meets, because the row is the thing that goes red. Option three deletes the
+  only reason the row is a statement rather than the wrapped call (`35f2a41` for W214), which is the reason
+  the last round did not re-point it back onto `pages.py`. The tie-break order's fourth rung (fewest files)
+  points at option one and is overridden the way `D-0062` overrode it for the same kind of reason: a
+  witness's own documentation is part of the witness, and #1048 is a standing rule about anchors, not a
+  preference. The sentence was measured before it was argued: at `14f1826` in `/tmp/opencode/p305/box2`,
+  widening `cdp.keep_refused`'s signature to `stamp=None` and passing `stamp=mode` at the site leaves
+  `py_compile` clean and `pages.py --self-test` still answering "77 refusal rules hold", while row 2 answers
+  `INVALID … 0 anchor matches` and exits 1. A field was added, the statement moved, and the comment says it
+  does not. Not an escalation: no dependency, nothing about what the daemon runs as, no safety or
+  tamper-resistance property changed, nothing published, nothing deleted -- a comment inside a gate that a
+  pull request carries is inside #1823's authority.
+- What lost: the branch carries a file #305 does not name, so a reader of the ticket finds three changes
+  where two were asked for; that is why this is its own commit and not part of the one before it -- `git
+  revert` of this commit takes row 2's comment back and leaves the ticket's deliverable standing; the code
+  half applies clean, the log half conflicts and is resolved by hand (`D-0064`). The comment block stays
+  seven lines as it was, so the locator the correction above cites, `if hits != 1:` at
+  `scripts/attack-capture-self-test.py:573`, still reads true at this head; an eighth line would have moved
+  it. And the comment no longer spells out the cross-file coupling in so many words -- it used to end
+  "`pages.py` keeps the note on its own statement to keep that true", and width bought the boundary clause
+  instead. The coupling survives as what each side now says about the other: this row says a rename of
+  `note` retires it, and `pages.py`'s site comment says the attack suite is why the note is hoisted at all.
+- Checkpoint: cb72929
+- Effect: `scripts/attack-capture-self-test.py` lines 175-177 -- row 2's comment, three lines rewritten as
+  three, the row's `old` and `new` untouched. Read back after the edit: the file is 686 lines as it was,
+  `ast.parse` clean, `grep -n 'if hits != 1:'` still answers 573, and the anchor string still occurs exactly
+  once in `pages.py`. `python3 testing/capture/pages.py --self-test` -> `capture self-test: 77 refusal rules
+  hold`, exit 0; `python3 scripts/attack-capture-self-test.py` -> `TOTAL 41 attacks: 26 caught, 6 honest
+  edits still green, 9 holes, 0 invalid, 0 unexpected` and `VERDICT: 41 attacks, 0 problem(s), 5 hole
+  class(es), 9 hole row(s)`, exit 0 -- the same tally `D-0062` recorded, so the edit moved no row's verdict.
+  `make verify` for the delivered head is quoted in the pull-request body, not here (#1180).
+
+## D-0064 · The review on #306 found the short range still standing 39 lines under the bullet that fixes it: repair the three sentences, or log a fourth beside them
+
+- Question: the review at `2026-11-11T20:40:00Z`, forty-five minutes after `a911d24`, reads only prose
+  this branch adds and finds three sentences that are not true. `D-0063`'s `What lost:` gives the guard as
+  `scripts/attack-capture-self-test.py:573-576`, 39 lines below the bullet that says the arm is 573-577
+  and that 573-576 is a line short -- one file, one entry, two statements about one locator that cannot
+  both hold. `D-0062`'s second correction points at "the bolded clause", and the only bold in that bullet
+  is `**1**`, `**0**`, `**rewrap**`, `**573-577**`. And `D-0063`'s separability claim -- "`git revert` of
+  this commit takes row 2's comment back and leaves the ticket's deliverable standing", which this pull
+  request's body repeats as a revert that stands on its own -- holds for the code and not for the log,
+  because the `DECISIONS.md` half of that revert conflicts. None of the three is merged, so #1180 shelters
+  none of them. Repair the sentences, or leave them standing and add a dated correction the way this
+  branch treated the merged copies?
+- Options: repair all three in place, inside the number of lines each already occupies, with this entry as the record | leave all three exactly as they are and add a third dated correction bullet to `D-0062` | repair only the blocking range and file the two non-blocking sentences as their own issue
+- Chose: repair all three in place, inside the number of lines each already occupies, with this entry as the record
+- Why: #1180 protects a merged sentence from being silently re-set, and nothing here is merged: `git
+  blame` gives 3456 to `5504d79` and 3505-3514 to `0e0c4b3`, both written on this branch, and the branch's
+  diff against `origin/main` deleted no line of the log before this commit (79/0, so every line of main's
+  copy still stands). Option two would ship the very state `D-0063` was written to avoid -- "One anchor,
+  two comments, and the more generous of the two wins for whoever reads the row first" -- with the two
+  copies 39 lines apart inside a single entry, and the deliverable of this pull request is the accuracy of
+  three locator sentences, so a fourth sentence that explains a false one while leaving it printed is the
+  defect with a note attached to it. Option three splits one push into three and spends a whole tick on
+  two clauses one paragraph answers. Tie-break four (fewest files) is answered by one file, and tie-break
+  five holds: `git revert` of this commit takes all three back, and because it touches no code there is
+  nothing for it to conflict with -- the opposite of the revert option two's record would have had to
+  describe. Line numbers are part of the deliverable here, not decoration: both edited blocks keep the
+  lines they had, so 3515-3523 are byte-identical and the review's citations at 3456, 3470 and 3507 still
+  name the sentences they were taken from. The one the fix is about moved a line down inside its own
+  re-flowed block -- the locator the review read at 3509 prints on 3510 now, paid for by the revert clause
+  the same edit adds. The count holds; that one pointer inside it moved.
+- What lost: one clause is deleted to pay for the revert sentence: `D-0063` no longer says "and this entry
+  would have had to correct that as well", so a reader of the delivered log learns the seven-line count
+  mattered but not what else an eighth line would have cost -- that survives only in the `a911d24` copy of
+  the block. The other copies of the two wrong sentences are still wrong and unreachable: `5504d79`'s and
+  `0e0c4b3`'s commit messages and #305's body (line 20 of `gh issue view 305 --json body`) all carry the
+  short range. And the clause the old pointer named is plain type in both copies -- `D-0062` as merged
+  takes bold seven times, never around that clause -- so #1180 is why the pointer moved rather than the
+  clause being emboldened; `a911d24` already owns that record and this entry adds nothing to it. #305's
+  body was left alone deliberately -- it is another unit's artifact and the ticket is the filed
+  measurement, not this branch's to restate. And nothing pins a locator: a fifth move of `if hits != 1:`
+  stales all four sentences at once and `scripts/check-decisions.py` reads fields, never line numbers, so
+  no gate would notice. A notice, not a lock, which is the same limit `D-0062`'s correction conceded.
+- Checkpoint: 34e7a8f
+- Effect: `DECISIONS.md`, three edits and this entry, no code. At 3456, `bolded` becomes `quoted` -- 106
+  characters before and after, so that block did not re-wrap and the sentence the review quotes is still
+  on 3456. `D-0063`'s `What lost:` was re-flowed inside its own ten lines (3505-3514): the locator is now
+  the bare `scripts/attack-capture-self-test.py:573`, the form the correction above uses, because the
+  sentence's own argument needs only the arm's first line, and the revert sentence now says which half
+  applies clean and which needs the boundary resolved by hand. Read back after the edit rather than
+  asserted: `diff` of the file against `34e7a8f`'s copy is three hunks -- one at 3456, one inside
+  3505-3514, and this entry at the end -- so 3515-3523 did not move and the file is 3523 lines plus this
+  entry; every line the commit deletes is absent from `git show origin/main:DECISIONS.md` (checked line by
+  line against the read-back, #1180), and no line this entry wraps exceeds 107 columns -- the three it
+  does not are its own heading and the `Options:` and `Chose:` fields, which the log writes on one line
+  each. The revert claim the new clause makes was measured before it was written, in a clone of the branch
+  at `/tmp/opencode/p306/box1` and never in the gated tree (#1807): at `a911d24`, `git revert --no-commit
+  0e0c4b3` answers `CONFLICT (content): Merge conflict in DECISIONS.md` at rc 1, `git status --short`
+  names `UU DECISIONS.md` beside `M  scripts/attack-capture-self-test.py`, and the suite after that
+  partial revert is byte-identical to `origin/main`'s copy (`diff` empty, md5
+  `f033eb57e104598c79022479d0019e98`) with `if hits != 1:` still at 573 -- the code half does come back on
+  its own and the record half does not. The id was allocated twice before it was written and answered
+  `D-0064` both times, once before the checkpoint and once at it; the same command answers `D-0065` from
+  the moment this heading exists in the working tree, because the allocator's union read counts the
+  checkout -- the second answer is this entry, not a sibling. That was checked, not assumed: a `git grep`
+  for a `## D-0064 ` heading across all 64 refs in `refs/heads` and `refs/remotes` prints nothing and
+  exits 1 at `34e7a8f`, this draft being the only text anywhere carrying the heading (#303: the read is
+  the only lock there is). `python3 scripts/check-decisions.py` for the delivered head is quoted in the
+  pull-request body, not here (#1180).
+
+## D-0065 · A refusal whose report raises is caught by the handler written to catch the refusal: share the once-flag in `cdp`, keep it in each `main()`, or make the report unable to raise at all
+
+- Question: #304 measures the nested handlers of `lock.py` and `testlock.py` turning one refusal into
+  two -- `REFUSED.txt` with two `refusals (1):` blocks, the second one quoting `OSError: [Errno 9] Bad
+  file descriptor` where the page's own sentence belongs -- and names two fix shapes: "a boolean set
+  after the first call, so the outer one knows it has already refused this run's page", or a guard
+  object in `cdp`. The measured matrix is wider than the ticket: the report can die after the note
+  (two blocks) or before it (`rc 1`, no `REFUSED.txt`, no drawer at all), and a third shape -- defang
+  the prints, so nothing raises -- removes the second refusal by removing the raise. Where does "once"
+  get decided, and what does the operator read when the report dies?
+- Options: a `SingleRefusal` in `cdp` holding the flag, both drivers constructing one and calling
+  `.refuse()` from every arm, with the retry's sentence read off the disk | a `disposed = False` local
+  in each driver's `main()`, checked by that driver's own outer handler | wrap `report_refusal` and the
+  pointer sentence so a dead stderr cannot raise, leaving both nested handlers exactly as they are
+- Chose: a `SingleRefusal` in `cdp` holding the flag, both drivers constructing one and calling
+  `.refuse()` from every arm, with the retry's sentence read off the disk
+- Why: the second option is the ticket's literal shape and it does stop the symptom, but the rule it
+  encodes is one rule about two files that have already drifted once: #296 moved the note's text into
+  `cdp.refusal_note` for exactly this reason and its `What lost:` recorded that both drivers were still
+  discarding what #220 had made the wrong verb, and `refusal_reason` in this same commit is the third
+  sentence-shaped rule the two of them were spelling out by hand (six call sites, three of them a
+  private `str(exc) if isinstance(exc, SystemExit)`). "Once" lives beside the note text or the two
+  drivers can mean two things by it. The third option does not subsume the chosen one: the second
+  refusal needs no `print` to originate, because `keep_refused` moves bytes with `os.replace` and
+  `refused_dir` creates a directory, and an `OSError` from either lands in the same outer arm -- so
+  defanging the two prints makes one measured repro unable to recur while the class stands, and it
+  takes the operator's remaining sentences silently instead of reporting that a sentence died. The
+  invariant belongs where the disposal is entered. Two sub-judgements inside the choice, both measured
+  before they were written: the flag is set BEFORE the call, because a disposal that died has already
+  written the note and moved the stage and it is the retry that must be refused; and the retry's
+  sentence asks the filesystem, because the first version of `refuse()` printed "that file holds the
+  one note this run wrote" unconditionally and the `headline` cell is a run with that flag true and no
+  `REFUSED.txt` anywhere -- the flag true and the sentence false is #304's invention pointing the other
+  way. Tie-break one (reversibility) holds with nothing to unwind: one `git revert` takes the rule, the
+  guard, both driver arms and the four attack rows back together, `runs/` is gitignored, and no manifest
+  or committed frame is touched by any of it.
+- What lost: the `fixture` arm still escapes as a traceback. It has one handler, so there is no second
+  disposal to suppress and a dying report has nothing left to be caught by -- measured on the same
+  matrix as `rc=RAISED OSError: [Errno 9] Bad file descriptor`, one block, `--out` intact. That is the
+  whole benefit of option three and it is forfeited here and written up as `docs/issues-from-d-0065.md`
+  with the four-cell matrix, because deciding
+  what every diagnostic in this package does when stderr has gone is a wider question than one
+  disposal. The operator also now reads a second failure they may take for the bug ("the report about
+  it raised (OSError: ...)"); `why` is interpolated so the line names what died, but a run whose pointer
+  sentence died prints a refusal of the report, and #304's symptom was a note doing exactly that. The
+   `headline` cell arms its sink on `report_refusal`'s headline (`s.startswith("REFUSED:")`) while the
+   `note` cell arms on a fact about the disk, so rewording that headline disarms the `headline`
+   injection -- and it surfaces as that cell's own "the injection did not fire" problem rather than as a
+   quiet pass, because the cell asserts the injection fired before it asserts anything else. Two shared
+   integers move: `EXPECTED_RULES` 77 to 78 and `EXPECTED_ROWS` 41 to 47, so any sibling branch adding a
+   rule or a row conflicts on those lines (#303's shared-line collision), and the five new rows are
+   anchored on statements (`self.disposed = True`, `if op.isfile(note):`, `if cap is None else`, and the
+   outer `disposal.refuse(...)` call in each driver) so a rewrap or a rename retires one loudly as
+   INVALID with exit 1 (#1048) instead of quietly. One more rule also joins the floor #297 names:
+   emptying this rule's body to `return` keeps the count at 78 and the transcript green, measured, which
+   is why the HOLE class now carries four rows rather than three. One of the ticket's own claims lost
+   outright, and the third cell is what found it: #304 names the repro as "a failure inside
+   `refused_frame` *after* the note write -- a `Capture` call that raises once", and measured 11 Nov that
+   route cannot re-refuse anything, because `capture_refused` catches, prints `no frame of the refused
+   page: ...` and returns None -- `keeps 1`, one block, no second write. The double write needs a raise
+   from a step nothing wraps, and the summary `print` after the note is one; that is what the sink
+   injects. Keeping the cell anyway paid for itself: the empty drawer it leaves was explained by a
+   sentence naming the fixture, printed over a browser that had just answered a page, and `cap is None`
+   is now what chooses between the two reasons (the fixture-arm wording stays byte for byte, so the
+   existing rule at `pages.py:2130` still passes).
+- Checkpoint: 083ef53
+- Effect: six files, no Go, no template, no committed frame. `cdp.py` gains `refusal_reason` and
+  `class SingleRefusal` between `refuse_single_shot` and `fixture`, plus the paragraph at the end of
+  `refuse_single_shot`'s docstring that says the never-raise rule is a wish about a `print`. `lock.py`
+  and `testlock.py`: the inner two arms collapse into one `except (Exception, SystemExit)` calling
+  `disposal.refuse(cap, cdp.refusal_reason(exc))`, and the outer arm the same with `None`. `pages.py`:
+  `_StderrThatDiesOnce`, `_FakeSession(die_once=...)`, `_run_single_shot(dies_at=...)`, the rule with
+  its three cells, `EXPECTED_RULES = 78`. `attack-capture-self-test.py`: five CAUGHT rows, one HOLE row,
+  `EXPECTED_ROWS = 47`, and the paragraph that told its readers the two drivers were unattackable.
+  `cdp.py` also loses a false sentence: what an empty refused drawer blames on the fixture is now chosen
+  by `cap is None`, because `capture_refused` can leave a drawer empty with the browser up. Read back
+  after the edits instead
+  of asserted: `python3 testing/capture/pages.py --self-test` prints `capture self-test: 78 refusal
+  rules hold`, exit 0; `python3 scripts/attack-capture-self-test.py` exits 0 on
+  `TOTAL  47 attacks: 31 caught, 6 honest edits still green, 10 holes, 0 invalid, 0 unexpected`, so none
+  of the five new anchors matched zero times; `make verify` prints `verify:
+  OK` with this entry in the tree, and its log is quoted in the pull-request body rather than here
+  (#1180). Attribution was measured row by row in a clone under `/tmp/opencode`, never in the gated
+  tree (#1807): each of the five CAUGHT rows prints `capture self-test: 1 of 78 rules failed`, and over
+  all five runs 44 problem lines were printed with **0 outside this rule** -- every one carries the
+  `report-dies` prefix, so no sibling is implicated. Per cell the damage splits 32 `note`, 10
+  `headline`, 2 `shot`, and the two cdp branches are each visible from one cell only: forcing the
+  note-claim (`if op.isfile(note):` to `if True:`) reddens `headline` alone, forcing the drawer reason
+  (`if cap is None else` to `if True else`) reddens `shot` alone, which is the whole reason this is three
+  cells and not one. The
+  allocator answered `D-0065` twice, once before the checkpoint and once at it; a `git grep` for a
+  `## D-0065 ` heading across every ref under `refs/heads` and `refs/remotes` prints nothing and exits 1
+  at `083ef53`, this draft being the only text anywhere carrying the heading (#303: the read is the only
+  lock there is).

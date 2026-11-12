@@ -146,6 +146,133 @@ stranger cannot have written. The driver requires the address to be `127.0.0.1:<
 is what catches the `::1` fallback), requires `/json/version` to advertise the same browser id,
 and asks the endpoint again before every write.
 
+## What a refusal leaves behind (#220)
+
+A refused run publishes nothing, and that is the contract: a half-replaced artifact set is worse
+than none, because every filename in the directory then looks current (#222). What it used to also
+do is destroy the frames it had measured on the way out. Measured 6 Nov on `main`, with the one
+condition the capture notes already document as refusing this fixture
+(`PLOCK_CAPTURE_SCRIPTS=on ./pages-setup.sh && PLOCK_CAPTURE_SCRIPTS=on ./pages.py`):
+
+```
+REFUSED: /: the 'casey' row says ['locked out until 18h 16m', …]
+  no file was written
+  /users     @360   … FITS   …/runs/pages/users.png
+  … four more like it
+5/6 pages fit at 360 px (fixture pages); refused: /
+Nothing was written to …/testing/capture/runs/pages.
+```
+
+Five sentences naming five files, and the directory held none of them — so the operator had the
+refusal's prose and no way to look at the page that caused it. Every guard runs before the write,
+which is right for a publish and was silently right for a look.
+
+So a refused run now keeps what it measured, in `testing/capture/runs/<fixture>-refused/`, with the
+refusals written beside them in `REFUSED.txt`. The frame of the page that refused is taken even
+though it will never be published: the guard says what the page was expected to say, and only the
+picture says what it did. Four properties are enforced in `cdp.py` rather than trusted:
+
+* **Moved, not copied beside the queue.** `_PENDING` is emptied, so no later `publish()` can reach
+  a refused run's bytes even if a future caller reaches it with a broken refusal count.
+* **Cleared once, on opening.** A frame from yesterday's refusal beside today's is the same lie in
+  a new costume, so whatever is in the directory when this run first opens it is deleted — and what
+  this run writes after that is left alone. The clearing is announced, because a reader who expected
+  to find something there is owed a record of when it went.
+* **Never into `--out`.** The directory is named from `RUNS` and the fixture, never from `--out`,
+  and `keep_refused` declines a target outside `runs/` or one that overlaps the run's own `--out` —
+  in which case it destroys the frames and says so. A frame that could be read as the evidence this
+  run refused to write is worth less than the bytes.
+* **Named for the fixture.** `pages` and `pages-noprof` get separate drawers, for the reason
+  `capture_out` gives about scratch directories: two fixtures in one directory produce frames whose
+  names look like whoever wrote last.
+
+None of it is evidence. Nothing records these frames, no manifest names them, and the summary says
+so in the same breath as the count — because a PNG with no sentence under it is exactly what #211
+says a frame is not, and these frames state less than most: the reason they exist is that the state
+was *not* the declared one. `runs/` is gitignored, so they cannot reach a commit by accident.
+
+The two POST drivers keep the same way now (#296). They did not: every guard ran, the one frame this
+run measured was staged, the refusal printed, and the bytes were deleted on the way out -- while the
+only file the refusal named was **the previous run's** `lock.png` sitting at `--out`, with the mtime
+that says it is stale. So the two drivers whose artifact is a single page, and the two that post a
+real state change, were the two where a refusal left a sentence pointing at a file this run did not
+write and no picture of the page that refused. Measured 11 Nov on this branch by declaring one
+session in `fixture.env` on a machine whose census is two -- `lock.py`, exit 1, `--out` still
+`df499589…` afterwards:
+
+```
+REFUSED: the lock result page: the page renders 2 lockable session row(s) and the fixture declared 1. …
+  a previous lock.png is still at …/runs/lock/lock.png -- mtime 2026-11-11T16:23:35Z, 132550 bytes -- and it is NOT from this run. Do not quote it as current.
+  lock-refused/ cleared 1 file(s) from an earlier refusal; everything in it now came from this run
+  what the page actually renders is at …/runs/lock-refused/lock@360.png -- this run refused to publish it, so it is not evidence; read it with REFUSED.txt beside it
+  1 frame(s) this run kept are in …/runs/lock-refused, with REFUSED.txt beside them; nothing was written to …/runs/lock, and none of these frames is evidence
+```
+
+Four things about that are deliberate:
+
+* **The frame is taken while the browser is still open.** The keeping happens inside
+  `with cdp.Capture(...)`, because a torn-down CDP session answers nothing, and a keep after
+  teardown is the same defect in new clothes: no frame, plus a note describing a page nobody looked
+  at. `--self-test`'s fake browser now closes its session on `__exit__` the way the real one does, so
+  moving the keeping back out is caught rather than admired in a comment.
+* **`lock@360.png`, not `lock.png`.** The name with no viewport on it is the artifact an operator
+  quotes, and the file standing under that name may belong to a previous run (#222).
+* **`--out` is never touched**, and the stale file standing there is named, with its mtime, instead
+  of deleted. Aim `--out` straight at `runs/lock-refused` and the keep *declines* -- the same guard
+  that stops `pages.py` writing into a publish directory -- destroys its own frame, says that it did,
+  and leaves the file it found there byte for byte.
+* **One drawer per fixture.** `lock-refused` and `testlock-refused` are separate for the reason
+  `pages` and `pages-noprof` are: two fixtures in one directory produce frames whose names look like
+  whoever wrote last.
+
+`--self-test` drives both drivers' `main()` with their capture stubbed to refuse, on both arms -- a
+guard refusing while the browser is up, and a fixture refusing before one exists -- and reads the
+result off the disk rather than from a stub: the drawer holds exactly `lock@360.png`, `REFUSED.txt`
+carries the refusal and names the fixture, the announced count agrees with the directory, the
+disposal ran exactly once (#149's dead-statement class, which is how these two turned out to have
+been discarding *nothing* at all), and nothing was destroyed.
+
+**One refusal, one disposal, even when the refusal's own report raises** (#304). Both drivers catch
+the refusal twice — inside the `with`, and again outside it for a fixture that refused before a
+browser existed — so anything that raises *inside* the first disposal is caught by the outer handler
+and read as a second refusal. Measured 11 Nov on `origin/main` at `1e31cac`, with the operator's
+stderr refusing one write (the first sentence printed after `REFUSED.txt` exists on disk): the note was
+written twice — two `refusals (1):` blocks, the second one ending `refused: OSError: [Errno 9] Bad file
+descriptor`, the diagnostic's words last — while the drawer held the one frame it had always held.
+`cdp.SingleRefusal` decides that now, and it sets its flag *before* the call, so a disposal that dies
+mid-report is still the run's only disposal; the outer arm reports what raised and writes nothing.
+
+What it reports is chosen from the disk, not from the flag, because the flag can be true when nothing
+was written. Kill `report_refusal`'s headline instead of the sentence after the note and the disposal
+dies having produced no note and no frame: `rc 1`, no `REFUSED.txt`, `--out` untouched — and the first
+version of this fix printed "that file holds the one note this run wrote" straight over that.
+
+Three failures inside one disposal are attacked, in one rule — `pages.py --self-test`'s "a refusal whose
+own report raises is disposed of once", one of its 78 — because each leaves something different on disk
+to be honest about. `note` (stderr dying on the first sentence taken after `REFUSED.txt` exists) is
+#304's double write, and wants one header, one block, and a note ending on the page's own words.
+`headline` (stderr dying on `REFUSED:` itself) wants the transcript to say nothing was written and never
+to claim a note. `shot` (the browser refusing the photograph once) wants the empty drawer blamed on the
+browser — and that one is #304's own named repro, which measuring falsified: `capture_refused` catches,
+prints `no frame of the refused page: …` and returns None, so a failing photograph cannot re-refuse
+anything (`keeps 1`, one block). The double write needs a raise from a step nothing wraps, and the
+summary `print` after the note is one. The cell stayed anyway, because the empty drawer it produces was
+being explained by a sentence that blamed the fixture whatever the cause was; `cap is None` now chooses
+the reason, and the fixture arm's wording is unchanged byte for byte.
+
+`python3 scripts/attack-capture-self-test.py` — 47 attacks, 31 caught, 6 honest edits still green, 10
+holes — patches each of the five places that could undo any of that (the flag, the branch that reads the
+disk, the branch that reads `cap`, and the outer arm of either driver) into a copy of the tree and
+requires a red verdict. Each of the five makes exactly one rule fail, `capture self-test: 1 of 78 rules
+failed`, and across the five runs not one of the 44 problem lines names any other rule.
+
+One boundary is left open, deliberately: the *fixture* arm has a single handler, so a report that dies
+there is not mistaken for a second refusal — it simply escapes, and `main()` never returns. Measured on
+the same matrix: `rc=RAISED OSError: [Errno 9] Bad file descriptor`, one block, `--out` intact. Stopping
+that means deciding what every diagnostic in this package does when stderr has gone, which is a wider
+question than one disposal, so it is written up in `docs/issues-from-d-0065.md` with the four-cell
+matrix above and the one command that files it, rather than folded in here.
+
 ## The negative control, and why a refusal nobody watched fire proves nothing
 
 An assertion never run against the alternative is unproven; a refusal never watched firing is the
@@ -551,7 +678,10 @@ of counting nine. Before that, pointed at the committed directory, a partial re-
 `origin/main` with each path's own commit supplied, one `record` over four untouched frames answered
 *0 problems* where the drift arm has four refusals to make. The identity check could not see it then
 and cannot now, because the recorded hash matches the stale file it was recorded from — which is why
-the carried rev, not the digest, is the thing that had to stop moving.
+the carried rev, not the digest, is the thing that had to stop moving. Since #294 the naming is not a
+courtesy but the precondition for recording at all: a frame whose bytes moved that the record does not
+name is refused, so `--shot` lists every frame this run photographed and every frame it did not stays
+carried.
 
 The stronger form of the same hole, measured 6 Nov on the merge of #221: substitution, not staleness.
 In a scratch copy of the committed directory with `main`'s `audit.png` — a photograph of the `MST`
@@ -561,15 +691,45 @@ bytes answers **`9 photographs current`, rc 0**. `record` writes `sources_rev = 
 from the commit and the clock and never asks the pixels what page they show, and `check`'s drift arm
 opens `if recorded == current: continue` — so the equality the recorder mints is the same equality the
 gate reads, and a re-dated frame cannot be seen to be wrong. D-0031 closes the staleness half, because
-the recorder is no longer allowed to move a rev for pixels it did not write. **The substitution half is
-open**, and the carry-over does not touch it by design: swapped bytes differ from the manifest, so they
-are a *changed* frame, and a changed frame nobody names is still re-dated. Two things hold it: `check`
-before `record` refuses the swap on identity, and `--shot` is the input that says which frames this run
-photographed, so a frame named without an env that states its fixture is a refusal rather than a guess.
-What is not there yet is a refusal for a frame whose bytes moved and nobody claimed it — the honest
-recipe for that is `--shot` for every frame the run took, including `lock.png` and `testlock.png`,
-which no driver records for. The bare command is still right for a set this folder took whole and
-honest; it is the *only* command that will not tell you it was wrong.
+the recorder is no longer allowed to move a rev for pixels it did not write. **The substitution half
+was open until #294**: the carry-over never touched it by design, because swapped bytes differ from the
+manifest, so they are a *changed* frame, and a changed frame nobody names used to be re-dated anyway.
+`record` refuses it now — a frame whose bytes are not the ones the manifest carries, and that this run
+did not name with `--shot`, exits 1 and writes nothing, because there is no prior rev worth carrying
+and no honest rev to mint. Re-measured 11 Nov at `d7a5149` through real git over a throwaway repository:
+nine frames recorded at `A`, the masthead moved at `B` with `profiles.png` re-taken in that commit,
+`audit.png` then replaced with another page's frame. `check` refused the swap on identity; one
+`record --shot profiles` made it vanish from `check` and re-dated `audit.png` at `B`; and with
+`--fixture-env runs/pages/fixture.env` supplied that frame also gained this run's `capture` block —
+conditions this run never applied to it, #211 reopened for one frame. A refused record leaves the file
+alone, so the identity finding is still there to be read afterwards. Two consequences: `--shot` is the
+only input separating a re-take from a substitution, so it names **every** frame the run took,
+including `lock.png` and `testlock.png`, which no driver records for; and the bare command is still
+right for a set this folder took whole and honest, because those frames are unchanged and carry.
+
+**A frame the manifest has never seen is the same mint with nothing to carry**, and `record` refuses
+that too (#294) — but on a comparison, never on the absence: named by nobody *and* its own pixels last
+committed at least one commit before its page. The absence cannot be the trigger, because "no entry" is
+also what an honest capture looks like before its commit — `pages.py` records the frames it has just
+photographed while every one of them is still untracked, and `fixture.sh` says *Commit last*. Refuse
+the absence and `make capture` is red on its first run, which is #144's trap wearing the fix's clothes;
+the rule `a frame new to the manifest with pixels older than its page is refused, and a frame with no
+history at all is not` tests both orderings so that mistake cannot be made quietly. Minting matters more
+for an unrecorded frame than for any other, because an unrecorded frame is the one case `check` *does*
+see — `is committed with no entry in` fires on it — and recording it deletes that finding and installs
+in its place the drift arm that compares a fabricated rev against nothing.
+
+The published set carries the specimen one step further along, in `git show 7e65d3b`: `lock.png` and
+`testlock.png` are the only two of the nine entries with no `carried_from` — both revs minted — both
+dated `2088043cb`, written eighteen seconds after that commit landed, while the newest commit over each PNG's
+own pixels is `3bcbfdd`, an ancestor of `2088043`. By this file's own model those two photographs predate
+their page, and `manifest.py check` on that tree answers *9 photographs current*, rc 0: the rev the gate
+would have compared is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so those
+revs are hand-typed from wherever whoever noticed was standing — the recipe below is what tells them what
+to type, and a commit eighteen seconds old is not evidence about a frame taken four hours and twenty-one minutes earlier. Closing it
+takes a re-take, not an edit: `./lock.py` and `./testlock.py`, then
+`record --fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock
+--shot testlock`.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver
@@ -603,7 +763,17 @@ a successful capture — the driver hands over the `fixture.env` of every fixtur
 the artifacts it just took — which is why the manifest and the PNGs land in the same commit as each
 other. Recording a frame a driver does not record (`lock.py` and `testlock.py` write no manifest) is
 the one case that takes the flags by hand: `record --dir … --fixture-env runs/lock/fixture.env
---shot lock`.
+--shot lock` — one `--fixture-env` per fixture re-seeded, and **one `--shot` per frame re-taken**, so
+once both POST drivers have run it is `--shot lock --shot testlock` with both envs. The flags are not
+interchangeable with the envs, and the difference is measured, not stylistic: against the pre-#294
+recorder, `--fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock`
+typed after *both* POST frames had been re-taken and the masthead had moved again recorded
+`testlock.png` at the masthead's commit while the newest commit touching its own pixels sat one commit
+behind — and `check`, which named the seven stale page frames one at a time, said nothing about that
+one (`recorded == current` is the arm it skips on). One flag per fixture is the mistake; a flag names a
+frame. Ordering is the other half of the honesty: type `record` in the same commit as the re-take, not
+several commits after it, because `--shot` is the only thing that says when a frame was taken while
+`sources_rev` is written from wherever the run is standing.
 
 `--overwrite` is a second flag on purpose. Writing this README and then testing its own
 invocation replaced two committed artifacts with no error and no warning — overwriting is what the

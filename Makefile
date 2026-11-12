@@ -65,16 +65,24 @@ fmt:
 # clause below makes the self-test refuse, because a gate whose invocation can be deleted silently
 # is a suggestion, and the cheapest way to pass a check is to stop calling it.
 #
-# The two empty-filter steps below keep the child's output and require the sentence, rather than
-# discarding the output and asserting only "non-zero" (#159). "Non-zero" is what a crash returns
-# too, so the old shape passed the moment the script died on the empty-argument path: the step is
-# a claim about WHY the run failed -- that it refused because it matched nothing -- and a guard
-# that cannot tell a refusal from a death is not asserting that claim. Nothing in the battery can
-# pin either step either: no mutant in any set under `scripts/mutations/` names a file under
-# `scripts/` (all 773 rows checked), and the attack suite's whole surface is `mutate.py
-# --self-test`, so deleting a step here leaves `verify` green. That is why the shape is shared by
-# both steps rather than fixed in one of them -- two invocations of the same script must not be
-# asserted in two different strengths.
+# The empty-filter loop below runs both attack suites through the same shape, and keeps the child's
+# output and requires the sentence, rather than discarding the output and asserting only "non-zero"
+# (#159). "Non-zero" is what a crash returns too, so the old shape passed the moment the script died
+# on the empty-argument path: the step is a claim about WHY the run failed -- that it refused
+# because it matched nothing -- and a guard that cannot tell a refusal from a death is not asserting
+# that claim. Nothing in the battery can pin either step either: no mutant in any set under
+# `scripts/mutations/` names a file under `scripts/` (all 773 rows checked), and the mutation
+# attack suite's whole surface is `mutate.py --self-test`, so deleting a step here leaves `verify`
+# green. That is why the shape is shared by both runners rather than fixed in one of them -- two
+# invocations of the same script must not be asserted in two different strengths, and the capture
+# suite (#297) is the second of them.
+#
+# The capture attack suite pins its own invocation, because a gate whose step can be deleted
+# silently is a suggestion. Two of the steps below call it, and each one witnesses the other: the
+# gate step runs it with no argument, and the empty-filter loop names it in the `for runner` list.
+# The suite asserts both spellings are present in this file, so deleting either one makes the other
+# step go red. `manifest.py` has used this trick on itself since #144 for the same reason, with the
+# same two-step shape; the mutation attack suite above does not have it, and that is a separate gap.
 # The factory step (#228) is the first gate `factory/*.sh` has ever had. Measured on this branch:
 # `grep -rn factory Makefile .github/workflows/` returns nothing, so the four scripts that decide
 # which issue is worked next, when the queue halts, and what gets merged were linted and tested by
@@ -115,30 +123,27 @@ verify:
 	echo "==> agent deny list"; python3 scripts/check-denies.py --self-test; python3 scripts/check-denies.py; \
 	echo "==> self-test attack suite"; python3 scripts/attack-self-test.py; \
 	echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
+	echo "==> capture refusal attack suite"; python3 scripts/attack-capture-self-test.py; \
 	echo "==> capture manifest contract"; python3 testing/capture/manifest.py --self-test; \
 	echo "==> screenshot manifest"; python3 testing/capture/manifest.py check; \
-	echo "==> empty selection refuses"; \
-	if nomatch_out=$$(python3 scripts/attack-self-test.py zzzznomatch 2>&1); then \
-		echo "a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \
-		exit 1; \
-	elif ! printf '%s' "$$nomatch_out" | grep -q "no row matched"; then \
-		echo "the empty-selection step failed, but not as a refusal: a refusal says \"no row matched\","; \
-		echo "and anything else means the script died -- which also exits non-zero, so the exit"; \
-		echo "status alone cannot tell the two apart. Its output was:"; \
-		printf '%s\n' "$$nomatch_out"; \
-		exit 1; \
-	fi; \
-	echo "==> empty argument refuses"; \
-	if empty_out=$$(python3 scripts/attack-self-test.py "" 2>&1); then \
-		echo "an empty argument ran the suite: \"\" must mean a filter that matches nothing, not \"no filter\" -- otherwise passing \"\$$FILTER\" with FILTER unset turns this step into the whole gate, reported green, proving something else"; \
-		exit 1; \
-	elif ! printf '%s' "$$empty_out" | grep -q "no row matched"; then \
-		echo "the empty-argument step failed, but not as a refusal: a refusal says \"no row matched\","; \
-		echo "and anything else means the script died -- which also exits non-zero, so the exit"; \
-		echo "status alone cannot tell the two apart. Its output was:"; \
-		printf '%s\n' "$$empty_out"; \
-		exit 1; \
-	fi; \
+	echo "==> empty selection refuses, both attack suites"; \
+	for runner in scripts/attack-self-test.py scripts/attack-capture-self-test.py; do \
+		for filter in zzzznomatch ''; do \
+			if selection_out=$$(python3 "$$runner" "$$filter" 2>&1); then \
+				echo "$$runner (filter '$$filter'): a filter that matched nothing exited 0: a run that attempts nothing proves nothing"; \
+				exit 1; \
+			elif ! printf '%s' "$$selection_out" | grep -q "no row matched"; then \
+				echo "$$runner (filter '$$filter'): the step failed, but not as a refusal: a refusal says \"no row matched\","; \
+				echo "and anything else means the script died -- which also exits non-zero, so the exit"; \
+				echo "status alone cannot tell the two apart. An empty argument has to mean a filter"; \
+				echo "that matches nothing, never \"no filter\": an unset FILTER passed through as the"; \
+				echo "argument would otherwise run the whole gate and report it green, proving"; \
+				echo "something else. Its output was:"; \
+				printf '%s\n' "$$selection_out"; \
+				exit 1; \
+			fi; \
+		done; \
+	done; \
 	echo "==> go vet"; $(GO) vet ./...; \
 	echo "==> go build"; $(GO) build ./...; \
 	echo "==> go test -race"; $(GO) test -race ./...; \
