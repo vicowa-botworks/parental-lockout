@@ -1,5 +1,25 @@
 # Next work for the factory on this branch
 
+- **`#296` is claimed by the unit that ran today and its work is in flight; the queue should not
+  dispatch it again.** Items 1-3 of what it owed are on `main` from #299 (`14f1826`), and item 4 -- the
+  correction to the two merged `Effect:` fields that defer the POST drivers "because their `--out` is a
+  single named file", which is not a flag either driver has (`cdp.capture_out` declares
+  `metavar="DIR"`, `testing/capture/cdp.py:2046-2049`; the named file is built inside the directory at
+  `lock.py:240`) -- is pull request **#336** at `f35d150` (checkpoint `709ff26`, `Decision: D-0068`,
+  `DECISIONS.md` only, `make verify` exit 0 `verify: OK`). Read back from the API when this line was
+  written: `OPEN`, `headRefOid f35d150…`, `mergeable MERGEABLE`, `mergeStateStatus BLOCKED`, no
+  approving review; #336's body carries the link keyword, so the ticket goes when that merges, and if it
+  is refused #296 stays open with item 4 owed and nothing else on it. The line #299's tick left in this
+  file -- "`#314`/`#296`'s second half is an open claim, not delivered work" -- is no longer here:
+  `ccf852c` dropped it while resolving `NEXT.md` against main, so the measurement it asked for is now on
+  the ticket, six mutations in a copy of the tree: hollowing `cdp.keep_refused` reddens **15 of 78**
+  rules, deadening either driver's disposal statement reddens **3 of 78**, moving the keep after the
+  browser closes reddens **3 of 78**, and reverting both drivers to `discard_stage()` reddens **3 of
+  78**. Its other half is still true and is not this ticket's: no body-gutting row in
+  `scripts/attack-capture-self-test.py` names `single_shot` or
+  `a_single_frame_keep_cannot_be_read_as_evidence`, so gutting either rule body keeps the count at 78
+  and prints green -- #322's class, with #326 naming both drivers as unaudited surfaces and #324 owing
+  the read of the kept frame's bytes.
 - Nothing queued by this unit. `#310` is answered by pull request #312, and the ask on #307 is
   already held by the queue's own poke, so the only action left on this branch is the supervisor's:
   read `reviewDecision`, mergeability and every check from the API and merge if they all still say
