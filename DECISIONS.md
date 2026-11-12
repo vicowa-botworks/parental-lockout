@@ -3686,3 +3686,72 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `## D-0065 ` heading across every ref under `refs/heads` and `refs/remotes` prints nothing and exits 1
   at `083ef53`, this draft being the only text anywhere carrying the heading (#303: the read is the only
   lock there is).
+
+## D-0067 · Run 43296841286's red `verify` is a test reading a stream the daemon had not reached: wait for either startup verdict, wait only for the report line, or loosen the assertion
+
+- Question: `gh pr view 330 --json statusCheckRollup` reads `verify=FAILURE` on head `f282990` while
+  shellcheck, mutation sets and both package jobs read `SUCCESS`, and the one failing line is
+  `serve_test.go:407: the probe report is missing, so a partial chain could not be diagnosed:` over a
+  transcript holding nothing but `plock serve: starting, config /tmp/…/config.json`. The same commit is
+  green here five times running under `-race`, `make verify` here ends `verify: OK`, and the run 44 min
+  earlier on this same branch (`43289393791`, head `cc85761`) was green on a diff of four factory files
+  and two docs with no Go file among them -- so no content of this branch explains the red, and the
+  runner's transcript says the read happened while stdout held only the startup line. What is exposed is
+  in the test: `TestServeStartsWhenOneBackendIsUsable` waits for the startup line and then makes two
+  single, unsynchronised reads of what the probe writes *after* it -- stdout when a backend answers,
+  stderr when none does. Repair the wait, repair the assertion, or move the synchronisation into the
+  daemon?
+- Options: a) wait for the report line itself -- `waitFor(t, out, "backend logind is available",
+  10*time.Second)` -- and leave the assertions alone |
+  b) wait for whichever of the two startup verdicts the probe produces, report or refusal, through a
+  `waitForEither` beside `waitFor`, and leave the test's two existing assertions to say which one
+  arrived |
+  c) narrow the assertion to what the startup line guarantees, which is the correction
+  `TestTheTLSSWarningIsNotOnStdout` carries in its own comment |
+  d) synchronise on the probe finishing rather than on log text -- a hook or a channel in
+  `runServeContext`
+- Chose: b) wait for whichever of the two startup verdicts the probe produces, report or refusal,
+  through a `waitForEither` beside `waitFor`, and leave the test's two existing assertions to say which
+  one arrived
+- Why: the tie-break that separates them is refusing rather than proceeding on missing input. (a) is two
+  lines shorter and gets the synchronisation right, but on the one failure this test exists to catch --
+  the backend did not answer -- `waitFor`'s own `did not see "backend logind is available"` would
+  `t.Fatalf` over the daemon's reason and print the stream that by design holds no reason. Measured with
+  the runner swapped to `brokenLoginctl`, (b) fails with the daemon's sentence first:
+  `a machine with a usable backend was refused:` then `backend logind is not usable: loginctl exited
+  with 1` and the refusal line. The next tie-break, what the surrounding code already does, also picks
+  (b): this file already polls for a line (`waitFor`) and already bounds a hang with a named failure
+  (`refuseWithin`), and (b) is those two shapes composed; every other serve test either asserts on the
+  line it waited for or asserts on a line printed *before* it -- measured by reading all fourteen
+  `waitFor`/`strings.Contains` pairs in `cmd/plock`, this was the only assertion sitting behind a wait for
+  an earlier line, so one call site moves and no helper's existing callers change. (c) is the option the
+  repository has already refused in writing, twice: the comment at
+  `TestTheTLSSWarningIsNotOnStdout` records that asserting on the conditional probe line is what made that
+  test pass on a desktop and fail on a headless runner, and the probe report is exactly the conditional
+  line here. (d) edits the daemon's startup path to serve a test's ordering, and the guarantee under test
+  *is* the line the daemon writes.
+- What lost: the wait is still a poll on log text, not a happens-before edge, so a daemon that prints the
+  startup line and then stops writing is reported by `waitForEither`'s `saw neither … nor …` rather than
+  in the test's own vocabulary, and the 10 s bound is the one this file already uses, not one measured
+  against a slow start. Second, this entry names but does not claim: `startServe`'s cleanup waits on the
+  same buffered `code` channel the test body has already drained, so every test that reads the exit code
+  spends 15 s in cleanup -- measured, the unmutated test is `15.04s` beside an
+  `85.4µs` shutdown -- and a daemon that overruns that same 15 s is left running while `serveRunner` is
+  restored to the real `ExecRunner`, which is a route for one test's daemon to reach the next test's
+  assertions. Fixing that changes the helper's contract for five call sites and belongs to its own ticket
+  beside #319, which is still open on runner-local red.
+- Checkpoint: 6cf2459
+- Effect: one file, `cmd/plock/serve_test.go`: `waitForEither` beside `waitFor`, and one call between the
+  startup wait and the two assertions. No product code moves, and none moved -- `cmd/plock/serve.go` was
+  md5-compared to the copy taken before the session (`75f3c71023925ed4f54ef4a823c53cb9`) after every
+  probe. The evidence is a pair of mutants, both removed before this commit: widening the window with a
+  `time.Sleep(3*time.Second)` between the two `Fprintf`s in `runServeContext` fails the unmodified test
+  with the runner's message and transcript byte for byte (`--- FAIL:
+  TestServeStartsWhenOneBackendIsUsable`, `serve_test.go:407`, stdout holding only the startup line) on
+  the box where it otherwise passes 5/5 -- so the window is real and reachable without a scheduler's
+  cooperation, and `go test -race` over thirteen instrumented packages on a shared `ubuntu-latest`
+  runner needs only one deschedule inside it; and with this wait in place the same mutant passes 2/2 at
+  `18.06s`/`18.08s`, which is the 3 s window plus the 15 s cleanup, i.e. the test now waits for the
+  verdict instead of guessing its timing. `go test -count=5 -run '^TestServeStartsWhenOneBackendIsUsable$'`
+  on the clean tree, the whole `cmd/plock` package, and `make verify` all follow in the pull-request
+  body rather than here (#1180).
