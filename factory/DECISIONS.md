@@ -5303,6 +5303,396 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `docs/factory.md` and on #291: whether #241 should now be closed, whether #285 and #233 should be
   deleted, and whether #222 still owes anything.
 
+## H-0134 · The allocator answered #303 correctly twice, 2260s apart, and was silent about the refs it could not see
+
+- Question: `next-decision-id.sh` reads a union -- the working log, `HEAD`, `refs/heads`,
+  `refs/remotes` -- and deliberately never fetches, because a blocking network read ahead of a pass
+  budget is priced at 5min2s by `H-0013` and refused inside a verdict outright by `H-0056`. So the answer
+  is only as wide as the last fetch, and the command has always said nothing about that. #303 is what the
+  silence costs: `D-0058` went to two units. Three timestamps, all re-measured off the live objects:
+  `06b7c29` (issue-296) committed its entry at 11:32:24-0500; issue-297's own `pre-D-0058` checkpoint
+  `4537b9d` is dated 12:10:04-0500, 2260s later, and that is when its allocator ran, because the skill
+  takes the id immediately before the checkpoint; its entry `1d3470b` followed at 12:14:46-0500, 2542s
+  after the first. #303 pairs 12:10:04 with `1d3470b`, so the "38 minutes" the incident is cited by and
+  the 42min22s between the two entries are both true, of different pairs -- and the second allocator was
+  right about every ref it could reach. What does a read that cannot see the sibling owe the caller -- a
+  number, a refusal, or a number plus the provenance of the read that produced it? And who decides
+  "blind", on what evidence, when the whole point is that the command stays offline?
+- Options: answer in stderr, refuse nothing, and make the unit's re-read conditional on the marker |
+  refuse the id until the read is proven current, and let the session fetch and ask again | keep the
+  silence and have the supervisor refuse to dispatch a unit whose tree cannot see `origin/<its branch>` |
+  bind each id to a per-unit identity registered on origin, consumable once, expiring | print the
+  provenance and change no procedure | exit 7 with no id and let the caller retry
+- Chose: answer in stderr, refuse nothing, and make the unit's re-read conditional on the marker
+- Why: the answer is a *read*, so the tie-break is what a caller does differently once it knows -- and
+  that was measured on live state before the arm was chosen, in both directions. The healthy direction,
+  in this tree, the day this was written: the working log stops at `H-0132`, `refs/remotes` carries
+  `refs/remotes/origin/issue-249` at `H-0133`, and the allocator answers `H-0134`. That is the union
+  working, and it is precisely the read #303's second unit did not have -- a sibling landed on `origin`
+  and nothing in that clone moved. The blind direction then has to be *named*, because a correct-looking
+  number is what makes the collision invisible until the two logs meet in one merge.
+
+  Refusing (the ticket's option 2, and `exit 7` is the same arm with a code on it) was rejected on this
+  script's own recorded history, not on taste. Its header carries #253's finding: a caller reduced to
+  "the allocator is broken" goes back to numbering by eye, which is the defect the command exists to end
+  -- so a refusal in front of a session holding a half-written entry does not prevent a duplicate, it
+  picks the number by hand. Measured, the refusal is also always true rather than sometimes true: the
+  ticket's literal test, no `refs/remotes/origin/<the branch you are on>`, answers `0` here while
+  `git worktree list` names `issue-303`, because dispatch pushes no unit branch -- the branch exists only
+  after the tick pushes it. A guard that fires on every allocation is read as noise and re-run until it
+  goes away, which is the same reason `docs/factory.md` forbids `check-decisions.py` from ever
+  enumerating refs: a verdict that changes with what a tree last fetched disagrees with itself, and a
+  gate that disagrees with itself gets re-run until it agrees.
+
+  The supervisor variant loses on the same measurement with a worse verb. Refusing to *dispatch* a unit
+  whose tree cannot see `origin/<its branch>` denies the work instead of correcting the read, on a
+  trigger that is true before every dispatch; and #256 already carries the ref-policy argument (one
+  bounded activation fetch, which `H-0075` built) separately from this command's verdict.
+
+  The registered identity (the ticket's option 3) is a lease wearing another name, and "Why there is no
+  reservation" above already priced it: a claim that outlives the session that made it needs an owner and
+  an expiry, or a killed tick reserves a number forever and nothing here reaps it; the claim ref is a
+  state-changing write in front of the tick budget where `H-0013` priced a blocking *read*; and it does
+  not close the window it is for, because two allocations in the same second still register two
+  identities only if the registration itself is atomic on a server both sides can reach -- which is a
+  fourth ref, new shared state with no reaper, and a dependency on infrastructure this harness does not
+  have. Adding it is a third-party-dependency-class call, not a tick's.
+
+  "Print it and change no procedure" is the marker without the point: a fact nobody is told to act on is
+  a log line, and the activation has been journaling `REFRESH-BLIND` since `H-0071` while the command
+  answering inside the unit said nothing at all. So the procedure travels with the marker, in both
+  documents, and `alloc_docs_reference` now refuses a copy of the skill or the guide that keeps the
+  marker and drops the sentence telling a session to act on it.
+
+  The bound is what the two arms disagree about, so it is pinned from both sides. `REFRESH-BLIND` comes
+  from one of two offline verdicts: *coverage* (can `refs/remotes` here learn a sibling exists at all --
+  no origin, a refspec naming one branch, no remote refs), and *clock* (when did this repository last
+  hear from origin). *(One shape these two do not catch, added to this list afterwards by `H-0137`
+  rather than left in a review thread: a refspec whose wildcard sits on the destination side --
+  `+refs/pull/*/head:refs/remotes/origin/pr/*` -- contains a star and reads CLEAN beside the duplicate
+  id, and the unrefspec'd fetch the marker tells the session to run cannot widen it. `#309` holds the
+  measurement and the repair.)* The clock is the newest of three sources because none of the three is always there:
+  measured in this tree, own `FETCH_HEAD` 145s, common dir's 202s, newest `refs/remotes` reflog 1724s --
+  and `max` is what stops the arm crying wolf about a refresh the activation did in the primary and this
+  worktree never saw, since a `git clone` writes no `FETCH_HEAD` at all and `git worktree add` writes none
+  in the new tree (both on git 2.53.0) and a fetch that moves nothing reflogs nothing. The default is
+  300s rather than 900s on the tie-break that takes the option which refuses rather than proceeding,
+  once a later tie is left: the residual is identical at both bounds -- a push inside the read's age is
+  invisible either way -- so the smaller bound is strictly less silence, and its cost is one `git fetch`
+  per entry commit, measured at 0.679s against this origin in the no-op case and re-measured at
+  0.53-0.60s over three runs the same day, against
+  `FACTORY_FETCH_TIMEOUT`'s 120s ceiling. What a sibling needs to write an entry and push it is minutes,
+  which is where 300 came from and why it is not 5s.
+
+  What this does not buy is written down because it is the rule's cost, and the suite pins it as an ok
+  rather than leaving it to prose: #303's own shape -- a clone seconds old whose sibling has already
+  pushed `D-0007` -- reads CLEAN and answers `D-0002`, and no offline read can do otherwise, because
+  between the last contact and this read anything could have arrived. `alloc_boundary` measures that same
+  tree after a fetch, `D-0002` before and `D-0008` after, which is what the marker points a tick at. The
+  merge stays the arbiter and the yield rule still decides who renumbers; closing the last window means
+  fetching inside the allocator, which is the one thing `H-0013` and `H-0056` settle, and `H-0061` is
+  what an unbounded network read in a verdict costs when it is added anyway.
+- Checkpoint: fb5e61cb9221cde61c666ce66fe10f8e96a0f2f8
+- Effect: `factory/next-decision-id.sh` (the `REFRESH`/`REFRESH-BLIND` verdict on stderr beside an
+  unchanged stdout: `blind_coverage` and `blind_clock`, read in a `for arm in coverage clock` loop that
+  two controls each delete one arm from, the three-clock `max` with the negative-age arm, and
+  `FACTORY_ID_MAX_AGE` refused unless it is a whole number so a typo cannot silently disable the bound),
+  `factory/selftest.sh` (five counted legs and four control rows -- a clone-plus-worktree fixture whose
+  sibling pushes `D-0007` from a second clone, the clean read pinned *without* a marker on the duplicate
+  it cannot see, one plant per arm, the bound pinned by widening it on the same aged tree, and the
+  `alloc_docs_reference` clause `means fetch and re-read` with a second plant that keeps the marker and
+  deletes the procedure), `.opencode/skills/factory/SKILL.md` (Step 3 reads the stderr line beside the id,
+  and the marker's one sentence), `docs/factory.md` (the allocator section's verdict, the three-clock
+  measurement, why the ticket's literal test was measured and not used, and the `FACTORY_ID_MAX_AGE` row
+  in Configuration). In all four documents the incident carries the re-measured timestamps instead of the
+  ticket's pairing -- `06b7c29` 11:32:24-0500, issue-297's `pre-D-0058` checkpoint `4537b9d`
+  12:10:04-0500, its entry `1d3470b` 12:14:46-0500 -- because #303's table dates `1d3470b` at 12:10:04,
+  which is `4537b9d`'s date on the live object, and the two intervals it is quoted by are true of
+  different pairs (2260s entry to the second allocator's checkpoint, 2542s entry to entry); the guide now
+  says which is which rather than picking one and calling the other a mistake. Measured, in the order measured: `factory/selftest.sh` **521 passed, 0 failed**,
+  nine of those rows new (five counted legs; four controls, which print their discrimination and do not
+  enter the tally) -- the arm controls because deleting either arm makes the same fixture read clear, the
+  clean-read control because making the verdict unconditional makes it call a seconds-old tree blind.
+  Live against GitHub in this tree: `git fetch --prune origin` and the call answers `REFRESH … 0s old
+  (bound 300s)` with the id on stdout alone, and `FACTORY_ID_MAX_AGE=1` on that same 0s-old read answers
+  `REFRESH` too -- the bound compares the read's age, it is not a "did you fetch" flag. The blind arm was
+  measured on the same tree before the fetch, at `REFRESH-BLIND … last refreshed 265s ago, past the 1s
+  bound` with the exact `git -C … fetch --prune origin` to run, still exit 0 and still the id on stdout,
+  and it is pinned at 7200s against the 300s default by the aged fixture. Two more live facts came out of
+  writing the entry: the same call, made after `## H-0134` existed in the working file, answers `H-0135`
+  -- the working log counts in the union, which is what makes the re-read before the entry commit the arm
+  that sees a sibling -- and the clock ages on its own, so a session that sits on an answer for five
+  minutes gets `REFRESH-BLIND` from the default bound without being asked. `make verify` OK.
+  Not one of the four classes a tick must escalate: no dependency added (the fix is four `git` reads that
+  were already the shape of the code, and `go.mod` is untouched), nothing published, nothing deleted, no
+  merge, no write to any pull request, and no change to what a `deny` refuses. What it leaves for a
+  person, in `docs/factory.md`: whether the 300s bound is the number the queue wants now that the marker
+  exists to make a refresh cheap. Nothing here re-opens `D-0058` itself: measured on `origin/main` today
+  the log holds one `## D-0058` heading -- #297's -- because the merge that joined the two already
+  renumbered #296's entry to `D-0060` and recorded the alias, quoting the gate's own line (`id D-0058 is
+  already used at …:2975; 'revert to before D-0058' would name two commits`). That is the yield rule
+  having run, not a defect left standing: the merge saw both entries, so it could arbitrate. What it could
+  not do is tell the second unit, at the moment it asked, that the read behind its number was blind. This
+  entry is that.
+
+## H-0135 · The queue ranked its own age ascending, so the youngest unit was always next
+
+- Question: `factory_body` ranks the workable rows of a pass by class, then by seconds since
+  `first-seen`, then by the unit's number, and reads the winner as "the next thing to tick". The middle
+  key shipped as `-k2,2n`, ascending, while `factory_age` answers *elapsed* seconds -- it counts UP from
+  the stamp, and answers 999999999 when there is no stamp at all. So the code sent the youngest row
+  first and the never-seen row last, and the comment sitting four lines above it, `docs/factory.md`'s
+  "`first-seen` decides queue order", and `H-0007` ("oldest `first-seen` wins, so a stream of new
+  arrivals cannot starve an old unit") all say the opposite. Which of the two is the rule -- the recorded
+  decision or the key that has been running since `88848c5`, seven days and 521 passing legs? And what
+  does the fix owe the two things that made it invisible: a CI leg that went red by crossing a second
+  boundary, and the fact that correcting the key changes what a live queue of 13 units does next?
+- Options: invert the age key (`-k2,2nr`) and pin both polarities with planted `first-seen` stamps |
+  keep the ascending key, name the rule newest-first, and rewrite `H-0007`, the comment and the journal
+  sentence to match the code | treat run 43105189339 as fixture flake and pin the fixture's two stamps so
+  a boundary cannot be crossed, leaving the key alone | make the direction per class -- pull requests
+  newest-first because a fresh head is the actionable one, issues oldest-first | leave the key and raise
+  `FACTORY_MAX_TICKS` until a pass works everything and the order stops mattering | rank on the
+  `first-seen` timestamp instead of the age derived from it
+- Chose: invert the age key (`-k2,2nr`) and pin both polarities with planted `first-seen` stamps
+- Why: one recorded decision against one character of code, and the consequence is the one `H-0007`
+  exists to prevent. Ascending on a duration is not merely unfair, it is starvation by construction:
+  every pass mints a younger `first-seen` for whatever arrived since, so under the retired key the old
+  unit loses to a newcomer that did not exist when it started waiting. Measured on the live queue, same
+  rank (`unclaimed`), same host: the pass at 20:22:20Z on 11 Nov printed `NEXT unclaimed 303 age=0s` --
+  a row its own stamping loop had written `first-seen` into one second earlier -- while #296 and #297
+  (`first-seen` 16:13:25Z, 14,935s old) and #301/#302 (18:28:50Z, 6,810s) were in the same rank and all
+  five were still rows in `factory/triage.sh --table` at 22:24Z, two hours later. Nothing ticked any of
+  them, because nothing was ever ranked to reach them.
+
+  The flake reading was tested rather than argued, and it is the option that would have cost the most.
+  The two stamps in the fixture are `date +…%SZ`, equal to the second, and the gap between them is the
+  worktree lookup plus the `gh` shims: measured over 43 fixture passes on this machine they are 3.8-7.9 ms
+  apart (1794435577.135272390 against .139691364), and 0 of 40 unseeded fixture runs crossed a
+  boundary -- so the crossing is rare, uncontrollable, and not reproducible on demand. Pinning the
+  stamps would therefore have done two things: silenced the only leg of 521 that ever read the queue's
+  direction, and left the product ranking youngest-first. That red leg was a true verdict about the
+  product, and `factory/selftest.sh` had no leg that asked the direction on purpose -- the direction was
+  carried by a comment, and the comment was not what the code did. The new legs plant the ages instead
+  of hoping for a boundary, and they plant them in both polarities, because a single polarity is also
+  satisfied by a dispatcher that ignores `first-seen` and sorts on the number: making 901 the older unit
+  is what tells those two apart.
+
+  Newest-first on purpose (option 2) is a defensible product stance and it is what the queue has
+  actually been doing, so it is the option this entry has to lose on evidence rather than taste. It
+  loses because the repo already answered: `H-0007` is on the books, `docs/factory.md` states that
+  `first-seen` decides queue order, and the dispatcher prints `NEXT <class> <key> age=<n>s` precisely so
+  an operator can read "this unit has been waiting 4h09m" off one journal line -- a number whose meaning
+  inverts if the queue works the small ones. A reversal of that belongs in the log as its own decision
+  with its own measured case, not slipped in behind a red check. `FACTORY_MAX_TICKS` (option 5) is not
+  the escape it looks like: the default is 3, the installed unit sets no override
+  (`~/.config/systemd/user/repo-factory.service` carries no such line), and 11 of the last 12 passes ran
+  exactly one tick before the budget or the queue ended it (`QUEUED 13 unit(s) remain after 1 tick(s)`),
+  so the rank order decides who gets that tick every single pass. Ranking on the raw timestamp (option
+  6) is arithmetically the same sort and was rejected for a smaller reason: the derived age is what the
+  `NEXT` line prints and what `factory_age`'s sentinel is for, and two clocks in one rank is how the
+  next reader gets this same bug.
+- Checkpoint: 83f54260c2c1fde4ce4df67833ff8a8d97b50792
+- Effect: `factory/factory.sh` (the key, `-k2,2n` -> `-k2,2nr`; the ranking comment, which now carries
+  the live measurement and the sentinel's new position; and the stale spelling in the "the ask is not a
+  sort key" note, which had to move with the key or the comment would have described a mutant).
+  `factory/selftest.sh` (five helpers -- `proc_rank_stamp`, `proc_rank_next_age`, `proc_rank_first`,
+  `proc_rank_run`, `proc_older_first` -- two polarity legs, `the older unit is dispatched first` and
+  `…and the older one is not the lower number`, and `control: the retired key ranks youngest`, whose
+  `proc_mutate_sort` retires exactly the `r` on the code line and refuses to plant if the anchor is not
+  unique). `docs/factory.md` (a new "Which unit a pass takes first (#307)" section: the direction, the
+  live starvation numbers, why the second boundary was a witness rather than a flake, and the one
+  behaviour that really changes -- the never-seen sentinel, which sorted last and now sorts first, and
+  cannot reorder a measured queue because the row loop stamps every workable unit before the ranking
+  loop reads it, while a dry run and an unwritable ledger skip the stamp for *every* row and leave the
+  tie-break exactly where it was). Measured after the change, in the order measured:
+  `bash factory/selftest.sh` **524 passed, 0 failed** (the CI head this replaces read `520 passed,
+  1 failed` -- 521 legs, so these are three added and none changed in meaning), 25.2s for the suite;
+  the planted fixtures print `NEXT unclaimed 900 age=2s` before `901 age=1s` and, with the ages
+  reversed, `NEXT unclaimed 901 age=3s` before `900 age=2s`, so both polarities are the age deciding and
+  not the number; the control's copy of `factory.sh` runs `-k1,1n -k2,2n -k3,3n)` and dispatches 901
+  first, which is what makes the first ok a direction rather than a tie-break. `make verify` OK
+  (`verify: OK`, exit 0), which is also the gate that read this entry: the command-shape guard, the
+  encoding guard, `check-decisions.py` both ways, shellcheck over the two scripts, and the attack suites.
+  Two facts
+  about this entry that are not compliments to the change. It is a **behaviour change on a live queue**:
+  the next pass works #296 -- 22,882s since `first-seen`, the lower number of the two tied at
+  16:13:25Z -- where the retired key worked #304 at 7,947s. The five `unclaimed` rows in
+  `factory/triage.sh --table`, re-sorted offline off `factory/ledger/issue:<n>.first-seen` with the two
+  keys side by side, come out 296, 297, 301, 302, 304 under `-k2,2nr` and the exact reverse under
+  `-k2,2n`; and if any part of the queue's recent stalling was being compensated by
+  youngest-first, the symptom changes shape rather than vanishing -- the tell is the same unit repeating
+  in `NEXT` across passes with a `TICK-DONE` and no pull request, and the repair is `git revert` of the
+  one commit. And this is not the first attempt: the tick before this one reached the same key and the
+  same `-k2,2nr` on the same unit, took the checkpoint above, and lost its tree to the pass that
+  dispatched this one -- its 16/4 in `factory/factory.sh` and 65 lines of legs are mirrored at
+  `~/prj/at-risk/issue-303-quarantine-20261111T221547Z-12c3c685f.patch` (git stash `12c3c685f`) and are
+  *not* in this commit, which carries this session's version of the same fix with the two-polarity and
+  control legs instead of its single set. That mirror is the only copy of that reasoning, so it stays
+  where it is until a person reads it; nothing here deletes it. Not one of the four classes a tick must
+  escalate: no dependency added (`go.mod` untouched), nothing published, nothing deleted, no merge, no
+  write to any pull request beyond this unit's own, and no change to what a `deny` refuses.
+
+## H-0136 · The queue-order legs planted their stamps one second apart while the age is read by a one-second clock
+
+- Question: `#307`'s review found that the three legs `H-0135` cut in the same pass plant their
+  `first-seen` stamps exactly one second apart -- `proc_rank_run old-first 2 1`,
+  `proc_rank_run young-number 1 2`, and `control: the retired key ranks youngest`'s
+  `'issue:900' 2` / `'issue:901' 1`. The ages are not planted, though. Each row's age is read inside
+  the ranking loop by its own `factory_age` call (`factory.sh:1197`), whose resolution is one whole
+  second (`date -u +%s`, `common.sh:923`). When the two calls straddle a second boundary the ages come
+  back **equal**, `proc_older_first` reads equal as a failure (`[ "$aw" -le "$ao" ]`,
+  `selftest.sh:3569`), and the same tie drops dispatch to the number tie-break -- which is the third
+  check in the retired-key control. The review measured 8 ties in 600 trials on the shipped read path
+  and priced it at one red `make verify` in 25, on the gate every pull request in this repository
+  runs -- the cost `H-0135` was written to stop paying. Is the claim right as measured, how many legs
+  does it reach, and what is the smallest change that keeps both polarities and the control honest?
+- Options: plant the pair 2s apart (3s/1s) | plant the pair far apart (60s/30s) | stop comparing
+  derived ages: read the planted stamps back and compare the absolute times | give `factory_age`
+  sub-second resolution so there is no boundary to straddle | make `proc_older_first` re-read and
+  retry when the two ages tie | leave the plant and record the three legs as a known flake
+- Chose: plant the pair 2s apart (3s/1s)
+- Why: the margin is arithmetic rather than probabilistic, and that is what makes four integers enough.
+  One boundary crossing shifts the second age by exactly 1s, so a separation of 2s cannot be
+  equalised by a straddle at all. Measured on the shipped read path -- the two `factory_age` calls,
+  the shipped `factory_class_rank` and the re-serialise between them, 10.1-10.6 ms a trial, this box
+  (32 cores, tmpfs fixture root), git 2.53.0, bash 5.3.9 -- the old plant tied **3 times in 600
+  trials** (2/300 then 1/300, so 0.5% a leg-run against the 8/600 = 1.3% the reviewer measured on
+  their box: the same window, half the width here), and the new plant tied **0 in 600**. The
+  deterministic form of the same harness, with the straddle forced by a `sleep` between the two reads
+  instead of waited for, is the whole argument in three rows: at plant 2s/1s a 1s stall reads the pair
+  back as `2s`/`2s` and reddens 5/5, while at 3s/1s the same 1s stall reads `3s`/`2s` and reddens 0/5.
+
+  **The reach is two legs, not three, and the difference is read order.** The fixture's queue is
+  `[900, 901]` (`selftest.sh:2940`, `:2944`), so the ranking loop reads 900's age *first* in both
+  legs. In `young-number` the older unit is 901 -- the row read *second* -- so a crossing moves the
+  older age up instead of levelling it: measured 1s/2s under a forced 1s stall reads `1s`/`3s`, and 0
+  ties in 300 natural trials. So the honest figure for this gate is ~1.0% a run here (two exposed
+  legs at 0.5%) against the review's ~3.9% there -- one red `make verify` in about 100, not in 25. The
+  finding stands, the fix it prescribes is the right one, and only the multiplier was too high; it is
+  corrected the way the finding was made, on the shipped read path. Both pairs are widened anyway.
+  Which row leads the queue is a detail of the fixture's payload, not a property of the code under
+  test, and a leg that pins a direction should not be exposed or immune depending on the order two
+  `gh` shim rows happen to be written in.
+
+  60s/30s (option 2) is strictly safer and loses on sufficiency and on legibility, not on correctness:
+  3s/1s already asks for a **2s stall between two key reads whose measured gap is under 10 ms** -- 200
+  times the window -- and the failure sentence `proc_older_first` prints quotes these two ages, so
+  "3s against 1s" reads as a planted fixture while "60s against 30s" sends the next reader hunting for
+  a timer the fixture does not have. If a runner is ever observed stalling 2s mid-loop the repair is
+  the same three integers to 60/30 (measured by the review at 0 ties in 200), and this sentence is
+  where that is written down. Sub-second `factory_age` (option 4) makes the *product* more precise to
+  quieten a *test*, and the whole seconds are the contract elsewhere: `factory_age`'s never-seen
+  sentinel is the integer 999999999 and the journal prints `age=<n>s` (`factory.sh:1222`), the form
+  `docs/factory.md` shows an operator. Reading the absolutes back in the legs (option 3) tests the
+  ledger and not the pass -- `proc_older_first`'s entire content is the `age=` the dispatcher printed,
+  and a leg that read the files instead of the journal would pass on a supervisor that never printed
+  one. Retry-on-tie (option 5) makes a verdict depend on how many times it was allowed to look.
+  Recording it as flake (option 6) is the option `H-0135` already refused for the same leg: the leg
+  exists to be a verdict, and a leg that is excused before it runs is a comment with a `pass++`.
+
+  What this leaves, stated because it is the rule's cost: a stall of 2s or more between the two reads
+  still levels 3s/1s -- measured, forced: a 2s stall reads `3s`/`3s` and reddens 5/5. Nothing that
+  keeps the comparison on the printed age removes that; it is the price of a one-second clock, the
+  same price `H-0135` priced for the leg it replaced (3.8-7.9 ms plant-side, "once in 200"). What the
+  change buys is that the window moves from one second of clock -- which the fixture crossed on
+  purpose, once in ~100 passes -- to two seconds of scheduler, which it has never crossed.
+- Checkpoint: 38c57e590f4317cd30886b9f462cc138a6a04b1a
+- Effect: `factory/selftest.sh` only. Three plants moved, no leg added and none removed: `old-first`
+  `2 1` -> `3 1`, `young-number` `1 2` -> `1 3`, and the retired-key control's `'issue:900' 2` -> `3`
+  (its `'issue:901' 1` stays, and the control keeps its teeth -- the mutant still dispatches 901,
+  which is the check that makes the first ok a direction rather than a tie-break). The two `ok`
+  sentences that name the ages moved with the plants, because they are prose about the fixture and a
+  leg that describes a plant it no longer builds is the drift #237 is filed against. Two comments were
+  added with them: one on `proc_rank_stamp` carrying the rule -- a planted separation has to exceed the
+  resolution of the clock that reads it, with both measured rates beside it -- and one above the legs
+  naming the read-order asymmetry, so the next reader does not "fix" the polarity that cannot tie.
+  Measured after, in the order measured: `bash factory/selftest.sh` **524 passed, 0 failed** in 25.5s
+  -- the identical count to `830c374` on this box, which is the point: the fix moves integers, not
+  legs -- and both legs and the control pass on their own fixtures, so the direction is still decided
+  by the age in both polarities and the retired key still ranks youngest. Swept for the same hazard
+  elsewhere before writing this: `grep -n 'first-seen' factory/selftest.sh` reaches no other leg, the
+  halt-line legs age their marker in *minutes* and assert one age as a string (`q_stamp`,
+  `q_halt_plant`, `:4148`, `:4226`), and `q_halt_plant_at` compares one age against no other. `H-0135`'s
+  `Effect:` still quotes `NEXT unclaimed 900 age=2s` before `901 age=1s`; that is a record of the
+  fixture at `830c374` and is deliberately left alone -- from this commit the plants print `age=3s` and
+  `age=1s`, and a decision log quietly rewritten to match the code is indistinguishable from one that
+  was always right. Not one of the four classes a tick must escalate: no dependency added (`go.mod`
+  untouched), nothing published, nothing deleted, no merge, no write to any pull request beyond this
+  unit's own, and no change to what a `deny` refuses.
+
+## H-0137 · A fetch refspec whose wildcard is over `refs/pull/*` reads as a clean union, and the widen the marker recommends cannot help that clone
+
+- Question: `blind_coverage` asks whether the fetch refspec *contains* a star
+  (`factory/next-decision-id.sh:305-311`, `case $rs in '' | *\**)`). `#307`'s review measured that
+  `remote.origin.fetch = +refs/pull/*/head:refs/remotes/origin/pr/*` -- a shape a person adds on
+  purpose, to get PR heads locally -- therefore answers clean, and the `refs/remotes/origin` count
+  below it is satisfied by the `pr/*` refs. Re-measured here on a fixture built from scratch, with the
+  clock arm provably clean (newest `refs/remotes` reflog 1s old): the allocator at `830c374` returned
+  **`D-0002` at rc 0** with `REFRESH … 1s old` beside it, while `refs/heads/issue-sib` on origin
+  already carried a `D-0002`; and `git fetch --prune origin`, the instruction both markers print,
+  changed nothing, because an unrefspec'd fetch obeys the very refspec the arm is blind to. Not
+  blocking, and the review said so: nothing the harness builds produces the shape. So what does a tick
+  in a review round owe a shipped probe it did not come to fix -- change it, or name it where the queue
+  will find it? And what does either ending owe the second copy of the same test at
+  `factory/factory.sh:1015-1021`, whose comment at `:1011-1014` defends the anywhere rule *on purpose*
+  ("a pattern that merely \*starts\* with a star would call the wildcard form blind, which is the bug
+  the control for this leg plants") and has a control leg planted for it?
+- Options: tighten the allocator's arm to a source-side prefix and add the leg in this pull request |
+  tighten the allocator's arm and `factory_refresh_origin`'s copy together, with a leg and an
+  arm-deletion control at each site | leave the arm, name the shape inside `H-0134`'s residual list,
+  and file the finding as its own issue | leave the arm and answer nothing beyond the review thread |
+  make the coverage arm ask the network instead of parsing the refspec -- probe whether a branch ref is
+  reachable from here
+- Chose: leave the arm, name the shape inside `H-0134`'s residual list, and file the finding as its own
+  issue
+- Why: the tighten options win the tie-break read literally -- it prefers the option that refuses over
+  the one that proceeds, and a false clean read from the command whose whole job is to refuse is #303
+  wearing a new shape. They lose on what this unit of work is. `H-0136` is this branch's answer to the
+  review, and it is four integers and a measurement; a probe change is not four integers, because the
+  test exists twice and the second copy carries a comment that argues for the current rule and a
+  control leg that plants the bug it warns about. A correct change takes both sites, a leg and a control
+  at each, and a verdict on the mirror shape (`+refs/*:refs/*` carries no `refs/heads/*:` prefix, so a
+  prefix test calls a mirror blind although its local `refs/heads` union is complete -- a false blind,
+  whose cost is one fetch per entry commit and no wrong id). That is a branch, not a review reply, and
+  the tie-break that separates it from `H-0136` is the one about scope: fewest files *touched by the
+  change that has to be reviewed now*. Asking the reviewer to re-review a queue-order fixture and a
+  permissions-adjacent probe in one diff, on a pull request already in `CHANGES_REQUESTED`, buys
+  nothing that a follow-on unit cannot buy with a green head of its own.
+  The network probe (option 5) is out on the recorded rule, not on taste: an offline verdict is what
+  `H-0013` and `H-0056` settled for this command, and `H-0061` is what an unbounded network read inside
+  a verdict costs when it is added anyway. A reachability probe *is* a fetch.
+  "Say nothing beyond the thread" is what this log exists to refuse. `factory/triage.sh` reads issues;
+  a finding that lives only in a comment on a merged pull request is invisible to every queue that
+  reads issues -- the same rule that makes a branch with no pull request invisible, and the reason
+  `H-0134` pins its residuals as ok lines instead of leaving them to prose. So the finding went to
+  `#309` with its repro, and the shape went into `H-0134`'s list beside the two coverage reasons it
+  already gives.
+  What is accepted by not tightening: until `#309` lands, a checkout in this shape still gets a
+  confident clean read. Measured exposure is every tree the supervisor can reach --
+  `extensions.worktreeConfig` is not enabled in this clone (measured: `git config --worktree --list`
+  refuses with "cannot be used with multiple working trees unless the config extension worktreeConfig
+  is enabled"), so there is no per-worktree config file that could diverge and all 16 worktrees resolve
+  the one common `remote.origin.fetch`, which is `+refs/heads/*:refs/remotes/origin/*`. The shape
+  arrives only by a person editing a clone's config by hand -- `factory_worktree` cuts a unit tree with
+  `git worktree add`, which writes no config at all.
+- Checkpoint: ec2632a5a4c02a81754a496202ac9b4a10b35eec
+- Effect: no shipped code, deliberately -- that omission *is* the decision and not a gap in it.
+  `factory/DECISIONS.md`: this entry, plus one attributed sentence added inside `H-0134`'s `Why:` naming
+  the shape where a reader of the coverage arm will meet it. It is attributed to this id rather than
+  inserted quietly, because a decision log edited afterwards to cover a later finding is
+  indistinguishable from one that was always right. GitHub: issue **`#309`** opened with the
+  measurement, the fixture script that reproduces it in a temp dir, the two sites a fix has to take
+  together, the leg and control it owes, and the mirror-clone question it has to answer. Read back after
+  the write, in the same breath: `state OPEN`, `labels [bug, area:ops]`, `createdAt
+  2026-11-12T00:11:30Z`, and the body byte-identical to the file it was written from except the single
+  trailing blank GitHub adds -- and the mechanical linkage check over the *read-back*, not the source:
+  `grep -icE 'clos[a-z]+ +#[0-9]+'` answers **0**, the only numbers named being `#303` and `#307`,
+  neither adjacent to a `close` verb. Not one of the four classes a tick must escalate: no dependency
+  added (`go.mod` untouched), nothing published, nothing deleted, no merge, no review, and no change to
+  what a `deny` refuses -- `gh issue create` is outside the deny table, and filing a finding that is
+  not this unit's to fix is the write `SKILL.md` itself prescribes for exactly this case ("File the
+  unfinished part as its own issue", *When the ticket is already satisfied by main*, step 4).
 
 ## H-0138 · #310 asks who asks a reviewer, and the answer was a component no entry-facing document named: `AGENTS.md` told a unit to do the one thing it has no verb for
 
@@ -5938,6 +6328,133 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   walked -- a `path:NNN` pointer elsewhere in either log was NOT re-read, because #318 is the unit that
   decides whether the whole log gets a checker and this one does not pre-empt its choice; and nothing
   here merges, reviews, requests a reviewer, or writes a label.
+
+
+## H-0145 · #307's log conflict keeps both blocks with nothing renumbered, and the merge moves twenty-five fresh citations off the lines they name
+
+- Question: `#307` reads `CONFLICTING` / `DIRTY` against `origin/main` `131b180`. Read back before
+  anything was touched, as two calls: `gh pr view 307 --json headRefName` answered `issue-303` (the
+  type read #2027 requires, because `--json number` answers the same for an issue), then `state`
+  `OPEN`, base `main`, `mergeable` `CONFLICTING`, `mergeStateStatus` `DIRTY`, `reviewDecision`
+  `APPROVED`, `headRefOid` `5062b43`; a separate call answered `reviewRequests` `[]` -- the first
+  shape of that read, `--jq '[.users[].login]'`, fails `cannot iterate over: null` on an empty list,
+  so an empty reviewer list and a broken read look identical unless asked plainly -- and all five
+  checks (`verify`, `shellcheck`, `mutation sets`, `packages (amd64)`, `packages (arm64)`)
+  `SUCCESS`. So the only thing between this branch and a mergeable pull request is the conflict: the
+  merge base is `14f1826`, `HEAD` is 8 ahead and 22 behind. `git merge origin/main` names one file,
+  `CONFLICT (content): Merge conflict in factory/DECISIONS.md`, and `git status --short` prints
+  exactly one `UU` row against fifteen auto-merged ones. Do both sides' entries stay, in which order,
+  does the yield rule's renumber step apply, and what stops being true about the result once both are
+  in one file?
+- Options: this branch's file (`--ours`), which deletes main's four entries | main's file
+  (`--theirs`), which deletes this branch's four | both, this branch's block first, neither entry
+  renumbered | both, in id order with this branch's ids renumbered into a free number, as the yield
+  rule does when an id is taken | both, with main's block renumbered down into the gaps at `H-0133`
+  and `H-0138` so the merged log reads contiguously | resolve by taking the union of the conflicted
+  file's own text
+- Chose: both, this branch's block first, neither entry renumbered
+- Why: the two parents are a pure both-append, measured rather than assumed: `cmp` on the two
+  `git show` blobs puts the first difference at byte 671092, line 5306, and `head -n 5304` of each is
+  byte-identical to `14f1826`'s copy -- so the base is a strict prefix of both sides and each side
+  appended one block at 5306. This branch brings `H-0134`..`H-0137` (390 lines), main brings
+  `H-0139`..`H-0142` (340 lines), and no id is used twice: `uniq -d` over both blocks' headings
+  answers nothing. That read is what refuses option four. The yield rule, `docs/factory.md:1008`,
+  moves a number only where two branches took the same one -- its rule is the sentence "The side that
+  has not merged yields", and with no shared id there is no side to yield -- and its step 2, re-run the
+  allocator **on the merged tree** so the ceiling includes the ids that arrived with `main`, was run and
+  answers `H-0144` with a `REFRESH` marker 215s old, inside the 300s bound. Nothing collides, so
+  there is nothing to yield, and this entry takes 144 rather than 143 for a reason a reader will
+  otherwise read as sloppiness: `H-0138` and `H-0143` are both held by `refs/heads/issue-310` and
+  `refs/remotes/origin/issue-310`, an unmerged sibling the union correctly counts. Two gaps in `main`'s
+  log are a working allocator, not a broken one, and the allocator's new stderr line (this branch's
+  own `H-0134`) is what makes the window legible.
+  That marker then fired on this very commit, and the number it produced was a second failure mode worth
+  naming. The re-read taken immediately before this entry was committed said `REFRESH-BLIND` -- union
+  328s old, past the 300s bound -- so the fetch it names was run and the number re-taken, and it came
+  back `H-0145`. Nothing had been taken: the string `H-0144` appears in no `refs/heads` and no
+  `refs/remotes` ref anywhere in this clone (the same loop answers 2 hits for `H-0142` on
+  `origin/main`, so the probe works), and `factory/next-decision-id.sh:12` says the union is "the
+  working file, HEAD, refs/heads and refs/remotes" -- **the working file**. The entry was already
+  appended when the re-read ran, so the ceiling it reported was this entry's own heading. Measured both
+  ways with a `/tmp` backup and a byte-identical restore: truncate the working log to the 6036-line cut
+  and the allocator answers `H-0144` on a 31s-old union; put this text back and it answers `H-0145`. The
+  id therefore stands at 144 and the step-2 read above is the one that counts. Filed as #320, because
+  the skill schedules this re-read at the one moment when its answer is guaranteed inflated: a tick that
+  obeys it literally either yields to a phantom and leaves a gap nothing explains, or sees a stale union
+  and a moved ceiling at once and cannot tell the two apart. Recorded rather than fixed here because a
+  behaviour change to the allocator buried inside a merge resolution is unreadable in review.
+  Options 1 and 2 are deletions and are refused by what a log row is for: `--ours` would delete the
+  `Checkpoint:` line of `H-0139`, which is the address a person types into `git revert` to undo
+  #314's record, and `--theirs` would delete this branch's four `Checkpoint:` lines for the same
+  reason in the other direction. Option 5 is refused hardest: renumbering `H-0139`..`H-0142` means
+  rewriting ids that already sit in merged history on `main`, the only merge this repository offers is
+  a merge commit whose ancestors are permanent, and the undo would be a force-push -- denied to every
+  agent here by `.opencode/opencode.jsonc`. Option 6 is refused by the shipped procedure, which is what
+  `docs/factory.md:1027` asks for -- "The conflict is *in the log*, and the resolution keeps both
+  entries" -- and by the cut that `H-0142` and `b4584bf` established for getting there: line ranges come
+  out of `git show HEAD:` and `git show origin/main:`, never out of the conflicted file, because a
+  conflict hunk is git's guess about alignment and this file is the one place two units are certain to
+  meet.
+  The order is measured, not preferred, and differs from `H-0142` in a way worth naming: this branch's
+  ids are the *lower* ones, so id order and git's own hunk order coincide and the log gate has nothing
+  to refuse -- `python3 scripts/check-decisions.py` on the resolved file exits **0** at `186 entries
+  across 2 log(s)`. `H-0142` had the opposite geometry and its gate exited 1 on git's order, so its
+  tie-break was a gate and this one is an arithmetic fact about which side appended lower numbers.
+  Reverting is `git revert -m 1 <this merge>` with no force-push, the only undo this repository
+  permits.
+  What the merge does to the record, stated because a reader will follow these line numbers. This
+  entry does not repair them (#1180: a silently corrected record is indistinguishable from one that
+  was always right), and editing either block would break the proof below. An instrument in `/tmp` --
+  throwaway, because #318 is the open issue that owns a shipped one -- re-read every `path:NNN`
+  citation inside all eight fresh entries against the parent tree the citing entry was written on,
+  then looked for the same text in the merged file: **25 citations no longer land on the line they
+  name, 21 of them are uniquely re-pointable, 4 point at text that occurs 8 or 460 times and so cannot
+  be re-pointed by text at all, and none lost their target text.** Attribution is clean because each
+  citation was measured against its own parent, so all 25 are this merge's doing and none was already
+  stale: 4 belong to this branch's entries (`H-0136` ×3, `H-0137` ×1 -- main's insertions earlier in
+  `factory/factory.sh` and `factory/common.sh` shifted them, e.g. `factory/common.sh:923` now at 941),
+  21 belong to main's (`H-0139` ×11, `H-0142` ×10 -- this branch's +12 lines in `SKILL.md`, +71 in
+  `docs/factory.md` and +480 in `factory/selftest.sh` shifted them, e.g. `SKILL.md:225` now at 237,
+  `docs/factory.md:961` now at 1027, `factory/selftest.sh:6330` now at 6485). Same instrument, whole
+  tree: the merged tree carries 329 citations, 286 on this branch's parent and 320 on main's, and
+  **none on any of the three points past the end of the file it names** -- the merge moves lines, it
+  does not delete targets. That is the extent of what a mechanical check can say; whether a moved line
+  still holds the quoted sentence is prose, and #318's measurement (2 broken today, 1 broken for
+  months, nothing in `make verify` able to see either) is the open work.
+- Effect: this entry and the both-blocks log, inside the merge commit, cut as `head -n 5305` of
+  `git show HEAD:` + that file's 5306..5695 + one blank + `git show origin/main:`'s 5645-line tail from
+  5306 -- 6036 lines before this entry. Proof it moved nothing: `git diff HEAD -- factory/DECISIONS.md`
+  removes **0** lines and `git diff origin/main -- factory/DECISIONS.md` removes **0** lines, so each
+  side's text is in the result byte for byte. Unlike `H-0142`, fifteen other files came through
+  git silently and git's silence is not a verdict -- `SKILL.md`, `AGENTS.md`, `DECISIONS.md`,
+  `docs/factory.md`, `docs/issues-from-d-0065.md`, `factory/common.sh`, `factory/escalation-label.sh`,
+  `factory/factory.sh`, `factory/selftest.sh`, `scripts/attack-capture-self-test.py` and five under
+  `testing/capture/` -- so both intents were read for, not assumed: the merged `SKILL.md:247` is
+  still `gh issue edit "$ISSUE" --add-label "$(factory/escalation-label.sh)"` and `AGENTS.md:37-38`
+  names the script rather than a name (main's #311 fix survives). The literal `needs-human` survives in
+  exactly two places outside the two decision logs, both of them the single home #311 built for it --
+  the default at `factory/common.sh:235` and the comment at `:224` -- and `gh label list` on the remote
+  still returns no such name, so the choice #311 escalated is open after this merge exactly as it was
+  before it. `grep -c labels` answers `0` and `0` on `factory/triage.sh` and `factory/factory.sh`,
+  which is `H-0142`'s probe re-run and still says no queue state reads labels, and
+  `factory/factory.sh:1183` still carries this branch's ascending-age sentinel
+  comment (the #307 queue fix survives). `docs/factory.md` has no duplicated heading. No `path:NNN`
+  citation resolves past EOF. One shadow was hunted and found pre-existing rather than caused:
+  `factory/selftest.sh` defines a top-level `emit()` twice, at `:3061` and `:4559`, and the count is
+  2 on the merge base, 2 on this branch, 2 on main and 2 merged -- so this merge neither created it nor
+  hid it, and it is not this unit's to chase. Neither side touched a `.go` file
+  (`git diff --name-only 14f1826 <side> | grep -c '\.go$'` answers 0 for both), so no `scripts/mutations`
+  anchor could have been retired by this merge (#1048) and `make check-mutations` was not run. Measured
+  on the merged tree before the commit: `python3 scripts/check-decisions.py` -> `186 entries across 2
+  log(s)`, exit 0, and 187 with this entry in it; its `Checkpoint:` arm resolves all eight fresh
+  entries' shas, which is the gate's own confirmation that both sides' rollback targets survive the
+  merge. The full `make verify` line and exit status on the tree this commit leaves are quoted in the
+  pull-request body, because an `Effect:` written before the gate runs is a prophecy (#1180). Nothing
+  here is an escalation class: no dependency, no change to what a `deny` refuses, nothing published,
+  nothing deleted, and no pull request merged -- the denied verb is `gh pr merge`, and `git merge
+  origin/main` into a unit branch is the operation `docs/factory.md:1027` tells a unit to perform; the
+  supervisor's merge of #307 is still ahead of this commit and untouched by it. Renumbered 12 Nov, second pass: this entry was written as `H-0144` while that id was free, and #312 then published its own `H-0144` on `main` before this branch merged. The rule keeps the published id and moves the unmerged side, so this entry is now `H-0145`; the allocator readings above were taken when `H-0144` was unclaimed and stand as measured, not as a claim about the id it ended up under.
+- Checkpoint: 9a33f6da91b178da2ce8f021e8dd3c7438720df8
 
 ## H-0146 · The allocator's re-read counted the entry it was being asked about, so the skill's last guard before a duplicate id answered one higher and wore the exact face of the collision it exists to catch
 
