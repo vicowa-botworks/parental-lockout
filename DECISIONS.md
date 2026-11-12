@@ -3764,12 +3764,14 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `D-0054` after its 11 Nov correction block and to `D-0057` after its re-checks. No file under
   `testing/`, `scripts/`, `docs/` or the Go tree moves; `EXPECTED_RULES` stays 78 and
   `EXPECTED_ROWS` 47. Read-backs, each run after the text it certifies was written:
-  `grep -n 'single named file' DECISIONS.md` -> the two originals at `:2706` and `:2986` plus the four
-  lines that quote them from a correction; `python3 scripts/check-decisions.py` ->
-  `check-decisions: 195 entries across 2 log(s), every one with its question, options, choice, reason
-  and checkpoint`; the drivers answer `0` and `0` to `grep -c discard_stage`, so the deferred half is
-  really gone; `python3 testing/capture/pages.py --self-test` -> `capture self-test: 78 refusal rules
-  hold`; `python3 scripts/attack-capture-self-test.py` -> 47 attacks, 0 problems. The full
+  `grep -n 'single named file' DECISIONS.md` -> seven lines: the two originals at `:2706` and `:2986`,
+  and five quoting the phrase only to refute it -- `:2765` and `:2768` inside `D-0054`'s correction,
+  `:2997` inside `D-0057`'s, `:3723` in this entry's own `Question:`, and `:3767` being this sentence.
+  `python3 scripts/check-decisions.py` -> `check-decisions: 195 entries across 2 log(s), every one with
+  its question, options, choice, reason and checkpoint`; the drivers answer `0` and `0` to
+  `grep -c discard_stage`, so the deferred half is really gone;
+  `python3 testing/capture/pages.py --self-test` -> `capture self-test: 78 refusal rules hold`;
+  `python3 scripts/attack-capture-self-test.py` -> 47 attacks, 0 problems. The full
   `make verify` over the tree carrying this entry is quoted with its exit status in the pull-request
   body rather than here, because an `Effect:` field written before the gate runs is a prophecy
   (#1180).
