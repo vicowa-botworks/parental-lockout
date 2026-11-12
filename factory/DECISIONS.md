@@ -5367,7 +5367,11 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   The bound is what the two arms disagree about, so it is pinned from both sides. `REFRESH-BLIND` comes
   from one of two offline verdicts: *coverage* (can `refs/remotes` here learn a sibling exists at all --
   no origin, a refspec naming one branch, no remote refs), and *clock* (when did this repository last
-  hear from origin). The clock is the newest of three sources because none of the three is always there:
+  hear from origin). *(One shape these two do not catch, added to this list afterwards by `H-0137`
+  rather than left in a review thread: a refspec whose wildcard sits on the destination side --
+  `+refs/pull/*/head:refs/remotes/origin/pr/*` -- contains a star and reads CLEAN beside the duplicate
+  id, and the unrefspec'd fetch the marker tells the session to run cannot widen it. `#309` holds the
+  measurement and the repair.)* The clock is the newest of three sources because none of the three is always there:
   measured in this tree, own `FETCH_HEAD` 145s, common dir's 202s, newest `refs/remotes` reflog 1724s --
   and `max` is what stops the arm crying wolf about a refresh the activation did in the primary and this
   worktree never saw, since a `git clone` writes no `FETCH_HEAD` at all and `git worktree add` writes none
@@ -5616,3 +5620,76 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   was always right. Not one of the four classes a tick must escalate: no dependency added (`go.mod`
   untouched), nothing published, nothing deleted, no merge, no write to any pull request beyond this
   unit's own, and no change to what a `deny` refuses.
+
+## H-0137 · A fetch refspec whose wildcard is over `refs/pull/*` reads as a clean union, and the widen the marker recommends cannot help that clone
+
+- Question: `blind_coverage` asks whether the fetch refspec *contains* a star
+  (`factory/next-decision-id.sh:305-311`, `case $rs in '' | *\**)`). `#307`'s review measured that
+  `remote.origin.fetch = +refs/pull/*/head:refs/remotes/origin/pr/*` -- a shape a person adds on
+  purpose, to get PR heads locally -- therefore answers clean, and the `refs/remotes/origin` count
+  below it is satisfied by the `pr/*` refs. Re-measured here on a fixture built from scratch, with the
+  clock arm provably clean (newest `refs/remotes` reflog 1s old): the allocator at `830c374` returned
+  **`D-0002` at rc 0** with `REFRESH … 1s old` beside it, while `refs/heads/issue-sib` on origin
+  already carried a `D-0002`; and `git fetch --prune origin`, the instruction both markers print,
+  changed nothing, because an unrefspec'd fetch obeys the very refspec the arm is blind to. Not
+  blocking, and the review said so: nothing the harness builds produces the shape. So what does a tick
+  in a review round owe a shipped probe it did not come to fix -- change it, or name it where the queue
+  will find it? And what does either ending owe the second copy of the same test at
+  `factory/factory.sh:1015-1021`, whose comment at `:1011-1014` defends the anywhere rule *on purpose*
+  ("a pattern that merely \*starts\* with a star would call the wildcard form blind, which is the bug
+  the control for this leg plants") and has a control leg planted for it?
+- Options: tighten the allocator's arm to a source-side prefix and add the leg in this pull request |
+  tighten the allocator's arm and `factory_refresh_origin`'s copy together, with a leg and an
+  arm-deletion control at each site | leave the arm, name the shape inside `H-0134`'s residual list,
+  and file the finding as its own issue | leave the arm and answer nothing beyond the review thread |
+  make the coverage arm ask the network instead of parsing the refspec -- probe whether a branch ref is
+  reachable from here
+- Chose: leave the arm, name the shape inside `H-0134`'s residual list, and file the finding as its own
+  issue
+- Why: the tighten options win the tie-break read literally -- it prefers the option that refuses over
+  the one that proceeds, and a false clean read from the command whose whole job is to refuse is #303
+  wearing a new shape. They lose on what this unit of work is. `H-0136` is this branch's answer to the
+  review, and it is four integers and a measurement; a probe change is not four integers, because the
+  test exists twice and the second copy carries a comment that argues for the current rule and a
+  control leg that plants the bug it warns about. A correct change takes both sites, a leg and a control
+  at each, and a verdict on the mirror shape (`+refs/*:refs/*` carries no `refs/heads/*:` prefix, so a
+  prefix test calls a mirror blind although its local `refs/heads` union is complete -- a false blind,
+  whose cost is one fetch per entry commit and no wrong id). That is a branch, not a review reply, and
+  the tie-break that separates it from `H-0136` is the one about scope: fewest files *touched by the
+  change that has to be reviewed now*. Asking the reviewer to re-review a queue-order fixture and a
+  permissions-adjacent probe in one diff, on a pull request already in `CHANGES_REQUESTED`, buys
+  nothing that a follow-on unit cannot buy with a green head of its own.
+  The network probe (option 5) is out on the recorded rule, not on taste: an offline verdict is what
+  `H-0013` and `H-0056` settled for this command, and `H-0061` is what an unbounded network read inside
+  a verdict costs when it is added anyway. A reachability probe *is* a fetch.
+  "Say nothing beyond the thread" is what this log exists to refuse. `factory/triage.sh` reads issues;
+  a finding that lives only in a comment on a merged pull request is invisible to every queue that
+  reads issues -- the same rule that makes a branch with no pull request invisible, and the reason
+  `H-0134` pins its residuals as ok lines instead of leaving them to prose. So the finding went to
+  `#309` with its repro, and the shape went into `H-0134`'s list beside the two coverage reasons it
+  already gives.
+  What is accepted by not tightening: until `#309` lands, a checkout in this shape still gets a
+  confident clean read. Measured exposure is every tree the supervisor can reach --
+  `extensions.worktreeConfig` is not enabled in this clone (measured: `git config --worktree --list`
+  refuses with "cannot be used with multiple working trees unless the config extension worktreeConfig
+  is enabled"), so there is no per-worktree config file that could diverge and all 16 worktrees resolve
+  the one common `remote.origin.fetch`, which is `+refs/heads/*:refs/remotes/origin/*`. The shape
+  arrives only by a person editing a clone's config by hand -- `factory_worktree` cuts a unit tree with
+  `git worktree add`, which writes no config at all.
+- Checkpoint: ec2632a5a4c02a81754a496202ac9b4a10b35eec
+- Effect: no shipped code, deliberately -- that omission *is* the decision and not a gap in it.
+  `factory/DECISIONS.md`: this entry, plus one attributed sentence added inside `H-0134`'s `Why:` naming
+  the shape where a reader of the coverage arm will meet it. It is attributed to this id rather than
+  inserted quietly, because a decision log edited afterwards to cover a later finding is
+  indistinguishable from one that was always right. GitHub: issue **`#309`** opened with the
+  measurement, the fixture script that reproduces it in a temp dir, the two sites a fix has to take
+  together, the leg and control it owes, and the mirror-clone question it has to answer. Read back after
+  the write, in the same breath: `state OPEN`, `labels [bug, area:ops]`, `createdAt
+  2026-11-12T00:11:30Z`, and the body byte-identical to the file it was written from except the single
+  trailing blank GitHub adds -- and the mechanical linkage check over the *read-back*, not the source:
+  `grep -icE 'clos[a-z]+ +#[0-9]+'` answers **0**, the only numbers named being `#303` and `#307`,
+  neither adjacent to a `close` verb. Not one of the four classes a tick must escalate: no dependency
+  added (`go.mod` untouched), nothing published, nothing deleted, no merge, no review, and no change to
+  what a `deny` refuses -- `gh issue create` is outside the deny table, and filing a finding that is
+  not this unit's to fix is the write `SKILL.md` itself prescribes for exactly this case ("File the
+  unfinished part as its own issue", *When the ticket is already satisfied by main*, step 4).
