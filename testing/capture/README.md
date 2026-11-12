@@ -230,9 +230,48 @@ guard refusing while the browser is up, and a fixture refusing before one exists
 result off the disk rather than from a stub: the drawer holds exactly `lock@360.png`, `REFUSED.txt`
 carries the refusal and names the fixture, the announced count agrees with the directory, the
 disposal ran exactly once (#149's dead-statement class, which is how these two turned out to have
-been discarding *nothing* at all), and nothing was destroyed. Of fifteen attacks on that contract,
-applied one at a time to copies of the tree, thirteen die; the two honest edits -- a reworded
-comment, a renamed local -- stay green.
+been discarding *nothing* at all), and nothing was destroyed.
+
+**One refusal, one disposal, even when the refusal's own report raises** (#304). Both drivers catch
+the refusal twice — inside the `with`, and again outside it for a fixture that refused before a
+browser existed — so anything that raises *inside* the first disposal is caught by the outer handler
+and read as a second refusal. Measured 11 Nov on `origin/main` at `1e31cac`, with the operator's
+stderr refusing one write (the first sentence printed after `REFUSED.txt` exists on disk): the note was
+written twice — two `refusals (1):` blocks, the second one ending `refused: OSError: [Errno 9] Bad file
+descriptor`, the diagnostic's words last — while the drawer held the one frame it had always held.
+`cdp.SingleRefusal` decides that now, and it sets its flag *before* the call, so a disposal that dies
+mid-report is still the run's only disposal; the outer arm reports what raised and writes nothing.
+
+What it reports is chosen from the disk, not from the flag, because the flag can be true when nothing
+was written. Kill `report_refusal`'s headline instead of the sentence after the note and the disposal
+dies having produced no note and no frame: `rc 1`, no `REFUSED.txt`, `--out` untouched — and the first
+version of this fix printed "that file holds the one note this run wrote" straight over that.
+
+Three failures inside one disposal are attacked, in one rule — `pages.py --self-test`'s "a refusal whose
+own report raises is disposed of once", one of its 78 — because each leaves something different on disk
+to be honest about. `note` (stderr dying on the first sentence taken after `REFUSED.txt` exists) is
+#304's double write, and wants one header, one block, and a note ending on the page's own words.
+`headline` (stderr dying on `REFUSED:` itself) wants the transcript to say nothing was written and never
+to claim a note. `shot` (the browser refusing the photograph once) wants the empty drawer blamed on the
+browser — and that one is #304's own named repro, which measuring falsified: `capture_refused` catches,
+prints `no frame of the refused page: …` and returns None, so a failing photograph cannot re-refuse
+anything (`keeps 1`, one block). The double write needs a raise from a step nothing wraps, and the
+summary `print` after the note is one. The cell stayed anyway, because the empty drawer it produces was
+being explained by a sentence that blamed the fixture whatever the cause was; `cap is None` now chooses
+the reason, and the fixture arm's wording is unchanged byte for byte.
+
+`python3 scripts/attack-capture-self-test.py` — 47 attacks, 31 caught, 6 honest edits still green, 10
+holes — patches each of the five places that could undo any of that (the flag, the branch that reads the
+disk, the branch that reads `cap`, and the outer arm of either driver) into a copy of the tree and
+requires a red verdict. Each of the five makes exactly one rule fail, `capture self-test: 1 of 78 rules
+failed`, and across the five runs not one of the 44 problem lines names any other rule.
+
+One boundary is left open, deliberately: the *fixture* arm has a single handler, so a report that dies
+there is not mistaken for a second refusal — it simply escapes, and `main()` never returns. Measured on
+the same matrix: `rc=RAISED OSError: [Errno 9] Bad file descriptor`, one block, `--out` intact. Stopping
+that means deciding what every diagnostic in this package does when stderr has gone, which is a wider
+question than one disposal, so it is written up in `docs/issues-from-d-0065.md` with the four-cell
+matrix above and the one command that files it, rather than folded in here.
 
 ## The negative control, and why a refusal nobody watched fire proves nothing
 

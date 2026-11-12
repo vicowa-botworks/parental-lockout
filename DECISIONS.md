@@ -3592,6 +3592,100 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the only lock there is). `python3 scripts/check-decisions.py` for the delivered head is quoted in the
   pull-request body, not here (#1180).
 
+## D-0065 · A refusal whose report raises is caught by the handler written to catch the refusal: share the once-flag in `cdp`, keep it in each `main()`, or make the report unable to raise at all
+
+- Question: #304 measures the nested handlers of `lock.py` and `testlock.py` turning one refusal into
+  two -- `REFUSED.txt` with two `refusals (1):` blocks, the second one quoting `OSError: [Errno 9] Bad
+  file descriptor` where the page's own sentence belongs -- and names two fix shapes: "a boolean set
+  after the first call, so the outer one knows it has already refused this run's page", or a guard
+  object in `cdp`. The measured matrix is wider than the ticket: the report can die after the note
+  (two blocks) or before it (`rc 1`, no `REFUSED.txt`, no drawer at all), and a third shape -- defang
+  the prints, so nothing raises -- removes the second refusal by removing the raise. Where does "once"
+  get decided, and what does the operator read when the report dies?
+- Options: a `SingleRefusal` in `cdp` holding the flag, both drivers constructing one and calling
+  `.refuse()` from every arm, with the retry's sentence read off the disk | a `disposed = False` local
+  in each driver's `main()`, checked by that driver's own outer handler | wrap `report_refusal` and the
+  pointer sentence so a dead stderr cannot raise, leaving both nested handlers exactly as they are
+- Chose: a `SingleRefusal` in `cdp` holding the flag, both drivers constructing one and calling
+  `.refuse()` from every arm, with the retry's sentence read off the disk
+- Why: the second option is the ticket's literal shape and it does stop the symptom, but the rule it
+  encodes is one rule about two files that have already drifted once: #296 moved the note's text into
+  `cdp.refusal_note` for exactly this reason and its `What lost:` recorded that both drivers were still
+  discarding what #220 had made the wrong verb, and `refusal_reason` in this same commit is the third
+  sentence-shaped rule the two of them were spelling out by hand (six call sites, three of them a
+  private `str(exc) if isinstance(exc, SystemExit)`). "Once" lives beside the note text or the two
+  drivers can mean two things by it. The third option does not subsume the chosen one: the second
+  refusal needs no `print` to originate, because `keep_refused` moves bytes with `os.replace` and
+  `refused_dir` creates a directory, and an `OSError` from either lands in the same outer arm -- so
+  defanging the two prints makes one measured repro unable to recur while the class stands, and it
+  takes the operator's remaining sentences silently instead of reporting that a sentence died. The
+  invariant belongs where the disposal is entered. Two sub-judgements inside the choice, both measured
+  before they were written: the flag is set BEFORE the call, because a disposal that died has already
+  written the note and moved the stage and it is the retry that must be refused; and the retry's
+  sentence asks the filesystem, because the first version of `refuse()` printed "that file holds the
+  one note this run wrote" unconditionally and the `headline` cell is a run with that flag true and no
+  `REFUSED.txt` anywhere -- the flag true and the sentence false is #304's invention pointing the other
+  way. Tie-break one (reversibility) holds with nothing to unwind: one `git revert` takes the rule, the
+  guard, both driver arms and the four attack rows back together, `runs/` is gitignored, and no manifest
+  or committed frame is touched by any of it.
+- What lost: the `fixture` arm still escapes as a traceback. It has one handler, so there is no second
+  disposal to suppress and a dying report has nothing left to be caught by -- measured on the same
+  matrix as `rc=RAISED OSError: [Errno 9] Bad file descriptor`, one block, `--out` intact. That is the
+  whole benefit of option three and it is forfeited here and written up as `docs/issues-from-d-0065.md`
+  with the four-cell matrix, because deciding
+  what every diagnostic in this package does when stderr has gone is a wider question than one
+  disposal. The operator also now reads a second failure they may take for the bug ("the report about
+  it raised (OSError: ...)"); `why` is interpolated so the line names what died, but a run whose pointer
+  sentence died prints a refusal of the report, and #304's symptom was a note doing exactly that. The
+   `headline` cell arms its sink on `report_refusal`'s headline (`s.startswith("REFUSED:")`) while the
+   `note` cell arms on a fact about the disk, so rewording that headline disarms the `headline`
+   injection -- and it surfaces as that cell's own "the injection did not fire" problem rather than as a
+   quiet pass, because the cell asserts the injection fired before it asserts anything else. Two shared
+   integers move: `EXPECTED_RULES` 77 to 78 and `EXPECTED_ROWS` 41 to 47, so any sibling branch adding a
+   rule or a row conflicts on those lines (#303's shared-line collision), and the five new rows are
+   anchored on statements (`self.disposed = True`, `if op.isfile(note):`, `if cap is None else`, and the
+   outer `disposal.refuse(...)` call in each driver) so a rewrap or a rename retires one loudly as
+   INVALID with exit 1 (#1048) instead of quietly. One more rule also joins the floor #297 names:
+   emptying this rule's body to `return` keeps the count at 78 and the transcript green, measured, which
+   is why the HOLE class now carries four rows rather than three. One of the ticket's own claims lost
+   outright, and the third cell is what found it: #304 names the repro as "a failure inside
+   `refused_frame` *after* the note write -- a `Capture` call that raises once", and measured 11 Nov that
+   route cannot re-refuse anything, because `capture_refused` catches, prints `no frame of the refused
+   page: ...` and returns None -- `keeps 1`, one block, no second write. The double write needs a raise
+   from a step nothing wraps, and the summary `print` after the note is one; that is what the sink
+   injects. Keeping the cell anyway paid for itself: the empty drawer it leaves was explained by a
+   sentence naming the fixture, printed over a browser that had just answered a page, and `cap is None`
+   is now what chooses between the two reasons (the fixture-arm wording stays byte for byte, so the
+   existing rule at `pages.py:2130` still passes).
+- Checkpoint: 083ef53
+- Effect: six files, no Go, no template, no committed frame. `cdp.py` gains `refusal_reason` and
+  `class SingleRefusal` between `refuse_single_shot` and `fixture`, plus the paragraph at the end of
+  `refuse_single_shot`'s docstring that says the never-raise rule is a wish about a `print`. `lock.py`
+  and `testlock.py`: the inner two arms collapse into one `except (Exception, SystemExit)` calling
+  `disposal.refuse(cap, cdp.refusal_reason(exc))`, and the outer arm the same with `None`. `pages.py`:
+  `_StderrThatDiesOnce`, `_FakeSession(die_once=...)`, `_run_single_shot(dies_at=...)`, the rule with
+  its three cells, `EXPECTED_RULES = 78`. `attack-capture-self-test.py`: five CAUGHT rows, one HOLE row,
+  `EXPECTED_ROWS = 47`, and the paragraph that told its readers the two drivers were unattackable.
+  `cdp.py` also loses a false sentence: what an empty refused drawer blames on the fixture is now chosen
+  by `cap is None`, because `capture_refused` can leave a drawer empty with the browser up. Read back
+  after the edits instead
+  of asserted: `python3 testing/capture/pages.py --self-test` prints `capture self-test: 78 refusal
+  rules hold`, exit 0; `python3 scripts/attack-capture-self-test.py` exits 0 on
+  `TOTAL  47 attacks: 31 caught, 6 honest edits still green, 10 holes, 0 invalid, 0 unexpected`, so none
+  of the five new anchors matched zero times; `make verify` prints `verify:
+  OK` with this entry in the tree, and its log is quoted in the pull-request body rather than here
+  (#1180). Attribution was measured row by row in a clone under `/tmp/opencode`, never in the gated
+  tree (#1807): each of the five CAUGHT rows prints `capture self-test: 1 of 78 rules failed`, and over
+  all five runs 44 problem lines were printed with **0 outside this rule** -- every one carries the
+  `report-dies` prefix, so no sibling is implicated. Per cell the damage splits 32 `note`, 10
+  `headline`, 2 `shot`, and the two cdp branches are each visible from one cell only: forcing the
+  note-claim (`if op.isfile(note):` to `if True:`) reddens `headline` alone, forcing the drawer reason
+  (`if cap is None else` to `if True else`) reddens `shot` alone, which is the whole reason this is three
+  cells and not one. The
+  allocator answered `D-0065` twice, once before the checkpoint and once at it; a `git grep` for a
+  `## D-0065 ` heading across every ref under `refs/heads` and `refs/remotes` prints nothing and exits 1
+  at `083ef53`, this draft being the only text anywhere carrying the heading (#303: the read is the only
+  lock there is).
 
 ## D-0066 · Seven published frames are dated at a page change their own pixels' history predates: re-take the set, or re-date the seven rows and ship the red gate #301 prefers
 

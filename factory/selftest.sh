@@ -3498,6 +3498,161 @@ proc_next_activation_runs() {
 }
 proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
 
+# ---------------------------------------------------- queue order ranks the OLDER unit first (#307)
+#
+# Every leg above reads the shipped fixture, where both units are stamped in the same pass and the
+# tie-break by number decides. So `TICK-START` for A before B is true whether the dispatcher's age key
+# ranks oldest-first, youngest-first, or not at all -- and it was: the key shipped ascending, which on
+# a duration is youngest-first, and the only leg of 521 that ever noticed was `…then starts a tick for
+# unit B`, going red at a second boundary rather than on a diff (CI run 43105189339, 21:40:59Z on
+# 11 Nov: the two stamps are 4-8 ms apart, so the fixture lands on the far side about once in 200 runs;
+# 0 of 40 unseeded runs on this box crossed, that CI run did). On the live queue the same key is
+# H-0007 inverted: `NEXT unclaimed 303 age=0s` at 20:22:20Z on 11 Nov, with #296 and #297 waiting since
+# 16:13:25Z in the same rank.
+#
+# These legs plant the ages instead of hoping for a boundary -- a 4-8 ms crossing cannot be provoked by
+# running more times -- and they ask it in BOTH polarities. One polarity alone is not a test of the
+# age: a dispatcher that ignored `first-seen` and sorted on the number alone sends unit 900 first every
+# time, which is exactly what the first polarity looks like. The second polarity makes 901 the older
+# one, and only a key that really reads the age keeps it in front.
+proc_rank_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` that old, planted before the pass can
+	# stamp the row itself. The id is the kind and the number -- triage's first column is `kind`, so the
+	# dispatcher's ledger key is `issue:900`. Planting the class-shaped `unclaimed:900` instead writes a
+	# file nothing reads, which is the mistake factory.sh's own ranking comment names.
+	#
+	# Two ages planted here have to be further apart than the clock that reads them. `factory_age` counts
+	# whole seconds (`date -u +%s`, common.sh:923) and the ranking loop gives every row its OWN call
+	# (factory.sh:1197), so a pair planted one second apart comes back EQUAL whenever the two calls
+	# straddle a second boundary -- and `proc_older_first` reads equal as a failure at :3569. Measured on
+	# the shipped read path (the two calls, the shipped `factory_class_rank` and the re-serialise between
+	# them, 10.5ms a trial): 2 ties in 300 at 2s/1s. A pair planted two seconds apart cannot be tied by a
+	# straddle, because one boundary moves one age by exactly 1s -- it would take a 2s stall between two
+	# key reads to do it, against a measured gap under 10ms. 0 ties in 300 at 3s/1s, same harness.
+	printf '%s\n' "$(date -u -d "-${2} seconds" +%Y-%m-%dT%H:%M:%SZ)" >"$proc_stash/$1.first-seen"
+}
+proc_rank_next_age() { # <journal> <key> -> the `age=` the pass printed for that unit; empty if it never ranked one
+	awk -v n="NEXT unclaimed $2 " \
+		'index($0, n) && match($0, /age=[0-9]+s/) { print substr($0, RSTART + 4, RLENGTH - 5); exit }' "$1"
+}
+proc_rank_first() { # <journal> -> 900 | 901 | neither: whose TICK-START the journal reached first
+	awk '
+		index($0, "TICK-START unclaimed:900") && !la { la = NR }
+		index($0, "TICK-START unclaimed:901") && !lb { lb = NR }
+		END {
+			if (!la && !lb) print "neither"
+			else if (!la) print "901"
+			else if (!lb) print "900"
+			else print (la < lb ? "900" : "901")
+		}' "$1"
+}
+proc_rank_run() { # <tag> <a-age-s> <b-age-s> -> a two-unit queue first seen THAT long ago, one pass over it
+	local tag=$1
+	proc_new "rank-$tag"
+	proc_rank_stamp 'issue:900' "$2"
+	proc_rank_stamp 'issue:901' "$3"
+	proc_plant
+	proc_run "rank-$tag"
+}
+proc_older_first() { # <900|901> -> that unit was dispatched first AND the pass ranked it the older one
+	local want=$1 other=901 aw ao got
+	[ "$want" = 901 ] && other=900
+	aw=$(proc_rank_next_age "$proc_journal" "$want")
+	ao=$(proc_rank_next_age "$proc_journal" "$other")
+	got=$(proc_rank_first "$proc_journal")
+	if [ -z "$aw" ] || [ -z "$ao" ]; then
+		printf '            one unit was never ranked -- unit %s printed `age=%s`, unit %s\n' \
+			"$want" "${aw:-nothing}" "$other" >&2
+		printf '            printed `age=%s` -- so there is no order here to read:\n' "${ao:-nothing}" >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	fi
+	if [ "$got" != "$want" ]; then
+		printf '            unit %s was the older of the two (%ss against %ss) and unit %s was\n' \
+			"$want" "$aw" "$ao" "$got" >&2
+		printf '            dispatched first, so the queue is ordered by something other than age.\n' >&2
+		printf '            The young one gets the turn every pass, and the old one waits forever:\n' >&2
+		grep -E 'NEXT unclaimed|TREE-QUARANTINED|TICK-START' "$proc_journal" |
+			sed 's/^/              /' | cut -c1-150 >&2
+		return 1
+	fi
+	if [ "$aw" -le "$ao" ]; then
+		printf '            it went first, but the pass called it the YOUNGER of the two (%ss\n' "$aw" >&2
+		printf '            against %ss), so the order came from the number and not the age -- the\n' "$ao" >&2
+		printf '            tie-break wearing the age key'"'"'s clothes.\n' >&2
+		return 1
+	fi
+	return 0
+}
+# The two polarities are not equally exposed, and the difference is read order, not luck: the fixture's
+# queue is [900, 901] (:2940, :2944), so the ranking loop reads 900's age first in BOTH legs. When the
+# older row is the one read SECOND -- `young-number`, where 901 is the old one -- a straddle widens the
+# gap instead of erasing it, and 0 of 300 trials tied at the shipped 1s/2s. When the older row is read
+# FIRST -- `old-first`, and the retired-key control, which plants the same pair -- a straddle equalises
+# it. Both pairs are now 2s apart so neither leg depends on which row the queue happens to lead with,
+# and so a fixture that later grows a row in front does not quietly move the exposure somewhere else.
+proc_rank_run old-first 3 1
+proc_leg 'the older unit is dispatched first' \
+	'A stamped 3s ago ticked before B stamped 1s ago, and the NEXT ages say so' proc_older_first 900
+
+proc_rank_run young-number 1 3
+proc_leg '…and the older one is not the lower number' \
+	'B stamped 3s ago ticked before A stamped 1s ago -- the age decides, not the key' proc_older_first 901
+
+# proc_mutate_sort -> the fixture's factory.sh with the age key put back the way it shipped until #307:
+# `-k2,2nr` becomes `-k2,2n`, one character, on the one line that ranks. The anchor carries the key's
+# neighbour (`-k2,2nr -k3,3n)`) because the comment above the line quotes the same flags, and a mutant
+# that edited only the prose would plant nothing while still reporting success.
+proc_mutate_sort() {
+	local hits
+	hits=$(awk 'index($0, "-k2,2nr -k3,3n)") { c++ } END { print c + 0 }' "$HERE/factory.sh")
+	if [ "$hits" != 1 ]; then
+		printf '            the age key occurs %s time(s) in factory/factory.sh, so this control\n' "$hits" >&2
+		printf '            cannot say which line it retired.\n' >&2
+		return 1
+	fi
+	awk 'index($0, "-k2,2nr -k3,3n)") { gsub(/-k2,2nr/, "-k2,2n") } { print }' \
+		"$HERE/factory.sh" >"$proc_dir/factory.sh" || return 1
+	if ! grep -qF -- '-k1,1n -k2,2n -k3,3n)' "$proc_dir/factory.sh" ||
+		grep -qF -- '-k2,2nr -k3,3n)' "$proc_dir/factory.sh"; then
+		printf '            the copy does not run the retired spelling, so the control below would be\n' >&2
+		printf '            shipped code describing a mutant that was never planted.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_new rank-sort-retired
+# The same 2s-apart pair as `old-first`, and the same exposure: this plant is read 900-then-901, so at
+# 2s/1s a straddle made the two ages equal and the retired key then won the NUMBER tie-break with 900 --
+# which trips the third check below and reddens this control for a reason that has nothing to do with
+# the `r`.
+proc_rank_stamp 'issue:900' 3
+proc_rank_stamp 'issue:901' 1
+proc_mutate_sort || proc_sort_planted=0
+proc_plant
+proc_run rank-sort-retired
+proc_retired_key_ranks_youngest() {
+	if [ "${proc_sort_planted:-1}" = 0 ]; then
+		printf '            the mutant was never planted, so this leg ran shipped code.\n' >&2
+		return 1
+	fi
+	if proc_older_first 900 >/dev/null 2>&1; then
+		printf '            with the `r` taken off the age key the shipped predicate still passed, so\n' >&2
+		printf '            the ok above ranks nothing: it would pass on a queue that never read\n' >&2
+		printf '            `first-seen` at all. The direction is the whole content of that leg.\n' >&2
+		return 1
+	fi
+	if [ "$(proc_rank_first "$proc_journal")" != 901 ]; then
+		printf '            the retired key dispatched %s first, not 901 -- the fixture no longer\n' \
+			"$(proc_rank_first "$proc_journal")" >&2
+		printf '            reaches the state this mutant is described by, so neither leg here is\n' >&2
+		printf '            pinning a direction any more.\n' >&2
+		return 1
+	fi
+	return 0
+}
+proc_leg 'control: the retired key ranks youngest' \
+	'`-k2,2n` puts B first; so the ok above really ranked the age' proc_retired_key_ranks_youngest
+
 # The healthy unit's own sentence, asserted (#267). A note used to sit here: it printed what the journal
 # said of unit B and pinned nothing, on the stated grounds that a leg on the wording would be a leg that
 # refuses the fix. The fix has landed, so the wording is now the thing under test and both halves get
@@ -6188,7 +6343,8 @@ claim_leg 'the ask crosses the dispatcher into the tick' ask_dry_carries
 # origin to open a worktree from -- so this is a scan of the shipped arm, in the shape this file
 # already uses for the `delivered` arm, with a control outside the tree. It says something narrower
 # than the legs above and is labelled for it: the arm interpolates the ask, between markers that name
-# it as quoted material, and the branch for a missing ask ends in `needs-human` instead of a guess.
+# it as quoted material, and the branch for a missing ask ends in the escalation label and a stop
+# rather than a guess.
 ask_prompt_assembles_it() { # ask_prompt_assembles_it [factory.sh to read]
 	local arm src=${1:-$HERE/factory.sh}
 	arm=$(awk '/^\taddress_review\)/,/^\t\t;;/' "$src")
@@ -6213,10 +6369,11 @@ ask_prompt_assembles_it() { # ask_prompt_assembles_it [factory.sh to read]
 		return 1 ;;
 	esac
 	case "$arm" in
-	*needs-human*) return 0 ;;
+	*FACTORY_ESCALATION_LABEL*) return 0 ;;
 	esac
-	printf '            the empty-ask branch does not end in needs-human and a stop, so the one\n' >&2
-	printf '            move that invents an ask is still open to it\n' >&2
+	printf '            the empty-ask branch ends without the escalation label (the name comes\n' >&2
+	printf '            from `common.sh`, never spelled out) and a stop, so the one move that\n' >&2
+	printf '            invents an ask is still open to it\n' >&2
 	return 1
 }
 claim_leg 'the tick assembles the ask into its instruction' ask_prompt_assembles_it
@@ -6277,6 +6434,510 @@ ask_pr240 "$(ask_iso '@/tmp/pr240-review.md')"
 ask_dispatch >/dev/null
 claim_leg 'a review_unreadable row starts no tick and is still reported' ask_dry_starts_nothing
 claim_reset
+
+# =============== the escalation label: one name, one home, and no vote in the queue (#315)
+#
+# `AGENTS.md` tells a stopped unit to label the artifact and stop. Which label, the repository cannot
+# say: `gh label list` answers eighteen names and the one every file used to spell out is not among
+# them (measured 12 Nov). #311 owns that question -- create the name, or point the instruction at a
+# label that exists -- and it is parked, so it is not this unit's to answer. What is true whichever way
+# it is answered is the shape pinned here, and it is the half that could land while #311 waits:
+#
+#   * the name lives in ONE file. Five used to spell it out in full -- `AGENTS.md`, `SKILL.md` twice,
+#     `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- with a sixth, a leg in
+#     this file, pinning one of the five. A name in five files is a name that goes stale in one of them
+#     and stays green in the other four, which is how an instruction came to order a write GitHub
+#     refuses (a probe on 12 Nov, `gh issue edit 311 --add-label zzprobe-does-not-exist`, printed
+#     `'zzprobe-does-not-exist' not found` and exited 1, and the labels read back unchanged);
+#   * there is ONE way to read it -- `factory/escalation-label.sh` -- and what it prints is the bytes
+#     the assignment in `common.sh` holds, not a second copy of them;
+#   * the marker has NO say in what the supervisor starts. Measured 12 Nov, `grep -c label
+#     factory/triage.sh` answers 0 and the classifier's two issue classes are `unclaimed` and
+#     `delivered`. A label the queue obeyed would move the queue's decisions into configuration that
+#     no gate reads, and #315 asked by name that this fix not become that.
+#
+# Every leg below READS the name from the reader instead of typing it. A leg that spelled it would be
+# the sixth copy of the string this unit exists to delete, and it would keep passing after a rename.
+esc_live() { # the files whose mentions are instructions, one path per line
+	printf '%s\n' factory/common.sh factory/escalation-label.sh factory/factory.sh \
+		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md \
+		.opencode/skills/factory/SKILL.md
+}
+# The two decision logs are NOT in that list, and that is deliberate rather than an oversight: an
+# entry records what was believed when it was written, so re-editing history to match a renamed label
+# turns every citation in it into a lie. A name in a log is a fossil. A name in one of the seven files
+# above is an instruction some later tick carries into a write against GitHub.
+
+esc_ctrl_copy() { # esc_ctrl_copy <dest-root> -- the live files, outside the repository
+	local dest=$1 f
+	mkdir -p "$dest" || return 1
+	while IFS= read -r f; do
+		mkdir -p "$dest/$(dirname -- "$f")" || return 1
+		cp "$HERE/../$f" "$dest/$f" || return 1
+	done <<LIST
+$(esc_live)
+LIST
+	return 0
+}
+
+esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that once is common.sh
+	local root=$HERE/.. name f hit bad=0
+	local -a files=(factory/common.sh factory/escalation-label.sh factory/factory.sh
+		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md
+		.opencode/skills/factory/SKILL.md)
+	[ -z "${1:-}" ] || root=$1
+	if ! name=$(bash "$root/factory/escalation-label.sh" 2>&1); then
+		printf '            factory/escalation-label.sh refuses: %s\n' "$name" >&2
+		printf '            Nothing can then be compared, and a unit that stops cannot even name\n' >&2
+		printf '            the label it is about to write.\n' >&2
+		return 1
+	fi
+	[ -n "$name" ] || {
+		printf '            the reader prints an empty name: `--add-label \"\"` is a marker aimed\n' >&2
+		printf '            at nothing, and it is the write that would look like an escalation\n' >&2
+		return 1
+	}
+	if [ "$(grep -c '^FACTORY_ESCALATION_LABEL=' "$root/factory/common.sh")" -ne 1 ]; then
+		printf '            common.sh does not hold exactly one `FACTORY_ESCALATION_LABEL=` line,\n' >&2
+		printf '            so there is no one place a rename lands\n' >&2
+		return 1
+	fi
+	for f in "${files[@]}"; do
+		[ -f "$root/$f" ] || continue
+		hit=$(grep -cF -- "$name" "$root/$f" 2>/dev/null || true)
+		if [ "$f" = factory/common.sh ]; then
+			[ "${hit:-0}" -ge 1 ] || {
+				printf '            common.sh, the one home, does not contain the name at all\n' >&2
+				bad=1
+			}
+		elif [ "${hit:-0}" -ne 0 ]; then
+			printf '            %s spells the name out (%s line%s) -- a place to go stale while\n' \
+				"$f" "$hit" "$([ "$hit" -eq 1 ] || printf s)" >&2
+			printf '            the home moves and this leg passes on the other six\n' >&2
+			grep -nF -- "$name" "$root/$f" | sed 's/^/              /' >&2
+			bad=1
+		fi
+	done
+	[ "$bad" -eq 0 ]
+}
+claim_leg 'the escalation label is spelled once' esc_one_home
+
+esc_reader_agrees() { # esc_reader_agrees [root] -- what it prints IS the assignment's text
+	local root=$HERE/.. out def lines
+	[ -z "${1:-}" ] || root=$1
+	if [ ! -x "$root/factory/escalation-label.sh" ]; then
+		printf '            factory/escalation-label.sh is not executable, and the command every\n' >&2
+		printf '            document tells a stopped unit to run is `$(factory/escalation-label.sh)`\n' >&2
+		return 1
+	fi
+	if ! out=$(cd / && "$root/factory/escalation-label.sh" 2>&1); then
+		printf '            it refuses from an unrelated directory: %s\n' "$out" >&2
+		return 1
+	fi
+	lines=$(printf '%s\n' "$out" | wc -l)
+	[ "$lines" -eq 1 ] || {
+		printf '            it printed %s lines: the whole output is pasted into --add-label, so\n' "$lines" >&2
+		printf '            a banner or a warning here is a label name with a sentence attached\n' >&2
+		return 1
+	}
+	# Read the literal out of the assignment line rather than sourcing the file: comparing the reader
+	# against a second sourcing of the same line proves nothing, while this proves the line's own text
+	# is what a tick writes to GitHub.
+	def=$(awk -F':-|}' '/^FACTORY_ESCALATION_LABEL=/{print $2}' "$root/factory/common.sh")
+	[ -n "$def" ] || {
+		printf '            the assignment in common.sh is no longer the `:-…}` shape the leg\n' >&2
+		printf '            reads, so the comparison below has stopped comparing anything\n' >&2
+		return 1
+	}
+	[ "$out" = "$def" ] || {
+		printf '            the command prints `%s` and common.sh defines `%s`. One of the two is a\n' \
+			"$out" "$def" >&2
+		printf '            copy, and the copy is what ends up on the artifact\n' >&2
+		return 1
+	}
+	return 0
+}
+claim_leg 'the reader prints the definition' esc_reader_agrees
+
+esc_not_a_park() { # esc_not_a_park [triage.sh to read] -- the marker decides nothing about a unit
+	local src=${1:-$HERE/triage.sh} hits
+	# Comment lines may mention the word freely -- this is about what the classifier DOES, and a leg
+	# that reddened on a sentence of prose would be widened away inside a month.
+	hits=$(grep -nF -- 'label' "$src" 2>/dev/null |
+		grep -v '^[0-9]*:[[:space:]]*#' || true)
+	if [ -n "$hits" ]; then
+		printf '            the classifier reads or writes a label, so a marker now decides what\n' >&2
+		printf '            the supervisor starts -- and no gate reads label configuration:\n' >&2
+		printf '%s\n' "$hits" | sed 's/^/              /' >&2
+		return 1
+	fi
+	return 0
+}
+claim_leg 'the label has no vote in the queue' esc_not_a_park
+
+esc_controls() {
+	# Three plants, outside the repository, one per leg above. Each is checked to have landed before
+	# it is asserted, because a plant that did not land and a leg that is blind are the same green.
+	local ctrl=$claim_work/esc-label name
+	name=$(bash "$HERE/escalation-label.sh" 2>/dev/null) || name=''
+	[ -n "$name" ] || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reader gave the controls nothing to plant\n' \
+			'control: the escalation label'
+		return 0
+	}
+	if ! mkdir -p "$ctrl/drift" "$ctrl/stub" "$ctrl/nodef" "$ctrl/park"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' \
+			'control: the escalation label'
+		return 0
+	fi
+	# 1. A sixth mention, planted in prose the way it would arrive in real life: someone writing the
+	#    command out because it is shorter than reading it.
+	esc_ctrl_copy "$ctrl/drift" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the drift copy could not be written\n' 'control: the escalation label'
+		return 0
+	}
+	printf '\ngh issue edit 7 --add-label %s\n' "$name" >>"$ctrl/drift/AGENTS.md" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the mention could not be planted\n' 'control: the escalation label'
+		return 0
+	}
+	if ! grep -qF -- "$name" "$ctrl/drift/AGENTS.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant is not in the copy, so the leg above was never aimed\n' \
+			'control: the escalation label'
+		printf '          at a sixth mention\n'
+		return 0
+	fi
+	if esc_one_home "$ctrl/drift" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a copy with the name spelled out in AGENTS.md still passes, so the\n' \
+			'control: one home'
+		printf '          ok above counts nothing but the file it happens to read first\n'
+	else
+		printf '        control: a copy with a sixth mention planted in AGENTS.md is refused, so the\n'
+		printf '        ok above is a census of every live file and not of one.\n'
+	fi
+	# 2. A reader that no longer reads: the stub prints its own literal, and the definition is
+	#    untouched. This is the plant that says the leg compares two things rather than one.
+	esc_ctrl_copy "$ctrl/stub" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the stub copy could not be written\n' 'control: the escalation label'
+		return 0
+	}
+	if ! { printf '%s\n' "#!/usr/bin/env bash" "printf 'not-the-definition\\n'" \
+		>"$ctrl/stub/factory/escalation-label.sh" &&
+		chmod +x "$ctrl/stub/factory/escalation-label.sh"; }; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the stub reader could not be planted\n' 'control: the escalation label'
+		return 0
+	fi
+	if ! grep -qF 'not-the-definition' "$ctrl/stub/factory/escalation-label.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the stub is not in the copy, so the leg above was never aimed\n' \
+			'control: the reader'
+		printf '          at a reader that stopped reading\n'
+		return 0
+	fi
+	if esc_reader_agrees "$ctrl/stub" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a reader that prints its own literal still passes, so the leg is\n' \
+			'control: the reader'
+		printf '          reading one side and calling it an agreement\n'
+	else
+		printf '        control: a reader stubbed to print its own literal is refused, so the ok above\n'
+		printf '        really is the two spellings being compared.\n'
+	fi
+	# 3. The home deleted. The reader must refuse rather than answer empty, and both legs must go red
+	#    on the refusal -- an escalation that prints nothing is a `--add-label` aimed at no name.
+	esc_ctrl_copy "$ctrl/nodef" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the no-definition copy could not be written\n' \
+			'control: the escalation label'
+		return 0
+	}
+	grep -v '^FACTORY_ESCALATION_LABEL=' "$HERE/common.sh" >"$ctrl/nodef/factory/common.sh" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the definition could not be removed\n' 'control: the escalation label'
+		return 0
+	}
+	if bash "$ctrl/nodef/factory/escalation-label.sh" >/dev/null 2>&1; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reader printed a name with no definition behind it, so a tick\n' \
+			'control: no definition'
+		printf '          would take an invented label to GitHub and believe the marker landed\n'
+	elif esc_one_home "$ctrl/nodef" 2>/dev/null || esc_reader_agrees "$ctrl/nodef" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a tree with no definition still passes a leg above\n' \
+			'control: no definition'
+	else
+		printf '        control: with the assignment deleted the reader refuses and both legs above go\n'
+		printf '        red, so neither one is reading a string it carried with it.\n'
+	fi
+	# 4. The park this unit must not become: one label test planted in the classifier.
+	esc_ctrl_copy "$ctrl/park" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the park copy could not be written\n' 'control: the escalation label'
+		return 0
+	}
+	printf '\tcase $labels in\n\t*"$name"*) class=delivered ;;\n\tesac\n' \
+		>>"$ctrl/park/factory/triage.sh" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the label test could not be planted\n' 'control: the escalation label'
+		return 0
+	}
+	if esc_not_a_park "$ctrl/park/factory/triage.sh" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a classifier that classes on a label still passes, so the ok above\n' \
+			'control: the park'
+		printf '          is not guarding the two classes it names\n'
+	else
+		printf '        control: a classifier planted with one label test is refused, so the ok above\n'
+		printf '        is the reason this repair marks an artifact and leaves the queue alone.\n'
+	fi
+}
+esc_controls
+
+# ---- the step: record committed, marker read from its home, verdict read back (#315's defects 1 and 2)
+#
+# A leg on the DOCUMENT is the only test there is for an instruction, and #272's finding is the reason
+# this repository writes them anyway: the fix shipped in the script, the guide kept prescribing the old
+# shape, and the suite was green. What is pinned here is the ORDER -- the thing whose absence let a
+# refused write take the record with it -- plus the read-back that decides what a tick is allowed to
+# claim, and the sentence that refuses an invented name.
+
+esc_block() { # esc_block [skill] -- the escalation step, up to the next heading
+	awk '/^Then \*\*escalate and stop this unit/{f=1; next}
+		f && /^#{2,} /{exit}
+		f' "${1:-$HERE/../.opencode/skills/factory/SKILL.md}"
+}
+esc_step_ordered() { # esc_step_ordered [skill] -- entry, then marker, then the read of the marker
+	local skill=${1:-$HERE/../.opencode/skills/factory/SKILL.md} block commit_at label_at read_at line
+	if [ ! -f "$skill" ]; then
+		printf '            %s is not there, so there is no step to read\n' "$skill" >&2
+		return 1
+	fi
+	block=$(esc_block "$skill")
+	if [ -z "$block" ]; then
+		printf '            the escalation step could not be found in the skill -- the sentence\n' >&2
+		printf '            `Then **escalate and stop this unit` is what the step starts with, and\n' >&2
+		printf '            a tick that cannot find it will improvise one\n' >&2
+		return 1
+	fi
+	commit_at=$(printf '%s\n' "$block" | grep -n '^git commit' | head -1 | cut -d: -f1)
+	label_at=$(printf '%s\n' "$block" | grep -n -- '--add-label' | head -1 | cut -d: -f1)
+	read_at=$(printf '%s\n' "$block" | grep -n -- '--json labels' | head -1 | cut -d: -f1)
+	if [ -z "$commit_at" ]; then
+		printf '            the step never commits the escalated entry: the record lives only in a\n' >&2
+		printf '            session that may be reaped before it finishes\n' >&2
+		return 1
+	fi
+	if [ -z "$label_at" ]; then
+		printf '            the step applies no marker at all, so an escalation is invisible to\n' >&2
+		printf '            whoever reads the queue looking for the four escalate-classes\n' >&2
+		return 1
+	fi
+	if [ "$commit_at" -ge "$label_at" ]; then
+		printf '            the marker is applied on line %s and the record committed on line %s.\n' \
+			"$label_at" "$commit_at" >&2
+		printf '            Under `set -e` a refused label kills the step where it stands, and with\n' >&2
+		printf '            the write first that takes `Awaiting:` down with it (#311, #315)\n' >&2
+		return 1
+	fi
+	if [ -z "$read_at" ]; then
+		printf '            the marker is written and never read back. An exit status is not the\n' >&2
+		printf '            label landing (#1180), and here the name is one GitHub is known to refuse\n' >&2
+		return 1
+	fi
+	line=$(printf '%s\n' "$block" | sed -n "${label_at}p")
+	case "$line" in
+	*escalation-label.sh*) ;;
+	*)
+		printf '            the marker line is `%s` -- it does not read the name from its home,\n' "$line" >&2
+		printf '            so whatever is typed there is a copy that can go stale\n' >&2
+		return 1 ;;
+	esac
+	case "$block" in
+	*'NEXT:'*) ;;
+	*)
+		printf '            a refused marker has nowhere to be reported: `NEXT:` is the line the\n' >&2
+		printf '            supervisor log keeps for the next pass\n' >&2
+		return 1 ;;
+	esac
+	case "$block" in
+	*'Never invent a label name'*) ;;
+	*)
+		printf '            the step does not refuse an invented name. A label that exists is not a\n' >&2
+		printf '            decision that was made, and #311 is still open\n' >&2
+		return 1 ;;
+	esac
+	case "$block" in
+	*'gh label create'*) ;;
+	*)
+		printf '            the step does not name `gh label create` as refused, which is the one\n' >&2
+		printf '            move that answers #311 by writing configuration nobody approved\n' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'the escalation step commits its record before its marker' esc_step_ordered
+
+esc_step_control() {
+	# Four plants, each in its own copy: the order the file had before this commit, and three shapes it
+	# drifts back to. Every plant is checked to have landed before it is asserted.
+	local ctrl=$claim_work/esc-step skill
+	mkdir -p "$ctrl" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control directory could not be written\n' \
+			'control: the escalation step'
+		return 0
+	}
+	# a. the marker before the commit: the order, inverted.
+	skill=$ctrl/order.md
+	cp "$HERE/../.opencode/skills/factory/SKILL.md" "$skill" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the skill could not be copied\n' 'control: the escalation step'
+		return 0
+	}
+	# The `--add-label` line lifted above the `git commit` line, inside the escalation step only --
+	# elsewhere in the skill both strings appear for other reasons, and a plant that edited those would
+	# be testing a different document. Nothing else moves, so the only thing this copy differs in is the
+	# one thing the leg claims to read.
+	if ! python3 - "$skill" <<'PY'
+import re
+import sys
+p = sys.argv[1]
+lines = open(p, encoding='utf-8').read().split('\n')
+start = next((i for i, l in enumerate(lines)
+              if l.startswith('Then **escalate and stop this unit')), None)
+if start is None:
+    sys.exit(1)
+end = next((i for i in range(start + 1, len(lines)) if re.match(r'^#{2,3} ', lines[i])), len(lines))
+seg = lines[start:end]
+lab = [i for i, l in enumerate(seg) if l.startswith('gh issue edit') and '--add-label' in l]
+com = [i for i, l in enumerate(seg) if l.startswith('git commit')]
+if len(lab) != 1 or len(com) != 1 or lab[0] < com[0]:
+    sys.exit(1)   # already inverted, or the anchors are not the two lines this plant is about
+row = seg.pop(lab[0])
+com = [i for i, l in enumerate(seg) if l.startswith('git commit')]
+seg.insert(com[0], row)
+lines[start:end] = seg
+open(p, 'w', encoding='utf-8').write('\n'.join(lines))
+PY
+	then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the order could not be inverted, so nothing tests it\n' \
+			'control: the order'
+	else
+		if esc_step_ordered "$skill" 2>/dev/null; then
+			fail=$((fail + 1))
+			printf '  FAIL  %-40s a step that commits the record after the marker still passes,\n' \
+				'control: the order'
+			printf '          so the ok above is not reading the order, only the presence\n'
+		else
+			printf '        control: with the commit moved below the label the leg goes red, so the ok\n'
+			printf '        above is the order and not the three commands happening to be there.\n'
+		fi
+	fi
+	# b. the read-back deleted.
+	awk '!/--json labels/{print}' "$HERE/../.opencode/skills/factory/SKILL.md" >"$ctrl/noread.md"
+	if ! grep -qF -- '--add-label' "$ctrl/noread.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the read-back plant deleted the write too\n' 'control: the read-back'
+	elif esc_step_ordered "$ctrl/noread.md" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a step with no read-back still passes, so the tick is free to\n' \
+			'control: the read-back'
+		printf '          report a marker that was never applied\n'
+	else
+		printf '        control: with `--json labels` deleted the leg goes red, so the read-back is\n'
+		printf '        load-bearing in the ok above rather than incidental.\n'
+	fi
+	# c. the prohibition deleted.
+	grep -vF 'Never invent a label name' "$HERE/../.opencode/skills/factory/SKILL.md" >"$ctrl/nostop.md"
+	if ! grep -qF -- '--add-label' "$ctrl/nostop.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the prohibition plant deleted the write too\n' 'control: the prohibition'
+	elif esc_step_ordered "$ctrl/nostop.md" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a step that never refuses an invented name still passes\n' \
+			'control: the prohibition'
+	else
+		printf '        control: with the refusal sentence deleted the leg goes red, so the ok above\n'
+		printf '        needs the prohibition and not merely the example command.\n'
+	fi
+	# d. the read-back that reads the wrong thing: same position, different field -- the plant that
+	#    says the leg asks for the LABELS read and not for any old `gh` call.
+	sed 's/--json labels/--json title/' "$HERE/../.opencode/skills/factory/SKILL.md" >"$ctrl/wrongread.md"
+	if grep -qF -- '--json labels' "$ctrl/wrongread.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the field swap did not land\n' 'control: the wrong read'
+	elif esc_step_ordered "$ctrl/wrongread.md" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a step that reads the title back instead of the labels passes, so\n' \
+			'control: the wrong read'
+		printf '          the leg is counting `gh` lines and not reading what they read\n'
+	else
+		printf '        control: a read-back aimed at `title` rather than `labels` is refused, so the\n'
+		printf '        ok above is the right read, not merely a read.\n'
+	fi
+}
+esc_step_control
+
+esc_guide_agrees() { # esc_guide_agrees [root] -- the guide carries the order and the limit
+	local root=$HERE/.. g
+	[ -z "${1:-}" ] || root=$1
+	g=$root/docs/factory.md
+	[ -f "$g" ] || return 2
+	# Two clauses, each whole: the order and what it buys, and the limit on what a marker means.
+	# Whole phrases, because `grep -qF 'escalation'` over a 1,000-line guide is satisfied by any
+	# sentence containing the word and the leg would print ok about a different paragraph.
+	grep -qF 'the order is the mechanism' "$g" &&
+		grep -qF 'the unit is parked or released' "$g"
+}
+claim_leg '…and the guide says the order and the limit too' esc_guide_agrees
+
+esc_guide_control() {
+	local ctrl=$claim_work/esc-guide
+	if ! mkdir -p "$ctrl/order/docs" "$ctrl/limit/docs"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' 'control: the guide'
+		return 0
+	fi
+	if ! grep -vF 'the order is the mechanism' "$HERE/../docs/factory.md" \
+			>"$ctrl/order/docs/factory.md" ||
+		! grep -vF 'the unit is parked or released' "$HERE/../docs/factory.md" \
+			>"$ctrl/limit/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copies could not be written\n' 'control: the guide'
+		return 0
+	fi
+	if grep -qF 'the order is the mechanism' "$ctrl/order/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the order plant left the clause in place, so the leg above was\n' \
+			'control: the guide'
+		printf '          never aimed at it\n'
+		return 0
+	fi
+	if grep -qF 'the unit is parked or released' "$ctrl/limit/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the limit plant left the clause in place\n' 'control: the guide'
+		return 0
+	fi
+	if esc_guide_agrees "$ctrl/order" 2>/dev/null || esc_guide_agrees "$ctrl/limit" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a guide with one of the two clauses deleted, so the ok\n' \
+			'control: the guide'
+		printf '          above is one phrase match and not the pair it names\n'
+	else
+		printf '        control: a guide with either clause deleted is refused. This is the #272 shape:\n'
+		printf '        the instruction and the guide are read by different readers, and a fix that\n'
+		printf '        lands in one of them is a fix that leaves the other prescribing the old thing.\n'
+	fi
+}
+esc_guide_control
 
 # ================================= the verdict a push voided, and the ask that never fired (#272)
 #
@@ -6491,6 +7152,92 @@ voided_docs_control() {
 claim_leg 'the voided verdict is in both documents' voided_docs_say_it
 voided_docs_control
 claim_reset
+
+# ---------------------------------------------------------- who asks, in both documents
+#
+# `AGENTS.md` used to read "Requesting a reviewer is part of opening a pull request, not a later
+# courtesy" and stop, which reads as an instruction to whoever opened the pull request -- and that
+# session has no verb for the ask. `gh pr edit --add-reviewer` is dead on this account's retired
+# `projectCards` field (H-0010), the raw API is denied whole by the `bash` table in
+# `.opencode/opencode.jsonc`, and the one method-scoped
+# carve-out that would reach the endpoint was weighed and withheld (`efa4e29`) because a whole-line
+# glob cannot name one POST. The rule has only ever held because `factory_request_review` does the
+# asking, a component on the far side of the boundary a tick runs inside. #310 is a tick that spent a
+# review round finding that out, so both documents now carry their half and a leg reads four whole
+# phrases -- one rule and one reason in each -- because `grep -qF 'reviewer'` over either file is
+# satisfied by any sentence that mentions one at all.
+ask_target_docs_say_it() { # [root] -> 0 when AGENTS.md and SKILL.md each carry their rule and reason
+	local root=$HERE/.. agents skill
+	[ -z "${1:-}" ] || root=$1
+	agents=$root/AGENTS.md
+	skill=$root/.opencode/skills/factory/SKILL.md
+	[ -f "$agents" ] && [ -f "$skill" ] || return 2
+	# AGENTS: who does the asking, and why a unit cannot do it.
+	grep -qF 'poke, not whoever opened the pull request' "$agents" &&
+		grep -qF 'field and writes nothing' "$agents" &&
+		# SKILL: what a unit does instead, and why the verb is withheld rather than simply missing.
+		grep -qF 'redirecting the ask is still not yours' "$skill" &&
+		grep -qF 'was weighed and withheld' "$skill"
+}
+ask_target_docs_control() {
+	local ctrl=$claim_work/ask-target-docs
+	if ! mkdir -p "$ctrl/rules/.opencode/skills/factory" \
+		"$ctrl/reasons/.opencode/skills/factory"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' \
+			'control: who asks, both documents'
+		return 0
+	fi
+	# One clause out of each document, twice: the two rule clauses, then the two reason clauses. Same
+	# shape as `voided_docs_control` one section above, which is the shape that caught #272.
+	if ! grep -vF 'poke, not whoever opened the pull request' "$HERE/../AGENTS.md" \
+		>"$ctrl/rules/AGENTS.md" ||
+		! grep -vF 'redirecting the ask is still not yours' \
+			"$HERE/../.opencode/skills/factory/SKILL.md" \
+		>"$ctrl/rules/.opencode/skills/factory/SKILL.md" ||
+		! grep -vF 'field and writes nothing' "$HERE/../AGENTS.md" \
+		>"$ctrl/reasons/AGENTS.md" ||
+		! grep -vF 'was weighed and withheld' \
+			"$HERE/../.opencode/skills/factory/SKILL.md" \
+		>"$ctrl/reasons/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copies could not be written\n' \
+			'control: who asks, both documents'
+		return 0
+	fi
+	if grep -qF 'poke, not whoever opened the pull request' "$ctrl/rules/AGENTS.md" ||
+		grep -qF 'redirecting the ask is still not yours' \
+			"$ctrl/rules/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the rule plant left a rule in place, so the\n' \
+			'control: who asks, both documents'
+		printf '          leg above was never aimed at the clauses it names.\n'
+		return 0
+	fi
+	if grep -qF 'field and writes nothing' "$ctrl/reasons/AGENTS.md" ||
+		grep -qF 'was weighed and withheld' \
+			"$ctrl/reasons/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reason plant left a reason in place, so\n' \
+			'control: who asks, both documents'
+		printf '          the leg above does not need the reasons it claims to need.\n'
+		return 0
+	fi
+	if ask_target_docs_say_it "$ctrl/rules" || ask_target_docs_say_it "$ctrl/reasons"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a pair with one rule clause deleted\n' \
+			'control: who asks, both documents'
+		printf '          from one document and one reason clause from the other, so the ok above is a\n'
+		printf '          phrase match and not the four halves it names.\n'
+		return 0
+	fi
+	printf '  ok    %-40s each copy loses one clause from each document\n' \
+		'control: who asks, both documents'
+	printf '          and the leg says no; all four are read, not a word nearby.\n'
+	return 0
+}
+claim_leg 'who asks a reviewer is in both documents' ask_target_docs_say_it
+ask_target_docs_control
 
 # --------------------------------------------------------------- the supervisor's arm
 #
@@ -6876,6 +7623,207 @@ branch_control_tip_not_base() {
 	branch_class_is br-empty branch_without_pr && branch_detail_has br-empty '1 file(s)'
 }
 claim_leg 'control: asked of the tip, the empty branch is back' branch_control_tip_not_base
+
+# ------------------ a merged pull request's leftover ref is reported, not dropped (#291, ask 2)
+#
+# Ask 1 above made the row depend on content. This is the half #292 did not deliver, and the comment on
+# #291 at 2026-11-12T17:59:30Z names it as what is still owed: the branch scan consults only OPEN pull
+# requests (`pr_json`, :129), so a ref whose pull request had merged neither was offered as work nor was
+# reported delivered -- it was dropped. A ref level with the trunk never even reaches the content
+# question: `[ "$ahead" -gt 0 ] || continue` passes it by and the pass says nothing about it, ever.
+# Measured on the shipped classifier at `1ad0760` over a throwaway repository (the probe whose shape
+# this fixture mirrors): `br-shipped`, the leftover of a pull request that merged cleanly, printed no row
+# of any class and left no trace but a count of branches holding nothing.
+#
+# The live blast radius, both ends run on 12 Nov at ~21:0xZ from this tree over the same refs, once with
+# `bash factory/triage.sh` at `1ad0760` and once with the same command at the fix: **32 rows before, 69
+# after.** The 37 that appear are all `branch delivered`; the 11 `branch_without_pr` rows are the same 11
+# afterwards, so nothing that was offered stopped being offered; and the stderr tally of content-free refs
+# falls from three (`issue-248 issue-309 issue-318`) to two (`issue-309 issue-318`), because the one of
+# those three that a merged pull request names is now reported by number instead of counted. Thirty-seven
+# is what #291's own census predicted: 34 leftover refs, 33 of them silent, counted 11 Nov.
+#
+# The polarity that keeps this from being a rule that retires work by its name is `br-reopened`: a name
+# that merged once and was then re-cut with a file `main` lacks. It keeps its `branch_without_pr` row,
+# and control 7 takes the content question out of the merged arm and demands that branch turn up
+# `delivered` -- the harm, reproduced on demand. #254 merged on `issue-246` under `Part of #246` with
+# #246 unfinished and three merged pull requests sit on `issue-199`, which is why a name is never a
+# verdict on its own (H-0108) and why this arm is a name AND the same content question ask 1 asks.
+#
+# The merged payload is planted HERE, not at the top of the section, because the legs above answer a
+# queue in which nothing has merged -- and that is exactly what keeps `br-empty`'s verdict about content
+# rather than about a pull request (`branch_rows_are 3` counts those rows and would fail on 4). The refs
+# below are cut in the same repository after those legs and their controls have run, so one tree holds
+# both halves and the shipped classifier sees a queue with merged pull requests in it at last.
+cat >"$branch_fix/pr-merged.json" <<'JSON'
+[
+ {"number":777,"baseRefName":"main","headRefName":"br-shipped","mergedAt":"2026-11-11T02:05:20Z",
+  "body":"fix(factory): the thing that shipped\n\nRefs #777.\n"},
+ {"number":778,"baseRefName":"main","headRefName":"br-deadtick","mergedAt":"2026-11-11T03:05:20Z",
+  "body":"fix(factory): the other thing, and the checkpoint that outlived it\n\nRefs #778.\n"},
+ {"number":779,"baseRefName":"main","headRefName":"br-reopened","mergedAt":"2026-11-11T04:05:20Z",
+  "body":"fix(factory): merged once and re-cut afterwards\n\nRefs #779.\n"},
+ {"number":780,"baseRefName":"feature/x","headRefName":"br-stacked","mergedAt":"2026-11-11T05:05:20Z",
+  "body":"fix(factory): merged into a stacked branch, so none of it reached main\n\nRefs #780.\n"},
+ {"number":781,"baseRefName":"main","headRefName":"br-many","mergedAt":"2026-11-10T01:02:03Z",
+  "body":"fix(factory): the first pull request to run under this name\n\nRefs #781.\n"},
+ {"number":782,"baseRefName":"main","headRefName":"br-many","mergedAt":"2026-11-11T06:07:08Z",
+  "body":"fix(factory): the second one, and the name it consumed\n\nRefs #782.\n"}
+]
+JSON
+
+git -C "$branch_repo" config user.email branch@invalid
+git -C "$branch_repo" config user.name branch
+# The work that merged, and main taking it: the ref is 0 ahead and 0 files ahead, the ordinary leftover
+# of an ordinary merge whose branch GitHub did not delete.
+git -C "$branch_repo" checkout -qb br-shipped main
+printf 'shipped\n' >"$branch_repo/shipped.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'branch: the work that merged'
+git -C "$branch_repo" checkout -q main
+git -C "$branch_repo" merge -q --no-edit br-shipped
+git -C "$branch_repo" update-ref refs/remotes/origin/main refs/heads/main
+
+# The measured shape: GitHub deleted the ref after the merge, and the `--allow-empty` checkpoint that
+# Step 3 takes BEFORE a judgement call survived locally. One commit ahead, zero bytes -- which is what
+# #293's ref looked like at 16:49Z on 12 Nov, offered to a second tick as "already written".
+git -C "$branch_repo" checkout -qb br-deadtick main
+git -C "$branch_repo" commit -q --allow-empty -m 'chore(checkpoint): pre-H-0000 nothing follows it'
+
+git -C "$branch_repo" checkout -qb br-reopened main
+printf 'a second, undelivered helping\n' >"$branch_repo/reopen.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'branch: work that never merged'
+
+# A merge that never reached the trunk (#216's stacked chain): its leftover still owes its content, so
+# it is not delivered and it is still 0 ahead -- the arm's base filter, with no row to confuse it with.
+git -C "$branch_repo" checkout -qb br-stacked main
+git -C "$branch_repo" commit -q --allow-empty -m 'chore(checkpoint): pre-H-0001 stacked merge, nothing on main'
+
+# Two pull requests under one name. The newest is the merge that consumed the name, and the row says how
+# many ran under it: an attribution that hides its own ambiguity is the one a reader cannot check.
+git -C "$branch_repo" checkout -qb br-many main
+printf 'the first\n' >"$branch_repo/first.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'branch: the first pull request'
+git -C "$branch_repo" checkout -q main
+git -C "$branch_repo" merge -q --no-edit br-many
+git -C "$branch_repo" checkout -q br-many
+printf 'the second\n' >"$branch_repo/second.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'branch: the second pull request'
+git -C "$branch_repo" checkout -q main
+git -C "$branch_repo" merge -q --no-edit br-many
+git -C "$branch_repo" update-ref refs/remotes/origin/main refs/heads/main
+git -C "$branch_repo" checkout -q main
+
+branch_err_lacks() { # branch_err_lacks <needle> -- one pass may say one thing about one ref
+	if grep -qF -- "$1" "$branch_err"; then
+		printf '            stderr still tallies %s as a branch with nothing to offer while the table\n' "$1" >&2
+		printf '            reports it delivered: the same verdict twice, in two sentences that can\n' >&2
+		printf '            disagree. Its stderr:\n' >&2
+		sed 's/^/            /' "$branch_err" >&2
+		return 1
+	fi
+}
+
+branch_field_is() { # branch_field_is <branch> <column> <value> -- the columns carry the claim
+	local got
+	got=$(branch_row_for "$1" | cut -f"$2")
+	[ "$got" = "$3" ] || {
+		printf '            %s column %s reads %s, not %s. Its row:\n' "$1" "$2" "$got" "$3" >&2
+		branch_rows | tr '\t' ' ' | sed 's/^/            /' >&2
+		return 1
+	}
+}
+
+branch_rows >/dev/null
+claim_leg 'a merged ref at zero ahead is reported, not dropped' branch_class_is br-shipped delivered
+claim_leg '…naming the pull request, the name and the instant' \
+	branch_detail_has br-shipped 'merged PR #777 on `br-shipped` at 2026-11-11T02:05:20Z'
+claim_leg '…and how far back the merged read looked' branch_detail_has br-shipped '(window 100)'
+claim_leg '…and naming no issue, because a ref is not a ticket' branch_field_is br-shipped 6 '-'
+claim_leg 'the measured issue-249 shape is reported as well' branch_class_is br-deadtick delivered
+claim_leg '…and said once, not tallied again as a skipped ref' branch_err_lacks br-deadtick
+claim_leg '…while a checkpoint no pull request ran is only a tally' branch_no_row br-empty
+claim_leg '…and named there, beside its two neighbours' branch_err_has 'br-empty br-merge-empty br-stacked'
+claim_leg 'two merges on one name report the newest' branch_detail_has br-many 'merged PR #782 on `br-many` at 2026-11-11T06:07:08Z'
+claim_leg '…and do not hide that two ran' branch_detail_has br-many '2 merged pull requests ran under that name'
+claim_leg 'a merge that did not reach main delivers nothing' branch_no_row br-stacked
+claim_leg 'a name that merged once, re-cut with a file main lacks, is still offered' branch_class_is br-reopened branch_without_pr
+claim_leg 'the rows and the reports together, so no stray row hides' branch_rows_are 7
+
+# Control 5: the merged test inverted, and a clean merge is silent again. That is the shipped behaviour
+# at `1ad0760`, held permanently: the ref passes the ahead test, holds nothing, and no arm says anything
+# about it. The leg asks for both halves -- no row AND the tally named it -- because a mutant that
+# deleted the whole block would also pass a leg that only counted rows, and the tally is what the
+# classifier printed then.
+branch_control_merged_off() {
+	branch_mutate 's/\[ -n "\${shipped_pr:-\}" \] && \[ "\$comparable" = 1 \]/[ -z "${shipped_pr:-}" ] \&\& [ "$comparable" = 1 ]/' ||
+		return 1
+	branch_no_row br-shipped && branch_no_row br-deadtick &&
+		branch_err_has br-deadtick && branch_class_is br-reopened branch_without_pr
+}
+claim_leg 'control: dropping the merged test returns the silence' branch_control_merged_off
+
+# Control 6: the base filter off. A pull request merged into another branch left its work off `main`, so
+# the leftover still owes it; a filter that ignores which trunk a merge reached buries it as `delivered`.
+# This substitution is the widest of the three -- the same predicate guards the two issue scans, and
+# `issues.json` is empty for every leg in this section, so no issue row is asserted either side of it:
+# what is pinned here is the branch row the filter is protecting.
+branch_control_any_base() {
+	branch_mutate 's/select(\.baseRefName == \$base)/select(true)/' || return 1
+	branch_class_is br-stacked delivered && branch_class_is br-work branch_without_pr
+}
+claim_leg 'control: a filter off main reports a stacked branch as delivered' branch_control_any_base
+
+# Control 7: the conjunct that #291 was written about, on the other side this time. With the content
+# question gone from the merged arm, a name is the whole verdict -- and `br-reopened`, whose pull request
+# merged once and was then re-cut with a file the trunk does not have, becomes a delivery. Its real work
+# is then offered by nobody, in the same tone of voice that reports a merge. That sentence is what the
+# #277 header refuses for branches, and the issue half already carries its own version of it.
+branch_control_name_only() {
+	branch_mutate 's/if \[ -n "\${shipped_pr:-\}" \] && \[ "\$comparable" = 1 \] && \[ -z "\$delta" \]; then/if [ -n "${shipped_pr:-}" ]; then/' ||
+		return 1
+	branch_class_is br-reopened delivered
+}
+claim_leg 'control: a name alone, and the re-cut branch is buried' branch_control_name_only
+
+# What the supervisor DOES with one of these rows -- end to end, not by reading the arm. `delivered` is
+# reached through the CLASS, not the kind: the pass reads kind into its `unit` variable
+# (`factory.sh:1071`) and its arm keys on the class alone, so `factory_class_is_workable` (:843) and the
+# arm itself (:1151) take a branch row with no new handler -- and #291 asks for exactly that ("no new arm
+# is needed"). A text scan would prove the arm exists; these three legs prove the arm runs on a branch.
+#
+# The payload names `issue-902`, which is a ref at origin/main -- zero ahead, so there is nothing here
+# but the attribution. Restored to `[]` for the sections below, none of which runs the supervisor again
+# (the last `proc_run` before this one is `reap-held`, :4081).
+printf '%s' '[{"number":790,"baseRefName":"main","headRefName":"issue-902","mergedAt":"2026-11-12T04:05:06Z","body":"fix(fixture): the pull request that consumed the branch\n\nRefs #790.\n"}]' \
+	>"$proc_fix/pr-merged.json"
+proc_new delivered-ref
+git -C "$proc_repo" branch issue-902 origin/main
+proc_run delivered-ref-1
+
+proc_logged_delivered() {
+	proc_journal_line "$proc_journal" 'DELIVERED branch/issue-902' | grep -qF -- 'reported, not worked'
+}
+proc_no_session() {
+	grep -q 'issue-902' "$proc_ticks" && return 1
+	! grep -qE 'NEXT [a-z_]+ issue-902' "$proc_journal"
+}
+proc_wrote_nothing() {
+	# `proc_rec` is every call the fixture `gh` answered, and the shim already exits 77 on a write it was
+	# not told about, so this asks the question in the open: a `delivered` row must not be able to close,
+	# merge or edit anything on the way past.
+	! grep -qE '^(issue|pr) (close|reopen|merge|edit|review|comment)' "$proc_rec"
+}
+proc_leg 'the supervisor logs the leftover as delivered' \
+	'its journal names DELIVERED branch/issue-902 and says reported, not worked' proc_logged_delivered
+proc_leg '…and starts no session for it' \
+	'no tick ran issue-902 and no NEXT row offers it' proc_no_session
+proc_leg '…and closes nothing on the strength of a ref' \
+	'the fixture gh recorded no close, merge, edit, review or comment' proc_wrote_nothing
+printf '[]' >"$proc_fix/pr-merged.json"
 
 # --------------------------------------------------------------- who the review poke asks (#241)
 #
@@ -9033,6 +9981,123 @@ alloc_leg() { # <label> <repo> <log path> <prefix> <expected id> <what an ok pro
 	return 0
 }
 
+# Does the allocator say WHICH half of the union raised the ceiling? Issue #320: the skill schedules a
+# re-read immediately before the entry commit, and by then the entry is already in the working file the
+# union reads -- so the answer comes back one above the caller's own heading, which is exactly what a
+# stolen id looks like. The answer is a note on stderr naming the heading that sits in the file and on
+# no ref, and the highest id the refs really carry. Two legs, because a note printed on every answer is
+# a note read once: one fixture has the entry uncommitted with every ref below it, the other has the
+# same entry committed and prints the same id, and only the note moves between them.
+alloc_marker_leg() { # <label> <repo> <path> <prefix> <want id> <yes|no> <pending id> <refs ceiling id> <fact>
+	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 wantmark=$6 pend=$7 top=$8 fact=$9
+	local got='' rc=0 mark=no miss='' id=''
+	if [ -n "$prefix" ]; then
+		got=$(bash "$alloc_script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$alloc_script" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if [ "$rc" != 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it answered %s, expected %s.\n' "$label" "$got" "$want"
+		return 0
+	fi
+	if grep -q '^next-decision-id: PENDING ' "$alloc_err"; then mark=yes; fi
+	if [ "$mark" != "$wantmark" ]; then
+		fail=$((fail + 1))
+		if [ "$wantmark" = yes ]; then
+			printf '  FAIL  %-40s it answered %s and said nothing about which\n' "$label" "$got"
+			printf '          half of the union raised the ceiling. %s\n' "$fact"
+		else
+			printf '  FAIL  %-40s it printed PENDING over a ceiling a ref already\n' "$label"
+			printf '          carries, so the note cannot tell your own entry from one a sibling\n'
+			printf '          took -- and a moved ceiling stops being the one answer that means\n'
+			printf '          yield. %s\n' "$fact"
+		fi
+		return 0
+	fi
+	# The note has to carry the two numbers the caller cannot get any other way: the heading it is
+	# standing on, and the ceiling the refs hold. A tag with neither leaves the session guessing which
+	# of `H-0041` and `H-0042` it was handed -- which is the same silence, wearing a prefix.
+	if [ "$wantmark" = yes ]; then
+		for id in "$pend" "$top"; do
+			grep -q -- "$id" "$alloc_err" || miss="$miss $id"
+		done
+		if [ -n "$miss" ]; then
+			fail=$((fail + 1))
+			printf '  FAIL  %-40s the note never names%s, so the marker is a\n' "$label" "$miss"
+			printf '          prefix and not an answer:\n'
+			sed 's/^/          /' "$alloc_err"
+			return 0
+		fi
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# One plant per direction, each aimed at the single comparison that decides the note: a plant that
+# keeps the shipped verdict would show the leg certifying its fixture. The id is asserted to be
+# unchanged by the plant as well, because a plant that moved the number would be a control for the
+# ceiling, not for the attribution.
+alloc_marker_control() { # <label> <dir> <sed expr> <repo> <path> <prefix> <what the plant broke>
+	local label=$1 dir=$2 expr=$3 repo=$4 path=$5 prefix=$6 fact=$7
+	local bad='' got='' rc=0 ship='' ship_mark=no plant=no
+	bad=$(alloc_plant "$dir" "$expr" || true)
+	if [ -z "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg has stopped pinning the comparison it names.\n'
+		return 0
+	fi
+	# The shipped verdict, read here rather than remembered from the leg above: the control's whole
+	# claim is a difference between the two scripts on one fixture, so both halves are measured.
+	if [ -n "$prefix" ]; then
+		ship=$(bash "$alloc_script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || true
+	else
+		ship=$(bash "$alloc_script" --repo "$repo" "$path" 2>"$alloc_err") || true
+	fi
+	if grep -q '^next-decision-id: PENDING ' "$alloc_err"; then ship_mark=yes; fi
+	if [ -n "$prefix" ]; then
+		got=$(bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$bad" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if [ "$rc" != 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator refused:\n' "control: $label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$ship" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator answered %s where the shipped\n' \
+			"control: $label" "$got"
+		printf '          one answers %s -- the plant moved the ceiling as well as the note, so\n' "$ship"
+		printf '          it controls the wrong thing.\n'
+		return 0
+	fi
+	if grep -q '^next-decision-id: PENDING ' "$alloc_err"; then plant=yes; fi
+	if [ "$plant" = "$ship_mark" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the note verdict at %s, exactly\n' \
+			"control: $label" "$ship_mark"
+		printf '          what the shipped script does, so the ok above is the fixture agreeing and\n'
+		printf '          not the comparison: %s\n' "$fact"
+		return 0
+	fi
+	# No `pass` increment: a control's ok is uncounted in this suite, the way `alloc_control` and
+	# `alloc_docs_control` both leave it.
+	printf '  ok    %-40s it flips the note on the same fixture and\n' "control: $label"
+	printf '          the same id, so the leg above is reading the comparison: %s\n' "$fact"
+	return 0
+}
+
 alloc_plant() { # <dir> <sed expr> -> a copy of the shipped allocator with one thing taken out
 	local dir=$1 expr=$2
 	mkdir -p -- "$dir" || return 1
@@ -9244,6 +10309,155 @@ alloc_yield_control() {
 	return 0
 }
 
+# What a moved ceiling means is stated in three surfaces -- the skill a tick reads, this guide, and the
+# allocator's own comment above the note -- and for one revision two of them stated mutually exclusive
+# rules for the same signal (#321's review, against `487d572`). The newer sentence made the collision "a
+# moved ceiling with nothing on stderr", and PR #307 had just made that unachievable: every answer now
+# carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it. Measured on a fresh
+# fixture at that head, the shipped allocator writes 460 bytes of stderr with the tree clean, 855 with
+# the caller's own heading uncommitted and 460 one commit later -- never zero, so a unit following the
+# newer rule can never satisfy it. The repair that would make it satisfiable again, nesting the refresh
+# block inside the note's arm, is worse than the bug: `bash -n` and shellcheck both pass and a clean
+# tree answers with zero bytes, so the disclosure is dead and only the suite knows it.
+#
+# So the discriminator is the absence of the note, and it is pinned as a clause for the reason
+# `alloc_yield_rule` gives -- `grep -q PENDING` over 12,000 lines is a word, not a rule. The clause is
+# spelled identically in all three surfaces because that is the property under test: a paraphrase in one
+# file is exactly how the two rules came apart. The negative half is why the leg exists -- the retired
+# claim must not come back in any surface, because there is no longer any answer it applies to -- and
+# the third phrase is the post-commit case the same review named: a ceiling your own committed entry put
+# on `HEAD` is quiet too, and a unit that reads quiet as yield renumbers its own finished entry.
+alloc_collision_signal() { # [root] -> 0 when all three surfaces read the note, never the silence
+	local root=$HERE/.. skill guide script
+	[ -z "${1:-}" ] || root=$1
+	skill=$root/.opencode/skills/factory/SKILL.md
+	guide=$root/docs/factory.md
+	script=$root/factory/next-decision-id.sh
+	[ -f "$skill" ] && [ -f "$guide" ] && [ -f "$script" ] || return 2
+	grep -qF 'no PENDING line' "$skill" &&
+		grep -qF 'no PENDING line' "$guide" &&
+		grep -qF 'no PENDING line' "$script" &&
+		grep -qF 'durable includes yours' "$skill" &&
+		grep -qF 'durable includes yours' "$guide" &&
+		! grep -qF 'nothing on stderr' "$skill" &&
+		! grep -qF 'nothing on stderr' "$guide" &&
+		! grep -qF 'nothing on stderr' "$script"
+}
+
+alloc_signal_tree() { # <dir> -> the three surfaces copied into the layout the predicate walks
+	local d=$1
+	mkdir -p -- "$d/.opencode/skills/factory" "$d/docs" "$d/factory" || return 1
+	cp -- "$HERE/../.opencode/skills/factory/SKILL.md" \
+		"$d/.opencode/skills/factory/SKILL.md" || return 1
+	cp -- "$HERE/../docs/factory.md" "$d/docs/factory.md" || return 1
+	cp -- "$HERE/../factory/next-decision-id.sh" "$d/factory/next-decision-id.sh" || return 1
+}
+
+# Three plants, one per half of the predicate, each checked for having moved only the half it names --
+# a plant that changes two halves at once cannot say which one the refusal above was reading, which is
+# the failure the two-plant controls in `alloc_yield_control` and `alloc_docs_control` exist to avoid.
+alloc_collision_signal_control() {
+	local drift=$alloc_work/signal-paraphrased
+	local silence=$alloc_work/signal-silence-restored
+	local third=$alloc_work/signal-no-third-case
+
+	# Plant 1: the clause paraphrased in the guide. Nothing is deleted and no retired claim returns, so a
+	# refusal here can only be the wording -- the half that came apart at `487d572`.
+	if ! alloc_signal_tree "$drift" ||
+		! sed 's/no PENDING line/no note on stderr/' "$HERE/../docs/factory.md" \
+			>"$drift/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the first control copy could not be\n' \
+			'control: the signal, paraphrased'
+		printf '          written.\n'
+		return 0
+	fi
+	if grep -qF 'no PENDING line' "$drift/docs/factory.md" ||
+		grep -qF 'nothing on stderr' "$drift/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the clause in place or brought the\n' \
+			'control: the signal, paraphrased'
+		printf '          retired claim back, so nothing was aimed at.\n'
+		return 0
+	fi
+	if alloc_collision_signal "$drift"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a guide paraphrasing the clause, so\n' \
+			'control: the signal, paraphrased'
+		printf '          the ok above reads an idea and not the wording one file\n'
+		printf '          had already drifted from.\n'
+		return 0
+	fi
+
+	# Plant 2: the retired claim restored to the script's own comment, clause left where it is. Only the
+	# negative half can refuse this copy.
+	if ! alloc_signal_tree "$silence" ||
+		! printf '# a higher answer with nothing on stderr is the collision.\n' \
+			>>"$silence/factory/next-decision-id.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the second control copy could not be\n' \
+			'control: the signal, silence restored'
+		printf '          written.\n'
+		return 0
+	fi
+	if ! grep -qF 'nothing on stderr' "$silence/factory/next-decision-id.sh" ||
+		! grep -qF 'no PENDING line' "$silence/factory/next-decision-id.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant either did not write the claim or took\n' \
+			'control: the signal, silence restored'
+		printf '          the clause with it, so the refusal below proves nothing.\n'
+		return 0
+	fi
+	if alloc_collision_signal "$silence"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a surface that still calls silence the\n' \
+			'control: the signal, silence restored'
+		printf '          collision -- the exact rule #321 was asked to retire.\n'
+		return 0
+	fi
+
+	# Plant 3: the post-commit case deleted from the skill, the discriminator untouched elsewhere in the
+	# same file. Proves the leg reads the third shape and not just the discriminator.
+	if ! alloc_signal_tree "$third" ||
+		! grep -vF 'durable includes yours' "$HERE/../.opencode/skills/factory/SKILL.md" \
+			>"$third/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the third control copy could not be written\n' \
+			'control: the third case, deleted'
+		return 0
+	fi
+	if grep -qF 'durable includes yours' "$third/.opencode/skills/factory/SKILL.md" ||
+		! grep -qF 'no PENDING line' "$third/.opencode/skills/factory/SKILL.md" ||
+		! grep -qF 'durable includes yours' "$third/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the clause in, deleted the\n' \
+			'control: the third case, deleted'
+		printf '          discriminator with it, or emptied the guide too -- a refusal\n'
+		printf '          here would not be about the third case.\n'
+		return 0
+	fi
+	if alloc_collision_signal "$third"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a skill that never tells a unit the\n' \
+			'control: the third case, deleted'
+		printf '          committed ceiling may be its own.\n'
+		return 0
+	fi
+
+	# No `pass` increment: a control's ok is uncounted in this suite, the way `alloc_control`,
+	# `alloc_docs_control` and `alloc_yield_control` all leave it.
+	printf '  ok    %-40s it refuses one surface paraphrasing the clause, so\n' \
+		'control: the signal, paraphrased'
+	printf '          the leg above pins the wording, not a notion sitting near it.\n'
+	printf '  ok    %-40s it refuses a surface calling silence the collision,\n' \
+		'control: the signal, silence restored'
+	printf '          so the negative half is read as well as the positive one.\n'
+	printf '  ok    %-40s it refuses a skill with the committed-ceiling clause\n' \
+		'control: the third case, deleted'
+	printf '          gone and the discriminator untouched, so that clause is read too.\n'
+	return 0
+}
+
 alloc_no_fetch() {
 	! grep -Eq '^[[:space:]]*(env[[:space:]]+[^[:space:]]+[[:space:]]+)?git[[:space:]]+fetch' \
 		"$alloc_script"
@@ -9258,9 +10472,17 @@ alloc_docs_reference() { # [root] -> 0 when both documents name the allocator an
 	# The refresh is part of what gets pinned, not a garnish beside it. An allocator that stays offline
 	# is safe only while the one thing that closes the other window is written down where a session
 	# reads it, and H-0071 is the correction for a sentence that claimed the window was already closed.
+	#
+	# And so is the verdict's procedure (#303). A marker nobody is told to act on is a log line: the
+	# allocator can say REFRESH-BLIND in perfect accuracy and the tick writes the entry anyway, which is
+	# why the sentence a session has to obey -- `REFRESH-BLIND` means fetch and re-read -- is pinned in
+	# both documents rather than left in the script's own help text.
 	grep -q 'factory/next-decision-id\.sh' "$skill" &&
 		grep -q 'factory/next-decision-id\.sh' "$guide" &&
-		grep -q 'git fetch' "$skill" && grep -q 'git fetch' "$guide"
+		grep -q 'git fetch' "$skill" && grep -q 'git fetch' "$guide" &&
+		grep -qF 'REFRESH-BLIND' "$skill" && grep -qF 'REFRESH-BLIND' "$guide" &&
+		grep -qF 'means fetch and re-read' "$skill" &&
+		grep -qF 'means fetch and re-read' "$guide"
 }
 
 # The control for the leg above, planted outside the repository: the same two documents with every
@@ -9296,9 +10518,50 @@ alloc_docs_control() {
 		printf '          so the ok above pins a mention and not the boundary.\n'
 		return 0
 	fi
+	# The second plant, aimed at the half the leg above gained in #303: the same two documents with the
+	# verdict's procedure deleted and the marker left in place. A copy that still passes would mean the
+	# leg is satisfied by the word REFRESH-BLIND appearing somewhere, which is what the activation's own
+	# journal line already was -- a fact nobody was told to do anything with.
+	local ctrl2=$alloc_work/docs-no-verdict-procedure
+	if ! mkdir -p -- "$ctrl2/.opencode/skills/factory" "$ctrl2/docs" ||
+		! grep -vF 'means fetch and re-read' "$HERE/../.opencode/skills/factory/SKILL.md" \
+			>"$ctrl2/.opencode/skills/factory/SKILL.md" ||
+		! grep -vF 'means fetch and re-read' "$HERE/../docs/factory.md" \
+			>"$ctrl2/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the second control copies could not be\n' \
+			'control: the procedure, not just the marker'
+		printf '          written.\n'
+		return 0
+	fi
+	if grep -qF 'means fetch and re-read' "$ctrl2/.opencode/skills/factory/SKILL.md" \
+		"$ctrl2/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the procedure in place, so the\n' \
+			'control: the procedure, not just the marker'
+		printf '          leg above was never aimed at the sentence it names.\n'
+		return 0
+	fi
+	if ! grep -qF 'REFRESH-BLIND' "$ctrl2/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant deleted the marker as well as the\n' \
+			'control: the procedure, not just the marker'
+		printf '          procedure, so a refusal here proves nothing about either one.\n'
+		return 0
+	fi
+	if alloc_docs_reference "$ctrl2"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted documents that name the marker and\n' \
+			'control: the procedure, not just the marker'
+		printf '          tell nobody to act on it, so the ok above pins a word and not a rule.\n'
+		return 0
+	fi
 	printf '  ok    %-40s it refuses documents with the refresh deleted, so\n' \
 		'control: the refresh, not just the path'
 	printf '          the ok above pins the boundary, not just the path.\n'
+	printf '  ok    %-40s it refuses documents that keep the marker and drop\n' \
+		'control: the procedure, not just the marker'
+	printf '          the sentence telling a session to act on it.\n'
 	return 0
 }
 
@@ -9471,9 +10734,181 @@ alloc_boundary() { # <label> <repo> <log path> <prefix> <stale id> <fresh id> <w
 	return 0
 }
 
+# ------------------------------------------------------------------ what the read says about itself
+#
+# Everything above asks the allocator for a number, and every one of those legs passes today on the
+# version that handed `D-0058` to two units 2260s apart (#303: `06b7c29` at 11:32:24-0500, the second
+# unit's `pre-D-0058` checkpoint `4537b9d` at 12:10:04-0500). That is not a hole in those legs:
+# both units were handed the *right* number for the refs they could see. What was missing is the
+# command saying that its union was not the world, so the legs below read stderr as well as stdout.
+#
+#   the marker  REFRESH-BLIND on stderr, naming the reason, and the id still on stdout at exit 0. A
+#               refusal is the wrong arm for a blind read, and `selftest.sh` already pins why: a
+#               session handed an allocator that will not answer goes back to numbering by eye (#253),
+#               which is the defect this script exists to end.
+#   the arms    coverage (can `refs/remotes` here learn a sibling at all?) and clock (when did this
+#               repository last hear from origin?). One control per arm deletes that arm from the arm
+#               list and the leg that pins it has to go silent -- which is also the proof that the
+#               other arm is not quietly carrying the leg.
+#   the limit   #303's own shape, 0 seconds after a clone: the sibling pushed after the last contact,
+#               so no offline read can see it and the marker is correctly ABSENT. Pinned as an ok with
+#               the id still a duplicate (`alloc_boundary` measures the same tree after a fetch:
+#               D-0002 before, D-0008 after) because a guard whose boundary is not pinned gets read as
+#               a guarantee by whoever finds it next.
+#   the bound   the aged fixture again, quiet under a generous FACTORY_ID_MAX_AGE -- the knob pinned by
+#               a difference in verdict rather than by a grep for its name.
+
+# shellcheck disable=SC2317  # reached through the command substitutions in the legs below
+alloc_run_one() { # <script> <repo> <path> <prefix> <max-age|-> -> the id; stderr in $alloc_err
+	local script=$1 repo=$2 path=$3 prefix=$4 maxage=$5
+	if [ "$maxage" = '-' ]; then
+		if [ -n "$prefix" ]; then
+			bash "$script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err"
+		else
+			bash "$script" --repo "$repo" "$path" 2>"$alloc_err"
+		fi
+	else
+		if [ -n "$prefix" ]; then
+			env FACTORY_ID_MAX_AGE="$maxage" \
+				bash "$script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err"
+		else
+			env FACTORY_ID_MAX_AGE="$maxage" \
+				bash "$script" --repo "$repo" "$path" 2>"$alloc_err"
+		fi
+	fi
+}
+
+# One blind shape. The marker has to be there, name the reason this leg is about, and not name the other
+# arm's reason -- a leg that fires for either reason pins neither.
+# shellcheck disable=SC2317  # reached from the legs below
+alloc_blind_leg() { # <label> <repo> <path> <prefix> <id> <says> <not-says> <max-age|-> <fact>
+	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 says=$6 nosay=$7 maxage=$8 fact=$9
+	local got='' rc=0
+	if ! got=$(alloc_run_one "$alloc_script" "$repo" "$path" "$prefix" "$maxage"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the verdict moved the id: got %s, expected %s.\n' "$label" "$got" "$want"
+		printf '          A blind read still owes the caller the best number it has, and stdout is the\n'
+		printf '          only stream a caller captures. %s\n' "$fact"
+		return 0
+	fi
+	if ! grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it answered %s and said nothing about the read:\n' "$label" "$got"
+		sed 's/^/          /' "$alloc_err"
+		printf '          That is #303 exactly: the number went out as though the union were the world.\n'
+		return 0
+	fi
+	if ! grep -qF -- "$says" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it went blind without naming "%s":\n' "$label" "$says"
+		sed 's/^/          /' "$alloc_err"
+		printf '          A marker with no reason in it is a shrug, and a tick cannot fetch its way out\n'
+		printf '          of a shrug.\n'
+		return 0
+	fi
+	if [ -n "$nosay" ] && grep -qF -- "$nosay" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the other arm is doing this leg'"'"'s work:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		printf '          %s must not be in the verdict this leg is about.\n' "$nosay"
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# The clean shape: the id, no marker, and the provenance line that says how old the read was.
+# shellcheck disable=SC2317  # reached from the legs below
+alloc_clear_leg() { # <label> <repo> <path> <prefix> <id> <max-age|-> <fact>
+	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 maxage=$6 fact=$7
+	local got='' rc=0
+	if ! got=$(alloc_run_one "$alloc_script" "$repo" "$path" "$prefix" "$maxage"); then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s got %s, expected %s.\n' "$label" "$got" "$want"
+		return 0
+	fi
+	if grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it called a %s a blind read:\n' "$label" "$repo"
+		sed 's/^/          /' "$alloc_err"
+		printf '          A verdict that fires on a provably current tree is noise, and noise gets\n'
+		printf '          ignored -- which is why the ticket'"'"'s literal test (no\n'
+		printf '          refs/remotes/origin/<my branch>) was measured and not used: dispatch pushes no\n'
+		printf '          unit branch, so that arm is true of every allocation this harness has made.\n'
+		return 0
+	fi
+	if ! grep -q 'REFRESH' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it printed no provenance line at all:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		printf '          Silence is what the read said when it was blind, so silence here cannot mean\n'
+		printf '          it was clear.\n'
+		return 0
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# A control for the two helpers above: the shipped script with one arm deleted from the arm list (or
+# with the verdict made unconditional), run against the SAME fixture. Either way the id must not move --
+# the plant narrows the verdict, not the arithmetic.
+# shellcheck disable=SC2317  # reached from the controls below
+alloc_verdict_control() { # <label> <dir> <sed> <repo> <path> <prefix> <id> <silent|loud> <fact>
+	local label=$1 dir=$2 expr=$3 repo=$4 path=$5 prefix=$6 want=$7 expect=$8 fact=$9
+	local bad got='' rc=0
+	bad=$(alloc_plant "$dir" "$expr" || true)
+	if [ -z "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the check has stopped pinning the read it names.\n'
+		return 0
+	fi
+	if [ -n "$prefix" ]; then
+		got=$(bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$bad" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if [ "$rc" != 0 ] || [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator stopped answering\n' "control: $label"
+		printf '          %s: got %s at status %s, so there is nothing to compare the\n' \
+			"$want" "${got:-<nothing>}" "$rc"
+		printf '          leg above against.\n'
+		return 0
+	fi
+	if [ "$expect" = silent ] && grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator still called it blind, so the\n' "control: $label"
+		printf '          leg above was never decided by the arm this plant removes.\n'
+		return 0
+	fi
+	if [ "$expect" = loud ] && ! grep -q 'REFRESH-BLIND' "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s an unconditional verdict still left the clean tree\n' "control: $label"
+		printf '          quiet, so the ok above pins a fixture, not a reading.\n'
+		return 0
+	fi
+	printf '  ok    %-40s %s\n' "control: $label" "$fact"
+	return 0
+}
+
 decision_ids() {
 	local base current multi repo wt bad alloc_empty alloc_nolog alloc_nopfx alloc_bleed
-	local alloc_notlog alloc_dirlog alloc_headonly
+	local alloc_notlog alloc_dirlog alloc_headonly alloc_open alloc_committed
 
 	if [ ! -f "$alloc_script" ]; then
 		printf '  SKIP  %-40s next-decision-id.sh is not in this tree\n' \
@@ -9565,6 +11000,66 @@ decision_ids() {
 	alloc_leg 'the current file counts before it is committed' "$current" DECISIONS.md D D-0010 \
 		'D-0010, because the uncommitted working entry is already D-0009'
 
+	# -------------------------------------- whose ceiling is it? (issue #320, the phantom collision)
+	#
+	# The leg above pins that the working file raises the ceiling. This pins what the command *says*
+	# about that raise, because the raise is the ordinary case at the exact moment the skill tells a
+	# session to re-read: immediately before the entry commit, the entry is already in the file the
+	# union reads. Measured in `/home/rodney/prj/wt/issue-320` on 12 Nov against `factory/DECISIONS.md`
+	# (git 2.53.0), the shipped allocator answered `H-0145` with the log as committed and `H-0146` after
+	# an uncommitted `## H-0145` was appended, with no ref holding that heading anywhere -- so the
+	# re-read came back wearing the exact face of the collision it exists to catch. A session holding
+	# that has two reactions and both cost the log: yield to the phantom and open a gap `docs/factory.md`
+	# says must never be inexplicable, or stop trusting the allocator at the last guard before a
+	# duplicate id.
+	#
+	# Two fixtures differing by one commit and nothing else -- including the printed id. Only the note
+	# moves, which is the whole claim: the id stays the best answer available, and stderr now says whose
+	# heading the ceiling walked past.
+	alloc_pending_pair() { # <dir left uncommitted> <dir with the same entry committed>
+		local open=$1 committed=$2 d
+		for d in "$open" "$committed"; do
+			git init -q "$d" 2>/dev/null || return 1
+			git -C "$d" config user.email fixture@invalid || return 1
+			git -C "$d" config user.name fixture || return 1
+			git -C "$d" checkout -qb trunk || return 1
+			mkdir -p -- "$d/factory" || return 1
+			printf '## H-0040 · the trunk ceiling\n' >"$d/factory/DECISIONS.md" || return 1
+			git -C "$d" add -A || return 1
+			git -C "$d" commit -qm 'fixture: the ceiling before the pending entry' || return 1
+			printf '\n## H-0041 · the entry being written now\n' >>"$d/factory/DECISIONS.md" || return 1
+		done
+		git -C "$committed" add -A || return 1
+		git -C "$committed" commit -qm 'fixture: the same entry, one commit later' || return 1
+	}
+
+	alloc_open=$alloc_work/pending-uncommitted
+	alloc_committed=$alloc_work/pending-committed
+	if ! alloc_pending_pair "$alloc_open" "$alloc_committed"; then
+		printf '  SKIP  %-40s the pending-entry pair could not be\n' 'the provenance of the ceiling'
+		printf '          written; every leg below is about a tree that does not exist.\n'
+	else
+		alloc_marker_leg 'a pending entry names itself' "$alloc_open" factory/DECISIONS.md H \
+			H-0042 yes H-0041 H-0040 \
+			'the same H-0042, with PENDING naming the heading on no ref and the refs ceiling'
+		alloc_marker_leg 'a committed entry is not called pending' "$alloc_committed" \
+			factory/DECISIONS.md H H-0042 no - - \
+			'and quiet one commit later: HEAD carries the heading, so nothing is unexplained'
+		# One plant per direction, each on the fixture whose verdict it must flip. The never-fires plant
+		# puts the phantom back exactly as #320 measured it; the always-fires plant calls a committed
+		# heading pending, which is the note read as noise and ignored -- a marker on every answer is a
+		# marker read once, and the silence that used to mean yield goes with it.
+		alloc_marker_control 'a pending entry names itself' "$alloc_work/ctrl-no-pending" \
+			's|\[ "$work_max" -gt "$refs_max" \]|[ "$work_max" -gt 999999 ]|' \
+			"$alloc_open" factory/DECISIONS.md H \
+			'take the note away and the re-read is silent again: 146 over your own 145'
+		alloc_marker_control 'a committed entry is not called pending' \
+			"$alloc_work/ctrl-always-pending" \
+			's|\[ "$work_max" -gt "$refs_max" \]|[ "$work_max" -ge 0 ]|' \
+			"$alloc_committed" factory/DECISIONS.md H \
+			'print it whatever the ceiling and a moved ceiling stops being the yield signal'
+	fi
+
 	# ---------------------------------------------------------- what the re-read can and cannot see
 	#
 	# The skill tells every session to re-run the allocator immediately before the entry commit. That
@@ -9649,6 +11144,11 @@ decision_ids() {
 		'the guide says which side renumbers, and why that side is the one that can move' \
 		alloc_yield_rule
 	alloc_yield_control
+
+	gen_leg 'a missing note is the collision signal' \
+		'all three surfaces read the note; none calls silence the collision' \
+		alloc_collision_signal
+	alloc_collision_signal_control
 
 	# ---- what the allocator does when there is nothing to read (issue #253, the half #255 left) ----
 	#
@@ -9808,6 +11308,108 @@ decision_ids() {
 		's|factory/DECISIONS.md) prefix=H|factory/DECISIONS.md) :|' \
 		"$alloc_nopfx" factory/DECISIONS.md '' D-0001 \
 		'without the path rule it answers in D, the wrong log, for the file it is standing in'
+
+	# ------------------------------------- what the command says when its union is blind (#303)
+	#
+	# Every leg above asks for a number, and every one of them passed on the version that handed
+	# `D-0058` to two units 2260s apart on 11 Nov -- `06b7c29` (issue-296) wrote its entry at
+	# 11:32:24-0500; the second unit's `pre-D-0058` checkpoint `4537b9d` (issue-297, PR #300) is dated
+	# 12:10:04-0500, and its entry `1d3470b` followed at 12:14:46-0500, in a tree where
+	# `git show-ref | grep 297` answers nothing. Those legs are not wrong; both units were handed the
+	# right number for the refs they could see. What was missing was the command saying that its union
+	# was not the world. So these legs read
+	# stderr as well as stdout, one per arm, each on a fixture built to trip that arm alone, and each
+	# with a control that deletes the arm from the arm list to show the leg goes silent without it.
+	#
+	# The fixture is the incident rather than a caricature of it: a bare origin, a clone with a unit
+	# worktree (the shape `common.sh` cuts), and a second clone that writes `D-0007` and pushes it while
+	# the first is asleep. `git clone` is the detail that makes it #303 and not a general ref test: a
+	# clone writes no FETCH_HEAD at all (measured on git 2.53.0), and neither does `git worktree add`, so the
+	# clock that keeps a fresh unit tree quiet is the shared remote reflog -- the source that a clock
+	# built on FETCH_HEAD alone would have missed, calling every clean tree blind.
+	blind_root=$alloc_work/blind-read
+	blind_origin=$blind_root/origin.git
+	if ! mkdir -p -- "$blind_root"; then
+		printf '  SKIP  %-40s the blind-read fixture could not be\n' 'the blind-read legs'
+		printf '          written; every leg below is about a tree that does not exist.\n'
+		return 0
+	fi
+	git init -q --bare "$blind_origin" || return 0
+	git --git-dir="$blind_origin" config user.email fixture@invalid || return 0
+	git --git-dir="$blind_origin" config user.name fixture || return 0
+	git clone -q "$blind_origin" "$blind_root/main" >/dev/null 2>&1 || return 0
+	git -C "$blind_root/main" config user.email fixture@invalid || return 0
+	git -C "$blind_root/main" config user.name fixture || return 0
+	git -C "$blind_root/main" checkout -qb trunk || return 0
+	printf '## D-0001 · fixture trunk\n' >"$blind_root/main/DECISIONS.md" || return 0
+	git -C "$blind_root/main" add -A >/dev/null || return 0
+	git -C "$blind_root/main" commit -qm 'fixture: the trunk a queue runs from' || return 0
+	git -C "$blind_root/main" push -q -u origin trunk || return 0
+	# The tree a tick is actually started in, so the legs run where a tick runs and not where the clone
+	# was made.
+	git -C "$blind_root/main" worktree add -qb unit "$blind_root/unit" trunk >/dev/null 2>&1 || return 0
+	# The sibling: its own clone, an entry far above the trunk, delivered while nobody is looking.
+	git clone -q "$blind_origin" "$blind_root/other" >/dev/null 2>&1 || return 0
+	git -C "$blind_root/other" config user.email fixture@invalid || return 0
+	git -C "$blind_root/other" config user.name fixture || return 0
+	git -C "$blind_root/other" checkout -qb issue-z origin/trunk || return 0
+	printf '\n## D-0007 · an entry pushed from a second clone\n' >>"$blind_root/other/DECISIONS.md" ||
+		return 0
+	git -C "$blind_root/other" add -A >/dev/null || return 0
+	git -C "$blind_root/other" commit -qm 'fixture: a sibling pushed while the first machine slept' ||
+		return 0
+	git -C "$blind_root/other" push -q origin issue-z || return 0
+
+	# The residual, pinned on the shape that produces it rather than argued in prose. This clone is
+	# seconds old and origin already holds `D-0007`: the number is a duplicate and the marker is
+	# correctly absent, because between the last contact and this read anything could have been pushed
+	# and no offline read can tell that from "nothing new anywhere". `alloc_boundary` above measures the
+	# same tree after a fetch -- `D-0002` before, `D-0008` after -- which is what the marker points a
+	# tick at, and `FACTORY_ID_MAX_AGE` is how wide a window the command refuses to be silent about.
+	alloc_clear_leg 'a current read says so, quietly' "$blind_root/unit" DECISIONS.md D D-0002 - \
+		'no marker on a 0s read and D-0002 while origin holds D-0007: the bound is a risk window, not a promise'
+	# The control for the leg above, planted the other way round: a verdict made unconditional has to
+	# call this same clean tree blind. If it does not, the ok above is a fixture agreeing and not a
+	# reading -- the shape H-0069 counts quiet SKIPs for.
+	alloc_verdict_control 'the clean read is a reading, not silence' "$alloc_work/ctrl-blind-always" \
+		's|if \[ -n "\$blind_why" \]; then|if [ -n planted ]; then|' \
+		"$blind_root/unit" DECISIONS.md D D-0002 loud \
+		'make the verdict unconditional and the clean tree is called blind too'
+
+	# Coverage: the shape `factory/factory.sh` journals once per activation as REFRESH-BLIND (H-0071)
+	# while the command answering inside the unit said nothing at all.
+	git -C "$blind_root/main" config remote.origin.fetch \
+		'+refs/heads/trunk:refs/remotes/origin/trunk' || return 0
+	alloc_blind_leg 'a narrow refspec is refused as blind' "$blind_root/unit" DECISIONS.md D D-0002 \
+		'fetches only' 'last refreshed' - \
+		'the refspec is named and the widen command printed, and the id is still D-0002'
+	alloc_verdict_control 'a narrow refspec is refused as blind' "$alloc_work/ctrl-no-coverage-arm" \
+		's|for arm in coverage clock|for arm in clock|' \
+		"$blind_root/unit" DECISIONS.md D D-0002 silent \
+		'drop the coverage arm and the same tree reads clear, so the leg above is the arm'
+	git -C "$blind_root/main" config remote.origin.fetch \
+		'+refs/heads/*:refs/remotes/origin/*' || return 0
+
+	# The clock: nothing wrong with the clone, the refs are just old. This is the shape #303 was -- a
+	# sibling wrote and pushed an entry in a window nobody in this tree had looked at since.
+	find "$blind_root/main/.git/logs/refs/remotes" -type f -exec touch -d '2 hours ago' {} + || return 0
+	alloc_blind_leg 'a stale union is refused as blind' "$blind_root/unit" DECISIONS.md D D-0002 \
+		'last refreshed' 'fetches only' - \
+		'2h past the 300s bound, with the age and the exact fetch to run in the sentence'
+	alloc_verdict_control 'a stale union is refused as blind' "$alloc_work/ctrl-no-clock-arm" \
+		's|for arm in coverage clock|for arm in coverage|' \
+		"$blind_root/unit" DECISIONS.md D D-0002 silent \
+		'drop the clock arm and the same aged tree reads clear, so the leg above is the arm'
+	# The bound is a knob, pinned on the fixture from the two legs above with nothing about the tree
+	# changed -- a widening of the bound, and the verdict is what moves.
+	alloc_clear_leg 'the bound is the knob, not the fixture' "$blind_root/unit" DECISIONS.md D D-0002 \
+		86400 'the aged tree reads clear at FACTORY_ID_MAX_AGE=86400, so the bound is what fired'
+	# The third coverage shape, on a checkout with no remote at all: both arms agree here (there is no
+	# origin and no record of ever contacting one), so the leg asks only for the reason a person can act
+	# on first. `$alloc_bleed` is the fixture the cross-repo leg above already answers at D-0004.
+	alloc_blind_leg 'a clone with no origin is refused as blind' "$alloc_bleed" DECISIONS.md D D-0004 \
+		'no origin remote' '' - \
+		'a checkout that has never had a sibling to learn from says so instead of answering quietly'
 
 	return 0
 }

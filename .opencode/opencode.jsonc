@@ -83,6 +83,17 @@
 					// .../pulls/217/requested_reviewers returns 201, so the ask is on the record without
 					// weakening the boundary. Recorded here, not just in the thread, so round six does
 					// not re-open it.
+					//
+					// Dated correction, 11 Nov (#310): the premise "no released gh has a --reviewer
+					// flag" is overtaken. `gh pr edit --help` at gh 2.46.0 (/usr/bin/gh) lists
+					// --add-reviewer and --remove-reviewer and its examples use them, so api is no
+					// longer the only transport in principle. The settlement does not move, because
+					// neither of the two reasons left depends on that premise: the flag cannot write
+					// on this account -- the CLI's pull-request update query still selects the retired
+					// projectCards field, so the call exits 1 and /requested_reviewers is unchanged,
+					// measured on #217 (H-0010, 4 Nov) and on #307 (11 Nov, #310) -- and a whole-line
+					// glob is method-blind, so a carve-out for one POST admits -X POST .../merge with
+					// it. The actor that asks is still the ungated poke.
 					"* pr review*": "deny",
 					// A push of a branch is expected and is how a tick's work survives it. These are
 					// the push shapes that destroy other people's work. Each one is written with a

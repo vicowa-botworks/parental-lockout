@@ -242,26 +242,32 @@ def main():
     # never after the artifact itself: `lock.png` is the file an operator quotes, and a refused frame
     # wearing that name is the ambiguity this folder refuses hardest (#222).
     frame = f"{ARTIFACT}@{cdp.WIDTH}.png"
+    # One disposal per refusal, decided in one place. The two handlers below are nested, so anything
+    # that raises INSIDE the first disposal -- the pointer sentence `capture_refused` prints after the
+    # note has already landed, on a stderr that has stopped taking writes -- reaches the outer handler
+    # as though the page had refused a second time, and the second disposal appends a second
+    # `refusals (1):` block whose sentence is the diagnostic's. #304 measured it; `cdp.SingleRefusal`
+    # is the fix shape that ticket names, held in cdp so the two single-frame drivers cannot mean two
+    # different things by "once".
+    disposal = cdp.SingleRefusal(FIXTURE, out, name, frame)
     try:
         with cdp.Capture(FIXTURE) as cap:
             try:
                 return capture(cap, name)
-            except SystemExit as exc:
+            except (Exception, SystemExit) as exc:  # a traceback is not an answer; a refusal is
                 # The handler is inside the `with` for one reason: `capture_refused` needs the browser
                 # this run opened, and `__exit__` closes it. A refusal is the only thing this driver
                 # ever says about the page, so the picture it is a sentence about has to be taken
-                # while the page is still up (#296).
-                cdp.refuse_single_shot(cap, FIXTURE, out, name, frame, str(exc))
-            except Exception as exc:  # a traceback is not an answer; a refusal is
-                cdp.refuse_single_shot(cap, FIXTURE, out, name, frame,
-                                       f"{type(exc).__name__}: {exc}")
+                # while the page is still up (#296). Both exception shapes go to the same sentence
+                # because `refusal_reason` is the one place that decides how a shape is stated -- the
+                # disposal must not depend on which handler happened to catch the page.
+                disposal.refuse(cap, cdp.refusal_reason(exc))
     except (Exception, SystemExit) as exc:
         # The fixture refused before there was a browser to photograph: no `lock-setup.sh` has run,
         # no daemon binary, a port somebody else is holding. The refusal and the stale-file sentence
-        # are still owed to the operator, and so is the note; there is simply no page to look at.
-        cdp.refuse_single_shot(None, FIXTURE, out, name, frame,
-                               str(exc) if isinstance(exc, SystemExit)
-                               else f"{type(exc).__name__}: {exc}")
+        # are still owed to the operator, and so is the note; there is simply no page to look at. And
+        # when the inner disposal is what raised, this is the arm that sees it -- and writes nothing.
+        disposal.refuse(None, cdp.refusal_reason(exc))
     # Every refusal lands here and the exit code is decided once, on the outside. It used to come
     # from the refusal helper raising, which also made the disposal on the line after every call to
     # it dead code -- and a disposal that never ran is how a refused run came to destroy the only

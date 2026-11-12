@@ -57,7 +57,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
-| `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. The row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
+| `delivered` | an **issue**: a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. A **branch** (#291): a merged pull request ran under that name into `main`, and the ref holds no content the trunk lacks. Either way the row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
 | `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
 
@@ -164,6 +164,37 @@ asked" from "asked and answered" -- measured, four pull requests had an empty li
 exists because a branch with commits and no pull request is invisible to every queue that reads
 issues and pull requests; the first run of this script found five, one of them seven commits deep.
 
+### Which unit a pass takes first (#307)
+
+Within a class the queue is oldest-first, and the key that decides it counts **up**, so it sorts
+descending: `factory_age` answers elapsed seconds since `first-seen`, so `sort -t$'\037' -k1,1n
+-k2,2nr -k3,3n` puts the longest-waiting unit first and the number breaks the tie. The key shipped
+ascending from `88848c5` until `H-0135`, which is `H-0007` written backwards -- the row stamped most
+recently went first. On a live queue that is not a fairness problem but a starvation one, because every
+pass mints a younger `first-seen` for whatever arrived since. Measured off `factory/log/supervisor.log`:
+the pass at 20:22:20Z on 11 Nov printed `NEXT unclaimed 303 age=0s` -- a unit its own stamping loop had
+written `first-seen` into one second earlier -- while #296 and #297, first seen at 16:13:25Z and 14,935s
+old, sat in the same rank; all five `unclaimed` rows were still open two hours later
+(`factory/triage.sh --table`).
+
+Nothing in the suite noticed for seven days, because the fixture stamps both of its units inside one
+second, and equal ages fall to the number tie-break -- which sends unit 900 first, the same answer the
+correct key gives. What surfaced it was a second boundary: CI run 43105189339 stamped 900, did the
+worktree lookup and the `gh` shims, and stamped 901 in the next second, so that pass dispatched the
+younger unit first and `…then starts a tick for unit B` went red (`quarantine at line 12, tick at
+line 8`) while the same fixture stayed green where the inter-stamp gap measures 3.8-7.9 ms. The
+boundary is not the bug; it was the only witness the fixture had. `factory/selftest.sh` now plants the two
+`first-seen` values rather than waiting for a boundary, asks the question in **both** polarities -- one
+polarity alone is also satisfied by a dispatcher that sorts on the number and never reads the age -- and
+retires the `r` in a control, so the ok means the direction rather than the tie-break.
+
+The sentinel is the one behaviour that changes on the way. A unit with no `first-seen` answered
+999999999, which used to sort last and now sorts first -- what `factory_age`'s own comment has always
+promised ("never" means "ready"). It cannot reorder a queue whose ages are real, because the loop that
+builds the rows stamps every workable unit before the loop that ranks them reads the age; the only paths
+that skip a stamp are a dry run and a ledger that will not take a write, and both skip it for *every*
+row, so there the rows tie on the sentinel and the number decides exactly as before.
+
 ### What a branch has to hold to be offered (#291)
 
 Commits are not content. `rev-list --count` moves by one when `git commit --allow-empty` moves the
@@ -195,7 +226,10 @@ rule rather than the one-liner, and each has legs in `factory/selftest.sh`:
 What is dropped is said out loud every pass that still sees it -- `triage: 2 branch(es) ahead of main
 hold no content the trunk lacks, so none is offered: br-empty br-merge-empty` -- on stderr rather than
 as a row, because a row is an offer and there is nothing to offer, and because a class that quietly
-stops printing rows is the failure `factory.sh` calls "a queue nobody can audit". The dangerous edit here
+stops printing rows is the failure `factory.sh` calls "a queue nobody can audit". Since #291 the
+sentence carries only the refs nothing else can account for: a content-free ref that a merged pull
+request names is reported by number as a `branch delivered` row instead (below), and the branch is left
+out of this tally so one pass does not describe one ref twice in two sentences that can disagree. The dangerous edit here
 is one character: "skip branches with no content" becomes "skip branches" and every real stranded branch
 leaves the queue with the fake ones. That is why the fixture plants `br-work` and `br-delete` beside
 `br-empty` and demands they stay, and why a control deletes the content test and demands the empty
@@ -207,6 +241,50 @@ against GitHub and this machine's refs at 13:21Z on 11 Nov moved no row: all eig
 rows carry content (58, 15, 14, 6, 4, 4, 2 and 1 files) and none was empty. The live instance of the
 defect, `issue-249`, had acquired a real commit of its own -- H-0130's -- two hours before this was
 written. The fix is for the next one.
+
+**A ref whose pull request merged reports the delivery (#291, ask 2).** GitHub deletes a branch when its
+pull request merges only if the repository asks it to; this one does not, so the ref survives -- usually
+at zero commits ahead, and often as nothing but the `--allow-empty` checkpoint that Step 3 takes before a
+judgement call. Such a ref belongs to neither half of the classifier. It is level with the trunk, so the
+arm above never asks it a question; and the scan that reports a delivery is keyed to `kind == issue`. It
+was continued past in silence, which is the sentence #291's last comment names as still owed after
+PR #293: "`issue-249` is now silent, which is the other half of #291: *a merged pull request's leftover
+ref must be reported as delivered, not silently dropped*". The arm now reads the newest merge that ran
+under the name off the `merged_json` the pass already holds -- `baseRefName == FACTORY_BASE`, so a pull
+request merged into another branch delivers nothing (H-0103's stacked chain) -- and emits
+
+```
+branch  issue-249  delivered  merged PR #293 on `issue-249` at 2026-11-12T18:29:26Z, the ref holds no content the trunk lacks, and 2 merged pull requests ran under that name (window 100)
+```
+
+The row is bought by the same content question the arm above asks, and that conjunct is the whole design:
+a name is evidence and never a verdict (H-0108, H-0148). `issue-301` is the counter-example sitting on
+this repository -- 4 files across 2 commits ahead of `main`, and PR #312 merged under that name at
+17:37:23Z on 12 Nov -- and an arm that stopped at the name reports it `delivered`, after which no queue
+offers its real work again. Three controls hold the three ways that happens: the merged test inverted
+(the silence returns, and the tally names the ref again), the base filter off (a stacked branch is buried),
+the content conjunct off (`br-reopened`, merged once and re-cut with a file the trunk lacks, is buried).
+No new supervisor arm was needed and none was added: its `delivered` arm keys on the class, so the row is
+logged as `DELIVERED branch/issue-249 … reported, not worked` and nothing is dispatched or closed -- three
+legs run the supervisor over a fixture whose merged pull request sits on `issue-902` and read that line,
+the absence of a tick, and the absence of any write to the queue.
+
+Measured against GitHub and this machine's refs at ~21:00Z on 12 Nov, both ends from the same tree: **32
+rows before the change, 69 after**. The 37 that appear are all `branch delivered`, every one of the 11
+`branch_without_pr` rows is still offered, and the tally falls from three refs to two -- the one of them
+a merged pull request names is now reported by number. Thirty-seven is what #291's own census predicted
+(34 leftover refs, 33 silent, counted 11 Nov), and it is also the price: a supervisor pass wrote 13
+journal lines the day before this paragraph and writes 50 after it. Nothing in the harness bounds that
+file or the transcripts beside it -- `log()` appends to `$FACTORY_LOG/supervisor.log`
+(`factory/common.sh:340`) and no code rotates, truncates or prunes it, nor the `<stamp>.<unit>.log`
+transcripts one per tick (`factory/factory.sh:766`). Measured in the primary checkout at 22:05Z on
+12 Nov: **20 MB across 100 files** under `factory/log/`, oldest 10 Nov, individual transcripts up to
+480 KB, `supervisor.log` at 2,397 lines. With 19, 47 and 20 passes journalled on 10, 11 and 12 Nov,
+this branch adds roughly 700 to 1,700 lines a day to a file nothing prunes. Filed as its own ticket.
+
+Two claims in the ticket measured false and are not implemented: an empty ref at zero ahead is not
+`branch_without_pr` (the arm above refuses it, #292), and its census of 34 leftover refs was 37 by the
+time it was counted.
 
 ### When the issue half knows a pull request exists (#291)
 
@@ -391,7 +469,34 @@ Two things travel with the column. It is quoted material, not instructions: it a
 instructions, so the instruction says so around it and names the authorities a reviewer cannot grant.
 And an empty column on a review the classifier read as non-empty is a transport failure, not an empty
 review -- the tick is told to read the body itself, and told that if it is not there it stops with
-`needs-human` rather than writing the fix it guessed.
+the escalation label (`factory/escalation-label.sh` prints it) rather than writing the fix it guessed.
+
+### What an escalation leaves on the artifact, and what it does not
+
+Four classes of decision are not a unit's to make -- a third-party dependency, security or
+tamper-resistance semantics, publishing, deleting data -- and a unit that meets one stops. What it
+leaves behind is three things in a fixed order, and the order is the mechanism: the comment naming what
+is ambiguous; the entry with `Chose: escalated` and `Awaiting:` **committed** into the decision log; and
+only then the marker, applied with the name read out of `factory/common.sh` through
+`factory/escalation-label.sh`, then read back from GitHub in the same breath as anyone claims it
+landed.
+
+The order is what lets the marker be wrong. It is wrong today: #311 asks whether to create the name the
+instruction used to carry, or point the instruction at a label this repository actually has -- it has
+eighteen, and that is not one of them -- so until a person answers, the write is refused. Measured 12 Nov
+on gh 2.46.0, a probe of exactly that shape -- `gh issue edit 311 --add-label zzprobe-does-not-exist` --
+printed `'zzprobe-does-not-exist' not found` and `failed to update 1 issue` for exit 1, and the labels
+read back unchanged. With the record committed first, a refusal like that costs one sentence in
+`NEXT:`. With the label in the middle of the step, under `set -e`, it cost the record: the comment
+written, the marker absent, `Awaiting:` never committed, and an escalation that reads exactly like a unit
+that quietly gave up (#311, #315).
+
+What a reader may conclude from the marker is that a named human owes a decision on that artifact. What
+no reader may conclude from it is that the unit is parked or released. `factory/triage.sh` reads no
+label at all -- measured 12 Nov, `grep -c label factory/triage.sh` answers 0 -- so the classifier's two
+issue classes stay `unclaimed` and `delivered`, and the marker is a signal for a person and nothing
+else. Changing that later means moving the queue's decisions into configuration no gate reads, which is
+why a leg in `factory/selftest.sh` refuses the word appearing anywhere in the classifier.
 
 ## Installing it
 
@@ -897,12 +1002,84 @@ current by the time the allocator runs in a tick's shell. The command an operato
 `git fetch --prune origin main` updates the trunk only, leaves the allocator on its stale answer, and
 still prints a line with `->` in it. A sibling's ids are on the branch it pushed.
 
+The union has two halves and they mean opposite things, so the read separates them and says which one
+raised the ceiling. A ceiling some ref carries is a sibling that took the number. A ceiling only the
+working file carries is the entry you are writing, and the id printed above it is what a *second* entry
+in the same tick would take. That distinction is not academic, because the re-read is scheduled for the
+one moment the second case is certain: immediately before the entry commit, the heading is already in
+the file. Measured in `wt/issue-320` on 12 Nov against `factory/DECISIONS.md` (git 2.53.0), the
+single-maximum read answered `H-0145` with the log as committed and `H-0146` after an uncommitted
+`## H-0145` was appended -- and no ref anywhere held that heading: `git grep -c` over `refs/heads` and
+`refs/remotes` found the string in one sibling's prose as a citation and in no heading. A session handed
+the bare `H-0146` has two reactions and both cost the log: yield to the phantom and leave a gap at 145
+that no entry explains, or stop trusting the allocator at the last guard before a duplicate id. So the
+ceiling is attributed on stderr, as `PENDING`, naming the heading it is standing on and the ceiling the
+refs really hold. stdout is unchanged and the status stays 0, for the reason the script's own header
+gives -- a refusal in front of a session sends it back to numbering by eye -- and the note goes quiet on
+its own once the entry is committed, because `HEAD` joins the union and the two maxima agree. What
+discriminates is therefore the **absence of the note**, never the emptiness of stderr: since PR #307
+every answer carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it, so there
+is no answer that leaves stderr empty. Measured at `487d572` on one fixture (git 2.53.0), the shipped
+allocator writes 460 bytes with the tree clean, 855 with the caller's own heading uncommitted, and 460
+one commit later -- never zero, so emptiness is not a reading anything can take. (A byte count carries
+the fixture's path in the refresh line, so it moves a byte or two between fixtures; the claim is that
+none of the three is zero.) A moved ceiling with
+**no PENDING line** is therefore the collision, and the four steps below are what to do with it.
+
+What the note's absence does not say is *whose* ref the ceiling sits on, and the two answers differ in
+what they owe you. A ceiling a sibling left on `refs/heads` is the collision: you yield. A ceiling your
+own committed entry put on `HEAD` is durable, and durable includes yours -- the next id is there to be
+taken, and the entry already written is not the one to move. Measured on one fixture the two are
+indistinguishable on the wire: `H-0042`, the note absent, byte-identical stderr, whether a sibling's
+branch or your own commit carries `H-0041`. So the third case is told from the collision by what you did
+one commit ago and not by the allocator's output, which is why it is written down rather than left to be
+inferred. `factory/selftest.sh` pins both directions and plants one per direction -- the note deleted,
+which puts the phantom back, and the note printed whatever the ceiling, because a marker on every answer
+is a marker that gets read once and then ignored -- and one further leg pins this discriminator's
+wording across the skill, this guide and the script, because for one revision the two rules for this one
+signal sat fourteen lines apart in the same file and no leg could see the drift.
+
 Two things the fetch cannot do. It does not make the id *reserved*: two ticks that allocate in the
 same second still agree, and only the re-read immediately before the entry commit narrows that. And it
 is bounded, so on an origin that accepts the connection and never answers the activation proceeds on
 stale refs and says so -- `REFRESH-TIMEOUT`, with how old `origin/<trunk>` is -- rather than holding
 `factory/run/lock` while the queue freezes behind a read. A clone whose refspec names one branch
 cannot learn a sibling's branch at all, and the activation says that too, as `REFRESH-BLIND`.
+
+That activation is one fetch at one moment, and the unit's own re-read can be an hour later. `D-0058`
+was written twice on 11 Nov for exactly that reason, on three timestamps worth having straight:
+`06b7c29` (issue-296) committed its entry at 11:32:24-0500; the second unit's own `pre-D-0058` checkpoint
+`4537b9d` (issue-297, PR #300) is dated 12:10:04-0500 -- 2260s later, and that is the moment its
+allocator ran, because the skill takes the id immediately before the checkpoint; `1d3470b` carried that
+unit's entry in at 12:14:46-0500, 2542s after the first entry. #303 pairs 12:10:04 with `1d3470b`, so the
+"38 minutes" the incident is cited by and the 42min22s a re-measure of the two entries gives are both
+true, of different pairs. The tree it happened in was one where `git show-ref | grep 297` answers
+nothing, and the allocator was right about every ref it could see and silent about the fact that that
+was all it could see (#303). So every call now prints one line on stderr beside the id: `REFRESH` with
+the age of the union behind the answer, or `REFRESH-BLIND` with the reason a sibling is invisible from
+here and the exact refresh that would close it. stdout stays the id alone at exit 0 either way, because
+a refusal in front of a session is the failure two sections above already records -- an allocator that
+will not answer sends a session back to numbering by eye. The clock is the newest of three sources,
+because none of the three is always there: measured 11 Nov in the tree this was written in, this
+worktree's `FETCH_HEAD` was 145s old, the common dir's 202s, and the newest `refs/remotes` reflog 1724s.
+A `git clone` writes no `FETCH_HEAD` at all and `git worktree add` writes none in the new tree, so a
+clock built on `FETCH_HEAD` alone calls every fresh unit tree blind -- and a verdict that always fires
+is read as noise, which is also why the ticket's own suggested test (no
+`refs/remotes/origin/<the branch you are on>`) was measured and not used: dispatch pushes no unit
+branch, so it is true of every allocation this harness has ever made.
+
+What the marker buys is a procedure, and `factory/selftest.sh` pins the procedure rather than the
+promise. One sentence, in the skill and here: `REFRESH-BLIND` means fetch and re-read before the entry is
+committed -- run the `git fetch --prune origin` the line names, then write the entry with the number that
+comes back. Five counted legs and four controls cover it: the two arms -- a refspec that names one
+branch, and refs older than the bound -- each on a fixture that trips that arm alone and each with a
+control deleting just that arm from the arm list; a clean read pinned to stay quiet, with the control
+that makes the verdict unconditional so the same tree is called blind too; the bound moved instead of
+the tree; and a checkout with no origin at all. The limit is pinned too, on #303's own shape: a clone
+seconds old whose sibling pushed a second ago reads *clean* and answers `D-0002` while `origin` already
+holds `D-0007`. No offline read can see that push, so `FACTORY_ID_MAX_AGE` (300s) is how wide a window
+the command refuses to be silent about -- a risk window chosen from the time a sibling needs to write an
+entry and push it, not a reservation -- and the merge stays the arbiter below.
 
 `scripts/check-decisions.py` remains the last-resort gate for the consequences: it refuses a repeated
 id in one log and one id claimed by both logs, but it is deliberately offline and cannot reserve an
@@ -972,7 +1149,9 @@ section will ever find.
 
 ## Configuration
 
-Everything is an environment override with a default, in `factory/common.sh`.
+Everything is an environment override with a default, in `factory/common.sh` -- except
+`FACTORY_ID_MAX_AGE`, which defaults inside `factory/next-decision-id.sh` so that the allocator keeps
+answering in a shell that has never sourced the harness.
 
 | variable | default | what it decides |
 |---|---|---|
@@ -984,6 +1163,7 @@ Everything is an environment override with a default, in `factory/common.sh`.
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
 | `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on the one `git fetch` an activation does (H-0075); hit it and the pass dispatches on the refs it has, and says so |
+| `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |

@@ -167,8 +167,24 @@ When you reach a decision point, do this instead, in this order:
    standing in. Never take the highest heading in
    the current file as the whole answer: a sibling branch's entry is already a durable citation and a
    merge target even though this checkout has never seen it (#253). Re-run the allocator immediately
-   before the entry commit. It is a read, not a reservation, and the second read sees only what moved
-   **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
+   before the entry commit, **and take that re-read before you write the entry, not after it**. The
+   union includes the working file, so once your own heading is in the log the re-read counts it and
+   answers one above the id you hold: measured in `wt/issue-320` on 12 Nov, `H-0145` on the committed
+   log and `H-0146` with an uncommitted `## H-0145` in the file and no ref holding it. That is not a
+   collision, and the allocator says so -- a `PENDING` line on stderr names the heading that is in your
+   working file and on no ref this clone can see, and the id the refs actually top out at. So read a
+   moved answer by its stderr: **`PENDING` naming the id you already hold means nothing was taken** --
+   keep that id, and do not renumber into a gap `docs/factory.md` says must never be inexplicable. A
+   higher answer with **no PENDING line** is the real thing: some ref carries your id, and you yield the
+   way that guide says. Read the note's absence, never the emptiness of stderr. Since PR #307 every
+   answer carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it, so there is
+   no answer that leaves stderr empty -- measured at `487d572` on one fixture, 460 bytes with the tree
+   clean, 855 with your own heading uncommitted, 460 one commit later. Nor would silence discriminate if
+   something produced it: a ceiling a sibling left on a ref and a ceiling your own committed entry put
+   on `HEAD` print the same stderr, both without a note. The note goes quiet by itself once the entry is
+   committed, because `HEAD` joins the union -- and durable includes yours, so a second entry in the
+   same tick takes the next id instead of yielding the one already written.
+   It is a read, not a reservation, and the second read sees only what moved **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
    `refs/heads` (measured: `D-0002` before the sibling commits, `D-0010` after, with no fetch), while
    a sibling that pushed from a different clone does not, because an unfetched push never moves
    `refs/remotes` (measured: the same call answers `D-0002` while origin already holds `D-0007`, and
@@ -180,6 +196,18 @@ When you reach a decision point, do this instead, in this order:
    a sibling pushed. When the journal holds `REFRESH-TIMEOUT` or `REFRESH-BLIND` for your tree, that
    activation dispatched on refs it could not check, and the re-read immediately before the entry
    commit is the only thing left between you and a duplicate id.
+   Read the stderr line the allocator prints beside the id, not only the id. It says `REFRESH` with the
+   age of the union behind the answer, or `REFRESH-BLIND` with the reason a sibling cut from another
+   clone is not in that union at all -- a refspec that fetches one branch, or refs older than
+   `FACTORY_ID_MAX_AGE` (300s). `REFRESH-BLIND` means fetch and re-read before you write the entry: run
+   the `git fetch --prune origin` the line names, then take the number that comes back. That is the
+   window #303 measured: two units were handed `D-0058` 2260s apart -- `06b7c29` wrote its entry at
+   11:32:24-0500 and the second unit took its `pre-D-0058` checkpoint `4537b9d` at 12:10:04-0500, the
+   moment its allocator ran -- because that allocator had a true answer about refs it could not see and
+   said nothing about them. The marker
+   never changes the id you were handed; it changes whether you may trust it. A clean read is not a
+   promise either -- a sibling that pushed since the last refresh is invisible to any offline read -- so
+   the merge stays the arbiter and the yield rule in `docs/factory.md` still applies.
 2. **Checkpoint next**, always before the decision, never after:
    `git commit --allow-empty -m "chore(checkpoint): pre-D-<NNNN> <why>"`. That commit is the
    rollback target, and it is worthless if it is taken after the change.
@@ -217,15 +245,45 @@ Some decisions are not yours. They are exactly these:
   `ctx_search`/`DECISIONS.md` before assuming a choice is open;
 - publishing a release, deleting data, or touching another repository.
 
-Then **escalate and stop this unit**:
+Then **escalate and stop this unit**, in this order. The order is the mechanism, not ceremony: the
+record must be committed before the write that can be refused, and the write must be read back before
+anything is allowed to claim it happened (#1180).
 
 ```bash
+# 1. the comment, and the entry with `Chose: escalated` and `Awaiting:` naming the decision, committed.
+#    An escalated entry carries `Checkpoint: n/a` -- it decided nothing -- so there is no checkpoint
+#    commit to take first.
 gh issue comment "$ISSUE" --body "…what is ambiguous, what each option costs, what you would
 recommend, and the exact command to proceed…"
-gh issue edit "$ISSUE" --add-label needs-human
+# write the entry into the log the ticket belongs to, then:
+git add "$LOG"          # DECISIONS.md, or factory/DECISIONS.md for harness work
+git commit -m "docs(decisions): escalate D-NNNN (awaiting a human)" -m "Decision: D-NNNN"
+
+# 2. the marker, whose name comes out of its one home.
+gh issue edit "$ISSUE" --add-label "$(factory/escalation-label.sh)"
+
+# 3. the read-back, in the same breath as the claim. Same read on a pull request:
+#    `gh pr view "$PR" --json labels`.
+gh issue view "$ISSUE" --json labels -q '[.labels[].name] | join(",")'
 ```
 
-and write the same into `DECISIONS.md` with `Chose: escalated` and `Awaiting:` naming the decision.
+Step 3 decides what you may say. If the name is not in that output the marker is not on the artifact,
+so say that on the issue, say it again in `NEXT:`, and stop. `gh` fails the write and exits 1 when the
+name is not one the repository has -- measured 12 Nov on this box's gh 2.46.0:
+`gh issue edit 311 --add-label zzprobe-does-not-exist` printed `'zzprobe-does-not-exist' not found` and
+`failed to update 1 issue` for exit 1, and `gh issue view 311 --json labels` read back
+`bug,area:ops,blocked`, unchanged -- and #311 has not yet said what the name *is*, so a refusal is a
+result you report and not a step to retry harder. Doing the label last is what makes that refusal cost
+one sentence instead of the record: under `set -e` a middle-of-the-step refusal used to kill the
+escalation with the comment written, the label absent, and `Awaiting:` never committed, which is
+indistinguishable from a unit that quietly gave up (#311, #315).
+
+Never invent a label name. Not by typing one from memory, not by substituting the nearest label that
+exists, not with `gh label create`, and not by skipping the marker on the grounds that the comment is
+enough. The name is `factory/escalation-label.sh`'s to print and #311's to settle; a reported refusal is
+the honest end state of a step whose name is still owed, while an invented label is a marker that reads
+as settled. Nothing outside that script's output may reach `--add-label`.
+
 Do not pick a side and do not open a pull request for half of it. An escalated unit is an honest
 end of a tick, not a failed one.
 
@@ -309,7 +367,7 @@ writing the verb rule correctly the first time is the whole obligation. If you a
 phrase will register, do not write it: use `Refs #10`, and say in the pull-request body what is still
 unfinished.
 
-Requesting the review is **not yours to do**, and the reason is measured, not stylistic: D-0010 found
+Requesting the review is **not yours to do**, and the reason is measured, not stylistic: H-0010 found
 `gh pr edit --add-reviewer` fails on this account with nothing but a `Projects (classic) is being
 deprecated` line on stderr while `/requested_reviewers` stays empty -- a verb that exits 1 and looks
 like it worked is how "nobody ever asked" came back after being fixed. The supervisor owns that path
@@ -321,6 +379,21 @@ What you owe the review is the rest of it: a body that says what changed and quo
 instruction that made the work non-obvious. The four pull requests that once sat in `REVIEW_REQUIRED`
 for three days with an empty reviewer list are why the queue asks on its own now; a tick that
 rediscovers that fact is a tick spending its ceiling on a command that cannot succeed.
+
+**When the configured target is the wrong person, redirecting the ask is still not yours.** A unit
+has no verb for it, and the narrow one that would give it one was weighed and withheld: a whole-line
+allow for `gh api -X POST …/requested_reviewers` is method-blind, so the same pattern admits
+`-X POST …/merge` -- the call `* pr merge*` exists to stop -- and that is how it was settled, in the
+comment on the denial in `.opencode/opencode.jsonc` (`efa4e29`). Widening that table is a permission
+grant on the harness, which `AGENTS.md` puts outside a unit, and `AGENTS.md` now names the component
+that does the asking so the rule is not read as yours again. So the in-band verb is one sentence on
+the pull request naming the keys the poke reads -- `FACTORY_REVIEWER_TEAM`, a team slug, or
+`FACTORY_REVIEWER`, a login (`factory_review_target`, `factory/common.sh`) -- and whoever installed
+the timer retargets its environment. Say it once, and do not call the ask missing: the supervisor asks
+on its own schedule whenever the row reads `needs_reviewer` (no verdict that still stands and nobody
+holding a request -- `docs/factory.md`), whatever your body says, and the poke does not un-ask what it
+did not ask (H-0117), so whoever holds the request was placed there by that config or by a person who
+knew better than the queue.
 
 ### The push may have spent the approval. Read the review state back.
 
@@ -399,7 +472,11 @@ outcome this system produces: it is indistinguishable from a machine that is wor
 
 ## What is never in a tick
 
-- A new third-party dependency, ever, without a `needs-human` comment first (#856).
+- A new third-party dependency, ever, without escalating first (#856) -- the entry, the comment, the
+  label, and the read-back that says the label landed.
+- A label name of your own choosing. `--add-label` takes only what `factory/escalation-label.sh`
+  prints, and `gh label create` is not a tick's move: what the escalation marker is called is #311's
+  open question, and a label you invented reads as a decision somebody made (#315).
 - `git checkout <file>` / `git restore` to undo a probe -- it reverts to HEAD and takes the whole
   uncommitted change with it. Keep a `/tmp` backup and restore with `cp`, taken **after** the fix.
 - Committing `plock`. `git ls-files | grep -x plock` must print nothing before any `git add -A`.
