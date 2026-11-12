@@ -280,6 +280,13 @@ def refuse_single_shot(cap, mode, out, name, frame, why):
     stale file it did not write, the frame it did take, the count of what is in the directory.
     `report_refusal` and `capture_refused` both report and never raise, because this runs from inside
     a refusal handler and a diagnostic that dies replaces the real cause with the diagnostic's own.
+
+    That rule is a wish about a `print`, and a `print` can die: a closed stderr, an `EPIPE` from
+    `| head`, and the sentence after the note is on disk raises `OSError`. So the rule is not left to
+    good behaviour -- `SingleRefusal` below is what makes a disposal that raises unable to be refused
+    a second time, and `pages.py --self-test`'s rule "a refusal whose own report raises is disposed
+    of once" is what keeps it true (#304 measures the broken version: two `refusals (1):` blocks in
+    one `REFUSED.txt`, the second one quoting the diagnostic instead of the page).
     """
     keep = refused_dir(mode)
     report_refusal(name, why)
@@ -300,11 +307,102 @@ def refuse_single_shot(cap, mode, out, name, frame, why):
     else:
         # The refusal came from the fixture, before there was a page to photograph. "0 frame(s)" would
         # be a true sentence that answers the wrong question -- the operator is looking for a picture
-        # and is owed the reason there is none, not a zero.
-        print(f"  no frame could be taken, so {keep} holds none: this run was refused before it had "
-              f"a page in a browser to photograph. {REFUSED_NOTE} is there with the refusal and the "
-              f"conditions; nothing was written to {out}", file=sys.stderr)
+        # and is owed the reason there is none, not a zero. The reason has TWO cases though, and the
+        # sentence used to name only one of them: `capture_refused` reports a failed photograph and
+        # returns None instead of raising, so an empty drawer also means the page WAS up and the
+        # browser is what failed. Measured 11 Nov with the fake session refusing one screenshot: the
+        # transcript told an operator whose browser had just answered a page that it "was refused
+        # before it had a page in a browser to photograph", which sends them to `lock-setup.sh` for a
+        # websocket problem. `cap is None` is the fixture, and nothing else -- which is true of these
+        # two drivers only because `SingleRefusal` suppresses the retry: the outer arm also disposes
+        # with `cap=None`, and before #304 that second call reached this same sentence for a run that
+        # had a live browser in its first attempt.
+        why_none = ("this run was refused before it had a page in a browser to photograph"
+                    if cap is None else
+                    "the page was up and the photograph of it is what failed -- the line above this "
+                    "one is what the browser answered")
+        print(f"  no frame could be taken, so {keep} holds none: {why_none}. {REFUSED_NOTE} is there "
+              f"with the refusal and the conditions; nothing was written to {out}", file=sys.stderr)
     return kept
+
+
+def refusal_reason(exc):
+    """The one sentence a refusal is stated in, from either exception shape a driver catches.
+
+    `SystemExit` already carries the operator's sentence, so it is printed as written; anything else
+    has to name its type, because a bare `the connection was reset` in `REFUSED.txt` is a `RuntimeError`
+    or an `OSError` and the difference is the diagnosis. Both single-frame drivers catch the two shapes
+    in two nested handlers and now a third time in the outer one, so six call sites used to spell this
+    expression out -- and a note whose sentence depends on which handler happened to catch the page is
+    the same drift `refusal_note` was moved here to stop.
+    """
+    return str(exc) if isinstance(exc, SystemExit) else f"{type(exc).__name__}: {exc}"
+
+
+class SingleRefusal:
+    """One disposal per refusal for a driver that photographs one page, decided in one place.
+
+    `lock.py` and `testlock.py` catch their refusal twice, and they have to: the inner arms sit
+    inside the `with` because `capture_refused` needs the browser this run opened, and the outer arm
+    catches `Exception` as well because a fixture that refuses before a browser exists still owes the
+    operator the note and the stale-file sentence. Nested handlers mean one more thing, though --
+    anything that raises *inside* the first disposal is caught by the outer arm and read as a second
+    refusal. Measured 11 Nov on `origin/main` at `1e31cac`, driving the real `lock.py` `main()` with a
+    faked browser and a stderr that dies once (the pointer sentence `capture_refused` prints after the
+    note has already landed): `REFUSED.txt` came back with two `# What this run refused` headers and
+    two `refusals (1):` blocks, the second block's sentence was `OSError: [Errno 9] Bad file
+    descriptor` rather than the page's, `keep_refused` had run twice against a drawer holding one
+    frame, and the last thing the operator read was a refusal of the diagnostic. #304.
+
+    So this object holds the flag the outer arm checks, and it lives here rather than in each driver
+    for the reason #296 moved the note into `refusal_note`: the two drivers are one shape, and a rule
+    written twice is a rule one of them can stop meaning.
+
+    The flag is set BEFORE the call, never after. A disposal that died is still a disposal -- it
+    wrote the note and moved the stage, and what killed it was its last sentence -- so the retry is
+    the thing being refused, not something to be earned by a clean exit. A driver that wants to know
+    whether it was refused reads `disposed`; nothing else in the package does.
+    """
+
+    def __init__(self, mode, out, name, frame):
+        self.mode = mode
+        self.out = out
+        self.name = name
+        self.frame = frame
+        self.disposed = False
+
+    def refuse(self, cap, why):
+        """Dispose of this run once, however many handlers its refusal passes through.
+
+        Returns what `refuse_single_shot` returned on the one call this makes, and None on every call
+        after it. On those, `why` is no longer a refusal -- it is a diagnostic about the report -- so
+        it is reported as one, and the sentence is chosen from what is actually on disk rather than
+        from the flag: a disposal that died in its FIRST print never wrote the note, and telling the
+        operator that a note exists which does not is the same invention in the opposite direction.
+        Measured 11 Nov on the page arm with the sink dying on `report_refusal`'s headline: `rc 1`, no
+        `REFUSED.txt`, the drawer never created, `--out` untouched.
+
+        The failed disposal is not retried when it wrote nothing either. A stderr that refused one
+        write refuses the retry's first print as well, and that second death lands in the outer
+        handler with nothing left to catch it -- a traceback over a run that had already decided to
+        return 1. Saying what is missing costs nothing and cannot fail twice.
+        """
+        if self.disposed:
+            note = op.join(refused_dir(self.mode), REFUSED_NOTE)
+            if op.isfile(note):
+                print(f"  this refusal was already disposed of: the report about it raised ({why}), "
+                      f"and a second disposal would append a second block to {note} for one "
+                      f"refusal. {note} holds the one note this run wrote, and nothing was "
+                      f"appended to it.", file=sys.stderr)
+            else:
+                print(f"  this run's refusal was disposed of once already, and that disposal wrote "
+                      f"nothing: the report about it raised ({why}) before {REFUSED_NOTE} existed. "
+                      f"There is no {REFUSED_NOTE} for this refusal and it will not be retried on a "
+                      f"stderr that has already refused one write; anything this run staged is still "
+                      f"in the stage, and nothing was written to {self.out}.", file=sys.stderr)
+            return None
+        self.disposed = True
+        return refuse_single_shot(cap, self.mode, self.out, self.name, self.frame, why)
 
 
 def fixture(name):
