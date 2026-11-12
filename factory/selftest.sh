@@ -3519,6 +3519,15 @@ proc_rank_stamp() { # <ledger-id> <seconds-ago> -> a `first-seen` that old, plan
 	# stamp the row itself. The id is the kind and the number -- triage's first column is `kind`, so the
 	# dispatcher's ledger key is `issue:900`. Planting the class-shaped `unclaimed:900` instead writes a
 	# file nothing reads, which is the mistake factory.sh's own ranking comment names.
+	#
+	# Two ages planted here have to be further apart than the clock that reads them. `factory_age` counts
+	# whole seconds (`date -u +%s`, common.sh:923) and the ranking loop gives every row its OWN call
+	# (factory.sh:1197), so a pair planted one second apart comes back EQUAL whenever the two calls
+	# straddle a second boundary -- and `proc_older_first` reads equal as a failure at :3569. Measured on
+	# the shipped read path (the two calls, the shipped `factory_class_rank` and the re-serialise between
+	# them, 10.5ms a trial): 2 ties in 300 at 2s/1s. A pair planted two seconds apart cannot be tied by a
+	# straddle, because one boundary moves one age by exactly 1s -- it would take a 2s stall between two
+	# key reads to do it, against a measured gap under 10ms. 0 ties in 300 at 3s/1s, same harness.
 	printf '%s\n' "$(date -u -d "-${2} seconds" +%Y-%m-%dT%H:%M:%SZ)" >"$proc_stash/$1.first-seen"
 }
 proc_rank_next_age() { # <journal> <key> -> the `age=` the pass printed for that unit; empty if it never ranked one
@@ -3574,13 +3583,20 @@ proc_older_first() { # <900|901> -> that unit was dispatched first AND the pass 
 	fi
 	return 0
 }
-proc_rank_run old-first 2 1
+# The two polarities are not equally exposed, and the difference is read order, not luck: the fixture's
+# queue is [900, 901] (:2940, :2944), so the ranking loop reads 900's age first in BOTH legs. When the
+# older row is the one read SECOND -- `young-number`, where 901 is the old one -- a straddle widens the
+# gap instead of erasing it, and 0 of 300 trials tied at the shipped 1s/2s. When the older row is read
+# FIRST -- `old-first`, and the retired-key control, which plants the same pair -- a straddle equalises
+# it. Both pairs are now 2s apart so neither leg depends on which row the queue happens to lead with,
+# and so a fixture that later grows a row in front does not quietly move the exposure somewhere else.
+proc_rank_run old-first 3 1
 proc_leg 'the older unit is dispatched first' \
-	'A stamped 2s ago ticked before B stamped 1s ago, and the NEXT ages say so' proc_older_first 900
+	'A stamped 3s ago ticked before B stamped 1s ago, and the NEXT ages say so' proc_older_first 900
 
-proc_rank_run young-number 1 2
+proc_rank_run young-number 1 3
 proc_leg '…and the older one is not the lower number' \
-	'B stamped 2s ago ticked before A stamped 1s ago -- the age decides, not the key' proc_older_first 901
+	'B stamped 3s ago ticked before A stamped 1s ago -- the age decides, not the key' proc_older_first 901
 
 # proc_mutate_sort -> the fixture's factory.sh with the age key put back the way it shipped until #307:
 # `-k2,2nr` becomes `-k2,2n`, one character, on the one line that ranks. The anchor carries the key's
@@ -3605,7 +3621,11 @@ proc_mutate_sort() {
 	return 0
 }
 proc_new rank-sort-retired
-proc_rank_stamp 'issue:900' 2
+# The same 2s-apart pair as `old-first`, and the same exposure: this plant is read 900-then-901, so at
+# 2s/1s a straddle made the two ages equal and the retired key then won the NUMBER tie-break with 900 --
+# which trips the third check below and reddens this control for a reason that has nothing to do with
+# the `r`.
+proc_rank_stamp 'issue:900' 3
 proc_rank_stamp 'issue:901' 1
 proc_mutate_sort || proc_sort_planted=0
 proc_plant

@@ -5528,3 +5528,91 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   where it is until a person reads it; nothing here deletes it. Not one of the four classes a tick must
   escalate: no dependency added (`go.mod` untouched), nothing published, nothing deleted, no merge, no
   write to any pull request beyond this unit's own, and no change to what a `deny` refuses.
+
+## H-0136 · The queue-order legs planted their stamps one second apart while the age is read by a one-second clock
+
+- Question: `#307`'s review found that the three legs `H-0135` cut in the same pass plant their
+  `first-seen` stamps exactly one second apart -- `proc_rank_run old-first 2 1`,
+  `proc_rank_run young-number 1 2`, and `control: the retired key ranks youngest`'s
+  `'issue:900' 2` / `'issue:901' 1`. The ages are not planted, though. Each row's age is read inside
+  the ranking loop by its own `factory_age` call (`factory.sh:1197`), whose resolution is one whole
+  second (`date -u +%s`, `common.sh:923`). When the two calls straddle a second boundary the ages come
+  back **equal**, `proc_older_first` reads equal as a failure (`[ "$aw" -le "$ao" ]`,
+  `selftest.sh:3569`), and the same tie drops dispatch to the number tie-break -- which is the third
+  check in the retired-key control. The review measured 8 ties in 600 trials on the shipped read path
+  and priced it at one red `make verify` in 25, on the gate every pull request in this repository
+  runs -- the cost `H-0135` was written to stop paying. Is the claim right as measured, how many legs
+  does it reach, and what is the smallest change that keeps both polarities and the control honest?
+- Options: plant the pair 2s apart (3s/1s) | plant the pair far apart (60s/30s) | stop comparing
+  derived ages: read the planted stamps back and compare the absolute times | give `factory_age`
+  sub-second resolution so there is no boundary to straddle | make `proc_older_first` re-read and
+  retry when the two ages tie | leave the plant and record the three legs as a known flake
+- Chose: plant the pair 2s apart (3s/1s)
+- Why: the margin is arithmetic rather than probabilistic, and that is what makes four integers enough.
+  One boundary crossing shifts the second age by exactly 1s, so a separation of 2s cannot be
+  equalised by a straddle at all. Measured on the shipped read path -- the two `factory_age` calls,
+  the shipped `factory_class_rank` and the re-serialise between them, 10.1-10.6 ms a trial, this box
+  (32 cores, tmpfs fixture root), git 2.53.0, bash 5.3.9 -- the old plant tied **3 times in 600
+  trials** (2/300 then 1/300, so 0.5% a leg-run against the 8/600 = 1.3% the reviewer measured on
+  their box: the same window, half the width here), and the new plant tied **0 in 600**. The
+  deterministic form of the same harness, with the straddle forced by a `sleep` between the two reads
+  instead of waited for, is the whole argument in three rows: at plant 2s/1s a 1s stall reads the pair
+  back as `2s`/`2s` and reddens 5/5, while at 3s/1s the same 1s stall reads `3s`/`2s` and reddens 0/5.
+
+  **The reach is two legs, not three, and the difference is read order.** The fixture's queue is
+  `[900, 901]` (`selftest.sh:2940`, `:2944`), so the ranking loop reads 900's age *first* in both
+  legs. In `young-number` the older unit is 901 -- the row read *second* -- so a crossing moves the
+  older age up instead of levelling it: measured 1s/2s under a forced 1s stall reads `1s`/`3s`, and 0
+  ties in 300 natural trials. So the honest figure for this gate is ~1.0% a run here (two exposed
+  legs at 0.5%) against the review's ~3.9% there -- one red `make verify` in about 100, not in 25. The
+  finding stands, the fix it prescribes is the right one, and only the multiplier was too high; it is
+  corrected the way the finding was made, on the shipped read path. Both pairs are widened anyway.
+  Which row leads the queue is a detail of the fixture's payload, not a property of the code under
+  test, and a leg that pins a direction should not be exposed or immune depending on the order two
+  `gh` shim rows happen to be written in.
+
+  60s/30s (option 2) is strictly safer and loses on sufficiency and on legibility, not on correctness:
+  3s/1s already asks for a **2s stall between two key reads whose measured gap is under 10 ms** -- 200
+  times the window -- and the failure sentence `proc_older_first` prints quotes these two ages, so
+  "3s against 1s" reads as a planted fixture while "60s against 30s" sends the next reader hunting for
+  a timer the fixture does not have. If a runner is ever observed stalling 2s mid-loop the repair is
+  the same three integers to 60/30 (measured by the review at 0 ties in 200), and this sentence is
+  where that is written down. Sub-second `factory_age` (option 4) makes the *product* more precise to
+  quieten a *test*, and the whole seconds are the contract elsewhere: `factory_age`'s never-seen
+  sentinel is the integer 999999999 and the journal prints `age=<n>s` (`factory.sh:1222`), the form
+  `docs/factory.md` shows an operator. Reading the absolutes back in the legs (option 3) tests the
+  ledger and not the pass -- `proc_older_first`'s entire content is the `age=` the dispatcher printed,
+  and a leg that read the files instead of the journal would pass on a supervisor that never printed
+  one. Retry-on-tie (option 5) makes a verdict depend on how many times it was allowed to look.
+  Recording it as flake (option 6) is the option `H-0135` already refused for the same leg: the leg
+  exists to be a verdict, and a leg that is excused before it runs is a comment with a `pass++`.
+
+  What this leaves, stated because it is the rule's cost: a stall of 2s or more between the two reads
+  still levels 3s/1s -- measured, forced: a 2s stall reads `3s`/`3s` and reddens 5/5. Nothing that
+  keeps the comparison on the printed age removes that; it is the price of a one-second clock, the
+  same price `H-0135` priced for the leg it replaced (3.8-7.9 ms plant-side, "once in 200"). What the
+  change buys is that the window moves from one second of clock -- which the fixture crossed on
+  purpose, once in ~100 passes -- to two seconds of scheduler, which it has never crossed.
+- Checkpoint: 38c57e590f4317cd30886b9f462cc138a6a04b1a
+- Effect: `factory/selftest.sh` only. Three plants moved, no leg added and none removed: `old-first`
+  `2 1` -> `3 1`, `young-number` `1 2` -> `1 3`, and the retired-key control's `'issue:900' 2` -> `3`
+  (its `'issue:901' 1` stays, and the control keeps its teeth -- the mutant still dispatches 901,
+  which is the check that makes the first ok a direction rather than a tie-break). The two `ok`
+  sentences that name the ages moved with the plants, because they are prose about the fixture and a
+  leg that describes a plant it no longer builds is the drift #237 is filed against. Two comments were
+  added with them: one on `proc_rank_stamp` carrying the rule -- a planted separation has to exceed the
+  resolution of the clock that reads it, with both measured rates beside it -- and one above the legs
+  naming the read-order asymmetry, so the next reader does not "fix" the polarity that cannot tie.
+  Measured after, in the order measured: `bash factory/selftest.sh` **524 passed, 0 failed** in 25.5s
+  -- the identical count to `830c374` on this box, which is the point: the fix moves integers, not
+  legs -- and both legs and the control pass on their own fixtures, so the direction is still decided
+  by the age in both polarities and the retired key still ranks youngest. Swept for the same hazard
+  elsewhere before writing this: `grep -n 'first-seen' factory/selftest.sh` reaches no other leg, the
+  halt-line legs age their marker in *minutes* and assert one age as a string (`q_stamp`,
+  `q_halt_plant`, `:4148`, `:4226`), and `q_halt_plant_at` compares one age against no other. `H-0135`'s
+  `Effect:` still quotes `NEXT unclaimed 900 age=2s` before `901 age=1s`; that is a record of the
+  fixture at `830c374` and is deliberately left alone -- from this commit the plants print `age=3s` and
+  `age=1s`, and a decision log quietly rewritten to match the code is indistinguishable from one that
+  was always right. Not one of the four classes a tick must escalate: no dependency added (`go.mod`
+  untouched), nothing published, nothing deleted, no merge, no write to any pull request beyond this
+  unit's own, and no change to what a `deny` refuses.
