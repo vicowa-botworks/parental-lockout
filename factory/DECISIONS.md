@@ -5587,3 +5587,14 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   gate SHOULD resolve `path:NNN` citations in a decision log is an open question the filed issue carries,
   not a verdict this entry makes -- a citation is a measurement at a head, and a gate that rewrites it is
   the thing this entry refused.
+
+- The two offsets above were measured at what the file was then, and the entry grew by three lines after
+  the measurement -- the gate clause -- so they were stale the moment this entry was committed. Corrected
+  here rather than rewritten there, and pinned to an immutable thing so a re-run cannot drift: both are
+  `diff` of a parent blob against the merge commit `9a3b0aa`, not against the file after this bullet.
+  Against `git show origin/main:factory/DECISIONS.md` (5416 lines, `5be86e5`): TWO add-only hunks,
+  `5305a5306,5379` (74 lines, this branch's `H-0138`) and `5416a5491,5589` (99 -- `H-0139`'s bullet, this
+  entry and their separators). Against `git show 120ccd1:factory/DECISIONS.md` (5378 lines, the head this
+  branch had before the merge): ONE add-only hunk, `5378a5379,5589` (211). Deleted lines ZERO in both
+  directions, unchanged from the pre-correction numbers, and that -- not the offsets -- is the claim the
+  census is made of. `H-0128`'s identical trap, walked into eleven entries later (`1e7ed5b`).
