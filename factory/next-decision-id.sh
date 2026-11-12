@@ -98,9 +98,11 @@ alone, and the exit status stays 0 either way -- a blind read is still the best 
 refusal is what sends a session back to numbering by eye. FACTORY_ID_MAX_AGE (default 300 seconds) is
 how stale the read may get before the clock arm calls it blind.
 stderr attributes the ceiling when the working file alone raised it: a PENDING line names the heading
-sitting in that file and on no ref -- the entry you are writing -- and the highest id the refs really
-do carry. It is a note, not a refusal: the exit status stays 0 and stdout stays the id alone. A re-read
-taken after you wrote your own entry therefore cannot be mistaken for a sibling taking it.
+sitting in that file and on no ref this clone can see -- the entry you are writing -- and the highest id
+the refs really do carry. It is a note, not a refusal: the exit status stays 0 and stdout stays the id
+alone. A re-read taken after you wrote your own entry therefore cannot be mistaken for a sibling taking
+it. The note being absent is the verdict on the other half: since the refresh arms print beside every
+answer, it is the note that is read, never an empty stderr.
 
 Only the decision log itself is answered: DECISIONS.md or factory/DECISIONS.md, as a regular file in the
 working tree or a blob in HEAD. Any other path is refused, including one that exists -- allocating from
@@ -226,7 +228,7 @@ log_is_here ||
 # a sibling branch, because that would let the answer depend on branch ordering. The `|| true` is
 # load-bearing and not decoration: this substitution was the script's whole failure mode. Under
 # `set -euo pipefail` a missing file makes `sed` exit 2, a command-substitution assignment inherits
-# that status, and `set -e` ends the script there -- no id, no message, nothing on stderr. A caller
+# that status, and `set -e` ends the script there -- no id, and no word on either stream. A caller
 # reduced to "the allocator is broken" goes back to numbering by eye, which is the defect #253 is about.
 if [ -z "$prefix" ]; then
 	case "$rel" in
@@ -315,16 +317,24 @@ next=$(fmt_id "$((ceiling + 1))")
 # and the second is wrong at the only guard left before a duplicate id.
 #
 # stdout is unchanged and the status stays 0, for the reason the header already gives: a refusal in
-# front of a session sends it back to numbering by eye. Silence is a verdict too -- a ceiling some ref
-# carries raises no note, so a higher answer with nothing on stderr is the collision this command
-# exists to catch, and the yield rule in `docs/factory.md` is what to do with it.
+# front of a session sends it back to numbering by eye. The absence of this note is a verdict too -- a
+# ceiling some ref carries raises none, so a higher answer with no PENDING line is the collision this
+# command exists to catch, and the yield rule in `docs/factory.md` is what to do with it. Read the
+# note's absence and never an empty stderr: since PR #307 the two arms below print beside every answer
+# and nothing silences them, so there is no answer that leaves stderr empty -- measured on one fixture
+# at `487d572`, 460 bytes with the tree clean, 855 with the caller's own heading uncommitted, 460 one
+# commit later, and only the middle number moves when this wording does. Nor would silence discriminate
+# if something produced it: on that fixture a ceiling a sibling left on `refs/heads` and a ceiling the
+# caller's own commit put on `HEAD` both answer `H-0042` with the note absent and identical stderr.
+# Durable includes yours, so a committed heading means take the next id rather than yield the one
+# already written; `docs/factory.md` carries both shapes as measured rows.
 if [ "$work_max" -gt "$refs_max" ]; then
 	if [ "$refs_max" -gt 0 ]; then
 		ref_ceiling=$(printf 'HEAD, refs/heads and refs/remotes top out at %s' "$(fmt_id "$refs_max")")
 	else
 		ref_ceiling='No ref here carries a '"$prefix"' id at all'
 	fi
-	printf 'next-decision-id: PENDING %s is in %s and on no ref: the ceiling came from the log you are\n  writing, not from a sibling. %s.\n' \
+	printf 'next-decision-id: PENDING %s is in %s and on no ref this clone can see -- so this read\n  says the ceiling came from the log you are writing, not from a sibling. %s.\n' \
 		"$(fmt_id "$work_max")" "$rel" "$ref_ceiling" >&2
 	printf 'next-decision-id:   so %s is free -- and if %s is the entry you are about to commit, %s above\n  it is what a SECOND entry would take, not a claim on yours: keep the id you already took.\n' \
 		"$(fmt_id "$work_max")" "$(fmt_id "$work_max")" "$next" >&2

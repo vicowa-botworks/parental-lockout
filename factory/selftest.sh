@@ -10108,6 +10108,155 @@ alloc_yield_control() {
 	return 0
 }
 
+# What a moved ceiling means is stated in three surfaces -- the skill a tick reads, this guide, and the
+# allocator's own comment above the note -- and for one revision two of them stated mutually exclusive
+# rules for the same signal (#321's review, against `487d572`). The newer sentence made the collision "a
+# moved ceiling with nothing on stderr", and PR #307 had just made that unachievable: every answer now
+# carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it. Measured on a fresh
+# fixture at that head, the shipped allocator writes 460 bytes of stderr with the tree clean, 855 with
+# the caller's own heading uncommitted and 460 one commit later -- never zero, so a unit following the
+# newer rule can never satisfy it. The repair that would make it satisfiable again, nesting the refresh
+# block inside the note's arm, is worse than the bug: `bash -n` and shellcheck both pass and a clean
+# tree answers with zero bytes, so the disclosure is dead and only the suite knows it.
+#
+# So the discriminator is the absence of the note, and it is pinned as a clause for the reason
+# `alloc_yield_rule` gives -- `grep -q PENDING` over 12,000 lines is a word, not a rule. The clause is
+# spelled identically in all three surfaces because that is the property under test: a paraphrase in one
+# file is exactly how the two rules came apart. The negative half is why the leg exists -- the retired
+# claim must not come back in any surface, because there is no longer any answer it applies to -- and
+# the third phrase is the post-commit case the same review named: a ceiling your own committed entry put
+# on `HEAD` is quiet too, and a unit that reads quiet as yield renumbers its own finished entry.
+alloc_collision_signal() { # [root] -> 0 when all three surfaces read the note, never the silence
+	local root=$HERE/.. skill guide script
+	[ -z "${1:-}" ] || root=$1
+	skill=$root/.opencode/skills/factory/SKILL.md
+	guide=$root/docs/factory.md
+	script=$root/factory/next-decision-id.sh
+	[ -f "$skill" ] && [ -f "$guide" ] && [ -f "$script" ] || return 2
+	grep -qF 'no PENDING line' "$skill" &&
+		grep -qF 'no PENDING line' "$guide" &&
+		grep -qF 'no PENDING line' "$script" &&
+		grep -qF 'durable includes yours' "$skill" &&
+		grep -qF 'durable includes yours' "$guide" &&
+		! grep -qF 'nothing on stderr' "$skill" &&
+		! grep -qF 'nothing on stderr' "$guide" &&
+		! grep -qF 'nothing on stderr' "$script"
+}
+
+alloc_signal_tree() { # <dir> -> the three surfaces copied into the layout the predicate walks
+	local d=$1
+	mkdir -p -- "$d/.opencode/skills/factory" "$d/docs" "$d/factory" || return 1
+	cp -- "$HERE/../.opencode/skills/factory/SKILL.md" \
+		"$d/.opencode/skills/factory/SKILL.md" || return 1
+	cp -- "$HERE/../docs/factory.md" "$d/docs/factory.md" || return 1
+	cp -- "$HERE/../factory/next-decision-id.sh" "$d/factory/next-decision-id.sh" || return 1
+}
+
+# Three plants, one per half of the predicate, each checked for having moved only the half it names --
+# a plant that changes two halves at once cannot say which one the refusal above was reading, which is
+# the failure the two-plant controls in `alloc_yield_control` and `alloc_docs_control` exist to avoid.
+alloc_collision_signal_control() {
+	local drift=$alloc_work/signal-paraphrased
+	local silence=$alloc_work/signal-silence-restored
+	local third=$alloc_work/signal-no-third-case
+
+	# Plant 1: the clause paraphrased in the guide. Nothing is deleted and no retired claim returns, so a
+	# refusal here can only be the wording -- the half that came apart at `487d572`.
+	if ! alloc_signal_tree "$drift" ||
+		! sed 's/no PENDING line/no note on stderr/' "$HERE/../docs/factory.md" \
+			>"$drift/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the first control copy could not be\n' \
+			'control: the signal, paraphrased'
+		printf '          written.\n'
+		return 0
+	fi
+	if grep -qF 'no PENDING line' "$drift/docs/factory.md" ||
+		grep -qF 'nothing on stderr' "$drift/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the clause in place or brought the\n' \
+			'control: the signal, paraphrased'
+		printf '          retired claim back, so nothing was aimed at.\n'
+		return 0
+	fi
+	if alloc_collision_signal "$drift"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a guide paraphrasing the clause, so\n' \
+			'control: the signal, paraphrased'
+		printf '          the ok above reads an idea and not the wording one file\n'
+		printf '          had already drifted from.\n'
+		return 0
+	fi
+
+	# Plant 2: the retired claim restored to the script's own comment, clause left where it is. Only the
+	# negative half can refuse this copy.
+	if ! alloc_signal_tree "$silence" ||
+		! printf '# a higher answer with nothing on stderr is the collision.\n' \
+			>>"$silence/factory/next-decision-id.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the second control copy could not be\n' \
+			'control: the signal, silence restored'
+		printf '          written.\n'
+		return 0
+	fi
+	if ! grep -qF 'nothing on stderr' "$silence/factory/next-decision-id.sh" ||
+		! grep -qF 'no PENDING line' "$silence/factory/next-decision-id.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant either did not write the claim or took\n' \
+			'control: the signal, silence restored'
+		printf '          the clause with it, so the refusal below proves nothing.\n'
+		return 0
+	fi
+	if alloc_collision_signal "$silence"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a surface that still calls silence the\n' \
+			'control: the signal, silence restored'
+		printf '          collision -- the exact rule #321 was asked to retire.\n'
+		return 0
+	fi
+
+	# Plant 3: the post-commit case deleted from the skill, the discriminator untouched elsewhere in the
+	# same file. Proves the leg reads the third shape and not just the discriminator.
+	if ! alloc_signal_tree "$third" ||
+		! grep -vF 'durable includes yours' "$HERE/../.opencode/skills/factory/SKILL.md" \
+			>"$third/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the third control copy could not be written\n' \
+			'control: the third case, deleted'
+		return 0
+	fi
+	if grep -qF 'durable includes yours' "$third/.opencode/skills/factory/SKILL.md" ||
+		! grep -qF 'no PENDING line' "$third/.opencode/skills/factory/SKILL.md" ||
+		! grep -qF 'durable includes yours' "$third/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the clause in, deleted the\n' \
+			'control: the third case, deleted'
+		printf '          discriminator with it, or emptied the guide too -- a refusal\n'
+		printf '          here would not be about the third case.\n'
+		return 0
+	fi
+	if alloc_collision_signal "$third"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a skill that never tells a unit the\n' \
+			'control: the third case, deleted'
+		printf '          committed ceiling may be its own.\n'
+		return 0
+	fi
+
+	# No `pass` increment: a control's ok is uncounted in this suite, the way `alloc_control`,
+	# `alloc_docs_control` and `alloc_yield_control` all leave it.
+	printf '  ok    %-40s it refuses one surface paraphrasing the clause, so\n' \
+		'control: the signal, paraphrased'
+	printf '          the leg above pins the wording, not a notion sitting near it.\n'
+	printf '  ok    %-40s it refuses a surface calling silence the collision,\n' \
+		'control: the signal, silence restored'
+	printf '          so the negative half is read as well as the positive one.\n'
+	printf '  ok    %-40s it refuses a skill with the committed-ceiling clause\n' \
+		'control: the third case, deleted'
+	printf '          gone and the discriminator untouched, so that clause is read too.\n'
+	return 0
+}
+
 alloc_no_fetch() {
 	! grep -Eq '^[[:space:]]*(env[[:space:]]+[^[:space:]]+[[:space:]]+)?git[[:space:]]+fetch' \
 		"$alloc_script"
@@ -10794,6 +10943,11 @@ decision_ids() {
 		'the guide says which side renumbers, and why that side is the one that can move' \
 		alloc_yield_rule
 	alloc_yield_control
+
+	gen_leg 'a missing note is the collision signal' \
+		'all three surfaces read the note; none calls silence the collision' \
+		alloc_collision_signal
+	alloc_collision_signal_control
 
 	# ---- what the allocator does when there is nothing to read (issue #253, the half #255 left) ----
 	#

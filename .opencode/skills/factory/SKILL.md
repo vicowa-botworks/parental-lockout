@@ -172,11 +172,18 @@ When you reach a decision point, do this instead, in this order:
    answers one above the id you hold: measured in `wt/issue-320` on 12 Nov, `H-0145` on the committed
    log and `H-0146` with an uncommitted `## H-0145` in the file and no ref holding it. That is not a
    collision, and the allocator says so -- a `PENDING` line on stderr names the heading that is in your
-   working file and on no ref, and the id the refs actually top out at. So read a moved answer by its
-   stderr: **`PENDING` naming the id you already hold means nothing was taken** -- keep that id, and do
-   not renumber into a gap `docs/factory.md` says must never be inexplicable. A higher answer with
-   **nothing on stderr** is the real thing: some ref carries your id, and you yield the way that guide
-   says. The note goes quiet by itself once the entry is committed, because `HEAD` joins the union.
+   working file and on no ref this clone can see, and the id the refs actually top out at. So read a
+   moved answer by its stderr: **`PENDING` naming the id you already hold means nothing was taken** --
+   keep that id, and do not renumber into a gap `docs/factory.md` says must never be inexplicable. A
+   higher answer with **no PENDING line** is the real thing: some ref carries your id, and you yield the
+   way that guide says. Read the note's absence, never the emptiness of stderr. Since PR #307 every
+   answer carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it, so there is
+   no answer that leaves stderr empty -- measured at `487d572` on one fixture, 460 bytes with the tree
+   clean, 855 with your own heading uncommitted, 460 one commit later. Nor would silence discriminate if
+   something produced it: a ceiling a sibling left on a ref and a ceiling your own committed entry put
+   on `HEAD` print the same stderr, both without a note. The note goes quiet by itself once the entry is
+   committed, because `HEAD` joins the union -- and durable includes yours, so a second entry in the
+   same tick takes the next id instead of yielding the one already written.
    It is a read, not a reservation, and the second read sees only what moved **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
    `refs/heads` (measured: `D-0002` before the sibling commits, `D-0010` after, with no fetch), while
    a sibling that pushed from a different clone does not, because an unfetched push never moves

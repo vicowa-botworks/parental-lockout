@@ -6488,8 +6488,11 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   exactly one window: after the heading is written and before it is committed. Commit it and `HEAD`
   joins the union, the two maxima agree, and the note goes quiet without being told -- which is what
   makes this a verdict about the read rather than a guess about the caller's intent, and what keeps
-  silence meaningful: a moved ceiling with nothing on stderr is still the collision, and the four steps
-  at `docs/factory.md`'s yield section are still what to do with it. The second option was preferred
+  the collision readable: a moved ceiling with no PENDING line is still the collision, and the four
+  steps at `docs/factory.md`'s yield section are still what to do with it. Those words read
+  `nothing on stderr` until `H-0147` corrected them -- `3044b80` merged PR #307 onto this branch thirty
+  three minutes after this entry was committed, and its refresh arms print beside every answer, so the
+  sentence this entry left behind named a state no answer is in any more. The second option was preferred
   over the first because the first is the thing this harness keeps paying to stop: `docs/factory.md`
   already says the boundary is "measured here rather than asserted in prose -- prose is what this whole
   section exists to stop being", and a sentence in the skill reaches only the unit that reads it, while
@@ -6525,8 +6528,12 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Renumbered before this commit, by the rule this entry cites, and the re-read that caught it is the
   change working: the allocator was run again at 15:00:15Z -- after the entry was written, before
   anything was committed, which is the moment step 3.1 schedules -- and it answered `H-0146` with
-  **nothing on stderr**. Silence is the collision signal this entry defines, and its first use in the
-  field was to take this number away. `H-0145` was gone: `git grep -c '^## H-0145'` over every ref found
+  **nothing on stderr**. That is what the allocator did on the tree `7ab984d` carries, thirty-three
+  minutes before `3044b80` brought PR #307's refresh arms onto this branch; it is not reproducible here.
+  The same shape at this head answers the same id with the note absent and 461 bytes of refresh text on
+  stderr, which `H-0147` measures and now spells as the discriminator. The absence of the note is the
+  collision signal either way, and the silence that took this number away was that verdict under the
+  older spelling: its first use in the field was to take this number away. `H-0145` was gone: `git grep -c '^## H-0145'` over every ref found
   the heading in `refs/heads/issue-303` and `refs/remotes/origin/issue-303` -- PR #307's own log-conflict
   entry, the sibling unit rewriting the tail of this same script. The window has a measured width. This
   unit allocated `H-0145` at 14:51:13Z, the checkpoint commit's own committer date, and could not have
@@ -6549,14 +6556,19 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: `factory/next-decision-id.sh` reads the union as two maxima and attributes the ceiling, with
   the header and `USAGE` saying so; `.opencode/skills/factory/SKILL.md` step 3.1 now says the re-read is
   taken *before* the entry is written and how to read a raised answer (`PENDING` naming the id you hold
-  means nothing was taken; nothing on stderr means yield); `docs/factory.md` carries the measurement and
-  the silence-keeps-its-meaning rule. Two legs and two controls in `factory/selftest.sh`: the pending
+  means nothing was taken; no `PENDING` line means yield -- the older spelling of that half-clause,
+  `nothing on stderr`, was retired by `H-0147` once `3044b80` made it unreachable); `docs/factory.md`
+  carries the measurement and the note-absence-keeps-its-meaning rule. Two legs and two controls in `factory/selftest.sh`: the pending
   heading named with the refs' ceiling beside it, and the same printed id silent one commit later, with
   one plant per direction -- the note deleted, which is the pre-fix behaviour and prints `H-0042`
   silently on the uncommitted fixture (verified against `git show origin/main:factory/next-decision-id.sh`
   on a fixture of the shipped shape), and the note printed whatever the ceiling, which would make a moved
-  ceiling stop being the yield signal. Measured on this tree before the commit: `bash factory/selftest.sh`
-  -> `523 passed, 0 failed`, `bash -n` clean on both scripts, `./scripts/check-shell.sh` ->
+  ceiling stop being the yield signal. Measured on this tree before the commit, at `7ab984d`:
+  `bash factory/selftest.sh` ->
+  `523 passed, 0 failed`, and that tally is head- and box-specific in the way `H-0143` warns about: the
+  same suite answers `532` for this branch's head on the box `H-0147` was written on and `533` after it,
+  while #321's review counted `531` at `487d572` on another box -- so the head is named rather than the
+  number made to look universal. `bash -n` clean on both scripts, `./scripts/check-shell.sh` ->
   `check-shell: 0.10.0 over 29 scripts` with nothing to report, and the shipped allocator against the
   same fixtures answers `H-0042` with no note in both the pending and committed shapes. The full
   `make verify` line and exit status on the tree this branch leaves are quoted in the pull-request body,
@@ -6571,6 +6583,85 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   exactly those two hunks), both below 169, and it edits `docs/factory.md` not at all. The splice moved
   nothing of mine: both sides appended after `H-0142`'s `Effect:`, main's block goes first because its
   leading line belongs to that entry, and the log reads `142, 143, 144, 146` -- ascending, with the one
-  gap at `145` whose citation is the paragraph above. `factory/selftest.sh` gained main's 86 lines at
+  gap at `145` whose citation is the paragraph above. That is a state of *this branch at `af0294f`*, not
+  of the log: `3044b80` merged PR #307 and `487d572` resolved both files, so at this head the log carries
+  `142, 143, 144, 145, 146` with no gap, and the paragraph above stands as the reason `145` was ever
+  empty. `H-0147` names the heads rather than rewriting the sentence, so it stays re-runnable as
+  `git show af0294f:factory/DECISIONS.md`. `factory/selftest.sh` gained main's 86 lines at
   `:7001`, which shifts every leg below it including the two added here; no coordinate in this entry
   names a line in that file, which is why nothing else needed re-measuring.
+
+## H-0147 · PR #307 made "nothing on stderr" an answer no allocator could give, so this branch shipped two mutually exclusive rules for one signal, fourteen lines apart in the same file
+
+- Question: this branch tells a unit, in three places, that the collision is an empty stderr --
+  `.opencode/skills/factory/SKILL.md:178` at `487d572` ("A higher answer with **nothing on stderr** is
+  the real thing"), `docs/factory.md:973` at the same head, and the comment above the note at
+  `factory/next-decision-id.sh:319` there too; all three are coordinates in the tree the review was
+  filed against, because this entry is the edit that moves them. `3044b80` had merged PR #307 into this
+  branch, and its refresh arms print beside every answer with no flag that closes them, so the condition
+  cannot occur: measured at `487d572` on one fixture (git 2.53.0, the box this entry is written on), the
+  shipped allocator writes 460 bytes of stderr with the tree clean, 855 with the caller's own heading
+  uncommitted, and 460 one commit later. Never zero. The same numbered step of the same skill says the
+  opposite fourteen lines lower -- `SKILL.md:192` at that head, "Read the stderr line the allocator
+  prints beside the id" -- so one signal carries two rules and the newer is the unsatisfiable one.
+  Nothing in `factory/selftest.sh` could see the drift: the two `H-0146` legs grep the
+  `^next-decision-id: PENDING ` prefix (the right choice, and the reason they survived #307), and
+  `nothing on stderr` appears zero times in that file. Which half moves -- the prose, the tool, or the
+  suite?
+- Options: add a flag that silences the refresh arms, so an empty stderr is reachable again | make the absence of the `PENDING` note the discriminator in all three surfaces, and pin the wording with a leg | leave the prose as shipped and rely on the two `PENDING`-prefix legs | move the rule into the allocator's own `--help` and delete it from the skill and the guide
+- Chose: make the absence of the `PENDING` note the discriminator in all three surfaces, and pin the wording with a leg
+- Why: tie-breaks in order. 1 silent -- no `go.mod` line near this. 2 n/a -- nothing here decodes config.
+  3 prefers the reading that refuses, and the first option is the one that makes a violation look like
+  compliance: #321's review measured the splice that would satisfy it -- main's `REFRESH` block nested
+  inside the `PENDING` arm -- `bash -n` clean, shellcheck clean, and a clean tree answering with
+  **zero bytes** on stderr. Silence would then mean the disclosure had been disabled, and the retired
+  sentence would read as satisfied by the bug until the suite said otherwise -- #321's review ran that
+  splice and reported 524 passed, 10 failed there, on its box.
+  A rule with a knob that turns it off is not a rule, and this is the same refusal
+  `H-0146` made against `--pending`: a caller-supplied switch deciding what the tool may withhold. The
+  third option leaves a unit holding two rules where one answer decides whether it renumbers a durable
+  entry, and a rule no leg reads is the rule the next merge silently changes -- which is what #321 found
+  fourteen lines inside one file. The fourth is smaller in bytes and worse in effect: the skill is the
+  document open in front of the session at the moment it reads the answer. 4 fewest surfaces that make
+  every surviving sentence true -- three prose files and the suite; the flag touches the script, a new
+  environment name, both documents, and a leg per arm. 5 reversible by `git revert` of this commit
+  alone: no id moves, no heading is deleted, and the `H-0146` annotations are additive text around
+  measurements that stay where they were. 6 is what the surrounding code already does -- the two
+  `H-0146` legs already read the `PENDING` *prefix* rather than measuring bytes, and `factory/factory.sh`
+  journals a verdict on a stream beside its answer; this entry makes the prose say what the legs already
+  read. What lost, named because it is the cost: a reachable empty stderr, and with it any future caller
+  that wants quiet output. It is not owed a flag -- stdout was never the note's surface, and a caller
+  that wants bytes only has always read stdout. The residual this entry does not close, stated because it
+  is the rule's cost: the note's absence still cannot say *whose* ref carries the ceiling. Measured on
+  one fixture, a ceiling a sibling left on `refs/heads` and a ceiling the caller's own commit put on
+  `HEAD` both answer `H-0042` with the note absent and byte-identical stderr. So the post-commit case is
+  told from the collision by what the caller did one commit ago and not by the allocator's output, and
+  both documents now say that in the same words -- durable includes yours -- because a unit that reads
+  quiet as yield renumbers an entry it has already finished writing. That clause is pinned by the same
+  leg, so the third case cannot be dropped by an edit that leaves the discriminator looking covered.
+- Checkpoint: 50c8b27cd73903e821e5ae235893422bc45706ed
+- Effect: `.opencode/skills/factory/SKILL.md` step 3.1, `docs/factory.md`'s allocator paragraph, and the
+  comment above the note in `factory/next-decision-id.sh` now read a moved ceiling by the absence of the
+  note -- the clause `no PENDING line`, spelled identically in the three because one grep has to read all
+  three -- and the guide gains the post-commit case as a paragraph of its own. The phrase `nothing on
+  stderr` is gone from all three, including an unrelated comment about the `sed`-under-`set -e` refusal
+  that used the same words for a different subject, so no surface is left to paraphrase from. The
+  `PENDING` note's own sentence is bounded: `and on no ref` was absolute while the same answer's
+  `REFRESH-BLIND` line says a sibling who pushed since the last fetch is not in the union, and it now
+  reads `and on no ref this clone can see -- so this read says the ceiling came from the log you are
+  writing`; `USAGE` carries the same bound. `H-0146` is annotated where it stated the retired rule or a
+  status sentence that #307 and the merge behind it expired: rule claims corrected in place,
+  measurements kept and dated with the head that produced them, which is the split `H-0143` argues for.
+  One counted leg, `a missing note is the collision signal`, and three uncounted controls in
+  `factory/selftest.sh` -- the clause paraphrased in the guide, the retired claim restored to the script,
+  the post-commit clause deleted from the skill -- each plant checked for having moved only the half it
+  names, the way `alloc_yield_control` requires. Measured before this commit on the tree that carries it:
+  `bash factory/selftest.sh` -> `533 passed, 0 failed`, where the same tree with this leg taken out of
+  the suite answers `532` -- so exactly one counted leg is what was added. It kills in place and not only
+  in a plant: rewriting the clause back to `nothing on stderr` in the shipped script turns the suite to
+  `532 passed, 2 failed` at exit 1, the second failure being the silence control declining to certify
+  against a tree whose clause is already gone. stdout is unchanged in every shape: the four-row fixture
+  (clean / carried by a sibling ref / committed by self / uncommitted by self) answers `H-0041`,
+  `H-0042`, `H-0042`, `H-0043` before this entry and the same four after, at exit 0 both times. The full
+  `make verify` line and exit status on the tree this branch leaves are quoted in the pull-request body,
+  because an `Effect:` written before the gate runs is a prophecy (#1180).
