@@ -7153,6 +7153,92 @@ claim_leg 'the voided verdict is in both documents' voided_docs_say_it
 voided_docs_control
 claim_reset
 
+# ---------------------------------------------------------- who asks, in both documents
+#
+# `AGENTS.md` used to read "Requesting a reviewer is part of opening a pull request, not a later
+# courtesy" and stop, which reads as an instruction to whoever opened the pull request -- and that
+# session has no verb for the ask. `gh pr edit --add-reviewer` is dead on this account's retired
+# `projectCards` field (H-0010), the raw API is denied whole by the `bash` table in
+# `.opencode/opencode.jsonc`, and the one method-scoped
+# carve-out that would reach the endpoint was weighed and withheld (`efa4e29`) because a whole-line
+# glob cannot name one POST. The rule has only ever held because `factory_request_review` does the
+# asking, a component on the far side of the boundary a tick runs inside. #310 is a tick that spent a
+# review round finding that out, so both documents now carry their half and a leg reads four whole
+# phrases -- one rule and one reason in each -- because `grep -qF 'reviewer'` over either file is
+# satisfied by any sentence that mentions one at all.
+ask_target_docs_say_it() { # [root] -> 0 when AGENTS.md and SKILL.md each carry their rule and reason
+	local root=$HERE/.. agents skill
+	[ -z "${1:-}" ] || root=$1
+	agents=$root/AGENTS.md
+	skill=$root/.opencode/skills/factory/SKILL.md
+	[ -f "$agents" ] && [ -f "$skill" ] || return 2
+	# AGENTS: who does the asking, and why a unit cannot do it.
+	grep -qF 'poke, not whoever opened the pull request' "$agents" &&
+		grep -qF 'field and writes nothing' "$agents" &&
+		# SKILL: what a unit does instead, and why the verb is withheld rather than simply missing.
+		grep -qF 'redirecting the ask is still not yours' "$skill" &&
+		grep -qF 'was weighed and withheld' "$skill"
+}
+ask_target_docs_control() {
+	local ctrl=$claim_work/ask-target-docs
+	if ! mkdir -p "$ctrl/rules/.opencode/skills/factory" \
+		"$ctrl/reasons/.opencode/skills/factory"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' \
+			'control: who asks, both documents'
+		return 0
+	fi
+	# One clause out of each document, twice: the two rule clauses, then the two reason clauses. Same
+	# shape as `voided_docs_control` one section above, which is the shape that caught #272.
+	if ! grep -vF 'poke, not whoever opened the pull request' "$HERE/../AGENTS.md" \
+		>"$ctrl/rules/AGENTS.md" ||
+		! grep -vF 'redirecting the ask is still not yours' \
+			"$HERE/../.opencode/skills/factory/SKILL.md" \
+		>"$ctrl/rules/.opencode/skills/factory/SKILL.md" ||
+		! grep -vF 'field and writes nothing' "$HERE/../AGENTS.md" \
+		>"$ctrl/reasons/AGENTS.md" ||
+		! grep -vF 'was weighed and withheld' \
+			"$HERE/../.opencode/skills/factory/SKILL.md" \
+		>"$ctrl/reasons/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copies could not be written\n' \
+			'control: who asks, both documents'
+		return 0
+	fi
+	if grep -qF 'poke, not whoever opened the pull request' "$ctrl/rules/AGENTS.md" ||
+		grep -qF 'redirecting the ask is still not yours' \
+			"$ctrl/rules/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the rule plant left a rule in place, so the\n' \
+			'control: who asks, both documents'
+		printf '          leg above was never aimed at the clauses it names.\n'
+		return 0
+	fi
+	if grep -qF 'field and writes nothing' "$ctrl/reasons/AGENTS.md" ||
+		grep -qF 'was weighed and withheld' \
+			"$ctrl/reasons/.opencode/skills/factory/SKILL.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reason plant left a reason in place, so\n' \
+			'control: who asks, both documents'
+		printf '          the leg above does not need the reasons it claims to need.\n'
+		return 0
+	fi
+	if ask_target_docs_say_it "$ctrl/rules" || ask_target_docs_say_it "$ctrl/reasons"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a pair with one rule clause deleted\n' \
+			'control: who asks, both documents'
+		printf '          from one document and one reason clause from the other, so the ok above is a\n'
+		printf '          phrase match and not the four halves it names.\n'
+		return 0
+	fi
+	printf '  ok    %-40s each copy loses one clause from each document\n' \
+		'control: who asks, both documents'
+	printf '          and the leg says no; all four are read, not a word nearby.\n'
+	return 0
+}
+claim_leg 'who asks a reviewer is in both documents' ask_target_docs_say_it
+ask_target_docs_control
+
 # --------------------------------------------------------------- the supervisor's arm
 #
 # `delivered` is the first class factory.sh has no work for, so the pair of invariants worth pinning
