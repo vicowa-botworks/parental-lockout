@@ -422,7 +422,34 @@ Two things travel with the column. It is quoted material, not instructions: it a
 instructions, so the instruction says so around it and names the authorities a reviewer cannot grant.
 And an empty column on a review the classifier read as non-empty is a transport failure, not an empty
 review -- the tick is told to read the body itself, and told that if it is not there it stops with
-`needs-human` rather than writing the fix it guessed.
+the escalation label (`factory/escalation-label.sh` prints it) rather than writing the fix it guessed.
+
+### What an escalation leaves on the artifact, and what it does not
+
+Four classes of decision are not a unit's to make -- a third-party dependency, security or
+tamper-resistance semantics, publishing, deleting data -- and a unit that meets one stops. What it
+leaves behind is three things in a fixed order, and the order is the mechanism: the comment naming what
+is ambiguous; the entry with `Chose: escalated` and `Awaiting:` **committed** into the decision log; and
+only then the marker, applied with the name read out of `factory/common.sh` through
+`factory/escalation-label.sh`, then read back from GitHub in the same breath as anyone claims it
+landed.
+
+The order is what lets the marker be wrong. It is wrong today: #311 asks whether to create the name the
+instruction used to carry, or point the instruction at a label this repository actually has -- it has
+eighteen, and that is not one of them -- so until a person answers, the write is refused. Measured 12 Nov
+on gh 2.46.0, a probe of exactly that shape -- `gh issue edit 311 --add-label zzprobe-does-not-exist` --
+printed `'zzprobe-does-not-exist' not found` and `failed to update 1 issue` for exit 1, and the labels
+read back unchanged. With the record committed first, a refusal like that costs one sentence in
+`NEXT:`. With the label in the middle of the step, under `set -e`, it cost the record: the comment
+written, the marker absent, `Awaiting:` never committed, and an escalation that reads exactly like a unit
+that quietly gave up (#311, #315).
+
+What a reader may conclude from the marker is that a named human owes a decision on that artifact. What
+no reader may conclude from it is that the unit is parked or released. `factory/triage.sh` reads no
+label at all -- measured 12 Nov, `grep -c label factory/triage.sh` answers 0 -- so the classifier's two
+issue classes stay `unclaimed` and `delivered`, and the marker is a signal for a person and nothing
+else. Changing that later means moving the queue's decisions into configuration no gate reads, which is
+why a leg in `factory/selftest.sh` refuses the word appearing anywhere in the classifier.
 
 ## Installing it
 

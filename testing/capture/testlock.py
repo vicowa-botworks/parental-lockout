@@ -217,22 +217,24 @@ def main():
     # viewport and never after the artifact. See `cdp.refuse_single_shot` for what a refusal leaves
     # where, and #222 for why the file standing at `--out` is named instead of deleted.
     frame = f"{ARTIFACT}@{cdp.WIDTH}.png"
+    # Same shape as lock.py, same reason: one disposal per refusal, decided by `cdp.SingleRefusal`
+    # because the two handlers below are nested and a raise from inside the first disposal otherwise
+    # reaches the outer one as a second refusal -- which is #304, measured on both drivers.
+    disposal = cdp.SingleRefusal(FIXTURE, out, name, frame)
     try:
         with cdp.Capture(FIXTURE) as cap:
             try:
                 return capture(cap, name)
-            except SystemExit as exc:
+            except (Exception, SystemExit) as exc:  # a traceback is not an answer; a refusal is
                 # Inside the `with`, because only the browser this run opened can show what the page
-                # actually rendered while the run was refusing it.
-                cdp.refuse_single_shot(cap, FIXTURE, out, name, frame, str(exc))
-            except Exception as exc:  # a traceback is not an answer; a refusal is
-                cdp.refuse_single_shot(cap, FIXTURE, out, name, frame,
-                                       f"{type(exc).__name__}: {exc}")
+                # actually rendered while the run was refusing it. One arm for both shapes because
+                # `refusal_reason` is what states a shape, not the handler that caught it.
+                disposal.refuse(cap, cdp.refusal_reason(exc))
     except (Exception, SystemExit) as exc:
         # The probe fixture refused before a browser existed -- no `testlock-setup.sh`, no binary.
-        cdp.refuse_single_shot(None, FIXTURE, out, name, frame,
-                               str(exc) if isinstance(exc, SystemExit)
-                               else f"{type(exc).__name__}: {exc}")
+        # And the arm that sees a disposal raise on its own report, which it must not answer with a
+        # second refusal.
+        disposal.refuse(None, cdp.refusal_reason(exc))
     # One explicit 1, outside both handlers, exactly as in lock.py: reaching the end of this function
     # means a refusal happened, and the keeping has already run beside the live browser.
     return 1

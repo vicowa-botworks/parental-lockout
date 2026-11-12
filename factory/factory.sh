@@ -722,8 +722,9 @@ non-empty body. Read it yourself before you touch anything:
 
 If that body is empty, or is a file reference rather than a review, DO NOT infer what was wanted and
 do not write a fix aimed at a guess. Say on the pull request that the change request arrived with no
-ask, label it needs-human, and stop there with the pull request you already have. Inventing the ask
-is the failure this repository has written up more often than any other (#1180, D-0046)."
+ask, label it ${FACTORY_ESCALATION_LABEL}, and stop there with the pull request you already have.
+Inventing the ask is the failure this repository has written up more often than any other
+(#1180, D-0046)."
 		fi
 		;;
 	*)

@@ -229,15 +229,45 @@ Some decisions are not yours. They are exactly these:
   `ctx_search`/`DECISIONS.md` before assuming a choice is open;
 - publishing a release, deleting data, or touching another repository.
 
-Then **escalate and stop this unit**:
+Then **escalate and stop this unit**, in this order. The order is the mechanism, not ceremony: the
+record must be committed before the write that can be refused, and the write must be read back before
+anything is allowed to claim it happened (#1180).
 
 ```bash
+# 1. the comment, and the entry with `Chose: escalated` and `Awaiting:` naming the decision, committed.
+#    An escalated entry carries `Checkpoint: n/a` -- it decided nothing -- so there is no checkpoint
+#    commit to take first.
 gh issue comment "$ISSUE" --body "…what is ambiguous, what each option costs, what you would
 recommend, and the exact command to proceed…"
-gh issue edit "$ISSUE" --add-label needs-human
+# write the entry into the log the ticket belongs to, then:
+git add "$LOG"          # DECISIONS.md, or factory/DECISIONS.md for harness work
+git commit -m "docs(decisions): escalate D-NNNN (awaiting a human)" -m "Decision: D-NNNN"
+
+# 2. the marker, whose name comes out of its one home.
+gh issue edit "$ISSUE" --add-label "$(factory/escalation-label.sh)"
+
+# 3. the read-back, in the same breath as the claim. Same read on a pull request:
+#    `gh pr view "$PR" --json labels`.
+gh issue view "$ISSUE" --json labels -q '[.labels[].name] | join(",")'
 ```
 
-and write the same into `DECISIONS.md` with `Chose: escalated` and `Awaiting:` naming the decision.
+Step 3 decides what you may say. If the name is not in that output the marker is not on the artifact,
+so say that on the issue, say it again in `NEXT:`, and stop. `gh` fails the write and exits 1 when the
+name is not one the repository has -- measured 12 Nov on this box's gh 2.46.0:
+`gh issue edit 311 --add-label zzprobe-does-not-exist` printed `'zzprobe-does-not-exist' not found` and
+`failed to update 1 issue` for exit 1, and `gh issue view 311 --json labels` read back
+`bug,area:ops,blocked`, unchanged -- and #311 has not yet said what the name *is*, so a refusal is a
+result you report and not a step to retry harder. Doing the label last is what makes that refusal cost
+one sentence instead of the record: under `set -e` a middle-of-the-step refusal used to kill the
+escalation with the comment written, the label absent, and `Awaiting:` never committed, which is
+indistinguishable from a unit that quietly gave up (#311, #315).
+
+Never invent a label name. Not by typing one from memory, not by substituting the nearest label that
+exists, not with `gh label create`, and not by skipping the marker on the grounds that the comment is
+enough. The name is `factory/escalation-label.sh`'s to print and #311's to settle; a reported refusal is
+the honest end state of a step whose name is still owed, while an invented label is a marker that reads
+as settled. Nothing outside that script's output may reach `--add-label`.
+
 Do not pick a side and do not open a pull request for half of it. An escalated unit is an honest
 end of a tick, not a failed one.
 
@@ -411,7 +441,11 @@ outcome this system produces: it is indistinguishable from a machine that is wor
 
 ## What is never in a tick
 
-- A new third-party dependency, ever, without a `needs-human` comment first (#856).
+- A new third-party dependency, ever, without escalating first (#856) -- the entry, the comment, the
+  label, and the read-back that says the label landed.
+- A label name of your own choosing. `--add-label` takes only what `factory/escalation-label.sh`
+  prints, and `gh label create` is not a tick's move: what the escalation marker is called is #311's
+  open question, and a label you invented reads as a decision somebody made (#315).
 - `git checkout <file>` / `git restore` to undo a probe -- it reverts to HEAD and takes the whole
   uncommitted change with it. Keep a `/tmp` backup and restore with `cp`, taken **after** the fix.
 - Committing `plock`. `git ls-files | grep -x plock` must print nothing before any `git add -A`.
