@@ -1026,7 +1026,7 @@ factory_refresh_origin() {
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
-	local rows rc=0 started=0 unit_line reap_line
+	local rows rc=0 started=0 unit_line log_line reap_line
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
 	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
 	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before

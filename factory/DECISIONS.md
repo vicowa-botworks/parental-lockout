@@ -7008,3 +7008,50 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   #1686 (what not judging it costs), #246 (the parked activation a FIFO would recreate), #202 (one read, not
   two), #228's polarity (an absence must not read as a verdict).
 - Checkpoint: 9287767f0cc0d856380acddcdb7e91f8406b982b
+
+## H-0150 · A pass stopped by the HALT marker writes no `LOG-AT`: hoist all three self-report reads above the halt block, hoist only the two read-only ones, or narrow the sentence and file the move
+
+- Question: The review of #330 at `f282990` measured that a pass stopped by a `factory/HALT` marker leaves
+  one journal line -- the `HALTED` one -- and no `LOG-AT`, while `docs/factory.md` and this harness's own
+  function contract both said `LOG-AT` is "on every pass". Read back from the shipped script rather than
+  quoted from the review: the halt block logs and `exit`s, `factory_body` is called later at
+  `factory/factory.sh:1297`, and all four of a pass's self-report lines are inside it (`UNIT-AT` at the
+  loop fed by `factory_unit_lines`, `LOG-AT` from `factory_log_move_lines`, `SUPERVISOR-AT` from
+  `factory_supervisor_lines`, then `PASS`) -- so none of the four is reachable on the halt path and the
+  boundary is shared by three lines, not one. It matters because the incident ask 3 was written FOR is a
+  HALTED tail: the page and the pull-request body both open with `2026-11-10T10:17:21Z HALTED
+  code=3962919`, and #328 measured one halt standing 10h13m. Three repairs were on the table and one
+  constraint nobody had written down: the halt exit runs before `flock -n 9` at `:1292`, so hoisting moves
+  `factory_log_move_lines`' copy into the journal being left -- the feature's only write outside stdout --
+  outside the pass's lock, and makes an activation that loses the lock (a loser reports 7 and leaves, once
+  per `FACTORY_INTERVAL`) print three lines before it goes. Which?
+- Options: hoist all three read loops above the halt block, accepting the copy write and the three lines outside the lock | hoist the two read-only loops and leave `LOG-AT` inside the body, so a halted pass says the tree and the unit but not the directory | narrow the prose to "every pass that reaches the pass body", name the halt exit as the state outside the boundary, and file the move with the lock constraint for its own tick | leave the sentence and the code alone, since the review filed the finding as non-blocking
+- Chose: narrow the prose to "every pass that reaches the pass body", name the halt exit as the state outside the boundary, and file the move with the lock constraint for its own tick
+- Why: the tie-break that separates them is refusing rather than proceeding on an input this tick cannot
+  judge. Hoisting changes what a *lock-losing* activation writes and moves an append into a file named by a
+  record read off a log outside the only thing that serialises activations; this repository's own record of
+  what an unguarded write to a path named by someone else's text costs is #874 and #182, and no measurement
+  here says what two overlapping halted passes do to one `>>`. The option that touches no write path wins
+  on that, and it also wins the next tie-break -- fewest files: three files of prose and one `local`, with
+  no control flow and no leg's expectation moved, so it is reversible by `git revert` of one commit. The
+  gate that decides it is the one H-0149 was raised for: a line must not state more than the code does, and
+  "on every pass" beside a halt path that writes nothing is the same shape as "found no directory there"
+  beside a directory that exists. Narrowing is not the same as closing, and the entry says so -- which is
+  why this option carries a filed ticket (#331, with the three repairs, the lock boundary and the static
+  read) rather than a silence. The fourth option is refused outright, not deferred: a page that says "every
+  pass" is exactly what sends an operator to grep sibling checkouts for a tail the halt path never wrote.
+  What the first option buys is real, and #331 is where the lock question gets answered; taking it here, in
+  a tick dispatched because a check was red, would have spent a re-review's attention on an unlocked write
+  nobody had measured.
+- Consequences: `docs/factory.md` says where the boundary is and names the halt exit for `LOG-AT` and
+  `SUPERVISOR-AT` alike, and `factory_log_move_lines`' contract in `factory/common.sh` says the same and
+  points at #331. Two comments answer the review's findings 3 and 4: the awk `END` block now records that
+  `bad` is consulted after both readable kinds, so `rc=3` is reached only when the window holds no readable
+  record at all and says nothing about a damaged mark a readable record outranks, and the refusal arms carry
+  the two `rc=` namespaces (the parser's 0/1/2 against the sentences' 1/2/3) with the one arm where they can
+  collide named. `factory/factory.sh`'s `local` line declares `log_line`, the only loop variable it missed
+  (finding 5). `docs/factory.md` records that a `--dry-run` pass performs the copy into the old journal
+  (finding 2), a thing that was true and unwritten. No behaviour moves and no leg's expectation moves -- the
+  gate's own wording is what follows in the pull-request body rather than here (#1180). #331 stays open
+  carrying the hoist, its three options, and the lock boundary.
+- Checkpoint: 37d61eda1edd295c3adf7dea23a0d30dd190e4d6

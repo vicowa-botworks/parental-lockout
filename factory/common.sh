@@ -2732,6 +2732,12 @@ factory_log_prev_record() {
 			if (root == "") next
 			der_dir = root "/factory/log"; der_at = stamp
 		}
+		# `bad` is asked LAST, and the order is a fact an operator can be told: a damaged LOG-AT above a
+		# readable record is overridden by it, so exit 2 -- and the rc=3 sentence printed beside it -- is
+		# reached only when the window holds no readable record at all. The sentence names the arm that
+		# prints it and says nothing about a damaged mark that a readable record outranks; saying more than
+		# that needs a verdict per mark rather than one flag (#330 review, finding 3). No apostrophe in this
+		# comment for the same reason the program has none: it sits inside a single-quoted awk string.
 		END {
 			if (rec_dir != "") { printf "%s\t%s\t%s\n", rec_dir, rec_at, "recorded"; exit 0 }
 			if (der_dir != "") { printf "%s\t%s\t%s\n", der_dir, der_at, "derived"; exit 0 }
@@ -2744,9 +2750,11 @@ factory_log_prev_record() {
 # factory_log_move_lines [THIS_LOG_DIR]
 #   The pass's sentences about the journal's own location, one per line, in the shape
 #   `factory_unit_lines` uses: reports and changes nothing about the run. `LOG-AT <dir>` is on every
-#   pass for the reason `UNIT-AT` and `SUPERVISOR-AT` are -- a read nobody prints cannot be told apart
-#   from a read that is not there -- and it is also the line the NEXT pass reads back as this pass's
-#   answer, which is why it is printed before anything else here. Then at most one of:
+#   pass that reaches the pass body, for the reason `UNIT-AT` and `SUPERVISOR-AT` are -- a read nobody
+#   prints cannot be told apart from a read that is not there -- and it is also the line the NEXT pass
+#   reads back as this pass's answer, which is why it is printed before anything else here. It is NOT on
+#   a pass stopped by a `factory/HALT` marker: that exit is ahead of `factory_body`, which is where all
+#   four self-report lines are emitted, and #331 carries the repair. Then at most one of:
 #
 #     LOG-MOVED          this pass writes where the pass before it did not.
 #     LOG-MOVED-UNKNOWN  the read could not answer, one of three ways it runs out of input. It exists so
@@ -2778,6 +2786,15 @@ $rec
 EOF
 	fi
 	printf 'LOG-AT %s\n' "$new"
+	# Two `rc=` namespaces sit one line apart here and the numbers are not the same numbers. The
+	# parser's contract is 0 (a record), 1 (no record) and 2 (a damaged record); the SENTENCES an
+	# operator reads number the states 1 (journalctl failed), 2 (the window records no directory) and 3
+	# (a damaged record), because journalctl's own failure is a state the parser never sees. So `rc=` on
+	# a printed line is the sentence namespace. The three named arms below translate `jrc` and `rrc` into
+	# it by hand; the out-of-contract arm is the one place the two can collide, since it prints the
+	# parser's own status where an operator reads a sentence number -- a parser exit of 3 would read as
+	# `rc=3`, damaged record. `REAP-UNKNOWN` (`factory_reap_lines`) carries the same shape,
+	# pre-existing (#330 review, finding 4).
 	if [ "$jrc" -ne 0 ]; then
 		printf 'LOG-MOVED-UNKNOWN rc=1 journalctl --user -u %s exited %s, so this pass cannot ask which directory the pass before it wrote to; it can only say where it is writing itself: %s (#260)\n' \
 			"$(factory_service_unit)" "$jrc" "$new"

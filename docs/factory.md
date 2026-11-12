@@ -736,7 +736,9 @@ same two lines with more to say: `code: 95e1816 (issue-249, 0 behind origin/main
 fork, which a fast-forward will not fix) + 5 uncommitted path(s)` is the line from the tree this change
 was written in, printed at 17:29:33Z while the work was in progress.
 
-`SUPERVISOR-AT` is on every pass. `SUPERVISOR-STALE`, `SUPERVISOR-FORKED` (the tree also holds commits
+`SUPERVISOR-AT` is on every pass that reaches the pass body -- the same boundary `LOG-AT` documents, and
+the same exception: a pass stopped by a `factory/HALT` marker writes none of the self-report lines.
+`SUPERVISOR-STALE`, `SUPERVISOR-FORKED` (the tree also holds commits
 the trunk does not), `SUPERVISOR-NOBASE` (no `origin/<trunk>` ref to compare against) and
 `SUPERVISOR-UNKNOWN` (git could not read the tree) appear only for the state each names, and
 `factory/selftest.sh` pins all five against trees planted in each state. `dirty=` is a path count from
@@ -900,10 +902,16 @@ and that is the whole of what the old file gained, below the line that was alrea
 2026-11-12T19:14:34Z LOG-MOVED old=/tmp/opencode/demo-fork/factory/log new=/tmp/opencode/demo-ff/factory/log prev-pass=2026-11-10T10:17:19Z how=recorded copy=old-journal -- …(#260)
 ```
 
-`LOG-AT` is on every pass, for the reason `SUPERVISOR-AT` and `UNIT-AT` are -- a read nobody prints cannot
-be told apart from a read that is not there -- and it is also what the next pass reads back as this
-pass's answer, so it is printed before the `PASS` line: a pass that halts at triage writes no `PASS` at
-all, and that is exactly the pass somebody is trying to locate. The previous directory comes from the
+`LOG-AT` is on every pass that reaches the pass body, for the reason `SUPERVISOR-AT` and `UNIT-AT` are -- a
+read nobody prints cannot be told apart from a read that is not there -- and it is also what the next pass
+reads back as this pass's answer, so it is printed before the `PASS` line: a pass that halts at triage
+writes no `PASS` at all, and that is exactly the pass somebody is trying to locate. **Where that boundary
+is, and what sits outside it:** all four of a pass's self-report lines -- `UNIT-AT`, `LOG-AT`,
+`SUPERVISOR-AT` and `PASS` -- are emitted inside `factory_body`, and the halt check logs `HALTED` and
+exits before `factory_body` is called, so a pass stopped by a `factory/HALT` marker writes none of them.
+The dead tail this section opens with is precisely that `HALTED` line, left by a pass that never said which
+directory it was writing to. `#331` holds the three ways to close that and the lock boundary a hoist has to
+answer for. The previous directory comes from the
 unit's own journal lines, not from a marker file (a record that has to be maintained is the defect
 `factory_journal_age` exists to avoid), not from the tree (two of the 10 Nov trees were deleted inside the
 hour), and not from `$FACTORY_LOG`, which is this pass's own answer. It is read with
@@ -926,6 +934,12 @@ link test as its own clause, asked before anything that follows the path. A dang
 and the first cut folded the file's link test behind that shape check, never reached it, and the append
 created the link's target. Writing a path this harness did not create, named by a record read off a log, is
 the shape #874 names; #182 is what it costs (#260, `H-0148`).
+
+`--dry-run` spares GitHub, git and the model, and it does not spare this write. Measured at head with
+`DRY_RUN=1`: the neighbour's `supervisor.log` gained the `copy=old-journal` line and the pass reported
+`tail=ok`. That is intended and it is the fourth thing a dry run touches -- `log_event` writes this pass's
+own journal line in a dry run too, and the banner promises only the three -- but it belongs in the page so
+the next reader does not file it as a bug (#330 review, finding 2).
 
 Those five clauses are a chain, not one `&&` group, so the refusing one can be named: `tail=skipped` is
 what all five look like, and `refuse=<clause>` says which. The sentence used to assert the commonest reason
