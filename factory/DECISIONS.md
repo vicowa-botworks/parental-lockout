@@ -6996,7 +6996,14 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   untouched, surviving bytes byte-identical to the prefix of a pre-repair copy kept at
   `/tmp/opencode/supervisor.log.with-stray`), because `internal/audit`'s rule (#1686) is that a refusal
   leaves a file untouched and a demo is not a licence to write outside the fence: any probe of a write guard
-  must name FIXTURE paths as the old journal, which is why every fixture in the suite does. Refs: #260 ask
+  must name FIXTURE paths as the old journal, which is why every fixture in the suite does. Five controls
+  were run after the implementation commit, each one editing `factory/common.sh`, running the suite, and
+  restoring from HEAD (which is only a restore because the implementation was committed first): dropping the
+  `refuse=` field, collapsing the four non-absent clauses onto one token, swapping `-d` back ahead of `-L`,
+  deleting the legend's clause list, and folding the file's link test back into the shape test. All five make
+  `lm_leg_refusal_names_the_clause` red; the three that remove a link refusal or its name make
+  `lm_leg_symlink_not_written_through` red with them; nothing else among the 544 moves, so the leg is
+  specific rather than a canary that trips on any edit. Refs: #260 ask
   3, H-0148 (the guard whose refusals were untellable), #874 (judge the path before changing it), #182 and
   #1686 (what not judging it costs), #246 (the parked activation a FIFO would recreate), #202 (one read, not
   two), #228's polarity (an absence must not read as a verdict).
