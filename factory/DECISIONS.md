@@ -5376,3 +5376,214 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   minted twice, so a harness file pointing at it points at two candidates and neither is the one
   meant. Left for a citation pass, named on the pull request so the queue can see it.
 - Checkpoint: 0d9a0ed
+
+## H-0139 · The escalation path's label step was executed for the first time, and the choice it reports is still a person's
+
+- Question: `AGENTS.md:38` and `.opencode/skills/factory/SKILL.md:225` tell a unit that reaches one of
+  the four reserved classes to comment on the issue and apply `needs-human`. This repository has no such
+  label — measured at this head: `gh label list --limit 200 --json name | jq length` is 18, and
+  `select(.name=="needs-human") | length` is 0. #311 offers two repairs and names both a person's call.
+  Two things had to be measured before any of it could be answered, because the ticket explicitly left
+  them open: what a tick that reaches the step actually hits, and whether either repair ends the ticket.
+  So does a unit create the label, rewrite the instruction, or stop?
+- Options: run #311's own `gh label create needs-human …` line and treat an additive reversible write as
+  harness plumbing a tick may do | rewrite the five governing mentions to a label that exists and update
+  the leg that pins the string | execute the documented step, record its refusal where a person will read
+  it, and leave the name to the person #311 names | ship nothing and hand #311 back as `unclaimed`
+- Chose: escalated
+- Why: the step first, since a prediction about a command is not its exit status. Run verbatim as
+  `SKILL.md:225` spells it, on this ticket, with the read-back in the same breath:
+
+  ```
+  $ gh issue edit 311 --add-label needs-human
+  failed to update https://github.com/vicowa-botworks/parental-lockout/issues/311: 'needs-human' not found
+  failed to update 1 issue                                            # exit 1
+  ```
+
+  `GH_DEBUG=api` over the same call says what GitHub was actually asked for: two `POST /graphql`, whose
+  operations are `query IssueByNumber` and `query RepositoryLabelList`, and no mutation at all —
+  `addLabels` 0, `updateIssue` 0, `createLabel` 0 in the transcript. The refusal is gh's, not GitHub's:
+  2.46.0 at `/usr/bin/gh` resolves every `--add-label` name against the repository's label list and
+  aborts before it requests a write. Blast radius read back after: #311 still `bug, area:ops`, the label
+  list still 18 names, no name matching `probe` (the first run used a 67-character name so that no
+  outcome could create anything). That answers #311's first question, and it is better news than the
+  shape the ticket guessed — a misnamed label cannot half-apply, because no write is ever attempted. Its
+  second question goes the other way: `SKILL.md:222-228` reaches the label step *before* the decision-log
+  entry, so a unit that reads exit 1 as fatal loses the `Awaiting:` record. But the mechanism the ticket
+  blames does not exist. `grep -rn -- --add-label .` over the whole repository returns exactly one line,
+  `SKILL.md:225`, prose; `factory/factory.sh:725` is prose inside the instruction string and
+  `factory/selftest.sh:6216` is a scan for the literal string, so nothing in `factory/` executes a label
+  call and no `set -e` is anywhere near it. The exit lands on a model, which can carry on — this entry is
+  that carry-on. The free repair is the reorder: commit the record, then apply the label, then read the
+  label back. It names no label and picks neither option, which is why it is a recommendation on #311
+  rather than an edit on this branch.
+
+  Then the tie-breaks, in order. 1 is silent — neither option touches `go.mod`. 4 prefers creating the
+  label: zero files, against five. 5 prefers editing the instruction: it is the only one `git revert`
+  reaches, because a label is repository configuration and its undo is `gh label delete`, which is a
+  delete. 6 was reached for and refuses to answer — the name appears in five governing places
+  (`AGENTS.md:38`, `SKILL.md:225`, `SKILL.md:402`, `docs/factory.md:394`, `factory/factory.sh:725`) and
+  one leg (`factory/selftest.sh:6216`, whose `*needs-human*) return 0 ;;` arm fails with the sentence at
+  `:6218`), so "what the surrounding code already does" and "what the surrounding code says" are the same
+  sentence in five files with no precedent either side.
+
+  What settled it is #311's own last paragraph: whoever filed it wrote that either repair is a person's
+  call. Read the right way round, that is the third reserved class — "anything a user has already decided
+  in this repository's history" — speaking about this choice, not leaving it open. Creating the label was
+  the option most tempting to argue into scope, and the argument is real: it is additive, it is not a
+  dependency, not a publish, not a delete, and #856's gate is about a `require` line. It was refused on
+  the filed instruction and on the undo, which is a delete this harness cannot make and a person can, in
+  one command either way.
+
+  What lost, as the cost of stopping rather than as a tidy ending:
+
+  - An escalation cannot park its own ticket, and this one is no exception: `grep -c labels
+    factory/triage.sh factory/factory.sh` answers `0` and `0`, and `triage.sh:62-64` lists every class
+    the classifier can emit — for `kind=issue`, only `unclaimed` and `delivered`. So no label of any
+    name changes what the supervisor dispatches, and the next pass spends another `FACTORY_TICK_TIMEOUT`
+    (2700 s, `factory/common.sh:151`) re-deriving this deadlock unless a pull request names the issue —
+    `CLAIM_RE` at `triage.sh:267` is the only park this harness has. That is why this escalation ships a
+    pull request carrying *only* this record: `SKILL.md:229` forbids a pull request for half a decision,
+    and a record of an escalation is not half a decision, it is the thing that makes the escalation
+    findable. #313 is filed for the missing class itself.
+  - #311's option 1 is sold on "a queryable queue slice", and the slice does not exist for the reason
+    above. What option 1 buys is human eyes, GitHub search, and `AGENTS.md` staying literally true. Price
+    it at that and nothing more.
+  - #311's option 2 is not the two-line edit it is called. Five governing mentions plus a leg and its
+    failure message, and one of the five (`factory/factory.sh:725`) tells a tick to label a *pull
+    request*, which on this account needs the issue verb: `D-0047` measured `gh pr edit 240
+    --remove-label blocked --remove-label question` dying on the retired `projectCards` field with the
+    read-back unchanged, while `gh issue edit 240 --remove-label …` exited 0 and read back `labels: []`
+    (`DECISIONS.md:2221-2231`). Neither option as written says which verb to name, and the sentence at
+    `:725` needs it whatever the label turns out to be called. Re-measured on this branch's own pull
+    request, and it is worse than a naming problem: `gh pr edit 314 --add-label needs-human` exits 1 with
+    `GraphQL: Projects (classic) is being deprecated … (repository.pullRequest.projectCards)` — the
+    retired field kills the call *before* gh resolves the label name, so the tick `:725` is talking to
+    gets a diagnostic that says nothing about labels at all. Its two routes are dead for two different
+    reasons: the pull-request verb never reaches the name, and the issue verb reaches the name and
+    refuses it. #314's `labels` read `[]` afterwards, so neither route wrote anything, and the
+    `review_unreadable` branch that ends "label it needs-human, and stop there" has no working spelling
+    today at any label name.
+  - One thing has already happened, differently from how #311 expects. The instruction has been followed
+    to a *substituted* label before: `D-0047`'s Effect (`DECISIONS.md:2112-2114`) records "the `blocked`
+    and `question` labels on #240", and #240 reads `labels=[]` right now. That loss is not this defect —
+    it is the line quoted above: a later unit removed both labels to test the body-write route and did
+    not restore them. So the escalation marker on the pull request that motivated the rule is gone, and
+    nothing was looking for it, which is the "owed thing nobody can see" #311 ends on, already realized.
+- Awaiting: a person, to run one of two commands and say which. Option 1 is #311's own line, verbatim:
+  `gh label create needs-human --color B60205 --description "A decision only a human may make:
+  dependency, security or tamper-resistance semantics, publishing, deleting data"`. Option 2 is a branch
+  renaming the five mentions and `factory/selftest.sh:6199-6220` to a label that exists — `blocked`,
+  whose own description ("the blocking artifact is named on the issue") an escalation comment does
+  satisfy, at the cost of one label carrying two meanings. Also owed, and independent of which is chosen:
+  whether the `SKILL.md:222-228` reorder (record first, label second, read back) and a workable verb at
+  `factory/factory.sh:725` — which needs more than a name, because as measured above neither verb reaches
+  a label on a pull request today — ship with the answer or as their own unit, and #313, which is the
+  queue half nobody has taken.
+- Checkpoint: bd2d9cd70508d5125a6b49bb7e3daffa751fd3c7
+- Effect: this entry and nothing else in the tree — `git diff --stat origin/main...HEAD` on the pull
+  request from this branch is one file. On the tracker: the executed step and its transcript on #311,
+  with both answers that ticket asked for and the two costs its options do not carry; `blocked` on #311
+  as a disclosed stand-in (`gh issue edit 311 --remove-label blocked` is the undo, and it is not option
+  2, because no mention of the instruction changes here); and #313, filed for the class that does not
+  exist, on the argument that a finding living only in a comment is invisible to every queue that reads
+  issues.
+
+- Two `path:NNN` citations in this entry stopped resolving when this branch met `issue-310`. Every one
+  of the fifteen was re-read on the merged tree on 11 Nov, in the merge carrying `H-0143`. `AGENTS.md:38`
+  now reads "- Checkpoint **before** a judgement call" and the `needs-human` sentence quoted above is at
+  `AGENTS.md:46`; `SKILL.md:402` now reads "look:" and the `#856` bullet quoted above is at
+  `SKILL.md:417`. The cause is #310's own diff -- +8 lines in `AGENTS.md`, +15 in
+  `.opencode/skills/factory/SKILL.md`, both above the line cited -- and not any edit to what this entry
+  recorded. The other thirteen re-read true: `SKILL.md:225`, the `:222-228` block and `:229` (all fifteen
+  of #310's inserted `SKILL.md` lines sit below :228), `docs/factory.md:394`, `factory/factory.sh:725`,
+  `factory/selftest.sh:6216` and `:6218` (that file gains 86 lines on that branch, all at 6492 and after),
+  the `:6199-6220` block, `factory/common.sh:151`, `factory/triage.sh:267`, `triage.sh:62-64`,
+  `DECISIONS.md:2112-2114` and `DECISIONS.md:2221-2231`; and `git diff 65e980b..origin/main` and
+  `git diff 65e980b..HEAD` are both EMPTY for `DECISIONS.md`, `docs/factory.md`, `factory/factory.sh`,
+  `factory/common.sh` and `factory/triage.sh`, which is why those needed no arithmetic at all. The two
+  numbers above are left exactly as measured and this bullet sits beside them instead of replacing them:
+  `AGENTS.md:38` WAS the line on `5be86e5`, the head this entry was written against, and a record whose
+  coordinates are quietly moved under it cannot be re-run against the thing it measured. `H-0143` carries
+  the census, and the reason a rewrite of them was refused.
+
+## H-0143 · The log collides again and both sides appended one entry at the same anchor, so the splice is the easy shape -- and the thing that actually broke was two line numbers inside the other side's entry
+
+- Question: read back before anything was touched. `gh pr view 312 --json number,title,state,headRefName,
+  baseRefName,mergeable,mergeStateStatus,reviewDecision,headRefOid` answers `OPEN`, `issue-310` against
+  `main`, `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`, `reviewDecision=REVIEW_REQUIRED`,
+  `headRefOid=120ccd1fc0d72775e825c06009dbab8029328174`, which is this worktree's `HEAD`; `statusCheckRollup`
+  carries five rows, all `COMPLETED`/`SUCCESS` (`verify`, `shellcheck`, `mutation sets`,
+  `packages (amd64)`, `packages (arm64)`), and `reviewRequests` answers
+  `[{"__typename":"User","login":"hermesvicowa"}]`, so one request is outstanding. `git rev-list
+  --left-right --count HEAD...origin/main` is `3 4`. `git merge-tree --write-tree --name-only HEAD
+  origin/main` conflicts exactly ONE file, `factory/DECISIONS.md`, and `git diff --stat 65e980b..origin/main`
+  is that file at +112/-0: base `65e980b` ends the log at `H-0132` (5304 lines), this branch appends
+  `H-0138` (5378), `main` appends `H-0139` (5416), and lines 1..5304 are byte-identical between the two
+  parent blobs (`diff` of the two ranges, empty). So the two intents are disjoint everywhere, and in the one
+  file where they meet they meet only at the last line. Which splice keeps both -- and what does a merge do
+  to an entry that cites the other side's files by line number?
+- Options: cut the merged log at id position out of the two parent blobs and prove both intents with a
+  zero-deletion two-way census | delete git's three conflict markers and keep the layout it wrote | resolve
+  with `--ours` or `--theirs` | rewrite `H-0139`'s two shifted line numbers so that every citation resolves
+  on the merged tree | rebase this branch onto `origin/main` | cut the log and leave the shifted citations
+  unrecorded
+- Chose: cut the merged log at id position out of the two parent blobs and prove both intents with a
+  zero-deletion two-way census
+- Why: order is not what is in dispute here, and saying so is the whole difference between this collision
+  and `H-0114`, `H-0121` and `H-0128`. Both sides wrote at the same anchor and `H-0138` < `H-0139`, so git's
+  layout is already ascending and the shipped gate accepts it: the conflicted file regenerated with
+  `git merge-file -p ours base theirs`, stripped of its three marker lines, is 5489 lines and answers
+  `check-decisions: 129 entries across 1 log(s)` at exit 0. The two layouts differ by ONE line -- the blank
+  separator above `## H-0139`. Stripping the markers drops that heading straight onto `H-0138`'s
+  `- Checkpoint:` line, because the single blank the two sides share sits ABOVE `<<<<<<<` and the conflict
+  hunk ate it. Three headings in this log already sit like that (`:2315` `H-0084`, `:3737` `H-0110`,
+  `:4907` `H-0127` -- all three seams from earlier collisions, `H-0110` titled as one) against 126 that
+  carry the blank, so the cut takes the separator from `main`'s own blob at :5305 and the new seam joins the
+  126 rather than the 3. `--ours` and `--theirs` are arithmetic, not taste: `--theirs` deletes the 74 lines
+  that ARE #310's record -- the answer this pull request exists to deliver -- and `--ours` deletes the 112
+  lines that are #311's escalation, which `main` merged hours ago and a branch has no standing to un-write.
+  Rebasing is refused by the remote rather than by habit: it rewrites eight commits and the force half of a
+  rewrite is denied to a unit by the `bash` table in `.opencode/opencode.jsonc`, while a merge is undone by
+  `git revert -m 1` back to `dc109b8` (tie-break 5) and resolves one file out of the six this branch carries
+  (tie-break 4). Then the half the ticket's "keeping both intents" actually bites on. `H-0139` cites fifteen
+  `path:NNN` locations and two of them land on different sentences once the trees are one tree; its own
+  appended bullet carries all fifteen re-read, with what the broken two now say. Rewriting those two numbers
+  is the tempting repair -- it makes every pointer resolve on the tip -- and it loses twice. First, it is a
+  deletion of lines `main` wrote, so the census that makes "both intents" a checkable claim rather than a
+  sentence would have to carry two deleted lines, and that census is the only reason anybody believes a
+  splice. Second, it re-dates a measurement in place: `AGENTS.md:38` was the true line on `5be86e5`, and a
+  record a person cannot re-run against the head it was written against is the failure this repository's
+  read-back rule (`#1180`) already refuses for artifacts, so the correction is a dated bullet beside the
+  numbers, not over them -- measured additive, so the census still reports zero deletions. The sixth option,
+  cutting the log and saying nothing, is what this merge would have shipped: nothing in `make verify`
+  resolves a `path:NNN` citation, because `scripts/check-decisions.py` checks ids, fields, a `Chose` drawn
+  from its own `Options`, and that a `Checkpoint:` is a sha, and the one citation check it does run resolves
+  `[DH]-\d{4}` tokens against headings and is blind to files and line numbers. Two dead pointers would have
+  waited for a reader to follow one. So the hazard is filed as an issue carrying this measurement, and this
+  entry adds no new `path:NNN` citation of its own to feed it -- it names files and symbols instead.
+- Checkpoint: dc109b8
+- Effect: one file resolved by hand, cut from the two parent blobs rather than edited out of the conflicted
+  file: `head -n 5378` of ours plus `tail -n +5305` of `main`, 5490 lines, then `H-0139`'s 18-line bullet,
+  then this entry. The census at the file's final length, `diff` against each parent blob: against `main`
+  (5416 lines) TWO add-only hunks, `5305a5306,5379` (74 lines, this branch's `H-0138`) and `5416a5491,5585`
+  (95 lines, `H-0139`'s bullet, this entry, and the two separators they brought); against ours (5378 lines)
+  ONE add-only hunk, `5378a5379,5585` (207 lines). Deleted lines ZERO in both directions, so nothing either
+  side wrote was edited -- only
+  placed. Measured BEFORE this entry was appended the pair was `5378a5379,5490` (112 lines) and
+  `5305a5306,5379` (74), also zero deletions, and it is labelled pre-entry rather than left to be discovered
+  (`H-0121`'s omission, corrected at `H-0127`). `check-decisions: 180 entries across 2 log(s)`, exit 0, on
+  the merged tree. There is no silent half to census this time and that is a measurement, not luck:
+  `main`'s entire diff since base is one file, so the other five files this branch carries -- `AGENTS.md`,
+  `.opencode/skills/factory/SKILL.md`, `.opencode/opencode.jsonc`, `NEXT.md`, `factory/selftest.sh` -- are
+  carried across untouched rather than merged, and the `-U0` zero-count trap `H-0128` was written for does
+  not arise when there are no hunk headers to parse. No `.go` file is on this branch, so no pattern under
+  `scripts/mutations/` had an opportunity to retire here. The single gate, run alone in this worktree
+  against this merged tree before the merge was committed, ended `verify: OK` at exit 0 -- including
+  `check-deps: stdlib only` and the three cross-builds.
+- Not established here: whether the one review request outstanding still stands after this head moves is a
+  re-read, not a memory (`#1180`), and the next tick asks the API rather than this entry; no mutant battery
+  was run beside `make verify` in this tree, because the two must never overlap (`#1807`); and whether a
+  gate SHOULD resolve `path:NNN` citations in a decision log is an open question the filed issue carries,
+  not a verdict this entry makes -- a citation is a measurement at a head, and a gate that rewrites it is
+  the thing this entry refused.
