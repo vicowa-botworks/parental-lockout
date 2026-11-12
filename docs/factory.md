@@ -1023,6 +1023,43 @@ current by the time the allocator runs in a tick's shell. The command an operato
 `git fetch --prune origin main` updates the trunk only, leaves the allocator on its stale answer, and
 still prints a line with `->` in it. A sibling's ids are on the branch it pushed.
 
+The union has two halves and they mean opposite things, so the read separates them and says which one
+raised the ceiling. A ceiling some ref carries is a sibling that took the number. A ceiling only the
+working file carries is the entry you are writing, and the id printed above it is what a *second* entry
+in the same tick would take. That distinction is not academic, because the re-read is scheduled for the
+one moment the second case is certain: immediately before the entry commit, the heading is already in
+the file. Measured in `wt/issue-320` on 12 Nov against `factory/DECISIONS.md` (git 2.53.0), the
+single-maximum read answered `H-0145` with the log as committed and `H-0146` after an uncommitted
+`## H-0145` was appended -- and no ref anywhere held that heading: `git grep -c` over `refs/heads` and
+`refs/remotes` found the string in one sibling's prose as a citation and in no heading. A session handed
+the bare `H-0146` has two reactions and both cost the log: yield to the phantom and leave a gap at 145
+that no entry explains, or stop trusting the allocator at the last guard before a duplicate id. So the
+ceiling is attributed on stderr, as `PENDING`, naming the heading it is standing on and the ceiling the
+refs really hold. stdout is unchanged and the status stays 0, for the reason the script's own header
+gives -- a refusal in front of a session sends it back to numbering by eye -- and the note goes quiet on
+its own once the entry is committed, because `HEAD` joins the union and the two maxima agree. What
+discriminates is therefore the **absence of the note**, never the emptiness of stderr: since PR #307
+every answer carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it, so there
+is no answer that leaves stderr empty. Measured at `487d572` on one fixture (git 2.53.0), the shipped
+allocator writes 460 bytes with the tree clean, 855 with the caller's own heading uncommitted, and 460
+one commit later -- never zero, so emptiness is not a reading anything can take. (A byte count carries
+the fixture's path in the refresh line, so it moves a byte or two between fixtures; the claim is that
+none of the three is zero.) A moved ceiling with
+**no PENDING line** is therefore the collision, and the four steps below are what to do with it.
+
+What the note's absence does not say is *whose* ref the ceiling sits on, and the two answers differ in
+what they owe you. A ceiling a sibling left on `refs/heads` is the collision: you yield. A ceiling your
+own committed entry put on `HEAD` is durable, and durable includes yours -- the next id is there to be
+taken, and the entry already written is not the one to move. Measured on one fixture the two are
+indistinguishable on the wire: `H-0042`, the note absent, byte-identical stderr, whether a sibling's
+branch or your own commit carries `H-0041`. So the third case is told from the collision by what you did
+one commit ago and not by the allocator's output, which is why it is written down rather than left to be
+inferred. `factory/selftest.sh` pins both directions and plants one per direction -- the note deleted,
+which puts the phantom back, and the note printed whatever the ceiling, because a marker on every answer
+is a marker that gets read once and then ignored -- and one further leg pins this discriminator's
+wording across the skill, this guide and the script, because for one revision the two rules for this one
+signal sat fourteen lines apart in the same file and no leg could see the drift.
+
 Two things the fetch cannot do. It does not make the id *reserved*: two ticks that allocate in the
 same second still agree, and only the re-read immediately before the entry commit narrows that. And it
 is bounded, so on an origin that accepts the connection and never answers the activation proceeds on
