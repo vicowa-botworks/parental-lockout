@@ -42,9 +42,11 @@ rule that exists because of a measured failure, and the measurement is cited.
   option is a description of what happened.
 - Roll back with `git revert`, never a rewrite: force-pushing an in-flight branch is forbidden here.
 - Four classes of decision are not an agent's to make — a third-party dependency, security or
-  tamper-resistance semantics, publishing, deleting data. Comment on the issue, label it
-  `needs-human`, write the entry with `Chose: escalated` and `Awaiting:` naming what is owed, and
-  stop. Adding a `require` line to `go.mod` needs the user, not a justification in a PR body.
+  tamper-resistance semantics, publishing, deleting data. Comment on the issue, label it with the
+  escalation label (`factory/escalation-label.sh` prints it; `factory/common.sh` is the
+  only place that name is written), write the entry with `Chose: escalated` and `Awaiting:`
+  naming what is owed, and stop. Adding a `require` line to `go.mod` needs the user, not a
+  justification in a PR body.
 
 ## Worktrees
 
