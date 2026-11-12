@@ -15,11 +15,14 @@
 #   issue   199       unclaimed            [merged:PR#229 on `issue-199`  -       199    -
 #   issue   232       delivered            merged PR #234 on `issue-232` at 2026-…  -   232   -
 #   branch  fix/x     branch_without_pr    3 file(s) across 2 commit(s)   fix/x   -      -
+#   branch  issue-249 delivered            merged PR #293 on `issue-249` at …  issue-249  -  -
 #
 # `class` is a verdict, not a field. The classes factory.sh calls workable are the ones worth a
 # model; the rest are waits, and a wait costs no tokens. `delivered` is neither: it is a report
 # about an issue the queue is about to hand out again for no reason, and it is the one class whose
-# whole job is to make factory.sh start nothing (#235). `review_unreadable` is the second of those,
+# whole job is to make factory.sh start nothing (#235). Since #291 it reports a ref as well -- the
+# leftover of a pull request that already merged holds nothing the trunk lacks, and saying so is the
+# difference between a delivery and a branch that vanished. `review_unreadable` is the second of those,
 # and it exists because the class next to it used to dispatch a tick at a review whose body had
 # never arrived (#242) -- see the block in the CHANGES_REQUESTED arm.
 #
@@ -822,6 +825,64 @@ fi
 # is how `fix/nav-marks-the-current-page` came to hold days of unmerged work with no record of it
 # anywhere. That work is already paid for, so it is triaged rather than left.
 
+# A merged pull request ran under this name (#291 ask 2), and what it says is a fact about the ref,
+# not a verdict about an issue.
+#
+# The scan below asks one question of every ref -- is there anything to offer -- and so had no answer
+# at all for a ref whose pull request had already merged. Such a ref is zero commits ahead of `main`,
+# and `[ "$ahead" -gt 0 ] || continue` drops it there, silently: the delivery happened, the branch is
+# the proof of it, and the queue says nothing whatever about either. Measured on the shipped classifier
+# at `1ad0760` over a throwaway repository whose leftover is the ref of a cleanly merged pull request: it
+# prints no row of any class, and the only trace it leaves is a count of branches that hold nothing.
+# `factory/selftest.sh` holds that repository now, permanently, and the control that inverts this arm
+# prints the silence again. #291's own last comment names this exact residue as what #292 did not deliver.
+#
+# `delivered` is the class for it. It is the one class whose whole job is to be a row that starts nothing
+# (the class table in this file's header, and #235), and the supervisor's arm is keyed on the CLASS and
+# not on the kind, so `emit branch … delivered` needs no new arm: that arm logs the row and closes
+# nothing, and the class never enters the workable list.
+#
+# Three things this map deliberately does not do:
+#
+#   * It is not a claim about an issue. A branch name is evidence, never a verdict (H-0108): #254
+#     merged on `issue-246` under `Part of #246` with #246 unfinished, and three merged pull requests
+#     sit on `issue-199`. So the row names the pull request and says nothing about any ticket, and its
+#     issue column is empty -- the issue half decides that question on its own five facts.
+#   * It does not decide on its own. The row still has to be bought by the content question below: a
+#     name that merged once and was then re-cut with a file `main` lacks carries real undelivered work
+#     and keeps its `branch_without_pr` row. The fixture's `br-reopened` is that branch, and it is the
+#     polarity that keeps this from becoming a rule that retires work by its name.
+#   * It does not count a merge that did not reach the trunk. `baseRefName == $FACTORY_BASE` is the
+#     same filter the issue half's two scans above apply (#216's stacked chain): a pull request merged
+#     into another branch left its branch's work off `main`, and its leftover ref still owes it.
+#
+# The newest merge on a name is the one reported, because it is the merge that consumed the name; when
+# several ran under it the count is said in the row rather than smoothed away, for the reason H-0108
+# gives -- an attribution that hides its own ambiguity is the one a reader cannot check.
+#
+# `merged_json` goes to jq on standard input, never as an argument, exactly as the two scans above it
+# do (100 merged bodies are 632,601 bytes against a 128 KiB single-argument limit).
+branch_shipped_map=$(printf '%s' "$merged_json" | jq -c --arg base "$FACTORY_BASE" '
+  [ .[]
+    | select(.baseRefName == $base)
+    | select((.headRefName // "") != "")
+    | select((.mergedAt // "") != "")
+    | {branch: .headRefName, pr: .number, at: .mergedAt}
+  ]
+  | group_by(.branch)
+  | map({(.[0].branch): (max_by(.at) + {count: length})})
+  | add // {}' 2>&1) || :
+# The same `|| :` and shape pair as the two scans above, for the same reason: under `set -e` a failed
+# substitution inside an assignment ends the pass, and `{}` is a legitimate answer, so only the shape
+# separates "no ref here was delivered" from "this scan did not run". What is lost when it does not is
+# the attribution and nothing else -- the branch keeps the verdict it had before #291 -- and that is
+# said out loud rather than left as a silently shorter table.
+if ! printf '%s' "$branch_shipped_map" | jq -e 'type == "object"' >/dev/null 2>&1; then
+	printf 'triage: the merged-branch scan refused, so no branch is reported delivered this pass: %s\n' \
+		"${branch_shipped_map:0:200}" >&2
+	branch_shipped_map='{}'
+fi
+
 main_sha=$(git -C "$FACTORY_ROOT" rev-parse origin/main 2>/dev/null || printf '')
 seen_branches=''
 # The two tallies the content verdict can end up with, kept as space-separated name lists because a
@@ -856,26 +917,67 @@ if [ -n "$main_sha" ]; then
 			continue
 		fi
 		ahead=$(git -C "$FACTORY_ROOT" rev-list --count "$main_sha..$sha" 2>/dev/null || printf '0')
-		[ "$ahead" -gt 0 ] || continue
-		# Commits are not content (#291). `rev-list --count` cannot tell a branch that changes 400
-		# lines from a branch whose only commit is the `git commit --allow-empty` rollback target that
-		# Step 3 of the factory skill makes every tick take *before* a judgement call -- and a tick
-		# killed by the wall-clock ceiling between that checkpoint and its effect commit leaves
-		# exactly that: a ref ahead of `main` holding zero bytes. Measured 11 Nov on `issue-249`, one
-		# commit ahead: `git show --numstat` printed no file list and `git diff --stat c98f75f f64ddcd`
-		# printed nothing, and `factory.sh:675` turned the count into "The work is already written" and
-		# dispatched a model at it. So the row is bought with a content question -- does this branch
-		# carry a single byte the trunk lacks -- asked from the MERGE BASE and not from `main`'s tip,
-		# so a branch that merged the trunk in is not charged for the trunk's own files.
-		merge_base=$(git -C "$FACTORY_ROOT" merge-base "$main_sha" "$sha" 2>/dev/null || printf '')
+		# The newest merge that ran under this name, as `pr<TAB>at<TAB>count`, empty when none did. Read
+		# per branch off the map the pass already built -- never off `merged_json` itself, which is 632 KiB
+		# of bodies on this repository and cannot cross an argument boundary (see the scan above for why
+		# that payload goes to jq on standard input). `IFS` is set for the
+		# `read` alone; a branch name cannot contain a tab, so the three fields cannot slide.
+		shipped=$(printf '%s' "$branch_shipped_map" | jq -r --arg b "$branch" '
+			.[$b] as $m | if $m == null then "" else "\($m.pr)\t\($m.at)\t\($m.count)" end' 2>/dev/null ||
+			printf '')
+		shipped_pr='' shipped_at='' shipped_n=''
+		IFS=$'\t' read -r shipped_pr shipped_at shipped_n <<<"$shipped" || :
 		delta=''
 		comparable=1
-		if [ -z "$merge_base" ]; then
-			comparable=0
-		elif ! delta=$(git -C "$FACTORY_ROOT" diff --name-only "$merge_base" "$sha" 2>/dev/null); then
-			comparable=0
-			delta=''
+		if [ "$ahead" -gt 0 ]; then
+			# Commits are not content (#291). `rev-list --count` cannot tell a branch that changes 400
+			# lines from a branch whose only commit is the `git commit --allow-empty` rollback target that
+			# Step 3 of the factory skill makes every tick take *before* a judgement call -- and a tick
+			# killed by the wall-clock ceiling between that checkpoint and its effect commit leaves
+			# exactly that: a ref ahead of `main` holding zero bytes. Measured 11 Nov on `issue-249`, one
+			# commit ahead: `git show --numstat` printed no file list and `git diff --stat c98f75f f64ddcd`
+			# printed nothing, and `factory.sh:675` turned the count into "The work is already written" and
+			# dispatched a model at it. So the row is bought with a content question -- does this branch
+			# carry a single byte the trunk lacks -- asked from the MERGE BASE and not from `main`'s tip,
+			# so a branch that merged the trunk in is not charged for the trunk's own files.
+			merge_base=$(git -C "$FACTORY_ROOT" merge-base "$main_sha" "$sha" 2>/dev/null || printf '')
+			if [ -z "$merge_base" ]; then
+				comparable=0
+			elif ! delta=$(git -C "$FACTORY_ROOT" diff --name-only "$merge_base" "$sha" 2>/dev/null); then
+				comparable=0
+				delta=''
+			fi
 		fi
+		# Zero ahead is the same verdict the question above gives, asked for free: nothing in this ref is
+		# missing from `main`, which is what `rev-list --count` returning 0 means -- the ref's tip is an
+		# ancestor of the trunk, so its merge base is its own tip and the diff it would return is empty
+		# by construction. It is a measured answer, not the failed read `comparable=0` reports, and that
+		# is why it is allowed to decide.
+		#
+		# A merged pull request ran under this name and the ref holds nothing the trunk lacks. That is
+		# not a stranded unit; it is a delivery, and the queue used to say nothing about it at all.
+		# `delivered` is the class a row gets when there is nothing to offer (the class table in this
+		# file's header), and the supervisor's arm is keyed on the class and not the kind, so this row
+		# needs no new handler: that arm logs it, dispatches nothing and closes nothing.
+		#
+		# It is reported here rather than in the stderr tally below, and the branch is then excluded from
+		# that tally, because the row is the auditable surface and it says strictly more: same conclusion
+		# (nothing to offer) plus which pull request got there and when. A ref would otherwise be named
+		# twice in one pass, once as a count and once as a delivery.
+		if [ -n "${shipped_pr:-}" ] && [ "$comparable" = 1 ] && [ -z "$delta" ]; then
+			more=''
+			if [ "${shipped_n:-1}" -gt 1 ]; then
+				more=", and $shipped_n merged pull requests ran under that name"
+			fi
+			rows+="$(emit branch "$branch" delivered \
+				"merged PR #$shipped_pr on \`$branch\` at $shipped_at, the ref holds no content the trunk lacks$more (window $FACTORY_DELIVERED_WINDOW)" \
+				"$branch" '')"$'\n'
+			continue
+		fi
+		# Nothing ahead and no merged pull request to report either: there is no row to print, and no
+		# claim to make. A ref that is level with the trunk is not stranded work and was never delivered
+		# by anything this pass can see.
+		[ "$ahead" -gt 0 ] || continue
 		if [ "$comparable" = 1 ] && [ -z "$delta" ]; then
 			# Nothing to deliver. Counted and said out loud instead of skipped in silence: a class
 			# that quietly stops printing rows is the failure this harness refuses everywhere else

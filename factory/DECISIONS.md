@@ -6845,3 +6845,86 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `H-0042`, `H-0042`, `H-0043` before this entry and the same four after, at exit 0 both times. The full
   `make verify` line and exit status on the tree this branch leaves are quoted in the pull-request body,
   because an `Effect:` written before the gate runs is a prophecy (#1180).
+
+## H-0151 · A merged pull request's leftover ref was reported by neither half of the classifier, and the arm that fixes it had three shapes that all read as a delivery
+
+- Question: a ref whose pull request has merged is level with the trunk, so the branch scan passes it by
+  at `[ "$ahead" -gt 0 ] || continue` and the `delivered` scan is keyed to `kind == issue` -- the
+  delivery happened, the ref is its evidence, and the queue says nothing about either, ever. #291's last
+  comment (2026-11-12T17:59:30Z) names that residue as the half PR #293 did not deliver: "a merged pull
+  request's leftover ref must be reported as delivered, not silently dropped". Measured on the shipped
+  classifier at `1ad0760` over a throwaway repository holding one such ref: no row of any class, and the
+  only trace is a count of branches that hold nothing. Three shapes fix that sentence and only one of
+  them keeps #291's own rule standing -- so which arm, and bought by what?
+- Options: report the ref wherever the merged read names it, before any content question | report it when
+  the merged read names it AND the same content question the branch arm already asks comes back empty,
+  and leave every other ref to the verdict it had | teach `factory.sh` a separate `branch_delivered`
+  class so the two kinds never share an arm | keep the stderr tally and add the pull-request number to it
+- Chose: report it when the merged read names it AND the same content question the branch arm already
+  asks comes back empty, and leave every other ref to the verdict it had
+- Why: tie-breaks in order. 1 silent -- no `go.mod` line near this. 2 n/a -- nothing here decodes config.
+  3 prefers the reading that refuses, and the first option is the one that buries work by its name: a
+  name that merged once and was re-cut afterwards carries real undelivered bytes, and `issue-301` is that
+  shape on this repository right now -- 4 files across 2 commits ahead of `main`, and PR #312 merged
+  under it at 2026-11-12T17:37:23Z. Measured against that arm it reads `delivered` and no queue offers it
+  again. `H-0148` refuses the identical inference for issues ("a branch name is evidence, and a name that
+  merges twice makes an ambiguity out of an attribution"), `H-0108` is the same refusal one level up, and
+  `factory/selftest.sh`'s `branch_control_name_only` plants that arm and demands `br-reopened` turn up
+  `delivered` so the harm stays reproducible. The third option buys a class whose only new behaviour is
+  that nothing works with it -- `delivered` is already the class whose whole job is to start nothing
+  (`H-0122`), and `factory_class_is_workable` keys on the class alone, so a branch row needs no new arm
+  and a second name for the same verdict is one more surface to keep true. The fourth is what the harness
+  does today and is the defect: the tally is a count with no key, printed to stderr, and its existing
+  sentence has already drifted into printing its own format string (#329) with nobody able to point at
+  one ref. A row is the auditable surface the whole file treats as the record. 4 fewest surfaces that
+  make every surviving sentence true -- one map, one conjunct, the tally's name list; the separate class
+  touches the classifier, the supervisor's workability predicate, `docs/factory.md`'s class table, and a
+  leg per arm. 5 reversible by `git revert` of this commit alone: no row changes class for any ref that
+  was already offered, and the 37 new rows disappear without touching anything else. 6 is what the
+  surrounding code already does -- the `delivered` arm above takes a merged claim plus three vetoes
+  (silence after the merge, no `REOPENED`, no open pull request on the ref) rather than trusting the
+  claim, and this is that shape one kind over: the merged read is the fact, the content question is the
+  veto, and the `baseRefName == $FACTORY_BASE` filter is #216's stacked chain, taken with the two issue
+  scans that already apply it. What lost, named because it is the cost: a content-free ref that no merged
+  pull request names still prints no row -- `br-empty` and `br-merge-empty` remain a tally line and
+  nothing more, which is the sentence #291 asked be made auditable and this entry deliberately leaves
+  #329's tally to carry; and the arm runs on the same 100-row window as the issue half, so a leftover
+  older than the window is still silent.
+- Checkpoint: 1ad0760b0c3f50323602cb6e1f9c8a63578642c9
+- Effect: `factory/triage.sh` builds `branch_shipped_map` from the `merged_json` the pass already holds
+  (stdin, never an argument -- the same 632 KiB boundary as the two scans above it), reads the newest
+  merge per name inside the loop, and emits `branch <name> delivered` naming the pull request, the name
+  and the instant, with the count said in the row when several ran under one name rather than smoothed
+  away. A ref reported there is left out of the stderr tally so one pass does not describe one ref twice
+  in two sentences that can disagree. The header's class table and `USAGE` both gained the row, and
+  `docs/factory.md` carries the before/after. `bash factory/selftest.sh --only CLAIM` answers
+  `533 passed, 0 failed` on this tree with the new block taken out and `552 passed, 0 failed` with it in
+  -- both at exit 0, so exactly nineteen counted legs were added and none moved. All nineteen run the
+  shipped file:
+  thirteen on the classifier (the row, its three fields, the empty issue column, the measured
+  zero-bytes-on-a-deleted-branch shape, the tally keeping the refs no pull request names, two merges on
+  one name reporting the newest and counting both, a merge into another branch delivering nothing, the
+  re-cut name still offered, and the total row count), three controls (the merged test inverted returns
+  the silence; the base filter off buries a stacked branch; the content conjunct off buries the re-cut
+  branch), and three end to end through `factory.sh` on a fixture whose merged pull request sits on
+  `issue-902` -- the journal reads `DELIVERED branch/issue-902 … reported, not worked`, no tick ran it,
+  and the fixture `gh` recorded no close, merge, edit, review or comment. Live blast radius, both ends
+  measured from this tree over the same refs on 12 Nov: **32 rows before, 69 after**, the 37 new ones all
+  `branch delivered`, the 11 `branch_without_pr` rows identical, and the tally down from
+  `issue-248 issue-309 issue-318` to `issue-309 issue-318`. That 37 is what #291's census predicted (34
+  leftover refs, 33 silent, counted 11 Nov). The price, stated here rather than discovered: every
+  supervisor pass now writes 37 more `DELIVERED` journal lines than it did -- against the 13 a pass wrote
+  the day before this entry, counted between two `PASS` lines of `factory/log/supervisor.log`. Nothing in
+  the harness bounds that file: `log()` appends to `$FACTORY_LOG/supervisor.log` (`factory/common.sh:340`)
+  and the only other reads of it are greps, at `:382` and `:884`, so no code rotates, truncates or prunes
+  it -- measured in the primary checkout at 22:05Z on 12 Nov, `factory/log/` is **20 MB across 100 files**,
+  the oldest from 10 Nov (the harness's first day), `supervisor.log` itself 2,397 lines and per-tick
+  transcripts up to 480 KB. That growth is pre-existing and this entry does not pretend otherwise; what
+  this change adds is 37 lines a pass, which against the 19, 47 and 20 passes journalled on 10, 11 and
+  12 Nov is 700 to 1,700 lines a day. Filed as its own ticket rather than absorbed silently. One sentence
+  written an hour before this entry claimed the rotator was *documented* in a `factory/factory.env` and
+  merely missing from `common.sh`: it is neither. That file exists in no tree under `~/prj` and the word
+  `logrotate` appears nowhere in the repository, and the sentence came from reading a `sed` that had
+  failed with exit 2 as though it had printed a file. It is corrected here rather than left in the log,
+  because a citation nobody can re-run is the thing this log keeps refusing. The full `make verify` line and exit status on the tree this branch leaves are quoted in the
+  pull-request body, because an `Effect:` written before the gate runs is a prophecy (#1180).
