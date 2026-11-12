@@ -5302,3 +5302,106 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   deleted, no merge, and no write to any pull request. What it leaves for a person, stated in
   `docs/factory.md` and on #291: whether #241 should now be closed, whether #285 and #233 should be
   deleted, and whether #222 still owes anything.
+
+## H-0139 · The escalation path's label step was executed for the first time, and the choice it reports is still a person's
+
+- Question: `AGENTS.md:38` and `.opencode/skills/factory/SKILL.md:225` tell a unit that reaches one of
+  the four reserved classes to comment on the issue and apply `needs-human`. This repository has no such
+  label — measured at this head: `gh label list --limit 200 --json name | jq length` is 18, and
+  `select(.name=="needs-human") | length` is 0. #311 offers two repairs and names both a person's call.
+  Two things had to be measured before any of it could be answered, because the ticket explicitly left
+  them open: what a tick that reaches the step actually hits, and whether either repair ends the ticket.
+  So does a unit create the label, rewrite the instruction, or stop?
+- Options: run #311's own `gh label create needs-human …` line and treat an additive reversible write as
+  harness plumbing a tick may do | rewrite the five governing mentions to a label that exists and update
+  the leg that pins the string | execute the documented step, record its refusal where a person will read
+  it, and leave the name to the person #311 names | ship nothing and hand #311 back as `unclaimed`
+- Chose: escalated
+- Why: the step first, since a prediction about a command is not its exit status. Run verbatim as
+  `SKILL.md:225` spells it, on this ticket, with the read-back in the same breath:
+
+  ```
+  $ gh issue edit 311 --add-label needs-human
+  failed to update https://github.com/vicowa-botworks/parental-lockout/issues/311: 'needs-human' not found
+  failed to update 1 issue                                            # exit 1
+  ```
+
+  `GH_DEBUG=api` over the same call says what GitHub was actually asked for: two `POST /graphql`, whose
+  operations are `query IssueByNumber` and `query RepositoryLabelList`, and no mutation at all —
+  `addLabels` 0, `updateIssue` 0, `createLabel` 0 in the transcript. The refusal is gh's, not GitHub's:
+  2.46.0 at `/usr/bin/gh` resolves every `--add-label` name against the repository's label list and
+  aborts before it requests a write. Blast radius read back after: #311 still `bug, area:ops`, the label
+  list still 18 names, no name matching `probe` (the first run used a 67-character name so that no
+  outcome could create anything). That answers #311's first question, and it is better news than the
+  shape the ticket guessed — a misnamed label cannot half-apply, because no write is ever attempted. Its
+  second question goes the other way: `SKILL.md:222-228` reaches the label step *before* the decision-log
+  entry, so a unit that reads exit 1 as fatal loses the `Awaiting:` record. But the mechanism the ticket
+  blames does not exist. `grep -rn -- --add-label .` over the whole repository returns exactly one line,
+  `SKILL.md:225`, prose; `factory/factory.sh:725` is prose inside the instruction string and
+  `factory/selftest.sh:6216` is a scan for the literal string, so nothing in `factory/` executes a label
+  call and no `set -e` is anywhere near it. The exit lands on a model, which can carry on — this entry is
+  that carry-on. The free repair is the reorder: commit the record, then apply the label, then read the
+  label back. It names no label and picks neither option, which is why it is a recommendation on #311
+  rather than an edit on this branch.
+
+  Then the tie-breaks, in order. 1 is silent — neither option touches `go.mod`. 4 prefers creating the
+  label: zero files, against five. 5 prefers editing the instruction: it is the only one `git revert`
+  reaches, because a label is repository configuration and its undo is `gh label delete`, which is a
+  delete. 6 was reached for and refuses to answer — the name appears in five governing places
+  (`AGENTS.md:38`, `SKILL.md:225`, `SKILL.md:402`, `docs/factory.md:394`, `factory/factory.sh:725`) and
+  one leg (`factory/selftest.sh:6216`, whose `*needs-human*) return 0 ;;` arm fails with the sentence at
+  `:6218`), so "what the surrounding code already does" and "what the surrounding code says" are the same
+  sentence in five files with no precedent either side.
+
+  What settled it is #311's own last paragraph: whoever filed it wrote that either repair is a person's
+  call. Read the right way round, that is the third reserved class — "anything a user has already decided
+  in this repository's history" — speaking about this choice, not leaving it open. Creating the label was
+  the option most tempting to argue into scope, and the argument is real: it is additive, it is not a
+  dependency, not a publish, not a delete, and #856's gate is about a `require` line. It was refused on
+  the filed instruction and on the undo, which is a delete this harness cannot make and a person can, in
+  one command either way.
+
+  What lost, as the cost of stopping rather than as a tidy ending:
+
+  - An escalation cannot park its own ticket, and this one is no exception: `grep -c labels
+    factory/triage.sh factory/factory.sh` answers `0` and `0`, and `triage.sh:62-64` lists every class
+    the classifier can emit — for `kind=issue`, only `unclaimed` and `delivered`. So no label of any
+    name changes what the supervisor dispatches, and the next pass spends another `FACTORY_TICK_TIMEOUT`
+    (2700 s, `factory/common.sh:151`) re-deriving this deadlock unless a pull request names the issue —
+    `CLAIM_RE` at `triage.sh:267` is the only park this harness has. That is why this escalation ships a
+    pull request carrying *only* this record: `SKILL.md:229` forbids a pull request for half a decision,
+    and a record of an escalation is not half a decision, it is the thing that makes the escalation
+    findable. #313 is filed for the missing class itself.
+  - #311's option 1 is sold on "a queryable queue slice", and the slice does not exist for the reason
+    above. What option 1 buys is human eyes, GitHub search, and `AGENTS.md` staying literally true. Price
+    it at that and nothing more.
+  - #311's option 2 is not the two-line edit it is called. Five governing mentions plus a leg and its
+    failure message, and one of the five (`factory/factory.sh:725`) tells a tick to label a *pull
+    request*, which on this account needs the issue verb: `D-0047` measured `gh pr edit 240
+    --remove-label blocked --remove-label question` dying on the retired `projectCards` field with the
+    read-back unchanged, while `gh issue edit 240 --remove-label …` exited 0 and read back `labels: []`
+    (`DECISIONS.md:2221-2231`). Neither option as written says which verb to name, and the sentence at
+    `:725` needs it whatever the label turns out to be called.
+  - One thing has already happened, differently from how #311 expects. The instruction has been followed
+    to a *substituted* label before: `D-0047`'s Effect (`DECISIONS.md:2112-2114`) records "the `blocked`
+    and `question` labels on #240", and #240 reads `labels=[]` right now. That loss is not this defect —
+    it is the line quoted above: a later unit removed both labels to test the body-write route and did
+    not restore them. So the escalation marker on the pull request that motivated the rule is gone, and
+    nothing was looking for it, which is the "owed thing nobody can see" #311 ends on, already realized.
+- Awaiting: a person, to run one of two commands and say which. Option 1 is #311's own line, verbatim:
+  `gh label create needs-human --color B60205 --description "A decision only a human may make:
+  dependency, security or tamper-resistance semantics, publishing, deleting data"`. Option 2 is a branch
+  renaming the five mentions and `factory/selftest.sh:6199-6220` to a label that exists — `blocked`,
+  whose own description ("the blocking artifact is named on the issue") an escalation comment does
+  satisfy, at the cost of one label carrying two meanings. Also owed, and independent of which is chosen:
+  whether the `SKILL.md:222-228` reorder (record first, label second, read back) and the verb naming at
+  `factory/factory.sh:725` ship with the answer or as their own unit, and #313, which is the queue half
+  nobody has taken.
+- Checkpoint: bd2d9cd70508d5125a6b49bb7e3daffa751fd3c7
+- Effect: this entry and nothing else in the tree — `git diff --stat origin/main...HEAD` on the pull
+  request from this branch is one file. On the tracker: the executed step and its transcript on #311,
+  with both answers that ticket asked for and the two costs its options do not carry; `blocked` on #311
+  as a disclosed stand-in (`gh issue edit 311 --remove-label blocked` is the undo, and it is not option
+  2, because no mention of the instruction changes here); and #313, filed for the class that does not
+  exist, on the argument that a finding living only in a comment is invisible to every queue that reads
+  issues.
