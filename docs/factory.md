@@ -164,6 +164,37 @@ asked" from "asked and answered" -- measured, four pull requests had an empty li
 exists because a branch with commits and no pull request is invisible to every queue that reads
 issues and pull requests; the first run of this script found five, one of them seven commits deep.
 
+### Which unit a pass takes first (#307)
+
+Within a class the queue is oldest-first, and the key that decides it counts **up**, so it sorts
+descending: `factory_age` answers elapsed seconds since `first-seen`, so `sort -t$'\037' -k1,1n
+-k2,2nr -k3,3n` puts the longest-waiting unit first and the number breaks the tie. The key shipped
+ascending from `88848c5` until `H-0135`, which is `H-0007` written backwards -- the row stamped most
+recently went first. On a live queue that is not a fairness problem but a starvation one, because every
+pass mints a younger `first-seen` for whatever arrived since. Measured off `factory/log/supervisor.log`:
+the pass at 20:22:20Z on 11 Nov printed `NEXT unclaimed 303 age=0s` -- a unit its own stamping loop had
+written `first-seen` into one second earlier -- while #296 and #297, first seen at 16:13:25Z and 14,935s
+old, sat in the same rank; all five `unclaimed` rows were still open two hours later
+(`factory/triage.sh --table`).
+
+Nothing in the suite noticed for seven days, because the fixture stamps both of its units inside one
+second, and equal ages fall to the number tie-break -- which sends unit 900 first, the same answer the
+correct key gives. What surfaced it was a second boundary: CI run 43105189339 stamped 900, did the
+worktree lookup and the `gh` shims, and stamped 901 in the next second, so that pass dispatched the
+younger unit first and `…then starts a tick for unit B` went red (`quarantine at line 12, tick at
+line 8`) while the same fixture stayed green where the inter-stamp gap measures 3.8-7.9 ms. The
+boundary is not the bug; it was the only witness the fixture had. `factory/selftest.sh` now plants the two
+`first-seen` values rather than waiting for a boundary, asks the question in **both** polarities -- one
+polarity alone is also satisfied by a dispatcher that sorts on the number and never reads the age -- and
+retires the `r` in a control, so the ok means the direction rather than the tie-break.
+
+The sentinel is the one behaviour that changes on the way. A unit with no `first-seen` answered
+999999999, which used to sort last and now sorts first -- what `factory_age`'s own comment has always
+promised ("never" means "ready"). It cannot reorder a queue whose ages are real, because the loop that
+builds the rows stamps every workable unit before the loop that ranks them reads the age; the only paths
+that skip a stamp are a dry run and a ledger that will not take a write, and both skip it for *every*
+row, so there the rows tie on the sentinel and the number decides exactly as before.
+
 ### What a branch has to hold to be offered (#291)
 
 Commits are not content. `rev-list --count` moves by one when `git commit --allow-empty` moves the
@@ -931,6 +962,41 @@ stale refs and says so -- `REFRESH-TIMEOUT`, with how old `origin/<trunk>` is --
 `factory/run/lock` while the queue freezes behind a read. A clone whose refspec names one branch
 cannot learn a sibling's branch at all, and the activation says that too, as `REFRESH-BLIND`.
 
+That activation is one fetch at one moment, and the unit's own re-read can be an hour later. `D-0058`
+was written twice on 11 Nov for exactly that reason, on three timestamps worth having straight:
+`06b7c29` (issue-296) committed its entry at 11:32:24-0500; the second unit's own `pre-D-0058` checkpoint
+`4537b9d` (issue-297, PR #300) is dated 12:10:04-0500 -- 2260s later, and that is the moment its
+allocator ran, because the skill takes the id immediately before the checkpoint; `1d3470b` carried that
+unit's entry in at 12:14:46-0500, 2542s after the first entry. #303 pairs 12:10:04 with `1d3470b`, so the
+"38 minutes" the incident is cited by and the 42min22s a re-measure of the two entries gives are both
+true, of different pairs. The tree it happened in was one where `git show-ref | grep 297` answers
+nothing, and the allocator was right about every ref it could see and silent about the fact that that
+was all it could see (#303). So every call now prints one line on stderr beside the id: `REFRESH` with
+the age of the union behind the answer, or `REFRESH-BLIND` with the reason a sibling is invisible from
+here and the exact refresh that would close it. stdout stays the id alone at exit 0 either way, because
+a refusal in front of a session is the failure two sections above already records -- an allocator that
+will not answer sends a session back to numbering by eye. The clock is the newest of three sources,
+because none of the three is always there: measured 11 Nov in the tree this was written in, this
+worktree's `FETCH_HEAD` was 145s old, the common dir's 202s, and the newest `refs/remotes` reflog 1724s.
+A `git clone` writes no `FETCH_HEAD` at all and `git worktree add` writes none in the new tree, so a
+clock built on `FETCH_HEAD` alone calls every fresh unit tree blind -- and a verdict that always fires
+is read as noise, which is also why the ticket's own suggested test (no
+`refs/remotes/origin/<the branch you are on>`) was measured and not used: dispatch pushes no unit
+branch, so it is true of every allocation this harness has ever made.
+
+What the marker buys is a procedure, and `factory/selftest.sh` pins the procedure rather than the
+promise. One sentence, in the skill and here: `REFRESH-BLIND` means fetch and re-read before the entry is
+committed -- run the `git fetch --prune origin` the line names, then write the entry with the number that
+comes back. Five counted legs and four controls cover it: the two arms -- a refspec that names one
+branch, and refs older than the bound -- each on a fixture that trips that arm alone and each with a
+control deleting just that arm from the arm list; a clean read pinned to stay quiet, with the control
+that makes the verdict unconditional so the same tree is called blind too; the bound moved instead of
+the tree; and a checkout with no origin at all. The limit is pinned too, on #303's own shape: a clone
+seconds old whose sibling pushed a second ago reads *clean* and answers `D-0002` while `origin` already
+holds `D-0007`. No offline read can see that push, so `FACTORY_ID_MAX_AGE` (300s) is how wide a window
+the command refuses to be silent about -- a risk window chosen from the time a sibling needs to write an
+entry and push it, not a reservation -- and the merge stays the arbiter below.
+
 `scripts/check-decisions.py` remains the last-resort gate for the consequences: it refuses a repeated
 id in one log and one id claimed by both logs, but it is deliberately offline and cannot reserve an
 id in advance. That is a rule, and `factory/selftest.sh` refuses the day it changes: the gate may ask
@@ -999,7 +1065,9 @@ section will ever find.
 
 ## Configuration
 
-Everything is an environment override with a default, in `factory/common.sh`.
+Everything is an environment override with a default, in `factory/common.sh` -- except
+`FACTORY_ID_MAX_AGE`, which defaults inside `factory/next-decision-id.sh` so that the allocator keeps
+answering in a shell that has never sourced the harness.
 
 | variable | default | what it decides |
 |---|---|---|
@@ -1011,6 +1079,7 @@ Everything is an environment override with a default, in `factory/common.sh`.
 | `FACTORY_TICK_TIMEOUT` | `2700` | one session's ceiling, seconds |
 | `FACTORY_BUDGET` | `5400` | one pass's ceiling, so activations cannot overlap |
 | `FACTORY_FETCH_TIMEOUT` | `120` | the ceiling on the one `git fetch` an activation does (H-0075); hit it and the pass dispatches on the refs it has, and says so |
+| `FACTORY_ID_MAX_AGE` | `300` | how old the refs behind a `next-decision-id.sh` answer may be before the read is called `REFRESH-BLIND` (#303). The age of a read, not a reservation: see the allocator section above |
 | `FACTORY_MAX_TICKS` | `3` | sessions one pass may start |
 | `FACTORY_REVIEW_POKES` | `1800` | the review-poke floor, seconds |
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
