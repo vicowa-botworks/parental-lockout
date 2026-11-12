@@ -13436,8 +13436,10 @@ lm_leg_symlink_not_written_through() {
 			factory_log_move_lines "$LM_NEW"' _ "$HERE" "$work") || rc=$?
 	[ "$rc" = 0 ] || { lm_say "the read exited $rc on a planted symlink; want 0 with a verdict"; return 1; }
 	case $out in
-	(*'tail=skipped'*) : ;;
-	*) lm_say "a symlinked old journal was not refused (want tail=skipped):"
+	(*'tail=skipped refuse=old-journal-is-a-symlink'*) : ;;
+	*) lm_say "a symlinked old journal was refused by the wrong clause, or not refused by name."
+		lm_say "Want tail=skipped refuse=old-journal-is-a-symlink: the link clause is the one"
+		lm_say "that refuses here, and the sentence has to say so -- \`skipped\` alone is five states."
 		printf '%s\n' "$out" | sed 's/^/              /' >&2
 		return 1 ;;
 	esac
@@ -13500,6 +13502,119 @@ lm_leg_unwritable_is_said_not_shown() {
 	return 0
 }
 claim_leg 'log-move: a refused copy is a verdict, not a shell error' lm_leg_unwritable_is_said_not_shown
+
+# The five clauses of the copy guard, each made to answer for itself (#260, H-0149).
+#
+# `tail=skipped` is what every refusal looks like, and the sentence printed beside it named ONE of them --
+# "found no directory there" -- whatever had refused. Measured on 12 Nov against five planted old
+# journals: an old directory that is a link, one that is not writable, a journal file that is a link, and
+# a journal file that is a FIFO or a directory, each printed "found no directory there" beside a directory
+# that was there and readable. The operator's next move differs per clause -- only `no-such-directory`
+# means there is no file left to tail -- and a false sentence about the state it reports is exactly what
+# #260 was filed about, reproduced inside the fix for it. So the guard answers `refuse=<clause>`, and this
+# leg refuses a chain that collapses into one token or a legend that drifts from it.
+#
+# Every case is collected rather than returned from: a probe that dies at its first finding under-reports
+# exactly like a gate that skips (the note on `check`). The FIFO is the one shape that would HANG a
+# regression -- `>>` on a FIFO with no reader blocks forever, which is #246's parked-pass shape -- so
+# that call is the one wrapped in `timeout`, the same spelling the process legs use.
+lm_leg_refusal_names_the_clause() {
+	local dir=$work/log-move-clauses out='' bad=0 victim='' shape='' want='' fix='' rc=0 sw='' fields=''
+	victim=$dir/victim
+	rm -rf "$dir"
+	mkdir -p "$dir/dtarget" "$dir/rodir" "$dir/flink" "$dir/dirfile" "$dir/fifo" "$dir/plain"
+	printf 'someones file\n' >"$victim"
+	ln -s "$dir/dtarget" "$dir/dlink"
+	# The same link pointing at NOTHING: `-d` follows links, so a chain that asks `-d` first answers
+	# "no such directory" here and never reaches the link clause. This is the shape a tree moved by hand
+	# leaves behind -- the 10 Nov event -- and the one the probe found mislabelled on 12 Nov.
+	ln -s "$dir/target-gone" "$dir/danglink"
+	ln -s "$victim" "$dir/flink/supervisor.log"
+	mkdir -p "$dir/dirfile/supervisor.log"
+	mkfifo "$dir/fifo/supervisor.log"
+	: >"$dir/plain/supervisor.log"
+	chmod 0500 "$dir/rodir"
+
+	# shape:want  -- `plain:` wants no refusal at all, and is the polarity the six above need.
+	for sw in 'gone:no-such-directory' 'dlink:old-directory-is-a-symlink' \
+		'danglink:old-directory-is-a-symlink' 'rodir:old-directory-not-writable' \
+		'flink:old-journal-is-a-symlink' 'dirfile:old-journal-not-a-regular-file' \
+		'fifo:old-journal-not-a-regular-file' 'plain:'; do
+		shape=${sw%%:*}
+		want=${sw#*:}
+		fix=$dir/j-$shape
+		printf '2026-11-12T10:00:00.100000+00:00 h factory.sh[1]: 2026-11-12T10:00:00Z LOG-AT %s/%s\n' \
+			"$dir" "$shape" >"$fix"
+		rc=0
+		out=$(LM_FIXTURE=$fix LM_UNIT=plrev260b.service LM_NEW=$dir/new PATH="$lm_bin:$PATH" \
+			timeout --signal=TERM --kill-after=5 20 bash -c '
+				. "$1/common.sh" 1>/dev/null
+				factory_service_unit() { printf "%s\n" "$LM_UNIT"; }
+				factory_log_move_lines "$LM_NEW"' _ "$HERE" 2>&1) || rc=$?
+		if [ "$rc" = 124 ]; then
+			lm_say "$shape: the pass blocked instead of refusing -- a FIFO opened for append with"
+			lm_say "no reader parks the whole pass, which is #246's parked activation."
+			bad=$((bad + 1))
+			continue
+		fi
+		# The fields, not the prose: the legend spells `refuse=` and `tail=` as words on the same line,
+		# so a substring test on the whole sentence cannot tell the field from its own documentation.
+		fields=$(printf '%s\n' "$out" | sed -n 's/.*LOG-MOVED \(.*\) -- .*/\1/p' | head -1)
+		if [ -n "$want" ]; then
+			case " $fields " in
+			(*" tail=skipped refuse=$want "*) : ;;
+			*) lm_say "$shape: answered fields: ${fields:-<none>}"
+				lm_say "$out"
+				lm_say "want tail=skipped refuse=$want as the FIELDS on the line. Five clauses"
+				lm_say "answer skipped; naming the wrong one sends an operator to look for a tree"
+				lm_say "that is still there, and naming none sends them to the legend for a fact"
+				lm_say "this pass knew."
+				bad=$((bad + 1)) ;;
+			esac
+			# The legend on the line enumerates every clause, so it cannot drift behind the chain.
+			case $out in
+			(*old-directory-is-a-symlink*no-such-directory*old-directory-not-writable*old-journal-is-a-symlink*old-journal-not-a-regular-file*) : ;;
+			*) lm_say "$shape: the sentence does not name all five clauses, so a reader cannot"
+				lm_say "tell a refused old journal from a deleted tree."; bad=$((bad + 1)) ;;
+			esac
+		else
+			case " $fields " in
+			(*' tail=ok '*) : ;;
+			*) lm_say "plain: a real directory and a real regular file answered: ${fields:-<none>}"
+				lm_say "want tail=ok -- the refusals above would be decoration without it."
+				bad=$((bad + 1)) ;;
+			esac
+			case " $fields " in
+			(*refuse=*) lm_say "plain: an ATTEMPTED copy still named a refusal clause: $fields"
+				lm_say "refuse= means nothing was opened; it must be absent when the append ran."
+				bad=$((bad + 1)) ;;
+			esac
+			grep -q 'LOG-MOVED' "$dir/plain/supervisor.log" || {
+				lm_say "plain: the copy did not land in the old journal."; bad=$((bad + 1)); }
+		fi
+	done
+
+	# Nothing was written through or into anything it refused.
+	grep -q '^someones file$' "$victim" || {
+		lm_say "the copy appended THROUGH a symlinked old journal into $victim."; bad=$((bad + 1)); }
+	[ ! -e "$dir/rodir/supervisor.log" ] || {
+		lm_say "the copy wrote into a directory it had just called not writable."; bad=$((bad + 1)); }
+	[ ! -e "$dir/dtarget/supervisor.log" ] || {
+		lm_say "the copy followed a linked old directory into its target."; bad=$((bad + 1)); }
+	[ ! -e "$dir/target-gone" ] || {
+		lm_say "the append went THROUGH a dangling linked directory and CREATED its target."
+		lm_say "That is the arbitrary write #874 refuses, and the reason the link clause is the"
+		lm_say "first one asked -- \`-d\` answers false for a dangling link, so a chain that asks"
+		lm_say "\`-d\` first both mislabels the verdict and reaches the append."
+		bad=$((bad + 1)); }
+	[ ! -e "$dir/dirfile/supervisor.log/supervisor.log" ] || {
+		lm_say "the copy treated a directory as the old journal file."; bad=$((bad + 1)); }
+	chmod 0700 "$dir/rodir"
+	[ "$bad" = 0 ] || return 1
+	lm_say "five clauses, five names, and the one that means the tree is gone says only that" >&2
+	return 0
+}
+claim_leg 'log-move: each copy refusal names its own clause' lm_leg_refusal_names_the_clause
 
 # The call site is pinned by the four `proc_*` legs further up (`the pass names its own journal
 # directory`, `…and says so in the journal it is leaving`, `…and says nothing when the journal stayed

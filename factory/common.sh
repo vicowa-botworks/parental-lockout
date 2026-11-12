@@ -2759,9 +2759,12 @@ factory_log_prev_record() {
 #   every write to a path the writer did not create (judge it before you change it): the directory must
 #   exist, be a real directory and not a link, be writable, and the file in it must be absent or a real
 #   regular file. Nothing here creates a directory, and nothing writes through a link it did not open.
+#   The clause that refused is named on the line as `refuse=<clause>`, because `tail=skipped` is what all
+#   five of those refusals look like and only one of them -- `no-such-directory` -- says there is nothing
+#   left to tail (H-0149).
 factory_log_move_lines() {
 	local new=${1:-$FACTORY_LOG} raw='' jrc=0 rec='' rrc=0 prev='' at='' how='' lines=0 tail=skipped
-	local old_file body='' extra=''
+	local old_file body='' extra='' refuse=''
 	# The read happens BEFORE this pass prints anything about its own journal, and the order carries
 	# content: a pass that emitted its `LOG-AT` line first could read it back and compare itself against
 	# itself, which answers "it has not moved" on exactly the one pass where the answer matters.
@@ -2799,7 +2802,7 @@ EOF
 	fi
 	body=$(printf 'old=%s new=%s prev-pass=%s how=%s' "$prev" "$new" "$at" "$how")
 	if [ "$how" = derived ]; then
-		extra=' The old path is derived from that pass'"'"'s own root= field, because it ran before a pass could name its journal directory; where it names the tree rather than the directory, FACTORY_LOG was overridden by hand.'
+		extra=' The old path is derived from that pass'"'"'s own root= field, because it ran before a pass could name its journal directory; where it names the tree rather than the directory, FACTORY_LOG was overridden by hand. A path built that way is where the generated unit would have written, not where the old pass said it wrote: when the tree has no factory/log -- a fresh worktree, or one deleted since -- this same answer arrives with tail=skipped refuse=no-such-directory, and that pair is not evidence the old pass wrote nothing.'
 	fi
 	old_file="$prev/supervisor.log"
 	# Each clause refuses a different way of being tricked into writing where nobody asked, and the order
@@ -2807,12 +2810,36 @@ EOF
 	# descriptor it should have interrogated first (#182, fixed by PR #183: every refusal at open was
 	# also a chmod, and one left /dev/null at 0600 and stopped the machine).
 	#
-	# `[ ! -L "$old_file" ]` is its own clause and NOT folded into the brace group. Measured on the first
+	# `[ -L "$old_file" ]` refuses on its own and is NOT folded into the shape test. Measured on the first
 	# cut, which folded it: a DANGLING symlink is `-e` false, so `[ ! -e ]` passed first, the group was
 	# never reached, and the append went straight through the link and CREATED its target. Nothing there
 	# is exactly how a symlink looks to `-e`, which is why the link test cannot be the arm of an `||`.
-	if [ -d "$prev" ] && [ ! -L "$prev" ] && [ -w "$prev" ] && [ ! -L "$old_file" ] &&
-		{ [ ! -e "$old_file" ] || [ -f "$old_file" ]; }; then
+	#
+	# The five clauses are an if/elif chain in a fixed order rather than one `&&` group, so that the one
+	# which refused gets a name. `tail=skipped` on its own is five states wearing one word, and the
+	# sentence below used to claim the commonest reason for it -- a tree that is gone -- even when the tree
+	# is plainly there and something else refused: measured with five fixtures on 12 Nov, a link for a
+	# directory, an unwritable directory, a link for the file, and a FIFO for the file each printed
+	# "found no directory there" beside a directory that existed and was readable. That is #260's own
+	# complaint, the false sentence about the state it reports, reproduced inside the fix for it.
+	#
+	# The directory's link test comes FIRST, ahead of `-d`, for a reason measured the same afternoon: `-d`
+	# follows links, so with `-d` first a DANGLING link at the old path answered `no-such-directory` and
+	# the link clause was unreachable for the one shape that most needs naming -- a tree moved by hand,
+	# leaving a link behind, which is the 10 Nov event itself. Asking what the path IS before asking what
+	# is behind it is also the order the file test below already uses, for the reason two paragraphs up.
+	# Reorder this chain and the legs go red, which is the point.
+	if [ -L "$prev" ]; then
+		refuse=old-directory-is-a-symlink
+	elif [ ! -d "$prev" ]; then
+		refuse=no-such-directory
+	elif [ ! -w "$prev" ]; then
+		refuse=old-directory-not-writable
+	elif [ -L "$old_file" ]; then
+		refuse=old-journal-is-a-symlink
+	elif [ -e "$old_file" ] && [ ! -f "$old_file" ]; then
+		refuse=old-journal-not-a-regular-file
+	else
 		# The suppressor goes on the GROUP, not after the append: redirections apply left to right, so
 		# with `>>"$old_file" 2>/dev/null` a refused append reports `Permission denied` on the shell's own
 		# stderr before the `2>/dev/null` has taken effect -- which put a raw shell error in the middle of
@@ -2825,8 +2852,8 @@ EOF
 			tail=failed
 		fi
 	fi
-	printf 'LOG-MOVED %s tail=%s -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there.%s The journal that went quiet is %s/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed was refused, skipped found no directory there (#260)\n' \
-		"$body" "$tail" "$extra" "$prev"
+	printf 'LOG-MOVED %s tail=%s%s -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there.%s The journal that went quiet is %s/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed the append itself was refused, skipped nothing was opened -- and skipped carries refuse= naming the clause that refused, because five clauses answer skipped and they are not one fact: old-directory-is-a-symlink, old-directory-not-writable, old-journal-is-a-symlink and old-journal-not-a-regular-file each name something sitting at the old path this pass will not write through or into, and only no-such-directory says there is nothing there to tail. The clauses in the order they are judged: old-directory-is-a-symlink, no-such-directory, old-directory-not-writable, old-journal-is-a-symlink, old-journal-not-a-regular-file (#260)\n' \
+		"$body" "$tail" "${refuse:+ refuse=$refuse}" "$extra" "$prev"
 	return 0
 }
 

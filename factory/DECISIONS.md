@@ -6933,3 +6933,71 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   (`head`-prefixes and a sliced section) survived in `/tmp/opencode`. The implementation was committed
   BEFORE the mutation controls were run, which is the order that makes `git checkout HEAD --` a restore.
 - Checkpoint: e3965f8f6acadb7f6334967ec788ace6fc554afd
+## H-0149 · The copy guard answers `refuse=<clause>` naming the clause that refused, and asks what a path IS before asking what is behind it
+
+- Question: `LOG-MOVED` carries `tail=`, and `tail=skipped` is what five different refusals look like --
+  the old directory missing, the old directory a link, the old directory unwritable, the old journal a
+  link, the old journal not a regular file -- while the sentence printed beside it asserts ONE of them:
+  "skipped found no directory there". Read back before choosing. `git grep -c 'tail=skipped'` at 91f6817
+  answers common.sh 1, selftest.sh 1 (the symlink leg, which asserts the token and nothing about why),
+  docs/factory.md 0 -- so nothing anywhere pinned the reason to the clause that produced it. Five planted
+  old journals through the shipped function: a linked directory, an unwritable one, a linked file, a FIFO
+  for the file, a directory for the file. All four non-absent ones printed "found no directory there"
+  beside a directory that exists and is readable. So: what does the line say about a refusal, and what
+  keeps the sentence tied to the chain that answers it?
+- Options: keep one token and reword the legend prose | add `refuse=<clause>` naming the refusing clause |
+  add the errno of the refused append | restructure the guard into a helper returning a verdict | drop the
+  copy from the line and let the installer's line carry the move alone
+- Chose: add `refuse=<clause>` naming the refusing clause
+- Why: the chosen shape is the clause named on the line, judged link-first, with the legend enumerating all
+  five clauses in the order they are judged, plus a sentence of advice on the one combination that arrives on
+  a live machine more than any other (`how=derived` with `no-such-directory`). One token standing for five
+  states is the same defect #260 was filed about, in the fix for it. The
+  ticket's own mechanism is a line that "states something false about the state it reports" -- the
+  installer printed `UNIT-TREE … new=<tree>` while the unit's `ExecStart` pointed at a checkout 38 commits
+  behind (the claim at `install-timer.sh:537`, the check at `:383`, which reads `ExecStart` and never
+  trusted the composed path). A refusal legend that names the commonest reason whatever happened is that
+  bug class, and the operator's next move differs per clause: only `no-such-directory` says there is
+  nothing left to tail, while the other four say a file is sitting there and this pass would not write
+  through or into it -- a hand-moved tree or a planted link, which is the class this ticket chases. An
+  errno was rejected because it answers the wrong question twice over: the operator needs "a symlink was
+  here", not `EACCES`, and reading the path again at the moment of refusal to fetch one is the second read
+  #202's TOCTOU rule refuses; judging the path once, before touching it, is #182. Restructuring into a
+  helper buys nothing this line needs and moves the five clauses away from the comment that explains why
+  each exists. Dropping the copy is H-0148's decision, reopened by nothing here. **The clause order is a
+  measurement, not a style choice.** The first cut asked `[ ! -d "$prev" ]` first; `-d`, like `-e`,
+  FOLLOWS links, so a DANGLING directory link answered `no-such-directory` and the link clause was
+  unreachable for exactly the shape a hand-moved tree leaves behind -- which is the 10 Nov event itself.
+  It was found by an independent probe written without reading the shipped legs (thirteen cases, each
+  planting a record naming the previous pass's directory), and the suite was green over it: the leg that
+  exercises a linked directory points the link at a directory that exists. So the chain asks what a path
+  IS before what is behind it, in the same order the file clause already had to for the same reason --
+  `[ ! -L ]` as its own clause because a dangling link is `-e` false (H-0148).
+- Consequences: `factory/selftest.sh` goes from 543 to 544 legs. The new leg plants eight fixtures -- five
+  distinct clauses over six refusal shapes (a directory for the file and a FIFO for it are one clause and
+  two hazards) plus a plain old journal as the polarity -- and asserts three things the code cannot satisfy
+  by accident: the FIELDS on the line, the legend enumerating all five clauses in judgement order, and that
+  nothing was created behind any link. The field assertion is load-bearing in a way the first cut was not:
+  the legend spells the words `tail=` and `refuse=` on the same line as its own documentation, so a
+  substring test on the whole sentence cannot tell the field from the prose explaining it, and the leg's
+  first cut failed on the polarity case for exactly that reason -- it accused a working `tail=ok` of naming
+  a refusal. The FIFO case is wrapped in `timeout`, the spelling the `proc_*` legs use, because a
+  regression there does not print a wrong word, it parks the pass: `>>` on a FIFO with no reader blocks
+  forever, which is #246's held-teardown shape. `tail=failed` carries no `refuse=`, and the leg pins that
+  too -- the sixth state is the one where the append WAS attempted. The `derived` advice is measured both
+  ways on this host rather than reasoned: a record whose `root=` is the main checkout resolves to a real
+  journal and copies into it (`tail=ok`), a record whose `root=` is a worktree with no `factory/log` answers
+  `tail=skipped refuse=no-such-directory`; neither says where the old pass actually wrote, and the line now
+  says so. One thing in here that is a mistake and not a finding: while capturing a documentation example,
+  the shipped function was aimed at a journal record naming the MAIN checkout -- a real path -- and the
+  guard correctly accepted it, appending one 458-byte `LOG-MOVED` line to
+  `/home/rodney/prj/parental-lockout/factory/log/supervisor.log` at 19:55:50Z, outside the tree this unit is
+  fenced to. Reverted by truncating exactly those 458 bytes (314859 to 314401, inode and mode 664
+  untouched, surviving bytes byte-identical to the prefix of a pre-repair copy kept at
+  `/tmp/opencode/supervisor.log.with-stray`), because `internal/audit`'s rule (#1686) is that a refusal
+  leaves a file untouched and a demo is not a licence to write outside the fence: any probe of a write guard
+  must name FIXTURE paths as the old journal, which is why every fixture in the suite does. Refs: #260 ask
+  3, H-0148 (the guard whose refusals were untellable), #874 (judge the path before changing it), #182 and
+  #1686 (what not judging it costs), #246 (the parked activation a FIFO would recreate), #202 (one read, not
+  two), #228's polarity (an absence must not read as a verdict).
+- Checkpoint: 9287767f0cc0d856380acddcdb7e91f8406b982b

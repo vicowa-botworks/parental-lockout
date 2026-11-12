@@ -890,7 +890,7 @@ lines a pass emits (`factory_log_move_lines`, `factory/common.sh`):
 
 ```
 2026-11-12T19:14:34Z LOG-AT /tmp/opencode/demo-ff/factory/log
-2026-11-12T19:14:34Z LOG-MOVED old=/tmp/opencode/demo-fork/factory/log new=/tmp/opencode/demo-ff/factory/log prev-pass=2026-11-10T10:17:19Z how=recorded tail=ok -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there. The journal that went quiet is /tmp/opencode/demo-fork/factory/log/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed was refused, skipped found no directory there (#260)
+2026-11-12T19:14:34Z LOG-MOVED old=/tmp/opencode/demo-fork/factory/log new=/tmp/opencode/demo-ff/factory/log prev-pass=2026-11-10T10:17:19Z how=recorded tail=ok -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there. The journal that went quiet is /tmp/opencode/demo-fork/factory/log/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed the append itself was refused, skipped nothing was opened -- and skipped carries refuse= naming the clause that refused, because five clauses answer skipped and they are not one fact: old-directory-is-a-symlink, old-directory-not-writable, old-journal-is-a-symlink and old-journal-not-a-regular-file each name something sitting at the old path this pass will not write through or into, and only no-such-directory says there is nothing there to tail. The clauses in the order they are judged: old-directory-is-a-symlink, no-such-directory, old-directory-not-writable, old-journal-is-a-symlink, old-journal-not-a-regular-file (#260)
 ```
 
 and that is the whole of what the old file gained, below the line that was already there:
@@ -921,11 +921,44 @@ is not a preference: a pass writes `LOG-AT` and then its own `PASS` a few hundre
 newest-line-wins rule answers `derived` on every pass and the fact never reaches the log.
 
 `tail=` is about the copy, the only write here outside stdout. It is refused unless the old directory is a
-real directory, writable, and not a link, and the file in it is absent or a real regular file -- with
-`[ ! -L ]` as its own clause, because a dangling symlink is `-e` false and the first cut folded the link
-test behind that check, never reached it, and the append created the link's target. Writing a path this
-harness did not create, named by a record read off a log, is the shape #874 names; #182 is what it costs
-(#260, `H-0148`).
+real directory, writable, and not a link, and the file in it is absent or a real regular file -- with each
+link test as its own clause, asked before anything that follows the path. A dangling symlink is `-e` false,
+and the first cut folded the file's link test behind that shape check, never reached it, and the append
+created the link's target. Writing a path this harness did not create, named by a record read off a log, is
+the shape #874 names; #182 is what it costs (#260, `H-0148`).
+
+Those five clauses are a chain, not one `&&` group, so the refusing one can be named: `tail=skipped` is
+what all five look like, and `refuse=<clause>` says which. The sentence used to assert the commonest reason
+-- "found no directory there" -- whatever had refused, and four of the five print it beside a directory that
+exists: a linked old directory, an unwritable one, a linked old journal, a journal that is a FIFO or a
+directory. Measured with those fixtures on 12 Nov, before the field existed, all four printed that sentence
+(#260, `H-0149`). The order is the finding, not a style: `-d` and `-e` both follow links, so the first cut
+asked them first and a *dangling* link at the old path answered `no-such-directory` -- unreachable link
+clause, and the wrong advice for the one shape a hand-moved tree actually leaves. Asking what a path *is*
+before asking what is behind it is the same rule twice, once for the directory and once for the file.
+
+The clauses, in the order they are judged: `old-directory-is-a-symlink`, `no-such-directory`,
+`old-directory-not-writable`, `old-journal-is-a-symlink`, `old-journal-not-a-regular-file`. Only
+`no-such-directory` says there is nothing there to tail; the other four say something is sitting at the old
+path and this pass will not write through or into it. `tail=failed` is the sixth state and carries no
+`refuse=`, because there the append *was* attempted and the file itself refused it.
+
+One `refuse=` arrives with advice attached, because on a live machine it is the common case rather than an
+edge. `how=derived` means no old pass ever named its directory, so the path was built from that pass's
+`root=` plus `/factory/log` -- the path the generated unit implies, since it sets no `FACTORY_LOG`. Whether
+that path holds a journal depends on the tree, and both answers were measured here on 12 Nov: a record whose
+`root=` is the main checkout resolves to a real journal and copies into it (`tail=ok`), while a record whose
+`root=` is a worktree with no `factory/log` -- a fresh one, or one of the trees deleted inside the hour on
+10 Nov -- answers `tail=skipped refuse=no-such-directory`:
+
+```
+2026-11-12T20:04:11Z LOG-MOVED old=/home/rodney/prj/wt/issue-260/factory/log new=/tmp/opencode/linectl2/newlog prev-pass=2026-11-10T10:17:19Z how=derived tail=skipped refuse=no-such-directory -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there. The old path is derived from that pass's own root= field, because it ran before a pass could name its journal directory; where it names the tree rather than the directory, FACTORY_LOG was overridden by hand. That is also why this answer often arrives with tail=skipped refuse=no-such-directory: a path built from root= points at no journal at all unless the old pass overrode FACTORY_LOG, and it says nothing about where that pass really wrote. The journal that went quiet is /home/rodney/prj/wt/issue-260/factory/log/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed the append itself was refused, skipped nothing was opened -- and skipped carries refuse= naming the clause that refused, because five clauses answer skipped and they are not one fact: old-directory-is-a-symlink, old-directory-not-writable, old-journal-is-a-symlink and old-journal-not-a-regular-file each name something sitting at the old path this pass will not write through or into, and only no-such-directory says there is nothing there to tail. The clauses in the order they are judged: old-directory-is-a-symlink, no-such-directory, old-directory-not-writable, old-journal-is-a-symlink, old-journal-not-a-regular-file (#260)
+```
+
+Neither answer says where the old pass actually wrote, and that is what the sentence on the line now says
+out loud: the derived path is where the unit would have put it, not where the pass said it put it. The only
+record of the latter is a `LOG-AT` written by a pass of this build or newer, which the next pass reads and
+reports as `how=recorded`.
 
 A refusal to answer is said rather than left as silence, so that the absence of `LOG-MOVED` is never
 evidence nothing moved:
@@ -943,9 +976,16 @@ Every block above is output from the shipped function, with the demo trees the s
 journal supplied by the same `journalctl` stub `factory/selftest.sh` plants for its four `proc_*` legs --
 `the pass names its own journal directory`, `…and says so in the journal it is leaving`, `…and says
 nothing when the journal stayed put`, `…and refuses in words when it cannot read` -- which run the shipped
-`factory.sh` and read the journal it wrote. Six more legs replay the arms from transcripts: recorded over
-derived, the quoted `PASS`, damaged against absent, the tail knob at both sizes, a symlinked old journal,
-and an unwritable one.
+`factory.sh` and read the journal it wrote. Seven more legs replay the arms from transcripts: recorded over
+derived, the quoted `PASS`, damaged against absent, the tail knob at both sizes, a symlinked old journal, an
+unwritable one, and each of the five refusal clauses named separately against a plain old journal that
+refuses nothing.
+
+Two honest qualifications about the blocks above. The `journalctl` stub is a fixture, so every line here was
+produced by the shipped function but not by a real activation; and the `refuse=no-such-directory` block is
+the one that keeps real paths rather than the demo vocabulary -- its `old=` is a worktree on the machine
+this was written on, which has no `factory/log`, and its `new=` is a scratch directory. It is quoted as a
+machine answered it because that case only exists where a real tree is missing its log directory.
 
 
 ## Decision ids are allocated against refs, not prose
