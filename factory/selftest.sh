@@ -3154,6 +3154,16 @@ clean)
 		'2026-11-10T17:09:10.131574+00:00 h systemd[4485]: fixture.service: Deactivated.'
 	;;
 esac
+# The journal-location read of #260 asks the same backend a different question -- which directory did
+# the pass BEFORE this one write to -- and gets the same answer, so the same stub serves it. The window
+# it is handed holds no `LOG-AT` line by default, which is the unknown arm and also the honest state of
+# a fixture box whose unit has no earlier activation. `PROC_LOG_PREV` plants one, because both
+# polarities have to be plantable: "the loop moved trees" and "the loop stayed put" are two fixtures,
+# and the machine's own journal can only ever be one of them.
+if [ -n "${PROC_LOG_PREV:-}" ]; then
+	printf '%s\n' \
+		'2026-11-10T17:09:09.000000+00:00 h factory.sh[828000]: 2026-11-10T17:09:09Z LOG-AT '"$PROC_LOG_PREV"
+fi
 exit 0
 PROCJ
 chmod +x "$proc_bin/journalctl"
@@ -4136,6 +4146,204 @@ proc_reap_clean_too() {
 }
 proc_leg '…and a clean one, on every pass' \
 	'REAP-CLEAN on the shipped activation, with no hold word' proc_reap_clean_too
+
+# ------------------------------------------------ the journal's own location, on a real activation (#260)
+#
+# The replay section at the end of this file can plant any transcript it likes. What it cannot plant is
+# an activation, and these legs need one for the reason #283 filed the reap legs as blocking: a read
+# that exists only as a function is a read the loop may never perform, and `H-0120` measured exactly
+# that for a feature whose whole output is a journal line. Three claims need the process, not the call:
+#
+#   that the pass emits `LOG-AT` at all, on an ordinary pass with nothing planted;
+#   that it emits it BEFORE the `PASS` line, which is what makes it the record the next pass reads back
+#     on a pass that halts at triage and writes no `PASS` (the same ordering claim the reap legs make);
+#   that the copy really lands in the journal being LEFT -- the file an operator is still tailing, and
+#     the one the supervisor's own `log_event` will never write to again.
+#
+# Both polarities, because #260 ask 3 asks for a line when the journal moved and silence when it did
+# not, and a leg that only plants a move never tests the silence.
+
+lm_old=$proc_work/log-move-old
+proc_new log-move
+mkdir -p -- "$lm_old/factory/log"
+# A journal with a line in it already. The copy is an APPEND, and a leg that planted an empty file
+# could not tell appending to a journal from truncating one -- which is the destructive case here,
+# since the file being written to belongs to a checkout this pass is not running from.
+printf '2026-11-10T17:09:09Z PASS units=1 dry=0 budget=120s root=old trees=/wt\n' \
+	>"$lm_old/factory/log/supervisor.log"
+# `export`, for the reason the reap legs learned: `proc_run` hands the pass to `env`, and a variable set
+# only in this shell never reaches a stub three processes down.
+export PROC_LOG_PREV=$lm_old/factory/log
+proc_run log-move
+unset PROC_LOG_PREV
+
+proc_log_at_on_every_pass() {
+	local line=''
+	line=$(proc_journal_line "$proc_journal" ' LOG-AT ')
+	[ -n "$line" ] || {
+		printf '            a pass wrote no LOG-AT line, so the pass after it cannot ask where this\n' >&2
+		printf '            one wrote, and neither can an operator. Its journal:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		printf '            A LOG-MOVED-UNKNOWN above means the stub was bypassed and the pass read\n' >&2
+		printf '            this machine'"'"'s journal instead of the planted one.\n' >&2
+		return 1
+	}
+	case "$line" in
+	(*"$proc_log"*) : ;;
+	*) printf '            LOG-AT does not name the directory the pass was writing to (%s):\n' "$proc_log" >&2
+		printf '              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	awk '
+		index($0, " LOG-AT ") { a = NR }
+		index($0, " PASS ") { p = NR }
+		END { exit (a && p && a < p) ? 0 : 1 }' "$proc_journal" || {
+		printf '            LOG-AT is not in the journal BEFORE the PASS line: LOG-AT at line %s,\n' \
+			"$(awk 'index($0," LOG-AT "){print NR; exit}' "$proc_journal")" >&2
+		printf '            PASS at line %s. A pass that halts at triage writes no PASS at all, and\n' \
+			"$(awk 'index($0," PASS "){print NR; exit}' "$proc_journal")" >&2
+		printf '            it is exactly that pass the next one has to be able to locate.\n' >&2
+		return 1
+	}
+	return 0
+}
+proc_leg 'the pass names its own journal directory' \
+	'LOG-AT naming FACTORY_LOG, above the PASS line' proc_log_at_on_every_pass
+
+proc_log_moved_names_both_files() {
+	local n='' line='' seed='' copy=''
+	n=$(grep -c ' LOG-MOVED ' "$proc_journal" || true)
+	[ "$n" = 1 ] || {
+		printf '            the pass wrote %s LOG-MOVED line(s), want exactly 1. Its journal:\n' "$n" >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	line=$(proc_journal_line "$proc_journal" ' LOG-MOVED ')
+	case "$line" in
+	*"old=$lm_old/factory/log"*) : ;;
+	*) printf '            the move does not name the journal being left:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	case "$line" in
+	*"new=$proc_log"*) : ;;
+	*) printf '            the move does not name the journal being entered:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	case "$line" in
+	*'tail=ok'*) : ;;
+	*) printf '            the move does not report writing the copy (want tail=ok):\n' >&2
+		printf '              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	# The copy is the half the installer could not promise: it goes into the file whose tail went dead,
+	# and it must not disturb the line that was already there.
+	seed=$(head -n 1 "$lm_old/factory/log/supervisor.log")
+	copy=$(tail -n 1 "$lm_old/factory/log/supervisor.log")
+	[ "$(wc -l <"$lm_old/factory/log/supervisor.log")" = 2 ] || {
+		printf '            the journal being left is no longer one seed line plus one copy: it has\n' >&2
+		printf '            %s lines, so this pass rewrote somebody else'"'"'s record.\n' \
+			"$(wc -l <"$lm_old/factory/log/supervisor.log")" >&2
+		return 1
+	}
+	case "$seed" in
+	('2026-11-10T17:09:09Z PASS units=1 dry=0 budget=120s root=old trees=/wt') : ;;
+	*) printf '            the line that was already in the old journal is gone or altered:\n' >&2
+		printf '              %s\n' "$seed" >&2
+		return 1 ;;
+	esac
+	case "$copy" in
+	(*copy=old-journal*) : ;;
+	*) printf '            the line appended to the old journal does not say it is the copy:\n' >&2
+		printf '              %s\n' "$copy" >&2
+		return 1 ;;
+	esac
+	case "$copy" in
+	*"new=$proc_log"*) : ;;
+	*) printf '            the copy does not name where the loop went:\n              %s\n' "$copy" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+proc_leg '…and says so in the journal it is leaving' \
+	'one LOG-MOVED naming both files, appended to the old journal' proc_log_moved_names_both_files
+
+# The other polarity, on its own fixture: the same shipped pass, the same stub, one line of the planted
+# journal different -- the previous pass named THIS directory. Silence is the required output, and a
+# second copy in some other file is the failure.
+lm_stay=$proc_work/log-stay-old
+proc_new log-stay
+mkdir -p -- "$lm_stay/factory/log"
+printf '2026-11-10T17:09:09Z PASS units=1 dry=0 budget=120s root=old trees=/wt\n' \
+	>"$lm_stay/factory/log/supervisor.log"
+export PROC_LOG_PREV=$proc_log
+proc_run log-stay
+unset PROC_LOG_PREV
+
+proc_log_stay_is_silent_about_a_move() {
+	local at='' moved=''
+	at=$(proc_journal_line "$proc_journal" ' LOG-AT ')
+	moved=$(proc_journal_line "$proc_journal" ' LOG-MOVED ')
+	[ -n "$at" ] || {
+		printf '            the unchanged-journal fixture wrote no LOG-AT either, so it proves the\n' >&2
+		printf '            read is silent for the wrong reason:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	[ -z "$moved" ] || {
+		printf '            a pass that writes where the last one wrote reported a move:\n' >&2
+		printf '              %s\n' "$moved" >&2
+		printf '            that is the false alarm that makes an operator stop reading the mark.\n' >&2
+		return 1
+	}
+	[ "$(wc -l <"$lm_stay/factory/log/supervisor.log")" = 1 ] || {
+		printf '            it wrote into the neighbour journal anyway (%s lines):\n' \
+			"$(wc -l <"$lm_stay/factory/log/supervisor.log")" >&2
+		printf '              %s\n' "$(tail -n 1 "$lm_stay/factory/log/supervisor.log")" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and says nothing when the journal stayed put' \
+	'LOG-AT present, LOG-MOVED absent, neighbour journal untouched' proc_log_stay_is_silent_about_a_move
+
+# The third state on a real pass: nothing in the window records a directory. This is the ordinary state
+# of a fixture box whose unit has never run, and of a real box whose journal holds no earlier pass of
+# this unit -- so the arm has to be reachable without a stub personality of its own. Absence of
+# LOG-MOVED must not be the only thing the pass has to say (#228).
+proc_new log-unknown
+proc_run log-unknown
+
+proc_log_unknown_is_a_sentence_not_silence() {
+	local line='' moved=''
+	line=$(proc_journal_line "$proc_journal" 'LOG-MOVED-UNKNOWN ')
+	[ -n "$line" ] || {
+		printf '            a pass that could not find a record said nothing about it, which is the\n' >&2
+		printf '            same silence as a journal that has not moved:\n' >&2
+		sed 's/^/              /' "$proc_journal" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	(*'rc=2'*) : ;;
+	*) printf '            the window was empty of records but the sentence is not the rc=2 arm:\n' >&2
+		printf '              %s\n' "$line" >&2
+		printf '            rc=1 is the read failing, rc=3 a damaged record; naming the wrong one\n' >&2
+		printf '            sends the operator to the wrong fix.\n' >&2
+		return 1 ;;
+	esac
+	case "$line" in
+	(*"$proc_log"*) : ;;
+	*) printf '            the refusal does not say where this pass is writing:\n              %s\n' "$line" >&2
+		return 1 ;;
+	esac
+	moved=$(proc_journal_line "$proc_journal" ' LOG-MOVED ')
+	[ -z "$moved" ] || {
+		printf '            a pass that read no record still reported a move:\n              %s\n' "$moved" >&2
+		return 1
+	}
+	return 0
+}
+proc_leg '…and refuses in words when it cannot read' \
+	'LOG-MOVED-UNKNOWN rc=2 naming this directory, no LOG-MOVED' proc_log_unknown_is_a_sentence_not_silence
 
 # ---------------------------------------------------------------- one verdict: is the loop doing anything
 #
@@ -12617,6 +12825,356 @@ claim_leg 'reap: the journal and --status agree on the verdict' reap_leg_journal
 # scan of `factory.sh` used to sit here; it is gone because it claimed no such harness existed and one
 # does -- `proc_leg` has been running the supervisor as a process since #262, and a scan that asserts
 # the absence of a stronger check is a lie waiting to be cited.
+
+# --- where the journal was, replayed through a stub journalctl (#260 ask 3) -------------------------
+#
+# The four `proc_*` legs further up prove a real pass performs the read. What they cannot prove is which
+# of the read's arms produced its answer, because a fixture box's journal holds exactly one shape at a
+# time -- so the arms are replayed here from transcripts, the way #246's reaping read is. Same seam, same
+# reason (`H-0120`): the feature is a mark, three refusals, a copy into a file that is going dead, and a
+# write that must not go through a symlink -- and a suite that never renders them cannot tell a shipped
+# arm from one nobody wired.
+#
+# Two stub personalities again. `LM_DUMB=1` ignores `-n` and hands over the whole file: a read that left
+# the window's size to `journalctl` would pass every leg that way, so the legs that depend on the bound
+# assert it against a stub that HONOURS it, and then check the refusal names `FACTORY_LOG_TAIL`.
+
+lm_dir=$work/log-move
+lm_bin=$lm_dir/bin
+mkdir -p "$lm_bin"
+
+lm_say() { printf '%s\n' "$*" | sed 's/^/            /' >&2; }
+
+lm_stub() {
+	cat >"$lm_bin/journalctl" <<'STUB'
+#!/usr/bin/env bash
+# One fixture file, the one flag that changes what the read sees, and a mode that implements neither.
+set -u
+n=0
+while [ $# -gt 0 ]; do
+	case $1 in
+	(-n) n=${2:-0}; shift 2 ;;
+	(*) shift ;;
+	esac
+done
+awk -v n="$n" -v dumb="${LM_DUMB:-0}" '
+	{ line[++c] = $0 }
+	END { for (i = (dumb || n + 0 <= 0 || c <= n) ? 1 : c - n + 1; i <= c; i++) print line[i] }
+' "$LM_FIXTURE"
+STUB
+	chmod +x "$lm_bin/journalctl"
+}
+lm_stub
+
+# The window the read asks for, through the stub. The status is the parser's: 0 it found a record, 1 the
+# window holds none, 2 it holds one that is damaged.
+lm_ask() { # <fixture> <dumb 0|1> -> <dir>\t<stamp>\t<how>
+	LM_FIXTURE=$1 LM_DUMB=${2:-0} LM_UNIT=plrev260b.service PATH="$lm_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$LM_UNIT"; }
+			factory_log_journal_tail | factory_log_prev_record' _ "$HERE"
+}
+lm_rc() { # <fixture> <dumb> -> the parser's status only
+	LM_FIXTURE=$1 LM_DUMB=${2:-0} LM_UNIT=plrev260b.service PATH="$lm_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$LM_UNIT"; }
+			factory_log_prev_record >/dev/null <"$LM_FIXTURE"' _ "$HERE"
+}
+lm_fields() { # <TAB line> -> dir|stamp|how
+	local d='' s='' h=''
+	IFS=$'\t' read -r d s h <<EOF
+$1
+EOF
+	printf '%s|%s|%s\n' "${d-}" "${s-}" "${h-}"
+}
+lm_move() { # <fixture> <tail N> <this-log-dir> -> the pass's sentences
+	LM_FIXTURE=$1 LM_DUMB=0 LM_UNIT=plrev260b.service LM_TAIL=$2 LM_NEW=$3 PATH="$lm_bin:$PATH" \
+		bash -c '. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$LM_UNIT"; }
+			FACTORY_LOG_TAIL=$LM_TAIL
+			factory_log_move_lines "$LM_NEW"' _ "$HERE"
+}
+
+# A pass running this code writes BOTH marks in the same second: `LOG-AT` at 10:10:00.100000 and its
+# `PASS` line 100 ms later. A "newest line wins" parser therefore takes the PASS every time and answers
+# from `root=`, and `how=recorded` never appears in a live journal -- not a loud failure, just an
+# inference quietly replacing the fact. The second fixture is what a pre-#260 journal holds: PASS lines
+# only, so the answer has to be derived and say so.
+cat >"$lm_dir/both-marks" <<'F'
+2026-11-12T10:10:00.100000+00:00 h factory.sh[2]: 2026-11-12T10:10:00Z LOG-AT /tree/a/factory/log
+2026-11-12T10:10:00.200000+00:00 h factory.sh[2]: 2026-11-12T10:10:00Z PASS units=0 dry=0 budget=5400s root=/tree/a trees=/wt
+F
+cat >"$lm_dir/pass-only" <<'F'
+2026-11-12T10:00:00.100000+00:00 h factory.sh[1]: 2026-11-12T10:00:00Z QUEUED 7 unit(s) remain
+2026-11-12T10:00:01.000000+00:00 h factory.sh[1]: 2026-11-12T10:00:01Z PASS units=3 dry=0 budget=5400s root=/old/tree trees=/wt
+2026-11-12T10:00:02.000000+00:00 h factory.sh[1]: factory: 1 tick(s), rc=0. Journal: /old/tree/factory/log/supervisor.log
+F
+# The hazard #247 measured for the tick-trailer read, in this read's shape: the ticket that filed the
+# requirement QUOTES a PASS block in its own body, so a tick handed that brief writes a journal line
+# CONTAINING `2026-11-09T…Z PASS … root=/wrong/tree`. A substring match reads a directory out of a quote
+# and reports a move that never happened. The systemd line is the second half: journald writes the
+# manager's own lines into the same window, and an unanchored filter lets anything in them answer too.
+cat >"$lm_dir/quoted" <<'F'
+2026-11-12T10:00:00.100000+00:00 h factory.sh[1]: 2026-11-12T10:00:00Z NEXT unclaimed:260 brief quotes: 2026-11-09T00:00:00Z PASS units=29 dry=0 budget=5400s root=/wrong/tree trees=/x
+2026-11-12T10:00:00.500000+00:00 h factory.sh[1]: 2026-11-12T10:00:00Z HALT quoting an old line verbatim: 2026-11-09T00:00:01Z LOG-AT /quoted/dir/factory/log
+2026-11-12T10:00:01.000000+00:00 h systemd[4485]: plrev260b.service: LOG-AT /manager/quotes/this
+2026-11-12T10:00:04.000000+00:00 h systemd[4485]: 2026-11-12T10:00:04Z LOG-AT /manager/echoes/this
+2026-11-12T10:00:02.000000+00:00 h systemd[4485]: Finished plrev260b.service - planted (one pass).
+2026-11-12T10:00:03.000000+00:00 h factory.sh[1]: factory: 1 tick(s), rc=0.
+F
+# A record that is there and broken, against a window that holds none. Different sentences, and both
+# different from "it has not moved", which is the arm neither is allowed to reach.
+cat >"$lm_dir/damaged" <<'F'
+2026-11-12T10:00:00.100000+00:00 h factory.sh[1]: 2026-11-12T10:00:00Z LOG-AT
+2026-11-12T10:00:01.000000+00:00 h factory.sh[1]: 2026-11-12T10:00:01Z LOG-AT   
+F
+: >"$lm_dir/nothing"
+# Four lines with the record FIRST, so a window of three cannot reach it and the default can. That is the
+# knob leg: it has to fail at one size and succeed at another, or the bound is decoration.
+cat >"$lm_dir/four-deep" <<'F'
+2026-11-12T09:00:00.100000+00:00 h factory.sh[1]: 2026-11-12T09:00:00Z LOG-AT /deep/tree/factory/log
+2026-11-12T09:00:01.100000+00:00 h factory.sh[1]: 2026-11-12T09:00:01Z QUEUED 2 unit(s) remain
+2026-11-12T09:00:02.100000+00:00 h factory.sh[1]: 2026-11-12T09:00:02Z TICK-START issue/1
+2026-11-12T09:00:03.100000+00:00 h factory.sh[1]: 2026-11-12T09:00:03Z END rc=0 ticks_started=1
+F
+
+lm_leg_recorded_beats_derived() {
+	local shape=''
+	shape=$(lm_fields "$(lm_ask "$lm_dir/both-marks" 1)")
+	[ "$shape" = "/tree/a/factory/log|2026-11-12T10:10:00Z|recorded" ] || {
+		lm_say "a pass that NAMED its directory answered: $shape"
+		lm_say "want the LOG-AT directory with how=recorded, not the PASS root= with how=derived."
+		lm_say "Every pass writes both lines 100 ms apart, so preferring the newest line means"
+		lm_say 'preferring the inference, and `recorded` would never appear in a live journal.'; return 1; }
+	shape=$(lm_fields "$(lm_ask "$lm_dir/pass-only" 1)")
+	[ "$shape" = "/old/tree/factory/log|2026-11-12T10:00:01Z|derived" ] || {
+		lm_say "a journal of PASS lines only answered: $shape"
+		lm_say "want the root= field plus the /factory/log suffix, with how=derived on the line"; return 1; }
+	# The polarity of the second fixture is load-bearing: if the two answers were interchangeable the
+	# first assertion above would pass on a parser that cannot read `LOG-AT` at all.
+	[ "$shape" != "$(lm_fields "$(lm_ask "$lm_dir/both-marks" 1)")" ] || {
+		lm_say "both fixtures answer the same, so neither leg can tell the marks apart"; return 1; }
+	lm_say "named answers recorded, unnamed answers derived, and the two differ" >&2
+	return 0
+}
+claim_leg 'log-move: a named directory beats the inferred one' lm_leg_recorded_beats_derived
+
+lm_leg_quoted_unread() {
+	local rc=0 naive=''
+	lm_rc "$lm_dir/quoted" 1 || rc=$?
+	[ "$rc" = 1 ] || {
+		lm_say "a window whose only PASS and LOG-AT are both QUOTED answered rc=$rc, want 1 (no record)."
+		lm_say "It read a directory out of a quoted transcript or a systemd line -- which is how a"
+		lm_say "pass gets accused of moving the journal by a ticket body quoting an old PASS."; return 1; }
+	# The control for the control: what an unanchored read answers on this same fixture. It has to be a
+	# DIFFERENT verdict, or the fixture cannot detect the hazard and this leg is decoration (#247's
+	# `reap: the exclusion matches a real rendering` writes the same shape of control).
+	naive=$(awk '{ if (match($0, /root=\/[^ ]+/)) { print substr($0, RSTART + 5, RLENGTH - 5); exit } }' \
+		"$lm_dir/quoted")
+	[ "$naive" = /wrong/tree ] || {
+		lm_say "the unanchored control read '$naive', want /wrong/tree -- the fixture no longer"
+		lm_say "holds a quotable root= field, so it cannot detect an unanchored parser"; return 1; }
+	# Which rule refuses the MANAGER's lines, named rather than assumed. One planted line carries a
+	# harness stamp inside its MESSAGE (`systemd[4485]: 2026-…Z LOG-AT /manager/echoes/this`), which is
+	# the shape the stamp anchor cannot refuse and the syslog filter can. The control takes the SHIPPED
+	# awk program, drops only the filter line, and runs the same window: if that changes nothing, this
+	# fixture cannot pin the filter at all -- every manager line in it is already refused by the stamp
+	# rule -- and the leg says so out loud instead of letting the filter take credit for an anchor.
+	local nofilter=$lm_dir/nofilter.awk unfiltered=0
+	python3 - "$HERE/common.sh" "$nofilter" <<'PY'
+import sys
+
+src, out = sys.argv[1], sys.argv[2]
+text = open(src).read()
+a = text.index('factory_log_prev_record() {')
+b = text.index("\tawk '", a) + len("\tawk '")
+c = text.index("\n\t'\n", b)
+lines = text[b:c].split('\n')
+keep = [l for l in lines if 'systemd\\[' not in l]
+assert len(keep) == len(lines) - 1, 'the filter line is not the one line expected of the shipped program'
+open(out, 'w').write('\n'.join(keep))
+PY
+	awk -f "$nofilter" <"$lm_dir/quoted" >/dev/null 2>&1 || unfiltered=$?
+	[ "$unfiltered" = 0 ] || {
+		lm_say "dropping the syslog filter from the shipped program answered rc=$unfiltered, the same"
+		lm_say "as the shipped read -- so nothing in this fixture can be pinned to that filter. Plant a"
+		lm_say "manager line whose MESSAGE carries a harness stamp, or stop crediting the filter."
+		return 1
+	}
+	lm_say "the stamp anchor refuses the quoted PASS; the filter is what refuses the manager echo" >&2
+	return 0
+}
+claim_leg 'log-move: a quoted PASS names no directory' lm_leg_quoted_unread
+
+lm_leg_damaged_vs_absent() {
+	local rc=0 empty=1
+	lm_rc "$lm_dir/damaged" 1 || rc=$?
+	[ "$rc" = 2 ] || { lm_say "a LOG-AT naming nothing answered rc=$rc, want 2 (damaged)"; return 1; }
+	rc=0
+	lm_rc "$lm_dir/nothing" 1 || rc=$?
+	[ "$rc" = 1 ] || { lm_say "an empty window answered rc=$rc, want 1 (no record)"; return 1; }
+	empty=$rc
+	[ "$empty" != 2 ] || {
+		lm_say "the damaged arm and the empty arm answer alike, so the operator cannot tell them"; return 1; }
+	# And the refusal sentences differ too, which is what an operator actually reads.
+	local s2='' s3=''
+	s2=$(lm_move "$lm_dir/nothing" 400 "$lm_dir/new")
+	s3=$(lm_move "$lm_dir/damaged" 400 "$lm_dir/new")
+	case $s2 in
+	(*'LOG-MOVED-UNKNOWN rc=2'*) : ;;
+	*) lm_say "an empty window did not reach the rc=2 sentence:"; lm_say "$s2"; return 1 ;;
+	esac
+	case $s2 in
+	(*FACTORY_LOG_TAIL*) : ;;
+	*) lm_say "the rc=2 refusal does not name the knob that would widen the window:"
+		lm_say "$s2"; return 1 ;;
+	esac
+	case $s3 in
+	(*'LOG-MOVED-UNKNOWN rc=3'*) : ;;
+	*) lm_say "a damaged record did not reach the rc=3 sentence:"; lm_say "$s3"; return 1 ;;
+	esac
+	case $s3 in
+	(*'LOG-MOVED '*) lm_say "a pass that read a broken record still claimed a move:"
+		lm_say "$s3"; return 1 ;;
+	esac
+	# Both refusals still name where this pass is writing: the mark is unconditional, and a pass that
+	# cannot answer about the past still says where the present record is.
+	case $s2 in
+	(*"LOG-AT $lm_dir/new"*) : ;;
+	*) lm_say "the rc=2 refusal does not print LOG-AT for this pass's own directory:"
+		lm_say "$s2"; return 1 ;;
+	esac
+	lm_say "damaged is rc=3, absent is rc=2, and both still say where they are writing" >&2
+	return 0
+}
+claim_leg 'log-move: a damaged record is not an absent one' lm_leg_damaged_vs_absent
+
+lm_leg_tail_bound() {
+	local out=''
+	# -n 3 on this fixture cuts the record off. If the bound never reached journalctl, the record would
+	# be found at every size and this leg would pass on a read with no window at all -- so the FAILING
+	# size is asserted first, against the stub that honours `-n`.
+	out=$(lm_move "$lm_dir/four-deep" 3 "$lm_dir/new")
+	case $out in
+	(*'LOG-MOVED-UNKNOWN rc=2'*) : ;;
+	*) lm_say "FACTORY_LOG_TAIL=3 over a 4-line window whose record is oldest did not run out:"
+		lm_say "$out"
+		lm_say "Either the bound is not asked of journalctl, or the fixture no longer puts the"; return 1 ;;
+	esac
+	out=$(lm_move "$lm_dir/four-deep" 400 "$lm_dir/new")
+	case $out in
+	(*'LOG-MOVED-UNKNOWN'*)
+		lm_say "the same window at FACTORY_LOG_TAIL=400 still cannot see the record, so raising"
+		lm_say "the knob changes nothing and the refusal that names it is a lie:"
+		lm_say "$out"; return 1 ;;
+	esac
+	case $out in
+	(*'LOG-MOVED old=/deep/tree/factory/log'*) : ;;
+	*) lm_say "the full window found the record but did not report the move:"
+		lm_say "$out"; return 1 ;;
+	esac
+	case $out in
+	(*'how=recorded'*) : ;;
+	*) lm_say "the move names a directory the window recorded as derived:"
+		lm_say "$out"; return 1 ;;
+	esac
+	lm_say "3 lines cannot reach the record, 400 can, and the sentence counts the lines it read" >&2
+	return 0
+}
+claim_leg 'log-move: the window is a knob, and the refusal names it' lm_leg_tail_bound
+
+lm_leg_symlink_not_written_through() {
+	local dir=$work/log-move-sym out='' rc=0 victim=''
+	rm -rf "$dir"
+	mkdir -p "$dir/old/factory/log"
+	victim=$dir/victim
+	# The shape a journal path becomes when a tree is moved by hand and a link is left behind -- and the
+	# shape #874 is about in general: a privileged writer following a link it never opened writes
+	# wherever the link points. `-e` reports a dangling symlink as NOT THERE, which is the trap: the
+	# first cut of this guard folded the link test into an `||` behind `! -e`, never reached it, and the
+	# append went straight through and created the target.
+	ln -s "$victim" "$dir/old/factory/log/supervisor.log"
+	out=$(LM_FIXTURE=/dev/null LM_DUMB=0 LM_UNIT=plrev260b.service LM_TAIL=400 LM_NEW="$dir/new" \
+		LM_LINK=$dir/old/factory/log PATH="$lm_bin:$PATH" bash -c '
+			. "$1/common.sh" 1>/dev/null
+			factory_service_unit() { printf "%s\n" "$LM_UNIT"; }
+			printf "%s\n" "2026-11-12T10:00:00.100000+00:00 h factory.sh[1]: 2026-11-12T10:00:00Z LOG-AT $LM_LINK" \
+				>"$2/log-move-sym.journal"
+			LM_FIXTURE=$2/log-move-sym.journal
+			export LM_FIXTURE
+			factory_log_move_lines "$LM_NEW"' _ "$HERE" "$work") || rc=$?
+	[ "$rc" = 0 ] || { lm_say "the read exited $rc on a planted symlink; want 0 with a verdict"; return 1; }
+	case $out in
+	(*'tail=skipped'*) : ;;
+	*) lm_say "a symlinked old journal was not refused (want tail=skipped):"
+		printf '%s\n' "$out" | sed 's/^/              /' >&2
+		return 1 ;;
+	esac
+	if [ -e "$victim" ]; then
+		lm_say "the copy went THROUGH the symlink and created $victim."
+		lm_say "That is an arbitrary-write: the path in the journal record is not a path this"
+		lm_say 'harness opened, and `-e` answers false for a dangling link, so the file test has'
+		lm_say "to refuse a link BEFORE it asks what is there -- as its own clause, not the arm"
+		lm_say "of an || that short-circuits first. That is where the first cut lost it."
+		return 1
+	fi
+	[ -L "$dir/old/factory/log/supervisor.log" ] || {
+		lm_say "the fixture lost its symlink, so it no longer tests the hazard"; return 1; }
+	lm_say "a symlinked old journal is refused and nothing was created behind it" >&2
+	return 0
+}
+claim_leg 'log-move: a symlinked old journal is not written through' lm_leg_symlink_not_written_through
+
+lm_leg_unwritable_is_said_not_shown() {
+	local dir=$work/log-move-ro out='' err=''
+	rm -rf "$dir"
+	mkdir -p "$dir/old/factory/log" "$dir/bin"
+	: >"$dir/old/factory/log/supervisor.log"
+	chmod 0444 "$dir/old/factory/log/supervisor.log"
+	printf '#!/usr/bin/env bash\nprintf "%%s\\n" "2026-11-12T10:00:00.100000+00:00 h factory.sh[1]: 2026-11-12T10:00:00Z LOG-AT %s/old/factory/log"\n' \
+		"$dir" >"$dir/bin/journalctl"
+	chmod +x "$dir/bin/journalctl"
+	# stderr on its own: the verdict is on stdout, which this swallows on purpose. What is checked is that
+	# the shell's own `Permission denied` never reaches a pass. A failed REDIRECTION is reported by the
+	# shell before that command's own `2>/dev/null` takes effect, so the suppressor has to sit on a group
+	# around the append -- and a leg asserting only `tail=failed` let the raw error into the tick log.
+	err=$(PATH="$dir/bin:$PATH" LM_UNIT=plrev260b.service bash -c '
+		. "$1/common.sh" 1>/dev/null
+		factory_service_unit() { printf "%s\n" "$LM_UNIT"; }
+		factory_log_move_lines "$2/new"' _ "$HERE" "$dir" 2>&1 >/dev/null)
+	[ -z "$err" ] || {
+		lm_say "a refused copy leaked text to stderr, which lands in the tick log as a shell error:"
+		printf '%s\n' "$err" | sed 's/^/              /' >&2
+		chmod 0644 "$dir/old/factory/log/supervisor.log"
+		return 1
+	}
+	out=$(PATH="$dir/bin:$PATH" LM_UNIT=plrev260b.service bash -c '
+		. "$1/common.sh" 1>/dev/null
+		factory_service_unit() { printf "%s\n" "$LM_UNIT"; }
+		factory_log_move_lines "$2/new"' _ "$HERE" "$dir")
+	case $out in
+	(*'tail=failed'*) : ;;
+	*) lm_say "an unwritable old journal did not answer tail=failed:"
+		printf '%s\n' "$out" | sed 's/^/              /' >&2
+		chmod 0644 "$dir/old/factory/log/supervisor.log"; return 1 ;;
+	esac
+	case $out in
+	(*'LOG-MOVED old='*) : ;;
+	*) lm_say "a refused copy suppressed the move sentence, which is the operator's only clue:"
+		printf '%s\n' "$out" | sed 's/^/              /' >&2
+		chmod 0644 "$dir/old/factory/log/supervisor.log"; return 1 ;;
+	esac
+	chmod 0644 "$dir/old/factory/log/supervisor.log"
+	lm_say "a refused copy is a field on the verdict, not an exception on stderr" >&2
+	return 0
+}
+claim_leg 'log-move: a refused copy is a verdict, not a shell error' lm_leg_unwritable_is_said_not_shown
+
+# The call site is pinned by the four `proc_*` legs further up (`the pass names its own journal
+# directory`, `…and says so in the journal it is leaving`, `…and says nothing when the journal stayed
+# put`, `…and refuses in words when it cannot read`), which run the shipped factory.sh and read the
+# journal it wrote. No text scan of factory.sh sits here, for the reason the note above the reap legs
+# gives: a scan that asserts a stronger harness does not exist is a lie waiting to be cited.
 
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file

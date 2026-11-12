@@ -431,6 +431,17 @@ FACTORY_REAP_NOTICE_SECS=${FACTORY_REAP_NOTICE_SECS:-5}
 # measured from -- is reported as unknown, never as a clean read.
 FACTORY_REAP_TAIL=${FACTORY_REAP_TAIL:-400}
 
+# How many of the unit's newest journal lines the read of #260 ask 3 looks back over to find the last
+# line that recorded which directory the journal was being written to. The same arithmetic as the tail
+# above, on a looser requirement: the reaping read needs TWO lines from one named activation, this one
+# needs the newest record of a directory from any activation, and the ordinary case is the pass
+# immediately before this one -- a few dozen lines back. It is a LINE window and not a time window, the
+# distinction `factory_reap_lastword` records from #283's review ("a bounded tail of the whole stream is
+# not bounded in TIME"), so a pass that outwrites the window loses the record: that is reported as
+# `LOG-MOVED-UNKNOWN rc=2` naming how many lines were read and this variable's name, never as a clean
+# "the journal has not moved".
+FACTORY_LOG_TAIL=${FACTORY_LOG_TAIL:-400}
+
 # What systemd says it will do next, on one line. The journal alone is not enough, twice over: on 8
 # Nov a unit sat `deactivating` for 91 minutes while the timer printed `active` (#246), and after the
 # 6 Nov reboot the timer read `active` with `SubState=elapsed` and would not fire until something
@@ -2607,6 +2618,215 @@ factory_unit_lines() {
 		fi
 		;;
 	esac
+	return 0
+}
+
+# ------------------------------------------- where the journal was, and whether this pass moved it (#260)
+#
+# The journal lives INSIDE the checkout the loop runs from -- `$FACTORY_LOG` defaults to
+# `<tree>/factory/log`, and the generated unit sets no `FACTORY_LOG` (checked on the shipped template
+# rather than assumed) -- so changing which tree the unit execs relocates the record. That is not
+# hypothetical. The 10 Nov reinstalls at 10:17, 13:05 and 13:39 each moved the journal, and
+# `install-timer.sh` wrote `TIMER-INSTALLED` into whichever tree it was run from, so the file an operator
+# was tailing stopped mid-sentence and stayed silent for good. Measured on this box 12 Nov:
+# `parental-lockout/factory/log/supervisor.log` ends its 10 Nov at `10:17:21Z HALTED`,
+# `wt/factory-harness/factory/log/supervisor.log` ends its 10 Nov at `13:39:05Z TIMER-INSTALLED`, and a
+# grep for the three-digit hour `1[12][0-9]:` -- 11:00 to 12:59 -- answers **0** in both files. Neither
+# one says where the other went, which is the whole complaint of ask 3.
+#
+# `install-timer.sh` now says the move out loud at install time (`UNIT-TREE old= new=`, ask 2's half),
+# and that is not this half of it. The installer writes into the tree it was RUN FROM, which on 10 Nov
+# was the tree being LEFT and would have been the tree being ARRIVED AT had the operator typed the same
+# command one directory over. The comparison below is made by the arriving pass, in the journal it is
+# about to make the only live one -- and it also writes a copy into the journal it is leaving, so the
+# dead tail explains itself instead of being explained by archaeology.
+#
+# Where the previous directory comes from, and why it cannot come from anywhere else: not from
+# `$FACTORY_LOG` (that is this pass's own answer), not from the tree (the previous tree may be gone --
+# two of the 10 Nov trees were deleted inside the hour), and not from a marker file this harness would
+# have to remember to update (a record that has to be maintained is the defect `factory_journal_age` was
+# written to avoid, for the same reason). systemd already records every line the unit writes, in a store
+# that belongs to neither checkout, and `factory_reap_lines` reads it on every pass for the same class of
+# fact. So the answer is the newest line in the unit's own journal that names a directory: `LOG-AT <dir>`
+# from a pass running this code, or a `PASS … root=<tree>` from one older than it.
+
+# The unit's own newest journal lines, unfiltered. The absence of a filter is the part to get wrong:
+# `factory_reap_lines` passes `-t systemd` because it reads the MANAGER's account of the stop path, and
+# the comment above it measures a 400-line window asked for with that filter as holding **0** of the 325
+# lines the unit's own processes wrote in the same window. This read wants exactly those 325, so it takes
+# no syslog-filter and rejects the manager's lines itself.
+factory_log_journal_tail() {
+	# shellcheck disable=SC2312  # the unit name is a lookup; a failing lookup prints nothing here
+	journalctl --user --no-pager -u "$(factory_service_unit)" -o short-iso-precise --utc \
+		-n "$FACTORY_LOG_TAIL" 2>/dev/null
+}
+
+# factory_log_prev_record   stdin: the tail above -> stdout: <dir>\t<stamp>\t<how>
+#
+#   rc 0  the newest record in the window, three TAB-separated fields: the directory, the stamp of the
+#         line that named it (so a dead tail has a last word an operator can point at), and how the
+#         directory was obtained --
+#           how=recorded  the line named the directory itself: `LOG-AT <dir>`, or a `log=` field on a
+#                         PASS line if one is ever added to it.
+#           how=derived   an older `PASS … root=<tree>`. The generated unit writes `Environment=` lines
+#                         for PATH, the reviewer, the unit name and PWD and none for FACTORY_LOG, so for
+#                         anything the timer starts the journal is at `<root>/factory/log` -- which is
+#                         the path an operator is standing in. A hand-run shell with FACTORY_LOG
+#                         overridden is the one case the derivation can be wrong, and `how=derived` is
+#                         the line admitting it.
+#   rc 1  the window holds no record of a directory at all.
+#   rc 2  it holds one whose directory cannot be read (`LOG-AT` with nothing after it). A record that is
+#         damaged is a different sentence from no record, and neither one is "it has not moved" (#228).
+#
+# Preference is deliberately NOT "whichever line is newest". A pass running this code writes BOTH marks --
+# `LOG-AT` first, its `PASS` line a few hundred milliseconds later -- so a rule that took the last match
+# would take every pass's own PASS and answer `derived` forever, which is the inference this function
+# exists to avoid having to make. So: the NEWEST recorded line if the window holds one, and only when it
+# holds none does the newest derived line answer, with `how=derived` printed to say so.
+factory_log_prev_record() {
+	awk '
+		function pass_field(s, key,   a, n, i, v) {
+			n = split(s, a, /[ \t]+/)
+			for (i = 1; i <= n; i++) {
+				if (index(a[i], key "=") == 1) {
+					v = substr(a[i], length(key) + 2)
+					if (v != "") return v
+				}
+			}
+			return ""
+		}
+		# journald renders -o short-* as: <stamp> <host> <comm>[<pid>]: <message>. The manager is
+		# excluded in the THIRD field and anchored there -- this is the lesson the comment on
+		# `factory_reap_lastword` carries, that a pattern matched ANYWHERE in the line excludes nothing,
+		# and a line from the unit whose own message quotes the manager is exactly the line this harness
+		# writes on a halt. (No apostrophe anywhere in this program: it is a single-quoted awk string, and
+		# one ends it and hands the rest of the file to bash.)
+		/^[^ ]+ +[^ ]+ +systemd\[[0-9]+\]: / { next }
+		{
+			msg = $0
+			if (sub(/^[^ ]+ +[^ ]+ +[^ ]+: /, "", msg) == 0) next
+			# The message is a harness log() line, which always opens with its own UTC stamp. Anchoring
+			# the start is what makes a QUOTED transcript unread: the ticket that filed this requirement
+			# pastes a PASS block into its own body, so a tick handed that brief writes a journal line
+			# CONTAINING a PASS -- which is not a pass having run.
+			if (msg !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z /) next
+			# The test above has proven the stamp is 20 characters of one shape, so the mark is cut off
+			# by regex rather than by a fixed offset. The difference is an off-by-one nobody would
+			# notice: the 20th character is the `Z`, so a substr counted from the date alone starts the
+			# mark one space short of the `P`, every arm reads nothing, and the answer is `no record`
+			# forever on a journal full of records. That is what the first cut of this function did.
+			stamp = substr(msg, 1, 20)
+			sub(/^[^ ]+ +/, "", msg)
+			mark = msg
+			if (mark == "LOG-AT" || index(mark, "LOG-AT ") == 1) {
+				dir = substr(mark, 8)
+				sub(/[ \t]+$/, "", dir)
+				if (dir == "") { bad = 1; next }
+				rec_dir = dir; rec_at = stamp
+				next
+			}
+			if (index(mark, "PASS ") != 1) next
+			dir = pass_field(mark, "log")
+			if (dir != "") { rec_dir = dir; rec_at = stamp; next }
+			root = pass_field(mark, "root")
+			if (root == "") next
+			der_dir = root "/factory/log"; der_at = stamp
+		}
+		END {
+			if (rec_dir != "") { printf "%s\t%s\t%s\n", rec_dir, rec_at, "recorded"; exit 0 }
+			if (der_dir != "") { printf "%s\t%s\t%s\n", der_dir, der_at, "derived"; exit 0 }
+			if (bad) exit 2
+			exit 1
+		}
+	'
+}
+
+# factory_log_move_lines [THIS_LOG_DIR]
+#   The pass's sentences about the journal's own location, one per line, in the shape
+#   `factory_unit_lines` uses: reports and changes nothing about the run. `LOG-AT <dir>` is on every
+#   pass for the reason `UNIT-AT` and `SUPERVISOR-AT` are -- a read nobody prints cannot be told apart
+#   from a read that is not there -- and it is also the line the NEXT pass reads back as this pass's
+#   answer, which is why it is printed before anything else here. Then at most one of:
+#
+#     LOG-MOVED          this pass writes where the pass before it did not.
+#     LOG-MOVED-UNKNOWN  the read could not answer, one of three ways it runs out of input. It exists so
+#                        that the ABSENCE of LOG-MOVED is never evidence nothing moved (#228's polarity:
+#                        a read that failed is not the clean state).
+#
+#   The move line is ALSO appended to the journal being left -- the one write here outside stdout, and
+#   the whole point of ask 3: an operator tailing the dead path sees the file explain itself rather than
+#   reaching for a grep over sibling checkouts. That write is guarded the way this repository guards
+#   every write to a path the writer did not create (judge it before you change it): the directory must
+#   exist, be a real directory and not a link, be writable, and the file in it must be absent or a real
+#   regular file. Nothing here creates a directory, and nothing writes through a link it did not open.
+factory_log_move_lines() {
+	local new=${1:-$FACTORY_LOG} raw='' jrc=0 rec='' rrc=0 prev='' at='' how='' lines=0 tail=skipped
+	local old_file body='' extra=''
+	# The read happens BEFORE this pass prints anything about its own journal, and the order carries
+	# content: a pass that emitted its `LOG-AT` line first could read it back and compare itself against
+	# itself, which answers "it has not moved" on exactly the one pass where the answer matters.
+	jrc=0
+	raw=$(factory_log_journal_tail) || jrc=$?
+	rrc=0
+	rec=$(printf '%s\n' "$raw" | factory_log_prev_record) || rrc=$?
+	if [ "$rrc" -eq 0 ]; then
+		IFS=$'\t' read -r prev at how <<EOF
+$rec
+EOF
+	fi
+	printf 'LOG-AT %s\n' "$new"
+	if [ "$jrc" -ne 0 ]; then
+		printf 'LOG-MOVED-UNKNOWN rc=1 journalctl --user -u %s exited %s, so this pass cannot ask which directory the pass before it wrote to; it can only say where it is writing itself: %s (#260)\n' \
+			"$(factory_service_unit)" "$jrc" "$new"
+		return 0
+	fi
+	if [ "$rrc" -eq 1 ]; then
+		lines=$(printf '%s\n' "$raw" | grep -c . || true)
+		printf 'LOG-MOVED-UNKNOWN rc=2 the journal window holds %s line(s) and none of them records a log directory, so this pass cannot say whether the journal moved; it is writing to %s. The window is FACTORY_LOG_TAIL=%s lines -- raise it if a single pass outwrites it, and expect this arm on a machine whose journal holds no earlier pass of this unit (#260)\n' \
+			"$lines" "$new" "$FACTORY_LOG_TAIL"
+		return 0
+	fi
+	if [ "$rrc" -eq 2 ]; then
+		printf 'LOG-MOVED-UNKNOWN rc=3 the newest record in the journal is a LOG-AT line naming no directory, so the previous pass wrote its own location as nothing; this pass writes to %s and reads nothing from that (#260)\n' "$new"
+		return 0
+	fi
+	if [ "$rrc" -ne 0 ]; then
+		printf 'LOG-MOVED-UNKNOWN rc=%s the record read answered outside its own contract of 0, 1 and 2, so its answer about %s is not usable (#260)\n' "$rrc" "$new"
+		return 0
+	fi
+	if [ "$prev" = "$new" ]; then
+		return 0
+	fi
+	body=$(printf 'old=%s new=%s prev-pass=%s how=%s' "$prev" "$new" "$at" "$how")
+	if [ "$how" = derived ]; then
+		extra=' The old path is derived from that pass'"'"'s own root= field, because it ran before a pass could name its journal directory; where it names the tree rather than the directory, FACTORY_LOG was overridden by hand.'
+	fi
+	old_file="$prev/supervisor.log"
+	# Each clause refuses a different way of being tricked into writing where nobody asked, and the order
+	# judges the path before touching it -- the rule `internal/audit` learned by chmodding through a
+	# descriptor it should have interrogated first (#182, fixed by PR #183: every refusal at open was
+	# also a chmod, and one left /dev/null at 0600 and stopped the machine).
+	#
+	# `[ ! -L "$old_file" ]` is its own clause and NOT folded into the brace group. Measured on the first
+	# cut, which folded it: a DANGLING symlink is `-e` false, so `[ ! -e ]` passed first, the group was
+	# never reached, and the append went straight through the link and CREATED its target. Nothing there
+	# is exactly how a symlink looks to `-e`, which is why the link test cannot be the arm of an `||`.
+	if [ -d "$prev" ] && [ ! -L "$prev" ] && [ -w "$prev" ] && [ ! -L "$old_file" ] &&
+		{ [ ! -e "$old_file" ] || [ -f "$old_file" ]; }; then
+		# The suppressor goes on the GROUP, not after the append: redirections apply left to right, so
+		# with `>>"$old_file" 2>/dev/null` a refused append reports `Permission denied` on the shell's own
+		# stderr before the `2>/dev/null` has taken effect -- which put a raw shell error in the middle of
+		# a pass's output on the read-only case. Only the noise is being removed; the verdict below is
+		# still what an operator reads.
+		if { log "LOG-MOVED $body copy=old-journal -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there (#260)" \
+			>>"$old_file"; } 2>/dev/null; then
+			tail=ok
+		else
+			tail=failed
+		fi
+	fi
+	printf 'LOG-MOVED %s tail=%s -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there.%s The journal that went quiet is %s/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed was refused, skipped found no directory there (#260)\n' \
+		"$body" "$tail" "$extra" "$prev"
 	return 0
 }
 

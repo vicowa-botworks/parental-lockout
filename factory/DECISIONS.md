@@ -6635,3 +6635,91 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   origin/main` into a unit branch is the operation `docs/factory.md:1027` tells a unit to perform; the
   supervisor's merge of #307 is still ahead of this commit and untouched by it. Renumbered 12 Nov, second pass: this entry was written as `H-0144` while that id was free, and #312 then published its own `H-0144` on `main` before this branch merged. The rule keeps the published id and moves the unmerged side, so this entry is now `H-0145`; the allocator readings above were taken when `H-0144` was unclaimed and stand as measured, not as a claim about the id it ended up under.
 - Checkpoint: 9a33f6da91b178da2ce8f021e8dd3c7438720df8
+
+## H-0148 · The journal's own location is read out of the unit's journal lines rather than a marker file, the copy into the journal being left is a guarded append, and the leg that was supposed to pin the syslog filter had to be rewritten because the anchor was doing the work
+
+- Question: #260 ask 3 asks for a line in the journal saying where the journal is, and for a line saying
+  it moved when it moved. Read back before writing: the journal is inside the tree the loop runs from --
+  `factory/common.sh:288` is `FACTORY_LOG=${FACTORY_LOG:-$FACTORY_DIR/log}`, and the generated unit's
+  template (`factory/install-timer.sh:383`) execs `@REPO@/factory/factory.sh` with four `Environment=`
+  lines, none of them `FACTORY_LOG` -- so the live unit on this box resolves to
+  `JournalPath=/home/rodney/prj/wt/factory-harness/factory/log` from `ExecStart=/bin/bash
+  /home/rodney/prj/wt/factory-harness/factory/factory.sh --tick`, read off the installed unit 12 Nov.
+  Moving the tree therefore moves the record, and it happened: `install-timer.sh` was run three times on
+  10 Nov, at 10:17, 13:05 and 13:39, and `grep -hcE '1[12][0-9]:'` -- the three-digit hour 11:00 to
+  12:59 -- answers **0** in BOTH `parental-lockout/factory/log/supervisor.log`, whose 10 Nov ends
+  `10:17:21Z HALTED`, and `wt/factory-harness/factory/log/supervisor.log`, whose 10 Nov ends
+  `13:39:05Z TIMER-INSTALLED`. Ask 2 shipped a `UNIT-TREE old= new=` line (`install-timer.sh:569`) and
+  ask 1 shipped `UNIT-AT` (`common.sh:2614`), and neither closes this: the installer writes into the tree
+  it was RUN FROM, which on 10 Nov was the tree being LEFT and would have been the tree being ARRIVED AT
+  had the same command been typed one directory over. So where does the previous directory come from,
+  what does a pass print, and what is it allowed to write to a path it did not create?
+- Options: marker file + no write to the old journal | `$FACTORY_LOG`'s predecessor in the tree + no
+  write | the unit's own journal lines over `journalctl --user` + no write | the unit's own journal lines
+  over `journalctl --user` + a guarded append to the old journal | the unit's own journal lines over
+  `journalctl --user` + an unguarded append to the old journal | ask 2's installer line only + no write
+- Chose: the unit's own journal lines over `journalctl --user` + a guarded append to the old journal
+- Why: a marker file is the defect this file keeps re-litigating -- a record that has to be maintained is
+  a record that goes stale, which is why `factory_journal_age` (line 380) reads the journal itself
+  instead of a stamp file, and why ask 1 reads the unit instead of a recorded path; it also has to be
+  written by the very pass whose location is in question, so the first relocation after it ships is the
+  one it gets wrong. The tree cannot answer: two of the 10 Nov trees were deleted inside the hour, and
+  `$FACTORY_LOG`'s predecessor in a tree is that same deleted path. Ask 2's installer line cannot answer
+  for the direction-of-run reason above, and a no-write option leaves the dead tail silent anyway -- the
+  operator reading `parental-lockout/factory/log/supervisor.log` on 12 Nov still stops at 10:17:21 no
+  matter how loudly the new file explains itself. An UNGUARDED append is the opposite failure: the old
+  path is a path this harness did not create, named by a record read off a log, so writing it blind is
+  the arbitrary-write shape #874 names and the judge-before-you-change rule #182 paid for. systemd
+  answers, in a store belonging to neither checkout, and `factory_reap_lines` already reads it every pass
+  for the same class of fact -- which activation opened and how it closed. Three things about that read
+  are measured rather than assumed. (1) It takes NO
+  syslog filter: the comment on `factory_reap_lines` measures a 400-line window asked for with
+  `-t systemd` as holding **0** of the 325 lines the unit's own processes wrote in it, and this read
+  wants exactly those 325, so it rejects manager lines by anchoring in the third field -- the lesson
+  `factory_reap_lastword` carries, that a pattern matched anywhere in the line excludes nothing. (2) The
+  mark is anchored to the START of the message, because the ticket that filed this requirement pastes a
+  PASS block into its own body: a tick handed that brief writes a journal line CONTAINING a PASS, and a
+  substring read reports a move that never happened. The leg holds the control for its own control -- an
+  unanchored read of the same fixture answers the journal came from `/wrong/tree`, so the ok is the
+  anchor deciding and not the code never reaching the line. (3) `how=recorded` outranks `how=derived`
+  regardless of line ORDER, because a pass writes `LOG-AT` and then its own `PASS` a few hundred
+  milliseconds later; a newest-line-wins rule answers from `root=` on every pass and the fact never
+  reaches the log. Two silent failures were caught by writing the legs and are recorded because each one
+  reads as a clean answer. `stamp = substr(msg, 1, 19)` then `mark = substr(msg, 21)` leaves the mark
+  starting one space short of the `P` -- the stamp is 20 characters and the 20th is the `Z` -- so every
+  arm reads nothing and the read answers `no record` forever on a journal full of records; the mark is
+  cut by regex now, and the legs assert counts of the line each arm is expected to emit, so an inert
+  parser fails the `LOG-AT` count on a pass that plainly printed one. The second is the copy: with the
+  link test folded into the brace group as `[ ! -e "$old_file" ] || { [ ! -L … ] && [ -f … ]; }`, a
+  DANGLING symlink is `-e` false, the group is never reached, and the append goes through the link and
+  CREATES its target -- measured, both ways, in `lm_leg_symlink_not_written_through`, which asserts the
+  target stays absent. Nothing there is exactly how a symlink looks to `-e`, so `[ ! -L ]` is its own
+  `&&` clause; the rule is #874's and the cost of getting it backwards is #182's (`/dev/null` at 0600).
+  A failed REDIRECTION is also reported by the shell before that command's own `2>/dev/null` applies, so
+  the suppressor sits on a group around the append -- `tail=failed`, not a shell error in the tick log.
+  The refusal arms exist so the ABSENCE of `LOG-MOVED` is never evidence nothing moved (#228's polarity),
+  and they name which way the read ran out: `rc=1` journalctl failed, `rc=2` the window holds no record
+  and says how many lines it read and which knob widens it, `rc=3` the newest record names no directory.
+  One leg could not be written as first written, and that is in here rather than tidied away: the
+  fixture's manager lines carry no harness stamp in their messages, so the anchored-stamp test refuses
+  them and deleting the syslog filter changed nothing -- `no-manager-filter` printed `ok`, a control that
+  pins nothing. The fixture now plants `systemd[4485]: 2026-11-12T10:00:04Z LOG-AT /manager/echoes/this`,
+  the shape only the filter refuses, and the leg extracts the SHIPPED awk program, deletes that one line,
+  runs the same window through it and FAILS if the verdict is unchanged -- so the sentence names which
+  rule refuses which line instead of crediting the filter with an anchor's work.
+- Consequences: `factory/selftest.sh` goes from 530 to 540 legs, four of them `proc_*` legs that run the
+  shipped `factory.sh` and read the journal it wrote -- both polarities, the copy landing without
+  disturbing the line already in the old journal, and `LOG-AT` above `PASS`, which is what lets a pass
+  that halts at triage still be located by the pass after it. Ten mutations were run and each one fails
+  the leg that owns it: unanchored `LOG-AT`, unanchored `PASS`, derived-before-recorded, the folded link
+  clause, the ungrouped suppressor, the deleted call site, a forced `tail=failed`, the collapsed `rc=3`
+  arm, the unnamed knob, and the deleted filter. Expect `LOG-MOVED-UNKNOWN rc=2` on the first pass of a
+  unit whose journal holds no earlier pass -- that is the arm working, not a fault. `how=derived` is the
+  line admitting an inference: it reads `root=` off a pre-#260 PASS and appends `/factory/log`, which is
+  wrong the moment anyone sets `FACTORY_LOG` in the unit template. This unit's own history is in here
+  because it is load-bearing for review: about five hundred lines of this implementation and its legs
+  were destroyed mid-session by `git checkout -q --` over three files that held uncommitted work -- an
+  empty checkpoint commit held none of it -- and were recovered only because scratch extractions
+  (`head`-prefixes and a sliced section) survived in `/tmp/opencode`. The implementation was committed
+  BEFORE the mutation controls were run, which is the order that makes `git checkout HEAD --` a restore.
+- Checkpoint: e3965f8f6acadb7f6334967ec788ace6fc554afd
