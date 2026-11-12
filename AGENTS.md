@@ -26,7 +26,11 @@ rule that exists because of a measured failure, and the measurement is cited.
   request, names `FACTORY_REVIEWER_TEAM` or `FACTORY_REVIEWER`, and leaves the timer's environment to
   whoever installed it.
 - A branch with commits and no pull request is work that has already been paid for and is invisible
-  to every queue that reads issues. `factory/triage.sh` reports it as `branch_without_pr`.
+  to every queue that reads issues. `factory/triage.sh` reports it as `branch_without_pr`. The same ref
+  name with a merged pull request behind it and no content the trunk lacks is the opposite thing -- a
+  delivery, reported as `branch delivered` and worked by nobody (#291). Telling the two apart is a
+  content question, never the name: `issue-301` has 4 files across 2 commits ahead of `main` under a
+  name whose earlier pull request merged, and an arm that stopped at the name retired that work.
 
 ## Decisions
 

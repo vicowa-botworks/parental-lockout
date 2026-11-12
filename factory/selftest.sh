@@ -7624,6 +7624,207 @@ branch_control_tip_not_base() {
 }
 claim_leg 'control: asked of the tip, the empty branch is back' branch_control_tip_not_base
 
+# ------------------ a merged pull request's leftover ref is reported, not dropped (#291, ask 2)
+#
+# Ask 1 above made the row depend on content. This is the half #292 did not deliver, and the comment on
+# #291 at 2026-11-12T17:59:30Z names it as what is still owed: the branch scan consults only OPEN pull
+# requests (`pr_json`, :129), so a ref whose pull request had merged neither was offered as work nor was
+# reported delivered -- it was dropped. A ref level with the trunk never even reaches the content
+# question: `[ "$ahead" -gt 0 ] || continue` passes it by and the pass says nothing about it, ever.
+# Measured on the shipped classifier at `1ad0760` over a throwaway repository (the probe whose shape
+# this fixture mirrors): `br-shipped`, the leftover of a pull request that merged cleanly, printed no row
+# of any class and left no trace but a count of branches holding nothing.
+#
+# The live blast radius, both ends run on 12 Nov at ~21:0xZ from this tree over the same refs, once with
+# `bash factory/triage.sh` at `1ad0760` and once with the same command at the fix: **32 rows before, 69
+# after.** The 37 that appear are all `branch delivered`; the 11 `branch_without_pr` rows are the same 11
+# afterwards, so nothing that was offered stopped being offered; and the stderr tally of content-free refs
+# falls from three (`issue-248 issue-309 issue-318`) to two (`issue-309 issue-318`), because the one of
+# those three that a merged pull request names is now reported by number instead of counted. Thirty-seven
+# is what #291's own census predicted: 34 leftover refs, 33 of them silent, counted 11 Nov.
+#
+# The polarity that keeps this from being a rule that retires work by its name is `br-reopened`: a name
+# that merged once and was then re-cut with a file `main` lacks. It keeps its `branch_without_pr` row,
+# and control 7 takes the content question out of the merged arm and demands that branch turn up
+# `delivered` -- the harm, reproduced on demand. #254 merged on `issue-246` under `Part of #246` with
+# #246 unfinished and three merged pull requests sit on `issue-199`, which is why a name is never a
+# verdict on its own (H-0108) and why this arm is a name AND the same content question ask 1 asks.
+#
+# The merged payload is planted HERE, not at the top of the section, because the legs above answer a
+# queue in which nothing has merged -- and that is exactly what keeps `br-empty`'s verdict about content
+# rather than about a pull request (`branch_rows_are 3` counts those rows and would fail on 4). The refs
+# below are cut in the same repository after those legs and their controls have run, so one tree holds
+# both halves and the shipped classifier sees a queue with merged pull requests in it at last.
+cat >"$branch_fix/pr-merged.json" <<'JSON'
+[
+ {"number":777,"baseRefName":"main","headRefName":"br-shipped","mergedAt":"2026-11-11T02:05:20Z",
+  "body":"fix(factory): the thing that shipped\n\nRefs #777.\n"},
+ {"number":778,"baseRefName":"main","headRefName":"br-deadtick","mergedAt":"2026-11-11T03:05:20Z",
+  "body":"fix(factory): the other thing, and the checkpoint that outlived it\n\nRefs #778.\n"},
+ {"number":779,"baseRefName":"main","headRefName":"br-reopened","mergedAt":"2026-11-11T04:05:20Z",
+  "body":"fix(factory): merged once and re-cut afterwards\n\nRefs #779.\n"},
+ {"number":780,"baseRefName":"feature/x","headRefName":"br-stacked","mergedAt":"2026-11-11T05:05:20Z",
+  "body":"fix(factory): merged into a stacked branch, so none of it reached main\n\nRefs #780.\n"},
+ {"number":781,"baseRefName":"main","headRefName":"br-many","mergedAt":"2026-11-10T01:02:03Z",
+  "body":"fix(factory): the first pull request to run under this name\n\nRefs #781.\n"},
+ {"number":782,"baseRefName":"main","headRefName":"br-many","mergedAt":"2026-11-11T06:07:08Z",
+  "body":"fix(factory): the second one, and the name it consumed\n\nRefs #782.\n"}
+]
+JSON
+
+git -C "$branch_repo" config user.email branch@invalid
+git -C "$branch_repo" config user.name branch
+# The work that merged, and main taking it: the ref is 0 ahead and 0 files ahead, the ordinary leftover
+# of an ordinary merge whose branch GitHub did not delete.
+git -C "$branch_repo" checkout -qb br-shipped main
+printf 'shipped\n' >"$branch_repo/shipped.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'branch: the work that merged'
+git -C "$branch_repo" checkout -q main
+git -C "$branch_repo" merge -q --no-edit br-shipped
+git -C "$branch_repo" update-ref refs/remotes/origin/main refs/heads/main
+
+# The measured shape: GitHub deleted the ref after the merge, and the `--allow-empty` checkpoint that
+# Step 3 takes BEFORE a judgement call survived locally. One commit ahead, zero bytes -- which is what
+# #293's ref looked like at 16:49Z on 12 Nov, offered to a second tick as "already written".
+git -C "$branch_repo" checkout -qb br-deadtick main
+git -C "$branch_repo" commit -q --allow-empty -m 'chore(checkpoint): pre-H-0000 nothing follows it'
+
+git -C "$branch_repo" checkout -qb br-reopened main
+printf 'a second, undelivered helping\n' >"$branch_repo/reopen.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'branch: work that never merged'
+
+# A merge that never reached the trunk (#216's stacked chain): its leftover still owes its content, so
+# it is not delivered and it is still 0 ahead -- the arm's base filter, with no row to confuse it with.
+git -C "$branch_repo" checkout -qb br-stacked main
+git -C "$branch_repo" commit -q --allow-empty -m 'chore(checkpoint): pre-H-0001 stacked merge, nothing on main'
+
+# Two pull requests under one name. The newest is the merge that consumed the name, and the row says how
+# many ran under it: an attribution that hides its own ambiguity is the one a reader cannot check.
+git -C "$branch_repo" checkout -qb br-many main
+printf 'the first\n' >"$branch_repo/first.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'branch: the first pull request'
+git -C "$branch_repo" checkout -q main
+git -C "$branch_repo" merge -q --no-edit br-many
+git -C "$branch_repo" checkout -q br-many
+printf 'the second\n' >"$branch_repo/second.txt"
+git -C "$branch_repo" add -A
+git -C "$branch_repo" commit -qm 'branch: the second pull request'
+git -C "$branch_repo" checkout -q main
+git -C "$branch_repo" merge -q --no-edit br-many
+git -C "$branch_repo" update-ref refs/remotes/origin/main refs/heads/main
+git -C "$branch_repo" checkout -q main
+
+branch_err_lacks() { # branch_err_lacks <needle> -- one pass may say one thing about one ref
+	if grep -qF -- "$1" "$branch_err"; then
+		printf '            stderr still tallies %s as a branch with nothing to offer while the table\n' "$1" >&2
+		printf '            reports it delivered: the same verdict twice, in two sentences that can\n' >&2
+		printf '            disagree. Its stderr:\n' >&2
+		sed 's/^/            /' "$branch_err" >&2
+		return 1
+	fi
+}
+
+branch_field_is() { # branch_field_is <branch> <column> <value> -- the columns carry the claim
+	local got
+	got=$(branch_row_for "$1" | cut -f"$2")
+	[ "$got" = "$3" ] || {
+		printf '            %s column %s reads %s, not %s. Its row:\n' "$1" "$2" "$got" "$3" >&2
+		branch_rows | tr '\t' ' ' | sed 's/^/            /' >&2
+		return 1
+	}
+}
+
+branch_rows >/dev/null
+claim_leg 'a merged ref at zero ahead is reported, not dropped' branch_class_is br-shipped delivered
+claim_leg '…naming the pull request, the name and the instant' \
+	branch_detail_has br-shipped 'merged PR #777 on `br-shipped` at 2026-11-11T02:05:20Z'
+claim_leg '…and how far back the merged read looked' branch_detail_has br-shipped '(window 100)'
+claim_leg '…and naming no issue, because a ref is not a ticket' branch_field_is br-shipped 6 '-'
+claim_leg 'the measured issue-249 shape is reported as well' branch_class_is br-deadtick delivered
+claim_leg '…and said once, not tallied again as a skipped ref' branch_err_lacks br-deadtick
+claim_leg '…while a checkpoint no pull request ran is only a tally' branch_no_row br-empty
+claim_leg '…and named there, beside its two neighbours' branch_err_has 'br-empty br-merge-empty br-stacked'
+claim_leg 'two merges on one name report the newest' branch_detail_has br-many 'merged PR #782 on `br-many` at 2026-11-11T06:07:08Z'
+claim_leg '…and do not hide that two ran' branch_detail_has br-many '2 merged pull requests ran under that name'
+claim_leg 'a merge that did not reach main delivers nothing' branch_no_row br-stacked
+claim_leg 'a name that merged once, re-cut with a file main lacks, is still offered' branch_class_is br-reopened branch_without_pr
+claim_leg 'the rows and the reports together, so no stray row hides' branch_rows_are 7
+
+# Control 5: the merged test inverted, and a clean merge is silent again. That is the shipped behaviour
+# at `1ad0760`, held permanently: the ref passes the ahead test, holds nothing, and no arm says anything
+# about it. The leg asks for both halves -- no row AND the tally named it -- because a mutant that
+# deleted the whole block would also pass a leg that only counted rows, and the tally is what the
+# classifier printed then.
+branch_control_merged_off() {
+	branch_mutate 's/\[ -n "\${shipped_pr:-\}" \] && \[ "\$comparable" = 1 \]/[ -z "${shipped_pr:-}" ] \&\& [ "$comparable" = 1 ]/' ||
+		return 1
+	branch_no_row br-shipped && branch_no_row br-deadtick &&
+		branch_err_has br-deadtick && branch_class_is br-reopened branch_without_pr
+}
+claim_leg 'control: dropping the merged test returns the silence' branch_control_merged_off
+
+# Control 6: the base filter off. A pull request merged into another branch left its work off `main`, so
+# the leftover still owes it; a filter that ignores which trunk a merge reached buries it as `delivered`.
+# This substitution is the widest of the three -- the same predicate guards the two issue scans, and
+# `issues.json` is empty for every leg in this section, so no issue row is asserted either side of it:
+# what is pinned here is the branch row the filter is protecting.
+branch_control_any_base() {
+	branch_mutate 's/select(\.baseRefName == \$base)/select(true)/' || return 1
+	branch_class_is br-stacked delivered && branch_class_is br-work branch_without_pr
+}
+claim_leg 'control: a filter off main reports a stacked branch as delivered' branch_control_any_base
+
+# Control 7: the conjunct that #291 was written about, on the other side this time. With the content
+# question gone from the merged arm, a name is the whole verdict -- and `br-reopened`, whose pull request
+# merged once and was then re-cut with a file the trunk does not have, becomes a delivery. Its real work
+# is then offered by nobody, in the same tone of voice that reports a merge. That sentence is what the
+# #277 header refuses for branches, and the issue half already carries its own version of it.
+branch_control_name_only() {
+	branch_mutate 's/if \[ -n "\${shipped_pr:-\}" \] && \[ "\$comparable" = 1 \] && \[ -z "\$delta" \]; then/if [ -n "${shipped_pr:-}" ]; then/' ||
+		return 1
+	branch_class_is br-reopened delivered
+}
+claim_leg 'control: a name alone, and the re-cut branch is buried' branch_control_name_only
+
+# What the supervisor DOES with one of these rows -- end to end, not by reading the arm. `delivered` is
+# reached through the CLASS, not the kind: the pass reads kind into its `unit` variable
+# (`factory.sh:1071`) and its arm keys on the class alone, so `factory_class_is_workable` (:843) and the
+# arm itself (:1151) take a branch row with no new handler -- and #291 asks for exactly that ("no new arm
+# is needed"). A text scan would prove the arm exists; these three legs prove the arm runs on a branch.
+#
+# The payload names `issue-902`, which is a ref at origin/main -- zero ahead, so there is nothing here
+# but the attribution. Restored to `[]` for the sections below, none of which runs the supervisor again
+# (the last `proc_run` before this one is `reap-held`, :4081).
+printf '%s' '[{"number":790,"baseRefName":"main","headRefName":"issue-902","mergedAt":"2026-11-12T04:05:06Z","body":"fix(fixture): the pull request that consumed the branch\n\nRefs #790.\n"}]' \
+	>"$proc_fix/pr-merged.json"
+proc_new delivered-ref
+git -C "$proc_repo" branch issue-902 origin/main
+proc_run delivered-ref-1
+
+proc_logged_delivered() {
+	proc_journal_line "$proc_journal" 'DELIVERED branch/issue-902' | grep -qF -- 'reported, not worked'
+}
+proc_no_session() {
+	grep -q 'issue-902' "$proc_ticks" && return 1
+	! grep -qE 'NEXT [a-z_]+ issue-902' "$proc_journal"
+}
+proc_wrote_nothing() {
+	# `proc_rec` is every call the fixture `gh` answered, and the shim already exits 77 on a write it was
+	# not told about, so this asks the question in the open: a `delivered` row must not be able to close,
+	# merge or edit anything on the way past.
+	! grep -qE '^(issue|pr) (close|reopen|merge|edit|review|comment)' "$proc_rec"
+}
+proc_leg 'the supervisor logs the leftover as delivered' \
+	'its journal names DELIVERED branch/issue-902 and says reported, not worked' proc_logged_delivered
+proc_leg '…and starts no session for it' \
+	'no tick ran issue-902 and no NEXT row offers it' proc_no_session
+proc_leg '…and closes nothing on the strength of a ref' \
+	'the fixture gh recorded no close, merge, edit, review or comment' proc_wrote_nothing
+printf '[]' >"$proc_fix/pr-merged.json"
+
 # --------------------------------------------------------------- who the review poke asks (#241)
 #
 # H-0116 moves the review request from one named person to the organisation's team, and H-0117 decides
