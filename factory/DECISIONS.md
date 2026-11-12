@@ -5303,6 +5303,80 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `docs/factory.md` and on #291: whether #241 should now be closed, whether #285 and #233 should be
   deleted, and whether #222 still owes anything.
 
+
+## H-0138 · #310 asks who asks a reviewer, and the answer was a component no entry-facing document named: `AGENTS.md` told a unit to do the one thing it has no verb for
+
+- Question: `AGENTS.md`'s queue bullet read "Requesting a reviewer is part of opening a pull
+  request, not a later courtesy" and named nobody. The session reading it while opening a pull
+  request cannot do it: `gh pr edit --add-reviewer` exits 1 on this account's retired
+  `projectCards` field and writes nothing (H-0010, four pull requests on 4 Nov, re-run on #307 on
+  11 Nov and published in #310), the raw API is denied whole by the `bash` table in
+  `.opencode/opencode.jsonc`, and filing a review is denied outright. What satisfies the rule
+  today is `factory_request_review` (`factory/factory.sh`), which POSTs
+  `pulls/N/requested_reviewers` for any open pull request whose `users` and `teams` lists are both
+  empty, at most once per `FACTORY_REVIEW_POKES`, addressed by `factory_review_target`
+  (`factory/common.sh`) -- a component on the far side of the boundary a tick runs inside.
+  `SKILL.md` names it, but in Step 5, phrased as a prohibition ("not yours to do"); `AGENTS.md`,
+  which every session reads before it reads the skill, named nobody, so the bullet read as work
+  the reader was failing to do. #310 asks two things: whether to hand a tick a narrow API
+  carve-out so it can redirect an ask when the configured reviewer is the wrong person, and
+  whether to say who asks. What is the deliverable -- a permission, a sentence, or both?
+- Options: name the actor in `AGENTS.md` and the no-redirect rule in `.opencode/skills/factory/SKILL.md`, and change no permission | add a whole-line allow for `gh api -X POST …/requested_reviewers` to the `bash` table in `.opencode/opencode.jsonc` | ship a helper under `factory/` that posts the request, ungated the way the supervisor's own call is | leave both documents alone and close #310 as already answered by `efa4e29` | escalate the ticket and deliver nothing
+- Chose: name the actor in `AGENTS.md` and the no-redirect rule in `.opencode/skills/factory/SKILL.md`, and change no permission
+- Why: the tie-break that separates these is named before the list, in this skill and in
+  `AGENTS.md`: changing what a `deny` in `.opencode/opencode.jsonc` refuses is not a unit's to
+  make. The second option was therefore never on this tick's menu -- and it is decided anyway, in
+  the direction of refusal, by `efa4e29` (6 Nov), whose whole record is a comment on the denial
+  itself: a whole-line glob is method-blind, so a carve-out written for one POST admits
+  `-X POST …/merge` with it, and `--admin` lets that merge land past a failing status check. The
+  ticket could still ask the question because nothing an agent reads points at that record:
+  `AGENTS.md` implied the reader held the verb, and `SKILL.md` said only that the ask was not
+  theirs. So the defect is a missing name, not a missing capability, and the fix is the sentence
+  the ticket itself recommends -- "fewer permissions granted, one rule made true".
+  The third option is the second through a side door and loses on the skill's own words: "Never
+  wrap the denied call in `bash -c`, `env`, `xargs`, `sh -c`, or a script that shells out to it --
+  that is the one way to turn a harness gap into a trust problem." A helper under `factory/` is
+  ungated for the same reason the supervisor is (the gate parses a tick's command line, not a
+  function it calls), so it does not narrow the hole, it opens the endpoint -- and tie-break 4 is
+  against it as well: a permission edit drags `scripts/check-denies.py` and its self-test cases
+  with it, three more files in which H-0013's four rounds of pattern-shaping can be repeated.
+  Closing #310 on `efa4e29` loses because the bullet is still false as written, and a false rule
+  in the file every session reads costs the next tick its ceiling on a command that cannot
+  succeed -- which is exactly what #310 measured, one review round spent on `gh pr edit`.
+  Escalating loses because nothing irreversible is being asked for: the half that needs a human
+  was already refused by a dated record, so escalating would ask the user to re-make a decision
+  rather than to make one. What the choice keeps unavailable is on the record: a tick still
+  cannot redirect an ask. The answer to "the wrong person is holding it" is now written down as
+  operator config -- `FACTORY_REVIEWER_TEAM` or `FACTORY_REVIEWER`, read by `factory_review_target`
+  and set in the timer's environment -- so a redirect costs a person with the unit file instead of
+  a tick with a token, and `AGENTS.md` says which one that is.
+- Effect: `AGENTS.md`'s bullet names `factory_request_review`, the throttle, the target key, and
+  the unit's own no-verb condition. `.opencode/skills/factory/SKILL.md` Step 5 gains the
+  no-redirect paragraph (the withheld carve-out, `efa4e29`, the two config keys as the in-band
+  verb, and H-0117's reason not to call an existing request missing) and one citation
+  correction: that paragraph cited `D-0010` for the `projectCards` measurement, and `D-0010` is a
+  heading in neither log -- `grep -c '^## D-0010 ' DECISIONS.md` answers `0`, and the entry is
+  `H-0010` in this file, which is the D-/H- collision `AGENTS.md` says the prefixes exist to
+  prevent. `.opencode/opencode.jsonc`'s comment on the review denial carries a dated correction
+  of one of its premises: "no released gh has a --reviewer flag" is overtaken -- `gh pr edit
+  --help` at gh 2.46.0 (`/usr/bin/gh`, measured 11 Nov) lists `--add-reviewer` and
+  `--remove-reviewer` and its examples use them -- while the two reasons the settlement does not
+  depend on that premise are left standing. `factory/selftest.sh` gains
+  `ask_target_docs_say_it` and `ask_target_docs_control`: four whole phrases, one rule and one
+  reason in each of the two documents, and the control that deletes one clause from each document
+  and expects red, in the shape `voided_docs_control` established for #272.
+- Not established here: no write to `requested_reviewers` was made by this unit, because a
+  successful one is a review request and that is not a tick's action -- so the redirect path is
+  documented, not exercised. The rc-1 re-run against a pull request this branch owns was owed at
+  the time of writing and belongs on this pull request as a comment, not in this entry, because an
+  entry that predicts its own measurement is the thing #1180 refuses. `gh pr edit --help` prints a
+  flag list, which says what the CLI will send and nothing about what GitHub accepts. And the same
+  jsonc comment still cites `D-0013` for the keying of the deny table, where the entry that keys
+  it under `bash` is `H-0013` in this file; `DECISIONS.md`'s own head notes that `D-0013` was
+  minted twice, so a harness file pointing at it points at two candidates and neither is the one
+  meant. Left for a citation pass, named on the pull request so the queue can see it.
+- Checkpoint: 0d9a0ed
+
 ## H-0139 · The escalation path's label step was executed for the first time, and the choice it reports is still a person's
 
 - Question: `AGENTS.md:38` and `.opencode/skills/factory/SKILL.md:225` tell a unit that reaches one of
@@ -5414,6 +5488,44 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   2, because no mention of the instruction changes here); and #313, filed for the class that does not
   exist, on the argument that a finding living only in a comment is invisible to every queue that reads
   issues.
+
+- Two `path:NNN` citations in this entry stopped resolving when this branch met `issue-310`. Every one
+  of the fifteen was re-read on the merged tree on 11 Nov, in the merge carrying `H-0143`. `AGENTS.md:38`
+  now reads "- Checkpoint **before** a judgement call" and the `needs-human` sentence quoted above is at
+  `AGENTS.md:46`; `SKILL.md:402` now reads "look:" and the `#856` bullet quoted above is at
+  `SKILL.md:417`. The cause is #310's own diff -- +8 lines in `AGENTS.md`, +15 in
+  `.opencode/skills/factory/SKILL.md`, both above the line cited -- and not any edit to what this entry
+  recorded. The other thirteen re-read true: `SKILL.md:225`, the `:222-228` block and `:229` (all fifteen
+  of #310's inserted `SKILL.md` lines sit below :228), `docs/factory.md:394`, `factory/factory.sh:725`,
+  `factory/selftest.sh:6216` and `:6218` (that file gains 86 lines on that branch, all at 6492 and after),
+  the `:6199-6220` block, `factory/common.sh:151`, `factory/triage.sh:267`, `triage.sh:62-64`,
+  `DECISIONS.md:2112-2114` and `DECISIONS.md:2221-2231`; and `git diff 65e980b..origin/main` and
+  `git diff 65e980b..HEAD` are both EMPTY for `DECISIONS.md`, `docs/factory.md`, `factory/factory.sh`,
+  `factory/common.sh` and `factory/triage.sh`, which is why those needed no arithmetic at all. The two
+  numbers above are left exactly as measured and this bullet sits beside them instead of replacing them:
+  `AGENTS.md:38` WAS the line on `5be86e5`, the head this entry was written against, and a record whose
+  coordinates are quietly moved under it cannot be re-run against the thing it measured. `H-0143` carries
+  the census, and the reason a rewrite of them was refused.
+- Every coordinate in the bullet above was re-read on `9a3b0aa`, and the merge carrying `H-0144` moved
+  eleven of the seventeen while changing none of the files they measure in any way this branch chose.
+  The cause is `H-0140`: `main` retired the literal `needs-human` out of five files, so a citation
+  quoting that word now points at a sentence that no longer exists rather than at one that moved.
+  `AGENTS.md:46` is still this bullet's own bullet -- it now reads "escalation label
+  (`factory/escalation-label.sh` prints it; `factory/common.sh` is the" and the `Chose: escalated`
+  clause sits at `:46-48`; `docs/factory.md:394` and `factory/factory.sh:725` did NOT shift at all, the
+  coordinate still names the same sentence and only the words changed, `needs-human` becoming
+  `the escalation label (…)` and `${FACTORY_ESCALATION_LABEL}`; the arm `factory/selftest.sh:6216`
+  named is `*FACTORY_ESCALATION_LABEL*) return 0 ;;` at `:6217`, whose failure sentence is three lines
+  at `:6219-6221`, and the leg block `:6199-6220` is `:6200-6223`. The `SKILL.md` ones are shifts of
+  +30 from `H-0140`'s reordered escalation step and one rewrite: `:225` (`--add-label needs-human`) is
+  `:235` (`--add-label "$(factory/escalation-label.sh)"`), the block `:222-228` became `:224-240`,
+  `:229` `Do not pick a side` is `:259`, `:402` `look:` is `:432`, and the `#856` bullet this bullet
+  re-pointed to `:417` is at `:447-448` in the rewritten form "without escalating first (#856)". Six
+  re-read true: `AGENTS.md:38`, `factory/common.sh:151`, `factory/triage.sh:267`, `triage.sh:62-64`,
+  `DECISIONS.md:2112-2114`, `DECISIONS.md:2221-2231`. No number above is replaced: `AGENTS.md:38` was
+  the line on `5be86e5` and `SKILL.md:225` was the verb on `9a3b0aa`, and the reason this log carries a
+  dated bullet per merge instead of a corrected number is `#318`, whose census has now grown by thirteen
+  moved pointers, eleven of them here.
 
 ## H-0140 · The escalation label was spelled in five files and pinned in a sixth, so the one name this repository does not have could only ever be wrong in some of them
 
@@ -5643,3 +5755,186 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `H-0139`'s claim that no queue state reads labels survives the merge unchanged. The full
   `make verify` line and exit status on the tree this commit leaves are quoted in the pull-request
   body, because an `Effect:` written before the gate runs is a prophecy (#1180).
+- Two of this entry's fourteen coordinates moved when `issue-310` met `main` in the merge carrying
+  `H-0144`, and both are `SKILL.md` ones, for one reason: that branch inserts fifteen lines at
+  `SKILL.md:322`, above everything in the file below it. The blank `:402` this entry cites as the proof
+  of a shift is no longer blank -- it holds "arithmetic -- which is why the sentence below says *yet*"
+  -- and the slot it measured is `:417` here, while the never-invent-a-name rule it puts at `:434` sits
+  at `:449`. The twelve that re-read true on the merged tree include every `factory/selftest.sh` one
+  (`:6216-6217`, `:6219-6221`, `:6330-6332`) and the block at `SKILL.md:220-240`, because that branch's
+  86 lines land at 6492 and after and its `SKILL.md` lines at 322, both below these numbers. The
+  coordinates above stay as measured on `131b180`: the correction goes beside a measurement, never over
+  it (`H-0143`, and the class is `#318`).
+
+## H-0143 · The log collides again and both sides appended one entry at the same anchor, so the splice is the easy shape -- and the thing that actually broke was two line numbers inside the other side's entry
+
+- Question: read back before anything was touched. `gh pr view 312 --json number,title,state,headRefName,
+  baseRefName,mergeable,mergeStateStatus,reviewDecision,headRefOid` answers `OPEN`, `issue-310` against
+  `main`, `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`, `reviewDecision=REVIEW_REQUIRED`,
+  `headRefOid=120ccd1fc0d72775e825c06009dbab8029328174`, which is this worktree's `HEAD`; `statusCheckRollup`
+  carries five rows, all `COMPLETED`/`SUCCESS` (`verify`, `shellcheck`, `mutation sets`,
+  `packages (amd64)`, `packages (arm64)`), and `reviewRequests` answers
+  `[{"__typename":"User","login":"hermesvicowa"}]`, so one request is outstanding. `git rev-list
+  --left-right --count HEAD...origin/main` is `3 4`. `git merge-tree --write-tree --name-only HEAD
+  origin/main` conflicts exactly ONE file, `factory/DECISIONS.md`, and `git diff --stat 65e980b..origin/main`
+  is that file at +112/-0: base `65e980b` ends the log at `H-0132` (5304 lines), this branch appends
+  `H-0138` (5378), `main` appends `H-0139` (5416), and lines 1..5304 are byte-identical between the two
+  parent blobs (`diff` of the two ranges, empty). So the two intents are disjoint everywhere, and in the one
+  file where they meet they meet only at the last line. Which splice keeps both -- and what does a merge do
+  to an entry that cites the other side's files by line number?
+- Options: cut the merged log at id position out of the two parent blobs and prove both intents with a
+  zero-deletion two-way census | delete git's three conflict markers and keep the layout it wrote | resolve
+  with `--ours` or `--theirs` | rewrite `H-0139`'s two shifted line numbers so that every citation resolves
+  on the merged tree | rebase this branch onto `origin/main` | cut the log and leave the shifted citations
+  unrecorded
+- Chose: cut the merged log at id position out of the two parent blobs and prove both intents with a
+  zero-deletion two-way census
+- Why: order is not what is in dispute here, and saying so is the whole difference between this collision
+  and `H-0114`, `H-0121` and `H-0128`. Both sides wrote at the same anchor and `H-0138` < `H-0139`, so git's
+  layout is already ascending and the shipped gate accepts it: the conflicted file regenerated with
+  `git merge-file -p ours base theirs`, stripped of its three marker lines, is 5489 lines and answers
+  `check-decisions: 129 entries across 1 log(s)` at exit 0. The two layouts differ by ONE line -- the blank
+  separator above `## H-0139`. Stripping the markers drops that heading straight onto `H-0138`'s
+  `- Checkpoint:` line, because the single blank the two sides share sits ABOVE `<<<<<<<` and the conflict
+  hunk ate it. Three headings in this log already sit like that (`:2315` `H-0084`, `:3737` `H-0110`,
+  `:4907` `H-0127` -- all three seams from earlier collisions, `H-0110` titled as one) against 126 that
+  carry the blank, so the cut takes the separator from `main`'s own blob at :5305 and the new seam joins the
+  126 rather than the 3. `--ours` and `--theirs` are arithmetic, not taste: `--theirs` deletes the 74 lines
+  that ARE #310's record -- the answer this pull request exists to deliver -- and `--ours` deletes the 112
+  lines that are #311's escalation, which `main` merged hours ago and a branch has no standing to un-write.
+  Rebasing is refused by the remote rather than by habit: it rewrites eight commits and the force half of a
+  rewrite is denied to a unit by the `bash` table in `.opencode/opencode.jsonc`, while a merge is undone by
+  `git revert -m 1` back to `dc109b8` (tie-break 5) and resolves one file out of the six this branch carries
+  (tie-break 4). Then the half the ticket's "keeping both intents" actually bites on. `H-0139` cites fifteen
+  `path:NNN` locations and two of them land on different sentences once the trees are one tree; its own
+  appended bullet carries all fifteen re-read, with what the broken two now say. Rewriting those two numbers
+  is the tempting repair -- it makes every pointer resolve on the tip -- and it loses twice. First, it is a
+  deletion of lines `main` wrote, so the census that makes "both intents" a checkable claim rather than a
+  sentence would have to carry two deleted lines, and that census is the only reason anybody believes a
+  splice. Second, it re-dates a measurement in place: `AGENTS.md:38` was the true line on `5be86e5`, and a
+  record a person cannot re-run against the head it was written against is the failure this repository's
+  read-back rule (`#1180`) already refuses for artifacts, so the correction is a dated bullet beside the
+  numbers, not over them -- measured additive, so the census still reports zero deletions. The sixth option,
+  cutting the log and saying nothing, is what this merge would have shipped: nothing in `make verify`
+  resolves a `path:NNN` citation, because `scripts/check-decisions.py` checks ids, fields, a `Chose` drawn
+  from its own `Options`, and that a `Checkpoint:` is a sha, and the one citation check it does run resolves
+  `[DH]-\d{4}` tokens against headings and is blind to files and line numbers. Two dead pointers would have
+  waited for a reader to follow one. So the hazard is filed as an issue carrying this measurement, and this
+  entry adds no new `path:NNN` citation of its own to feed it -- it names files and symbols instead.
+- Checkpoint: dc109b8
+- Effect: one file resolved by hand, cut from the two parent blobs rather than edited out of the conflicted
+  file: `head -n 5378` of ours plus `tail -n +5305` of `main`, 5490 lines, then `H-0139`'s 18-line bullet,
+  then this entry. The census at the file's final length, `diff` against each parent blob: against `main`
+  (5416 lines) TWO add-only hunks, `5305a5306,5379` (74 lines, this branch's `H-0138`) and `5416a5491,5585`
+  (95 lines, `H-0139`'s bullet, this entry, and the two separators they brought); against ours (5378 lines)
+  ONE add-only hunk, `5378a5379,5585` (207 lines). Deleted lines ZERO in both directions, so nothing either
+  side wrote was edited -- only
+  placed. Measured BEFORE this entry was appended the pair was `5378a5379,5490` (112 lines) and
+  `5305a5306,5379` (74), also zero deletions, and it is labelled pre-entry rather than left to be discovered
+  (`H-0121`'s omission, corrected at `H-0127`). `check-decisions: 180 entries across 2 log(s)`, exit 0, on
+  the merged tree. There is no silent half to census this time and that is a measurement, not luck:
+  `main`'s entire diff since base is one file, so the other five files this branch carries -- `AGENTS.md`,
+  `.opencode/skills/factory/SKILL.md`, `.opencode/opencode.jsonc`, `NEXT.md`, `factory/selftest.sh` -- are
+  carried across untouched rather than merged, and the `-U0` zero-count trap `H-0128` was written for does
+  not arise when there are no hunk headers to parse. No `.go` file is on this branch, so no pattern under
+  `scripts/mutations/` had an opportunity to retire here. The single gate, run alone in this worktree
+  against this merged tree before the merge was committed, ended `verify: OK` at exit 0 -- including
+  `check-deps: stdlib only` and the three cross-builds.
+- Not established here: whether the one review request outstanding still stands after this head moves is a
+  re-read, not a memory (`#1180`), and the next tick asks the API rather than this entry; no mutant battery
+  was run beside `make verify` in this tree, because the two must never overlap (`#1807`); and whether a
+  gate SHOULD resolve `path:NNN` citations in a decision log is an open question the filed issue carries,
+  not a verdict this entry makes -- a citation is a measurement at a head, and a gate that rewrites it is
+  the thing this entry refused.
+
+- The two offsets above were measured at what the file was then, and the entry grew by three lines after
+  the measurement -- the gate clause -- so they were stale the moment this entry was committed. Corrected
+  here rather than rewritten there, and pinned to an immutable thing so a re-run cannot drift: both are
+  `diff` of a parent blob against the merge commit `9a3b0aa`, not against the file after this bullet.
+  Against `git show origin/main:factory/DECISIONS.md` (5416 lines, `5be86e5`): TWO add-only hunks,
+  `5305a5306,5379` (74 lines, this branch's `H-0138`) and `5416a5491,5589` (99 -- `H-0139`'s bullet, this
+  entry and their separators). Against `git show 120ccd1:factory/DECISIONS.md` (5378 lines, the head this
+  branch had before the merge): ONE add-only hunk, `5378a5379,5589` (211). Deleted lines ZERO in both
+  directions, unchanged from the pre-correction numbers, and that -- not the offsets -- is the claim the
+  census is made of. `H-0128`'s identical trap, walked into eleven entries later (`1e7ed5b`).
+
+## H-0144 · The log collides a third time on this branch and git's own layout is out of order for the first time, so the shipped gate is what says which splice is legal -- and thirteen coordinates moved again, six of them words `main` retired rather than lines it shifted
+
+- Question: read back before anything was touched. `gh pr view 312 --json
+  number,title,state,headRefName,baseRefName,mergeable,mergeStateStatus,reviewDecision,headRefOid`
+  answers `OPEN`, `issue-310` against `main`, `mergeable=CONFLICTING`, `mergeStateStatus=DIRTY`,
+  `reviewDecision=REVIEW_REQUIRED`, `headRefOid=f7d4508c3f75f5a6b85e8e063cd5246487ceeb81`, which is this
+  worktree's `HEAD`; `statusCheckRollup` carries five rows, all `COMPLETED`/`SUCCESS`; `reviewRequests`
+  answers `[{"__typename":"User","login":"hermesvicowa"}]` and `reviews` answers `[]`, so one ask is
+  outstanding and none has been answered. `git rev-list --left-right --count HEAD...origin/main` is
+  `7 8` and `git merge-tree --write-tree --name-only HEAD origin/main` conflicts exactly ONE file,
+  `factory/DECISIONS.md`, auto-merging the seven others. Base `5be86e5` ends the log at `H-0139`: this
+  branch adds `H-0138`, `H-0143` and an 18-line bullet on `H-0139`, `main` adds `H-0140`, `H-0141` and
+  `H-0142`, and both sides begin at the same anchor -- with `H-0143` sitting ABOVE `H-0140` in git's own
+  layout this time. Which splice keeps both intents, and what does a second merge owe the coordinates
+  the first one re-measured?
+- Options: cut the merged log at id position out of the two sides of the conflict and prove both intents
+  with a zero-deletion two-way census | delete git's three conflict markers and keep the layout it wrote
+  | resolve with `--ours` or `--theirs` | rewrite the thirteen moved coordinates so every pointer
+  resolves on the tip | rebase this branch onto `origin/main` | cut the log and leave the thirteen
+  unrecorded
+- Chose: cut the merged log at id position out of the two sides of the conflict and prove both intents
+  with a zero-deletion two-way census
+- Why: the second option is refused by the gate this repository ships, and that is the whole difference
+  between this collision and `H-0143`'s, where stripping the markers was merely ugly. Measured: the
+  conflicted file with its three marker lines deleted is 5828 lines, and
+  `python3 scripts/check-decisions.py --log` on it answers THREE problems at exit 1 -- `H-0140 is out of
+  order (H-0143 came before it)`, and the same again for `H-0141` and `H-0142` -- because this branch's
+  side of the conflict holds the HIGHER ids, so git's layout is the wrong history rather than an
+  inelegant one. It repeats the seam defect too: the one blank the two sides share sits ABOVE
+  `<<<<<<<`, so the stripped file drops `## H-0140` straight under `H-0143`'s last line. `--ours` and
+  `--theirs` stay arithmetic, not taste: `--theirs` deletes the 109 lines that ARE this pull request's
+  record, and `--ours` deletes the 228 lines `main` already merged as #315 and #316, which a branch has
+  no standing to un-write. Rebasing rewrites seven commits and the force half of a rewrite is denied to
+  a unit by the `bash` table in `.opencode/opencode.jsonc`, while a merge is undone by
+  `git revert -m 1` back to `5ac1f43` (tie-break 5) and settles one file out of the eight this branch
+  carries (tie-break 4). Then the thirteen coordinates, on which this merge is worse than the last one
+  in a way that changes the answer. Rewriting them in place is the tempting repair and it loses three
+  ways where `H-0143` counted two. First, SIX of the thirteen have no successor to point at: the words
+  they quote -- the literal `needs-human` -- were retired from five files by `H-0140` deliberately, so
+  "make every pointer resolve" would mean writing new prose about another branch's decision into the
+  record of an entry that did not make it. Second, TWO of the thirteen are lines `main` wrote, inside
+  `H-0142`, so editing them in place puts deleted lines from the other side into the census that is the
+  only evidence a splice kept both intents. Third, the re-dating objection is unchanged: a coordinate is
+  a measurement at a head, `SKILL.md:402` WAS blank on `131b180` and `AGENTS.md:38` WAS the line on
+  `5be86e5`, and a record nobody can re-run against the thing it measured is the failure `#1180` already
+  refuses for artifacts. So each affected entry takes a dated bullet beside its numbers, additive, and
+  the census still reports zero deletions. The sixth option is what would have shipped: nothing in
+  `make verify` resolves a `path:NNN` citation -- the gate reads ids, fields, a `Chose` drawn from its
+  own `Options` and a `Checkpoint:` sha, and its one citation check resolves `[DH]-\d{4}` tokens against
+  headings, blind to files and line numbers -- so thirteen dead pointers would have waited for a reader
+  to follow one. The class is the filed issue #318, and this entry mints no coordinate of its own beyond
+  the successors a correction cannot avoid naming.
+- Checkpoint: 5ac1f43
+- Effect: one file resolved by hand out of the two sides of the conflict, cut at id position rather than
+  edited out of the conflicted file: `head -n 5491`, then lines 5493-5510 (`H-0139`'s existing bullet
+  and its separator), then 5603-5830 (`main`'s `H-0140`, `H-0141`, `H-0142`), one blank, then 5511-5601
+  (`H-0143`) -- 5829 lines -- then this entry and the two dated bullets, so the log reads `H-0138`,
+  `H-0139`, `H-0140`, `H-0141`, `H-0142`, `H-0143` and the ascending-id rule is satisfied rather than
+  negotiated. The census at the file's final length, `diff` against each parent blob: against
+  `git show 5ac1f43:factory/DECISIONS.md` (5600 lines) ONE add-only hunk, `5508a5509,5767` (259 lines, `H-0139`'s new bullet beside `main`'s three entries) and `5600a5860,5940` (81, this entry with its separator); against
+  `git show 131b180:factory/DECISIONS.md` (5645 lines) THREE add-only hunks, `5305a5306,5379` (74, this branch's `H-0138`), `5417a5492,5529` (38, `H-0139`'s 11 Nov bullet plus the new one) and `5645a5758,5940` (183, `H-0142`'s new bullet, this branch's `H-0143` and this entry). Deleted lines
+  ZERO in both directions, so nothing either side wrote was edited -- only placed. Measured BEFORE this
+  entry and its two bullets were appended, the same two diffs were one hunk `5509a5510,5738` (229) and
+  three hunks `5305a5306,5379` (74), `5417a5492,5509` (18) and `5645a5738,5829` (92), also zero
+  deletions, and it is labelled pre-entry because `H-0128` and `H-0143` were each caught quoting a
+  pre-entry pair as the post-entry one. `check-decisions: 185 entries across 2 log(s)`, exit 0, and the single gate, run alone
+  in this worktree against the tree this commit leaves (`make verify`, no mutant battery beside it, per
+  `#1807`), ended `verify: OK` at exit 0. Eight files are in the merge, seven auto-merged clean, and the
+  two that carry both sides' work below the other's insertions are `.opencode/skills/factory/SKILL.md`
+  and `factory/selftest.sh` -- which is what the two bullets above measure rather than what this one
+  asserts. `NEXT.md` gains a dated clause and keeps its sentence: its "main is red" warning was true of
+  `5be86e5`, and `gh run list --branch main` now answers `success` for push run `43152169732` on
+  `131b180`, the tip. No `.go` file is on this branch, so no pattern under `scripts/mutations/` had an
+  opportunity to retire here.
+- Not established here: whether the outstanding review request still stands once this head moves is a
+  re-read and not a memory (`#1180`), and the next tick asks the API rather than this entry; the
+  thirteen coordinates are the whole set for the six entries this merge joins, which is what the census
+  walked -- a `path:NNN` pointer elsewhere in either log was NOT re-read, because #318 is the unit that
+  decides whether the whole log gets a checker and this one does not pre-empt its choice; and nothing
+  here merges, reviews, requests a reviewer, or writes a label.

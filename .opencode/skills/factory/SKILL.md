@@ -339,7 +339,7 @@ writing the verb rule correctly the first time is the whole obligation. If you a
 phrase will register, do not write it: use `Refs #10`, and say in the pull-request body what is still
 unfinished.
 
-Requesting the review is **not yours to do**, and the reason is measured, not stylistic: D-0010 found
+Requesting the review is **not yours to do**, and the reason is measured, not stylistic: H-0010 found
 `gh pr edit --add-reviewer` fails on this account with nothing but a `Projects (classic) is being
 deprecated` line on stderr while `/requested_reviewers` stays empty -- a verb that exits 1 and looks
 like it worked is how "nobody ever asked" came back after being fixed. The supervisor owns that path
@@ -351,6 +351,21 @@ What you owe the review is the rest of it: a body that says what changed and quo
 instruction that made the work non-obvious. The four pull requests that once sat in `REVIEW_REQUIRED`
 for three days with an empty reviewer list are why the queue asks on its own now; a tick that
 rediscovers that fact is a tick spending its ceiling on a command that cannot succeed.
+
+**When the configured target is the wrong person, redirecting the ask is still not yours.** A unit
+has no verb for it, and the narrow one that would give it one was weighed and withheld: a whole-line
+allow for `gh api -X POST …/requested_reviewers` is method-blind, so the same pattern admits
+`-X POST …/merge` -- the call `* pr merge*` exists to stop -- and that is how it was settled, in the
+comment on the denial in `.opencode/opencode.jsonc` (`efa4e29`). Widening that table is a permission
+grant on the harness, which `AGENTS.md` puts outside a unit, and `AGENTS.md` now names the component
+that does the asking so the rule is not read as yours again. So the in-band verb is one sentence on
+the pull request naming the keys the poke reads -- `FACTORY_REVIEWER_TEAM`, a team slug, or
+`FACTORY_REVIEWER`, a login (`factory_review_target`, `factory/common.sh`) -- and whoever installed
+the timer retargets its environment. Say it once, and do not call the ask missing: the supervisor asks
+on its own schedule whenever the row reads `needs_reviewer` (no verdict that still stands and nobody
+holding a request -- `docs/factory.md`), whatever your body says, and the poke does not un-ask what it
+did not ask (H-0117), so whoever holds the request was placed there by that config or by a person who
+knew better than the queue.
 
 ### The push may have spent the approval. Read the review state back.
 
