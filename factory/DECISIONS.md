@@ -5364,3 +5364,68 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   the delta is exactly the three `claim_leg` calls added here — the controls add legs to nothing, they
   only ever add failures. `gh pr view 314 --json files` was read before editing, so this branch touches
   no file #314's record touches.
+
+## H-0141 · The escalation step applied a marker it was never told the name of, in the middle of the step, and never looked to see whether it landed
+
+- Question: what does the escalation step in `.opencode/skills/factory/SKILL.md` do now, given the name
+  has one home (`H-0140`) and the name itself is still owed by #311?
+- Options: comment, label, then the entry, as the step is written today | comment, then the entry
+  committed, then the marker read from its home, then a read of the labels back, with a refused marker
+  reported in `NEXT:` and no name permitted from anywhere but the reader | the same order, falling back
+  to `blocked` when the marker is refused so an escalation always leaves some label | the same order,
+  with the label write retried until it succeeds
+- Chose: comment, then the entry committed, then the marker read from its home, then a read of the
+  labels back, with a refused marker reported in `NEXT:` and no name permitted from anywhere but the
+  reader
+- Why: the order is the defect, not the wording. Every script in `factory/` runs under `set -e`, so the
+  step ends where a refusal lands, and #311's own body describes the result before it was observed:
+  "the comment exists, the label does not, and the decision entry with `Awaiting:` is never committed",
+  which reads exactly like a unit that gave up. It was then observed. A probe on 12 Nov with the `gh` a
+  tick actually uses (`/usr/bin/gh`, 2.46.0) —
+  `gh issue edit 311 --add-label zzprobe-does-not-exist` — printed
+  `failed to update https://github.com/…/issues/311: 'zzprobe-does-not-exist' not found` and
+  `failed to update 1 issue` for exit 1, and `gh issue view 311 --json labels` read back
+  `bug,area:ops,blocked` before and the same after: the write is refused and leaves nothing behind, so
+  the read is the only thing that can tell *refused* from *applied* (#1180). Before that write, the type
+  read #2027 demands: `gh pr view 311 --json headRefName` answers `Could not resolve to a PullRequest
+  with the number of 311`, which is what makes it an issue and the instruction's own target. The read
+  verb exists for both artifact types, measured: `gh pr view 314 --json labels` exits 0 with an empty
+  list, so the step names the issue form and the pull-request form rather than assuming one.
+  `blocked` as a fallback was refused because its own description — "Not actionable until the work it
+  depends on lands; the blocking artifact is named on the issue", quoted in #311 — does not describe an
+  escalation, so the fallback would pin a false marker on the artifact, and substituting a label that
+  happens to exist is the one move #315 asks to forbid. Retrying was refused because this refusal is
+  *correct* until #311 answers: a loop would be a machine asking GitHub for a decision nobody has made,
+  and #1180's rule is a read-back, not a repetition. What it cost, stated plainly: every escalation
+  between now and #311 ends with a reported refusal and no marker at all — a comment, a sentence in
+  `NEXT:`, and a person still owed the answer. That is the trade: no label is recoverable, a wrong label
+  reads as a decision somebody made. A second cost is that a leg over prose is a census of words and not
+  of behaviour — nothing here can prove a tick obeys, only that the instruction says what it has to, and
+  the anchors are phrases (`Never invent a label name`, `the order is the mechanism`,
+  `the unit is parked or released`) that break on a rewording, by design. `esc_step_ordered` slices the
+  step from `Then **escalate and stop this unit**` to the next heading, so rewording that sentence
+  empties the block and reddens the leg rather than letting it read a different paragraph; the order
+  plant anchors on a line starting `gh issue edit` and one starting `git commit`, and if those are ever
+  indented the plant says "nothing tests it" instead of passing quietly. The step does not restate the
+  type-read-before-write rule, because Step 1 already carries it and a second copy is precisely the
+  defect `H-0140` was written to remove. One more measurement belongs to this entry rather than the last
+  one, because it is what landing it found: `make verify` had printed `VERIFY_EXIT=0` with
+  `factory/escalation-label.sh` present but **untracked**, since `scripts/check-shell.sh` derives its
+  list from `git ls-files` — 28 scripts, mine not among them. After `git add` the same target linted 29
+  and returned two findings the gate had never seen (`SC1091`, `SC2016`). Both are now fixed the way
+  `factory.sh` already fixes them, and the order of work on this branch became stage first, then gate.
+- Checkpoint: 86e2580dd3fa13141d7d30a97ab4009ccf2b85ce
+- Effect: `.opencode/skills/factory/SKILL.md` (the escalation step is three numbered parts in one order —
+  comment, committed entry, marker, read-back — with what to report when the read-back disagrees, the
+  prohibition on inventing or creating a name, and a matching bullet in *What is never in a tick*);
+  `docs/factory.md` (a new subsection, "What an escalation leaves on the artifact, and what it does
+  not", carrying the order, the probe, and the limit that the marker neither parks nor releases a unit);
+  `factory/selftest.sh` (`esc_step_ordered` plus four plants — the order inverted, the read-back
+  deleted, the prohibition deleted, the read-back aimed at `title` instead of `labels` — and
+  `esc_guide_agrees` plus the two-copy control from #272's shape); `factory/escalation-label.sh` (the
+  two shellcheck findings fixed with the header and the `disable=SC1091` that `factory.sh` uses).
+  Measured, in the order measured: `bash factory/selftest.sh` **521 passed, 0 failed** against the 519
+  `H-0140` recorded, the delta the two new legs, every control printing its discrimination;
+  `scripts/check-shell.sh` clean over 29 scripts with the new file staged; `make verify` OK. None of the
+  four escalate-classes: no dependency, nothing published, nothing deleted, no merge, and no GitHub
+  write beyond the one read-only probe above, which the read-back showed had changed nothing.

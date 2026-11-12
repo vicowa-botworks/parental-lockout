@@ -224,8 +224,8 @@ FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 # #311 asks whether to create `needs-human` or name a label this repository actually has, and it has
 # eighteen, none of them this one. So the answer there is a one-line edit here.
 #
-# Read it with `factory/escalation-label.sh` -- one command, rather than sourcing 2,800 lines of
-# configuration in the middle of a step that is already failing. Two legs guard the line. One runs that
+# Read it with `factory/escalation-label.sh` -- one command, rather than sourcing the 2,850 lines of
+# configuration in `common.sh` in the middle of a step that is already failing. Two legs guard the line. One runs that
 # command and requires its answer to equal the text of the assignment below, and requires no other live
 # file to spell a label name at all. The other guards what this is NOT: an input to the queue.
 # `factory/triage.sh` classes on `unclaimed` and `delivered` and reads no label (measured 12 Nov,

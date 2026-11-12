@@ -6292,7 +6292,8 @@ claim_reset
 #     `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- with a sixth, a leg in
 #     this file, pinning one of the five. A name in five files is a name that goes stale in one of them
 #     and stays green in the other four, which is how an instruction came to order a write GitHub
-#     refuses (`gh issue edit 311 --add-label …` exits 1 on `'needs-human' not found`);
+#     refuses (a probe on 12 Nov, `gh issue edit 311 --add-label zzprobe-does-not-exist`, printed
+#     `'zzprobe-does-not-exist' not found` and exited 1, and the labels read back unchanged);
 #   * there is ONE way to read it -- `factory/escalation-label.sh` -- and what it prints is the bytes
 #     the assignment in `common.sh` holds, not a second copy of them;
 #   * the marker has NO say in what the supervisor starts. Measured 12 Nov, `grep -c label
@@ -6304,7 +6305,8 @@ claim_reset
 # the sixth copy of the string this unit exists to delete, and it would keep passing after a rename.
 esc_live() { # the files whose mentions are instructions, one path per line
 	printf '%s\n' factory/common.sh factory/escalation-label.sh factory/factory.sh \
-		factory/triage.sh AGENTS.md docs/factory.md .opencode/skills/factory/SKILL.md
+		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md \
+		.opencode/skills/factory/SKILL.md
 }
 # The two decision logs are NOT in that list, and that is deliberate rather than an oversight: an
 # entry records what was believed when it was written, so re-editing history to match a renamed label
@@ -6326,7 +6328,8 @@ LIST
 esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that once is common.sh
 	local root=$HERE/.. name f hit bad=0
 	local -a files=(factory/common.sh factory/escalation-label.sh factory/factory.sh
-		factory/triage.sh AGENTS.md docs/factory.md .opencode/skills/factory/SKILL.md)
+		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md
+		.opencode/skills/factory/SKILL.md)
 	[ -z "${1:-}" ] || root=$1
 	if ! name=$(bash "$root/factory/escalation-label.sh" 2>&1); then
 		printf '            factory/escalation-label.sh refuses: %s\n' "$name" >&2
@@ -6541,6 +6544,245 @@ esc_controls() {
 	fi
 }
 esc_controls
+
+# ---- the step: record committed, marker read from its home, verdict read back (#315's defects 1 and 2)
+#
+# A leg on the DOCUMENT is the only test there is for an instruction, and #272's finding is the reason
+# this repository writes them anyway: the fix shipped in the script, the guide kept prescribing the old
+# shape, and the suite was green. What is pinned here is the ORDER -- the thing whose absence let a
+# refused write take the record with it -- plus the read-back that decides what a tick is allowed to
+# claim, and the sentence that refuses an invented name.
+
+esc_block() { # esc_block [skill] -- the escalation step, up to the next heading
+	awk '/^Then \*\*escalate and stop this unit/{f=1; next}
+		f && /^#{2,} /{exit}
+		f' "${1:-$HERE/../.opencode/skills/factory/SKILL.md}"
+}
+esc_step_ordered() { # esc_step_ordered [skill] -- entry, then marker, then the read of the marker
+	local skill=${1:-$HERE/../.opencode/skills/factory/SKILL.md} block commit_at label_at read_at line
+	if [ ! -f "$skill" ]; then
+		printf '            %s is not there, so there is no step to read\n' "$skill" >&2
+		return 1
+	fi
+	block=$(esc_block "$skill")
+	if [ -z "$block" ]; then
+		printf '            the escalation step could not be found in the skill -- the sentence\n' >&2
+		printf '            `Then **escalate and stop this unit` is what the step starts with, and\n' >&2
+		printf '            a tick that cannot find it will improvise one\n' >&2
+		return 1
+	fi
+	commit_at=$(printf '%s\n' "$block" | grep -n '^git commit' | head -1 | cut -d: -f1)
+	label_at=$(printf '%s\n' "$block" | grep -n -- '--add-label' | head -1 | cut -d: -f1)
+	read_at=$(printf '%s\n' "$block" | grep -n -- '--json labels' | head -1 | cut -d: -f1)
+	if [ -z "$commit_at" ]; then
+		printf '            the step never commits the escalated entry: the record lives only in a\n' >&2
+		printf '            session that may be reaped before it finishes\n' >&2
+		return 1
+	fi
+	if [ -z "$label_at" ]; then
+		printf '            the step applies no marker at all, so an escalation is invisible to\n' >&2
+		printf '            whoever reads the queue looking for the four escalate-classes\n' >&2
+		return 1
+	fi
+	if [ "$commit_at" -ge "$label_at" ]; then
+		printf '            the marker is applied on line %s and the record committed on line %s.\n' \
+			"$label_at" "$commit_at" >&2
+		printf '            Under `set -e` a refused label kills the step where it stands, and with\n' >&2
+		printf '            the write first that takes `Awaiting:` down with it (#311, #315)\n' >&2
+		return 1
+	fi
+	if [ -z "$read_at" ]; then
+		printf '            the marker is written and never read back. An exit status is not the\n' >&2
+		printf '            label landing (#1180), and here the name is one GitHub is known to refuse\n' >&2
+		return 1
+	fi
+	line=$(printf '%s\n' "$block" | sed -n "${label_at}p")
+	case "$line" in
+	*escalation-label.sh*) ;;
+	*)
+		printf '            the marker line is `%s` -- it does not read the name from its home,\n' "$line" >&2
+		printf '            so whatever is typed there is a copy that can go stale\n' >&2
+		return 1 ;;
+	esac
+	case "$block" in
+	*'NEXT:'*) ;;
+	*)
+		printf '            a refused marker has nowhere to be reported: `NEXT:` is the line the\n' >&2
+		printf '            supervisor log keeps for the next pass\n' >&2
+		return 1 ;;
+	esac
+	case "$block" in
+	*'Never invent a label name'*) ;;
+	*)
+		printf '            the step does not refuse an invented name. A label that exists is not a\n' >&2
+		printf '            decision that was made, and #311 is still open\n' >&2
+		return 1 ;;
+	esac
+	case "$block" in
+	*'gh label create'*) ;;
+	*)
+		printf '            the step does not name `gh label create` as refused, which is the one\n' >&2
+		printf '            move that answers #311 by writing configuration nobody approved\n' >&2
+		return 1 ;;
+	esac
+	return 0
+}
+claim_leg 'the escalation step commits its record before its marker' esc_step_ordered
+
+esc_step_control() {
+	# Four plants, each in its own copy: the order the file had before this commit, and three shapes it
+	# drifts back to. Every plant is checked to have landed before it is asserted.
+	local ctrl=$claim_work/esc-step skill
+	mkdir -p "$ctrl" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control directory could not be written\n' \
+			'control: the escalation step'
+		return 0
+	}
+	# a. the marker before the commit: the order, inverted.
+	skill=$ctrl/order.md
+	cp "$HERE/../.opencode/skills/factory/SKILL.md" "$skill" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the skill could not be copied\n' 'control: the escalation step'
+		return 0
+	}
+	# The `--add-label` line lifted above the `git commit` line, inside the escalation step only --
+	# elsewhere in the skill both strings appear for other reasons, and a plant that edited those would
+	# be testing a different document. Nothing else moves, so the only thing this copy differs in is the
+	# one thing the leg claims to read.
+	if ! python3 - "$skill" <<'PY'
+import re
+import sys
+p = sys.argv[1]
+lines = open(p, encoding='utf-8').read().split('\n')
+start = next((i for i, l in enumerate(lines)
+              if l.startswith('Then **escalate and stop this unit')), None)
+if start is None:
+    sys.exit(1)
+end = next((i for i in range(start + 1, len(lines)) if re.match(r'^#{2,3} ', lines[i])), len(lines))
+seg = lines[start:end]
+lab = [i for i, l in enumerate(seg) if l.startswith('gh issue edit') and '--add-label' in l]
+com = [i for i, l in enumerate(seg) if l.startswith('git commit')]
+if len(lab) != 1 or len(com) != 1 or lab[0] < com[0]:
+    sys.exit(1)   # already inverted, or the anchors are not the two lines this plant is about
+row = seg.pop(lab[0])
+com = [i for i, l in enumerate(seg) if l.startswith('git commit')]
+seg.insert(com[0], row)
+lines[start:end] = seg
+open(p, 'w', encoding='utf-8').write('\n'.join(lines))
+PY
+	then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the order could not be inverted, so nothing tests it\n' \
+			'control: the order'
+	else
+		if esc_step_ordered "$skill" 2>/dev/null; then
+			fail=$((fail + 1))
+			printf '  FAIL  %-40s a step that commits the record after the marker still passes,\n' \
+				'control: the order'
+			printf '          so the ok above is not reading the order, only the presence\n'
+		else
+			printf '        control: with the commit moved below the label the leg goes red, so the ok\n'
+			printf '        above is the order and not the three commands happening to be there.\n'
+		fi
+	fi
+	# b. the read-back deleted.
+	awk '!/--json labels/{print}' "$HERE/../.opencode/skills/factory/SKILL.md" >"$ctrl/noread.md"
+	if ! grep -qF -- '--add-label' "$ctrl/noread.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the read-back plant deleted the write too\n' 'control: the read-back'
+	elif esc_step_ordered "$ctrl/noread.md" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a step with no read-back still passes, so the tick is free to\n' \
+			'control: the read-back'
+		printf '          report a marker that was never applied\n'
+	else
+		printf '        control: with `--json labels` deleted the leg goes red, so the read-back is\n'
+		printf '        load-bearing in the ok above rather than incidental.\n'
+	fi
+	# c. the prohibition deleted.
+	grep -vF 'Never invent a label name' "$HERE/../.opencode/skills/factory/SKILL.md" >"$ctrl/nostop.md"
+	if ! grep -qF -- '--add-label' "$ctrl/nostop.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the prohibition plant deleted the write too\n' 'control: the prohibition'
+	elif esc_step_ordered "$ctrl/nostop.md" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a step that never refuses an invented name still passes\n' \
+			'control: the prohibition'
+	else
+		printf '        control: with the refusal sentence deleted the leg goes red, so the ok above\n'
+		printf '        needs the prohibition and not merely the example command.\n'
+	fi
+	# d. the read-back that reads the wrong thing: same position, different field -- the plant that
+	#    says the leg asks for the LABELS read and not for any old `gh` call.
+	sed 's/--json labels/--json title/' "$HERE/../.opencode/skills/factory/SKILL.md" >"$ctrl/wrongread.md"
+	if grep -qF -- '--json labels' "$ctrl/wrongread.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the field swap did not land\n' 'control: the wrong read'
+	elif esc_step_ordered "$ctrl/wrongread.md" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a step that reads the title back instead of the labels passes, so\n' \
+			'control: the wrong read'
+		printf '          the leg is counting `gh` lines and not reading what they read\n'
+	else
+		printf '        control: a read-back aimed at `title` rather than `labels` is refused, so the\n'
+		printf '        ok above is the right read, not merely a read.\n'
+	fi
+}
+esc_step_control
+
+esc_guide_agrees() { # esc_guide_agrees [root] -- the guide carries the order and the limit
+	local root=$HERE/.. g
+	[ -z "${1:-}" ] || root=$1
+	g=$root/docs/factory.md
+	[ -f "$g" ] || return 2
+	# Two clauses, each whole: the order and what it buys, and the limit on what a marker means.
+	# Whole phrases, because `grep -qF 'escalation'` over a 1,000-line guide is satisfied by any
+	# sentence containing the word and the leg would print ok about a different paragraph.
+	grep -qF 'the order is the mechanism' "$g" &&
+		grep -qF 'the unit is parked or released' "$g"
+}
+claim_leg '…and the guide says the order and the limit too' esc_guide_agrees
+
+esc_guide_control() {
+	local ctrl=$claim_work/esc-guide
+	if ! mkdir -p "$ctrl/order/docs" "$ctrl/limit/docs"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' 'control: the guide'
+		return 0
+	fi
+	if ! grep -vF 'the order is the mechanism' "$HERE/../docs/factory.md" \
+			>"$ctrl/order/docs/factory.md" ||
+		! grep -vF 'the unit is parked or released' "$HERE/../docs/factory.md" \
+			>"$ctrl/limit/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control copies could not be written\n' 'control: the guide'
+		return 0
+	fi
+	if grep -qF 'the order is the mechanism' "$ctrl/order/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the order plant left the clause in place, so the leg above was\n' \
+			'control: the guide'
+		printf '          never aimed at it\n'
+		return 0
+	fi
+	if grep -qF 'the unit is parked or released' "$ctrl/limit/docs/factory.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the limit plant left the clause in place\n' 'control: the guide'
+		return 0
+	fi
+	if esc_guide_agrees "$ctrl/order" 2>/dev/null || esc_guide_agrees "$ctrl/limit" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it accepted a guide with one of the two clauses deleted, so the ok\n' \
+			'control: the guide'
+		printf '          above is one phrase match and not the pair it names\n'
+	else
+		printf '        control: a guide with either clause deleted is refused. This is the #272 shape:\n'
+		printf '        the instruction and the guide are read by different readers, and a fix that\n'
+		printf '        lands in one of them is a fix that leaves the other prescribing the old thing.\n'
+	fi
+}
+esc_guide_control
 
 # ================================= the verdict a push voided, and the ask that never fired (#272)
 #
