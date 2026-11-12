@@ -5302,3 +5302,65 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   deleted, no merge, and no write to any pull request. What it leaves for a person, stated in
   `docs/factory.md` and on #291: whether #241 should now be closed, whether #285 and #233 should be
   deleted, and whether #222 still owes anything.
+
+## H-0140 · The escalation label was spelled in five files and pinned in a sixth, so the one name this repository does not have could only ever be wrong in some of them
+
+- Question: #315 wants the escalation step to commit its record, apply the marker, read the marker
+  back, and report the verdict — while #311, still parked, owns what the marker is *called*. Where does
+  the name have to live for both to be possible?
+- Options: keep the five mentions and re-edit each of them whenever #311 is answered | a
+  `FACTORY_ESCALATION_LABEL` in `factory/common.sh`, read through `factory/escalation-label.sh`, with
+  prose naming that source and legs censusing every live file | the same constant, and
+  `gh label create needs-human` as well, so the instruction is true the moment anyone reads it |
+  escalated: naming a label this repository does not have is #311's decision, so touch nothing here
+- Chose: a `FACTORY_ESCALATION_LABEL` in `factory/common.sh`, read through `factory/escalation-label.sh`,
+  with prose naming that source and legs censusing every live file
+- Why: the name stays exactly as wrong as it was, and that is the choice rather than an oversight.
+  Tie-break 3 decided it, because this is the step that runs when everything else has already
+  failed: the reader **refuses** rather than printing nothing — it exits 1 when the constant is empty,
+  and a control deletes the assignment to prove it still refuses with no definition behind it — so an
+  escalation cannot end with `--add-label` aimed at an empty name. Tie-break 6 was in force before any
+  reasoning here: every value in `common.sh` is an environment override with a default
+  (`FACTORY_ESCALATE_AFTER`, `FACTORY_BASE`, `FACTORY_MERGED_MARK`), and the house precedent for one
+  question, one script is `next-decision-id.sh`, which #253 added for exactly this reason — prose that
+  numbers by eye drifts, and so does prose that names by eye. The first option is the status quo, and
+  the status quo is what #315 measured: five files each asserting a name, a leg in a sixth pinning one
+  of them, and `gh label list --limit 200 --json name` answering **18** names on 12 Nov with none of
+  them the instructed one. `gh issue view 311 --json labels` reads `bug, area:ops, blocked` — the very
+  issue filed to settle the question carries a label the instruction never named, which is what an
+  uncontrolled name looks like once it has been acted on. The third option was refused because it
+  answers a parked question with a write to shared configuration: #311 says in its own text that "either
+  is a person's call", its record — PR #314, read back at 01:5xZ as `OPEN` / `REVIEW_REQUIRED` /
+  `BLOCKED`, one file, `factory/DECISIONS.md` — touches none of the seven files touched here, and
+  nothing refuses `gh label create` except this entry and the sentence the next commit puts in the skill.
+  The fourth was refused because #315's defects 1 and 2 are true under either name, and an escalation
+  that still cannot report its own marker is the failure #311 was filed to prevent: a comment, no label,
+  no record, and no way for a reader to tell an escalation from a give-up. What it cost, stated plainly:
+  a reader of `AGENTS.md` or the skill can no longer copy a runnable label command out of the file — it
+  has to run `factory/escalation-label.sh`, so a unit standing somewhere without `factory/` finds an
+  indirection where it used to find a word. No unit stands there today. The census reads a list of seven
+  files, and a list is a list that goes stale (the objection `check-shell.sh` records against its own
+  hand-written one): a new file that spells the name is invisible until someone adds it. It is a list
+  and not a `git ls-files` glob because the two decision logs spell the old name on purpose — an entry is
+  a record of what was believed when it was written, and editing history to match a renamed label turns
+  every citation in it into a lie. `escalation-label.sh` sources 2,849 lines of `common.sh` to print one
+  word, and sourcing runs three `git` subprocesses: **10 ms a call**, measured here as five calls in
+  0.050 s real, which is the price of not holding the value in a second file. An environment override is
+  the house pattern, so an operator or a unit file can set `FACTORY_ESCALATION_LABEL` and move the marker
+  off the name the prose describes without any file changing — no leg sees a machine's environment,
+  because this suite is offline bash and git by design. And no leg can assert the value is a label that
+  *exists* on GitHub for the same reason: `gh label list` is a network read. What stands in for that is
+  the read-back the next commit puts in the instruction, which is a runtime check rather than a suite
+  check, and it is what makes today's wrong name a *reported* refusal instead of a silent one.
+- Checkpoint: 4b6d5c2cd200190626cd5a0dba52b68702b6abde
+- Effect: `factory/common.sh` (the constant, with the comment that declares it the only place the name
+  is written and says what it is *not* — an input to the queue); `factory/escalation-label.sh` (new,
+  executable, the single read); `AGENTS.md`, `docs/factory.md`, `.opencode/skills/factory/SKILL.md`
+  twice, and `factory/factory.sh` (the five mentions now name the source instead of the word);
+  `factory/selftest.sh` (the `address_review` arm pins the variable where it pinned the word, plus three
+  legs — `esc_one_home`, `esc_reader_agrees`, `esc_not_a_park` — and four controls, planted as a sixth
+  mention in `AGENTS.md`, a reader stubbed to print its own literal, the definition deleted, and one
+  label test inside the classifier). Measured: `bash factory/selftest.sh` **519 passed, 0 failed**, and
+  the delta is exactly the three `claim_leg` calls added here — the controls add legs to nothing, they
+  only ever add failures. `gh pr view 314 --json files` was read before editing, so this branch touches
+  no file #314's record touches.

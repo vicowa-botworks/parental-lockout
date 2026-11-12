@@ -6188,7 +6188,8 @@ claim_leg 'the ask crosses the dispatcher into the tick' ask_dry_carries
 # origin to open a worktree from -- so this is a scan of the shipped arm, in the shape this file
 # already uses for the `delivered` arm, with a control outside the tree. It says something narrower
 # than the legs above and is labelled for it: the arm interpolates the ask, between markers that name
-# it as quoted material, and the branch for a missing ask ends in `needs-human` instead of a guess.
+# it as quoted material, and the branch for a missing ask ends in the escalation label and a stop
+# rather than a guess.
 ask_prompt_assembles_it() { # ask_prompt_assembles_it [factory.sh to read]
 	local arm src=${1:-$HERE/factory.sh}
 	arm=$(awk '/^\taddress_review\)/,/^\t\t;;/' "$src")
@@ -6213,10 +6214,11 @@ ask_prompt_assembles_it() { # ask_prompt_assembles_it [factory.sh to read]
 		return 1 ;;
 	esac
 	case "$arm" in
-	*needs-human*) return 0 ;;
+	*FACTORY_ESCALATION_LABEL*) return 0 ;;
 	esac
-	printf '            the empty-ask branch does not end in needs-human and a stop, so the one\n' >&2
-	printf '            move that invents an ask is still open to it\n' >&2
+	printf '            the empty-ask branch ends without the escalation label (the name comes\n' >&2
+	printf '            from `common.sh`, never spelled out) and a stop, so the one move that\n' >&2
+	printf '            invents an ask is still open to it\n' >&2
 	return 1
 }
 claim_leg 'the tick assembles the ask into its instruction' ask_prompt_assembles_it
@@ -6277,6 +6279,268 @@ ask_pr240 "$(ask_iso '@/tmp/pr240-review.md')"
 ask_dispatch >/dev/null
 claim_leg 'a review_unreadable row starts no tick and is still reported' ask_dry_starts_nothing
 claim_reset
+
+# =============== the escalation label: one name, one home, and no vote in the queue (#315)
+#
+# `AGENTS.md` tells a stopped unit to label the artifact and stop. Which label, the repository cannot
+# say: `gh label list` answers eighteen names and the one every file used to spell out is not among
+# them (measured 12 Nov). #311 owns that question -- create the name, or point the instruction at a
+# label that exists -- and it is parked, so it is not this unit's to answer. What is true whichever way
+# it is answered is the shape pinned here, and it is the half that could land while #311 waits:
+#
+#   * the name lives in ONE file. Five used to spell it out in full -- `AGENTS.md`, `SKILL.md` twice,
+#     `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- with a sixth, a leg in
+#     this file, pinning one of the five. A name in five files is a name that goes stale in one of them
+#     and stays green in the other four, which is how an instruction came to order a write GitHub
+#     refuses (`gh issue edit 311 --add-label …` exits 1 on `'needs-human' not found`);
+#   * there is ONE way to read it -- `factory/escalation-label.sh` -- and what it prints is the bytes
+#     the assignment in `common.sh` holds, not a second copy of them;
+#   * the marker has NO say in what the supervisor starts. Measured 12 Nov, `grep -c label
+#     factory/triage.sh` answers 0 and the classifier's two issue classes are `unclaimed` and
+#     `delivered`. A label the queue obeyed would move the queue's decisions into configuration that
+#     no gate reads, and #315 asked by name that this fix not become that.
+#
+# Every leg below READS the name from the reader instead of typing it. A leg that spelled it would be
+# the sixth copy of the string this unit exists to delete, and it would keep passing after a rename.
+esc_live() { # the files whose mentions are instructions, one path per line
+	printf '%s\n' factory/common.sh factory/escalation-label.sh factory/factory.sh \
+		factory/triage.sh AGENTS.md docs/factory.md .opencode/skills/factory/SKILL.md
+}
+# The two decision logs are NOT in that list, and that is deliberate rather than an oversight: an
+# entry records what was believed when it was written, so re-editing history to match a renamed label
+# turns every citation in it into a lie. A name in a log is a fossil. A name in one of the seven files
+# above is an instruction some later tick carries into a write against GitHub.
+
+esc_ctrl_copy() { # esc_ctrl_copy <dest-root> -- the live files, outside the repository
+	local dest=$1 f
+	mkdir -p "$dest" || return 1
+	while IFS= read -r f; do
+		mkdir -p "$dest/$(dirname -- "$f")" || return 1
+		cp "$HERE/../$f" "$dest/$f" || return 1
+	done <<LIST
+$(esc_live)
+LIST
+	return 0
+}
+
+esc_one_home() { # esc_one_home [root] -- the name is spelled once, and that once is common.sh
+	local root=$HERE/.. name f hit bad=0
+	local -a files=(factory/common.sh factory/escalation-label.sh factory/factory.sh
+		factory/triage.sh AGENTS.md docs/factory.md .opencode/skills/factory/SKILL.md)
+	[ -z "${1:-}" ] || root=$1
+	if ! name=$(bash "$root/factory/escalation-label.sh" 2>&1); then
+		printf '            factory/escalation-label.sh refuses: %s\n' "$name" >&2
+		printf '            Nothing can then be compared, and a unit that stops cannot even name\n' >&2
+		printf '            the label it is about to write.\n' >&2
+		return 1
+	fi
+	[ -n "$name" ] || {
+		printf '            the reader prints an empty name: `--add-label \"\"` is a marker aimed\n' >&2
+		printf '            at nothing, and it is the write that would look like an escalation\n' >&2
+		return 1
+	}
+	if [ "$(grep -c '^FACTORY_ESCALATION_LABEL=' "$root/factory/common.sh")" -ne 1 ]; then
+		printf '            common.sh does not hold exactly one `FACTORY_ESCALATION_LABEL=` line,\n' >&2
+		printf '            so there is no one place a rename lands\n' >&2
+		return 1
+	fi
+	for f in "${files[@]}"; do
+		[ -f "$root/$f" ] || continue
+		hit=$(grep -cF -- "$name" "$root/$f" 2>/dev/null || true)
+		if [ "$f" = factory/common.sh ]; then
+			[ "${hit:-0}" -ge 1 ] || {
+				printf '            common.sh, the one home, does not contain the name at all\n' >&2
+				bad=1
+			}
+		elif [ "${hit:-0}" -ne 0 ]; then
+			printf '            %s spells the name out (%s line%s) -- a place to go stale while\n' \
+				"$f" "$hit" "$([ "$hit" -eq 1 ] || printf s)" >&2
+			printf '            the home moves and this leg passes on the other six\n' >&2
+			grep -nF -- "$name" "$root/$f" | sed 's/^/              /' >&2
+			bad=1
+		fi
+	done
+	[ "$bad" -eq 0 ]
+}
+claim_leg 'the escalation label is spelled once' esc_one_home
+
+esc_reader_agrees() { # esc_reader_agrees [root] -- what it prints IS the assignment's text
+	local root=$HERE/.. out def lines
+	[ -z "${1:-}" ] || root=$1
+	if [ ! -x "$root/factory/escalation-label.sh" ]; then
+		printf '            factory/escalation-label.sh is not executable, and the command every\n' >&2
+		printf '            document tells a stopped unit to run is `$(factory/escalation-label.sh)`\n' >&2
+		return 1
+	fi
+	if ! out=$(cd / && "$root/factory/escalation-label.sh" 2>&1); then
+		printf '            it refuses from an unrelated directory: %s\n' "$out" >&2
+		return 1
+	fi
+	lines=$(printf '%s\n' "$out" | wc -l)
+	[ "$lines" -eq 1 ] || {
+		printf '            it printed %s lines: the whole output is pasted into --add-label, so\n' "$lines" >&2
+		printf '            a banner or a warning here is a label name with a sentence attached\n' >&2
+		return 1
+	}
+	# Read the literal out of the assignment line rather than sourcing the file: comparing the reader
+	# against a second sourcing of the same line proves nothing, while this proves the line's own text
+	# is what a tick writes to GitHub.
+	def=$(awk -F':-|}' '/^FACTORY_ESCALATION_LABEL=/{print $2}' "$root/factory/common.sh")
+	[ -n "$def" ] || {
+		printf '            the assignment in common.sh is no longer the `:-…}` shape the leg\n' >&2
+		printf '            reads, so the comparison below has stopped comparing anything\n' >&2
+		return 1
+	}
+	[ "$out" = "$def" ] || {
+		printf '            the command prints `%s` and common.sh defines `%s`. One of the two is a\n' \
+			"$out" "$def" >&2
+		printf '            copy, and the copy is what ends up on the artifact\n' >&2
+		return 1
+	}
+	return 0
+}
+claim_leg 'the reader prints the definition' esc_reader_agrees
+
+esc_not_a_park() { # esc_not_a_park [triage.sh to read] -- the marker decides nothing about a unit
+	local src=${1:-$HERE/triage.sh} hits
+	# Comment lines may mention the word freely -- this is about what the classifier DOES, and a leg
+	# that reddened on a sentence of prose would be widened away inside a month.
+	hits=$(grep -nF -- 'label' "$src" 2>/dev/null |
+		grep -v '^[0-9]*:[[:space:]]*#' || true)
+	if [ -n "$hits" ]; then
+		printf '            the classifier reads or writes a label, so a marker now decides what\n' >&2
+		printf '            the supervisor starts -- and no gate reads label configuration:\n' >&2
+		printf '%s\n' "$hits" | sed 's/^/              /' >&2
+		return 1
+	fi
+	return 0
+}
+claim_leg 'the label has no vote in the queue' esc_not_a_park
+
+esc_controls() {
+	# Three plants, outside the repository, one per leg above. Each is checked to have landed before
+	# it is asserted, because a plant that did not land and a leg that is blind are the same green.
+	local ctrl=$claim_work/esc-label name
+	name=$(bash "$HERE/escalation-label.sh" 2>/dev/null) || name=''
+	[ -n "$name" ] || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reader gave the controls nothing to plant\n' \
+			'control: the escalation label'
+		return 0
+	}
+	if ! mkdir -p "$ctrl/drift" "$ctrl/stub" "$ctrl/nodef" "$ctrl/park"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' \
+			'control: the escalation label'
+		return 0
+	fi
+	# 1. A sixth mention, planted in prose the way it would arrive in real life: someone writing the
+	#    command out because it is shorter than reading it.
+	esc_ctrl_copy "$ctrl/drift" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the drift copy could not be written\n' 'control: the escalation label'
+		return 0
+	}
+	printf '\ngh issue edit 7 --add-label %s\n' "$name" >>"$ctrl/drift/AGENTS.md" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the mention could not be planted\n' 'control: the escalation label'
+		return 0
+	}
+	if ! grep -qF -- "$name" "$ctrl/drift/AGENTS.md"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant is not in the copy, so the leg above was never aimed\n' \
+			'control: the escalation label'
+		printf '          at a sixth mention\n'
+		return 0
+	fi
+	if esc_one_home "$ctrl/drift" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a copy with the name spelled out in AGENTS.md still passes, so the\n' \
+			'control: one home'
+		printf '          ok above counts nothing but the file it happens to read first\n'
+	else
+		printf '        control: a copy with a sixth mention planted in AGENTS.md is refused, so the\n'
+		printf '        ok above is a census of every live file and not of one.\n'
+	fi
+	# 2. A reader that no longer reads: the stub prints its own literal, and the definition is
+	#    untouched. This is the plant that says the leg compares two things rather than one.
+	esc_ctrl_copy "$ctrl/stub" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the stub copy could not be written\n' 'control: the escalation label'
+		return 0
+	}
+	if ! { printf '%s\n' "#!/usr/bin/env bash" "printf 'not-the-definition\\n'" \
+		>"$ctrl/stub/factory/escalation-label.sh" &&
+		chmod +x "$ctrl/stub/factory/escalation-label.sh"; }; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the stub reader could not be planted\n' 'control: the escalation label'
+		return 0
+	fi
+	if ! grep -qF 'not-the-definition' "$ctrl/stub/factory/escalation-label.sh"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the stub is not in the copy, so the leg above was never aimed\n' \
+			'control: the reader'
+		printf '          at a reader that stopped reading\n'
+		return 0
+	fi
+	if esc_reader_agrees "$ctrl/stub" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a reader that prints its own literal still passes, so the leg is\n' \
+			'control: the reader'
+		printf '          reading one side and calling it an agreement\n'
+	else
+		printf '        control: a reader stubbed to print its own literal is refused, so the ok above\n'
+		printf '        really is the two spellings being compared.\n'
+	fi
+	# 3. The home deleted. The reader must refuse rather than answer empty, and both legs must go red
+	#    on the refusal -- an escalation that prints nothing is a `--add-label` aimed at no name.
+	esc_ctrl_copy "$ctrl/nodef" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the no-definition copy could not be written\n' \
+			'control: the escalation label'
+		return 0
+	}
+	grep -v '^FACTORY_ESCALATION_LABEL=' "$HERE/common.sh" >"$ctrl/nodef/factory/common.sh" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the definition could not be removed\n' 'control: the escalation label'
+		return 0
+	}
+	if bash "$ctrl/nodef/factory/escalation-label.sh" >/dev/null 2>&1; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the reader printed a name with no definition behind it, so a tick\n' \
+			'control: no definition'
+		printf '          would take an invented label to GitHub and believe the marker landed\n'
+	elif esc_one_home "$ctrl/nodef" 2>/dev/null || esc_reader_agrees "$ctrl/nodef" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a tree with no definition still passes a leg above\n' \
+			'control: no definition'
+	else
+		printf '        control: with the assignment deleted the reader refuses and both legs above go\n'
+		printf '        red, so neither one is reading a string it carried with it.\n'
+	fi
+	# 4. The park this unit must not become: one label test planted in the classifier.
+	esc_ctrl_copy "$ctrl/park" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the park copy could not be written\n' 'control: the escalation label'
+		return 0
+	}
+	printf '\tcase $labels in\n\t*"$name"*) class=delivered ;;\n\tesac\n' \
+		>>"$ctrl/park/factory/triage.sh" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the label test could not be planted\n' 'control: the escalation label'
+		return 0
+	}
+	if esc_not_a_park "$ctrl/park/factory/triage.sh" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a classifier that classes on a label still passes, so the ok above\n' \
+			'control: the park'
+		printf '          is not guarding the two classes it names\n'
+	else
+		printf '        control: a classifier planted with one label test is refused, so the ok above\n'
+		printf '        is the reason this repair marks an artifact and leaves the queue alone.\n'
+	fi
+}
+esc_controls
 
 # ================================= the verdict a push voided, and the ask that never fired (#272)
 #

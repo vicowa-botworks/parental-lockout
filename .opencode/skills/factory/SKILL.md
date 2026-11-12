@@ -222,7 +222,7 @@ Then **escalate and stop this unit**:
 ```bash
 gh issue comment "$ISSUE" --body "…what is ambiguous, what each option costs, what you would
 recommend, and the exact command to proceed…"
-gh issue edit "$ISSUE" --add-label needs-human
+gh issue edit "$ISSUE" --add-label "$(factory/escalation-label.sh)"
 ```
 
 and write the same into `DECISIONS.md` with `Chose: escalated` and `Awaiting:` naming the decision.
@@ -399,7 +399,8 @@ outcome this system produces: it is indistinguishable from a machine that is wor
 
 ## What is never in a tick
 
-- A new third-party dependency, ever, without a `needs-human` comment first (#856).
+- A new third-party dependency, ever, without escalating first (#856) -- the entry, the comment, the
+  label, and the read-back that says the label landed.
 - `git checkout <file>` / `git restore` to undo a probe -- it reverts to HEAD and takes the whole
   uncommitted change with it. Keep a `/tmp` backup and restore with `cp`, taken **after** the fix.
 - Committing `plock`. `git ls-files | grep -x plock` must print nothing before any `git add -A`.

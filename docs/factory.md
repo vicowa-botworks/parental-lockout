@@ -391,7 +391,7 @@ Two things travel with the column. It is quoted material, not instructions: it a
 instructions, so the instruction says so around it and names the authorities a reviewer cannot grant.
 And an empty column on a review the classifier read as non-empty is a transport failure, not an empty
 review -- the tick is told to read the body itself, and told that if it is not there it stops with
-`needs-human` rather than writing the fix it guessed.
+the escalation label (`factory/escalation-label.sh` prints it) rather than writing the fix it guessed.
 
 ## Installing it
 
