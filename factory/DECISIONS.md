@@ -5643,3 +5643,108 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `H-0139`'s claim that no queue state reads labels survives the merge unchanged. The full
   `make verify` line and exit status on the tree this commit leaves are quoted in the pull-request
   body, because an `Effect:` written before the gate runs is a prophecy (#1180).
+
+## H-0146 · The allocator's re-read counted the entry it was being asked about, so the skill's last guard before a duplicate id answered one higher and wore the exact face of the collision it exists to catch
+
+- Question: `.opencode/skills/factory/SKILL.md:169` tells every unit to "re-run the allocator
+  immediately before the entry commit", and `docs/factory.md:919` calls that re-read the one thing
+  standing between a unit and a repeated id. By then the entry is already in the file the union reads --
+  `factory/next-decision-id.sh:193`, `if [ -f "$target" ]; then cat -- "$target"; fi` -- so the ceiling
+  is the caller's own uncommitted heading and the answer is one above the id the unit was given.
+  Measured in `/home/rodney/prj/wt/issue-320` on 12 Nov (git 2.53.0), one tree, a fresh
+  `git fetch --prune origin` before each call: `factory/next-decision-id.sh factory/DECISIONS.md`
+  answered `H-0145` with the log as committed and `H-0146` after `## H-0145` was appended to that same
+  file and left uncommitted. Nothing had been taken: `git grep -c 'H-0145'` across every `refs/heads`
+  and `refs/remotes` ref found the string in two refs only -- `refs/heads/issue-303` and its remote
+  twin -- both inside that branch's `H-0144` prose as a citation of the phantom, and in no heading,
+  which is the only shape the allocator matches (`factory/next-decision-id.sh:206`,
+  `substr($0, 1, 3) == "## "`). A unit that obeys the sentence literally is therefore handed `H-0146`
+  with nothing on either stream to tell "a sibling took 145" from "I am standing on 145", and both
+  readings cost the log: yield to the phantom and the log gains a gap at the number it just gave up,
+  with no entry anywhere to explain it -- the shape `docs/factory.md`'s yield rule refuses; distrust the
+  marker and the unit stops trusting the
+  last read it has, which is the failure #253 opened with. Where does the correction go, and does it
+  move the number on stdout?
+- Options: say in the skill alone that the re-read belongs before the entry is written, and that one taken after answers one higher by construction | attribute the ceiling on stderr when the working file alone raised it | read the working file for the prefix only, or subtract the caller's own pending heading from the ceiling | hand the caller a `--pending <id>` flag so the re-read verifies the id it already holds
+- The union's two halves mean opposite things and the shipped read collapsed them into one maximum. A
+  ceiling some ref carries is a sibling that took the number; a ceiling only the working file carries is
+  the entry being written. So the union pass now returns two maxima -- the log tags each line as it
+  arrives (`W ` from the working file, `R ` from `HEAD` and the branch refs) and the tag is stripped
+  before the heading predicate runs, so the match is byte-for-byte the one that shipped and the split
+  adds a source, not a second test. The note fires on `work > refs`, and that inequality holds in
+  exactly one window: after the heading is written and before it is committed. Commit it and `HEAD`
+  joins the union, the two maxima agree, and the note goes quiet without being told -- which is what
+  makes this a verdict about the read rather than a guess about the caller's intent, and what keeps
+  silence meaningful: a moved ceiling with nothing on stderr is still the collision, and the four steps
+  at `docs/factory.md`'s yield section are still what to do with it. The second option was preferred
+  over the first because the first is the thing this harness keeps paying to stop: `docs/factory.md`
+  already says the boundary is "measured here rather than asserted in prose -- prose is what this whole
+  section exists to stop being", and a sentence in the skill reaches only the unit that reads it, while
+  a person running a unit by hand and any future caller of the command hit the same silent `H-0146`. The
+  third was rejected on evidence: the working file is not decoration in the union, it is the *only*
+  source in the shape `factory/selftest.sh` pins as `the current file counts before it is committed` -- a
+  checkout with no commit at all, re-measured here, where the log exists nowhere but the file. An
+  allocator that subtracted a pending heading would answer from below a heading that exists, turning the
+  documented contract "one above every id seen" into "one above what I judged is yours", and a lower
+  answer is the direction that produces collisions. The fourth loses on surface and on failure mode: a
+  flag has to be learned by every caller and is absent for every caller that forgets it, and a wrong
+  `--pending` id would exonerate a real collision -- worse than the silence it replaced. stdout is
+  unchanged, and the status stays 0, for the reason this file's own header gives: a caller reduced to
+  "the allocator is broken" goes back to numbering by eye, and withholding the best available number is
+  how that happens.
+- Chose: attribute the ceiling on stderr when the working file alone raised it
+- Why: tie-breaks in order. 1 silent -- no `go.mod` line anywhere near this. 2 n/a -- nothing here decodes
+  config. 3 prefers the reading that refuses, and this is the only option that refuses nothing while
+  still telling the truth: it withholds no id, and the options that delete or subtract change what the
+  command answers. 4 fewest moving parts -- one file gains a tag and two `printf`s, one stderr line pair,
+  and stdout's contract is untouched; the flag option adds a call shape and a second document to say what
+  the flag means. 5 reversible by `git revert` of this commit alone, with no citation to move: `H-0145`
+  is the log's last heading and nothing refers to it yet. 6 is what the surrounding code already does --
+  `factory/factory.sh` journals `REFRESH-TIMEOUT` and `REFRESH-BLIND` on a stream beside its answer, and
+  the allocator's sibling change on `issue-303` (PR #307, `H-0134`) puts its refresh verdict on stderr
+  with "stdout stays the id alone" written down as the reason; a marker beside the number, never inside
+  it, is this harness's shape. What this does not close, stated because the residual is the rule's cost:
+  two units allocating in the same instant still agree (`docs/factory.md`, "Why there is no
+  reservation"), and a sibling that pushed since the last fetch is still invisible to an offline read --
+  that window belongs to the `REFRESH` arms in PR #307, which rewrites the tail of this same file and
+  will conflict with it at the merge; the yield rule decides which of the two moves, and neither entry
+  is deleted.
+- Renumbered before this commit, by the rule this entry cites, and the re-read that caught it is the
+  change working: the allocator was run again at 15:00:15Z -- after the entry was written, before
+  anything was committed, which is the moment step 3.1 schedules -- and it answered `H-0146` with
+  **nothing on stderr**. Silence is the collision signal this entry defines, and its first use in the
+  field was to take this number away. `H-0145` was gone: `git grep -c '^## H-0145'` over every ref found
+  the heading in `refs/heads/issue-303` and `refs/remotes/origin/issue-303` -- PR #307's own log-conflict
+  entry, the sibling unit rewriting the tail of this same script. The window has a measured width. This
+  unit allocated `H-0145` at 14:51:13Z, the checkpoint commit's own committer date, and could not have
+  seen a heading that did not exist; a push from a sibling worktree of this clone wrote the newest
+  reflog entry under `logs/refs/remotes` at 14:59:31Z, `refs/heads/issue-303` fast-forwarded to it at
+  14:59:59Z (`git reflog show --date=iso refs/heads/issue-303`), and the re-read ran 16 seconds after
+  that. The clone's own last fetch is 14:48:02Z, so no fetch of mine is what closed this: worktrees share
+  `refs/remotes` in the common dir, which is `H-0071`'s first row, not its second. Neither side has
+  merged, so the yield rule moves the entry that can still move and this is that entry: `H-0145` is given
+  up, `issue-303` keeps it, and the two decisions share nothing but the digits. It follows that `145`
+  reads as a gap in every copy of this log until PR #307 merges, and this paragraph is the citation that
+  says why it is empty -- the allocator answers one above every id it can see, never the smallest missing
+  number, and `#253`'s rule is that a sibling branch's entry is a durable citation before it is a merge
+  target. `H-0143` and `H-0144` are not gaps: they arrived with `origin/main` `3e0c86f` (PR #312), nine
+  commits this branch had not been cut from when it opened, and the merge below brings them in under
+  this entry. The checkpoint named `pre-H-0145` keeps that subject: it is the record of what was
+  allocated at 14:51:13Z, and rewriting a commit to agree with a number that later moved is the one edit
+  that would destroy the evidence this paragraph keeps.
+- Checkpoint: 462b8a36c4cd11d7382eb8fd2509d48bcf87751a
+- Effect: `factory/next-decision-id.sh` reads the union as two maxima and attributes the ceiling, with
+  the header and `USAGE` saying so; `.opencode/skills/factory/SKILL.md` step 3.1 now says the re-read is
+  taken *before* the entry is written and how to read a raised answer (`PENDING` naming the id you hold
+  means nothing was taken; nothing on stderr means yield); `docs/factory.md` carries the measurement and
+  the silence-keeps-its-meaning rule. Two legs and two controls in `factory/selftest.sh`: the pending
+  heading named with the refs' ceiling beside it, and the same printed id silent one commit later, with
+  one plant per direction -- the note deleted, which is the pre-fix behaviour and prints `H-0042`
+  silently on the uncommitted fixture (verified against `git show origin/main:factory/next-decision-id.sh`
+  on a fixture of the shipped shape), and the note printed whatever the ceiling, which would make a moved
+  ceiling stop being the yield signal. Measured on this tree before the commit: `bash factory/selftest.sh`
+  -> `523 passed, 0 failed`, `bash -n` clean on both scripts, `./scripts/check-shell.sh` ->
+  `check-shell: 0.10.0 over 29 scripts` with nothing to report, and the shipped allocator against the
+  same fixtures answers `H-0042` with no note in both the pending and committed shapes. The full
+  `make verify` line and exit status on the tree this branch leaves are quoted in the pull-request body,
+  because an `Effect:` written before the gate runs is a prophecy (#1180).

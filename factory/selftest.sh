@@ -9539,6 +9539,123 @@ alloc_leg() { # <label> <repo> <log path> <prefix> <expected id> <what an ok pro
 	return 0
 }
 
+# Does the allocator say WHICH half of the union raised the ceiling? Issue #320: the skill schedules a
+# re-read immediately before the entry commit, and by then the entry is already in the working file the
+# union reads -- so the answer comes back one above the caller's own heading, which is exactly what a
+# stolen id looks like. The answer is a note on stderr naming the heading that sits in the file and on
+# no ref, and the highest id the refs really carry. Two legs, because a note printed on every answer is
+# a note read once: one fixture has the entry uncommitted with every ref below it, the other has the
+# same entry committed and prints the same id, and only the note moves between them.
+alloc_marker_leg() { # <label> <repo> <path> <prefix> <want id> <yes|no> <pending id> <refs ceiling id> <fact>
+	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 wantmark=$6 pend=$7 top=$8 fact=$9
+	local got='' rc=0 mark=no miss='' id=''
+	if [ -n "$prefix" ]; then
+		got=$(bash "$alloc_script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$alloc_script" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if [ "$rc" != 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator refused:\n' "$label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$want" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it answered %s, expected %s.\n' "$label" "$got" "$want"
+		return 0
+	fi
+	if grep -q '^next-decision-id: PENDING ' "$alloc_err"; then mark=yes; fi
+	if [ "$mark" != "$wantmark" ]; then
+		fail=$((fail + 1))
+		if [ "$wantmark" = yes ]; then
+			printf '  FAIL  %-40s it answered %s and said nothing about which\n' "$label" "$got"
+			printf '          half of the union raised the ceiling. %s\n' "$fact"
+		else
+			printf '  FAIL  %-40s it printed PENDING over a ceiling a ref already\n' "$label"
+			printf '          carries, so the note cannot tell your own entry from one a sibling\n'
+			printf '          took -- and a moved ceiling stops being the one answer that means\n'
+			printf '          yield. %s\n' "$fact"
+		fi
+		return 0
+	fi
+	# The note has to carry the two numbers the caller cannot get any other way: the heading it is
+	# standing on, and the ceiling the refs hold. A tag with neither leaves the session guessing which
+	# of `H-0041` and `H-0042` it was handed -- which is the same silence, wearing a prefix.
+	if [ "$wantmark" = yes ]; then
+		for id in "$pend" "$top"; do
+			grep -q -- "$id" "$alloc_err" || miss="$miss $id"
+		done
+		if [ -n "$miss" ]; then
+			fail=$((fail + 1))
+			printf '  FAIL  %-40s the note never names%s, so the marker is a\n' "$label" "$miss"
+			printf '          prefix and not an answer:\n'
+			sed 's/^/          /' "$alloc_err"
+			return 0
+		fi
+	fi
+	pass=$((pass + 1))
+	printf '  ok    %-40s %s\n' "$label" "$fact"
+	return 0
+}
+
+# One plant per direction, each aimed at the single comparison that decides the note: a plant that
+# keeps the shipped verdict would show the leg certifying its fixture. The id is asserted to be
+# unchanged by the plant as well, because a plant that moved the number would be a control for the
+# ceiling, not for the attribution.
+alloc_marker_control() { # <label> <dir> <sed expr> <repo> <path> <prefix> <what the plant broke>
+	local label=$1 dir=$2 expr=$3 repo=$4 path=$5 prefix=$6 fact=$7
+	local bad='' got='' rc=0 ship='' ship_mark=no plant=no
+	bad=$(alloc_plant "$dir" "$expr" || true)
+	if [ -z "$bad" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg has stopped pinning the comparison it names.\n'
+		return 0
+	fi
+	# The shipped verdict, read here rather than remembered from the leg above: the control's whole
+	# claim is a difference between the two scripts on one fixture, so both halves are measured.
+	if [ -n "$prefix" ]; then
+		ship=$(bash "$alloc_script" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || true
+	else
+		ship=$(bash "$alloc_script" --repo "$repo" "$path" 2>"$alloc_err") || true
+	fi
+	if grep -q '^next-decision-id: PENDING ' "$alloc_err"; then ship_mark=yes; fi
+	if [ -n "$prefix" ]; then
+		got=$(bash "$bad" --repo "$repo" --prefix "$prefix" "$path" 2>"$alloc_err") || rc=$?
+	else
+		got=$(bash "$bad" --repo "$repo" "$path" 2>"$alloc_err") || rc=$?
+	fi
+	if [ "$rc" != 0 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator refused:\n' "control: $label"
+		sed 's/^/          /' "$alloc_err"
+		return 0
+	fi
+	if [ "$got" != "$ship" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted allocator answered %s where the shipped\n' \
+			"control: $label" "$got"
+		printf '          one answers %s -- the plant moved the ceiling as well as the note, so\n' "$ship"
+		printf '          it controls the wrong thing.\n'
+		return 0
+	fi
+	if grep -q '^next-decision-id: PENDING ' "$alloc_err"; then plant=yes; fi
+	if [ "$plant" = "$ship_mark" ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left the note verdict at %s, exactly\n' \
+			"control: $label" "$ship_mark"
+		printf '          what the shipped script does, so the ok above is the fixture agreeing and\n'
+		printf '          not the comparison: %s\n' "$fact"
+		return 0
+	fi
+	# No `pass` increment: a control's ok is uncounted in this suite, the way `alloc_control` and
+	# `alloc_docs_control` both leave it.
+	printf '  ok    %-40s it flips the note on the same fixture and\n' "control: $label"
+	printf '          the same id, so the leg above is reading the comparison: %s\n' "$fact"
+	return 0
+}
+
 alloc_plant() { # <dir> <sed expr> -> a copy of the shipped allocator with one thing taken out
 	local dir=$1 expr=$2
 	mkdir -p -- "$dir" || return 1
@@ -9979,7 +10096,7 @@ alloc_boundary() { # <label> <repo> <log path> <prefix> <stale id> <fresh id> <w
 
 decision_ids() {
 	local base current multi repo wt bad alloc_empty alloc_nolog alloc_nopfx alloc_bleed
-	local alloc_notlog alloc_dirlog alloc_headonly
+	local alloc_notlog alloc_dirlog alloc_headonly alloc_open alloc_committed
 
 	if [ ! -f "$alloc_script" ]; then
 		printf '  SKIP  %-40s next-decision-id.sh is not in this tree\n' \
@@ -10070,6 +10187,66 @@ decision_ids() {
 	printf '## D-0009 · an uncommitted candidate\n' >"$current/DECISIONS.md" || return 0
 	alloc_leg 'the current file counts before it is committed' "$current" DECISIONS.md D D-0010 \
 		'D-0010, because the uncommitted working entry is already D-0009'
+
+	# -------------------------------------- whose ceiling is it? (issue #320, the phantom collision)
+	#
+	# The leg above pins that the working file raises the ceiling. This pins what the command *says*
+	# about that raise, because the raise is the ordinary case at the exact moment the skill tells a
+	# session to re-read: immediately before the entry commit, the entry is already in the file the
+	# union reads. Measured in `/home/rodney/prj/wt/issue-320` on 12 Nov against `factory/DECISIONS.md`
+	# (git 2.53.0), the shipped allocator answered `H-0145` with the log as committed and `H-0146` after
+	# an uncommitted `## H-0145` was appended, with no ref holding that heading anywhere -- so the
+	# re-read came back wearing the exact face of the collision it exists to catch. A session holding
+	# that has two reactions and both cost the log: yield to the phantom and open a gap `docs/factory.md`
+	# says must never be inexplicable, or stop trusting the allocator at the last guard before a
+	# duplicate id.
+	#
+	# Two fixtures differing by one commit and nothing else -- including the printed id. Only the note
+	# moves, which is the whole claim: the id stays the best answer available, and stderr now says whose
+	# heading the ceiling walked past.
+	alloc_pending_pair() { # <dir left uncommitted> <dir with the same entry committed>
+		local open=$1 committed=$2 d
+		for d in "$open" "$committed"; do
+			git init -q "$d" 2>/dev/null || return 1
+			git -C "$d" config user.email fixture@invalid || return 1
+			git -C "$d" config user.name fixture || return 1
+			git -C "$d" checkout -qb trunk || return 1
+			mkdir -p -- "$d/factory" || return 1
+			printf '## H-0040 · the trunk ceiling\n' >"$d/factory/DECISIONS.md" || return 1
+			git -C "$d" add -A || return 1
+			git -C "$d" commit -qm 'fixture: the ceiling before the pending entry' || return 1
+			printf '\n## H-0041 · the entry being written now\n' >>"$d/factory/DECISIONS.md" || return 1
+		done
+		git -C "$committed" add -A || return 1
+		git -C "$committed" commit -qm 'fixture: the same entry, one commit later' || return 1
+	}
+
+	alloc_open=$alloc_work/pending-uncommitted
+	alloc_committed=$alloc_work/pending-committed
+	if ! alloc_pending_pair "$alloc_open" "$alloc_committed"; then
+		printf '  SKIP  %-40s the pending-entry pair could not be\n' 'the provenance of the ceiling'
+		printf '          written; every leg below is about a tree that does not exist.\n'
+	else
+		alloc_marker_leg 'a pending entry names itself' "$alloc_open" factory/DECISIONS.md H \
+			H-0042 yes H-0041 H-0040 \
+			'the same H-0042, with PENDING naming the heading on no ref and the refs ceiling'
+		alloc_marker_leg 'a committed entry is not called pending' "$alloc_committed" \
+			factory/DECISIONS.md H H-0042 no - - \
+			'and quiet one commit later: HEAD carries the heading, so nothing is unexplained'
+		# One plant per direction, each on the fixture whose verdict it must flip. The never-fires plant
+		# puts the phantom back exactly as #320 measured it; the always-fires plant calls a committed
+		# heading pending, which is the note read as noise and ignored -- a marker on every answer is a
+		# marker read once, and the silence that used to mean yield goes with it.
+		alloc_marker_control 'a pending entry names itself' "$alloc_work/ctrl-no-pending" \
+			's|\[ "$work_max" -gt "$refs_max" \]|[ "$work_max" -gt 999999 ]|' \
+			"$alloc_open" factory/DECISIONS.md H \
+			'take the note away and the re-read is silent again: 146 over your own 145'
+		alloc_marker_control 'a committed entry is not called pending' \
+			"$alloc_work/ctrl-always-pending" \
+			's|\[ "$work_max" -gt "$refs_max" \]|[ "$work_max" -ge 0 ]|' \
+			"$alloc_committed" factory/DECISIONS.md H \
+			'print it whatever the ceiling and a moved ceiling stops being the yield signal'
+	fi
 
 	# ---------------------------------------------------------- what the re-read can and cannot see
 	#
