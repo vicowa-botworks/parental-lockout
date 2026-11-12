@@ -5302,3 +5302,77 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   deleted, no merge, and no write to any pull request. What it leaves for a person, stated in
   `docs/factory.md` and on #291: whether #241 should now be closed, whether #285 and #233 should be
   deleted, and whether #222 still owes anything.
+
+
+## H-0138 · #310 asks who asks a reviewer, and the answer was a component no entry-facing document named: `AGENTS.md` told a unit to do the one thing it has no verb for
+
+- Question: `AGENTS.md`'s queue bullet read "Requesting a reviewer is part of opening a pull
+  request, not a later courtesy" and named nobody. The session reading it while opening a pull
+  request cannot do it: `gh pr edit --add-reviewer` exits 1 on this account's retired
+  `projectCards` field and writes nothing (H-0010, four pull requests on 4 Nov, re-run on #307 on
+  11 Nov and published in #310), the raw API is denied whole by the `bash` table in
+  `.opencode/opencode.jsonc`, and filing a review is denied outright. What satisfies the rule
+  today is `factory_request_review` (`factory/factory.sh`), which POSTs
+  `pulls/N/requested_reviewers` for any open pull request whose `users` and `teams` lists are both
+  empty, at most once per `FACTORY_REVIEW_POKES`, addressed by `factory_review_target`
+  (`factory/common.sh`) -- a component on the far side of the boundary a tick runs inside.
+  `SKILL.md` names it, but in Step 5, phrased as a prohibition ("not yours to do"); `AGENTS.md`,
+  which every session reads before it reads the skill, named nobody, so the bullet read as work
+  the reader was failing to do. #310 asks two things: whether to hand a tick a narrow API
+  carve-out so it can redirect an ask when the configured reviewer is the wrong person, and
+  whether to say who asks. What is the deliverable -- a permission, a sentence, or both?
+- Options: name the actor in `AGENTS.md` and the no-redirect rule in `.opencode/skills/factory/SKILL.md`, and change no permission | add a whole-line allow for `gh api -X POST …/requested_reviewers` to the `bash` table in `.opencode/opencode.jsonc` | ship a helper under `factory/` that posts the request, ungated the way the supervisor's own call is | leave both documents alone and close #310 as already answered by `efa4e29` | escalate the ticket and deliver nothing
+- Chose: name the actor in `AGENTS.md` and the no-redirect rule in `.opencode/skills/factory/SKILL.md`, and change no permission
+- Why: the tie-break that separates these is named before the list, in this skill and in
+  `AGENTS.md`: changing what a `deny` in `.opencode/opencode.jsonc` refuses is not a unit's to
+  make. The second option was therefore never on this tick's menu -- and it is decided anyway, in
+  the direction of refusal, by `efa4e29` (6 Nov), whose whole record is a comment on the denial
+  itself: a whole-line glob is method-blind, so a carve-out written for one POST admits
+  `-X POST …/merge` with it, and `--admin` lets that merge land past a failing status check. The
+  ticket could still ask the question because nothing an agent reads points at that record:
+  `AGENTS.md` implied the reader held the verb, and `SKILL.md` said only that the ask was not
+  theirs. So the defect is a missing name, not a missing capability, and the fix is the sentence
+  the ticket itself recommends -- "fewer permissions granted, one rule made true".
+  The third option is the second through a side door and loses on the skill's own words: "Never
+  wrap the denied call in `bash -c`, `env`, `xargs`, `sh -c`, or a script that shells out to it --
+  that is the one way to turn a harness gap into a trust problem." A helper under `factory/` is
+  ungated for the same reason the supervisor is (the gate parses a tick's command line, not a
+  function it calls), so it does not narrow the hole, it opens the endpoint -- and tie-break 4 is
+  against it as well: a permission edit drags `scripts/check-denies.py` and its self-test cases
+  with it, three more files in which H-0013's four rounds of pattern-shaping can be repeated.
+  Closing #310 on `efa4e29` loses because the bullet is still false as written, and a false rule
+  in the file every session reads costs the next tick its ceiling on a command that cannot
+  succeed -- which is exactly what #310 measured, one review round spent on `gh pr edit`.
+  Escalating loses because nothing irreversible is being asked for: the half that needs a human
+  was already refused by a dated record, so escalating would ask the user to re-make a decision
+  rather than to make one. What the choice keeps unavailable is on the record: a tick still
+  cannot redirect an ask. The answer to "the wrong person is holding it" is now written down as
+  operator config -- `FACTORY_REVIEWER_TEAM` or `FACTORY_REVIEWER`, read by `factory_review_target`
+  and set in the timer's environment -- so a redirect costs a person with the unit file instead of
+  a tick with a token, and `AGENTS.md` says which one that is.
+- Effect: `AGENTS.md`'s bullet names `factory_request_review`, the throttle, the target key, and
+  the unit's own no-verb condition. `.opencode/skills/factory/SKILL.md` Step 5 gains the
+  no-redirect paragraph (the withheld carve-out, `efa4e29`, the two config keys as the in-band
+  verb, and H-0117's reason not to call an existing request missing) and one citation
+  correction: that paragraph cited `D-0010` for the `projectCards` measurement, and `D-0010` is a
+  heading in neither log -- `grep -c '^## D-0010 ' DECISIONS.md` answers `0`, and the entry is
+  `H-0010` in this file, which is the D-/H- collision `AGENTS.md` says the prefixes exist to
+  prevent. `.opencode/opencode.jsonc`'s comment on the review denial carries a dated correction
+  of one of its premises: "no released gh has a --reviewer flag" is overtaken -- `gh pr edit
+  --help` at gh 2.46.0 (`/usr/bin/gh`, measured 11 Nov) lists `--add-reviewer` and
+  `--remove-reviewer` and its examples use them -- while the two reasons the settlement does not
+  depend on that premise are left standing. `factory/selftest.sh` gains
+  `ask_target_docs_say_it` and `ask_target_docs_control`: four whole phrases, one rule and one
+  reason in each of the two documents, and the control that deletes one clause from each document
+  and expects red, in the shape `voided_docs_control` established for #272.
+- Not established here: no write to `requested_reviewers` was made by this unit, because a
+  successful one is a review request and that is not a tick's action -- so the redirect path is
+  documented, not exercised. The rc-1 re-run against a pull request this branch owns was owed at
+  the time of writing and belongs on this pull request as a comment, not in this entry, because an
+  entry that predicts its own measurement is the thing #1180 refuses. `gh pr edit --help` prints a
+  flag list, which says what the CLI will send and nothing about what GitHub accepts. And the same
+  jsonc comment still cites `D-0013` for the keying of the deny table, where the entry that keys
+  it under `bash` is `H-0013` in this file; `DECISIONS.md`'s own head notes that `D-0013` was
+  minted twice, so a harness file pointing at it points at two candidates and neither is the one
+  meant. Left for a citation pass, named on the pull request so the queue can see it.
+- Checkpoint: 0d9a0ed
