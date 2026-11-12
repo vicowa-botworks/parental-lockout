@@ -216,6 +216,24 @@ FACTORY_REVIEW_POKES=${FACTORY_REVIEW_POKES:-1800}
 # a notice, not a park: the unit stays in the queue and keeps being retried.
 FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 
+# The label that marks an artifact as owing a human a decision. THIS LINE IS THE ONLY PLACE THIS
+# REPOSITORY SPELS ITS NAME. Five places used to write it out in full -- `AGENTS.md`, `SKILL.md` twice,
+# `docs/factory.md`, and the tick instruction in `factory/factory.sh` -- and a sixth, a leg in
+# `factory/selftest.sh`, pinned one of the five. A name in five files is a name that goes stale in one
+# and stays green in the other four (#315), and what the name should *be* is a parked human decision:
+# #311 asks whether to create `needs-human` or name a label this repository actually has, and it has
+# eighteen, none of them this one. So the answer there is a one-line edit here.
+#
+# Read it with `factory/escalation-label.sh` -- one command, rather than sourcing the 2,850 lines of
+# configuration in `common.sh` in the middle of a step that is already failing. Two legs guard the line. One runs that
+# command and requires its answer to equal the text of the assignment below, and requires no other live
+# file to spell a label name at all. The other guards what this is NOT: an input to the queue.
+# `factory/triage.sh` classes on `unclaimed` and `delivered` and reads no label (measured 12 Nov,
+# `grep -c label factory/triage.sh` answers 0), so applying this marker tells a person something and
+# never parks or releases a unit -- and a label the supervisor obeyed would move the queue's decisions
+# into configuration nothing gates. That is the drift the second leg refuses.
+FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}
+
 # A halt is more urgent than a wait: a wait costs one unit its turn, a halt costs every unit the
 # queue. So the halt speaks on its own clock, an hour rather than a day, and it speaks on the issue
 # or pull request the halted unit names rather than a bulletin nobody subscribes to (issue #248:
