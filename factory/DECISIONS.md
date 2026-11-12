@@ -5563,8 +5563,9 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   does when an id is taken
 - Chose: both, in id order, with neither entry renumbered and this entry carrying what the merge
   disproves
-- Why: `H-0139` lands at 5306, `H-0140` at 5418, `H-0141` at 5480 -- 5543 lines for the two blocks, 97
-  more below for this entry. The order is measured, not chosen. Reproduce git's own both-append order (common 1..5305, this
+- Why: `H-0139` lands at 5306, `H-0140` at 5418, `H-0141` at 5480, and this entry is the text below
+  them -- the two blocks end at 5543 lines. The order is measured, not chosen. Reproduce git's own
+  both-append order (common 1..5305, this
   branch's 5306..5431, one blank, main's 5306..5416) and the shipped gate refuses it:
   `python3 scripts/check-decisions.py --log <naive>` exits **1** with
   `:5433: H-0139 is out of order (H-0141 came before it); the log is a history and a history that jumps
