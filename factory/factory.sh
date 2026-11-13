@@ -1026,7 +1026,7 @@ factory_refresh_origin() {
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
-	local rows rc=0 started=0 unit_line reap_line
+	local rows rc=0 started=0 unit_line log_line reap_line
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
 	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
 	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before
@@ -1054,6 +1054,18 @@ factory_body() {
 		[ -n "$unit_line" ] || continue
 		log_event "$unit_line"
 	done < <(factory_unit_lines "$FACTORY_HARNESS")
+	# Which directory the journal is being written to, and whether this pass is the one that moved it
+	# (#260 ask 3). Same place and same reason as the two lines above -- before the fetch and the triage,
+	# so a pass that never reaches the queue still says where its own record is -- and it has to be ahead
+	# of the `PASS` line for a second reason: `LOG-AT` is what the NEXT pass reads back as this pass's
+	# answer, and a pass that halts at triage writes no `PASS` at all. On 10 Nov three reinstalls moved
+	# the journal between checkouts and neither file said so; the operator's tail went silent
+	# mid-sentence and the only account of it was a `TIMER-INSTALLED` line in whichever tree ran the
+	# installer.
+	while IFS= read -r log_line; do
+		[ -n "$log_line" ] || continue
+		log_event "$log_line"
+	done < <(factory_log_move_lines)
 	# What the pass BEFORE this one cost the queue to tear down (#246). Same place and same reason as
 	# the two lines above: before the fetch and the triage, because the pass an operator goes looking
 	# for is the one that cannot be reached. Measured on this box on 11 Nov: five activations held the

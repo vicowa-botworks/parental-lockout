@@ -6846,6 +6846,216 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `make verify` line and exit status on the tree this branch leaves are quoted in the pull-request body,
   because an `Effect:` written before the gate runs is a prophecy (#1180).
 
+## H-0148 · The journal's own location is read out of the unit's journal lines rather than a marker file, the copy into the journal being left is a guarded append, and the leg that was supposed to pin the syslog filter had to be rewritten because the anchor was doing the work
+
+- Question: #260 ask 3 asks for a line in the journal saying where the journal is, and for a line saying
+  it moved when it moved. Read back before writing: the journal is inside the tree the loop runs from --
+  `factory/common.sh:288` is `FACTORY_LOG=${FACTORY_LOG:-$FACTORY_DIR/log}`, and the generated unit's
+  template (`factory/install-timer.sh:383`) execs `@REPO@/factory/factory.sh` with four `Environment=`
+  lines, none of them `FACTORY_LOG` -- so the live unit on this box resolves to
+  `JournalPath=/home/rodney/prj/wt/factory-harness/factory/log` from `ExecStart=/bin/bash
+  /home/rodney/prj/wt/factory-harness/factory/factory.sh --tick`, read off the installed unit 12 Nov.
+  Moving the tree therefore moves the record, and it happened: `install-timer.sh` was run three times on
+  10 Nov, at 10:17, 13:05 and 13:39, and `grep -hcE '1[12][0-9]:'` -- the three-digit hour 11:00 to
+  12:59 -- answers **0** in BOTH `parental-lockout/factory/log/supervisor.log`, whose 10 Nov ends
+  `10:17:21Z HALTED`, and `wt/factory-harness/factory/log/supervisor.log`, whose 10 Nov ends
+  `13:39:05Z TIMER-INSTALLED`. Ask 2 shipped a `UNIT-TREE old= new=` line (`install-timer.sh:569`) and
+  ask 1 shipped `UNIT-AT` (`common.sh:2614`), and neither closes this: the installer writes into the tree
+  it was RUN FROM, which on 10 Nov was the tree being LEFT and would have been the tree being ARRIVED AT
+  had the same command been typed one directory over. So where does the previous directory come from,
+  what does a pass print, and what is it allowed to write to a path it did not create?
+- Options: marker file + no write to the old journal | `$FACTORY_LOG`'s predecessor in the tree + no
+  write | the unit's own journal lines over `journalctl --user` + no write | the unit's own journal lines
+  over `journalctl --user` + a guarded append to the old journal | the unit's own journal lines over
+  `journalctl --user` + an unguarded append to the old journal | ask 2's installer line only + no write
+- Chose: the unit's own journal lines over `journalctl --user` + a guarded append to the old journal
+- Why: a marker file is the defect this file keeps re-litigating -- a record that has to be maintained is
+  a record that goes stale, which is why `factory_journal_age` (line 380) reads the journal itself
+  instead of a stamp file, and why ask 1 reads the unit instead of a recorded path; it also has to be
+  written by the very pass whose location is in question, so the first relocation after it ships is the
+  one it gets wrong. The tree cannot answer: two of the 10 Nov trees were deleted inside the hour, and
+  `$FACTORY_LOG`'s predecessor in a tree is that same deleted path. Ask 2's installer line cannot answer
+  for the direction-of-run reason above, and a no-write option leaves the dead tail silent anyway -- the
+  operator reading `parental-lockout/factory/log/supervisor.log` on 12 Nov still stops at 10:17:21 no
+  matter how loudly the new file explains itself. An UNGUARDED append is the opposite failure: the old
+  path is a path this harness did not create, named by a record read off a log, so writing it blind is
+  the arbitrary-write shape #874 names and the judge-before-you-change rule #182 paid for. systemd
+  answers, in a store belonging to neither checkout, and `factory_reap_lines` already reads it every pass
+  for the same class of fact -- which activation opened and how it closed. Three things about that read
+  are measured rather than assumed. (1) It takes NO
+  syslog filter: the comment on `factory_reap_lines` measures a 400-line window asked for with
+  `-t systemd` as holding **0** of the 325 lines the unit's own processes wrote in it, and this read
+  wants exactly those 325, so it rejects manager lines by anchoring in the third field -- the lesson
+  `factory_reap_lastword` carries, that a pattern matched anywhere in the line excludes nothing. (2) The
+  mark is anchored to the START of the message, because the ticket that filed this requirement pastes a
+  PASS block into its own body: a tick handed that brief writes a journal line CONTAINING a PASS, and a
+  substring read reports a move that never happened. The leg holds the control for its own control -- an
+  unanchored read of the same fixture answers the journal came from `/wrong/tree`, so the ok is the
+  anchor deciding and not the code never reaching the line. (3) `how=recorded` outranks `how=derived`
+  regardless of line ORDER, because a pass writes `LOG-AT` and then its own `PASS` a few hundred
+  milliseconds later; a newest-line-wins rule answers from `root=` on every pass and the fact never
+  reaches the log. Two silent failures were caught by writing the legs and are recorded because each one
+  reads as a clean answer. `stamp = substr(msg, 1, 19)` then `mark = substr(msg, 21)` leaves the mark
+  starting one space short of the `P` -- the stamp is 20 characters and the 20th is the `Z` -- so every
+  arm reads nothing and the read answers `no record` forever on a journal full of records; the mark is
+  cut by regex now, and the legs assert counts of the line each arm is expected to emit, so an inert
+  parser fails the `LOG-AT` count on a pass that plainly printed one. The second is the copy: with the
+  link test folded into the brace group as `[ ! -e "$old_file" ] || { [ ! -L … ] && [ -f … ]; }`, a
+  DANGLING symlink is `-e` false, the group is never reached, and the append goes through the link and
+  CREATES its target -- measured, both ways, in `lm_leg_symlink_not_written_through`, which asserts the
+  target stays absent. Nothing there is exactly how a symlink looks to `-e`, so `[ ! -L ]` is its own
+  `&&` clause; the rule is #874's and the cost of getting it backwards is #182's (`/dev/null` at 0600).
+  A failed REDIRECTION is also reported by the shell before that command's own `2>/dev/null` applies, so
+  the suppressor sits on a group around the append -- `tail=failed`, not a shell error in the tick log.
+  The refusal arms exist so the ABSENCE of `LOG-MOVED` is never evidence nothing moved (#228's polarity),
+  and they name which way the read ran out: `rc=1` journalctl failed, `rc=2` the window holds no record
+  and says how many lines it read and which knob widens it, `rc=3` the newest record names no directory.
+  One leg could not be written as first written, and that is in here rather than tidied away: the
+  fixture's manager lines carry no harness stamp in their messages, so the anchored-stamp test refuses
+  them and deleting the syslog filter changed nothing -- `no-manager-filter` printed `ok`, a control that
+  pins nothing. The fixture now plants `systemd[4485]: 2026-11-12T10:00:04Z LOG-AT /manager/echoes/this`,
+  the shape only the filter refuses, and the leg extracts the SHIPPED awk program, deletes that one line,
+  runs the same window through it and FAILS if the verdict is unchanged -- so the sentence names which
+  rule refuses which line instead of crediting the filter with an anchor's work.
+- Consequences: `factory/selftest.sh` goes from 530 to 540 legs, four of them `proc_*` legs that run the
+  shipped `factory.sh` and read the journal it wrote -- both polarities, the copy landing without
+  disturbing the line already in the old journal, and `LOG-AT` above `PASS`, which is what lets a pass
+  that halts at triage still be located by the pass after it. Ten mutations were run and each one fails
+  the leg that owns it: unanchored `LOG-AT`, unanchored `PASS`, derived-before-recorded, the folded link
+  clause, the ungrouped suppressor, the deleted call site, a forced `tail=failed`, the collapsed `rc=3`
+  arm, the unnamed knob, and the deleted filter. Expect `LOG-MOVED-UNKNOWN rc=2` on the first pass of a
+  unit whose journal holds no earlier pass -- that is the arm working, not a fault. `how=derived` is the
+  line admitting an inference: it reads `root=` off a pre-#260 PASS and appends `/factory/log`, which is
+  wrong the moment anyone sets `FACTORY_LOG` in the unit template. This unit's own history is in here
+  because it is load-bearing for review: about five hundred lines of this implementation and its legs
+  were destroyed mid-session by `git checkout -q --` over three files that held uncommitted work -- an
+  empty checkpoint commit held none of it -- and were recovered only because scratch extractions
+  (`head`-prefixes and a sliced section) survived in `/tmp/opencode`. The implementation was committed
+  BEFORE the mutation controls were run, which is the order that makes `git checkout HEAD --` a restore.
+- Checkpoint: e3965f8f6acadb7f6334967ec788ace6fc554afd
+## H-0149 · The copy guard answers `refuse=<clause>` naming the clause that refused, and asks what a path IS before asking what is behind it
+
+- Question: `LOG-MOVED` carries `tail=`, and `tail=skipped` is what five different refusals look like --
+  the old directory missing, the old directory a link, the old directory unwritable, the old journal a
+  link, the old journal not a regular file -- while the sentence printed beside it asserts ONE of them:
+  "skipped found no directory there". Read back before choosing. `git grep -c 'tail=skipped'` at 91f6817
+  answers common.sh 1, selftest.sh 1 (the symlink leg, which asserts the token and nothing about why),
+  docs/factory.md 0 -- so nothing anywhere pinned the reason to the clause that produced it. Five planted
+  old journals through the shipped function: a linked directory, an unwritable one, a linked file, a FIFO
+  for the file, a directory for the file. All four non-absent ones printed "found no directory there"
+  beside a directory that exists and is readable. So: what does the line say about a refusal, and what
+  keeps the sentence tied to the chain that answers it?
+- Options: keep one token and reword the legend prose | add `refuse=<clause>` naming the refusing clause |
+  add the errno of the refused append | restructure the guard into a helper returning a verdict | drop the
+  copy from the line and let the installer's line carry the move alone
+- Chose: add `refuse=<clause>` naming the refusing clause
+- Why: the chosen shape is the clause named on the line, judged link-first, with the legend enumerating all
+  five clauses in the order they are judged, plus a sentence of advice on the one combination that arrives on
+  a live machine more than any other (`how=derived` with `no-such-directory`). One token standing for five
+  states is the same defect #260 was filed about, in the fix for it. The
+  ticket's own mechanism is a line that "states something false about the state it reports" -- the
+  installer printed `UNIT-TREE … new=<tree>` while the unit's `ExecStart` pointed at a checkout 38 commits
+  behind (the claim at `install-timer.sh:537`, the check at `:383`, which reads `ExecStart` and never
+  trusted the composed path). A refusal legend that names the commonest reason whatever happened is that
+  bug class, and the operator's next move differs per clause: only `no-such-directory` says there is
+  nothing left to tail, while the other four say a file is sitting there and this pass would not write
+  through or into it -- a hand-moved tree or a planted link, which is the class this ticket chases. An
+  errno was rejected because it answers the wrong question twice over: the operator needs "a symlink was
+  here", not `EACCES`, and reading the path again at the moment of refusal to fetch one is the second read
+  #202's TOCTOU rule refuses; judging the path once, before touching it, is #182. Restructuring into a
+  helper buys nothing this line needs and moves the five clauses away from the comment that explains why
+  each exists. Dropping the copy is H-0148's decision, reopened by nothing here. **The clause order is a
+  measurement, not a style choice.** The first cut asked `[ ! -d "$prev" ]` first; `-d`, like `-e`,
+  FOLLOWS links, so a DANGLING directory link answered `no-such-directory` and the link clause was
+  unreachable for exactly the shape a hand-moved tree leaves behind -- which is the 10 Nov event itself.
+  It was found by an independent probe written without reading the shipped legs (thirteen cases, each
+  planting a record naming the previous pass's directory), and the suite was green over it: the leg that
+  exercises a linked directory points the link at a directory that exists. So the chain asks what a path
+  IS before what is behind it, in the same order the file clause already had to for the same reason --
+  `[ ! -L ]` as its own clause because a dangling link is `-e` false (H-0148).
+- Consequences: `factory/selftest.sh` goes from 543 to 544 legs. The new leg plants eight fixtures -- five
+  distinct clauses over six refusal shapes (a directory for the file and a FIFO for it are one clause and
+  two hazards) plus a plain old journal as the polarity -- and asserts three things the code cannot satisfy
+  by accident: the FIELDS on the line, the legend enumerating all five clauses in judgement order, and that
+  nothing was created behind any link. The field assertion is load-bearing in a way the first cut was not:
+  the legend spells the words `tail=` and `refuse=` on the same line as its own documentation, so a
+  substring test on the whole sentence cannot tell the field from the prose explaining it, and the leg's
+  first cut failed on the polarity case for exactly that reason -- it accused a working `tail=ok` of naming
+  a refusal. The FIFO case is wrapped in `timeout`, the spelling the `proc_*` legs use, because a
+  regression there does not print a wrong word, it parks the pass: `>>` on a FIFO with no reader blocks
+  forever, which is #246's held-teardown shape. `tail=failed` carries no `refuse=`, and the leg pins that
+  too -- the sixth state is the one where the append WAS attempted. The `derived` advice is measured both
+  ways on this host rather than reasoned: a record whose `root=` is the main checkout resolves to a real
+  journal and copies into it (`tail=ok`), a record whose `root=` is a worktree with no `factory/log` answers
+  `tail=skipped refuse=no-such-directory`; neither says where the old pass actually wrote, and the line now
+  says so. One thing in here that is a mistake and not a finding: while capturing a documentation example,
+  the shipped function was aimed at a journal record naming the MAIN checkout -- a real path -- and the
+  guard correctly accepted it, appending one 458-byte `LOG-MOVED` line to
+  `/home/rodney/prj/parental-lockout/factory/log/supervisor.log` at 19:55:50Z, outside the tree this unit is
+  fenced to. Reverted by truncating exactly those 458 bytes (314859 to 314401, inode and mode 664
+  untouched, surviving bytes byte-identical to the prefix of a pre-repair copy kept at
+  `/tmp/opencode/supervisor.log.with-stray`), because `internal/audit`'s rule (#1686) is that a refusal
+  leaves a file untouched and a demo is not a licence to write outside the fence: any probe of a write guard
+  must name FIXTURE paths as the old journal, which is why every fixture in the suite does. Five controls
+  were run after the implementation commit, each one editing `factory/common.sh`, running the suite, and
+  restoring from HEAD (which is only a restore because the implementation was committed first): dropping the
+  `refuse=` field, collapsing the four non-absent clauses onto one token, swapping `-d` back ahead of `-L`,
+  deleting the legend's clause list, and folding the file's link test back into the shape test. All five make
+  `lm_leg_refusal_names_the_clause` red; the three that remove a link refusal or its name make
+  `lm_leg_symlink_not_written_through` red with them; nothing else among the 544 moves, so the leg is
+  specific rather than a canary that trips on any edit. Refs: #260 ask
+  3, H-0148 (the guard whose refusals were untellable), #874 (judge the path before changing it), #182 and
+  #1686 (what not judging it costs), #246 (the parked activation a FIFO would recreate), #202 (one read, not
+  two), #228's polarity (an absence must not read as a verdict).
+- Checkpoint: 9287767f0cc0d856380acddcdb7e91f8406b982b
+
+## H-0150 · A pass stopped by the HALT marker writes no `LOG-AT`: hoist all three self-report reads above the halt block, hoist only the two read-only ones, or narrow the sentence and file the move
+
+- Question: The review of #330 at `f282990` measured that a pass stopped by a `factory/HALT` marker leaves
+  one journal line -- the `HALTED` one -- and no `LOG-AT`, while `docs/factory.md` and this harness's own
+  function contract both said `LOG-AT` is "on every pass". Read back from the shipped script rather than
+  quoted from the review: the halt block logs and `exit`s, `factory_body` is called later at
+  `factory/factory.sh:1297`, and all four of a pass's self-report lines are inside it (`UNIT-AT` at the
+  loop fed by `factory_unit_lines`, `LOG-AT` from `factory_log_move_lines`, `SUPERVISOR-AT` from
+  `factory_supervisor_lines`, then `PASS`) -- so none of the four is reachable on the halt path and the
+  boundary is shared by three lines, not one. It matters because the incident ask 3 was written FOR is a
+  HALTED tail: the page and the pull-request body both open with `2026-11-10T10:17:21Z HALTED
+  code=3962919`, and #328 measured one halt standing 10h13m. Three repairs were on the table and one
+  constraint nobody had written down: the halt exit runs before `flock -n 9` at `:1292`, so hoisting moves
+  `factory_log_move_lines`' copy into the journal being left -- the feature's only write outside stdout --
+  outside the pass's lock, and makes an activation that loses the lock (a loser reports 7 and leaves, once
+  per `FACTORY_INTERVAL`) print three lines before it goes. Which?
+- Options: hoist all three read loops above the halt block, accepting the copy write and the three lines outside the lock | hoist the two read-only loops and leave `LOG-AT` inside the body, so a halted pass says the tree and the unit but not the directory | narrow the prose to "every pass that reaches the pass body", name the halt exit as the state outside the boundary, and file the move with the lock constraint for its own tick | leave the sentence and the code alone, since the review filed the finding as non-blocking
+- Chose: narrow the prose to "every pass that reaches the pass body", name the halt exit as the state outside the boundary, and file the move with the lock constraint for its own tick
+- Why: the tie-break that separates them is refusing rather than proceeding on an input this tick cannot
+  judge. Hoisting changes what a *lock-losing* activation writes and moves an append into a file named by a
+  record read off a log outside the only thing that serialises activations; this repository's own record of
+  what an unguarded write to a path named by someone else's text costs is #874 and #182, and no measurement
+  here says what two overlapping halted passes do to one `>>`. The option that touches no write path wins
+  on that, and it also wins the next tie-break -- fewest files: three files of prose and one `local`, with
+  no control flow and no leg's expectation moved, so it is reversible by `git revert` of one commit. The
+  gate that decides it is the one H-0149 was raised for: a line must not state more than the code does, and
+  "on every pass" beside a halt path that writes nothing is the same shape as "found no directory there"
+  beside a directory that exists. Narrowing is not the same as closing, and the entry says so -- which is
+  why this option carries a filed ticket (#331, with the three repairs, the lock boundary and the static
+  read) rather than a silence. The fourth option is refused outright, not deferred: a page that says "every
+  pass" is exactly what sends an operator to grep sibling checkouts for a tail the halt path never wrote.
+  What the first option buys is real, and #331 is where the lock question gets answered; taking it here, in
+  a tick dispatched because a check was red, would have spent a re-review's attention on an unlocked write
+  nobody had measured.
+- Consequences: `docs/factory.md` says where the boundary is and names the halt exit for `LOG-AT` and
+  `SUPERVISOR-AT` alike, and `factory_log_move_lines`' contract in `factory/common.sh` says the same and
+  points at #331. Two comments answer the review's findings 3 and 4: the awk `END` block now records that
+  `bad` is consulted after both readable kinds, so `rc=3` is reached only when the window holds no readable
+  record at all and says nothing about a damaged mark a readable record outranks, and the refusal arms carry
+  the two `rc=` namespaces (the parser's 0/1/2 against the sentences' 1/2/3) with the one arm where they can
+  collide named. `factory/factory.sh`'s `local` line declares `log_line`, the only loop variable it missed
+  (finding 5). `docs/factory.md` records that a `--dry-run` pass performs the copy into the old journal
+  (finding 2), a thing that was true and unwritten. No behaviour moves and no leg's expectation moves -- the
+  gate's own wording is what follows in the pull-request body rather than here (#1180). #331 stays open
+  carrying the hoist, its three options, and the lock boundary.
+- Checkpoint: 37d61eda1edd295c3adf7dea23a0d30dd190e4d6
+
 ## H-0151 · A merged pull request's leftover ref was reported by neither half of the classifier, and the arm that fixes it had three shapes that all read as a delivery
 
 - Question: a ref whose pull request has merged is level with the trunk, so the branch scan passes it by
@@ -6928,3 +7138,113 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   failed with exit 2 as though it had printed a file. It is corrected here rather than left in the log,
   because a citation nobody can re-run is the thing this log keeps refusing. The full `make verify` line and exit status on the tree this branch leaves are quoted in the
   pull-request body, because an `Effect:` written before the gate runs is a prophecy (#1180).
+
+## H-0152 · PR #330's second base collision lands in BOTH decision logs at once, and only one of them is a pure append, so the splice is two different cuts and the gate is what says which order is legal
+
+- Question: `#330` reads `CONFLICTING` / `DIRTY` against `origin/main` `72dc045`. Read back before anything
+  was touched, and with the field that answers only for a pull request: `gh pr view 330 --json headRefName`
+  answered `issue-260` (#2027's type read -- `--json number` answers `{"number":330}` for an issue too), and
+  the same call says `state` `OPEN`, `isDraft` false, base `main`, `headRefOid` `b17534db…`, `mergeable`
+  `CONFLICTING`, `mergeStateStatus` `DIRTY`, `reviewDecision` `APPROVED`. The tree was clean at the start,
+  the branch matched the brief, and no `factory/HALT` exists, so the only thing between this branch and a
+  mergeable pull request is the conflict: merge base `7c0a3e5`, `HEAD` 10 ahead and 8 behind.
+  `git merge-tree --write-tree --name-only HEAD origin/main` names TWO files, `DECISIONS.md` and
+  `factory/DECISIONS.md`, and `git merge --no-commit --no-ff origin/main` prints 2 `UU` rows against 7
+  status rows, with `docs/factory.md` and `factory/selftest.sh` auto-merged. Every earlier pass of this
+  collision -- `H-0143`, `H-0144`, `H-0145` on #307, and this branch's own `cc85761` -- met one file at one
+  anchor; two logs colliding in one merge has not happened here before. Do both sides' entries stay, in
+  which order, does the yield rule's renumber step apply, and what stops being true about the citations
+  once both sides are in one file?
+- Options: this branch's file (`--ours`) in both logs, which deletes main's `D-0068`, `H-0151` and both of
+  main's interior corrections | main's file (`--theirs`) in both, which deletes this branch's `D-0067` and
+  `H-0148`..`H-0150` | both blocks, this branch's first in each log -- id order, which here is also git's
+  hunk order | both blocks, main's first, arrival order | both blocks with one side's ids renumbered into
+  free numbers, as the yield rule does when an id is taken | `git merge -X ours` / `-X theirs` / `--union`
+  for the two logs, and let git settle it | concatenate the two whole files
+- Chose: both blocks, this branch's first in each log -- id order, which here is also git's hunk order
+- Why: the two files are two different shapes, and the cut follows from measuring them rather than from
+  repeating one recipe. `factory/DECISIONS.md` is the shape `H-0143`..`H-0145` met: base 6847 lines, both
+  sides appending at the same anchor (ours `@@ -6845,3 +6845,213 @@`, main `@@ -6845,3 +6845,86 @@`), so the
+  merged file is this branch's whole file plus main's lines 6848..6930. `DECISIONS.md` is **not** a pure
+  append on main: its diff is three hunks -- `@@ -2761,6 +2761,23 @@`, `@@ -2972,6 +2989,19 @@` and
+  `@@ -3686,3 +3716,62 @@` -- and the two interior ones are main's own dated corrections beside `D-0054`
+  and `D-0057` (#296's item 4), in text this branch never touched, so they auto-merge and only the EOF hunk
+  collides. Keeping those corrections is therefore a property of the cut: main's 1..3718, then this branch's
+  3689..3757 (`D-0067`, blank line included), then main's 3719..3777 (`D-0068`) -- 3846 lines, against 3688
+  base + 69 + 89. Line ranges come out of `git show HEAD:` and `git show origin/main:`, never out of the
+  conflicted file (`H-0142`'s cut, kept by `H-0145`), because a conflict hunk is git's guess about alignment.
+  Order is arithmetic, not taste, and was tested rather than asserted: `scripts/check-decisions.py` refuses a
+  number lower than its predecessor, this branch holds the lower ids in both logs (`D-0067` < `D-0068`,
+  `H-0148`/`H-0149`/`H-0150` < `H-0151`), so id order and git's hunk order coincide. The same two files cut
+  the other way round come back red twice -- 1 problem, `DECISIONS.md:3779: D-0067 is out of order (D-0068
+  came before it)`, and 3 problems naming `H-0148`, `H-0149` and `H-0150` against `H-0151` -- while the
+  shipped cut answers `53 entries` and `147 entries`, exit 0. `H-0142` had the opposite geometry and its gate
+  refused git's own layout; `H-0145` had this one and had nothing to refuse.
+  Options 1 and 2 are deletions: `--ours` removes the `Checkpoint:` line of main's two entries and of both
+  interior corrections, `--theirs` removes this branch's five, and a `Checkpoint:` is the address a person
+  types into `git revert`. Option 4 is the ordering just measured red. Option 5 is refused by measurement --
+  no id is used twice (`grep -oE '^## [DH]-[0-9]{4}' | sort | uniq -d` over both merged files answers
+  nothing), the yield rule moves a number only where two branches took the same one, and renumbering an id
+  already on `main` means rewriting published history by force-push, which `.opencode/opencode.jsonc` denies
+  and this repository makes permanent either way. Options 6 and 7 are refused by what they produce: `-X`
+  silently drops one side's lines and `--union` on this file duplicates headings, the defect #287 is about
+  and `H-0144` measured here.
+  The allocator was read twice and the id probed across refs, because #303's window is the one this branch
+  has been caught by: `H-0152` at a 3s-old union, `H-0152` again at 133s, both a `REFRESH` line and neither
+  `REFRESH-BLIND`, and a loop over every `refs/heads` and `refs/remotes` ref finds `0` carrying an `## H-0152`
+  heading. The product log's allocator answers `D-0069` and goes unused, because this is harness work;
+  `D-0067` and `D-0068` arrived already numbered and did not move.
+- Effect: the two splices and this entry, inside the merge commit. Proof it moved nothing: against each
+  parent the staged file deletes **0** lines (85 and 81 added over `HEAD`, 67 and 205 added over main -- a
+  line diff re-aligns on equal text, so the deletion count is the claim and the addition count is not), and
+  five block-level `diff` runs come back byte-identical to their parent: `D-0067`'s 69 lines against
+  `HEAD:DECISIONS.md` 3689..3757, `D-0068`'s 59 against main's 3719..3777, main's whole 1..3718 head -- which
+  is where both interior corrections live -- this branch's whole 7057-line harness log, and main's `H-0151`
+  block against its 6848..6930. No conflict marker survives either file (`grep -c '^<<<<<<< \|^=======$\|^>>>>>>> '`
+  answers 0 and 0). `python3 scripts/check-decisions.py` on the merged tree: `200 entries across 2 log(s)`,
+  exit 0, before this entry.
+  What the merge does to the record, measured rather than conceded. A throwaway instrument (precedent
+  `H-0145`; #318 owns a shipped one) took every coordinate-shaped citation in the lines *added* by either
+  side, read the named line out of the tree that side committed on, and looked for that text in the merged
+  tree: **22 rows, 16 unique probes, 16 unchanged, 0 moved, 0 ambiguous, 0 whose target text is gone, 0 past
+  EOF.** The small count is a fact about these six entries, not a hole in the instrument: a raw token census
+  over the same added lines finds 8 fresh coordinates on this branch and 7 on main, and the 2 extra rows are
+  bare `:NNN` continuations resolved against the file named earlier on their line. Same instrument, whole
+  tree: **301 resolvable citations on the merge base, 309 on this branch, 313 on main, 321 merged, and
+  exactly 1 citation past the end of the file it names on all four trees** -- the same row every time,
+  `DECISIONS.md:1020` citing `README.md:588` in a 350-line file. That one is pre-existing, unowned, and left
+  exactly as found (#1180: a silently corrected record is indistinguishable from one that was always right);
+  it is #318's measurement with a concrete coordinate. The one fresh citation whose target this branch *did*
+  rewrite still lands: main's `H-0151` cites `factory/common.sh:340` for the `log()` append, this branch adds
+  264 lines to that file, and line 340 merged is still `log "$*" >>"$FACTORY_LOG/supervisor.log"`.
+  Git's silence on the auto-merged files is not a verdict, so both intents were read for, not assumed. This
+  branch's: `docs/factory.md:952` still says `LOG-AT` is on every pass *that reaches the pass body*, and
+  `:955-958` names the four self-report lines as living inside `factory_body` with the halt check exiting
+  before it -- the narrowed sentence `H-0150` chose rather than the hoist it refused -- and `factory/factory.sh:183-192`
+  is still that block: `log_event "HALTED …"` then `exit`, before `factory_body` is called. Main's:
+  `factory/triage.sh` classifies `delivered` in both halves (`:16`, `:18`, `:67`, `:179`), `docs/factory.md:231`
+  and `:273` carry the `branch delivered` rule and the 32-rows-before / 69-after measurement, `AGENTS.md:50`
+  still names `factory/escalation-label.sh` rather than a literal label -- so #311's open question survives
+  this merge in exactly its one home -- and `NEXT.md` arrives at 58 lines. `factory/selftest.sh` holds main's
+  17 `issue-902` fixture references beside this branch's 673 new lines, and `grep -E '^#{1,4} ' docs/factory.md | sort | uniq -d`
+  prints nothing: no duplicated heading. The merged tree runs `factory/selftest.sh: 563 passed, 0 failed`,
+  and that number is the union rather than a coincidence: the merge base runs 533 legs, this branch 544
+  (`cc85761` recorded 543 and `H-0149` added one), main 552 (`7bd9245` recorded it), and 533 + 11 + 19 = 563
+  -- no leg lost on either side, which is the claim `cc85761` made without the arithmetic and #335 is the
+  reason a tally alone is not one.
+  Two shadows were hunted because each of this branch's earlier merges found one. `factory/selftest.sh`
+  defines a top-level `emit()` twice -- 2 on the base, 2 on this branch, 2 on main, 2 merged -- pre-existing
+  on both sides, neither created nor hidden here, and not this unit's to chase. And the `.go` census is
+  asymmetric for the first time on this branch: this side changes 1 file (`cmd/plock/serve_test.go`, `D-0067`,
+  already on `HEAD` and already green in CI) while main changes 0, so the merge itself rewrites no `.go` file
+  and retires no `scripts/mutations` anchor; `grep -l` over `scripts/mutations/*.json` for `triage.sh`,
+  `NEXT.md`, `AGENTS.md` and `selftest.sh` -- the files main actually changed -- answers nothing, so
+  `make check-mutations` was not run for this commit. `make verify` on the merged tree with this entry in it,
+  and its exit status, are quoted in the pull-request body, because an `Effect:` written before the gate runs
+  is a prophecy (#1180).
+  Nothing here is an escalation class: no dependency, no change to what a `deny` refuses, nothing published,
+  nothing deleted, no pull request merged -- the denied verb is `gh pr merge`, and `git merge origin/main`
+  into a unit branch is the operation `docs/factory.md` tells a unit to perform; the supervisor's merge of
+  #330 is still ahead of this commit and untouched by it. The undo is `git revert -m 1 <this merge>`, back to
+  the checkpoint below.
+- Checkpoint: c9b650f9c9178be1041bf3927d95d18e2dcd7826
