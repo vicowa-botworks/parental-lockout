@@ -14,6 +14,7 @@
 #   issue   213       unclaimed            <title>                        -       213    -
 #   issue   199       unclaimed            [merged:PR#229 on `issue-199`  -       199    -
 #   issue   232       delivered            merged PR #234 on `issue-232` at 2026-…  -   232   -
+#   issue   311       parked               labelled `$FACTORY_ESCALATION_LABEL`: … -   311    -
 #   branch  fix/x     branch_without_pr    3 file(s) across 2 commit(s)   fix/x   -      -
 #   branch  issue-249 delivered            merged PR #293 on `issue-249` at …  issue-249  -  -
 #
@@ -24,7 +25,9 @@
 # leftover of a pull request that already merged holds nothing the trunk lacks, and saying so is the
 # difference between a delivery and a branch that vanished. `review_unreadable` is the second of those,
 # and it exists because the class next to it used to dispatch a tick at a review whose body had
-# never arrived (#242) -- see the block in the CHANGES_REQUESTED arm.
+# never arrived (#242) -- see the block in the CHANGES_REQUESTED arm. `parked` is the third, and it
+# is the one an agent writes: the label a unit applies when it reaches a decision that is not its own
+# is now read back out of the same payload every other verdict comes from (#313).
 #
 # `ask` is the seventh column and the only one a reviewer writes. It is the reviewer's own words,
 # bounded, carried in the row so the tick dispatched to answer them is dispatched WITH its input
@@ -58,17 +61,19 @@ usage() {
 usage: triage.sh [--table] [--pr N]
 
 Reads open and merged pull requests, open issues and origin's branches, and prints one TSV row per
-thing that needs something (or, for `delivered`, one row per thing that needs nothing):
+thing that needs something (or, for `delivered` and `parked`, one row per thing that needs nothing
+from the harness):
 
   kind   one of pr | issue | branch
   key    the number, or the branch name
   class  merge_now | conflict | checks_failing | checks_pending | address_review |
          review_unreadable | needs_reviewer | awaiting_review | awaiting_merge | draft |
-         unclaimed | delivered | branch_without_pr
+         unclaimed | parked | delivered | branch_without_pr
   detail why that class, with the timestamps the verdict was made from. One `unclaimed` row may open
          with `$FACTORY_MERGED_MARK` -- a merged pull request named the issue and the sole-claim or
          `Part of` arm refused it, so part of this ticket may already be on the trunk. The class and
-         the tick are unchanged; see the refused-claim block.
+         the tick are unchanged; see the refused-claim block. A `parked` row names the label it read
+         (#313), which is the only trace an escalating unit can leave that a later pass will see.
   branch the PR head / orphan branch
   issue  the issue GitHub says the PR closes, when there is one
   ask    the reviewer's own words for `address_review`, bounded at
@@ -172,7 +177,7 @@ pr_rows=$(printf '%s' "$pr_json" | jq -r "
 # doing nothing for ten minutes.
 CLOSING_OK=1
 queue_json=$(gh api graphql \
-	-f query='query($o:String!,$n:String!){repository(owner:$o,name:$n){pullRequests(states:OPEN,first:100){pageInfo{hasNextPage}nodes{number closingIssuesReferences(first:20){nodes{number}}}}issues(states:OPEN,first:100){pageInfo{hasNextPage}nodes{number stateReason}}}}' \
+	-f query='query($o:String!,$n:String!){repository(owner:$o,name:$n){pullRequests(states:OPEN,first:100){pageInfo{hasNextPage}nodes{number closingIssuesReferences(first:20){nodes{number}}}}issues(states:OPEN,first:100){pageInfo{hasNextPage}nodes{number stateReason labels(first:10){nodes{name}}}}}}' \
 	-f o="$FACTORY_OWNER" -f n="$FACTORY_NAME" 2>/dev/null) ||
 	queue_json=''
 
@@ -195,6 +200,9 @@ queue_json=$(gh api graphql \
 # own line so a log can tell the two apart.
 closing_json=''
 reopen_json=''
+park_json=''
+park_bound=''
+park_field=''
 queue_truncated=''
 if [ -n "$queue_json" ]; then
 	closing_json=$(printf '%s' "$queue_json" | jq -c \
@@ -205,6 +213,36 @@ if [ -n "$queue_json" ]; then
 	reopen_json=$(printf '%s' "$queue_json" | jq -c \
 		'[.data.repository.issues.nodes[]|{(.number|tostring):(.stateReason // "NONE")}] | add // {}' 2>/dev/null) ||
 		reopen_json=''
+	# Which open issues carry the label that means "a human owes this one a decision" (#313). The
+	# name is not written here: it is `$FACTORY_ESCALATION_LABEL`, the one line in `common.sh` that
+	# `factory/escalation-label.sh` exists to print, because #311 has not settled what the name is and
+	# a reader that hardcodes a name pre-empts that decision while quietly matching nothing.
+	#
+	# `labels` missing from a node is not "no labels". A payload where NO issue node carries the key
+	# is a payload that is not the one this query asked for -- the same reading `pageInfo` gets below,
+	# where a missing bound is a refusal and not a `false` -- so it is said out loud rather than
+	# emitted as a queue in which nobody has ever escalated anything.
+	park_json=$(printf '%s' "$queue_json" | jq -c --arg l "$FACTORY_ESCALATION_LABEL" \
+		'[.data.repository.issues.nodes[]
+		  | select((.labels.nodes // []) | map(.name) | index($l) != null)
+		  | {(.number|tostring): true}] | add // {}' 2>/dev/null) ||
+		park_json=''
+	park_field=$(printf '%s' "$queue_json" | jq -r '
+		[.data.repository.issues.nodes[]] as $i
+		| if ($i | length) > 0 and ($i | any(has("labels")) | not) then "missing" else "present" end' \
+		2>/dev/null) || park_field='missing'
+	# `labels(first:10)` is a bound like any other, and this one fails in one direction only: an issue
+	# whose tenth label IS the escalation label is still found, because the match is positive evidence.
+	# What the bound can cost is the park that is not there -- the eleventh label -- and an issue read
+	# that way is reported `unclaimed` while a human believes it is left alone. So the sentence names
+	# only the issues where the bound actually cost something, and the ambiguity resolves toward the
+	# tick: re-offering a parked ticket loses an afternoon, dropping a row loses the work.
+	park_bound=$(printf '%s' "$queue_json" | jq -r --arg l "$FACTORY_ESCALATION_LABEL" '
+		[.data.repository.issues.nodes[]
+		  | ((.labels.nodes // []) | map(.name)) as $names
+		  | select(($names | length) >= 10 and (($names | index($l)) == null))
+		  | (.number|tostring)] | join(" ")' \
+		2>/dev/null) || park_bound=''
 	# Deliberately not `if … then "yes" else "no"`: `all(… == false)` makes the explicit `false` the
 	# only clearing value, so null (a renamed field, a payload with the connection missing) lands on
 	# the refusal side rather than the verdict side. A jq that cannot answer is `yes` as well, by the
@@ -218,12 +256,69 @@ if [ -z "$closing_json" ] || [ -z "$reopen_json" ]; then
 	CLOSING_OK=0
 	closing_json='[]'
 	reopen_json='{}'
+	park_json='{}'
 	printf 'triage: the queue payload did not answer; issues skipped this pass\n' >&2
 elif [ "$queue_truncated" = "yes" ]; then
 	CLOSING_OK=0
 	closing_json='[]'
 	reopen_json='{}'
+	park_json='{}'
 	printf 'triage: the queue read stopped at its pagination bound (first:100); issues skipped this pass\n' >&2
+fi
+if [ "$CLOSING_OK" = "1" ]; then
+	[ -n "$park_json" ] || park_json='{}'
+	if [ "$park_field" = "missing" ]; then
+		printf 'triage: the queue payload carried no `labels` on any issue, so nothing can be read as parked this pass\n' >&2
+		park_json='{}'
+	fi
+	[ -z "$park_bound" ] ||
+		printf 'triage: these open issues filled the labels(first:10) read, so their park status is unknown and they stay workable: %s\n' \
+			"$park_bound" >&2
+	# A reader that matches nothing looks exactly like a queue with nothing parked, and that is the
+	# difference between a healthy pass and a class that has never fired once. `#311` is the open
+	# decision about what the name even is, and its finding is that the name `AGENTS.md` tells a unit
+	# to apply does not exist as a label in this repository (measured 13 Nov: 18 labels, none of them
+	# the instructed one, so `--add-label` has nothing to attach). Until something says so on every
+	# pass, the silence reads as "no escalations outstanding" -- which is the same misreading #216 made
+	# of empty files whose name promised a verdict. Only the empty case asks the question: when a row
+	# IS parked, the label demonstrably exists.
+	if [ "$park_json" = "{}" ]; then
+		label_json=''
+		# A string verdict, not a numeric test on `$?`, because that is how every other read in this
+		# file decides (see `CLOSING_OK` and `queue_truncated` above) and for the same reason: the
+		# number belongs to the sentence, never to the branch. The branch asks one question -- did the
+		# read answer -- and a verdict word says that while `-ne 0` makes the reader reconstruct it.
+		# `scripts/check-scripts.py` refuses the numeric form here for its own reason: a variable
+		# assigned a literal 0 is a flag, and a flag in command position is a bug that passes `bash -n`
+		# and the linter alike.
+		label_state=ok
+		label_rc=''
+		label_json=$(gh label list --limit 200 --json name 2>/dev/null) || {
+			# `label_rc` is captured as the group's FIRST statement: an assignment sets `$?` to 0, so
+			# writing the verdict word first would record the assignment and print `gh exit=0` about a
+			# read that failed with 6. The leg that plants `CLAIM_LABEL_FAIL=6` is what says so.
+			label_rc=$?
+			label_state=failed
+		}
+		if [ "$label_state" = "failed" ]; then
+			# A read that failed is not a label that is absent: say which of the two happened, in the
+			# voice that says the other one.
+			printf 'triage: nothing is parked and the label list could not be read (gh exit=%s), so this pass cannot say whether `%s` exists\n' \
+				"$label_rc" "$FACTORY_ESCALATION_LABEL" >&2
+		elif ! printf '%s' "$label_json" | jq -e 'type == "array"' >/dev/null 2>&1; then
+			printf 'triage: nothing is parked and the label list was not a list, so this pass cannot say whether `%s` exists\n' \
+				"$FACTORY_ESCALATION_LABEL" >&2
+		elif ! printf '%s' "$label_json" | jq -e --arg l "$FACTORY_ESCALATION_LABEL" 'map(.name) | index($l) != null' \
+			>/dev/null 2>&1; then
+			if [ "$(printf '%s' "$label_json" | jq -r 'length')" -ge 200 ]; then
+				printf 'triage: nothing is parked, and the label read stopped at its 200-name bound, so `%s` may simply have fallen off it\n' \
+					"$FACTORY_ESCALATION_LABEL" >&2
+			else
+				printf 'triage: nothing is parked, and `%s` is not a label in this repository, so no issue can be parked at all -- #311\n' \
+					"$FACTORY_ESCALATION_LABEL" >&2
+			fi
+		fi
+	fi
 fi
 
 issue_for_pr() {
@@ -734,6 +829,18 @@ was_reopened() { # was_reopened <issue>
 	printf '%s' "$reopen_json" | jq -e --argjson n "$1" '.[($n|tostring)] == "REOPENED"' >/dev/null 2>&1
 }
 
+# Has a unit parked this issue under its own hand? `#313`: `AGENTS.md` and the skill both end an
+# escalating unit by commenting, labelling, and stopping, and the label is the only half of that
+# ending a machine could ever see. Until this predicate existed nothing read it -- measured at
+# `65e980b`, `grep -c labels` was `0` in `triage.sh` and `0` in `factory.sh` -- so the ticket that
+# ended honestly returned to `unclaimed` and spent another ceiling re-deriving the deadlock it had
+# just described. This reads the payload the issue half already fetches, which keeps the header's
+# rule intact: everything here is still derived from the API on this run, no cached queue, no
+# remembered state.
+is_parked() { # is_parked <issue>
+	printf '%s' "$park_json" | jq -e --argjson n "$1" '.[($n|tostring)] == true' >/dev/null 2>&1
+}
+
 # --------------------------------------------------------------------- issues
 
 if [ "$CLOSING_OK" = "1" ]; then
@@ -784,22 +891,35 @@ if [ "$CLOSING_OK" = "1" ]; then
 			# column's job (H-0055).
 			rows+="$(emit issue "$number" delivered "$claim (window $FACTORY_DELIVERED_WINDOW)" '' "$number")"$'\n'
 		else
-			# The refusal travels with the row instead of being dropped (#277). A tick that arrives at
-			# this issue knowing `merged PR #229 named it on `issue-199` and the sole-claim rule
-			# refused` starts from a diff to read; the same tick without the note starts from zero and
-			# spends the ceiling re-deriving what the scan already knew, which is the seventeen minutes
-			# measured above. It is put at the START of the detail because `factory.sh` matches the
-			# marker anchored there, and what follows it is a title somebody typed.
-			#
-			# The class does not move. This row is still `unclaimed`, it still gets its tick, and the
-			# only thing that changes is what the tick is told on the way in -- because the refusal
-			# being right is exactly why the issue must keep being worked: #246 is here now, refused by
-			# a `Part of` that told the truth about unfinished work.
-			note=''
-			if ! was_reopened "$number"; then
-				note=$(refused_note "$number" "$updated")
+			# Parked beats unclaimed, and loses to delivered. Both of those classes start nothing, so
+			# the order is decided by which sentence a person needs: an issue whose fix is verifiably
+			# on the trunk is better reported as delivered than as waiting, and an issue a unit parked
+			# because it reached a decision that is not its own is worse re-offered than left alone.
+			# Re-offering it is the measured cost -- #301 was dispatched at 20:11, 21:07 and 22:03Z on
+			# 13 Nov, each run killed by the 2700 s ceiling (`TICK-FAILED … exit=124`), each one
+			# re-deriving what the last one had already worked out and threw away, and `#301`'s own
+			# `updatedAt` never moved because the terminal write is the first thing a truncated budget
+			# costs. A label is that terminal write.
+			if is_parked "$number"; then
+				rows+="$(emit issue "$number" parked "labelled \`$FACTORY_ESCALATION_LABEL\`: a human owes this one a decision, so nothing is dispatched" '' "$number")"$'\n'
+			else
+				# The refusal travels with the row instead of being dropped (#277). A tick that arrives at
+				# this issue knowing `merged PR #229 named it on `issue-199` and the sole-claim rule
+				# refused` starts from a diff to read; the same tick without the note starts from zero and
+				# spends the ceiling re-deriving what the scan already knew, which is the seventeen minutes
+				# measured above. It is put at the START of the detail because `factory.sh` matches the
+				# marker anchored there, and what follows it is a title somebody typed.
+				#
+				# The class does not move. This row is still `unclaimed`, it still gets its tick, and the
+				# only thing that changes is what the tick is told on the way in -- because the refusal
+				# being right is exactly why the issue must keep being worked: #246 is here now, refused by
+				# a `Part of` that told the truth about unfinished work.
+				note=''
+				if ! was_reopened "$number"; then
+					note=$(refused_note "$number" "$updated")
+				fi
+				rows+="$(emit issue "$number" unclaimed "${note}${title}" '' "$number")"$'\n'
 			fi
-			rows+="$(emit issue "$number" unclaimed "${note}${title}" '' "$number")"$'\n'
 		fi
 	done < <(gh issue list --state open --limit "$issue_limit" --json number,title,updatedAt \
 		--jq '.[] | [.number, (.title | gsub("[\t\r\n]"; " ")), (.updatedAt // "")] | join("\u001f")' 2>/dev/null) ||
