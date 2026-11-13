@@ -3717,6 +3717,69 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   at `083ef53`, this draft being the only text anywhere carrying the heading (#303: the read is the only
   lock there is).
 
+## D-0066 · Seven published frames are dated at a page change their own pixels' history predates: re-take the set, or re-date the seven rows and ship the red gate #301 prefers
+
+- Question: seven rows of `docs/screenshots/360/manifest.json` carry `sources_rev` `2088043cb` while the
+  newest commit touching their own PNG is older -- `3bcbfdd` (8 Nov 12:13) for six of them and `b9eeec3`
+  (6 Nov 11:34) for `audit.png` -- and the commit that moved all nine revs, `7e65d3b`, landed eighteen
+  seconds after `2088043cb` and contains no photograph (`git show --name-only --format='' 7e65d3b |
+  grep -c '\.png$'` prints 0). `manifest.py check` answers *9 photographs current*, rc 0, with a clause
+  disclaiming the seven. #301 offers two remedies and prefers the second: re-date the seven rows to the
+  newest commit over each PNG first, "because it converts a silent lie into a red gate at the cost of one
+  edit", and only then re-take. Which one does the delivered evidence say -- and what does the re-take,
+  which is the only option whose premise can be checked, turn out to measure?
+- Options: re-take all nine through the README recipe and `record` them all named | re-date the seven rows to the newest commit touching each PNG and ship the red gate | leave the manifest alone and deliver only the measurement
+- Chose: re-take all nine through the README recipe and `record` them all named
+- Why: the re-take ran first and it refuted the remedy #301 prefers. Four fixtures re-seeded, four drivers
+  run with `--out docs/screenshots/360 --overwrite`, then one `record` naming all nine with `--shot` and
+  handing over all four `fixture.env` files: **all nine frames came back byte-identical to the committed
+  files** -- `sha256` equality, nine of nine, on two independent passes, `git diff` over the nine PNGs
+  empty -- including `audit.png`, the row #301 calls "the worst row and the oldest". So `2088043cb` moved
+  no pixel on those seven: the sentence its own message makes ("two PNGs changed and seven byte-identical
+  -- the browser's half of the claim that `.exempt` moved no pixels") holds, and the two frames that did
+  change are exactly the two rows #301 found honest. What #301 measured is real but it is a fact about
+  git, not about the pages -- nobody has been shown an old page -- and what is broken is that nothing in
+  this repository can tell a re-take from a re-dating. That settles option two on the tie-break order
+  rather than on taste. Measured in a clone of this branch, re-dating the seven makes `check` exit 1 over
+  exactly seven problems, every one of them ending "Re-take it and re-run `manifest.py record`" -- an
+  instruction this branch has just carried out, which silences none of the seven, because a re-take that
+  changes no bytes never produces a commit touching the PNG, so `newest_commit(png)` can never catch a
+  page commit that moved no pixels. Option two therefore does not report a defect, it asserts one: "The
+  page grew and the photograph did not" is false of these bytes and stays false through every future
+  re-take. Tie-break three -- refuse rather than proceed on what a measurement contradicts -- is what
+  refuses it; tie-break six is this folder's own sentence, "Closing it takes a re-take, not an edit".
+  Option three keeps seven `carried_from` fields whose stated purpose is "so a reader can ask that commit
+  what the frame was rendered from", answering `3bcbfdd41` for pixels whose certification is the mint:
+  custody paperwork that walks to a fabrication and calls it provenance.
+- What lost: the delivered diff is far smaller than the ticket promised -- seven deleted `carried_from`
+  lines plus `captured_at` and `head`; zero PNG bytes, zero `sources_rev` values and zero `capture` blocks
+  moved -- and being smaller, it is indistinguishable *in the file* from the hand edit #301 forbids. That
+  residue is not small: `current` is still `newest_commit(sources)`, so this commit is itself a run that
+  photographed nine frames with only its own word for it, the same shape as `7e65d3b`. Its transcript
+  lives in `testing/capture/runs/`, which is gitignored, so what a reviewer holds is a proof *procedure*
+  (re-seed, drive, compare nine digests) and not a proof -- the same "a notice, not a lock" limit
+  `D-0062` conceded for locator sentences. Deleting `carried_from` also removes the only in-file trace
+  that `7ff2a67` carried these revs forward; that chain now survives only in this file's parent commit
+  and on #301. And option two's finding outlives this entry in one place that matters: #302 proposes
+  detecting a minted rev by comparing `recorded == current` against `newest_commit(png)` -- the same arm
+  -- and it was measured here against the post-record manifest, where it refuses these same seven rows
+  with exit 1. A guard built that way can never be satisfied by an honest set, because which rows it
+  passes is a property of whether a page edit happened to move pixels. Recorded on #302; what closes it
+  is a field that says a run took the frame, not a second reading of history.
+- Checkpoint: 7506fad
+- Effect: three files, each read back before this line was written. `docs/screenshots/360/manifest.json`:
+  `captured_at` now `2026-11-11T23:45:35Z`, `head` now `7506fad0afb8…`, seven `carried_from` keys gone
+  (`grep -c` answers 0 where it answered 7), every `sources_rev`, every `png_sha256` and every `capture`
+  block byte-identical to `7506fad`'s copy, and `manifest.py check` lost its disclaimer -- it prints "9
+  photographs current … 9 of them also stating the fixture and conditions they were taken under", rc 0,
+  with no "7 of them are carried" clause. `testing/capture/README.md`: +37/-9 -- the paragraph that
+  opened "The published set carries the specimen" opens "The specimen one step further along is in `git
+  show 7e65d3b`, and it is the state of *that* tree" (old opener: 0 occurrences), followed by the 11 Nov
+  outcome and by the unsatisfiable-remedy note. `testing/capture/manifest.py`: five comment lines under
+  the unclaimed-frame clause naming `7e65d3b` as the specimen rather than the published file, no code
+  changed. Gate: `make verify` over the delivered tree answers `verify: OK`, and the log tail is quoted in
+  the pull-request body rather than this line asserting it (#1180).
+
 ## D-0067 · Run 43296841286's red `verify` is a test reading a stream the daemon had not reached: wait for either startup verdict, wait only for the report line, or loosen the assertion
 
 - Question: `gh pr view 330 --json statusCheckRollup` reads `verify=FAILURE` on head `f282990` while
@@ -3844,3 +3907,258 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `make verify` over the tree carrying this entry is quoted with its exit status in the pull-request
   body rather than here, because an `Effect:` field written before the gate runs is a prophecy
   (#1180).
+
+## D-0069 · The re-review leaves three documentation defects optional on a branch colliding with `main` for the third time: carry them on the conflict push, ship only the sentence this PR falsified, or keep the product diff at zero
+
+- Question: the re-review at `bb110c1` blocks on one thing — `mergeable: CONFLICTING` and
+  `mergeStateStatus: DIRTY` against a `main` 13 commits ahead — and separately names three precision
+  items that are "not a reason to hold the PR" and free to "land here or in whatever carries #302". All
+  three were re-measured here before any of them was touched. (1) `testing/capture/manifest.py:525` at
+  `835a55a` said, in the present tense of the published file, that `lock.png` and `testlock.png` "are
+  the only two of the nine entries with no `carried_from`" — after this PR zero of the nine carry, so
+  the sentence is false of the file it names, and it is false *because of this PR*; the other two
+  predate it. (2) `testing/capture/manifest.py:537` at `835a55a` points at "the clause below", but the
+  clause below is the unclaimed-frame refusal at `:539` while the sentence goes on to describe
+  `sources_rev`, which is fed by `current = newest_commit(sources, run=run)` at `:487` — above, not
+  below, and unnamed. (3) `testing/capture/manifest.py:527` at `835a55a` dates `7e65d3b` "two minutes
+  after `2088043` landed", where `git show -s --format=%ct` gives 1794173737 then 1794173755: eighteen
+  seconds, the figure `testing/capture/README.md:725` at `335c6f4` and `D-0066` already carry, so the
+  file is the third party in a three-way disagreement inside one repository. A fourth came as a nit:
+  `testing/capture/README.md:754` at `835a55a` quoted the drift arm's instruction and stopped at the
+  comma before the words that carry the finding. Which of these rides a push that has to happen anyway,
+  when every push into a reviewed pull request spends the approval it holds and this branch has already
+  spent two that way?
+- Options: land all four here, each rewritten inside the line count it already occupies | land only the
+  sentence this PR falsified and defer the two it inherited | land none of them and keep the product diff
+  at zero for the re-review
+- Chose: land all four here, each rewritten inside the line count it already occupies
+- Why: tie-break three — refuse rather than proceed on what a measurement contradicts — is what
+  separates these, and it separates them by degree, which is the whole question. Option two ships two
+  sentences known false (items 2 and 3 are false whether or not this PR made them so) and option three
+  ships three; only option one ships none. Tie-break four does not rescue deferral: all four live in
+  `testing/capture/manifest.py` and `testing/capture/README.md`, both already opened by this PR, so
+  deferring changes the commit count and not the file count, and the push is required by the blocking
+  item either way — there is no quieter review for sale. Tie-break six is this branch's own precedent:
+  the PR already refused the deferral once at `testing/capture/README.md:722-724` at `335c6f4`, where
+  the same present-tense claim was rewritten to "it is the state of *that* tree … **there** … **were**
+  the only two" instead of being left for #302, so option two would leave one half of a single
+  sentence-pair corrected and the other half false, in two files describing one specimen. `D-0068` is
+  the log's version of the same instinct — a sentence that has become false gets a dated correction
+  beside it rather than being left standing. What made this a decision and not an edit is the shape the
+  fixes had to take: both `DECISIONS.md` and `factory/DECISIONS.md` cite `path:NNN` coordinates into
+  these two files, including `manifest.py:749` and `README.md:1005`, both *below* the text being changed
+  — #318's hazard, 272 citations with two already broken — so every replacement had to be line-neutral:
+  15 comment lines in and 15 out (`git show --numstat 335c6f4` on `testing/capture/manifest.py` counts
+  15/15; the block at `:523-538` spans 16 lines and one of them survived byte-identical), a 10-line
+  paragraph in and 10 out. That constraint is what decided *how* each sentence is worded, and it is why
+  the fixes are compressions of existing prose rather than appends.
+- What lost: the re-review can no longer be discharged the way `bb110c1`'s was. At that head the
+  reviewer's own measurement was "none of the four product files moved", so the previous numbers
+  transferred by inspection; after this commit the next reader has to read 16 comment lines and a
+  rewrapped paragraph in the two files that hold the finding's prose. Paying for the quote also meant
+  re-tightening three clauses of the README paragraph that were not wrong ("measured in a clone of this
+  branch" became "measured in a clone"), so the paragraph is new prose nobody has reviewed word for word,
+  not a two-character fix. And the PR's own "five comment lines, no code changed" sentence in `D-0066`'s
+  `Effect:` now understates this branch's surface in that file — it still describes the commit it was
+  written for, and it no longer describes the head.
+- Checkpoint: 5db210c
+- Effect: two files, both line-neutral, both read back before this line was written.
+  `testing/capture/manifest.py`: the 16-line comment block at `:523-538` replaced in place — the
+  specimen was scoped to one tree (the wording `335c6f4` shipped, "it is `git show 7e65d3b`'s tree, not
+  the published file; there `docs/screenshots/360/manifest.json` dated … they **were** the only two";
+  `D-0070` splits it across the two trees that hold each half), the interval is eighteen seconds with
+  both stamps quoted, and the pointer names its target: "the entry below takes `sources_rev` from
+  `current` = `newest_commit(sources)`, the PAGE's rev". File still 2264 lines; with `^[[:space:]]*#`
+  lines stripped the file is byte-identical to its `835a55a` copy across all 1957 code lines, so the
+  edit is comment-only and no executable line moved; `manifest.py --self-test` answers 44 rules hold and
+  `manifest.py check` answers *9 photographs current*, rc 0. `testing/capture/README.md`: the paragraph
+  at `:751-760` rewritten inside its own 10 lines and the file still 1183, now quoting the instruction
+  whole through "…what it may not be is older than the page." Across both decision logs the citation
+  corpus needs its rule stated before its number means anything: a coordinate is a `path:NNN` written
+  with a directory separator, the path read from the repository root, counted once per (path, line) pair
+  whose path is a tracked file and whose line number is inside that file at the tree being read. `grep
+  -ohE '[A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+:[0-9]+' DECISIONS.md factory/DECISIONS.md`, resolved and
+  de-duplicated at `335c6f4`, is 126 coordinates, 4 of them naming a line in the two capture files this
+  commit edits -- the 11 is the count at `7dd09d1`, which is the tree `D-0070` reads it from and states
+  it at; diffing every cited line between `835a55a` and `335c6f4` moves exactly one —
+  `testing/capture/manifest.py:525`, introduced by this entry to quote pre-fix text and pinned at
+  `835a55a` above. Bare shorthand (`:539`, `manifest.py:749`) is outside that rule by construction,
+  which is why every coordinate this branch could break now spells its path and names its tree; `D-0070`
+  re-runs the same audit after its own edits.
+
+
+## D-0070 · The 4th-pass review finds the fix for item (1) names `7e65d3b` for a property only `7ff2a67` has: re-point the specimen at the later tree, split it across the two that hold each half, or drop the comparison
+
+- Question: the 4th-pass review (`5885522495`, 13 Nov) blocks on one sentence pair:
+  `testing/capture/manifest.py:524-526` and `testing/capture/README.md:723-724` at `335c6f4` both say
+  the mint specimen is `git show 7e65d3b`'s tree and that there `lock.png` and `testlock.png` "were the
+  only two of the nine entries with no `carried_from`". Census of `carried_from` in
+  `docs/screenshots/360/manifest.json`, rows carrying out of nine (`git show
+  $t:docs/screenshots/360/manifest.json | grep -c '"carried_from"'`): `5d47d01` 0 · `7e65d3b` 0, where
+  the string is not in the file at all · `7ff2a67` 7 · `0499c610c^` 7 · `origin/main` 7 · this head 0.
+  `7e65d3b` is an ancestor of `7ff2a67` (`git merge-base --is-ancestor`), so at the tree both sentences
+  name the comparison selects nothing and "the only two" is true of nine rows, not two. The tree where
+  those two are the only uncarried pair is `7ff2a67` — the commit that introduced the key (`git log
+  --all -S'"carried_from"' -- docs/screenshots/360/manifest.json` answers `7ff2a67`, then `0499c61`,
+  which deletes the seven) — and `main` publishes that identical blob today (`780d5bbd7` at `7ff2a67`
+  and at `origin/main`). The mint half *is* `7e65d3b`'s and was re-read there rather than trusted: `git
+  rev-list --parents -n1 7e65d3b` names `2088043cb`; its own `--stat` touches `DECISIONS.md` and the
+  manifest and nothing else; and its manifest diff replaces `"sources_rev": "3bcbfdd…"` with
+  `"2088043cb…"` in all nine rows — the page's rev replacing each row's, which for six of the nine was
+  that frame's own newest commit (`audit.png`'s newest was `b9eeec3`, and `2088043` itself had re-taken
+  `profiles-refused.png` and `settings.png`), eighteen seconds after that page commit landed
+  (1794173737 → 1794173755). So: re-point the pair at the later
+  tree, split it across the two trees that hold each half, or drop the comparison?
+- Options: re-point the whole specimen at `git show 7ff2a67`'s tree | split it across the two trees that hold each half, inside the line count both files already occupy | drop the `carried_from` comparison and leave only the mint
+- Chose: split it across the two trees that hold each half, inside the line count both files already occupy
+- Why: tie-break three — refuse rather than proceed on what a measurement contradicts — settles that the
+  pair cannot ship as written; the review blocks on exactly this branch's own tie-break. What separates
+  the three answers is which half each loses. Re-pointing moves the specimen off the tree that shows the
+  gate missing the mint: at `7e65d3b` nothing carried and `check` answered *9 photographs current*, rc
+  0, which is the fact the clause is here for, while at `7ff2a67` seven of the nine rows *do* carry —
+  the same witness proves less about a clause whose whole subject is the row with nothing to carry.
+  Dropping the comparison keeps the mint and loses `lock.png` and `testlock.png`, the two frames #294's
+  clause and the README's re-take recipe both exist for and the only two no driver records. Tie-break
+  four does not separate them: all three edit both files, and the line budget is fixed by `D-0069`'s own
+  constraint — `manifest.py:749` and `README.md:1005` sit below the text, and `D-0069` itself cites six
+  coordinates into the lines being rewritten. Tie-break six is the paragraph's own convention: it
+  already gives one rev to the pixels (`3bcbfdd`) and another to the page (`2088043cb`), so naming a
+  third tree for a third fact continues a pattern rather than inventing one. That the split fits the 11
+  and 12 lines already there is what made this a decision and not a typo, and paying for it is what
+  moved the `FIXTURE`/`ARTIFACT` parenthetical out (below).
+- What lost: three things. The manifest comment loses "(they export `FIXTURE`/`ARTIFACT` and leave the
+  recording to whoever notices)", the mechanism behind "write no manifest"; the README paragraph keeps
+  the substance ("write no manifest, so those revs are hand-typed from wherever whoever noticed was
+  standing"), so the fact survives in prose and not in the code. Both sentences are denser for the split
+  — 11 comment lines now carry three tree names — and the README lost its "(see the two notes below,
+  both from 11 Nov)" signpost, so the two notes after it are found by reading on rather than being
+  pointed at. And `D-0069` was amended in place in this commit instead of corrected beside itself the
+  way `D-0068` chose: that entry is this branch's own unmerged text, written one commit back and being
+  re-read by the same reviewer now, so shipping it known-false to a 5th pass is the defect under repair
+  rather than a record to preserve; `D-0030` is the precedent for amending in the commit that measures
+  the error, and what keeps this from being silent is the list — six coordinates now spelled with a path
+  and a tree (`testing/capture/manifest.py:525`, `:527` and `:537` at `835a55a`;
+  `testing/capture/README.md:722-724` and `:725` at `335c6f4`; `testing/capture/README.md:754` at
+  `835a55a`; the review asked for the first and the last, the other four are the same rule one line
+  over), the integer that read "16 comment lines in and 16 out" in `Why:` and measures 15/15 at `git
+  show --numstat 335c6f4`, the wording quoted in `Effect:` that this commit deletes from the file (now
+  labelled as what `335c6f4` shipped), and the "all 162 `path:NNN` citations" claim, which does not
+  reproduce and is now a named rule over 126 coordinates. The review's third item — the re-take's
+  transcripts stay unverifiable from the tree — is untouched and is not answerable from here.
+- Checkpoint: 9810e9c60
+- Effect: three files, one of them this log. `testing/capture/manifest.py`: the comment block at
+  `:523-533` replaced in place, 11 lines in and 11 out, file still 2264, and with `^[[:space:]]*#`
+  stripped the file is byte-identical to its `835a55a` copy across all 1957 code lines — comment-only,
+  no executable line moved, no line outside `523-533` differing. `testing/capture/README.md`: the
+  paragraph at `:722-733` replaced in place, 12 lines in and 12 out, file still 1183, nothing outside
+  `722-733` differing. Read-back of the sentences as they now stand, with the census that decides them:
+  `grep -c '"carried_from"'` over `git show $t:docs/screenshots/360/manifest.json` answers 0 of nine at
+  `7e65d3b`, 7 of nine at `7ff2a67` and 7 of nine at `origin/main`, and the two rows the seven exclude
+  at `7ff2a67` are exactly `lock.png` and `testlock.png`; `grep -n 'only two'` over the two files
+  answers one line each, `manifest.py:527` and `README.md:725`, and in both it sits inside the clause
+  that opens with `7ff2a67`. Gates, each run after the text it certifies was written and before this
+  line was: `manifest.py --self-test` -> `capture manifest self-test: 44 rules hold`, rc 0; `manifest.py
+  check` -> *9 photographs current*, rc 0, with no carried-frame disclaimer printed; `pages.py
+  --self-test` -> `capture self-test: 78 refusal rules hold`, rc 0; `scripts/check-decisions.py` ->
+  `check-decisions: 204 entries across 2 log(s), every one with its question, options, choice, reason
+  and checkpoint`, rc 0; `scripts/attack-capture-self-test.py` -> `VERDICT: 47 attacks, 0 problem(s), 5
+  hole class(es), 10 hole row(s)`, rc 0, the five hole classes the standing findings #297 and #322-#325
+  already file. The citation audit re-run at `7dd09d1` under the rule `D-0069` now names: 133
+  coordinates, 11 of them naming a line in either file this branch rewrites; six cited lines differ
+  between `335c6f4` and `7dd09d1` -- `testing/capture/manifest.py:524`, `:525`, `:527` and
+  `testing/capture/README.md:722`, `:723`, `:725` -- and every one of the six is quoted only by a
+  sentence that names the tree it was read from: `D-0069` pins the first three at `835a55a` and the
+  other three at `335c6f4`, and this entry cites its own against `335c6f4`, so the corpus leaves no
+  coordinate pointing at a line whose text has moved out from under it. `scripts/mutations/` still holds
+  no pattern naming `manifest.py` or `capture/` (13 sets, 0 matching files), so the branch's
+  green mutation run transfers untouched. `make verify` and the merge state read after the push are
+  quoted with their exit statuses in the pull-request body, not here, because an `Effect:` written
+  before a gate runs is a prophecy (#1180).
+
+## D-0071 · The 5th-pass review measures what the 4th-pass fix widened: `3bcbfdd` is six frames' own newest commit and seven frames predate their page, not nine — re-measure and scope the three sentences to their own census, strike the census from the two capture sites, or answer in prose and ship the artifact
+
+- Question: the 5th-pass review (`5895987790`, 13 Nov) blocks on a census, at three sites all
+  introduced or amended by `7dd09d1`: `testing/capture/manifest.py:528-530` and
+  `testing/capture/README.md:725-727`, as that commit shipped them, both date the nine rows off
+  `3bcbfdd` — "each PNG's own newest commit" — and the manifest sentence concludes "so those frames
+  predated their page"; this log says the same sweep in `D-0070`'s `Question:` ("every frame's own
+  newest commit replaced by the page's"). Measured here over each frame's pixels at `7e65d3b` (`git log
+  -1 --format='%h %ct' 7e65d3b -- docs/screenshots/360/<png>`), and identically at `7ff2a67`: `3bcbfdd`
+  is the newest commit over SIX PNGs (`dashboard`, `lock`, `profiles`, `testlock`, `users-no-profiles`,
+  `users`), `2088043` over two (`profiles-refused`, `settings`) and `b9eeec3` over one (`audit`) —
+  6/2/1 over nine rows. And `git merge-base --is-ancestor <pixels> 2088043cb` per frame answers seven
+  strict ancestors and two EQUAL, because `2088043cb`'s own `--stat` writes `profiles-refused.png` and
+  `settings.png`: those two frames were taken at the page rev and cannot predate it. So the 4th-pass
+  fix traded a wrong tree for a wrong subject — the sentence scoped to `lock.png` and `testlock.png`
+  was true and the 4th pass said so — and widening its subject from two frames to nine made it false
+  for three. One sentence of the review's own justification does not reproduce and is corrected here
+  rather than inherited: it says `3bcbfdd`'s `--stat` names neither of those two nor `audit.png`, and
+  `git show --stat 3bcbfdd -- docs/screenshots/360` does name `profiles-refused.png` (288454 -> 290774)
+  and `settings.png` (331075 -> 333509), omitting only `audit.png`. What holds is that `3bcbfdd` is not
+  their *newest* commit, because `2088043` re-wrote them, so every count above rests on `git log -1 --
+  <png>` and not on `--stat`. Second item, non-blocking: as `7dd09d1` shipped it, `D-0069`'s `Effect:`
+  said of the corpus "resolved and de-duplicated at `335c6f4`, is 126 coordinates, 11 of them naming a
+  line in the two files this commit edits" — 126 reproduces, and so does 4, the four being
+  `testing/capture/manifest.py:360`, `:507`, `:525` and `README.md:1005`; 11 is the count at `7dd09d1`,
+  where `D-0070` states it. So: scope each sentence to the census it can show, strike the census from
+  the two capture sites, or leave the artifact as shipped and answer in prose?
+
+- Options: scope the three sentences to the measured census and correct the integer, inside the 6 comment lines and the 8 README lines the passage already occupies | strike the census from the two capture sites and keep only what no measurement contradicts | leave the artifact as `7dd09d1` shipped it and answer the review in the pull-request body
+
+- Chose: scope the three sentences to the measured census and correct the integer, inside the 6 comment lines and the 8 README lines the passage already occupies
+
+- Why: tie-break three — refuse rather than proceed on what a measurement contradicts — settles the
+  third option first: a code comment and an `Effect:` that a re-runnable probe refutes are the defect
+  this branch has now been told about on three review passes running — the 3rd, the 4th and this one —
+  and a sentence on a pull request does not outlive the merge the artifact does. Tie-break four does
+  not separate the first two: both edit both capture files and this log, and striking text moves as
+  many lines as scoping it. Tie-break six does: the passage's own convention is a measured count beside
+  the probe that produced it, `D-0066` and `D-0070` both quote their census in that shape, and the
+  finding *is* a count — seven frames sitting under a mint that reported nine current is a stronger
+  sentence than nine frames under a mint that reported nine current. The line budget is not cosmetic
+  either: `manifest.py:749` and `README.md:1005` sit below the passage, so the repair had to come back
+  to 6 comment lines and 8 README lines at the same 104 and 105 columns: 556 characters of prose inside
+  the 564 the six manifest lines hold (6 × 104 behind a 10-column gutter), 811 inside the 840 the eight
+  README lines hold. `git diff -U0 -- testing/capture` was re-run until it named nothing outside
+  `528-533` and `726-733`.
+
+- What lost: four things. The sentence loses its sweep: "each PNG's own newest commit" over nine reads
+  stronger than "six of the nine", and the finding narrows from nine frames to seven. Seven is still
+  this ticket's number — the title's seven frames, `D-0066`'s seven carried rows — and the two sevens
+  are *different* sets: the carried seven at `7ff2a67` excludes `lock.png` and `testlock.png`, the
+  predating seven excludes `profiles-refused.png` and `settings.png`. Nothing in the tree marks them
+  apart, and a reader who merges the two believes a claim neither measurement supports, so each seven
+  now travels with the exclusion that defines it. The README keeps "those two photographs predate their
+  page" and does not gain the seven: after the correction its 8 lines had 29 characters of slack, both
+  candidate sentences wrapped to 9 lines, and buying the seventh meant re-flowing prose the 4th pass
+  had already read — which is how the last two pushes manufactured the claims this entry is repairing.
+  The three exceptions are named in this log and in `D-0070`'s `Question:`, not at `manifest.py`, which
+  carries the counts alone. And two entries above this one are amended in place, a second time for
+  `D-0069`: its integer, `D-0070`'s census, and both of `D-0070`'s indexical "this head" phrases
+  tree-named to `7dd09d1`. They are this branch's unmerged text, being re-read right now by the
+  reviewer whom the wrong number was told to, and the alternative is to ship a figure the review has
+  just refuted.
+
+- Checkpoint: c06c020
+
+- Effect: three files, two of them line-neutral, all read back before this line was written.
+  `testing/capture/manifest.py`: `:528-533` replaced in place, 6 lines in and 6 out, file still 2264,
+  and with `^[[:space:]]*#` stripped the file is byte-identical to its `835a55a` copy across all 1957
+  code lines — comment-only, no executable line moved. `testing/capture/README.md`: `:726-733` replaced
+  in place, 8 lines in and 8 out, file still 1183, its text differing from `7dd09d1`'s by one
+  substitution ("each PNG's own newest commit" -> "six of the nine PNGs' own newest commit") re-wrapped
+  at 105 columns with no other word changed; `grep -n 'only two'` still answers
+  `testing/capture/manifest.py:527` and `README.md:725`, and `git diff -U0 -- testing/capture` named
+  exactly those two hunks. This log: `D-0069`'s integer with its tree named beside it, `D-0070`'s
+  census scoped to six, and this entry. The citation audit re-run at this head under the rule `D-0069`
+  names 135 coordinate strings across the two logs, 134 resolved, 12 of them naming a line in either
+  capture file, and 7 cited lines whose text differs between `335c6f4` and here — the six `D-0070`
+  lists, plus `testing/capture/manifest.py:528`, which is this entry's own `Question:` citing the line
+  it replaced at `7dd09d1`. Gates, each run after the text it certifies: `manifest.py --self-test` ->
+  `capture manifest self-test: 44 rules hold`; `manifest.py check` -> *9 photographs current*, rc 0,
+  with no carried-frame disclaimer; `pages.py --self-test` -> `capture self-test: 78 refusal rules
+  hold`; `scripts/attack-capture-self-test.py` -> `VERDICT: 47 attacks, 0 problem(s), 5 hole class(es),
+  10 hole row(s)`, rc 0, the five hole classes #297 and #322-#325 already file;
+  `scripts/check-decisions.py` -> 205 entries. `make verify` and the merge state read after the push
+  are quoted with their exit statuses in the pull-request body, not here, because an `Effect:` written
+  before a gate runs is a prophecy (#1180).
