@@ -260,7 +260,7 @@ summary `print` after the note is one. The cell stayed anyway, because the empty
 being explained by a sentence that blamed the fixture whatever the cause was; `cap is None` now chooses
 the reason, and the fixture arm's wording is unchanged byte for byte.
 
-`python3 scripts/attack-capture-self-test.py` — 47 attacks, 31 caught, 6 honest edits still green, 10
+`python3 scripts/attack-capture-self-test.py` — 48 attacks, 31 caught, 6 honest edits still green, 11
 holes — patches each of the five places that could undo any of that (the flag, the branch that reads the
 disk, the branch that reads `cap`, and the outer arm of either driver) into a copy of the tree and
 requires a red verdict. Each of the five makes exactly one rule fail, `capture self-test: 1 of 78 rules
@@ -758,6 +758,26 @@ never catch a page commit that moved no pixels. Any rule reading *"the last comm
 bytes"* as *"the last time anyone photographed this page"* refuses a current frame forever, and the seven
 it refuses are those whose page did not move — a verdict about a stylesheet edit, not about whether anyone
 looked. #302 sketches exactly this arm, measured against the post-record manifest: same seven rows, exit 1.
+
+**`--shot` is the driver's word, and since #302 that word is checkable.** The recipe names the frames
+because nothing else says which ones a run took — and naming them used to be the end of it: `record`
+dated a named frame at its *page's* newest commit and never asked what the frame's own pixels were last
+committed at, while `check`'s drift arm opens `if recorded == current: continue`, so the equality the
+recorder mints is the equality the gate reads. That is how the seven rows above read *current* for five
+weeks. No later reading of history can order those bytes — a re-take whose pixels do not change never
+produces a commit touching the PNG — so the answer had to come from the run. `cdp.publish` now leaves it
+where it falls: `runs/<fixture>/capture.json`, beside the `fixture.env` that fixture was run with,
+carrying the commit the capture stood in and the `sha256` of every frame it wrote. `record` reads it at
+one moment only — the page has moved past this frame's pixels and this run claims the frame — and it
+demands the frame, under the fixture whose driver photographs it, at those exact bytes; the entry then
+gains `photographed`, and `check` re-asks the ordering from that block on every run after, which is the
+re-take deadline this folder used to promise in prose and could not enforce. Two refusals follow and each
+has a door: a page that moves past its own capture goes red, and the way out is the recipe above —
+re-take, re-record — never an edit of `sources_rev`; and a `photographed` naming a commit this checkout
+cannot order (a rebase, a capture taken in another clone) says which and points at `git fetch`. What
+stays open is printed rather than hidden: `record`'s summary counts the rows dated on its own arithmetic
+because no receipt covers them, since the alternative is refusing the ordering this folder prescribes —
+capture, record, commit, in that order — which is #144's trap in the fix's clothes.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver

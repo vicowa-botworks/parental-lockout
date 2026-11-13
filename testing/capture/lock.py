@@ -220,7 +220,13 @@ def capture(cap, name):
     s.write_png(name)
     # Every check above has passed, and only now do the bytes land. A refusal anywhere earlier
     # leaves the target exactly as it was, staged frames and all.
-    s.publish()
+    #
+    # `FIXTURE` is named so the publish also writes this run's receipt (#302). `lock.py` is one of
+    # the two drivers that records no manifest -- the README recipe hands the frames to
+    # `manifest.py record` by hand, which is how `lock.png` and `testlock.png` came to be dated at
+    # a rev typed eighteen seconds after a page commit (`7e65d3b`, #294's specimen). The receipt is
+    # what that recorder can then check the claim against instead of taking the typing on faith.
+    s.publish(FIXTURE)
     print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
     print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
           flush=True)

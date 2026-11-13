@@ -4,7 +4,7 @@
 ``--self-test`` is the only gate that can see ``testing/capture/*.py`` at all. The mutants target
 ``.go`` and ``.tmpl``, nothing imports ``pages.py``, and shellcheck does not read Python -- which is
 how a refusal helper that raised from inside its own caller's ``except`` handler shipped past every
-check this repository has, stopping the capture loop after 1 page of 5 while still exiting 1. So 78
+check this repository has, stopping the capture loop after 1 page of 5 while still exiting 1. So 79
 rules stand between the capture drivers and that history, and every one of those rules is itself
 code that can be hollowed. #297 is the claim that nothing had tried: measured 11 Nov on
 ``origin/main`` at ``66c9162``, nine attacks were run by hand against the refusal contract and
@@ -25,7 +25,7 @@ appears and when a listed hole stops being one.
 What a sandbox has to hold, measured rather than guessed. ``testing/capture/*.py`` alone is not a
 baseline: the census rule reads ``cdp.HERE/../../internal/web/templates``, so a box holding only the
 capture tree fails one rule on ``No such file or directory: '<box>/internal/web/templates'`` and the
-suite would then be measuring 78 rules against a baseline the guard could never meet -- every row a
+suite would then be measuring 79 rules against a baseline the guard could never meet -- every row a
 false catch. So the box is ``testing/capture/*.py`` **plus** ``internal/web/templates/*.tmpl`` (72 KB,
 no git, no browser, no fixture), and the baseline is re-run before every row would be trusted.
 
@@ -39,8 +39,17 @@ The two single-frame drivers have no self-test of their own, but they have been 
 --self-test`` since #296 -- ``single_shot`` and its two siblings call the driver's real ``main()`` with
 the browser faked and the keep machinery real -- so a row that patches ``lock.py`` or ``testlock.py``
 is now a row about code this guard can see, and #304 adds five. The version of this paragraph written
-on 11 Nov said the opposite, and pre-dates those rules. ``manifest.py --self-test`` (44 rules) has the
-same hole #297 describes and gets its own row set.
+on 11 Nov said the opposite, and pre-dates those rules. ``manifest.py --self-test`` (53 rules) has the
+same hole #297 describes and has NO row set here or in ``attack-self-test.py`` -- corrected 13 Nov,
+because the sentence before it claimed otherwise and the reader who trusted it would have looked for a
+guard that does not exist. What that costs is worth naming now that #302 put something load-bearing
+behind it: the receipt writer (``cdp.write_receipt``, and ``Session.publish``'s call to it) is attacked
+by nothing in this file, and its only pin is ``manifest.py --self-test``'s
+``the_receipt_the_driver_writes_is_the_one_record_reads``, which drives the real
+``cdp.Session.publish`` and reads the result back with the real ``record``. Hollow the writer and that
+suite goes red (measured 13 Nov: ``the publish put the frame on disk and wrote no receipt beside it``);
+this harness, which runs ``pages.py --self-test``, stays green, because the page suite reads a log line
+about the publish and not the file.
 
 Cost: about four seconds, against 0.08 s for the self-test it attacks and ~3m9s for ``make verify``,
 which runs this beside the thing it guards. A suite that starts no compiler and no browser has no
@@ -63,7 +72,7 @@ TEMPLATES = op.join(ROOT, "internal", "web", "templates")
 PYTHON = sys.executable or "python3"
 
 # The two sentences `self_test_verdict` ends with, and the third it ends with when a `return`
-# truncated the run. `green` is the only one that means "the guard believes 78 rules hold"; a run
+# truncated the run. `green` is the only one that means "the guard believes 79 rules hold"; a run
 # that exits 0 without printing it has reported nothing, which is its own state (`silent`) and not a
 # variant of green -- the whole content of #118.
 GREEN_SUMMARY = re.compile(r"^capture self-test: \d+ refusal rules hold\b")
@@ -87,7 +96,7 @@ CAUGHT, HOLE, GREEN = "caught", "hole", "green"
 #      The canary pair proves `rule()` is not hollow; nothing proves a *rule* is not.
 #   2. A check cannot police its own deletion -- the same floor `attack-self-test.py` documents for
 #      `mutate.py`'s `if bad:`. It shows up twice here, at the verdict and at the canary.
-#   3. What the 78 rules do not look at: the bytes of the frame a refusal keeps.
+#   3. What the 79 rules do not look at: the bytes of the frame a refusal keeps.
 #
 # A fifth class ran with these for two days and is gone: `rule()`'s crash arm was the third thing
 # the suite could not see, and `pages.py` now carries a canary that raises on purpose, so the arm is
@@ -96,8 +105,8 @@ CAUGHT, HOLE, GREEN = "caught", "hole", "green"
 DOCUMENTED_HOLES = {
     "a hollowed rule is invisible to the count":
         "Every rule is registered by name and counted by the pin, so replacing a rule body with "
-        "`return` leaves the count at 78 and the transcript green. Measured here, not assumed: all "
-        "four refusal rules this suite empties came back unseen, so no rule's *content* is covered "
+        "`return` leaves the count at 79 and the transcript green. Measured here, not assumed: all "
+        "five refusal rules this suite empties came back unseen, so no rule's *content* is covered "
         "by a sibling of another -- the count pins how many rules ran and says nothing about what "
         "any of them checked. That is #297's title read literally. What closes it is the Go "
         "battery's design applied to Python: one probe per rule that breaks the thing that rule "
@@ -134,6 +143,8 @@ HOLE_CLASS = {
     "one refusal rule's body is emptied -- the moved-out-of-the-queue claim":
         "a hollowed rule is invisible to the count",
     "one refusal rule's body is emptied -- one disposal per refusal":
+        "a hollowed rule is invisible to the count",
+    "one refusal rule's body is emptied -- the fixture named to the publish":
         "a hollowed rule is invisible to the count",
     "the verdict's problem list is switched off":
         "the verdict's final decision is unguarded",
@@ -241,7 +252,13 @@ ROWS = [
     (CAUGHT, "pages.py", "the refusal branch is switched off, so a refused run publishes and prints a fit count",
      "        if any(pages or untested for _, pages, untested in refused):", "        if False:"),
     (CAUGHT, "pages.py", "the success path stops publishing",
-     "    cap.session.publish()", "    pass  # publish is skipped"),
+     # The call gained its fixture argument in #302 -- `publish(fixture)` is what writes the receipt
+     # `manifest.py record` reads -- and the needle is the call, so the needle moved with it. The
+     # four leading spaces are the tail of the call's real eight-space indent: the row patches a
+     # substring, which is why an argument added to the call breaks the anchor rather than shifting
+     # it. Measured: with the old needle the gate said `anchor matched 0 times in pages.py, want
+     # exactly 1`, which is a PROBLEM, not a pass -- an attack that cannot be applied tests nothing.
+     "    cap.session.publish(mode)", "    pass  # publish is skipped"),
 
     # ---- #304: one disposal per refusal, whichever handler reaches it, on both single-frame drivers.
     #      These are the first rows in this file that patch a driver rather than `cdp.py`/`pages.py`,
@@ -269,7 +286,7 @@ ROWS = [
      "        disposal.refuse(None, cdp.refusal_reason(exc))",
      "        cdp.refuse_single_shot(None, FIXTURE, out, name, frame, cdp.refusal_reason(exc))"),
 
-    # ---- the plumbing that makes 78 rules mean 78 rules ----
+    # ---- the plumbing that makes 79 rules mean 79 rules ----
     (CAUGHT, "pages.py", "the rule helper records zero problems for every rule",
      "        (ran_to if ran_to is not None else ran).append((why, len(problems)))",
      "        (ran_to if ran_to is not None else ran).append((why, 0))"),
@@ -301,7 +318,7 @@ ROWS = [
      '              "(a `return` inside self_test() skips every rule below it)", file=sys.stderr)\n'
      "        return 0"),
 
-    # ---- the class #297's title is about: a hollowed rule keeps the count at 78 ----
+    # ---- the class #297's title is about: a hollowed rule keeps the count at 79 ----
     (HOLE, "pages.py", "one refusal rule's body is emptied -- where its frames are",
      "    def a_refused_run_says_where_its_frames_are(problems):",
      "    def a_refused_run_says_where_its_frames_are(problems):\n        return"),
@@ -311,13 +328,17 @@ ROWS = [
     (HOLE, "pages.py", "one refusal rule's body is emptied -- the moved-out-of-the-queue claim",
      "    def a_kept_frame_is_moved_out_of_the_publish_queue(problems):",
      "    def a_kept_frame_is_moved_out_of_the_publish_queue(problems):\n        return"),
-    # The rule #304 adds gets the same row as its siblings, because it inherits their floor: the count
-    # went 77 -> 78 and a body emptied to `return` keeps it at 78. Listing it is the honest price of
-    # adding a rule -- the class text claims every rule this suite empties came back unseen, and an
+    # Every rule added to this suite inherits the same floor, so every rule added owes a row: the
+    # count went 77 -> 78 for #304's disposal rule and 78 -> 79 for #302's fixture-on-the-publish
+    # rule, and a body emptied to `return` keeps it at 79 either way. Listing each is the honest price
+    # of adding one -- the class text claims every rule this suite empties came back unseen, and an
     # unlisted hollowing would make that sentence false in the one direction nothing else checks.
     (HOLE, "pages.py", "one refusal rule's body is emptied -- one disposal per refusal",
      "    def a_refusal_whose_report_raises_is_disposed_of_once(problems):",
      "    def a_refusal_whose_report_raises_is_disposed_of_once(problems):\n        return"),
+    (HOLE, "pages.py", "one refusal rule's body is emptied -- the fixture named to the publish",
+     "    def a_clean_run_names_its_fixture_to_the_publish(problems):",
+     "    def a_clean_run_names_its_fixture_to_the_publish(problems):\n        return"),
 
     # ---- the bytes ----
     (HOLE, "cdp.py", "the kept frame is written as an empty file",
@@ -350,7 +371,7 @@ ROWS = [
 # The suite's own count pin, on the pattern of `mutate.py`'s three and `attack-self-test.py`'s one.
 # A row deleted from ROWS makes the tally smaller and every remaining row still reports its expected
 # verdict, so the run prints a confident "40 attacks, 0 problems" over a guard that lost a test.
-EXPECTED_ROWS = 47
+EXPECTED_ROWS = 48
 
 
 def shape_problems():

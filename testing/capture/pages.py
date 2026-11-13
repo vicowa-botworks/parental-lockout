@@ -1048,7 +1048,7 @@ def main(shoot_fn=None, record_fn=None):
                       "nothing certifies them, which is where a refused page belongs.",
                       file=sys.stderr, flush=True)
             return 1
-        cap.session.publish()
+        cap.session.publish(mode)
     for width, pages, untested in refused:
         # Unreachable while anything was refused, and it has to stay that way: this is the success
         # sentence, and it would print a full count over a page that was never tested.
@@ -1134,7 +1134,16 @@ def main(shoot_fn=None, record_fn=None):
 # landed, and reads back the count, the note's shape and the sentence the operator is still owed.
 # The two canaries are registered like every other rule and deliberately not counted: they exist to
 # prove the helper is not hollow.
-EXPECTED_RULES = 78
+# Plus one from #302, and it is the driver's half of a repair whose rest lives in `manifest.py`.
+# `cdp.publish` now takes the fixture it ran under, because the receipt written beside `fixture.env`
+# -- the file `manifest.py record` reads before it will date a claimed frame whose own pixels are
+# behind its page -- is written only when it is told which fixture ran. Reverting the call to
+# `publish()` deletes the receipt for every real run and leaves every other rule in this file green,
+# because the clean-run rules read a log line rather than a file. The writing, the digest and the
+# lock that keeps a receipt from being written where no `fixture.env` exists are pinned one file
+# over, in `manifest.py --self-test`, which drives the real `cdp.Session.publish` and reads it back
+# with the real `record`.
+EXPECTED_RULES = 79
 
 
 class _FakeSession:
@@ -1152,8 +1161,13 @@ class _FakeSession:
         self.closed = False
         self.die_once = die_once
 
-    def publish(self):
+    def publish(self, fixture=None):
         self.log.append("publish")
+        # The fixture is logged beside the verb. `publish` stays in the log byte-identical because
+        # every rule that reads this log reads that token; the second one exists so a rule can tell
+        # "the driver named the fixture these frames belong to" from "the driver published and said
+        # nothing", which is the difference between a receipt and no receipt (#302).
+        self.log.append(f"publish-for:{fixture}" if fixture else "publish-for:none")
 
     def screenshot(self):
         """Bytes, so `cdp.capture_refused` has something to write on the refusal path.
@@ -1963,6 +1977,44 @@ def self_test():
         if kept is not None:
             problems.append(f"a clean run left a refused directory ({kept}) behind, so the next "
                             "refusal would open a directory holding frames that are not its own")
+
+    def a_clean_run_names_its_fixture_to_the_publish(problems):
+        """#302: the receipt that answers `record`'s new question is written by THIS call.
+
+        `manifest.py record` now refuses to date a frame named with `--shot` at its page's newest
+        commit when that frame's own pixels were last committed behind it, unless
+        `runs/<fixture>/capture.json` names the frame with the bytes the run wrote. No later reading
+        of history can answer that -- a re-take whose pixels do not change never produces a commit
+        touching the PNG, which is why `7e65d3b`'s seven rows stayed green under every arithmetic
+        `check` has -- and the only thing that holds the answer is the run itself, at the one moment
+        that knows both the destination and the fixture: `cdp.publish`.
+
+        What this file can pin is the driver's half, because its `cdp.Capture` is a fake and a fake
+        cannot certify a file: `main()` names the fixture to the publish. That argument is the whole
+        condition -- `cdp.publish` writes nothing when it is not given one -- so reverting the call
+        to `publish()` erases the receipt for every real run while every rule in this file stays
+        green. The writing, the digest, and the `fixture.env` lock that stops a receipt being written
+        where no fixture ran are pinned one file over, in `manifest.py --self-test`, whose rule
+        `the_receipt_the_driver_writes_is_the_one_record_reads` drives the real `cdp.Session.publish`
+        end to end and reads the result back with the real `record`.
+        """
+        log = []
+        rc, _entered, _err, published, _discarded, _kept, _note = refused_run(sink=log)
+        if rc != 0:
+            problems.append(f"a clean run left rc={rc!r}, so whatever it published was not a clean "
+                            "run's publish")
+        if not published:
+            problems.append("a clean run never reached the stage machinery at all, so there is no "
+                            "publish here for the fixture to be named to")
+        if "publish" not in log:
+            problems.append("a clean run never published, so this rule has nothing to read and "
+                            "`#302`'s receipt is not being written by anyone here")
+        elif "publish-for:pages" not in log:
+            problems.append("the driver published without naming its fixture. `cdp.publish` writes "
+                            "its receipt only when it is told which fixture ran, so every real run "
+                            "would leave `manifest.py record` with nothing to read beside "
+                            "fixture.env, and a frame re-taken without its pixels moving would be "
+                            "refused forever (#302)")
 
     def crash_is_a_refusal(problems):
         # A bug inside shoot() must not cost the other four pages either: `except Exception` is
@@ -4093,6 +4145,8 @@ def self_test():
     rule("a page is recorded where it is photographed", a_page_is_recorded_where_it_is_photographed)
     rule("one refusal names it and counts the rest", one_refuses)
     rule("a clean run publishes and exits 0", none_refuses)
+    rule("a clean run hands the publish the fixture it ran under, which is the only thing that makes "
+         "the run's receipt writable (#302)", a_clean_run_names_its_fixture_to_the_publish)
     rule("a crash in shoot is a refusal, not an abort", crash_is_a_refusal)
     rule("a refused run says where its frames are", a_refused_run_says_where_its_frames_are)
     rule("each fixture keeps its refused frames apart",
