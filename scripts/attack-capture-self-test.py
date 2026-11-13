@@ -78,17 +78,20 @@ CAUGHT, HOLE, GREEN = "caught", "hole", "green"
 # a fix closes. A NEW hole fails this run, and a listed hole that has stopped being a hole fails it
 # too, so the list cannot rot in either direction.
 #
-# The classes below are five: two are the floor every suite of this shape has, and three are
-# findings this suite made the first time it ran (11 Nov) -- each one a claim about the guard, filed
-# as an issue so the queue can see it, and kept here as a row so the claim is re-measured on every
-# push instead of remembered:
+# The classes below are four: the floor every suite of this shape has, which shows up at two sites
+# and so counts twice, and the findings this suite made the first time it ran (11 Nov) that are still
+# open -- each one a claim about the guard, filed as an issue so the queue can see it, and kept here
+# as a row so the claim is re-measured on every push instead of remembered:
 #
 #   1. A counted rule cannot police its own call site -- the class #125 tracks from the other end.
 #      The canary pair proves `rule()` is not hollow; nothing proves a *rule* is not.
 #   2. A check cannot police its own deletion -- the same floor `attack-self-test.py` documents for
 #      `mutate.py`'s `if bad:`. It shows up twice here, at the verdict and at the canary.
-#   3-5. What the 78 rules do not look at: a crash that never happens, and the bytes of the frame
-#      a refusal keeps.
+#   3. What the 78 rules do not look at: the bytes of the frame a refusal keeps.
+#
+# A fifth class ran with these for two days and is gone: `rule()`'s crash arm was the third thing
+# the suite could not see, and `pages.py` now carries a canary that raises on purpose, so the arm is
+# witnessed on every run and the row is CAUGHT (#323, `D-0072`).
 # ---------------------------------------------------------------------------------------------
 DOCUMENTED_HOLES = {
     "a hollowed rule is invisible to the count":
@@ -113,19 +116,6 @@ DOCUMENTED_HOLES = {
         "comparison is the reach check, and its `return 1` is the last link. Each is one edit above "
         "anything a rule compares: a rule that policed its own count check would have to hold the "
         "number the check exists to hold. This is the floor, so it is listed rather than fixed.",
-    "a rule that throws is recorded as a passing rule":
-        "`rule()`'s `except` arm is the only place a crashing rule becomes a problem. Emptying its one "
-        "`problems.append` is invisible on a clean tree, and the crash never happens until the code "
-        "under a rule breaks -- which is exactly when the silence matters. Measured with a real "
-        "crash driven through both versions of the arm (`cdp.refused_dir` raising "
-        "`RuntimeError('boom')`): arm intact, `capture self-test: 17 of 76 rules failed`, exit 1, "
-        "each crashed rule named; arm emptied, the same crash prints `76 refusal rules hold`, exit 0, "
-        "and `boom` appears in the transcript zero times. Those transcripts quote the count the suite "
-        "had when the row was written -- the number is the suite's own, it moves with every rule any "
-        "branch adds, and it reads 78 today. What closes it is a third canary: one "
-        "registered like the other two, deliberately raising, asserting its own "
-        "`f\"{why}: {type(exc).__name__}\"` sentence arrives. Not done here, because that is a change "
-        "to the guard and #297 asked for the runner; filed as its own issue.",
     "the kept frame's bytes are never compared to the bytes the browser returned":
         "`_FakeSession.screenshot()` hands `cdp.capture_refused` a payload and the rules read the "
         "directory back -- names, counts, the note's sentences -- and nothing reads the file's "
@@ -151,8 +141,6 @@ HOLE_CLASS = {
         "the verdict's final decision is unguarded",
     "the reach check runs and returns success":
         "the verdict's final decision is unguarded",
-    "a rule that throws is silenced in the rule helper":
-        "a rule that throws is recorded as a passing rule",
     "the kept frame is written as an empty file":
         "the kept frame's bytes are never compared to the bytes the browser returned",
 }
@@ -296,7 +284,11 @@ ROWS = [
      "    pass  # the canaries were deleted"),
     (HOLE, "pages.py", "the canary comparison is switched off",
      "    if counts != [1, 0] or len(probe_bad) != 1:", "    if False:"),
-    (HOLE, "pages.py", "a rule that throws is silenced in the rule helper",
+    # Retired on 13 Nov, from HOLE to CAUGHT: `pages.py` now registers a third canary that raises on
+    # purpose, so the arm speaks on every run and this patch turns the guard red with the arm's own
+    # sentence named (#323, `D-0072`). The row stays attacked rather than deleted -- the arm can be
+    # emptied again, and a guard is only as good as the run that re-measures it.
+    (CAUGHT, "pages.py", "a rule that throws is silenced in the rule helper",
      '            problems.append(f"{why}: {type(exc).__name__}: {exc}")',
      "            pass  # a crashing rule says nothing"),
     (HOLE, "pages.py", "the verdict's problem list is switched off",

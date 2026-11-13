@@ -722,7 +722,17 @@ non-empty body. Read it yourself before you touch anything:
 
 If that body is empty, or is a file reference rather than a review, DO NOT infer what was wanted and
 do not write a fix aimed at a guess. Say on the pull request that the change request arrived with no
-ask, label it ${FACTORY_ESCALATION_LABEL}, and stop there with the pull request you already have.
+ask, mark it with the escalation label -- ${FACTORY_ESCALATION_LABEL} -- and stop there with the pull
+request you already have. Take the name from its one home rather than typing it, and use the ISSUE verb
+even though this artifact is a pull request: gh pr edit cannot label anything on this account -- it
+dies on the retired projectCards field before gh reads the name -- so the marker and its read-back are
+exactly these two calls:
+
+gh issue edit $key --add-label \"\$(factory/escalation-label.sh)\"
+gh pr view $key --json labels
+
+If that read does not come back holding the name, say so on the pull request and again in NEXT:. A
+refused marker is a result you report; inventing a name for it is not (#311, #315).
 Inventing the ask is the failure this repository has written up more often than any other
 (#1180, D-0046)."
 		fi
@@ -1026,7 +1036,7 @@ factory_refresh_origin() {
 # --------------------------------------------------------------------------- the pass
 
 factory_body() {
-	local rows rc=0 started=0 unit_line reap_line
+	local rows rc=0 started=0 unit_line log_line reap_line
 	# The pass's own deadline. A tick can hold the lock for FACTORY_TICK_TIMEOUT, so a pass that
 	# opened several could overrun the next timer activation and have systemd kill it mid-commit --
 	# which the next pass would then find as a dirty worktree and halt on. The budget is spent before
@@ -1054,6 +1064,18 @@ factory_body() {
 		[ -n "$unit_line" ] || continue
 		log_event "$unit_line"
 	done < <(factory_unit_lines "$FACTORY_HARNESS")
+	# Which directory the journal is being written to, and whether this pass is the one that moved it
+	# (#260 ask 3). Same place and same reason as the two lines above -- before the fetch and the triage,
+	# so a pass that never reaches the queue still says where its own record is -- and it has to be ahead
+	# of the `PASS` line for a second reason: `LOG-AT` is what the NEXT pass reads back as this pass's
+	# answer, and a pass that halts at triage writes no `PASS` at all. On 10 Nov three reinstalls moved
+	# the journal between checkouts and neither file said so; the operator's tail went silent
+	# mid-sentence and the only account of it was a `TIMER-INSTALLED` line in whichever tree ran the
+	# installer.
+	while IFS= read -r log_line; do
+		[ -n "$log_line" ] || continue
+		log_event "$log_line"
+	done < <(factory_log_move_lines)
 	# What the pass BEFORE this one cost the queue to tear down (#246). Same place and same reason as
 	# the two lines above: before the fetch and the triage, because the pass an operator goes looking
 	# for is the one that cannot be reached. Measured on this box on 11 Nov: five activations held the

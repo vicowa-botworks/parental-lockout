@@ -491,6 +491,20 @@ read back unchanged. With the record committed first, a refusal like that costs 
 written, the marker absent, `Awaiting:` never committed, and an escalation that reads exactly like a unit
 that quietly gave up (#311, #315).
 
+The verb travels with the name, and #315 measured it separately. Both artifacts take `gh issue edit`,
+a pull request included, because `gh pr edit` cannot put a label on anything on this account. Measured
+12 Nov on gh 2.46.0, one 67-character probe name aimed at pull request #314 with its labels read before
+and after: `gh pr edit 314 --add-label zzprobe-…` died on
+`repository.pullRequest.projectCards` for exit 1 -- gh reads that retired field on its way in, so the
+call ends **before** it resolves the label name -- while `gh issue edit 314 --add-label zzprobe-…`
+reached the label step and answered `'zzprobe-…' not found`, also exit 1, and the labels read back
+unchanged both times. Two identical exit codes with two different meanings, and only one of them is a
+name a person can still supply; the other is a field GitHub has retired, so no answer to #311 makes
+`gh pr edit` work. That is why the empty-ask branch of `factory/factory.sh` now carries the two calls a
+stopped unit runs -- the write with the issue verb, the read with `gh pr view` -- instead of the word
+`label` on its own, and why a leg in `factory/selftest.sh` refuses any live file pairing `gh pr edit`
+with a label flag.
+
 What a reader may conclude from the marker is that a named human owes a decision on that artifact. What
 no reader may conclude from it is that the unit is parked or released. `factory/triage.sh` reads no
 label at all -- measured 12 Nov, `grep -c label factory/triage.sh` answers 0 -- so the classifier's two
@@ -783,7 +797,9 @@ same two lines with more to say: `code: 95e1816 (issue-249, 0 behind origin/main
 fork, which a fast-forward will not fix) + 5 uncommitted path(s)` is the line from the tree this change
 was written in, printed at 17:29:33Z while the work was in progress.
 
-`SUPERVISOR-AT` is on every pass. `SUPERVISOR-STALE`, `SUPERVISOR-FORKED` (the tree also holds commits
+`SUPERVISOR-AT` is on every pass that reaches the pass body -- the same boundary `LOG-AT` documents, and
+the same exception: a pass stopped by a `factory/HALT` marker writes none of the self-report lines.
+`SUPERVISOR-STALE`, `SUPERVISOR-FORKED` (the tree also holds commits
 the trunk does not), `SUPERVISOR-NOBASE` (no `origin/<trunk>` ref to compare against) and
 `SUPERVISOR-UNKNOWN` (git could not read the tree) appear only for the state each names, and
 `factory/selftest.sh` pins all five against trees planted in each state. `dirty=` is a path count from
@@ -926,6 +942,126 @@ own, which is what a tree looks like after a pass was interrupted mid-work -- pr
 fast-forward is *not* available and names the three real choices. A stale tree can always still be
 *removed*: `--remove` runs before the check, because the wrong reason to be unable to stop a broken
 loop is that it is broken.
+
+### The pass says where the journal is, and writes into the one it is leaving (#260)
+
+The installer above says the move is coming. The pass is what says it happened, and it says it in the
+journal that is about to become the only live one -- then writes a copy into the file going dead, which is
+the half the installer cannot do. `UNIT-TREE` is printed by whichever tree the installer was run FROM, so
+on 10 Nov it landed in the tree being left and the tree being entered never mentioned it. These are the
+lines a pass emits (`factory_log_move_lines`, `factory/common.sh`):
+
+```
+2026-11-12T19:14:34Z LOG-AT /tmp/opencode/demo-ff/factory/log
+2026-11-12T19:14:34Z LOG-MOVED old=/tmp/opencode/demo-fork/factory/log new=/tmp/opencode/demo-ff/factory/log prev-pass=2026-11-10T10:17:19Z how=recorded tail=ok -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there. The journal that went quiet is /tmp/opencode/demo-fork/factory/log/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed the append itself was refused, skipped nothing was opened -- and skipped carries refuse= naming the clause that refused, because five clauses answer skipped and they are not one fact: old-directory-is-a-symlink, old-directory-not-writable, old-journal-is-a-symlink and old-journal-not-a-regular-file each name something sitting at the old path this pass will not write through or into, and only no-such-directory says there is nothing there to tail. The clauses in the order they are judged: old-directory-is-a-symlink, no-such-directory, old-directory-not-writable, old-journal-is-a-symlink, old-journal-not-a-regular-file (#260)
+```
+
+and that is the whole of what the old file gained, below the line that was already there:
+
+```
+2026-11-10T10:17:21Z HALTED code=3962919 -- a HALT file is present
+2026-11-12T19:14:34Z LOG-MOVED old=/tmp/opencode/demo-fork/factory/log new=/tmp/opencode/demo-ff/factory/log prev-pass=2026-11-10T10:17:19Z how=recorded copy=old-journal -- …(#260)
+```
+
+`LOG-AT` is on every pass that reaches the pass body, for the reason `SUPERVISOR-AT` and `UNIT-AT` are -- a
+read nobody prints cannot be told apart from a read that is not there -- and it is also what the next pass
+reads back as this pass's answer, so it is printed before the `PASS` line: a pass that halts at triage
+writes no `PASS` at all, and that is exactly the pass somebody is trying to locate. **Where that boundary
+is, and what sits outside it:** all four of a pass's self-report lines -- `UNIT-AT`, `LOG-AT`,
+`SUPERVISOR-AT` and `PASS` -- are emitted inside `factory_body`, and the halt check logs `HALTED` and
+exits before `factory_body` is called, so a pass stopped by a `factory/HALT` marker writes none of them.
+The dead tail this section opens with is precisely that `HALTED` line, left by a pass that never said which
+directory it was writing to. `#331` holds the three ways to close that and the lock boundary a hoist has to
+answer for. The previous directory comes from the
+unit's own journal lines, not from a marker file (a record that has to be maintained is the defect
+`factory_journal_age` exists to avoid), not from the tree (two of the 10 Nov trees were deleted inside the
+hour), and not from `$FACTORY_LOG`, which is this pass's own answer. It is read with
+`journalctl --user -u <unit> -n $FACTORY_LOG_TAIL` and **no** `-t systemd`: the measurement that gives the
+reaping read its filter says a 400-line window taken WITH it holds 0 of the 325 lines the unit's own
+processes wrote in it, and this read wants precisely those 325. Manager lines are refused instead by
+anchoring in the third field, and both marks are anchored to the start of the message -- the ticket that
+filed this requirement pastes a `PASS` block into its own body, and a substring match reads a move out of
+a quote.
+
+`how=` says whether the old directory was recorded or inferred: `recorded` from a previous `LOG-AT`,
+`derived` from an older `PASS … root=<tree>` plus the `/factory/log` suffix, which is the path the
+generated unit implies because it sets no `FACTORY_LOG`. Recorded wins regardless of line order, and that
+is not a preference: a pass writes `LOG-AT` and then its own `PASS` a few hundred milliseconds later, so a
+newest-line-wins rule answers `derived` on every pass and the fact never reaches the log.
+
+`tail=` is about the copy, the only write here outside stdout. It is refused unless the old directory is a
+real directory, writable, and not a link, and the file in it is absent or a real regular file -- with each
+link test as its own clause, asked before anything that follows the path. A dangling symlink is `-e` false,
+and the first cut folded the file's link test behind that shape check, never reached it, and the append
+created the link's target. Writing a path this harness did not create, named by a record read off a log, is
+the shape #874 names; #182 is what it costs (#260, `H-0148`).
+
+`--dry-run` spares GitHub, git and the model, and it does not spare this write. Measured at head with
+`DRY_RUN=1`: the neighbour's `supervisor.log` gained the `copy=old-journal` line and the pass reported
+`tail=ok`. That is intended and it is the fourth thing a dry run touches -- `log_event` writes this pass's
+own journal line in a dry run too, and the banner promises only the three -- but it belongs in the page so
+the next reader does not file it as a bug (#330 review, finding 2).
+
+Those five clauses are a chain, not one `&&` group, so the refusing one can be named: `tail=skipped` is
+what all five look like, and `refuse=<clause>` says which. The sentence used to assert the commonest reason
+-- "found no directory there" -- whatever had refused, and four of the five print it beside a directory that
+exists: a linked old directory, an unwritable one, a linked old journal, a journal that is a FIFO or a
+directory. Measured with those fixtures on 12 Nov, before the field existed, all four printed that sentence
+(#260, `H-0149`). The order is the finding, not a style: `-d` and `-e` both follow links, so the first cut
+asked them first and a *dangling* link at the old path answered `no-such-directory` -- unreachable link
+clause, and the wrong advice for the one shape a hand-moved tree actually leaves. Asking what a path *is*
+before asking what is behind it is the same rule twice, once for the directory and once for the file.
+
+The clauses, in the order they are judged: `old-directory-is-a-symlink`, `no-such-directory`,
+`old-directory-not-writable`, `old-journal-is-a-symlink`, `old-journal-not-a-regular-file`. Only
+`no-such-directory` says there is nothing there to tail; the other four say something is sitting at the old
+path and this pass will not write through or into it. `tail=failed` is the sixth state and carries no
+`refuse=`, because there the append *was* attempted and the file itself refused it.
+
+One `refuse=` arrives with advice attached, because on a live machine it is the common case rather than an
+edge. `how=derived` means no old pass ever named its directory, so the path was built from that pass's
+`root=` plus `/factory/log` -- the path the generated unit implies, since it sets no `FACTORY_LOG`. Whether
+that path holds a journal depends on the tree, and both answers were measured here on 12 Nov: a record whose
+`root=` is the main checkout resolves to a real journal and copies into it (`tail=ok`), while a record whose
+`root=` is a worktree with no `factory/log` -- a fresh one, or one of the trees deleted inside the hour on
+10 Nov -- answers `tail=skipped refuse=no-such-directory`:
+
+```
+2026-11-12T20:04:11Z LOG-MOVED old=/home/rodney/prj/wt/issue-260/factory/log new=/tmp/opencode/linectl2/newlog prev-pass=2026-11-10T10:17:19Z how=derived tail=skipped refuse=no-such-directory -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there. The old path is derived from that pass's own root= field, because it ran before a pass could name its journal directory; where it names the tree rather than the directory, FACTORY_LOG was overridden by hand. That is also why this answer often arrives with tail=skipped refuse=no-such-directory: a path built from root= points at no journal at all unless the old pass overrode FACTORY_LOG, and it says nothing about where that pass really wrote. The journal that went quiet is /home/rodney/prj/wt/issue-260/factory/log/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed the append itself was refused, skipped nothing was opened -- and skipped carries refuse= naming the clause that refused, because five clauses answer skipped and they are not one fact: old-directory-is-a-symlink, old-directory-not-writable, old-journal-is-a-symlink and old-journal-not-a-regular-file each name something sitting at the old path this pass will not write through or into, and only no-such-directory says there is nothing there to tail. The clauses in the order they are judged: old-directory-is-a-symlink, no-such-directory, old-directory-not-writable, old-journal-is-a-symlink, old-journal-not-a-regular-file (#260)
+```
+
+Neither answer says where the old pass actually wrote, and that is what the sentence on the line now says
+out loud: the derived path is where the unit would have put it, not where the pass said it put it. The only
+record of the latter is a `LOG-AT` written by a pass of this build or newer, which the next pass reads and
+reports as `how=recorded`.
+
+A refusal to answer is said rather than left as silence, so that the absence of `LOG-MOVED` is never
+evidence nothing moved:
+
+```
+2026-11-12T19:14:34Z LOG-MOVED-UNKNOWN rc=2 the journal window holds 0 line(s) and none of them records a log directory, so this pass cannot say whether the journal moved; it is writing to /tmp/opencode/demo-ff/factory/log. The window is FACTORY_LOG_TAIL=400 lines -- raise it if a single pass outwrites it, and expect this arm on a machine whose journal holds no earlier pass of this unit (#260)
+```
+
+`rc=1` is journalctl failing, `rc=2` a window that records no directory -- normal on a unit's first pass,
+and the arm to expect on a box whose journal holds no earlier pass of this unit -- and `rc=3` a newest
+record naming no directory. All three still print `LOG-AT`, because the pass always knows where it is
+writing even when it cannot say where the last one was.
+
+Every block above is output from the shipped function, with the demo trees the section above uses and the
+journal supplied by the same `journalctl` stub `factory/selftest.sh` plants for its four `proc_*` legs --
+`the pass names its own journal directory`, `…and says so in the journal it is leaving`, `…and says
+nothing when the journal stayed put`, `…and refuses in words when it cannot read` -- which run the shipped
+`factory.sh` and read the journal it wrote. Seven more legs replay the arms from transcripts: recorded over
+derived, the quoted `PASS`, damaged against absent, the tail knob at both sizes, a symlinked old journal, an
+unwritable one, and each of the five refusal clauses named separately against a plain old journal that
+refuses nothing.
+
+Two honest qualifications about the blocks above. The `journalctl` stub is a fixture, so every line here was
+produced by the shipped function but not by a real activation; and the `refuse=no-such-directory` block is
+the one that keeps real paths rather than the demo vocabulary -- its `old=` is a worktree on the machine
+this was written on, which has no `factory/log`, and its `new=` is a scratch directory. It is quoted as a
+machine answered it because that case only exists where a real tree is missing its log directory.
+
 
 ## Decision ids are allocated against refs, not prose
 
@@ -1169,6 +1305,7 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
 | `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause |
 | `FACTORY_REAP_TAIL` | `400` | how many of the unit's journal lines the reaping read is allowed to look at -- a bound on the read, never the measurement |
+| `FACTORY_LOG_TAIL` | `400` | how many of the unit's journal lines the read of the journal's own location looks back for the last line that named a directory (#260); a line-count window, so a pass that outwrites it is told `LOG-MOVED-UNKNOWN rc=2`, never "it has not moved" |
 | `SHELLCHECK` etc. | — | see `make check-shell` |
 
 ## Stopping it
