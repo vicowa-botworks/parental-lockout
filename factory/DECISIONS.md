@@ -7277,3 +7277,53 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   What it cost, stated plainly. **(a)** The census refuses a file that *prescribes* the dead verb -- a line that begins with it, the shape a command takes in a fenced block or a prompt string -- and deliberately does not redden on the probe quoted mid-sentence, because a leg that ate this repository's own measurements would be widened away inside a month; `esc_not_a_park` records the same objection against reddening on comment lines. A prescription written inside a sentence is therefore invisible to it, and the load-bearing half is the arm check, which reads `factory/factory.sh` as text and never runs a write. **(b)** The leg pins two whole prose phrases, one in the skill and one in the guide, so rewording either sentence reddens a leg: a leg that reads prose constrains prose, and that is #272's cure and its price in the same breath. **(c)** The tick's prompt still interpolates the name (`-- ${FACTORY_ESCALATION_LABEL} --`) while telling the tick to take the name from its one home, because `ask_prompt_assembles_it` requires that variable inside the `address_review` arm and its own failure message endorses the variable as "never spelled out"; a tick could still type the word it was shown, and deleting the interpolation to close that was refused rather than widening a measured leg this unit was not sent to widen. **(d)** No leg proves `gh issue edit` lands a *valid* label on a pull request. That is a network write, and today nobody can run it -- not a tick, not a person -- without answering #311 first, because the name the harness prints is not one of the eighteen. So the verb is verified up to gh's label-resolution step and no further, and the end-to-end escalation write stays unverified until #311 is answered. That is #311's open half, not a new hole. **(e)** #311 is not delivered by this branch. It stays open, still carrying the `blocked` stand-in its own record disclosed, and the only thing still owed on it is the decision itself.
 - Checkpoint: e8db1c223158b2a1cd71843ef07b216255a47040
 - Effect: `.opencode/skills/factory/SKILL.md` (step 2 names the verb a pull request takes; the measurement is the paragraph *after* the code block, beside the probe measurement already there -- a second `gh issue edit … --add-label` line inside the block would break `esc_step_control`'s plant, which requires exactly one); `factory/factory.sh` (the empty-ask branch carries the two calls, with the command substitution escaped so the tick runs it in its own worktree rather than the supervisor expanding it at prompt-build time); `docs/factory.md` (the verb paragraph in "What an escalation leaves on the artifact"); `factory/selftest.sh` (`esc_pr_verb`, plus `esc_pr_verb_control` with three plants -- the dead verb restored as a command line, the two commands lifted out of the instruction, the guide sentence deleted -- each checked to have landed before it is asserted). Measured: `claim_leg` calls 285 → 286; `bash factory/selftest.sh` **564 passed, 0 failed**, all three controls reported; `grep -rn` over `scripts/mutations/*.json` for `factory/factory.sh` and `factory/selftest.sh` answers nothing, so `make check-mutations` was not run for this commit; `make verify` → `verify: OK`, exit 0, run once across the four changed files without this entry and once more with this entry in the tree, both results quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
+
+## H-0154 · The tally sentence #291 asked for printed its own format string, and the repair that lasts refuses the shape rather than fixing two lines
+
+- Question: `#329` reads `factory/triage.sh` off `origin/main` = `f5e0fe9` and quotes what it puts on
+  stderr. Reproduced here with the file's own bytes -- `sed -n` of the two lines into a script that sets
+  the two counters, no hand-retyped copy anywhere in the path -- on bash 5.3.9, with three content-free
+  branches: 277 bytes of stderr and not one newline in them.
+
+  ```
+  triage: offered: %s\n branch(es) ahead of main hold no content the trunk lacks, so none is
+  triage: 3 branch(es) ahead of main hold no content the trunk lacks, so none is
+  triage: issue-302 issue-309 issue-318 branch(es) ahead of main … so none is
+  ```
+
+  The literal is closed and the backslash follows with nothing between them, so the shell deletes
+  `\<newline>` and what remains between the two literals is the continuation line's own indentation: a
+  field separator. `printf` is therefore handed a format with one slot and no `\n`, plus the literal
+  `offered: %s\n` as its first argument, and POSIX printf re-applies the format while arguments remain.
+  Both sites in the file are this shape. The ticket offers two repairs and the second one changes what
+  `make verify` refuses, which is a rule written against every unit that comes after -- so: repair the
+  two format strings, teach `scripts/check-scripts.py` the shape, do both, or hand it up?
+- Options: repair the two format strings and stop, since stderr is not the machine-readable half and the rows are built by `emit` elsewhere | teach `scripts/check-scripts.py` to refuse the shape and leave the sentences as shipped, on the theory that a red gate will force the edit sooner than a person will | repair both sites, teach the guard the shape, and pin both polarities in the guard's own self-test so it can be neither ignored nor widened away | escalate, because a new gate rule binds every unit and is not a unit's call
+- Chose: repair both sites, teach the guard the shape, and pin both polarities in the guard's own self-test so it can be neither ignored nor widened away
+- Why: three measurements decided the shape of the repair, and the first is why "stop at the strings"
+  loses. `bash -n` exits 0 and `shellcheck -S style` exits 0 on the broken file -- the parse is legal and
+  the tooling that `verify` already runs is blind to it, so nothing stops the next person writing the
+  same continuation; this is the second line-continuation defect in this one file (the first, caught
+  while H-0131 was in review, was a `\<newline>` placed *inside* the quotes, which the shell keeps
+  literal). The second measurement is why the existing legs did not catch it either: the two needles
+  that guard this sentence, `hold no content the trunk lacks` and `br-empty br-merge-empty`, both
+  `grep -qF` clean against the mangled stderr, because the format's own words are precisely what got
+  printed. A leg that matches a fragment of a sentence is not an assertion about that sentence, so the
+  legs now assert each sentence whole and assert that no literal `%s` or `\n` reaches stderr at all. The
+  third is why a gate rule must ship in the same commit as the fix: a rule that reddens the tree it
+  arrives in is a rule that gets reverted, and repairing both sites is what lets the rule land green on
+  day one. Both *correct* shapes are pinned in the guard's accepted set -- the house idiom
+  `printf '…%s\n' \` (a space between quote and backslash, so the arguments are what continues) and the
+  column-0 join, which really does concatenate -- because the flag guard's own history says what happens
+  otherwise: its first draft refused six working call sites and had to be narrowed (#217). Control 5
+  asks the shipped shape of the repaired file and demands the sentence come back broken, with the
+  dead-mutant floor this section already documents, so the control cannot pass by failing to start.
+  The rule then proved itself in the field rather than in a fixture: while testing it,
+  `git checkout -- factory/triage.sh` restored the checkpoint commit, which does not contain the
+  repair, and two lines later `check-scripts` refused `factory/triage.sh:1019` and `:1023` again on a
+  tree that looked clean in `git status`. What is *not* claimed here: that the third leg's needle
+  (`no merge base with main`) also survives its sentence's mangling. The probe that measured the other
+  two ran with `unjudged_count=0`, so that sentence never printed and its needle went missing for a
+  reason that has nothing to do with the bug.
+- Checkpoint: d2d8eedf8346e263f389a2acde6b9b033778aaca
+- Effect: factory/triage.sh, factory/selftest.sh, scripts/check-scripts.py, docs/factory.md
