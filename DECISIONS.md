@@ -4162,3 +4162,68 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `scripts/check-decisions.py` -> 205 entries. `make verify` and the merge state read after the push
   are quoted with their exit statuses in the pull-request body, not here, because an `Effect:` written
   before a gate runs is a prophecy (#1180).
+
+## D-0072 · #323's crash arm had no witness, so emptying its one append turned 20 crashed rules into a green run
+
+- Question: `rule()`'s `except Exception` arm is one line wide — `problems.append(f"{why}: {type(exc).__name__}: {exc}")`
+  — and it is the only place a crashing rule becomes a problem. Both halves of what that costs were
+  re-measured here at `f5e0fe9` before anything was written. Half one, the guard's own transcript: the
+  row `a rule that throws is silenced in the rule helper` in `scripts/attack-capture-self-test.py`
+  replaces that append with `pass` and the patched self-test answered `capture self-test: 78 refusal
+  rules hold` at exit 0, which is why the row sat in `DOCUMENTED_HOLES`. Half two, a crash that
+  actually happens: `cdp.refused_dir` patched to `raise RuntimeError("boom")` — a fault in the code
+  *under* the rules, not in a rule's harness — answers `capture self-test: 20 of 78 rules failed`, exit
+  1, with 20 transcript lines each naming `RuntimeError: boom` (`/tmp/opencode/cc2/crash-intact.log`,
+  run in a copy of the tree per #1807; #323 quotes `17 of 76`, which is the same measurement against
+  the suite as it stood on 11 Nov, since grown by two rules). So the statement whose deletion turns a
+  real crash into a clean bill of health is the one statement in the helper no clean run executes, and
+  the canary pair cannot see it because neither of its two rules throws. So: witness the arm inside
+  `self_test()` on every run, take the bigger battery that witnesses every rule instead, or leave the
+  row listed as a known floor?
+
+- Options: witness the arm on every run with a third canary that raises on purpose, into two lists of its own, asserting the arm's whole sentence | take #322's per-rule probe battery, which witnesses every rule and closes the arm with it, and is a different unit's design | leave the row listed as a documented floor, as `D-0058` chose on scope rather than merit
+
+- Chose: witness the arm on every run with a third canary that raises on purpose, into two lists of its own, asserting the arm's whole sentence
+
+- Why: the chosen shape is `rule("crash canary", _throws_in_a_rule, probe_crash_ran, probe_crash)`,
+  raising `RuntimeError("the crash arm is under test")` into two lists of its own, with the comparison
+  demanding the arm's whole sentence and the count `[1]`; the row retires from `HOLE` to `CAUGHT` and
+  its class leaves `DOCUMENTED_HOLES` and `HOLE_CLASS` with it. The arm's failure mode is the one this
+  suite was built for — the code under a rule breaking at a
+  moment nobody is watching — and because it is dead code on a clean tree, the witness has to be on
+  every run rather than in the run that catches a fault. It costs no rule: the canary is not a claim
+  about a driver, so it never enters `ran` and `EXPECTED_RULES` stays 78, which matters because the
+  count is precisely what #322 says cannot see inside a body. The comparison is the whole sentence and
+  not the count, because an arm rewritten as `problems.append(str(exc))` keeps the `1` and loses the
+  `{why}:` prefix — and losing the prefix is what `rule()`'s own comment records fighting for: four
+  rules threw at once when `keep_refused` was hollowed and finding them meant bisecting. Both halves
+  were re-measured after the edit, in a copy: with the arm emptied the run now prints `capture
+  self-test: the rule helper's crash arm is hollow: …` and exits 1; the row prints `CAUGHT`; and with a
+  real crash and the arm intact the run still prints `20 of 78 rules failed` with `crash canary` in the
+  transcript zero times, so the witness adds a line only to a run that is lying.
+
+- What lost: three things. `D-0058`'s deferral loses its class: the suite goes from five documented hole
+  classes to four, and the class text was deleted rather than annotated, because this file's anti-rot
+  rule fails a run for a class that stops being a hole — the measurement it carried now lives in #323,
+  in the comment above the new canary, and in this entry. #322 keeps its whole class: a *rule* whose
+  body is emptied is still invisible to the count, and all four of those rows still print `HOLE`. And
+  the verdict still answers `capture self-test: 0 of 78 rules failed` when the one problem came from a
+  canary rather than from a rule, because `self_test_verdict` counts `ran` — the canary pair has had
+  that shape since it shipped and this change inherits it. `attack-capture-self-test.py`'s
+  `FAILED_SUMMARY` matches that sentence, so rewording it is #325's verdict-shape work and not a rider
+  on this one; it is named here so the next reader finds it filed rather than missed.
+
+- Checkpoint: 5385aba
+
+- Effect: two files, both read back before this line was written. `testing/capture/pages.py`: one hunk,
+  31 lines added at `4399-4429` inside `self_test()` between the canary pair's comparison and
+  `return ran, bad` — 17 comment lines, 14 code — file 4434 to 4465, nothing else moved;
+  `python3 testing/capture/pages.py --self-test` → `capture self-test: 78 refusal rules hold`, rc 0.
+  `scripts/attack-capture-self-test.py`: 14 lines in, 22 out across five hunks — the row's `HOLE` →
+  `CAUGHT` with a four-line retirement note, its `HOLE_CLASS` mapping gone (2 lines), its
+  `DOCUMENTED_HOLES` class gone (13 lines), and the header's class count 5 → 4 with the fifth recorded
+  as closed; file 727 to 719; `python3 scripts/attack-capture-self-test.py` → `TOTAL  47 attacks: 32
+  caught, 6 honest edits still green, 9 holes, 0 invalid, 0 unexpected` and `VERDICT: 47 attacks, 0
+  problem(s), 4 hole class(es), 9 hole row(s)`, rc 0. `scripts/check-decisions.py` → 207 entries across 2 logs.
+  `make verify` and the state read after the push are quoted with their exit statuses in the
+  pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
