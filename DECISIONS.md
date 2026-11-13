@@ -3913,41 +3913,45 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Question: the re-review at `bb110c1` blocks on one thing — `mergeable: CONFLICTING` and
   `mergeStateStatus: DIRTY` against a `main` 13 commits ahead — and separately names three precision
   items that are "not a reason to hold the PR" and free to "land here or in whatever carries #302". All
-  three were re-measured here before any of them was touched. (1) `testing/capture/manifest.py:525` says,
-  in the present tense of the published file, that `lock.png` and `testlock.png` "are the only two of the
-  nine entries with no `carried_from`" — after this PR zero of the nine carry, so the sentence is false of
-  the file it names, and it is false *because of this PR*; the other two predate it. (2) `:537` points at
-  "the clause below", but the clause below is the unclaimed-frame refusal at `:539` while the sentence
-  goes on to describe `sources_rev`, which is fed by `current = newest_commit(sources, run=run)` at `:487`
-  — above, not below, and unnamed. (3) `:527` dates `7e65d3b` "two minutes after `2088043` landed", where
-  `git show -s --format=%ct` gives 1794173737 then 1794173755: eighteen seconds, the figure
-  `README.md:725` and `D-0066` already carry, so the file is the third party in a three-way disagreement
-  inside one repository. A fourth came as a nit: `README.md:754` quotes the drift arm's instruction and
-  stops at the comma before the words that carry the finding. Which of these rides a push that has to
-  happen anyway, when every push into a reviewed pull request spends the approval it holds and this
-  branch has already spent two that way?
+  three were re-measured here before any of them was touched. (1) `testing/capture/manifest.py:525` at
+  `835a55a` said, in the present tense of the published file, that `lock.png` and `testlock.png` "are
+  the only two of the nine entries with no `carried_from`" — after this PR zero of the nine carry, so
+  the sentence is false of the file it names, and it is false *because of this PR*; the other two
+  predate it. (2) `testing/capture/manifest.py:537` at `835a55a` points at "the clause below", but the
+  clause below is the unclaimed-frame refusal at `:539` while the sentence goes on to describe
+  `sources_rev`, which is fed by `current = newest_commit(sources, run=run)` at `:487` — above, not
+  below, and unnamed. (3) `testing/capture/manifest.py:527` at `835a55a` dates `7e65d3b` "two minutes
+  after `2088043` landed", where `git show -s --format=%ct` gives 1794173737 then 1794173755: eighteen
+  seconds, the figure `testing/capture/README.md:725` at `335c6f4` and `D-0066` already carry, so the
+  file is the third party in a three-way disagreement inside one repository. A fourth came as a nit:
+  `testing/capture/README.md:754` at `835a55a` quoted the drift arm's instruction and stopped at the
+  comma before the words that carry the finding. Which of these rides a push that has to happen anyway,
+  when every push into a reviewed pull request spends the approval it holds and this branch has already
+  spent two that way?
 - Options: land all four here, each rewritten inside the line count it already occupies | land only the
   sentence this PR falsified and defer the two it inherited | land none of them and keep the product diff
   at zero for the re-review
 - Chose: land all four here, each rewritten inside the line count it already occupies
-- Why: tie-break three — refuse rather than proceed on what a measurement contradicts — is what separates
-  these, and it separates them by degree, which is the whole question. Option two ships two sentences
-  known false (items 2 and 3 are false whether or not this PR made them so) and option three ships three;
-  only option one ships none. Tie-break four does not rescue deferral: all four live in
+- Why: tie-break three — refuse rather than proceed on what a measurement contradicts — is what
+  separates these, and it separates them by degree, which is the whole question. Option two ships two
+  sentences known false (items 2 and 3 are false whether or not this PR made them so) and option three
+  ships three; only option one ships none. Tie-break four does not rescue deferral: all four live in
   `testing/capture/manifest.py` and `testing/capture/README.md`, both already opened by this PR, so
   deferring changes the commit count and not the file count, and the push is required by the blocking
   item either way — there is no quieter review for sale. Tie-break six is this branch's own precedent:
-  the PR already refused the deferral once at `README.md:722-724`, where the same present-tense claim was
-  rewritten to "it is the state of *that* tree … **there** … **were** the only two" instead of being left
-  for #302, so option two would leave one half of a single sentence-pair corrected and the other half
-  false, in two files describing one specimen. `D-0068` is the log's version of the same instinct — a
-  sentence that has become false gets a dated correction beside it rather than being left standing.
-  What made this a decision and not an edit is the shape the fixes had to take: both `DECISIONS.md` and
-  `factory/DECISIONS.md` cite `path:NNN` coordinates into these two files, including `manifest.py:749`
-  and `README.md:1005`, both *below* the text being changed — #318's hazard, 272 citations with two
-  already broken — so every replacement had to be line-neutral: 16 comment lines in and 16 out, a
-  10-line paragraph in and 10 out. That constraint is what decided *how* each sentence is worded, and it
-  is why the fixes are compressions of existing prose rather than appends.
+  the PR already refused the deferral once at `testing/capture/README.md:722-724` at `335c6f4`, where
+  the same present-tense claim was rewritten to "it is the state of *that* tree … **there** … **were**
+  the only two" instead of being left for #302, so option two would leave one half of a single
+  sentence-pair corrected and the other half false, in two files describing one specimen. `D-0068` is
+  the log's version of the same instinct — a sentence that has become false gets a dated correction
+  beside it rather than being left standing. What made this a decision and not an edit is the shape the
+  fixes had to take: both `DECISIONS.md` and `factory/DECISIONS.md` cite `path:NNN` coordinates into
+  these two files, including `manifest.py:749` and `README.md:1005`, both *below* the text being changed
+  — #318's hazard, 272 citations with two already broken — so every replacement had to be line-neutral:
+  15 comment lines in and 15 out (`git show --numstat 335c6f4` on `testing/capture/manifest.py` counts
+  15/15; the block at `:523-538` spans 16 lines and one of them survived byte-identical), a 10-line
+  paragraph in and 10 out. That constraint is what decided *how* each sentence is worded, and it is why
+  the fixes are compressions of existing prose rather than appends.
 - What lost: the re-review can no longer be discharged the way `bb110c1`'s was. At that head the
   reviewer's own measurement was "none of the four product files moved", so the previous numbers
   transferred by inspection; after this commit the next reader has to read 16 comment lines and a
@@ -3959,14 +3963,111 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   written for, and it no longer describes the head.
 - Checkpoint: 5db210c
 - Effect: two files, both line-neutral, both read back before this line was written.
-  `testing/capture/manifest.py`: the 16-line comment block at `:523-538` replaced in place — the specimen
-  is now scoped ("it is `git show 7e65d3b`'s tree, not the published file; there
-  `docs/screenshots/360/manifest.json` dated … they **were** the only two"), the interval is eighteen
-  seconds with both stamps quoted, and the pointer names its target: "the entry below takes `sources_rev`
-  from `current` = `newest_commit(sources)`, the PAGE's rev". File still 2264 lines; with `^[[:space:]]*#`
-  lines stripped the file is byte-identical to its `835a55a` copy across all 1957 code lines, so the edit
-  is comment-only and no executable line moved; `manifest.py --self-test` answers 44 rules hold and
-  `manifest.py check` answers *9 photographs current*, rc 0. `testing/capture/README.md`: the paragraph at
-  `:751-760` rewritten inside its own 10 lines and the file still 1183, now quoting the instruction whole
-  through "…what it may not be is older than the page." Across both decision logs, all 162 `path:NNN`
-  citations were sampled before and after and the line each names diffed byte for byte: zero moved.
+  `testing/capture/manifest.py`: the 16-line comment block at `:523-538` replaced in place — the
+  specimen was scoped to one tree (the wording `335c6f4` shipped, "it is `git show 7e65d3b`'s tree, not
+  the published file; there `docs/screenshots/360/manifest.json` dated … they **were** the only two";
+  `D-0070` splits it across the two trees that hold each half), the interval is eighteen seconds with
+  both stamps quoted, and the pointer names its target: "the entry below takes `sources_rev` from
+  `current` = `newest_commit(sources)`, the PAGE's rev". File still 2264 lines; with `^[[:space:]]*#`
+  lines stripped the file is byte-identical to its `835a55a` copy across all 1957 code lines, so the
+  edit is comment-only and no executable line moved; `manifest.py --self-test` answers 44 rules hold and
+  `manifest.py check` answers *9 photographs current*, rc 0. `testing/capture/README.md`: the paragraph
+  at `:751-760` rewritten inside its own 10 lines and the file still 1183, now quoting the instruction
+  whole through "…what it may not be is older than the page." Across both decision logs the citation
+  corpus needs its rule stated before its number means anything: a coordinate is a `path:NNN` written
+  with a directory separator, the path read from the repository root, counted once per (path, line) pair
+  whose path is a tracked file and whose line number is inside that file at the tree being read. `grep
+  -ohE '[A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+:[0-9]+' DECISIONS.md factory/DECISIONS.md`, resolved and
+  de-duplicated at `335c6f4`, is 126 coordinates, 11 of them naming a line in the two files this commit
+  edits; diffing every cited line between `835a55a` and `335c6f4` moves exactly one —
+  `testing/capture/manifest.py:525`, introduced by this entry to quote pre-fix text and pinned at
+  `835a55a` above. Bare shorthand (`:539`, `manifest.py:749`) is outside that rule by construction,
+  which is why every coordinate this branch could break now spells its path and names its tree; `D-0070`
+  re-runs the same audit after its own edits.
+
+
+## D-0070 · The 4th-pass review finds the fix for item (1) names `7e65d3b` for a property only `7ff2a67` has: re-point the specimen at the later tree, split it across the two that hold each half, or drop the comparison
+
+- Question: the 4th-pass review (`5885522495`, 13 Nov) blocks on one sentence pair:
+  `testing/capture/manifest.py:524-526` and `testing/capture/README.md:723-724` at `335c6f4` both say
+  the mint specimen is `git show 7e65d3b`'s tree and that there `lock.png` and `testlock.png` "were the
+  only two of the nine entries with no `carried_from`". Census of `carried_from` in
+  `docs/screenshots/360/manifest.json`, rows carrying out of nine (`git show
+  $t:docs/screenshots/360/manifest.json | grep -c '"carried_from"'`): `5d47d01` 0 · `7e65d3b` 0, where
+  the string is not in the file at all · `7ff2a67` 7 · `0499c610c^` 7 · `origin/main` 7 · this head 0.
+  `7e65d3b` is an ancestor of `7ff2a67` (`git merge-base --is-ancestor`), so at the tree both sentences
+  name the comparison selects nothing and "the only two" is true of nine rows, not two. The tree where
+  those two are the only uncarried pair is `7ff2a67` — the commit that introduced the key (`git log
+  --all -S'"carried_from"' -- docs/screenshots/360/manifest.json` answers `7ff2a67`, then `0499c61`,
+  which deletes the seven) — and `main` publishes that identical blob today (`780d5bbd7` at `7ff2a67`
+  and at `origin/main`). The mint half *is* `7e65d3b`'s and was re-read there rather than trusted: `git
+  rev-list --parents -n1 7e65d3b` names `2088043cb`; its own `--stat` touches `DECISIONS.md` and the
+  manifest and nothing else; and its manifest diff replaces `"sources_rev": "3bcbfdd…"` with
+  `"2088043cb…"` in all nine rows — every frame's own newest commit replaced by the page's, eighteen
+  seconds after that page commit landed (1794173737 → 1794173755). So: re-point the pair at the later
+  tree, split it across the two trees that hold each half, or drop the comparison?
+- Options: re-point the whole specimen at `git show 7ff2a67`'s tree | split it across the two trees that hold each half, inside the line count both files already occupy | drop the `carried_from` comparison and leave only the mint
+- Chose: split it across the two trees that hold each half, inside the line count both files already occupy
+- Why: tie-break three — refuse rather than proceed on what a measurement contradicts — settles that the
+  pair cannot ship as written; the review blocks on exactly this branch's own tie-break. What separates
+  the three answers is which half each loses. Re-pointing moves the specimen off the tree that shows the
+  gate missing the mint: at `7e65d3b` nothing carried and `check` answered *9 photographs current*, rc
+  0, which is the fact the clause is here for, while at `7ff2a67` seven of the nine rows *do* carry —
+  the same witness proves less about a clause whose whole subject is the row with nothing to carry.
+  Dropping the comparison keeps the mint and loses `lock.png` and `testlock.png`, the two frames #294's
+  clause and the README's re-take recipe both exist for and the only two no driver records. Tie-break
+  four does not separate them: all three edit both files, and the line budget is fixed by `D-0069`'s own
+  constraint — `manifest.py:749` and `README.md:1005` sit below the text, and `D-0069` itself cites six
+  coordinates into the lines being rewritten. Tie-break six is the paragraph's own convention: it
+  already gives one rev to the pixels (`3bcbfdd`) and another to the page (`2088043cb`), so naming a
+  third tree for a third fact continues a pattern rather than inventing one. That the split fits the 11
+  and 12 lines already there is what made this a decision and not a typo, and paying for it is what
+  moved the `FIXTURE`/`ARTIFACT` parenthetical out (below).
+- What lost: three things. The manifest comment loses "(they export `FIXTURE`/`ARTIFACT` and leave the
+  recording to whoever notices)", the mechanism behind "write no manifest"; the README paragraph keeps
+  the substance ("write no manifest, so those revs are hand-typed from wherever whoever noticed was
+  standing"), so the fact survives in prose and not in the code. Both sentences are denser for the split
+  — 11 comment lines now carry three tree names — and the README lost its "(see the two notes below,
+  both from 11 Nov)" signpost, so the two notes after it are found by reading on rather than being
+  pointed at. And `D-0069` was amended in place in this commit instead of corrected beside itself the
+  way `D-0068` chose: that entry is this branch's own unmerged text, written one commit back and being
+  re-read by the same reviewer now, so shipping it known-false to a 5th pass is the defect under repair
+  rather than a record to preserve; `D-0030` is the precedent for amending in the commit that measures
+  the error, and what keeps this from being silent is the list — six coordinates now spelled with a path
+  and a tree (`testing/capture/manifest.py:525`, `:527` and `:537` at `835a55a`;
+  `testing/capture/README.md:722-724` and `:725` at `335c6f4`; `testing/capture/README.md:754` at
+  `835a55a`; the review asked for the first and the last, the other four are the same rule one line
+  over), the integer that read "16 comment lines in and 16 out" in `Why:` and measures 15/15 at `git
+  show --numstat 335c6f4`, the wording quoted in `Effect:` that this commit deletes from the file (now
+  labelled as what `335c6f4` shipped), and the "all 162 `path:NNN` citations" claim, which does not
+  reproduce and is now a named rule over 126 coordinates. The review's third item — the re-take's
+  transcripts stay unverifiable from the tree — is untouched and is not answerable from here.
+- Checkpoint: 9810e9c60
+- Effect: three files, one of them this log. `testing/capture/manifest.py`: the comment block at
+  `:523-533` replaced in place, 11 lines in and 11 out, file still 2264, and with `^[[:space:]]*#`
+  stripped the file is byte-identical to its `835a55a` copy across all 1957 code lines — comment-only,
+  no executable line moved, no line outside `523-533` differing. `testing/capture/README.md`: the
+  paragraph at `:722-733` replaced in place, 12 lines in and 12 out, file still 1183, nothing outside
+  `722-733` differing. Read-back of the sentences as they now stand, with the census that decides them:
+  `grep -c '"carried_from"'` over `git show $t:docs/screenshots/360/manifest.json` answers 0 of nine at
+  `7e65d3b`, 7 of nine at `7ff2a67` and 7 of nine at `origin/main`, and the two rows the seven exclude
+  at `7ff2a67` are exactly `lock.png` and `testlock.png`; `grep -n 'only two'` over the two files
+  answers one line each, `manifest.py:527` and `README.md:725`, and in both it sits inside the clause
+  that opens with `7ff2a67`. Gates, each run after the text it certifies was written and before this
+  line was: `manifest.py --self-test` -> `capture manifest self-test: 44 rules hold`, rc 0; `manifest.py
+  check` -> *9 photographs current*, rc 0, with no carried-frame disclaimer printed; `pages.py
+  --self-test` -> `capture self-test: 78 refusal rules hold`, rc 0; `scripts/check-decisions.py` ->
+  `check-decisions: 204 entries across 2 log(s), every one with its question, options, choice, reason
+  and checkpoint`, rc 0; `scripts/attack-capture-self-test.py` -> `VERDICT: 47 attacks, 0 problem(s), 5
+  hole class(es), 10 hole row(s)`, rc 0, the five hole classes the standing findings #297 and #322-#325
+  already file. The citation audit re-run at this head under the rule `D-0069` now names: 133
+  coordinates, 11 of them naming a line in either file this branch rewrites; six cited lines differ
+  between `335c6f4` and this head -- `testing/capture/manifest.py:524`, `:525`, `:527` and
+  `testing/capture/README.md:722`, `:723`, `:725` -- and every one of the six is quoted only by a
+  sentence that names the tree it was read from: `D-0069` pins the first three at `835a55a` and the
+  other three at `335c6f4`, and this entry cites its own against `335c6f4`, so the corpus leaves no
+  coordinate pointing at a line whose text has moved out from under it. `scripts/mutations/` still holds
+  no pattern naming `manifest.py` or `capture/` (13 sets, 0 matching files), so the branch's
+  green mutation run transfers untouched. `make verify` and the merge state read after the push are
+  quoted with their exit statuses in the pull-request body, not here, because an `Effect:` written
+  before a gate runs is a prophecy (#1180).

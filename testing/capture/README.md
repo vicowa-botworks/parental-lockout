@@ -719,18 +719,18 @@ for an unrecorded frame than for any other, because an unrecorded frame is the o
 see — `is committed with no entry in` fires on it — and recording it deletes that finding and installs
 in its place the drift arm that compares a fabricated rev against nothing.
 
-The specimen one step further along is in `git show 7e65d3b`, and it is the state of *that* tree, not of
-the published set (see the two notes below, both from 11 Nov): there `lock.png` and `testlock.png` were
-the only two of the nine entries with no `carried_from` — both revs minted — both dated `2088043cb`,
-written eighteen seconds after that commit landed, while the newest commit over each PNG's own pixels is
-`3bcbfdd`, an ancestor of `2088043`. By this file's own model those two photographs predate their page,
-and `manifest.py check` on that tree answers *9 photographs current*, rc 0: the rev the gate would have
-compared is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so those revs are
-hand-typed from wherever whoever noticed was standing — the recipe below is what tells them what to type,
-and a commit eighteen seconds old is not evidence about a frame taken four hours and twenty-one minutes
-earlier. Closing it takes a re-take, not an edit: `./lock.py` and `./testlock.py`, then
-`record --fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock
---shot testlock`.
+The specimen one step further along is in `git show 7e65d3b` — the state of *that* tree, not the
+published set: there none of the nine carried, because `carried_from` arrived a commit later; the split
+is in `git show 7ff2a67`, the blob `main` publishes today, where `lock.png` and `testlock.png` were the
+only two of the nine with no `carried_from`, both revs minted at `2088043cb`. `7e65d3b` had just moved
+all nine rows off `3bcbfdd`, each PNG's own newest commit and an ancestor of `2088043`, onto the page
+commit eighteen seconds after it landed. By this file's own model those two photographs predate their
+page, and `manifest.py check` there answers *9 photographs current*, rc 0: the rev the gate would compare
+is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so those revs are hand-typed
+from wherever whoever noticed was standing — the recipe below tells them what to type, and a commit
+eighteen seconds old is not evidence about a frame taken four hours and twenty-one minutes earlier.
+Closing it takes a re-take, not an edit: `./lock.py` and `./testlock.py`, then `record --fixture-env
+runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock --shot testlock`.
 
 **That re-take ran on 11 Nov, all nine frames, and what it measured is the finding (#301).** Every fixture
 was re-seeded and every driver run through the recipe below with `--out docs/screenshots/360 --overwrite`,

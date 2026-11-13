@@ -520,17 +520,17 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
         # says "Commit last"). Refusing the absence is refusing `make capture`, which is #144's trap --
         # see the rule below, which is written to fail if this clause ever stops being conditioned.
         #
-        # The live specimen of this mint, measured 11 Nov on this branch, has an entry already and so is
-        # the clause above's class rather than this one's -- it is `git show 7e65d3b`'s tree, not the
-        # published file; there `docs/screenshots/360/manifest.json` dated `lock.png` and `testlock.png`
-        # at `2088043cb`: they were the only two of the nine entries with no `carried_from` (both revs
-        # minted, not carried); `7e65d3b` wrote them -- eighteen seconds after `2088043` landed,
-        # 16:35:37 to 16:35:55 -- and the newest commit over each PNG's pixels was `3bcbfdd`, an
-        # ANCESTOR of `2088043`. By this file's model those frames predated their page, and `check` on
-        # THAT tree answered `9 photographs current`, rc 0, because the rev it would compare is the one
-        # the record minted. `lock.py` and `testlock.py` write no manifest (they export
-        # `FIXTURE`/`ARTIFACT` and leave the recording to whoever notices), so this clause is the same
-        # mint one step earlier: a frame nobody has ever recorded, from pixels older than its page.
+        # The live specimen of this mint, measured 11 Nov here, has an entry already and so is the
+        # clause above's class rather than this one's. Its mint is `git show 7e65d3b`'s tree, not the
+        # published file: there all nine entries dated `2088043cb` and none carried -- `carried_from`
+        # arrived a commit later, in `7ff2a67`. In `git show 7ff2a67`'s tree, the blob `main` publishes
+        # today, `lock.png` and `testlock.png` were the only two of the nine with no `carried_from`. At
+        # both trees the mint reads the same: `7e65d3b` had just re-dated every row from `3bcbfdd` --
+        # each PNG's own newest commit, an ANCESTOR of `2088043` -- to `2088043cb`, eighteen seconds
+        # after `2088043` landed (16:35:37 to 16:35:55), so those frames predated their page and `check`
+        # on THAT tree answered `9 photographs current`, rc 0, because the rev compared is the one the
+        # record wrote. `lock.py` and `testlock.py` write no manifest, so this clause is the same mint
+        # one step earlier: a frame nobody has ever recorded, from pixels older than its page.
         #
         # #301 re-took all nine on 11 Nov and recorded them named (D-0066), so nothing carries now. What
         # it did NOT change is the value this clause feeds: the entry below takes `sources_rev` from
