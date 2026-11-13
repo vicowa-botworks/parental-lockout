@@ -722,7 +722,17 @@ non-empty body. Read it yourself before you touch anything:
 
 If that body is empty, or is a file reference rather than a review, DO NOT infer what was wanted and
 do not write a fix aimed at a guess. Say on the pull request that the change request arrived with no
-ask, label it ${FACTORY_ESCALATION_LABEL}, and stop there with the pull request you already have.
+ask, mark it with the escalation label -- ${FACTORY_ESCALATION_LABEL} -- and stop there with the pull
+request you already have. Take the name from its one home rather than typing it, and use the ISSUE verb
+even though this artifact is a pull request: gh pr edit cannot label anything on this account -- it
+dies on the retired projectCards field before gh reads the name -- so the marker and its read-back are
+exactly these two calls:
+
+gh issue edit $key --add-label \"\$(factory/escalation-label.sh)\"
+gh pr view $key --json labels
+
+If that read does not come back holding the name, say so on the pull request and again in NEXT:. A
+refused marker is a result you report; inventing a name for it is not (#311, #315).
 Inventing the ask is the failure this repository has written up more often than any other
 (#1180, D-0046)."
 		fi

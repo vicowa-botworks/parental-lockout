@@ -7147,6 +7147,176 @@ esc_guide_control() {
 }
 esc_guide_control
 
+# ---- the verb: one command marks either artifact, and it is not the `pr` one (#315's defect 2)
+#
+# #311 owns what the marker is CALLED. Nobody owns what writes it, because only one of the two
+# spellings reaches a label on this account. Measured 12 Nov on gh 2.46.0, one 67-character probe name
+# aimed at pull request #314, labels read before and after: the `pr` verb died on
+# `repository.pullRequest.projectCards` for exit 1 -- gh reads that retired field on its way in, so the
+# call ends before it resolves the label name -- while the issue verb with the same name answered
+# `'zzprobe-…' not found`, also exit 1, and the labels read back empty both times. Same status, two
+# different failures, and only one of them is a name a person can still supply. So a stopped unit told
+# only to "label it" reaches for the natural spelling, gets a sentence about Projects, and reports an
+# escalation that left no marker -- which is #311's failure mode with a new error message attached.
+#
+# The census below refuses a file that PRESCRIBES the dead verb: a line that begins with it, the shape
+# a command takes in a fenced block or a prompt string. It deliberately does not redden on prose that
+# quotes the probe mid-sentence, because this repository's evidence is its measurements and a leg that
+# ate them would be widened away inside a month -- the same objection `esc_not_a_park` records against
+# reddening on a sentence of prose. Its bound is stated in H-0153: a prescription written inside a
+# sentence is invisible here, which is why the arm check below, in code rather than prose, is the
+# load-bearing half.
+esc_pr_verb() { # esc_pr_verb [root] -- the marker's one working verb, named where it is needed
+	local root=$HERE/.. f hit arm bad=0
+	local -a files=(factory/common.sh factory/escalation-label.sh factory/factory.sh
+		factory/triage.sh factory/selftest.sh AGENTS.md docs/factory.md
+		.opencode/skills/factory/SKILL.md)
+	[ -z "${1:-}" ] || root=$1
+	for f in "${files[@]}"; do
+		[ -f "$root/$f" ] || continue
+		hit=$(grep -nE -- '^[[:space:]]*gh pr edit.*--(add|remove)-label' "$root/$f" 2>/dev/null || true)
+		if [ -n "$hit" ]; then
+			printf '            %s prescribes a label write with the `pr` verb -- that call ends on\n' "$f" >&2
+			printf '            the retired projectCards field before gh reads the name, so nothing\n' >&2
+			printf '            can follow this instruction and the failure says "Projects", not "label":\n' >&2
+			printf '%s\n' "$hit" | sed 's/^/              /' >&2
+			bad=1
+		fi
+	done
+	# The empty-ask branch is the only place in the harness that orders a PULL REQUEST to be marked.
+	arm=$(awk '/^\taddress_review\)/,/^\t\t;;/' "$root/factory/factory.sh")
+	if [ -z "$arm" ]; then
+		printf '            factory_tick has no address_review arm, so the three checks below are\n' >&2
+		printf '            reading an empty string and calling it an instruction\n' >&2
+		return 1
+	fi
+	case "$arm" in
+	*'gh issue edit'*) : ;;
+	*)
+		printf '            the branch orders a pull request to be marked and names no command, or\n' >&2
+		printf '            names one that is not the issue verb. A tick fills that gap with the\n' >&2
+		printf '            natural spelling, which cannot label anything here, and the marker is\n' >&2
+		printf '            refused while the unit believes it escalated\n' >&2
+		bad=1 ;;
+	esac
+	case "$arm" in
+	*'--json labels'*) : ;;
+	*)
+		printf '            the branch writes a marker and never reads it back, so the tick has\n' >&2
+		printf '            nothing to decide its own claim against (#1180)\n' >&2
+		bad=1 ;;
+	esac
+	case "$arm" in
+	*'escalation-label.sh'*) : ;;
+	*)
+		printf '            the branch names no home for the name, so what reaches the label flag is\n' >&2
+		printf '            whatever the tick remembers, which is the copy #315 deleted\n' >&2
+		bad=1 ;;
+	esac
+	# Instruction and guide, both (#272's shape: a fix in one leaves the other prescribing the old thing).
+	if ! grep -qF 'A pull request takes THIS verb' \
+		"$root/.opencode/skills/factory/SKILL.md" 2>/dev/null; then
+		printf '            the skill no longer tells a stopped unit that the issue verb is the one\n' >&2
+		printf '            for a pull request, so the step has drifted back to half its story\n' >&2
+		bad=1
+	fi
+	if ! grep -qF 'Both artifacts take `gh issue edit`' "$root/docs/factory.md" 2>/dev/null; then
+		printf '            the guide no longer says which verb writes a marker, so a reader who\n' >&2
+		printf '            learns the step from docs/factory.md instead of the skill gets no verb\n' >&2
+		bad=1
+	fi
+	[ "$bad" -eq 0 ]
+}
+claim_leg 'the escalation marker names the verb that works' esc_pr_verb
+
+esc_pr_verb_control() {
+	# Three plants, one per surface: the prescription restored, the command lifted out of the tick's
+	# own instruction, and the guide's sentence deleted. Each is checked to have landed first, because
+	# a plant that did not land and a leg that is blind report the same green.
+	local ctrl=$claim_work/esc-verb skill fs guide
+	mkdir -p "$ctrl/verb/docs" "$ctrl/verb/factory" "$ctrl/verb/.opencode/skills/factory" \
+		"$ctrl/arm/docs" "$ctrl/arm/factory" "$ctrl/arm/.opencode/skills/factory" \
+		"$ctrl/guide/docs" "$ctrl/guide/factory" "$ctrl/guide/.opencode/skills/factory" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the control trees could not be written\n' 'control: the verb'
+		return 0
+	}
+	skill=$ctrl/verb/.opencode/skills/factory/SKILL.md
+	fs=$ctrl/arm/factory/factory.sh
+	guide=$ctrl/guide/docs/factory.md
+	esc_ctrl_copy "$ctrl/verb" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the prescription copy could not be written\n' 'control: the verb'
+		return 0
+	}
+	esc_ctrl_copy "$ctrl/arm" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the arm copy could not be written\n' 'control: the verb'
+		return 0
+	}
+	esc_ctrl_copy "$ctrl/guide" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the guide copy could not be written\n' 'control: the verb'
+		return 0
+	}
+	# 1. The dead verb put back as a runnable line, exactly where the working one now stands.
+	printf 'gh pr edit 7 --add-label x\n' >>"$skill"
+	if ! grep -qE -- '^gh pr edit.*--add-label' "$skill"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the prescription is not in the copy, so the census above was never\n' \
+			'control: the verb'
+		printf '          aimed at a line that orders the dead verb\n'
+		return 0
+	fi
+	if esc_pr_verb "$ctrl/verb" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a file that prescribes the dead verb still passes, so the census is\n' \
+			'control: the verb'
+		printf '          reading file names and not their contents\n'
+	else
+		printf '        control: a copy holding one `gh pr edit … label` command line is refused, so\n'
+		printf '        the ok above is a census of the eight live files and not of one.\n'
+	fi
+	# 2. The two commands taken out of the tick's instruction: the branch is back to saying "label it".
+	grep -v -- '--json labels' "$ctrl/arm/factory/factory.sh" |
+		grep -v '^gh issue edit ' >"$fs" || true
+	if grep -q -- '--json labels' "$fs" || grep -q '^gh issue edit ' "$fs"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the arm copy still carries the marker commands, so the arm checks\n' \
+			'control: the instruction'
+		printf '          above were never aimed at a branch that names none\n'
+		return 0
+	fi
+	if esc_pr_verb "$ctrl/arm" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a branch that orders a marker naming no verb and no read-back still\n' \
+			'control: the instruction'
+		printf '          passes, so the arm checks are decoration\n'
+	else
+		printf '        control: with the two commands lifted out of the instruction the leg goes red,\n'
+		printf '        so the ok above is the tick being handed the verb, not a word it can guess.\n'
+	fi
+	# 3. The guide's sentence deleted, leaving the instruction intact.
+	grep -vF 'Both artifacts take' "$ctrl/guide/docs/factory.md" >"$guide" || true
+	if grep -qF 'Both artifacts take' "$guide"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the guide plant left the clause in place, so the leg above was never\n' \
+			'control: the guide'
+		printf '          aimed at it\n'
+		return 0
+	fi
+	if esc_pr_verb "$ctrl/guide" 2>/dev/null; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s a guide with the verb sentence deleted still passes, so the skill and\n' \
+			'control: the guide'
+		printf '          the guide are not being read as two documents\n'
+	else
+		printf '        control: deleting the guide sentence alone is refused, so the instruction and\n'
+		printf '        the guide are each read, and one cannot carry the other'"'"'s silence.\n'
+	fi
+}
+esc_pr_verb_control
+
 # ================================= the verdict a push voided, and the ask that never fired (#272)
 #
 # The classifier used to count review ROWS to decide whether a pull request needed a reviewer. A push
