@@ -615,17 +615,24 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
         # says "Commit last"). Refusing the absence is refusing `make capture`, which is #144's trap --
         # see the rule below, which is written to fail if this clause ever stops being conditioned.
         #
-        # The live specimen of this mint, measured 11 Nov on this branch, has an entry already and so
-        # is the clause above's class rather than this one's: `docs/screenshots/360/manifest.json`
-        # dates `lock.png` and `testlock.png` at `2088043cb`, they are the only two of the nine entries
-        # with no `carried_from` (both revs minted, not carried), `7e65d3b` is the commit that wrote
-        # them -- two minutes after `2088043` landed -- and the newest commit over each PNG's own pixels
-        # is `3bcbfdd`, an ANCESTOR of `2088043`. By this file's own model those two frames predate
-        # their page, and `check` answers `9 photographs current`, rc 0, because the rev it would
-        # compare is the one the record minted for them. `lock.py` and `testlock.py` write no manifest
-        # (they export `FIXTURE`/`ARTIFACT` for the pairing and leave the recording to whoever notices),
-        # so this clause is the same mint one step earlier: a frame nobody has ever recorded, from
-        # pixels older than its page.
+        # The live specimen of this mint, measured 11 Nov here, has an entry already and so is the
+        # clause above's class rather than this one's. Its mint is `git show 7e65d3b`'s tree, not the
+        # published file: there all nine entries dated `2088043cb` and none carried -- `carried_from`
+        # arrived a commit later, in `7ff2a67`. In `git show 7ff2a67`'s tree, the blob `main` publishes
+        # today, `lock.png` and `testlock.png` were the only two of the nine with no `carried_from`. At
+        # both trees the mint reads the same: `7e65d3b` re-dated every row from `3bcbfdd` -- the newest
+        # commit over six of the nine PNGs' pixels, an ANCESTOR of `2088043` -- to `2088043cb`, eighteen
+        # seconds after `2088043` landed (16:35:37 to 16:35:55), so seven of the nine frames predated
+        # their page and `check` on THAT tree answered `9 photographs current`, rc 0: the rev compared
+        # is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so this clause is
+        # the same mint one step earlier: a frame nobody had recorded, from pixels older than its page.
+        #
+        # #301 re-took all nine on 11 Nov and recorded them named (D-0066), so nothing carries now. What
+        # it did NOT change is the value this clause feeds: the entry below takes `sources_rev` from
+        # `current` = `newest_commit(sources)`, the PAGE's rev -- so a `--shot` frame is still dated on
+        # the driver's word. #302 owns that half, and the clause below is where it starts: the same
+        # comparison, computed once per frame as `contradicted` above, now also stands behind the two
+        # claims this function is about to write (#302).
         if before is None and artifact not in shot and contradicted:
             unclaimed.append(f"{name} (its pixels were last committed at {pixels[:9]}..., "
                              f"its page at {current[:9]}...)")
@@ -1115,6 +1122,10 @@ def check(directory, run=git, pages=None):
                             f"same thing about every page in the repository. Nothing here is a "
                             f"finding about {name}.")
             continue
+        # The frame's OWN newest commit, asked once and read by two arms: the claim arm right below,
+        # where it is the witness a capture cannot supply out of its own transcript (#302's atomic
+        # case), and the drift arm, where it is D-0056's comparison.
+        shot = newest_commit([os.path.relpath(path, ROOT)], run=run)
         if claim_rev:
             # #302, the other half: a frame whose entry carries the run's own word is dated by that
             # word, not by its blob history -- and it is dated AHEAD of the `recorded == current`
@@ -1151,6 +1162,29 @@ def check(directory, run=git, pages=None):
                 covered = None
             if covered:
                 continue
+            # And the frame's own bytes get the same vote the drift arm gives them, because the claim
+            # is one commit CONSERVATIVE by construction and the recipe in README.md is what makes it
+            # so: the driver photographs and records BEFORE the commit that carries its output, so the
+            # commit a receipt can name is the PARENT of the commit that lands the photograph -- for
+            # every honest capture, every time. Measured 13 Nov with real git over a throwaway
+            # repository (/tmp/opencode/302b/probe.py): the one commit carrying `profiles.tmpl`, the
+            # re-taken `profiles.png` and the re-recorded manifest is refused here on this branch by
+            # the sentence below, and accepted on `origin/main` by D-0056's comparison -- the
+            # regression D-0056 exists to prevent ("...or in that same commit; what it may not be is
+            # older than the page"), which is also #302's own list of orderings that must stay legal:
+            # "A frame re-taken and committed in the same commit the page moved in."
+            #
+            # What it does NOT buy is the frame that did not travel. Bytes that did not change
+            # produce no commit touching the PNG, so `shot` stays behind, the claim is the only
+            # witness left, and a claim one commit conservative cannot tell a byte-identical re-take
+            # in its page's own commit from a frame nobody photographed at all. That residue is
+            # #338's, it is red on `origin/main` as well (same probe: 9 problems on both trees, the
+            # #144 arm there and this arm here), and what this branch changes about it is the
+            # SENTENCE -- the repair named below is reachable, re-run the driver and re-record
+            # (measured green, same probe), where main's advice to re-take "in that same commit"
+            # could not be satisfied by anyone.
+            if shot and is_ancestor(current, shot, run=run):
+                continue
             if covered is None:
                 problems.append(f"{name}'s capture claim names commit {claim_rev[:12]}, which this "
                                 f"checkout cannot order against {page}'s newest commit "
@@ -1159,12 +1193,17 @@ def check(directory, run=git, pages=None):
                                 f"neither dates nor clears the frame (#302). Fetch, or re-run "
                                 f"testing/capture in this checkout and re-record.")
                 continue
+            witness = ("no commit in this checkout touches the photograph, so " if not shot else
+                       f"the newest commit touching the photograph is {shot[:12]}..., "
+                       + ("behind it too, " if strictly_behind(shot, current, run=run)
+                          else "and this checkout cannot place it at or after the page, ")
+                       + "so ")
             problems.append(f"{name} was last photographed at commit {claim_rev[:12]} and {page}'s "
                             f"sources have moved to {current[:12]} since: the run that took these "
-                            f"bytes stood behind the page, so nothing has looked at this page since "
-                            f"the frame was taken (#302). Re-run testing/capture and re-record -- "
-                            f"the receipt the new run leaves beside its fixture.env is what re-dates "
-                            f"this row.")
+                            f"bytes stood behind the page, and {witness}neither the run's word nor "
+                            f"its pixels say anybody has looked at this page since the frame was "
+                            f"taken (#302). Re-run testing/capture and re-record -- the receipt the "
+                            f"new run leaves beside its fixture.env is what re-dates this row.")
             continue
         if recorded == current:
             continue
@@ -1181,7 +1220,8 @@ def check(directory, run=git, pages=None):
         # regardless, so accepting the atomic case cannot smuggle in a swapped file; and the
         # failure #144 is about -- the page moved and nobody re-took -- still refuses, because then
         # the PNG's newest commit is genuinely older than the source's.
-        shot = newest_commit([os.path.relpath(path, ROOT)], run=run)
+        # `shot` was asked once above, before the claim arm, and read here for the comparison D-0056
+        # introduced.
         if not shot:
             problems.append(f"{MANIFEST} was not checked against {name}: no commit this checkout "
                             f"can see touches the photograph, so there is nothing to date it "
@@ -2879,6 +2919,65 @@ def self_test():
          "re-take through the receipt clears it",
          in_box(a_claim_the_page_has_moved_past_goes_red_and_a_new_run_clears_it))
 
+    def a_frame_carried_into_its_page_s_own_commit_is_not_refused_by_its_own_receipt(box):
+        """The receipt is one commit CONSERVATIVE, and the recipe in README.md is what makes it so.
+
+        That recipe runs the driver and the recorder BEFORE the commit that carries their output --
+        `./pages.py --out docs/screenshots/360 --overwrite`, then `manifest.py record`, then
+        `git commit`. So the commit a receipt can honestly name is the PARENT of the commit that
+        lands the photograph: every fixture, every capture, no exceptions. A `check` that dates a
+        claimed frame from the claim alone therefore refuses the one ordering D-0056 was written to
+        protect -- "Re-take it and re-run `manifest.py record`, in a commit after the one that
+        changed the page **or in that same commit**" -- and #338 files that exact over-refusal
+        against this file in general. #302's own list of orderings that must stay legal names it:
+        "A frame re-taken and committed in the same commit the page moved in."
+
+        Measured 13 Nov against real git rather than this fake, because the fake cannot say what a
+        capture standing in a commit's parent looks like: `/tmp/opencode/302b/probe.py`, case 1, run
+        against `origin/main` (`9d15457`) and against this branch. Both trees accept the `record`;
+        `main` accepts the commit, and this branch's first cut refused it -- `profiles.png was last
+        photographed at commit c9baf3cbe6b5 and /profiles's sources have moved to 473bc5cd0805
+        since` -- a sentence false about the frame it printed, invisible to D-0056's rule above
+        because that box never held a receipt.
+
+        Two cells, and the second is what keeps the first from being a bypass: a frame whose bytes
+        did NOT travel into the page's commit has nothing left to vouch for it, because a claim one
+        commit conservative cannot tell a byte-identical re-take in the page's own commit from a
+        frame nobody photographed at all. That one stays red -- the residue #338 names, red on
+        `origin/main` as well (9 problems on both trees under the same probe), with the reachable
+        repair in the rule above.
+        """
+        env = env_file(box, "pages")
+        d = os.path.join(box, "docs", "screenshots", "360")
+        one = [_Page("/profiles", "profiles")]
+        _png(box, "profiles.png")
+        receipt(box, "pages", ["profiles"], head=RECORDED)
+        record(d, run=_fake_git(), now="2026-01-01T00:00:00Z", envs=[env], shot=["profiles"])
+        if not read_manifest(d)["pages"][0].get("photographed"):
+            return "the setup wrote no claim, so this rule would prove nothing"
+        # The page moved into `b`, and so did the photograph: one commit, both of them.
+        atomic = _fake_git(rev="b" * 40, png_rev="b" * 40)
+        travelled = [p for p in check(d, run=atomic, pages=one) if p.startswith("profiles.png")]
+        if travelled:
+            return (f"a frame re-taken in the commit that moved its page was refused: {travelled[:1]!r}. "
+                    "The receipt names the parent because the driver ran before the commit -- that is "
+                    "the recipe -- and the frame's own bytes are in the commit that moved the page "
+                    "(#302 refuses an ordering D-0056 protects)")
+        stayed = [p for p in check(d, run=_fake_git(rev="b" * 40), pages=one)
+                  if p.startswith("profiles.png")]
+        if not any("was last photographed at commit" in p for p in stayed):
+            return (f"a claim whose frame did not move with the page passed: {stayed[:1]!r} -- "
+                    "accepting the atomic case on the claim alone would accept the mint too")
+        if not any("the newest commit touching the photograph is " + RECORDED[:12] in p
+                   for p in stayed):
+            return (f"the refusal prints the claim but not the pixels that contradict it, so the "
+                    f"reader cannot tell the two witnesses apart: {stayed[:1]!r}")
+        return None
+
+    rule("a frame re-taken in the commit that moved its page stays current, and one whose bytes did "
+         "not travel still goes red",
+         in_box(a_frame_carried_into_its_page_s_own_commit_is_not_refused_by_its_own_receipt))
+
     def the_carried_note_says_what_carried_from_cannot_reach(box):
         import contextlib
         import io
@@ -3006,7 +3105,7 @@ def self_test():
     rule("a claimed frame whose bytes came back identical is dated at the page it was re-taken from",
          in_box(a_claimed_frame_whose_bytes_did_not_move_is_still_dated_at_the_page))
 
-    EXPECTED = 53
+    EXPECTED = 54
     if len(ran) != EXPECTED:
         bad.append(f"expected {EXPECTED} rules, ran {len(ran)} -- one was deleted, or never "
                    f"reached (a `return` in self_test() skips everything below it)")

@@ -779,6 +779,30 @@ stays open is printed rather than hidden: `record`'s summary counts the rows dat
 because no receipt covers them, since the alternative is refusing the ordering this folder prescribes —
 capture, record, commit, in that order — which is #144's trap in the fix's clothes.
 
+A receipt is one commit conservative, and that is not a defect to tighten: the driver photographs and
+records **before** the operator commits, so the commit a receipt can name is the parent of the commit
+that lands the photograph — for every honest capture, every time. The claim therefore cannot be the
+only witness standing behind a claimed frame, or this folder's own recipe refuses itself. The one commit
+that changes a template, re-takes its frame and re-records the manifest is legal here, and #302 lists it
+among the orderings that must stay legal; measured 13 Nov with real git over a throwaway repository it
+was refused, by the claim arm, on exactly that recipe — `/tmp/opencode/302b/probe.py` case 1 and
+`claimpath.py`, which is the receipt-backed path at the self-test's own scale. `origin/main` accepts the
+same ordering, via D-0056's comparison over the blob. So the frame's own newest commit now gets the same
+vote the drift arm gives it: the claim clears when a commit at or after the page's touches the
+photograph, pinned by the self-test rule *"a `--shot` frame whose own pixels moved with the page's commit
+is not contradicted, though the receipt behind it is one commit conservative"*.
+
+What that does not buy is the frame whose bytes did not travel. A re-take that changes no pixel produces
+no commit touching the PNG, so the frame's history stays behind the page, the claim is the only witness
+left, and a claim one commit conservative cannot tell a byte-identical re-take from a frame nobody
+photographed at all. That row is red on `origin/main` as well — same probe, 9 problems on both trees,
+#144's arm there and this arm here — and it is #338's finding, not a residue of this one. What #302
+changes about it is the sentence: the repair named here is reachable (re-take, re-record — measured
+green, `probe.py` cases 4 and 7), where the advice on `main`, to re-take the frame "in that same commit" the
+page moved in, cannot be followed by anyone for a frame whose pixels did not move. It stays listed
+rather than guarded because the one witness that could close it is the run's word about when it
+photographed, and that word is what this arm already spends.
+
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver
 against a fixture it has already signed into is refused --
