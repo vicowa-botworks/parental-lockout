@@ -525,12 +525,12 @@ def record(directory, head=None, run=git, now=None, envs=(), shot=()):
         # published file: there all nine entries dated `2088043cb` and none carried -- `carried_from`
         # arrived a commit later, in `7ff2a67`. In `git show 7ff2a67`'s tree, the blob `main` publishes
         # today, `lock.png` and `testlock.png` were the only two of the nine with no `carried_from`. At
-        # both trees the mint reads the same: `7e65d3b` had just re-dated every row from `3bcbfdd` --
-        # each PNG's own newest commit, an ANCESTOR of `2088043` -- to `2088043cb`, eighteen seconds
-        # after `2088043` landed (16:35:37 to 16:35:55), so those frames predated their page and `check`
-        # on THAT tree answered `9 photographs current`, rc 0, because the rev compared is the one the
-        # record wrote. `lock.py` and `testlock.py` write no manifest, so this clause is the same mint
-        # one step earlier: a frame nobody has ever recorded, from pixels older than its page.
+        # both trees the mint reads the same: `7e65d3b` re-dated every row from `3bcbfdd` -- the newest
+        # commit over six of the nine PNGs' pixels, an ANCESTOR of `2088043` -- to `2088043cb`, eighteen
+        # seconds after `2088043` landed (16:35:37 to 16:35:55), so seven of the nine frames predated
+        # their page and `check` on THAT tree answered `9 photographs current`, rc 0: the rev compared
+        # is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so this clause is
+        # the same mint one step earlier: a frame nobody had recorded, from pixels older than its page.
         #
         # #301 re-took all nine on 11 Nov and recorded them named (D-0066), so nothing carries now. What
         # it did NOT change is the value this clause feeds: the entry below takes `sources_rev` from
