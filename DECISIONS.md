@@ -2761,6 +2761,23 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `profiles a2bede88...`, `profiles-refused 9a62a2cd...`, `audit fc37cd9a...`,
   `settings c47e16d6...`.
 
+- Correction (`D-0068`, 12 Nov): the *reason* this `Effect:` gives for leaving the two single-frame
+  drivers behind -- "because their `--out` is a single named file" -- describes a flag neither driver
+  has. `cdp.capture_out` declares `--out` with `metavar="DIR"` and the help text "directory for the
+  PNGs" (`testing/capture/cdp.py:2046-2049`); both usage lines read `[--out DIR]` (`lock.py:37`,
+  `testlock.py:27`); and the "single named file" is one name *inside* that directory --
+  `name = op.join(out, f"{ARTIFACT}.png")` (`lock.py:240`, `testlock.py:215`). So `refused_dir` and
+  `keep_refused`, which take `(keep, …, out)`, already spoke the shape these two drivers speak, and
+  the only surviving half of the reason is the second clause: #251 did not ask about them. Measured
+  on `origin/main` at `7c0a3e5` by running the real driver in a copy of the tree (no `fixture.env`,
+  so the refusal happens before any browser exists and nothing is locked): `./lock.py --out runs/lock`
+  exits 1 and writes `runs/lock-refused/REFUSED.txt`, whose own line reads `--out (untouched):
+  …/runs/lock`; `./lock.py --out runs/lock-refused` prints the `REFUSED-KEEP:` decline and leaves the
+  planted `lock.png` there byte for byte. What the deferred half became: #299 merged it on 11 Nov at
+  `14f1826` (`D-0060`). The sentence is left standing above rather than edited out, for the reason
+  this entry's own 11 Nov correction gives -- a silently corrected `Effect:` field is
+  indistinguishable from one that was always right.
+
 ## D-0055 · `record` refuses a frame whose bytes moved and nobody claimed it, instead of dating it at the commit it happens to stand in
 
 - Question: #222 stopped `manifest.py record` moving `sources_rev` for a frame it did not take by
@@ -2971,6 +2988,19 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `python3 testing/capture/pages.py --self-test` -> `capture self-test: 76 refusal rules hold`;
   `make verify` exit 0, last line `verify: OK`; the nine-attack loop above -> six unchanged tallies
   and three new catches.
+
+- Correction (`D-0068`, 12 Nov): both halves of the `What this does NOT take:` clause above are now
+  wrong in different ways. "lock.py and testlock.py still dispose of their staged frame with
+  `discard_stage()`" was true at `66c9162`, the head this entry says it reproduced on, and stopped
+  being true at `14f1826` (#299, `D-0060`): `grep -c discard_stage testing/capture/lock.py
+  testing/capture/testlock.py` answers `0` and `0`, and each driver now disposes once through
+  `cdp.SingleRefusal`. "their `--out` is a single named file, which is a different question about a
+  different directory" was never true -- it repeats `D-0054`'s reason, whose correction above carries
+  the measurement (`--out` is declared `DIR`; the named file is built inside it). Nothing this entry
+  measured itself is touched by that: the nine attacks and the three re-pointed clauses are about
+  `pages.py` and `cdp.py`, and re-run here they still hold -- `python3 testing/capture/pages.py
+  --self-test` -> `capture self-test: 78 refusal rules hold`, and hollowing `cdp.keep_refused` to
+  `return []` in a copy of the tree reddens 15 of 78, this entry's own rule among them.
 
 ## D-0058 · The #297 attacks become a suite in the tree, and the suite carries the holes it cannot close as rows rather than closing them
 
@@ -3755,3 +3785,62 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   verdict instead of guessing its timing. `go test -count=5 -run '^TestServeStartsWhenOneBackendIsUsable$'`
   on the clean tree, the whole `cmd/plock` package, and `make verify` all follow in the pull-request
   body rather than here (#1180).
+
+## D-0068 · The reason `D-0054` gave for leaving the POST drivers behind is false on its face, so the log gets a dated correction beside it rather than a silent edit
+
+- Question: #296 owed four things and #299 delivered three. Its item 4 was a correction: `D-0054`
+  defers the two single-frame drivers "because their `--out` is a single named file", and that is not
+  what the code does. Read back off `origin/main` at `7c0a3e5` after the merge: the sentence is still
+  at `DECISIONS.md:2706`, and `D-0057` repeats it at `:2986` and adds that the two drivers "still
+  dispose of their staged frame with `discard_stage()`" -- true of `66c9162`, which is the head that
+  entry reproduced on, false of every tree since `14f1826`. The flag was never a file:
+  `cdp.capture_out` declares `--out` with `metavar="DIR"` and the help "directory for the PNGs"
+  (`testing/capture/cdp.py:2046-2049`), both usage lines read `[--out DIR]` (`lock.py:37`,
+  `testlock.py:27`), and the named file is built inside the directory (`lock.py:240`,
+  `testlock.py:215`). A reader who takes the deferred half on trust has to read the driver to find out
+  it was never the obstacle -- which is exactly what #296 said the next reader should not have to do.
+  How does a false reason in a merged decision record get corrected?
+- Options: edit the two `Effect:` sentences in place so the log reads as though it never said it |
+  append a dated `Correction (D-0068, 12 Nov)` bullet to each entry and carry the measurement in this
+  entry | file the stale sentences as their own issue and leave the merged log standing | rewrite
+  `D-0054`'s `Effect:` to describe the merged behaviour, since the deferral it records is gone |
+  escalate, because what a merged decision record says is a maintainer's text
+- Chose: append a dated `Correction (D-0068, 12 Nov)` bullet to each entry and carry the measurement in
+  this entry
+- Why: the tie-break that separates these is the reversible one, then the one the surrounding log
+  already takes. `git revert` of this commit removes the correction and nothing else; overwriting the
+  two sentences cannot be undone without also reverting the text around them, and it destroys the only
+  evidence that the reason was ever wrong -- the rule `D-0054`'s own 11 Nov correction states is that
+  a wrong field "is left standing above rather than edited out, because a silently corrected `Effect:`
+  field is indistinguishable from one that was always right", and the log has eight precedents for a
+  dated correction naming what is false (`D-0044`, `D-0048`, `D-0049`, `D-0054`, `D-0061`, `D-0062`
+  twice, `D-0064`), including #299's own body declining to edit two stale locators for this reason.
+  Filing an issue instead is refuted by the ticket in front of this unit: item 4 of #296's "What a fix
+  owes" *is* this finding, so a new issue is a duplicate while the disproving code is already merged
+  and the log keeps saying it. Escalation is not owed -- no dependency, no security or
+  tamper-resistance property, nothing published, nothing deleted -- and the first two tie-breaks
+  (a `require` line, an ambiguous boolean) do not separate a prose change at all. Rewriting the
+  `Effect:` is the same destruction as editing in place, with more of the entry moved.
+- What lost: `D-0054` and `D-0057` now say the false thing *above* their corrections, so either entry
+  read top-down is wrong until its last bullet, and the corrections sit at the far end of 90- and
+  40-line entries. Nothing in `make verify` reads a decision-log sentence against the tree, so the
+  next sentence of this kind -- a merged `Effect:` describing code that has since moved -- stays
+  invisible to every gate: #318 pins the `path:NNN` citation half of that hole, not the sentence half.
+  And this adds a third entry whose re-checks quote a rule count (`76`, `78`) that the suite moves on
+  its own schedule, the drift #299's body already itemises.
+- Checkpoint: 709ff2600540fc4f452376dc4291e350ce0da72a
+- Effect: `DECISIONS.md` only -- this entry, plus `- Correction (`D-0068`, 12 Nov):` appended to
+  `D-0054` after its 11 Nov correction block and to `D-0057` after its re-checks. No file under
+  `testing/`, `scripts/`, `docs/` or the Go tree moves; `EXPECTED_RULES` stays 78 and
+  `EXPECTED_ROWS` 47. Read-backs, each run after the text it certifies was written:
+  `grep -n 'single named file' DECISIONS.md` -> seven lines: the two originals at `:2706` and `:2986`,
+  and five quoting the phrase only to refute it -- `:2765` and `:2768` inside `D-0054`'s correction,
+  `:2997` inside `D-0057`'s, `:3723` in this entry's own `Question:`, and `:3767` being this sentence.
+  `python3 scripts/check-decisions.py` -> `check-decisions: 195 entries across 2 log(s), every one with
+  its question, options, choice, reason and checkpoint`; the drivers answer `0` and `0` to
+  `grep -c discard_stage`, so the deferred half is really gone;
+  `python3 testing/capture/pages.py --self-test` -> `capture self-test: 78 refusal rules hold`;
+  `python3 scripts/attack-capture-self-test.py` -> 47 attacks, 0 problems. The full
+  `make verify` over the tree carrying this entry is quoted with its exit status in the pull-request
+  body rather than here, because an `Effect:` field written before the gate runs is a prophecy
+  (#1180).

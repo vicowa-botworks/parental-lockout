@@ -57,7 +57,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
-| `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. The row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
+| `delivered` | an **issue**: a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. A **branch** (#291): a merged pull request ran under that name into `main`, and the ref holds no content the trunk lacks. Either way the row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
 | `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
 
@@ -226,7 +226,10 @@ rule rather than the one-liner, and each has legs in `factory/selftest.sh`:
 What is dropped is said out loud every pass that still sees it -- `triage: 2 branch(es) ahead of main
 hold no content the trunk lacks, so none is offered: br-empty br-merge-empty` -- on stderr rather than
 as a row, because a row is an offer and there is nothing to offer, and because a class that quietly
-stops printing rows is the failure `factory.sh` calls "a queue nobody can audit". The dangerous edit here
+stops printing rows is the failure `factory.sh` calls "a queue nobody can audit". Since #291 the
+sentence carries only the refs nothing else can account for: a content-free ref that a merged pull
+request names is reported by number as a `branch delivered` row instead (below), and the branch is left
+out of this tally so one pass does not describe one ref twice in two sentences that can disagree. The dangerous edit here
 is one character: "skip branches with no content" becomes "skip branches" and every real stranded branch
 leaves the queue with the fake ones. That is why the fixture plants `br-work` and `br-delete` beside
 `br-empty` and demands they stay, and why a control deletes the content test and demands the empty
@@ -238,6 +241,50 @@ against GitHub and this machine's refs at 13:21Z on 11 Nov moved no row: all eig
 rows carry content (58, 15, 14, 6, 4, 4, 2 and 1 files) and none was empty. The live instance of the
 defect, `issue-249`, had acquired a real commit of its own -- H-0130's -- two hours before this was
 written. The fix is for the next one.
+
+**A ref whose pull request merged reports the delivery (#291, ask 2).** GitHub deletes a branch when its
+pull request merges only if the repository asks it to; this one does not, so the ref survives -- usually
+at zero commits ahead, and often as nothing but the `--allow-empty` checkpoint that Step 3 takes before a
+judgement call. Such a ref belongs to neither half of the classifier. It is level with the trunk, so the
+arm above never asks it a question; and the scan that reports a delivery is keyed to `kind == issue`. It
+was continued past in silence, which is the sentence #291's last comment names as still owed after
+PR #293: "`issue-249` is now silent, which is the other half of #291: *a merged pull request's leftover
+ref must be reported as delivered, not silently dropped*". The arm now reads the newest merge that ran
+under the name off the `merged_json` the pass already holds -- `baseRefName == FACTORY_BASE`, so a pull
+request merged into another branch delivers nothing (H-0103's stacked chain) -- and emits
+
+```
+branch  issue-249  delivered  merged PR #293 on `issue-249` at 2026-11-12T18:29:26Z, the ref holds no content the trunk lacks, and 2 merged pull requests ran under that name (window 100)
+```
+
+The row is bought by the same content question the arm above asks, and that conjunct is the whole design:
+a name is evidence and never a verdict (H-0108, H-0148). `issue-301` is the counter-example sitting on
+this repository -- 4 files across 2 commits ahead of `main`, and PR #312 merged under that name at
+17:37:23Z on 12 Nov -- and an arm that stopped at the name reports it `delivered`, after which no queue
+offers its real work again. Three controls hold the three ways that happens: the merged test inverted
+(the silence returns, and the tally names the ref again), the base filter off (a stacked branch is buried),
+the content conjunct off (`br-reopened`, merged once and re-cut with a file the trunk lacks, is buried).
+No new supervisor arm was needed and none was added: its `delivered` arm keys on the class, so the row is
+logged as `DELIVERED branch/issue-249 … reported, not worked` and nothing is dispatched or closed -- three
+legs run the supervisor over a fixture whose merged pull request sits on `issue-902` and read that line,
+the absence of a tick, and the absence of any write to the queue.
+
+Measured against GitHub and this machine's refs at ~21:00Z on 12 Nov, both ends from the same tree: **32
+rows before the change, 69 after**. The 37 that appear are all `branch delivered`, every one of the 11
+`branch_without_pr` rows is still offered, and the tally falls from three refs to two -- the one of them
+a merged pull request names is now reported by number. Thirty-seven is what #291's own census predicted
+(34 leftover refs, 33 silent, counted 11 Nov), and it is also the price: a supervisor pass wrote 13
+journal lines the day before this paragraph and writes 50 after it. Nothing in the harness bounds that
+file or the transcripts beside it -- `log()` appends to `$FACTORY_LOG/supervisor.log`
+(`factory/common.sh:340`) and no code rotates, truncates or prunes it, nor the `<stamp>.<unit>.log`
+transcripts one per tick (`factory/factory.sh:766`). Measured in the primary checkout at 22:05Z on
+12 Nov: **20 MB across 100 files** under `factory/log/`, oldest 10 Nov, individual transcripts up to
+480 KB, `supervisor.log` at 2,397 lines. With 19, 47 and 20 passes journalled on 10, 11 and 12 Nov,
+this branch adds roughly 700 to 1,700 lines a day to a file nothing prunes. Filed as its own ticket.
+
+Two claims in the ticket measured false and are not implemented: an empty ref at zero ahead is not
+`branch_without_pr` (the arm above refuses it, #292), and its census of 34 leftover refs was 37 by the
+time it was counted.
 
 ### When the issue half knows a pull request exists (#291)
 

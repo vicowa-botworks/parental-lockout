@@ -7055,3 +7055,196 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   gate's own wording is what follows in the pull-request body rather than here (#1180). #331 stays open
   carrying the hoist, its three options, and the lock boundary.
 - Checkpoint: 37d61eda1edd295c3adf7dea23a0d30dd190e4d6
+
+## H-0151 · A merged pull request's leftover ref was reported by neither half of the classifier, and the arm that fixes it had three shapes that all read as a delivery
+
+- Question: a ref whose pull request has merged is level with the trunk, so the branch scan passes it by
+  at `[ "$ahead" -gt 0 ] || continue` and the `delivered` scan is keyed to `kind == issue` -- the
+  delivery happened, the ref is its evidence, and the queue says nothing about either, ever. #291's last
+  comment (2026-11-12T17:59:30Z) names that residue as the half PR #293 did not deliver: "a merged pull
+  request's leftover ref must be reported as delivered, not silently dropped". Measured on the shipped
+  classifier at `1ad0760` over a throwaway repository holding one such ref: no row of any class, and the
+  only trace is a count of branches that hold nothing. Three shapes fix that sentence and only one of
+  them keeps #291's own rule standing -- so which arm, and bought by what?
+- Options: report the ref wherever the merged read names it, before any content question | report it when
+  the merged read names it AND the same content question the branch arm already asks comes back empty,
+  and leave every other ref to the verdict it had | teach `factory.sh` a separate `branch_delivered`
+  class so the two kinds never share an arm | keep the stderr tally and add the pull-request number to it
+- Chose: report it when the merged read names it AND the same content question the branch arm already
+  asks comes back empty, and leave every other ref to the verdict it had
+- Why: tie-breaks in order. 1 silent -- no `go.mod` line near this. 2 n/a -- nothing here decodes config.
+  3 prefers the reading that refuses, and the first option is the one that buries work by its name: a
+  name that merged once and was re-cut afterwards carries real undelivered bytes, and `issue-301` is that
+  shape on this repository right now -- 4 files across 2 commits ahead of `main`, and PR #312 merged
+  under it at 2026-11-12T17:37:23Z. Measured against that arm it reads `delivered` and no queue offers it
+  again. `H-0148` refuses the identical inference for issues ("a branch name is evidence, and a name that
+  merges twice makes an ambiguity out of an attribution"), `H-0108` is the same refusal one level up, and
+  `factory/selftest.sh`'s `branch_control_name_only` plants that arm and demands `br-reopened` turn up
+  `delivered` so the harm stays reproducible. The third option buys a class whose only new behaviour is
+  that nothing works with it -- `delivered` is already the class whose whole job is to start nothing
+  (`H-0122`), and `factory_class_is_workable` keys on the class alone, so a branch row needs no new arm
+  and a second name for the same verdict is one more surface to keep true. The fourth is what the harness
+  does today and is the defect: the tally is a count with no key, printed to stderr, and its existing
+  sentence has already drifted into printing its own format string (#329) with nobody able to point at
+  one ref. A row is the auditable surface the whole file treats as the record. 4 fewest surfaces that
+  make every surviving sentence true -- one map, one conjunct, the tally's name list; the separate class
+  touches the classifier, the supervisor's workability predicate, `docs/factory.md`'s class table, and a
+  leg per arm. 5 reversible by `git revert` of this commit alone: no row changes class for any ref that
+  was already offered, and the 37 new rows disappear without touching anything else. 6 is what the
+  surrounding code already does -- the `delivered` arm above takes a merged claim plus three vetoes
+  (silence after the merge, no `REOPENED`, no open pull request on the ref) rather than trusting the
+  claim, and this is that shape one kind over: the merged read is the fact, the content question is the
+  veto, and the `baseRefName == $FACTORY_BASE` filter is #216's stacked chain, taken with the two issue
+  scans that already apply it. What lost, named because it is the cost: a content-free ref that no merged
+  pull request names still prints no row -- `br-empty` and `br-merge-empty` remain a tally line and
+  nothing more, which is the sentence #291 asked be made auditable and this entry deliberately leaves
+  #329's tally to carry; and the arm runs on the same 100-row window as the issue half, so a leftover
+  older than the window is still silent.
+- Checkpoint: 1ad0760b0c3f50323602cb6e1f9c8a63578642c9
+- Effect: `factory/triage.sh` builds `branch_shipped_map` from the `merged_json` the pass already holds
+  (stdin, never an argument -- the same 632 KiB boundary as the two scans above it), reads the newest
+  merge per name inside the loop, and emits `branch <name> delivered` naming the pull request, the name
+  and the instant, with the count said in the row when several ran under one name rather than smoothed
+  away. A ref reported there is left out of the stderr tally so one pass does not describe one ref twice
+  in two sentences that can disagree. The header's class table and `USAGE` both gained the row, and
+  `docs/factory.md` carries the before/after. `bash factory/selftest.sh --only CLAIM` answers
+  `533 passed, 0 failed` on this tree with the new block taken out and `552 passed, 0 failed` with it in
+  -- both at exit 0, so exactly nineteen counted legs were added and none moved. All nineteen run the
+  shipped file:
+  thirteen on the classifier (the row, its three fields, the empty issue column, the measured
+  zero-bytes-on-a-deleted-branch shape, the tally keeping the refs no pull request names, two merges on
+  one name reporting the newest and counting both, a merge into another branch delivering nothing, the
+  re-cut name still offered, and the total row count), three controls (the merged test inverted returns
+  the silence; the base filter off buries a stacked branch; the content conjunct off buries the re-cut
+  branch), and three end to end through `factory.sh` on a fixture whose merged pull request sits on
+  `issue-902` -- the journal reads `DELIVERED branch/issue-902 … reported, not worked`, no tick ran it,
+  and the fixture `gh` recorded no close, merge, edit, review or comment. Live blast radius, both ends
+  measured from this tree over the same refs on 12 Nov: **32 rows before, 69 after**, the 37 new ones all
+  `branch delivered`, the 11 `branch_without_pr` rows identical, and the tally down from
+  `issue-248 issue-309 issue-318` to `issue-309 issue-318`. That 37 is what #291's census predicted (34
+  leftover refs, 33 silent, counted 11 Nov). The price, stated here rather than discovered: every
+  supervisor pass now writes 37 more `DELIVERED` journal lines than it did -- against the 13 a pass wrote
+  the day before this entry, counted between two `PASS` lines of `factory/log/supervisor.log`. Nothing in
+  the harness bounds that file: `log()` appends to `$FACTORY_LOG/supervisor.log` (`factory/common.sh:340`)
+  and the only other reads of it are greps, at `:382` and `:884`, so no code rotates, truncates or prunes
+  it -- measured in the primary checkout at 22:05Z on 12 Nov, `factory/log/` is **20 MB across 100 files**,
+  the oldest from 10 Nov (the harness's first day), `supervisor.log` itself 2,397 lines and per-tick
+  transcripts up to 480 KB. That growth is pre-existing and this entry does not pretend otherwise; what
+  this change adds is 37 lines a pass, which against the 19, 47 and 20 passes journalled on 10, 11 and
+  12 Nov is 700 to 1,700 lines a day. Filed as its own ticket rather than absorbed silently. One sentence
+  written an hour before this entry claimed the rotator was *documented* in a `factory/factory.env` and
+  merely missing from `common.sh`: it is neither. That file exists in no tree under `~/prj` and the word
+  `logrotate` appears nowhere in the repository, and the sentence came from reading a `sed` that had
+  failed with exit 2 as though it had printed a file. It is corrected here rather than left in the log,
+  because a citation nobody can re-run is the thing this log keeps refusing. The full `make verify` line and exit status on the tree this branch leaves are quoted in the
+  pull-request body, because an `Effect:` written before the gate runs is a prophecy (#1180).
+
+## H-0152 · PR #330's second base collision lands in BOTH decision logs at once, and only one of them is a pure append, so the splice is two different cuts and the gate is what says which order is legal
+
+- Question: `#330` reads `CONFLICTING` / `DIRTY` against `origin/main` `72dc045`. Read back before anything
+  was touched, and with the field that answers only for a pull request: `gh pr view 330 --json headRefName`
+  answered `issue-260` (#2027's type read -- `--json number` answers `{"number":330}` for an issue too), and
+  the same call says `state` `OPEN`, `isDraft` false, base `main`, `headRefOid` `b17534db…`, `mergeable`
+  `CONFLICTING`, `mergeStateStatus` `DIRTY`, `reviewDecision` `APPROVED`. The tree was clean at the start,
+  the branch matched the brief, and no `factory/HALT` exists, so the only thing between this branch and a
+  mergeable pull request is the conflict: merge base `7c0a3e5`, `HEAD` 10 ahead and 8 behind.
+  `git merge-tree --write-tree --name-only HEAD origin/main` names TWO files, `DECISIONS.md` and
+  `factory/DECISIONS.md`, and `git merge --no-commit --no-ff origin/main` prints 2 `UU` rows against 7
+  status rows, with `docs/factory.md` and `factory/selftest.sh` auto-merged. Every earlier pass of this
+  collision -- `H-0143`, `H-0144`, `H-0145` on #307, and this branch's own `cc85761` -- met one file at one
+  anchor; two logs colliding in one merge has not happened here before. Do both sides' entries stay, in
+  which order, does the yield rule's renumber step apply, and what stops being true about the citations
+  once both sides are in one file?
+- Options: this branch's file (`--ours`) in both logs, which deletes main's `D-0068`, `H-0151` and both of
+  main's interior corrections | main's file (`--theirs`) in both, which deletes this branch's `D-0067` and
+  `H-0148`..`H-0150` | both blocks, this branch's first in each log -- id order, which here is also git's
+  hunk order | both blocks, main's first, arrival order | both blocks with one side's ids renumbered into
+  free numbers, as the yield rule does when an id is taken | `git merge -X ours` / `-X theirs` / `--union`
+  for the two logs, and let git settle it | concatenate the two whole files
+- Chose: both blocks, this branch's first in each log -- id order, which here is also git's hunk order
+- Why: the two files are two different shapes, and the cut follows from measuring them rather than from
+  repeating one recipe. `factory/DECISIONS.md` is the shape `H-0143`..`H-0145` met: base 6847 lines, both
+  sides appending at the same anchor (ours `@@ -6845,3 +6845,213 @@`, main `@@ -6845,3 +6845,86 @@`), so the
+  merged file is this branch's whole file plus main's lines 6848..6930. `DECISIONS.md` is **not** a pure
+  append on main: its diff is three hunks -- `@@ -2761,6 +2761,23 @@`, `@@ -2972,6 +2989,19 @@` and
+  `@@ -3686,3 +3716,62 @@` -- and the two interior ones are main's own dated corrections beside `D-0054`
+  and `D-0057` (#296's item 4), in text this branch never touched, so they auto-merge and only the EOF hunk
+  collides. Keeping those corrections is therefore a property of the cut: main's 1..3718, then this branch's
+  3689..3757 (`D-0067`, blank line included), then main's 3719..3777 (`D-0068`) -- 3846 lines, against 3688
+  base + 69 + 89. Line ranges come out of `git show HEAD:` and `git show origin/main:`, never out of the
+  conflicted file (`H-0142`'s cut, kept by `H-0145`), because a conflict hunk is git's guess about alignment.
+  Order is arithmetic, not taste, and was tested rather than asserted: `scripts/check-decisions.py` refuses a
+  number lower than its predecessor, this branch holds the lower ids in both logs (`D-0067` < `D-0068`,
+  `H-0148`/`H-0149`/`H-0150` < `H-0151`), so id order and git's hunk order coincide. The same two files cut
+  the other way round come back red twice -- 1 problem, `DECISIONS.md:3779: D-0067 is out of order (D-0068
+  came before it)`, and 3 problems naming `H-0148`, `H-0149` and `H-0150` against `H-0151` -- while the
+  shipped cut answers `53 entries` and `147 entries`, exit 0. `H-0142` had the opposite geometry and its gate
+  refused git's own layout; `H-0145` had this one and had nothing to refuse.
+  Options 1 and 2 are deletions: `--ours` removes the `Checkpoint:` line of main's two entries and of both
+  interior corrections, `--theirs` removes this branch's five, and a `Checkpoint:` is the address a person
+  types into `git revert`. Option 4 is the ordering just measured red. Option 5 is refused by measurement --
+  no id is used twice (`grep -oE '^## [DH]-[0-9]{4}' | sort | uniq -d` over both merged files answers
+  nothing), the yield rule moves a number only where two branches took the same one, and renumbering an id
+  already on `main` means rewriting published history by force-push, which `.opencode/opencode.jsonc` denies
+  and this repository makes permanent either way. Options 6 and 7 are refused by what they produce: `-X`
+  silently drops one side's lines and `--union` on this file duplicates headings, the defect #287 is about
+  and `H-0144` measured here.
+  The allocator was read twice and the id probed across refs, because #303's window is the one this branch
+  has been caught by: `H-0152` at a 3s-old union, `H-0152` again at 133s, both a `REFRESH` line and neither
+  `REFRESH-BLIND`, and a loop over every `refs/heads` and `refs/remotes` ref finds `0` carrying an `## H-0152`
+  heading. The product log's allocator answers `D-0069` and goes unused, because this is harness work;
+  `D-0067` and `D-0068` arrived already numbered and did not move.
+- Effect: the two splices and this entry, inside the merge commit. Proof it moved nothing: against each
+  parent the staged file deletes **0** lines (85 and 81 added over `HEAD`, 67 and 205 added over main -- a
+  line diff re-aligns on equal text, so the deletion count is the claim and the addition count is not), and
+  five block-level `diff` runs come back byte-identical to their parent: `D-0067`'s 69 lines against
+  `HEAD:DECISIONS.md` 3689..3757, `D-0068`'s 59 against main's 3719..3777, main's whole 1..3718 head -- which
+  is where both interior corrections live -- this branch's whole 7057-line harness log, and main's `H-0151`
+  block against its 6848..6930. No conflict marker survives either file (`grep -c '^<<<<<<< \|^=======$\|^>>>>>>> '`
+  answers 0 and 0). `python3 scripts/check-decisions.py` on the merged tree: `200 entries across 2 log(s)`,
+  exit 0, before this entry.
+  What the merge does to the record, measured rather than conceded. A throwaway instrument (precedent
+  `H-0145`; #318 owns a shipped one) took every coordinate-shaped citation in the lines *added* by either
+  side, read the named line out of the tree that side committed on, and looked for that text in the merged
+  tree: **22 rows, 16 unique probes, 16 unchanged, 0 moved, 0 ambiguous, 0 whose target text is gone, 0 past
+  EOF.** The small count is a fact about these six entries, not a hole in the instrument: a raw token census
+  over the same added lines finds 8 fresh coordinates on this branch and 7 on main, and the 2 extra rows are
+  bare `:NNN` continuations resolved against the file named earlier on their line. Same instrument, whole
+  tree: **301 resolvable citations on the merge base, 309 on this branch, 313 on main, 321 merged, and
+  exactly 1 citation past the end of the file it names on all four trees** -- the same row every time,
+  `DECISIONS.md:1020` citing `README.md:588` in a 350-line file. That one is pre-existing, unowned, and left
+  exactly as found (#1180: a silently corrected record is indistinguishable from one that was always right);
+  it is #318's measurement with a concrete coordinate. The one fresh citation whose target this branch *did*
+  rewrite still lands: main's `H-0151` cites `factory/common.sh:340` for the `log()` append, this branch adds
+  264 lines to that file, and line 340 merged is still `log "$*" >>"$FACTORY_LOG/supervisor.log"`.
+  Git's silence on the auto-merged files is not a verdict, so both intents were read for, not assumed. This
+  branch's: `docs/factory.md:952` still says `LOG-AT` is on every pass *that reaches the pass body*, and
+  `:955-958` names the four self-report lines as living inside `factory_body` with the halt check exiting
+  before it -- the narrowed sentence `H-0150` chose rather than the hoist it refused -- and `factory/factory.sh:183-192`
+  is still that block: `log_event "HALTED …"` then `exit`, before `factory_body` is called. Main's:
+  `factory/triage.sh` classifies `delivered` in both halves (`:16`, `:18`, `:67`, `:179`), `docs/factory.md:231`
+  and `:273` carry the `branch delivered` rule and the 32-rows-before / 69-after measurement, `AGENTS.md:50`
+  still names `factory/escalation-label.sh` rather than a literal label -- so #311's open question survives
+  this merge in exactly its one home -- and `NEXT.md` arrives at 58 lines. `factory/selftest.sh` holds main's
+  17 `issue-902` fixture references beside this branch's 673 new lines, and `grep -E '^#{1,4} ' docs/factory.md | sort | uniq -d`
+  prints nothing: no duplicated heading. The merged tree runs `factory/selftest.sh: 563 passed, 0 failed`,
+  and that number is the union rather than a coincidence: the merge base runs 533 legs, this branch 544
+  (`cc85761` recorded 543 and `H-0149` added one), main 552 (`7bd9245` recorded it), and 533 + 11 + 19 = 563
+  -- no leg lost on either side, which is the claim `cc85761` made without the arithmetic and #335 is the
+  reason a tally alone is not one.
+  Two shadows were hunted because each of this branch's earlier merges found one. `factory/selftest.sh`
+  defines a top-level `emit()` twice -- 2 on the base, 2 on this branch, 2 on main, 2 merged -- pre-existing
+  on both sides, neither created nor hidden here, and not this unit's to chase. And the `.go` census is
+  asymmetric for the first time on this branch: this side changes 1 file (`cmd/plock/serve_test.go`, `D-0067`,
+  already on `HEAD` and already green in CI) while main changes 0, so the merge itself rewrites no `.go` file
+  and retires no `scripts/mutations` anchor; `grep -l` over `scripts/mutations/*.json` for `triage.sh`,
+  `NEXT.md`, `AGENTS.md` and `selftest.sh` -- the files main actually changed -- answers nothing, so
+  `make check-mutations` was not run for this commit. `make verify` on the merged tree with this entry in it,
+  and its exit status, are quoted in the pull-request body, because an `Effect:` written before the gate runs
+  is a prophecy (#1180).
+  Nothing here is an escalation class: no dependency, no change to what a `deny` refuses, nothing published,
+  nothing deleted, no pull request merged -- the denied verb is `gh pr merge`, and `git merge origin/main`
+  into a unit branch is the operation `docs/factory.md` tells a unit to perform; the supervisor's merge of
+  #330 is still ahead of this commit and untouched by it. The undo is `git revert -m 1 <this merge>`, back to
+  the checkpoint below.
+- Checkpoint: c9b650f9c9178be1041bf3927d95d18e2dcd7826
