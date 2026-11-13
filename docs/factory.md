@@ -491,6 +491,20 @@ read back unchanged. With the record committed first, a refusal like that costs 
 written, the marker absent, `Awaiting:` never committed, and an escalation that reads exactly like a unit
 that quietly gave up (#311, #315).
 
+The verb travels with the name, and #315 measured it separately. Both artifacts take `gh issue edit`,
+a pull request included, because `gh pr edit` cannot put a label on anything on this account. Measured
+12 Nov on gh 2.46.0, one 67-character probe name aimed at pull request #314 with its labels read before
+and after: `gh pr edit 314 --add-label zzprobe-…` died on
+`repository.pullRequest.projectCards` for exit 1 -- gh reads that retired field on its way in, so the
+call ends **before** it resolves the label name -- while `gh issue edit 314 --add-label zzprobe-…`
+reached the label step and answered `'zzprobe-…' not found`, also exit 1, and the labels read back
+unchanged both times. Two identical exit codes with two different meanings, and only one of them is a
+name a person can still supply; the other is a field GitHub has retired, so no answer to #311 makes
+`gh pr edit` work. That is why the empty-ask branch of `factory/factory.sh` now carries the two calls a
+stopped unit runs -- the write with the issue verb, the read with `gh pr view` -- instead of the word
+`label` on its own, and why a leg in `factory/selftest.sh` refuses any live file pairing `gh pr edit`
+with a label flag.
+
 What a reader may conclude from the marker is that a named human owes a decision on that artifact. What
 no reader may conclude from it is that the unit is parked or released. `factory/triage.sh` reads no
 label at all -- measured 12 Nov, `grep -c label factory/triage.sh` answers 0 -- so the classifier's two

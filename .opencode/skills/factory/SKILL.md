@@ -259,10 +259,12 @@ recommend, and the exact command to proceed…"
 git add "$LOG"          # DECISIONS.md, or factory/DECISIONS.md for harness work
 git commit -m "docs(decisions): escalate D-NNNN (awaiting a human)" -m "Decision: D-NNNN"
 
-# 2. the marker, whose name comes out of its one home.
+# 2. the marker, whose name comes out of its one home. A pull request takes THIS verb with its own
+#    number -- `gh issue edit "$PR"` -- because `gh pr edit` cannot put a label on anything here, and
+#    it fails for a reason that has nothing to do with labels. Measured below the block.
 gh issue edit "$ISSUE" --add-label "$(factory/escalation-label.sh)"
 
-# 3. the read-back, in the same breath as the claim. Same read on a pull request:
+# 3. the read-back, in the same breath as the claim. The read is the one place the `pr` verb is right:
 #    `gh pr view "$PR" --json labels`.
 gh issue view "$ISSUE" --json labels -q '[.labels[].name] | join(",")'
 ```
@@ -277,6 +279,21 @@ result you report and not a step to retry harder. Doing the label last is what m
 one sentence instead of the record: under `set -e` a middle-of-the-step refusal used to kill the
 escalation with the comment written, the label absent, and `Awaiting:` never committed, which is
 indistinguishable from a unit that quietly gave up (#311, #315).
+
+The verb is the other half of the step, and it is the half the harness left unsaid. Measured 12 Nov on
+this box's gh 2.46.0, one 67-character probe name aimed at pull request #314 with its labels read
+before and after: `gh pr edit 314 --add-label zzprobe-does-not-exist-and-sixty-seven-characters-long-so-nothing-can-land`
+printed `GraphQL: Projects (classic) is being deprecated … (repository.pullRequest.projectCards)` for
+exit 1, and `gh issue edit 314` with the same name printed
+`'zzprobe-…' not found` / `failed to update 1 issue` for exit 1, and `gh pr view 314 --json labels`
+read back empty in both cases -- nothing was written either way. Same exit, two different failures, and
+only one of them is fixable by a person: gh 2.46.0 reads `projectCards` on its way into `pr edit`, so
+that call dies **before** it resolves the label name, which means it cannot land a marker under *any*
+name #311 might choose. `D-0047` measured the split from the other side -- `gh issue edit 240
+--remove-label blocked --remove-label question` exited 0 and read back `labels: []` where `gh pr edit`
+died on that field (`DECISIONS.md:2221-2231`) -- and it is the same reason `gh pr edit --add-reviewer`
+is refused in Step 5. So: `gh issue edit` to write, on an issue or a pull request alike; `gh pr view`
+to read.
 
 Never invent a label name. Not by typing one from memory, not by substituting the nearest label that
 exists, not with `gh label create`, and not by skipping the marker on the grounds that the comment is
