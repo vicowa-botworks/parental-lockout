@@ -3907,3 +3907,66 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `make verify` over the tree carrying this entry is quoted with its exit status in the pull-request
   body rather than here, because an `Effect:` field written before the gate runs is a prophecy
   (#1180).
+
+## D-0069 · The re-review leaves three documentation defects optional on a branch colliding with `main` for the third time: carry them on the conflict push, ship only the sentence this PR falsified, or keep the product diff at zero
+
+- Question: the re-review at `bb110c1` blocks on one thing — `mergeable: CONFLICTING` and
+  `mergeStateStatus: DIRTY` against a `main` 13 commits ahead — and separately names three precision
+  items that are "not a reason to hold the PR" and free to "land here or in whatever carries #302". All
+  three were re-measured here before any of them was touched. (1) `testing/capture/manifest.py:525` says,
+  in the present tense of the published file, that `lock.png` and `testlock.png` "are the only two of the
+  nine entries with no `carried_from`" — after this PR zero of the nine carry, so the sentence is false of
+  the file it names, and it is false *because of this PR*; the other two predate it. (2) `:537` points at
+  "the clause below", but the clause below is the unclaimed-frame refusal at `:539` while the sentence
+  goes on to describe `sources_rev`, which is fed by `current = newest_commit(sources, run=run)` at `:487`
+  — above, not below, and unnamed. (3) `:527` dates `7e65d3b` "two minutes after `2088043` landed", where
+  `git show -s --format=%ct` gives 1794173737 then 1794173755: eighteen seconds, the figure
+  `README.md:725` and `D-0066` already carry, so the file is the third party in a three-way disagreement
+  inside one repository. A fourth came as a nit: `README.md:754` quotes the drift arm's instruction and
+  stops at the comma before the words that carry the finding. Which of these rides a push that has to
+  happen anyway, when every push into a reviewed pull request spends the approval it holds and this
+  branch has already spent two that way?
+- Options: land all four here, each rewritten inside the line count it already occupies | land only the
+  sentence this PR falsified and defer the two it inherited | land none of them and keep the product diff
+  at zero for the re-review
+- Chose: land all four here, each rewritten inside the line count it already occupies
+- Why: tie-break three — refuse rather than proceed on what a measurement contradicts — is what separates
+  these, and it separates them by degree, which is the whole question. Option two ships two sentences
+  known false (items 2 and 3 are false whether or not this PR made them so) and option three ships three;
+  only option one ships none. Tie-break four does not rescue deferral: all four live in
+  `testing/capture/manifest.py` and `testing/capture/README.md`, both already opened by this PR, so
+  deferring changes the commit count and not the file count, and the push is required by the blocking
+  item either way — there is no quieter review for sale. Tie-break six is this branch's own precedent:
+  the PR already refused the deferral once at `README.md:722-724`, where the same present-tense claim was
+  rewritten to "it is the state of *that* tree … **there** … **were** the only two" instead of being left
+  for #302, so option two would leave one half of a single sentence-pair corrected and the other half
+  false, in two files describing one specimen. `D-0068` is the log's version of the same instinct — a
+  sentence that has become false gets a dated correction beside it rather than being left standing.
+  What made this a decision and not an edit is the shape the fixes had to take: both `DECISIONS.md` and
+  `factory/DECISIONS.md` cite `path:NNN` coordinates into these two files, including `manifest.py:749`
+  and `README.md:1005`, both *below* the text being changed — #318's hazard, 272 citations with two
+  already broken — so every replacement had to be line-neutral: 16 comment lines in and 16 out, a
+  10-line paragraph in and 10 out. That constraint is what decided *how* each sentence is worded, and it
+  is why the fixes are compressions of existing prose rather than appends.
+- What lost: the re-review can no longer be discharged the way `bb110c1`'s was. At that head the
+  reviewer's own measurement was "none of the four product files moved", so the previous numbers
+  transferred by inspection; after this commit the next reader has to read 16 comment lines and a
+  rewrapped paragraph in the two files that hold the finding's prose. Paying for the quote also meant
+  re-tightening three clauses of the README paragraph that were not wrong ("measured in a clone of this
+  branch" became "measured in a clone"), so the paragraph is new prose nobody has reviewed word for word,
+  not a two-character fix. And the PR's own "five comment lines, no code changed" sentence in `D-0066`'s
+  `Effect:` now understates this branch's surface in that file — it still describes the commit it was
+  written for, and it no longer describes the head.
+- Checkpoint: 5db210c
+- Effect: two files, both line-neutral, both read back before this line was written.
+  `testing/capture/manifest.py`: the 16-line comment block at `:523-538` replaced in place — the specimen
+  is now scoped ("it is `git show 7e65d3b`'s tree, not the published file; there
+  `docs/screenshots/360/manifest.json` dated … they **were** the only two"), the interval is eighteen
+  seconds with both stamps quoted, and the pointer names its target: "the entry below takes `sources_rev`
+  from `current` = `newest_commit(sources)`, the PAGE's rev". File still 2264 lines; with `^[[:space:]]*#`
+  lines stripped the file is byte-identical to its `835a55a` copy across all 1957 code lines, so the edit
+  is comment-only and no executable line moved; `manifest.py --self-test` answers 44 rules hold and
+  `manifest.py check` answers *9 photographs current*, rc 0. `testing/capture/README.md`: the paragraph at
+  `:751-760` rewritten inside its own 10 lines and the file still 1183, now quoting the instruction whole
+  through "…what it may not be is older than the page." Across both decision logs, all 162 `path:NNN`
+  citations were sampled before and after and the line each names diffed byte for byte: zero moved.

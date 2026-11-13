@@ -748,16 +748,16 @@ byte and no `sources_rev` moved** — and that is also its limit: `current` is s
 so the file still cannot distinguish the run that photographed nine frames from a hand edit, and `check`
 still answers `9 photographs current` having asked history nothing about the seven. #302 owns that half.
 
-**And #301's other remedy is not merely harsher — it cannot be satisfied, which is worth keeping because it
-is a trap for whoever reads the drift arm next.** Re-dating the seven rows to the newest commit over each
-PNG, measured in a clone of this branch, makes `manifest.py check` exit 1 over exactly seven problems, each
-one ending *"Re-take it and re-run `manifest.py record`"*. The paragraph above **is** that re-take, and it
-silences none of the seven: a re-take that changes no bytes never produces a commit touching the PNG, so
-`newest_commit(png)` can never catch up with a page commit that moved no pixels. Any rule that reads *"the
-last commit that changed this file's bytes"* as *"the last time anyone photographed this page"* therefore
-refuses a current frame forever, and the seven it refuses are the seven whose page happened not to move —
-a verdict about a stylesheet edit, not about whether anyone looked. #302 currently sketches exactly this
-arm, and it was measured here against the post-record manifest: the same seven rows, exit 1.
+**And #301's other remedy is not merely harsher — it cannot be satisfied, a trap worth keeping for whoever
+reads the drift arm next.** Re-dating the seven rows to the newest commit over each PNG, measured in a
+clone, makes `manifest.py check` exit 1 over exactly seven problems, each ending with the instruction:
+*"Re-take it and re-run `manifest.py record`, in a commit after the one that changed the page or in that
+same commit; what it may not be is older than the page."* That paragraph **is** that re-take and silences
+none of the seven: bytes that did not move produce no commit touching the PNG, so `newest_commit(png)` can
+never catch a page commit that moved no pixels. Any rule reading *"the last commit that changed this file's
+bytes"* as *"the last time anyone photographed this page"* refuses a current frame forever, and the seven
+it refuses are those whose page did not move — a verdict about a stylesheet edit, not about whether anyone
+looked. #302 sketches exactly this arm, measured against the post-record manifest: same seven rows, exit 1.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver
