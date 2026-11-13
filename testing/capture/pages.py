@@ -4396,6 +4396,37 @@ def self_test():
         bad.append(f"the rule helper is hollow: the canary pair recorded counts {counts} and "
                    f"{len(probe_bad)} problems, want [1, 0] and 1")
 
+    # Third canary, deliberately raising. Neither of the two above throws, so the `except Exception`
+    # arm one screen up -- the only place a crashing rule becomes a problem -- had no witness at all,
+    # and it is dead code on a clean tree: replacing its single `problems.append` with `pass` printed
+    # `capture self-test: 78 refusal rules hold` at exit 0. Measured further, with a crash that really
+    # happens -- `cdp.refused_dir` patched to `raise RuntimeError('boom')`, a fault in the code under
+    # the rules rather than in a rule's own harness: arm intact, `capture self-test: 17 of 78 rules
+    # failed`, exit 1, each crashed rule named by its `why`; arm emptied, the same crash returns exit
+    # 0 and `boom` appears in the transcript zero times. Seventeen broken rules became a clean bill of
+    # health by deleting the line whose comment says a throwing rule "has not passed" (#323).
+    #
+    # So throw on purpose, into two lists of its own: the arm is then the thing under test on every
+    # run, not only on the run where something else breaks. It is not a claim about a driver, so it
+    # never enters `ran` and `EXPECTED_RULES` stays the count of claims.
+    probe_crash_ran, probe_crash = [], []
+
+    def _throws_in_a_rule(problems):
+        raise RuntimeError("the crash arm is under test")
+
+    rule("crash canary", _throws_in_a_rule, probe_crash_ran, probe_crash)
+    # The arm's whole sentence, not just a count. The pair above is satisfied by any problem reaching
+    # the list; an arm that kept the count and lost the `{why}:` prefix -- `problems.append(str(exc))`
+    # -- would send this canary through while costing a real crash the one thing that made a four-way
+    # crash findable without bisecting, which is the reason `rule()` spells the name out at all.
+    crash_want = ["crash canary: RuntimeError: the crash arm is under test"]
+    crash_counts = [n for _, n in probe_crash_ran]
+    if probe_crash != crash_want or crash_counts != [1]:
+        bad.append("the rule helper's crash arm is hollow: a rule that raised RuntimeError recorded "
+                   f"{probe_crash} with counts {crash_counts}, want {crash_want} and [1] -- a rule "
+                   "that throws has not passed, and this arm is the only thing between one and a "
+                   "green run (#323)")
+
     return ran, bad
 
 
