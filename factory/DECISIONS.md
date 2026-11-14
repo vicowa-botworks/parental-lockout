@@ -7278,8 +7278,59 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: e8db1c223158b2a1cd71843ef07b216255a47040
 - Effect: `.opencode/skills/factory/SKILL.md` (step 2 names the verb a pull request takes; the measurement is the paragraph *after* the code block, beside the probe measurement already there -- a second `gh issue edit … --add-label` line inside the block would break `esc_step_control`'s plant, which requires exactly one); `factory/factory.sh` (the empty-ask branch carries the two calls, with the command substitution escaped so the tick runs it in its own worktree rather than the supervisor expanding it at prompt-build time); `docs/factory.md` (the verb paragraph in "What an escalation leaves on the artifact"); `factory/selftest.sh` (`esc_pr_verb`, plus `esc_pr_verb_control` with three plants -- the dead verb restored as a command line, the two commands lifted out of the instruction, the guide sentence deleted -- each checked to have landed before it is asserted). Measured: `claim_leg` calls 285 → 286; `bash factory/selftest.sh` **564 passed, 0 failed**, all three controls reported; `grep -rn` over `scripts/mutations/*.json` for `factory/factory.sh` and `factory/selftest.sh` answers nothing, so `make check-mutations` was not run for this commit; `make verify` → `verify: OK`, exit 0, run once across the four changed files without this entry and once more with this entry in the tree, both results quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
 
-## H-0154 · The blank-byte check in `factory_stop_reason` expands the whole tick log inside bash, so *where* a multibyte character sits decides how long a finished tick takes -- 163 s on a real 441 KB log, in an arm no ceiling in this harness bounds
+## H-0154 · The tally sentence #291 asked for printed its own format string, and the repair that lasts refuses the shape rather than fixing two lines
 
+- Question: `#329` reads `factory/triage.sh` off `origin/main` = `f5e0fe9` and quotes what it puts on
+  stderr. Reproduced here with the file's own bytes -- `sed -n` of the two lines into a script that sets
+  the two counters, no hand-retyped copy anywhere in the path -- on bash 5.3.9, with three content-free
+  branches: 277 bytes of stderr and not one newline in them.
+
+  ```
+  triage: offered: %s\n branch(es) ahead of main hold no content the trunk lacks, so none is
+  triage: 3 branch(es) ahead of main hold no content the trunk lacks, so none is
+  triage: issue-302 issue-309 issue-318 branch(es) ahead of main … so none is
+  ```
+
+  The literal is closed and the backslash follows with nothing between them, so the shell deletes
+  `\<newline>` and what remains between the two literals is the continuation line's own indentation: a
+  field separator. `printf` is therefore handed a format with one slot and no `\n`, plus the literal
+  `offered: %s\n` as its first argument, and POSIX printf re-applies the format while arguments remain.
+  Both sites in the file are this shape. The ticket offers two repairs and the second one changes what
+  `make verify` refuses, which is a rule written against every unit that comes after -- so: repair the
+  two format strings, teach `scripts/check-scripts.py` the shape, do both, or hand it up?
+- Options: repair the two format strings and stop, since stderr is not the machine-readable half and the rows are built by `emit` elsewhere | teach `scripts/check-scripts.py` to refuse the shape and leave the sentences as shipped, on the theory that a red gate will force the edit sooner than a person will | repair both sites, teach the guard the shape, and pin both polarities in the guard's own self-test so it can be neither ignored nor widened away | escalate, because a new gate rule binds every unit and is not a unit's call
+- Chose: repair both sites, teach the guard the shape, and pin both polarities in the guard's own self-test so it can be neither ignored nor widened away
+- Why: three measurements decided the shape of the repair, and the first is why "stop at the strings"
+  loses. `bash -n` exits 0 and `shellcheck -S style` exits 0 on the broken file -- the parse is legal and
+  the tooling that `verify` already runs is blind to it, so nothing stops the next person writing the
+  same continuation; this is the second line-continuation defect in this one file (the first, caught
+  while H-0131 was in review, was a `\<newline>` placed *inside* the quotes, which the shell keeps
+  literal). The second measurement is why the existing legs did not catch it either: the two needles
+  that guard this sentence, `hold no content the trunk lacks` and `br-empty br-merge-empty`, both
+  `grep -qF` clean against the mangled stderr, because the format's own words are precisely what got
+  printed. A leg that matches a fragment of a sentence is not an assertion about that sentence, so the
+  legs now assert each sentence whole and assert that no literal `%s` or `\n` reaches stderr at all. The
+  third is why a gate rule must ship in the same commit as the fix: a rule that reddens the tree it
+  arrives in is a rule that gets reverted, and repairing both sites is what lets the rule land green on
+  day one. Both *correct* shapes are pinned in the guard's accepted set -- the house idiom
+  `printf '…%s\n' \` (a space between quote and backslash, so the arguments are what continues) and the
+  column-0 join, which really does concatenate -- because the flag guard's own history says what happens
+  otherwise: its first draft refused six working call sites and had to be narrowed (#217). Control 5
+  asks the shipped shape of the repaired file and demands the sentence come back broken, with the
+  dead-mutant floor this section already documents, so the control cannot pass by failing to start.
+  The rule then proved itself in the field rather than in a fixture: while testing it,
+  `git checkout -- factory/triage.sh` restored the checkpoint commit, which does not contain the
+  repair, and two lines later `check-scripts` refused `factory/triage.sh:1019` and `:1023` again on a
+  tree that looked clean in `git status`. What is *not* claimed here: that the third leg's needle
+  (`no merge base with main`) also survives its sentence's mangling. The probe that measured the other
+  two ran with `unjudged_count=0`, so that sentence never printed and its needle went missing for a
+  reason that has nothing to do with the bug.
+- Checkpoint: d2d8eedf8346e263f389a2acde6b9b033778aaca
+- Effect: factory/triage.sh, factory/selftest.sh, scripts/check-scripts.py, docs/factory.md
+
+## H-0160 · The blank-byte check in `factory_stop_reason` expands the whole tick log inside bash, so *where* a multibyte character sits decides how long a finished tick takes -- 163 s on a real 441 KB log, in an arm no ceiling in this harness bounds
+
+- Id: this entered the harness log as `H-0154` on `issue-344`, and that number is published on `main` as *The tally sentence #291 asked for printed its own format string, and the repair that lasts refuses the shape rather than fixing two lines* -- written in `3f3f459`, merged as PR #350 on `issue-329` at 2026-11-13T20:56:44-05:00. A merged entry's id never moves, so the unmerged side yields, which is `docs/factory.md`'s rule and not a preference: moving `main`'s would be a force-push against history the only merge this repository offers makes permanent. This entry is therefore renumbered to `H-0160` while resolving the merge, and the number is the allocator's -- re-run on the merged tree immediately before this line was written, answering `H-0160` with its `REFRESH` note (union 61 s old against the 300 s bound). The ids between 154 and 160 are not a gap: the ref union's ceiling was `H-0159` at the read, `H-0155` on `issue-313`, `H-0156` on `issue-353`, `H-0157` on `issue-284` and `issue-302`, `H-0158` and `H-0159` on `issue-351` -- four sibling branches that met the same published `H-0154` while this pull request sat in review. The two decisions that held 154 share nothing but the digit: that one is a `printf` format continued onto an indent, this one a bash expansion priced by where its multibyte characters fell. What the yield cannot move: `d9465d6` keeps `Decision: H-0154` in its message and is not rewritten -- a rewrite is a force-push here -- so `git log --grep='Decision: H-0160'` finds this rename and not the work, and `git log --grep='Decision: H-0154'` now arrives at the tally sentence for a change that measures a multibyte expansion. The mapping lives in this line alone. Nothing else on this branch named the number, so no citation had to be chased: `grep -rn 'H-0154'` over the merged tree returns three lines, all of them main's (its own heading, the `check-scripts.py` sentence in `docs/factory.md`, and the comment above the repaired `printf` in `factory/triage.sh`), and nothing belonging to `issue-344`. No `path:NNN` citation is written here for that reason -- `#318` is the record of what one costs. The `Checkpoint:` below still names `a6895403`, the rollback target of the edit itself; the checkpoint for this merge is `8cf99b8`, and `git revert -m 1` on the merge commit is what undoes the renumbering.
 - Question: `factory_stop_reason` has to know whether a tick log holds one non-blank byte before it says anything about why the session stopped, because a log of nothing but newlines is a non-empty string and every reader downstream would be handed a blank as if it were content. The shipped version asked that of a single bash expansion, `[ -z "${clean//[[:space:]]/}" ]`, over the whole log. What is the repair, given that the verdict must stay byte-for-byte the same, and that the call sits where no timeout can reach it?
 - Options: stream the test to a forked `grep -q` fed by a here-string | stream it through a pipe, `printf '%s\n' "$clean" | grep -q '[^[:space:]]'` | stream it from `tr` through a process substitution so no value is built for this test | keep the test in bash and replace `[[:space:]]` with an ASCII bracket set | keep the expansion and test only a bounded prefix of the value | leave the expansion and bound the cleanup arm with `timeout`
 - Chose: stream the test to a forked `grep -q` fed by a here-string

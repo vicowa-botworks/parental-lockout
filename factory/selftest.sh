@@ -7903,6 +7903,16 @@ branch_err_has() { # branch_err_has <needle> -- the tally sentences, which are n
 		return 1
 	fi
 }
+# shellcheck disable=SC2317  # reached only as the predicate argument of claim_leg, which is how every
+#                             # leg in this file runs; the disable is on the new helper alone because the
+#                             # others are each also called directly from a control body
+branch_err_lacks() { # branch_err_lacks <needle> -- a sentence that prints its own format is the bug
+	if grep -qF -- "$1" "$branch_err"; then
+		printf '            stderr says %s, which no sentence here is meant to print; it said:\n' "$1" >&2
+		sed 's/^/            /' "$branch_err" >&2
+		return 1
+	fi
+}
 branch_rows_are() { # branch_rows_are <n> -- the whole branch half, so a stray row cannot hide
 	local n
 	n=$(awk -F'\t' '$1 == "branch"' "$branch_rows_file" | wc -l | tr -d '[:space:]')
@@ -7923,9 +7933,18 @@ claim_leg '…nor the one that merged the trunk in' branch_no_row br-merge-empty
 claim_leg '…and only what has content prints' branch_rows_are 3
 claim_leg 'the skip is said out loud, not silently' branch_err_has 'hold no content the trunk lacks'
 claim_leg '…naming both branches it dropped' branch_err_has 'br-empty br-merge-empty'
+# The two fragments above survive the bug #329 measures, which is why they were green while stderr read
+# `triage: offered: %s\n branch(es) …`. Each sentence is asserted whole, so a format split across a
+# continuation line -- where the next line's indentation is a field separator, not a join -- reddens.
+claim_leg '…as one sentence, not its own format string' branch_err_has \
+	'triage: 2 branch(es) ahead of main hold no content the trunk lacks, so none is offered: br-empty br-merge-empty'
+claim_leg '…and no format slot reaches an operator' branch_err_lacks '%s'
+claim_leg '…nor an escaped n standing where a newline was meant' branch_err_lacks '\n'
 claim_leg 'an unrelated history is still offered' branch_class_is br-nobase branch_without_pr
 claim_leg '…marked as content not compared' branch_detail_has br-nobase 'content not comparable to main'
 claim_leg '…and the failed read is reported' branch_err_has 'no merge base with main'
+claim_leg '…whole, not re-applied from a split format' branch_err_has \
+	'triage: 1 branch(es) ahead of main have no merge base with main, so their content could not be compared; they are still offered, unverified: br-nobase'
 
 # One `sed` on the shipped file, run through the same runner. A mutation that changes no byte is
 # refused: it would report the bug as reproduced without having reproduced anything.
@@ -8001,6 +8020,24 @@ branch_control_tip_not_base() {
 	branch_class_is br-empty branch_without_pr && branch_detail_has br-empty '1 file(s)'
 }
 claim_leg 'control: asked of the tip, the empty branch is back' branch_control_tip_not_base
+# Control 5: the bug #329 measured on `origin/main`, applied back to the shipped file as the bytes that
+# shipped. A literal closed immediately before `\<newline>` with the rest of the sentence on an indented
+# line is TWO words: the shell deletes the continuation and what is left between the literals is the
+# indentation, a field separator. So printf gets a format that ends mid-sentence with no `\n` and its
+# first argument is the literal `offered: %s\n`, which POSIX printf re-applies once per remaining
+# argument -- three lines, the first of them its own format string. `bash -n` and shellcheck both pass
+# it, and the fragment needles above survive it, which is exactly why this control is the leg that works.
+branch_control_split_format() {
+	branch_mutate "s@so none is offered: %s\\\\n' \\\\@so none is '\\\\\\n\\t\\t\\t'offered: %s\\\\n' \\\\@" ||
+		return 1
+	if branch_err_has 'triage: 2 branch(es) ahead of main hold no content the trunk lacks, so none is offered: br-empty br-merge-empty'; then
+		printf '            the sentence came out whole, so the split never took effect and this\n' >&2
+		printf '            control cannot see the bug it is named for\n' >&2
+		return 1
+	fi
+	branch_err_has '%s'
+}
+claim_leg 'control: a format continued onto an indent prints itself' branch_control_split_format
 
 # ------------------ a merged pull request's leftover ref is reported, not dropped (#291, ask 2)
 #
