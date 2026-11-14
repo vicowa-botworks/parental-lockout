@@ -268,6 +268,22 @@ FACTORY_TIMER_UNIT=${FACTORY_TIMER_UNIT:-parental-lockout-factory.timer}
 # re-check.
 FACTORY_DELIVERED_WINDOW=${FACTORY_DELIVERED_WINDOW:-100}
 
+# How many open pull-request heads `factory/triage.sh` asks the duplicate-content question of, per
+# branch that reached the `branch_without_pr` emit (#284). It is a per-branch bound, not a global one,
+# because the question costs two or three local git reads per head and the heads are the same list for
+# every candidate branch: an account with a few hundred open pull requests would otherwise turn a pass
+# that reads git a handful of times into one that reads git thousands of times.
+#
+# The heads are taken in the order `gh pr list --state open` answers, which is newest-CREATED first --
+# measured 13 Nov over the five open pull requests here: `createdAt` strictly descending, `updatedAt`
+# not monotonic at all. So the bound drops the oldest-created open pull requests, which is squarely
+# where a stale duplicate of an old branch lives: a backup cut two years ago is a duplicate of a pull
+# request opened two years ago. That is why the bound is generous and why a branch that hit it says so
+# in its own detail as `[dup-scan-limited:N ...]` rather than printing a plain row: a scan that stops
+# early and reports nothing is indistinguishable from one that found nothing, and a verdict nobody can
+# re-check is not a verdict.
+FACTORY_DUP_SCAN=${FACTORY_DUP_SCAN:-40}
+
 # The base branch a merged pull request has to have landed on for its claim to mean the work is on
 # the trunk. A pull request merged into another open pull request's branch is that branch's news, not
 # `main`'s, and #216's stacked-base chain is the shape this refuses: reporting an issue delivered by a
@@ -284,6 +300,17 @@ FACTORY_BASE=${FACTORY_BASE:-main}
 # contain the token must not buy itself an instruction. `factory/selftest.sh` pins both ends: a row
 # that reaches the table with the note, and a copy of `factory.sh` with the arm deleted.
 FACTORY_MERGED_MARK=${FACTORY_MERGED_MARK:-'[merged:PR#'}
+
+# The opening token of the duplicate-content note `factory/triage.sh` puts in front of a
+# `branch_without_pr` row's detail when the ref's content is already on a branch that HAS an open pull
+# request (#284). Same shape and same reasons as the mark above: two files read one literal, the
+# classifier writes it as the first characters of the detail and `factory/factory.sh`'s dispatch loop
+# matches it at the START to decide whether to refuse the unit, and the match is anchored because a
+# branch name is somebody else's bytes -- a ref literally named `[content-on:PR#9]` must not be able to
+# read itself out of a dispatch. It is a mark and not a new class for the reason the merged note gives
+# on the row itself: the class is the queue's vocabulary and this row is still a branch with no pull
+# request of its own, which is what the detail's first characters then qualify.
+FACTORY_DUP_MARK=${FACTORY_DUP_MARK:-'[content-on:PR#'}
 
 FACTORY_LOG=${FACTORY_LOG:-$FACTORY_DIR/log}
 FACTORY_LEDGER=${FACTORY_LEDGER:-$FACTORY_DIR/ledger}
@@ -960,7 +987,7 @@ factory_ledger_int() {
 # what #335 measured locally as `551 passed, 1 failed` then `552 passed, 0 failed` on one commit --
 # that issue's own journal is the arithmetic: `NEXT unclaimed 901 age=1s` above `NEXT unclaimed 900
 # age=0s`, for two stamps the stamping loop wrote 900-then-901 in the same pass. Equal stamps, read
-# across a boundary, so the younger unit was called the older one. `H-0157`.
+# across a boundary, so the younger unit was called the older one. `H-0169`.
 #
 # A missing or non-numeric reading is refused, not guessed at. Falling back to `date` here would put
 # the per-row reading back inside the primitive that exists to remove it, and an empty age key sorts
