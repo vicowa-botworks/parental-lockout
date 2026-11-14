@@ -7300,14 +7300,17 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   already paid for; #277 measured that read at 43 s against a 10 s all-up queue, and H-0013 prices a
   network read in front of a dispatch at 5min2s, so `factory.sh` may not ask again. Option 4 re-invents
   what #291 shipped and does it the dangerous way, because a class retires a ref. The reading is bytes,
-  and the measurement that decided it is why `git cherry` is not in the file: `git cherry` marks a
-  commit `-` when the commit is **empty**, so `issue-248`, `issue-309` and `issue-318` -- each two
-  files clear of all five open heads -- all read patch-equal to every one of them. What replaced it is
+  and the measurement that decided it is why `git cherry` is not in the file: it marks a commit `-`
+  when the commit is **empty**, not when the work landed. Measured at 00:50Z on 14 Nov, `issue-248`,
+  `issue-309` and `issue-318` are each one empty commit with zero files and all three read
+  patch-equal to every non-draft open head -- a verdict about the shape of a commit, never about
+  whether work landed. What replaced it is
   the head itself when the ref is contained in it, otherwise one `git diff` between the two trees
   restricted to the files the ref touches. The merge-base form was written first and discarded: a change
   cherry-picked onto the pull request head still names the file in a merge-base diff, which is the only
-  case the reading exists for. A draft head buys no refusal -- #285's head is a tombstone, and refusing
-  `backup-tip` for it would retire a ref a real branch shares.
+  case the reading exists for. A draft head buys no refusal: a draft never merges, so a match against
+  it retires work no delivery will ever cover. The shape is draft #285 on `backup-tip` ("reference
+  only, do not merge", closed unmerged at 16:34:58Z on 12 Nov), not a live instance of it.
   What lost: `preserve-scroll-position` and `tmp-dir-cleanup` are now refused, because a family word is
   also the first token of a feature branch, and bare `backup` is still not refused, because `[-/]` asks
   for a family or a path and not for the word.
@@ -7319,8 +7322,9 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   13 Nov), and past either one the row says `[dup-scan-limited:N …]` and draws no conclusion rather than
   a cheap one. The ticket's 12 Nov premise that the arm refuses nothing is recorded false -- 24
   `REFUSED branch` lines, 11 Nov 09:54:49Z through 14:14:10Z. The content refusal fires on no live ref:
-  the shipped classifier against the real queue at 00:45Z on 14 Nov prints 12 `branch_without_pr` rows
-  with no mark and no bound note, so that half is pinned by the fixture alone, and what the name half
+  the shipped classifier against the real queue at 00:45Z on 14 Nov prints 11 `branch_without_pr` rows
+  and 37 `branch delivered`, with no mark and no bound note, so that half is pinned by the fixture
+  alone, and what the name half
   changes live is three refs -- `backup-tip`, `preserve/issue-222-stale-base`, `preserve/issue-318-wip`
   -- which keep their rows and lose their tick.
 - Checkpoint: 3c2d68fbf16215b61145261698097718a1b6b6d3

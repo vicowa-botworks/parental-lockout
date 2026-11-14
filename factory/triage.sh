@@ -1064,6 +1064,9 @@ if [ -n "$main_sha" ]; then
 				[ -n "${ohead:-}" ] || continue
 				[ -n "${onum:-}" ] || continue
 				[ "$ohead" = "$branch" ] && continue
+				# A draft head buys no refusal. It will never merge, so a match against it retires a ref
+				# no delivery will ever cover -- the shape is draft #285 on `backup-tip` ("reference only,
+				# do not merge", closed unmerged 16:34:58Z on 12 Nov), not a live instance of it.
 				[ "$odraft" = "true" ] && continue
 				[ -n "${osha:-}" ] || continue
 				if [ "$dup_scanned" -ge "$FACTORY_DUP_SCAN" ]; then

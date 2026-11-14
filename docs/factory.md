@@ -378,9 +378,12 @@ nothing else -- `backup/* local/* integration/* wip/* tmp/*` -- so a hyphen spel
 past it and `preserve/` was not on the list at all. Measured over the 11 refs ahead of `main` with no
 open pull request at 00:40Z on 14 Nov, that let exactly three through: `backup-tip` (7 files across 5
 commits), `preserve/issue-222-stale-base` (2 across 2) and `preserve/issue-318-wip` (6 across 3),
-while four `backup/` and `local/` refs were already refused and the four `issue-*` refs are still
-workable. The journal agrees the arm was firing: **24 `REFUSED branch` lines** between 11 Nov
-09:54:49Z and 14:14:10Z, so the 12 Nov addendum's "refuses nothing" was false the day it was written;
+while four `backup/` and `local/` refs were already refused and the four `issue-*` names in that census
+are untouched by the pattern -- and none of those four prints a row today: `issue-248` reads
+`delivered` behind merged PR #262, while `issue-309` and `issue-318` sit one commit ahead with zero
+files, which is the empty commit that makes `git cherry` useless below. The journal agrees the arm was
+firing for what a slash could reach: **24 `REFUSED branch` lines** between 11 Nov 09:54:49Z and
+14:14:10Z, so the 12 Nov addendum's "refuses nothing" was false the day it was written;
 what was true is that it refused only what a slash could reach. The pattern is `backup[-/]*` and the
 same for each family, plus `preserve[-/]*`, and #291's ask-1 control blinds the separator to demand
 `backup-tip` be dispatched again. Two costs, measured against the live names rather than reasoned:
@@ -391,14 +394,17 @@ from the list: a preservation branch says *keep this*, not *work on this*, and t
 that trade for `wip/`. The row survives either way, because the row is a report and the arm only stops
 the dispatch -- `REFUSED branch:<name> the name says it is a backup, not a contribution`.
 **The content.** A ref whose work is already sitting in an open pull request is not stranded work, and
-`git cherry` cannot tell you that: it marks a commit `-` when the commit is **empty**, so
-`issue-248`, `issue-309` and `issue-318` -- each two files clear of all five open heads -- all read
-patch-equal to every one of them. The reading is bytes instead: the head itself if the ref is contained
+`git cherry` cannot tell you that: it marks a commit `-` when the commit is **empty**, not when the
+work landed. Measured at 00:50Z on 14 Nov, `issue-248`, `issue-309` and `issue-318` are each one empty
+commit with zero files and all three read patch-equal to every non-draft open head -- a verdict about
+the shape of a commit, never about whether work landed. The reading is bytes instead: the head itself if the ref is contained
 in it, otherwise one `git diff` between the two trees restricted to the files the ref touches. The
 merge-base form was written first and is wrong, because a change cherry-picked onto the pull request's
 head still names the file in a merge-base diff; `br-pick` in the fixture is that case, and a leg pins
-that the byte reading and not containment is what refused it. A draft head buys no refusal -- #285's
-head is a tombstone, and refusing `backup-tip` for it would retire a ref a real branch shares. Up to
+that the byte reading and not containment is what refused it. A draft head buys no refusal: a draft
+never merges, so refusing a ref because a draft's bytes match it retires work no merge will ever
+deliver. The case that taught it was draft #285 on `backup-tip`, titled "reference only, do not merge"
+and closed unmerged at 16:34:58Z on 12 Nov. Up to
 `FACTORY_DELIVERED_WINDOW` merged pull requests are consulted, and open heads up to
 `FACTORY_DUP_SCAN` (40, against the 5 open heads measured 00:45Z on 14 Nov); past either bound the row says
 `[dup-scan-limited:N …]` and draws no conclusion rather than a cheap one.
@@ -411,8 +417,9 @@ fixture ("the marked ref is refused by content, naming the pull request", "the h
 refused by name", "…while the ordinary branch is still worked") rather than by reading the arm.
 
 No live ref triggers the content refusal today: the shipped classifier run against the real queue at
-00:45Z on 14 Nov prints 12 `branch_without_pr` rows and carries no `[content-on:PR#` mark and no
-`[dup-scan-limited` note -- the reading asks all five open heads and concludes nothing. That half is
+00:45Z on 14 Nov prints 11 `branch_without_pr` rows and 37 `branch delivered`, with no
+`[content-on:PR#` mark and no `[dup-scan-limited` note -- the reading asks all five open heads and
+concludes nothing. That half is
 pinned by the fixture alone, and what it buys is the day a head and a branch carry the same commit.
 What the name half changes live is three refs, `backup-tip`, `preserve/issue-222-stale-base` and
 `preserve/issue-318-wip`: they keep their rows, because a row is a report, and lose their tick.
