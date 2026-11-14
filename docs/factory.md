@@ -1477,8 +1477,22 @@ Two things the fetch cannot do. It does not make the id *reserved*: two ticks th
 same second still agree, and only the re-read immediately before the entry commit narrows that. And it
 is bounded, so on an origin that accepts the connection and never answers the activation proceeds on
 stale refs and says so -- `REFRESH-TIMEOUT`, with how old `origin/<trunk>` is -- rather than holding
-`factory/run/lock` while the queue freezes behind a read. A clone whose refspec names one branch
-cannot learn a sibling's branch at all, and the activation says that too, as `REFRESH-BLIND`.
+`factory/run/lock` while the queue freezes behind a read. A clone whose refspec cannot fetch
+`refs/heads/*` cannot learn a sibling's branch at all, and the activation says that too, as
+`REFRESH-BLIND`. #309 is the half of that sentence the test missed: the test was a literal `*` anywhere in
+the line, and `+refs/pull/*/head:refs/remotes/origin/pr/*` -- what someone adds to get pull-request heads
+locally -- carries its star on the *destination* side while fetching nothing that ever fills
+`refs/remotes`. Measured against the shipped allocator on a clone cut before its sibling pushed:
+`D-0002` on stdout and `REFRESH … 0s old` on stderr, with `D-0002` sitting on `refs/heads/issue-sib`. So
+the rule is one prefix per line, on the source side of the colon, and it is one rule for both components:
+`blind_coverage` in the allocator is the read, and `factory_refresh_origin` journals from it -- through
+`--get-all`, not `--get`, because `--get` answers with the LAST value of a multi-valued key (measured, git
+2.53.0) and would call a healthy clone blind depending on the order two refspec lines were appended. Any
+learning line satisfies it, so the `pr/*` line added *beside* the wildcard stays clean; calling that blind
+costs a fetch on every entry commit and buys no wrong id. `+refs/*:refs/*` is called blind, which is the
+true verdict for every tree this command reaches, because a bare mirror is refused as "not a readable git
+checkout" before these arms run and a working clone carrying it cannot fill `refs/remotes` even when it
+fetches -- git refuses the write, `fatal: refusing to fetch into branch …`.
 
 That activation is one fetch at one moment, and the unit's own re-read can be an hour later. `D-0058`
 was written twice on 11 Nov for exactly that reason, on three timestamps worth having straight:
@@ -1505,11 +1519,28 @@ branch, so it is true of every allocation this harness has ever made.
 What the marker buys is a procedure, and `factory/selftest.sh` pins the procedure rather than the
 promise. One sentence, in the skill and here: `REFRESH-BLIND` means fetch and re-read before the entry is
 committed -- run the `git fetch --prune origin` the line names, then write the entry with the number that
-comes back. Five counted legs and four controls cover it: the two arms -- a refspec that names one
-branch, and refs older than the bound -- each on a fixture that trips that arm alone and each with a
-control deleting just that arm from the arm list; a clean read pinned to stay quiet, with the control
-that makes the verdict unconditional so the same tree is called blind too; the bound moved instead of
-the tree; and a checkout with no origin at all. The limit is pinned too, on #303's own shape: a clone
+comes back; where the line names a `config remote.origin.fetch` write instead, that write comes first,
+because a fetch cannot widen a refspec. Nine counted legs and four controls cover it -- re-derive them
+from the run rather than from this sentence, which was a row short of its own list until #309:
+
+```bash
+bash factory/selftest.sh 2>&1 | sed -n '/a current read says so/,/no origin is refused/p'
+```
+
+The two arms -- a refspec that cannot fetch a branch, and refs older than the bound -- each on a fixture
+that trips that arm alone and each with a control deleting just that arm from the arm list; a clean read
+pinned to stay quiet, with the control that makes the verdict unconditional so the same tree is called
+blind too; the bound moved instead of the tree; a checkout with no origin at all; and the four shapes
+#309 added at the coverage arm -- a `pr/*` refspec refused, the `pr/*` line merely added beside the
+wildcard still clean, an absent key still not blind, a mirror's `+refs/*:refs/*` refused.
+
+The activation's copy of the rule is pinned beside these, and had no pin at all before: a leg runs the
+shipped `factory_refresh_origin` over a primary checkout planted with the `pr/*` refspec and refuses the
+journal until it says `REFRESH-BLIND` *and* the allocator refuses the unit tree beside it -- one refspec,
+one verdict, two components -- with a control deleting that arm's guard, which must send the journal quiet
+while the allocator keeps refusing. Before #309 nothing in the file had ever run that function over a
+narrowed refspec (measured: its only two call sites used the healthy wildcard), so deleting the whole arm
+moved no leg while the comment beside it announced a control that did not exist. The limit is pinned too, on #303's own shape: a clone
 seconds old whose sibling pushed a second ago reads *clean* and answers `D-0002` while `origin` already
 holds `D-0007`. No offline read can see that push, so `FACTORY_ID_MAX_AGE` (300s) is how wide a window
 the command refuses to be silent about -- a risk window chosen from the time a sibling needs to write an

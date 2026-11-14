@@ -12304,10 +12304,12 @@ alloc_run_one() { # <script> <repo> <path> <prefix> <max-age|-> -> the id; stder
 }
 
 # One blind shape. The marker has to be there, name the reason this leg is about, and not name the other
-# arm's reason -- a leg that fires for either reason pins neither.
+# arm's reason -- a leg that fires for either reason pins neither. The optional last argument asks for a
+# second phrase in the same sentence, for the arm whose repair is not a fetch.
 # shellcheck disable=SC2317  # reached from the legs below
-alloc_blind_leg() { # <label> <repo> <path> <prefix> <id> <says> <not-says> <max-age|-> <fact>
+alloc_blind_leg() { # <label> <repo> <path> <prefix> <id> <says> <not-says> <max-age|-> <fact> [also-says]
 	local label=$1 repo=$2 path=$3 prefix=$4 want=$5 says=$6 nosay=$7 maxage=$8 fact=$9
+	local also=${10:-}
 	local got='' rc=0
 	if ! got=$(alloc_run_one "$alloc_script" "$repo" "$path" "$prefix" "$maxage"); then
 		fail=$((fail + 1))
@@ -12342,6 +12344,15 @@ alloc_blind_leg() { # <label> <repo> <path> <prefix> <id> <says> <not-says> <max
 		printf '  FAIL  %-40s the other arm is doing this leg'"'"'s work:\n' "$label"
 		sed 's/^/          /' "$alloc_err"
 		printf '          %s must not be in the verdict this leg is about.\n' "$nosay"
+		return 0
+	fi
+	if [ -n "$also" ] && ! grep -qF -- "$also" "$alloc_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s it went blind without naming "%s":\n' "$label" "$also"
+		sed 's/^/          /' "$alloc_err"
+		printf '          A refspec is not a staleness: `git fetch` obeys the refspec it is given, so\n'
+		printf '          the fetch the footer names cannot widen this clone (#309). The write that can\n'
+		printf '          has to be in the sentence.\n'
 		return 0
 	fi
 	pass=$((pass + 1))
@@ -12433,7 +12444,7 @@ alloc_verdict_control() { # <label> <dir> <sed> <repo> <path> <prefix> <id> <sil
 
 decision_ids() {
 	local base current multi repo wt bad alloc_empty alloc_nolog alloc_nopfx alloc_bleed
-	local alloc_notlog alloc_dirlog alloc_headonly alloc_open alloc_committed
+	local alloc_notlog alloc_dirlog alloc_headonly alloc_open alloc_committed rs_lines
 
 	if [ ! -f "$alloc_script" ]; then
 		printf '  SKIP  %-40s next-decision-id.sh is not in this tree\n' \
@@ -12915,6 +12926,67 @@ decision_ids() {
 	git -C "$blind_root/main" config remote.origin.fetch \
 		'+refs/heads/*:refs/remotes/origin/*' || return 0
 
+	# The second coverage shape (#309): the wildcard on the DESTINATION side of the colon. It carries a
+	# star, so the star-anywhere test called it a clean read while the id it printed was already taken on
+	# a branch ref -- measured against `origin/main` on this fixture's own shape (a clone cut before the
+	# sibling pushed): `D-0002` on stdout beside `REFRESH … 0s old`, with `D-0002` sitting on
+	# `refs/heads/issue-sib`. The instruction that travels with the verdict is part of the finding: the
+	# marker tells a session to run `git fetch --prune origin`, which obeys the refspec it is given, so
+	# it cannot widen this clone -- measured: the clone held `origin/HEAD` and `origin/main` after
+	# running it, unchanged. So the sentence has to name the config write, and the leg asks for it.
+	git -C "$blind_root/main" config remote.origin.fetch \
+		'+refs/pull/*/head:refs/remotes/origin/pr/*' || return 0
+	alloc_blind_leg 'a destination-side wildcard is refused as blind' "$blind_root/unit" \
+		DECISIONS.md D D-0002 'fetches only' 'last refreshed' - \
+		'the pr/* line is quoted, the config write is printed beside it, and the id is still D-0002' \
+		'config remote.origin.fetch'
+	alloc_verdict_control 'a destination-side wildcard is refused as blind' \
+		"$alloc_work/ctrl-no-coverage-arm-pr" \
+		's|for arm in coverage clock|for arm in clock|' \
+		"$blind_root/unit" DECISIONS.md D D-0002 silent \
+		'drop the coverage arm and this same pr/* tree reads clear, so the leg above is the arm'
+	# The two shapes the tightened rule must NOT call blind, measured rather than assumed. The first is
+	# how the line above actually arrives: `git config --add` beside the healthy wildcard, which is a
+	# clone that can learn a branch and has to read clear. A rule keyed on the whole config value would
+	# call it blind on the order two lines were written in -- `git config --get` answers with the LAST
+	# value, measured on git 2.53.0, and the `pr/*` line is the one appended last.
+	if git -C "$blind_root/main" config remote.origin.fetch \
+		'+refs/heads/*:refs/remotes/origin/*' &&
+		git -C "$blind_root/main" config --add remote.origin.fetch \
+			'+refs/pull/*/head:refs/remotes/origin/pr/*'; then
+		rs_lines=$(git -C "$blind_root/main" config --get-all remote.origin.fetch | grep -c . || true)
+	else
+		rs_lines=0
+	fi
+	if [ "${rs_lines:-0}" -ne 2 ]; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant left %s refspec line(s), not the\n' \
+			'a wildcard with the line added beside it' "${rs_lines:-0}"
+		printf '          two this leg is about, so the verdict below would read one clone or three.\n'
+	else
+		alloc_clear_leg 'a wildcard with the line added beside it' "$blind_root/unit" \
+			DECISIONS.md D D-0002 - \
+			'one of the two lines fetches refs/heads/*, so per-line any-match keeps that clone clean'
+	fi
+	# The absent key, still not blind (H-0134's rule, unchanged): the arms that report a shape name what
+	# they found, and a missing refspec is not a shape. `--unset-all`, because the leg above left two.
+	git -C "$blind_root/main" config --unset-all remote.origin.fetch || return 0
+	alloc_clear_leg 'an absent refspec is still not called blind' "$blind_root/unit" \
+		DECISIONS.md D D-0002 - \
+		'origin plus refs/remotes and no remote.origin.fetch key answers clean, as it did before'
+	# And the shape the ticket asked to be chosen rather than stumbled on: a mirror's
+	# `+refs/*:refs/*`. Called blind, which is the true verdict for every tree this command reaches -- a
+	# bare mirror never gets here (it is refused as "not a readable git checkout", exit 2, measured), and
+	# a working clone carrying it cannot fill `refs/remotes` at all, because git refuses the fetch
+	# (`fatal: refusing to fetch into branch 'refs/heads/trunk' checked out at …`); measured on the
+	# shipped allocator such a clone answered `D-0002` over the sibling's `D-0002` with a clean line.
+	git -C "$blind_root/main" config remote.origin.fetch '+refs/*:refs/*' || return 0
+	alloc_blind_leg 'a mirror refspec is refused as blind' "$blind_root/unit" \
+		DECISIONS.md D D-0002 'fetches only' 'last refreshed' - \
+		'the only tree this answers correctly is a bare mirror, refused before these arms run'
+	git -C "$blind_root/main" config remote.origin.fetch \
+		'+refs/heads/*:refs/remotes/origin/*' || return 0
+
 	# The clock: nothing wrong with the clone, the refs are just old. This is the shape #303 was -- a
 	# sibling wrote and pushed an entry in a window nobody in this tree had looked at since.
 	find "$blind_root/main/.git/logs/refs/remotes" -type f -exec touch -d '2 hours ago' {} + || return 0
@@ -13121,6 +13193,112 @@ pass_refresh_trunk_only_control() {
 	return 0
 }
 
+# #309: the two components that read one clone's fetch refspec have to read it one way. The activation's
+# sentence used a star-anywhere test, so it journalled `REFRESH … 0 moved` about a clone whose allocator
+# was about to hand a tick a taken id -- and the comment beside that sentence claimed "the control for
+# this leg" planted the shape, which nothing in this file did: `refsh_run` had exactly two call sites
+# (measured), both on a clone with the healthy wildcard, so deleting the whole arm moved no leg. This is
+# the leg that claim was missing, and it reads the allocator on the same tree so the two cannot drift
+# apart again without someone watching.
+pass_refresh_blind_refspec() { # -> 0 when the journal calls a destination-side refspec blind too
+	local fx=$refsh_work/blind-refspec fn out id
+	refsh_repo "$fx" || { pos_say "the fixture could not be built in $fx"; return 1; }
+	fn=$(refsh_fn "$fx/plain") || { pos_say 'the shipped function could not be extracted'; return 1; }
+	git -C "$fx/main" config remote.origin.fetch \
+		'+refs/pull/*/head:refs/remotes/origin/pr/*' || {
+		pos_say 'the pr/* refspec could not be planted in the primary checkout'; return 1; }
+	out=$(refsh_run "$fn" "$fx/main" "$fx") || {
+		pos_say 'the refresh returned non-zero over a refspec it may only report on:'
+		pos_say "$out"
+		return 1
+	}
+	if ! printf '%s\n' "$out" | grep -q 'REFRESH-BLIND'; then
+		pos_say 'a clone that fetches pull-request heads and no branches journalled:'
+		pos_say "$out"
+		pos_say 'which is #309: the star sits on the destination side of the colon, so nothing that'
+		pos_say 'follows it can ever name a sibling, and the pass wrote a clean line about it.'
+		return 1
+	fi
+	if ! printf '%s\n' "$out" | grep -qF 'fetches only'; then
+		pos_say "it went blind without naming the refspec it found: $out"
+		return 1
+	fi
+	# The same tree, the same verdict, from the command a tick numbers its entry by. This half is the
+	# drift pin: it is what the split rule cost.
+	id=$(refsh_alloc "$fx/unit") || {
+		pos_say 'the allocator refused the unit tree beside that clone:'
+		pos_say "$(cat "$refsh_err" 2>/dev/null)"
+		return 1
+	}
+	if ! grep -q 'REFRESH-BLIND' "$refsh_err"; then
+		pos_say "the activation calls this clone blind and the allocator calls it clean, at $id:"
+		pos_say "$(cat "$refsh_err" 2>/dev/null)"
+		pos_say 'One refspec, two rules, and the tick never sees the sentence above.'
+		return 1
+	fi
+	# And the healthy clone with the line merely ADDED beside the wildcard: neither component gets to
+	# call that one blind, because `git config --add` is how the line arrives in the first place.
+	if ! git -C "$fx/main" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' ||
+		! git -C "$fx/main" config --add remote.origin.fetch \
+			'+refs/pull/*/head:refs/remotes/origin/pr/*'; then
+		pos_say 'the healthy refspec plus the added line could not be written'
+		return 1
+	fi
+	out=$(refsh_run "$fn" "$fx/main" "$fx") || {
+		pos_say 'the refresh failed on a clone with a healthy refspec:'
+		pos_say "$out"
+		return 1
+	}
+	if printf '%s\n' "$out" | grep -q 'REFRESH-BLIND'; then
+		pos_say 'it calls a clone that fetches every branch blind, so the verdict depends on the'
+		pos_say 'order two refspec lines were written in:'
+		pos_say "$out"
+		return 1
+	fi
+	return 0
+}
+
+# The control that leg is only worth reading against: the shipped function with the coverage verdict
+# deleted, on the same pr/* tree. The journal has to go quiet while the allocator keeps refusing -- two
+# components disagreeing, which is the shape the leg above exists to catch.
+pass_blind_refspec_control() {
+	local label='the refresh, coverage arm deleted' fx=$refsh_work/ctrl-blind-refspec fn out id
+	fn=$(refsh_fn "$fx/plant" 's|\[ "$learns" -ne 1 \]|[ 1 -ne 1 ]|') || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the plant could not be written or did\n' "control: $label"
+		printf '          nothing change; the leg above has stopped pinning the verdict.\n'
+		return 0
+	}
+	refsh_repo "$fx" || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the fixture could not be built\n' "control: $label"
+		return 0
+	}
+	git -C "$fx/main" config remote.origin.fetch \
+		'+refs/pull/*/head:refs/remotes/origin/pr/*' || {
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the refspec could not be planted\n' "control: $label"
+		return 0
+	}
+	out=$(refsh_run "$fn" "$fx/main" "$fx") || true
+	if printf '%s\n' "$out" | grep -q 'REFRESH-BLIND'; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the planted function still journalled the\n' "control: $label"
+		printf '          verdict, so the leg above was never decided by the arm it deletes.\n'
+		return 0
+	fi
+	id=$(refsh_alloc "$fx/unit") || true
+	if ! grep -q 'REFRESH-BLIND' "$refsh_err"; then
+		fail=$((fail + 1))
+		printf '  FAIL  %-40s the allocator read the same tree clean at %s,\n' "control: $label" "${id:-nothing}"
+		printf '          so there is no disagreement for the leg above to refuse.\n'
+		return 0
+	fi
+	printf '  ok    %-40s delete the arm and the journal reads clean over a\n' "control: $label"
+	printf '          tree the allocator still refuses at %s -- the leg above is the arm.\n' "$id"
+	return 0
+}
+
 pass_refresh_is_bounded() { # [file] -> 0 when the shipped fetch is bounded by the config value
 	local script=$refsh_script body
 	[ -z "${1:-}" ] || script=$1
@@ -13274,6 +13452,10 @@ gen_leg 'the pass refreshes before it dispatches' \
 	'a sibling pushed from another clone is allocated against, in the unit worktree' \
 	pass_refresh_reaches_the_unit_tree
 pass_refresh_trunk_only_control
+gen_leg 'the refresh refuses a destination-side refspec' \
+	'the pr/* clone is REFRESH-BLIND here and in the allocator, and an added line stays clear' \
+	pass_refresh_blind_refspec
+pass_blind_refspec_control
 gen_leg 'the refresh is bounded by a timeout' \
 	'timeout with the config value wraps the one fetch' \
 	pass_refresh_is_bounded
