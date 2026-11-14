@@ -4685,6 +4685,53 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   without an anchor precisely because it states which tree to open — while rewriting three entries'
   correction chains to read 679 would make every one of those sentences describe a tree it was not
   written in. #374 stays open as the question of whether anything obliges 539 to fall.
+- Correction (`D-0077`, 14 Nov — the last clause of `What lost:` is false in the merge result, because
+  `D-0076` landed while this pull request was open): that paragraph ends "the class the fix sits inside is
+  still open: emptying the whole rule keeps printing green — `a hollowed rule is invisible to the count`,
+  the last of the 11 Nov findings still unretired, 7 rows — so deleting the clause is caught and deleting
+  the rule is not". The final clause is the refuted one. #379 merged at 20:18Z, `pages.py`'s probe pass now
+  breaks the contract each rule names and requires THAT rule to go red, and the class came out of
+  `DOCUMENTED_HOLES` with its seven rows reading `CAUGHT` — the comment above that set now counts three
+  classes open and three gone, and names this retirement among the gone. Re-measured at the merged head
+  `f0d1cf5`, in a copy and never the gated tree (#1807), hollowed in the form the suite's own rows use (the
+  rule's `def …(problems):` line gains `return` as its first statement, asserted to have matched exactly
+  once before the result was believed): the unmutated copy prints `capture self-test: 81 refusal rules
+  hold` at rc 0, and the emptied rule exits **rc 1** with `capture self-test: PROBE: a refused run says
+  where its frames are stayed green with its own contract broken (hollow cdp.keep_refused), so the rule
+  inspects a stand-in rather than the driver it names` and `PROBE: 80 of 81 rules were broken and re-run`
+  above `capture self-test: 0 of 81 rules failed`. So deleting the rule is caught, which is the opposite of
+  what was written, and "the last of the 11 Nov findings still unretired" was the last, and is retired.
+  Only `What lost:` is corrected here: the `Effect:` census above ("three open and two gone") records what
+  `01306c1` did to that header at that head, and stays true as the record of a commit.
+
+  What the retirement does not buy, measured in the same session because the probe pass is what moved the
+  risk: this clause reads `op.isfile(frame)` before it opens anything, so a mutation to the clause's **own**
+  path literal skips it without a sound. Renaming only that literal — `audit@` to `auditX@`, `cdp.py` left
+  alone — prints `capture self-test: 81 refusal rules hold` at rc 0, and it still prints that with the kept
+  write emptied as well, which is the clause grading nothing while the transcript, the drawer and the
+  pointer all agree. The rows are the catcher, not the clause: the same single rename with `cdp.py`
+  unmutated turns both byte rows `NEW HOLE` and the suite answers `TOTAL  73 attacks: 54 caught, 6 honest
+  edits still green, 11 holes, 0 invalid, 2 unexpected` / `VERDICT: 73 attacks, 2 problem(s), 5 hole
+  class(es), 13 hole row(s)` at rc 1. That is #322's floor one level down — a clause cannot police its own
+  address — and it is worth knowing before anyone renames the fixture page, because the frame's name is
+  spelled twice now, once in the pointer sentence and once in the bytes, and moving one moves only the check
+  that reads the other. The review's own variant, the rename **and** the emptied write together, also exits
+  1 with two problems, but as `2 invalid` — `anchor matched 0 times in cdp.py` on both rows, because the
+  anchor those two rows mutate is the write that has already been emptied — so the finding is the same
+  and the mechanism is not, and a person re-running one of the two should expect the other's word for it.
+  Recorded, not repaired: the repair is one name shared by both checks, a design change of its own and not
+  this review's ask, and the two rows above are what witness it today.
+- Correction (`D-0077`, 14 Nov — the head the pointer bullet above was written at is not the head it ships
+  in): that bullet states the grep for the suite's `if hits != 1:` guard "answers 679 at this head". It
+  answers **778** in the merged tree, 749 on `origin/main`, 679 at `57c4a2d` — the head it was written at —
+  and 672 at `607966e`, so the six pointers are now 208 lines off for the two spelled `:566-570`, 205 for
+  the three spelled `:573` and 202 for the one spelled `:573-576`, against the 109, 106 and 103 that table
+  priced. The bullet is not false, it is unqualified — 679 is what the command answers in the tree it names
+  and nothing in the sentence says which tree that was — and that is the defect #374 stays open on, and the
+  reason `AGENTS.md` asks for the measured sentence beside a coordinate rather than the coordinate alone.
+  Read again here, not repaired: `--citations` still lists those six, every one still prints `UNANCHORED`,
+  `POINTER_DEBT` is still 539, and this bullet deliberately writes no `path:line` of its own, because a
+  fresh coordinate is the precise thing that goes false on the next merge.
 
 ## D-0078 · PR #385 collides with `main` over whether a hole is still open: merge #322's probe pass and #324's byte clause into one list of three classes, take one side's list whole, or trim a row off each side until the counts agree
 
