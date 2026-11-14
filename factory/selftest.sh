@@ -15101,6 +15101,179 @@ cv_control() {
 }
 claim_leg 'control: the legs die when the function body is emptied' cv_control
 
+# --- the same rule, over the messages this branch carries (H-0166) --------------------------------
+#
+# A commit message is text GitHub parses, and until today only the body file was checked. The guard is
+# `scripts/check-commit-verbs.sh`, and the reason it exists is this branch: `git log --format=%B
+# origin/main..HEAD` at 17b37c7 answered two adjacent `-ing` forms in `8c9999b`, in the sentence that
+# was warning about them. These legs answer the question that measurement raises -- does the guard bite,
+# and does it stop where it is supposed to? Every one of them runs the SHIPPED script, by its real path,
+# against a fixture repository, because the script reads the repository it is called from and nothing
+# else. One repo per case: the verdict depends on which basis refs resolve, so `main`, `trunk` and "no
+# basis at all" cannot share a directory.
+cv_cmsg_repo() { # <dir> <branch> <message>... -- one commit per message, the first of them the basis
+	local dir=$1 branch=$2 msg
+	shift 2
+	git init -q -b "$branch" "$dir" || return 1
+	for msg in "$@"; do
+		git -C "$dir" -c user.email=fixture@invalid -c user.name=fixture -c commit.gpgsign=false \
+			commit -q --allow-empty -m "$msg" || return 1
+	done
+	return 0
+}
+
+cv_cmsg() { # <dir> [args]... -> the script's combined output; its exit status is the caller's $?
+	local dir=$1
+	shift
+	(cd "$dir" && sh "$HERE/../scripts/check-commit-verbs.sh" "$@" 2>&1)
+}
+
+mkdir -p "$cv_work/cmsg"
+cv_cmsg_repo "$cv_work/cmsg/claim" main 'the basis commit' 'so Closing #99 scanned as a closer' || true
+cv_cmsg_repo "$cv_work/cmsg/keyword" main 'the basis commit' 'Closes #98 with the documented keyword' || true
+cv_cmsg_repo "$cv_work/cmsg/waived" main 'the basis commit' 'so Closing #99 scanned as a closer' || true
+cv_cmsg_repo "$cv_work/cmsg/stale" main 'the basis commit' 'so Closing #99 scanned as a closer' || true
+cv_cmsg_repo "$cv_work/cmsg/nobasis" trunk 'the only commit, on a branch nothing names' || true
+cv_cmsg_repo "$cv_work/cmsg/empty" main 'the basis commit' 'a second commit' || true
+mkdir -p "$cv_work/cmsg/waived/factory" "$cv_work/cmsg/stale/factory"
+printf '%s 99 the number the report prints, with a reason\n' \
+	"$(git -C "$cv_work/cmsg/waived" rev-parse HEAD)" >"$cv_work/cmsg/waived/factory/close-verb-waivers"
+printf '%s 98 the wrong number on purpose\n' \
+	"$(git -C "$cv_work/cmsg/stale" rev-parse HEAD)" >"$cv_work/cmsg/stale/factory/close-verb-waivers"
+
+# The wiring, in the shape of the file's own wiring leg: a guard that runs only when somebody remembers
+# it is a guard whose evidence nobody can reproduce. The control deletes the step's line from a copy of
+# the recipe and demands that the same scan then says no -- otherwise the pattern is matching some other
+# line and the ok is the check being blind.
+cv_cmsg_in_verify() { # <makefile> -> 0 when the `verify:` recipe invokes the script
+	awk '/^verify:/{inr=1; next} inr && /^[^ \t]/{inr=0} inr' "$1" |
+		grep -q 'scripts/check-commit-verbs\.sh'
+}
+
+cv_cmsg_wired() {
+	local makefile=$HERE/../Makefile stripped=$cv_work/cmsg/Makefile
+	if [ ! -f "$makefile" ]; then
+		printf '\tno Makefile above %s, so nothing invokes the guard\n' "$HERE"
+		return 1
+	fi
+	cv_cmsg_in_verify "$makefile" || {
+		printf '\tnothing under `verify:` runs scripts/check-commit-verbs.sh\n'
+		return 1
+	}
+	sed '/check-commit-verbs/d' "$makefile" >"$stripped"
+	if cv_cmsg_in_verify "$stripped"; then
+		printf '\tthe scan still finds the step after its line is deleted, so it matches something else\n'
+		printf '\tin the recipe and the ok would mean nothing\n'
+		return 1
+	fi
+	printf '\tinvoked from the verify recipe, and gone once its own line is deleted\n'
+	return 0
+}
+claim_leg 'the commit-message guard is wired into make verify, and its line is what matches' \
+	cv_cmsg_wired
+
+cv_leg_cmsg_bites() {
+	local out sha first
+	out=$(cv_cmsg "$cv_work/cmsg/claim" HEAD~1) && {
+		printf '\ta message carrying Closing #99 exited 0, so nothing is refused\n'
+		return 1
+	}
+	sha=$(git -C "$cv_work/cmsg/claim" rev-parse --short HEAD)
+	first=$(printf '%s\n' "$out" | head -n 1)
+	printf '%s\n' "$out" | grep -q "$sha" || {
+		printf '\tthe refusal does not name the commit that carries it: %s\n' "$first"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'REFUSED, NOT A KEYWORD #99' || {
+		printf '\tthe refusal does not name #99: %s\n' "$first"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q "#99 is named by \`Closing #99\`" || {
+		printf '\tthe refusal does not name the verb, so a writer could not fix it: %s\n' "$first"
+		return 1
+	}
+	return 0
+}
+claim_leg 'a claim in a commit message is refused and names commit, number and verb' cv_leg_cmsg_bites
+
+# The control in the other polarity, and the load-bearing one. Without it the leg above would pass on
+# any rule that dislikes a number in a message -- including one broken enough to refuse every commit
+# this repository has ever made. A documented keyword is a claim the parser certainly understands and a
+# writer certainly means, so the guard has to let exactly that through.
+cv_leg_cmsg_keyword() {
+	cv_cmsg "$cv_work/cmsg/keyword" HEAD~1 >/dev/null || {
+		printf '\tthe documented keyword was refused, so this is a ban on numbers, not on forms\n'
+		return 1
+	}
+	return 0
+}
+claim_leg 'control: the documented keyword in a message is a claim that is allowed' cv_leg_cmsg_keyword
+
+# The waiver, both ways. It is not a disable switch: it names the commit and the exact number set the
+# report prints, and when it matches, the finding is reprinted rather than swallowed -- a suppressed
+# adjudication is indistinguishable from no adjudication.
+cv_leg_cmsg_waived() {
+	local dir=$cv_work/cmsg/waived out
+	out=$(cv_cmsg "$dir" HEAD~1) || {
+		printf '\tthe exact waiver did not clear the run: %s\n' "$(printf '%s\n' "$out" | head -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'WAIVED' || {
+		printf '\tthe waiver cleared the run without reprinting what it waived: %s\n' "$out"
+		return 1
+	}
+	return 0
+}
+claim_leg 'an exact waiver clears the run and prints the adjudication' cv_leg_cmsg_waived
+
+cv_leg_cmsg_stale() {
+	local dir=$cv_work/cmsg/stale out
+	out=$(cv_cmsg "$dir" HEAD~1) && {
+		printf '\ta waiver naming #98 covered a report about #99\n'
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'stale record, not a shelter' || {
+		printf '\tthe stale waiver failed without saying why: %s\n' "$(printf '%s\n' "$out" | head -n 1)"
+		return 1
+	}
+	return 0
+}
+claim_leg 'a waiver naming the wrong number is a stale record, not a shelter' cv_leg_cmsg_stale
+
+# Fails closed: a scan that could not run is not a pass. `trunk` with no `main` and no `origin/main` is
+# the world where no basis resolves -- the repository a unit started on its own branch, or the shallow
+# clone whose base ref was never fetched. Both read as green by a guard that defaults to silence.
+cv_leg_cmsg_nobasis() {
+	local dir=$cv_work/cmsg/nobasis out
+	out=$(cv_cmsg "$dir") && {
+		printf '\tthe run passed with no basis ref at all: %s\n' "$(printf '%s\n' "$out" | head -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q 'nothing was scanned' || {
+		printf '\tthe run failed without saying nothing was scanned: %s\n' "$(printf '%s\n' "$out" | head -n 1)"
+		return 1
+	}
+	return 0
+}
+claim_leg 'no basis ref fails, in the words nothing was scanned' cv_leg_cmsg_nobasis
+
+# The other side of the same rule: an empty range IS nothing to scan, and says so, rather than printing
+# a bare ok that a reader cannot tell from a scan that silently found nothing.
+cv_leg_cmsg_empty() {
+	local dir=$cv_work/cmsg/empty out
+	out=$(cv_cmsg "$dir" HEAD) || {
+		printf '\tan empty range failed: %s\n' "$(printf '%s\n' "$out" | head -n 1)"
+		return 1
+	}
+	printf '%s\n' "$out" | grep -q '0 commits between' || {
+		printf '\tan empty range did not say so in words: %s\n' "$out"
+		return 1
+	}
+	return 0
+}
+claim_leg 'an empty range says there was nothing to read' cv_leg_cmsg_empty
+
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not

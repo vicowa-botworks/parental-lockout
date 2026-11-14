@@ -117,6 +117,7 @@ verify:
 	echo "==> mutation self-test"; python3 scripts/mutate.py --self-test; \
 	echo "==> mutation-gate self-test"; python3 scripts/check-mutations.py --self-test; \
 	echo "==> closing-keyword contract"; python3 scripts/check-close-verb.py --self-test; \
+	echo "==> commit-message claims"; ./scripts/check-commit-verbs.sh; \
 	echo "==> decision-log contract"; python3 scripts/check-decisions.py --self-test; \
 	echo "==> decision log"; python3 scripts/check-decisions.py; \
 	echo "==> factory dirt verdict"; bash factory/selftest.sh; \

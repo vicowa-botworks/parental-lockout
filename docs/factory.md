@@ -502,6 +502,48 @@ merge printed the same healthy sentence with the window at 120 s. And the re-pro
 batch rather than one per ticket -- the sleep sat inside the loop, so five open tickets held
 `factory_merge` for fifty seconds before the worktree cleanup ran.
 
+**A commit message is text GitHub parses too, and nothing read it (H-0166).** The body file is checked
+at review time; the messages were never checked by anything. Measured on the branch that added this
+paragraph: `git log --format=%B origin/main..HEAD` at `17b37c7` answered two verbs adjacent to a number
+inside one commit message, in the sentence written to warn about them -- the PR #245 shape from #1256,
+one layer down. Both of its numbers happened to be artifacts already closed when the message was
+written (#77, #78, read back with `gh issue view N --state all --json number,state,closedAt`), so that
+merge would have changed nothing. That is luck about two numbers, not a property of the shape: the same
+sentence over two open issues closes them with no review and no note. So `scripts/check-commit-verbs.sh`
+runs the checker over every message between a basis ref and HEAD -- `origin/main`, or `main`, or the
+`PLOCK_COMMITS_BASE` or first positional argument -- one commit at a time so a refusal names its commit,
+and `make verify` runs it. Two rules about what happens next are worth stating, because both are places
+where a guard can quietly become a lie:
+
+- **The remedy depends on whether the commit is published.** Not published: rewrite the message. Already
+  published: do *not* rewrite it -- `git revert` is the only rollback here, force-pushing an in-flight
+  branch is forbidden, and every merge on this repository is a merge commit, so the message is permanent
+  history and the claim cannot be recalled. Read the named artifacts back and decide deliberately, then
+  write the decision into `factory/close-verb-waivers`: full sha, the exact number set the report prints,
+  a reason that says what was read back. The waiver is checked for exactness and *reprinted on every
+  run* -- a green line that hides an adjudication is indistinguishable from no adjudication. That only
+  published claims are waivable is a reviewer's rule, not a mechanical one; what is mechanical is that a
+  waiver naming fewer numbers than the report, or more, leaves it failing.
+- **An undocumented inflection is refused even though nobody knows what GitHub does with it.** The
+  published keyword set has no `-ing` form, and all 180 merged bodies of this repository contain exactly
+  one adjacent `-ing` specimen (PR #47's `closing #46`), so the corpus cannot settle the question -- one
+  observation, confounded because that same body also carries a documented keyword on the same number.
+  The two sides of this tool answer the uncertainty in opposite directions on purpose: the *read* side,
+  `factory_verify_closure`, whose verdict is written onto a live ticket, keeps the documented nine so it
+  never invents a claim (H-0164); the *write* side refuses the superset, because being wrong there costs
+  a reworded sentence and being wrong the other way costs an unplanned close. A documented keyword in a
+  message is still allowed -- a leg pins that, because a guard that refuses every number in every message
+  would pass this section's own bite test for the wrong reason.
+- **Three scans, and only one of them strips code spans.** `scripts/check-close-verb.py` reads a *body*
+  with spans stripped, because that a span is inert is a measurement made over merged bodies on 14 Nov
+  (a keyword inside inline code and nowhere else fired 0 of 2). `factory_verify_closure` reads a body
+  span-blind, because the specimen that started #353 *is* a verb inside a span and the read side has to
+  see the disagreement between what was asked and what happened. `check-commit-verbs.sh` reads a
+  *message* span-blind for a third reason: nobody has ever measured spans in a message, so no span is
+  treated as a shelter there, and the direction of the doubt is the one that costs a reworded sentence
+  rather than a close. Every one of the three is refusing to assume; a single shared "right answer" about
+  backticks across all three would itself be the assumption.
+
 **The scan is span-blind on purpose, and a tidier one would have missed the defect.** The obvious
 implementation strips code blocks and inline spans first, because that models GitHub. This one matches
 the verb wherever it appears, inside backticks included -- the same way `CLAIM_RE` in `triage.sh` does.

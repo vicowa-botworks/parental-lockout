@@ -8016,3 +8016,81 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `python3 scripts/check-scripts.py`, `python3 scripts/check-close-verb.py --self-test` -> `18 fixtures,
   every class where the parser says it is`, exit 0, `bash factory/selftest.sh`, and `make verify` ->
   `verify: OK`, exit 0.
+
+## H-0166 · Nothing ever read a commit message, and this branch's own carried two verbs GitHub may honour: the write side is made stricter than the read side on purpose, and published history is adjudicated in a file rather than rewritten
+
+- Question: #357's review asked for a rule about what a writer may put beside an issue number. H-0164
+  built that rule into `scripts/check-close-verb.py` and it reads FILES -- a body handed to it at review
+  time. The question this entry answers is what protects the text nobody hands to it: the commit messages
+  on the same branch, which GitHub parses the same way and acts on when the commit reaches the default
+  branch. Measured on this branch before anything was changed: `git log --format=%B origin/main..HEAD`
+  at `17b37c7`, read with the WIDE claim scan -- a verb, then the nearest following number, the width
+  `CLAIM_RE` carries -- answered `Closing -> #77` and `Resolving -> #78` in `8c9999b`, in the sentence
+  written to WARN about the hazard, which is PR #245's shape from #1256 reproduced one layer down. The
+  tight adjacency regex and the checker as shipped both answered nothing on the same bytes, because the
+  number sits after a line break; that is the width question from the other side, and it is why the
+  report prints the verb it refused. The live read
+  says #77 is `MERGED` (closedAt 2026-10-17T00:00:04Z) and #78 `CLOSED` (2026-10-16T15:00:51Z), both
+  closed long before the message was written, so that merge would have changed nothing: luck about two
+  numbers, not a property of the shape. The open question underneath is what to DO about it, because the
+  message is already pushed.
+- Options: refuse undocumented inflections at WRITE time -- a fifth class in the checker, a span-blind
+  scan of every message between the base and HEAD inside `make verify`, and a waiver file for claims that
+  are already published, exact on sha and number set and reprinted on every run -- while the read side
+  keeps the documented nine | widen the read-side `CLOSER_RE` to the `-ing` forms too, so both engines
+  agree on one superset | report undocumented forms in messages as advice and exit 0, so the gate stays
+  green and the reader is told | rewrite `8c9999b` so the branch is clean and no waiver is needed
+- Chose: refuse undocumented inflections at WRITE time -- a fifth class in the checker, a span-blind scan
+  of every message between the base and HEAD inside `make verify`, and a waiver file for claims that are
+  already published, exact on sha and number set and reprinted on every run -- while the read side keeps
+  the documented nine
+- Why: the two sides fail in opposite directions and only one of them touches an artifact. The read side,
+  `factory_verify_closure`, writes its verdict ONTO a live ticket, so a pattern that reaches too far
+  writes a false sentence on somebody's issue -- that is exactly what H-0164 measured (a 20-character
+  window invented 15 closers across the merged corpus) and why the read side stays narrow. The write side
+  costs a reworded sentence when it says no, and an unplanned close when it says yes. Given one form --
+  `Closing #77` -- whose behaviour is genuinely unknown here, the narrow question and the strict question
+  are both right, in their own place. What is NOT known is whether GitHub honours an `-ing` verb, and
+  this corpus cannot answer it: all 180 merged bodies contain ONE adjacent `-ing` specimen, PR #47's
+  `closing #46`, and that body also carries the documented `Closes #46.` two lines later -- one
+  observation, confounded, so #46 closing 2 s after the merge proves nothing about the `-ing` line. So
+  the write side refuses it without claiming it fires, and says so in the report ("whether it fires is
+  unmeasured here, so it is refused"). The superset option is refused because it imports the invented-claim
+  defect into the side that writes. The advisory option is refused because it is the state that let the specimen
+  through: a warning in a log nobody reads is what a green gate already is. The rewrite option is refused before it is
+  weighed -- AGENTS.md permits only `git revert`, force-pushing an in-flight branch is forbidden, and
+  this repository has `allow_squash_merge=false` and `allow_rebase_merge=false` (#1264), so a merged
+  message is permanent history either way.
+- Affects: `scripts/check-close-verb.py` -- `KEYWORDS`, `HAZARD`, the `hazard` class in `classify`, a
+  `spans` switch (the inertness of a code span is a measurement made over BODIES, 0 fired of 2, and has
+  never been made over messages, so a message is read span-blind), a `-` path meaning stdin, and
+  `--span-blind`; `scripts/check-commit-verbs.sh` is new; `Makefile` gains `==> commit-message claims`
+  in the `verify:` recipe; `factory/close-verb-waivers` is new, with one entry, for `8c9999b`;
+  `factory/selftest.sh` gains seven legs; `docs/factory.md` and the factory SKILL carry the rule.
+  `factory/factory.sh` is deliberately NOT changed: its nine keywords are correct for what it does.
+- Reproduction: `git log --format=%B origin/main..HEAD | python3 scripts/check-close-verb.py --span-blind
+  -` exits 1 and prints `REFUSED, NOT A KEYWORD #77, #78`, naming its own motivating specimen; the same
+  pipe without `--span-blind` exits 0, because in a body a backtick is a measured shelter. The new script,
+  run on this tree: `./scripts/check-commit-verbs.sh` prints one `WAIVED 8c9999b080:` line naming the
+  read-back and exits 0 over 10 messages. In a fixture repo it bites -- `sh scripts/check-commit-verbs.sh
+  HEAD~1` over a commit whose message says `so Closing #99 scanned as a closer` exits 1 naming the short
+  sha, `#99` and the verb; a commit saying `Closes #98 with the documented keyword` exits 0; a waiver
+  naming `98` for a report about `99` exits 1 with `stale record, not a shelter`; a repo on a branch
+  named `trunk` with no `main` and no `origin/main` exits 1 with `nothing was scanned`; `HEAD..HEAD`
+  exits 0 with `0 commits between`. The wiring control was run by deleting the Makefile step: the
+  wiring leg goes FAIL and the driver reports 6 passed 1 failed, and with the two `-ing` refusals
+  neutered in the checker three legs go FAIL -- so the section bites and is not a description.
+- Refs: #353 (the ticket the component exists for), #357 (the review that asked), H-0164 (the narrower
+  read-side pattern, unchanged here on purpose), H-0165 (the same review round, the harness side), #1256
+  (the parser has no notion of negation, and this is the same failure one layer down), #1264 (every
+  merge is a merge commit, which is why history is the thing that cannot be fixed), #1807 (every gate
+  above was run alone in this worktree, no mutation sweep in flight).
+- Checkpoint: 663948b
+- Effect: the checkpoint is an empty commit whose tree is `17b37c7`, so it holds the guard exactly as
+  #357's reviewer read it -- a checker that reads files and nothing else. The effect commit adds the
+  fifth class, the script, the wiring, the waiver file and the seven legs. One thing is deliberately left
+  as a reviewer's rule and is recorded as such so nobody mistakes it for a gate: nothing mechanically
+  proves a waived claim was already PUBLISHED when its waiver was written. What is mechanical is the
+  exactness (full sha, exact number set, reprint on every run) and the fact that an unwaived finding
+  fails; whether the order was respected -- rewrite while unpublished, waive once published -- is a line
+  a human reads in a diff.
