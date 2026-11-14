@@ -92,9 +92,12 @@ PYTHON = sys.executable or "python3"
 # The two sentences `self_test_verdict` ends with, and the third it ends with when a `return`
 # truncated the run. `green` is the only one that means "the guard believes 81 rules hold"; a run
 # that exits 0 without printing it has reported nothing, which is its own state (`silent`) and not a
-# variant of green -- the whole content of #118.
+# variant of green -- the whole content of #118. The optional tail on the failure line is the canary
+# count `D-0080` adds, so that a run whose only problem is a tripped probe cannot read as "0 of 81
+# rules failed"; it is optional because a run with quiet canaries keeps the shape it has had since
+# #297, and this pattern is a pin on the shape, not on the arithmetic.
 GREEN_SUMMARY = re.compile(r"^capture self-test: \d+ refusal rules hold\b")
-FAILED_SUMMARY = re.compile(r"^capture self-test: \d+ of \d+ rules failed$")
+FAILED_SUMMARY = re.compile(r"^capture self-test: \d+ of \d+ rules failed(, \d+ canary trip\(s\))?$")
 RAN_SUMMARY = re.compile(r"^capture self-test: \d+ rules ran, want \d+")
 
 CAUGHT, HOLE, GREEN = "caught", "hole", "green"
@@ -133,8 +136,9 @@ DOCUMENTED_HOLES = {
         "names and insists THAT rule goes red, so a hollowed rule retires a row instead of passing "
         "a gate.",
     "the canary pair's own comparison is unguarded":
-        "`if counts != [1, 0] or len(probe_bad) != 1:` is the only sentence proving `rule()` is not "
-        "hollow, and it sits one level above the pair it reads: switched off, the canaries are "
+        "`if counts != want_counts or len(probe_bad) != want_problems:` is the only sentence proving "
+        "`rule()` is not hollow, and it sits one level above the pair it reads: switched off, the "
+        "canaries are "
         "still registered, the counts are still computed, and nothing compares them. The same floor "
         "as the verdict's `if bad:` -- a check cannot police its own deletion -- so it is listed "
         "rather than fixed. Its presence is not unpinned, though: the four rows that empty the rule "
@@ -331,7 +335,7 @@ ROWS = [
      '    rule("canary", lambda problems: None, probe_ran, probe_bad)',
      "    pass  # the canaries were deleted"),
     (HOLE, "pages.py", "the canary comparison is switched off",
-     "    if counts != [1, 0] or len(probe_bad) != 1:", "    if False:"),
+     "    if counts != want_counts or len(probe_bad) != want_problems:", "    if False:"),
     # Retired on 13 Nov, from HOLE to CAUGHT: `pages.py` now registers a third canary that raises on
     # purpose, so the arm speaks on every run and this patch turns the guard red with the arm's own
     # sentence named (#323, `D-0072`). The row stays attacked rather than deleted -- the arm can be
@@ -416,8 +420,8 @@ ROWS = [
      "    # The one place a rule is both counted and reported. The canary pair below proves it.\n"
      "    def rule(why, body, ran_to=None, bad_to=None):"),
     (GREEN, "pages.py", "the canary comparison's operands are swapped",
-     "    if counts != [1, 0] or len(probe_bad) != 1:",
-     "    if [1, 0] != counts or 1 != len(probe_bad):"),
+     "    if counts != want_counts or len(probe_bad) != want_problems:",
+     "    if want_counts != counts or want_problems != len(probe_bad):"),
     (GREEN, "pages.py", "a refusal rule's problem sentence is reworded",
      '            problems.append("the summary stopped saying that --out got nothing")',
      '            problems.append("the summary no longer says --out got nothing")'),

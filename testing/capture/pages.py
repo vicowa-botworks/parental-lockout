@@ -4821,10 +4821,21 @@ def self_test():
     # The pair has to agree on BOTH lists the helper writes. Checking only the problem list let
     # `ran.append((why, 0))` through the whole probe battery: the problem still reached `bad`, so
     # the canary looked satisfied while every real rule was being recorded as passing. Measured.
+    # The pair's expectation spelled ONCE, so the refusal below states the number the comparison
+    # actually used. Measured 14 Nov by tightening the operand to `[1, 1]`: the trip lands, the exit
+    # is 1, and the sentence printed `want [1, 0] and 1` -- the literal in the message rather than
+    # the operand in the `if`, which is the same defect as the tally line and one screen away
+    # (D-0080).
+    want_counts, want_problems = [1, 0], 1
     counts = [n for _, n in probe_ran]
-    if counts != [1, 0] or len(probe_bad) != 1:
+    # Counted apart from `bad`, and reported apart by `self_test_verdict`: a tripped probe is not a
+    # broken claim, so a run that trips one and prints `0 of 81 rules failed` says nothing failed
+    # while exiting 1. Measured the same afternoon, on the same mutant.
+    canaries = 0
+    if counts != want_counts or len(probe_bad) != want_problems:
         bad.append(f"the rule helper is hollow: the canary pair recorded counts {counts} and "
-                   f"{len(probe_bad)} problems, want [1, 0] and 1")
+                   f"{len(probe_bad)} problems, want {want_counts} and {want_problems}")
+        canaries += 1
 
     # Third canary, deliberately raising. Neither of the two above throws, so the `except Exception`
     # arm one screen up -- the only place a crashing rule becomes a problem -- had no witness at all,
@@ -4838,7 +4849,8 @@ def self_test():
     #
     # So throw on purpose, into two lists of its own: the arm is then the thing under test on every
     # run, not only on the run where something else breaks. It is not a claim about a driver, so it
-    # never enters `ran` and `EXPECTED_RULES` stays the count of claims.
+    # never enters `ran` and `EXPECTED_RULES` stays the count of claims -- and it enters `canaries`,
+    # which is the number that says a probe tripped when no claim did (D-0080).
     probe_crash_ran, probe_crash = [], []
 
     def _throws_in_a_rule(problems):
@@ -4856,17 +4868,23 @@ def self_test():
                    f"{probe_crash} with counts {crash_counts}, want {crash_want} and [1] -- a rule "
                    "that throws has not passed, and this arm is the only thing between one and a "
                    "green run (#323)")
+        canaries += 1
 
-    return ran, bad
+    return ran, bad, canaries
 
 
-def self_test_verdict(ran, bad):
+def self_test_verdict(ran, bad, canaries):
     """Turn what self_test() returned into an exit code, outside the code whose reach it measures.
 
     The count check lives here rather than at the tail of self_test() for the reason mutate.py
     learned the hard way: a bare `return` inserted above the tail skips every remaining rule, and
     both lists are already complete by then, so a reach check placed after them cannot see the
     block that never ran.
+
+    `canaries` comes back as a number of its own rather than being folded into `len(bad) - failed`,
+    because that arithmetic is wrong twice over: a rule may append more than one problem, so the
+    difference is not a count of canaries, and the two probes are not claims about a driver, so
+    counting them as rules would make the denominator lie in the other direction. D-0080.
     """
     if len(ran) != EXPECTED_RULES:
         print(f"capture self-test: {len(ran)} rules ran, want {EXPECTED_RULES} "
@@ -4875,8 +4893,9 @@ def self_test_verdict(ran, bad):
     if bad:
         for p in bad:
             print(f"  capture self-test: {p}", file=sys.stderr)
+        tail = f", {canaries} canary trip(s)" if canaries else ""
         print(f"capture self-test: {len([n for n, k in ran if k])} of {EXPECTED_RULES} "
-              "rules failed", file=sys.stderr)
+              f"rules failed{tail}", file=sys.stderr)
         return 1
     print(f"capture self-test: {EXPECTED_RULES} refusal rules hold (no browser, no fixture, "
           f"nothing written outside a temp box -- #211's env rule needs a fixture.env on disk to "

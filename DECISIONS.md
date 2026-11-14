@@ -4534,3 +4534,66 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   clause — and deleting both capture clauses at once exits 2 with both messages. The re-sweep of all 22
   clauses now shows `capture refusal contract` and `self-test attack suite` refused by
   `capture refusal attack suite`, where the pre-fix sweep showed `*** NOTHING ***` for both.
+
+## D-0080 · #325's canary comparisons report numbers they did not compare — a run that exited 1 because a probe tripped prints `0 of 81 rules failed`, and the trip's own sentence printed the literal `[1, 0]` while the operand said `[1, 1]`: name the canaries in the tally, fold them into the rule count, or file it
+
+- Question: `self_test_verdict` ends a failing run with `{failed} of {EXPECTED_RULES} rules failed`,
+  where `failed` counts entries of `ran` and `EXPECTED_RULES` counts *claims about a driver*. The two
+  canaries are deliberately not in `ran` — `pages.py` says so above the crash probe: "It is not a
+  claim about a driver, so it never enters `ran` and `EXPECTED_RULES` stays the count of claims" — so
+  their problems reach `bad`, decide the exit code, and appear in the tally as nothing. Measured 14 Nov
+  on a copy (#1807 — never the gated tree), tightening the pair's operand from `[1, 0]` to `[1, 1]`:
+  exit 1, the trip named on stderr, last line `capture self-test: 0 of 81 rules failed`. The same
+  mutant exposes the second half of the defect: the sentence printed `want [1, 0] and 1` — the literal
+  in the message — while the comparison it had just lost wanted `[1, 1]`. #325 says closing its three
+  comparisons "needs a decision about who owns the number, and that is a `pages.py` decision rather
+  than a runner decision"; this is that decision, taken at the reporting end, and it is not the
+  policing question `D-0079` answers.
+
+- Options: return the canary count as its own number from `self_test()`, append `, N canary trip(s)` to the tally only when it is non-zero, and spell the pair's expectation once so the sentence states the operand it compared | fold the probes into the rule tally and add them to `EXPECTED_RULES`, so one denominator covers every check | leave the line alone and file both reporting defects, since neither changes the exit code
+
+- Chose: return the canary count as its own number from `self_test()`, append `, N canary trip(s)` to the tally only when it is non-zero, and spell the pair's expectation once so the sentence states the operand it compared
+
+- Why: folding is a lie in the other direction. `EXPECTED_RULES` means *claims*, and #297's whole
+  design rests on the count pinning how many claims ran and saying nothing about what they checked;
+  putting two probes in the denominator makes `81` name something no rule is. And `len(bad) - failed`
+  is not a canary count either, because a rule may append more than one problem — the inference the
+  existing numbers invite is already wrong. A number returned from the two trip sites cannot drift,
+  which is what "who owns the number" asks: `EXPECTED_RULES` stays the count of claims, `canaries` is
+  derived and appears nowhere else. Spelling the operand once is the same rule aimed at the sentence —
+  `D-0072`'s crash probe already reads `crash_want` and `crash_counts` into its own message, and the
+  pair's was the only verdict sentence still quoting a literal its `if` did not read. The tail is
+  conditional so the shape every row and every transcript since #297 keeps working when the probes are
+  quiet: `FAILED_SUMMARY` gains an optional group, not a new requirement.
+
+- What lost: two attack rows moved with the comparison line (`the canary comparison is switched off`,
+  `the canary comparison's operands are swapped`), so a reader of an older transcript searching for
+  `counts != [1, 0]` finds it only in prose — in `DOCUMENTED_HOLES`, in #325's body and in
+  `docs/issues-from-d-0058.md`, all left as written because they are dated measurements of the tree
+  that had the literal. `want_counts` and `want_problems` are local to `self_test()`, so nothing
+  outside can assert them and the expectation is pinned by the trip alone. A run whose only problem is
+  a trip still ends on a line whose first number is `0`; the tail fixes the meaning, not the reading
+  order. And `self_test()` now returns three values to a call site the attack suite patches around — a
+  row that replaced `return ran, bad` would fail loudly rather than quietly, which is the right
+  direction but new surface, and `EXPECTED_RULES` stays at 81 while a run makes two further checks
+  that number does not contain.
+
+- Checkpoint: bcca475
+
+- Effect: two files. `testing/capture/pages.py`: `want_counts, want_problems = [1, 0], 1` above the
+  pair with the measurement that asked for it; both canary sites count into `canaries`;
+  `self_test()` returns `(ran, bad, canaries)`; `self_test_verdict` takes the third and appends
+  `, {canaries} canary trip(s)` when it is non-zero, with the reason in its docstring.
+  `scripts/attack-capture-self-test.py`: `FAILED_SUMMARY` gains the optional tail, the two canary
+  rows' anchors re-pointed at the new comparison line, and the hole class `the canary pair's own
+  comparison is unguarded` quotes the sentence as it now reads. Read back on the bytes this commit
+  ships: `python3 testing/capture/pages.py --self-test` → `capture self-test: 81 refusal rules hold`,
+  rc 0; `python3 scripts/attack-capture-self-test.py` → `VERDICT: 54 attacks, 0 problem(s), 4 hole
+  class(es), 12 hole row(s)`, rc 0 — both re-pointed rows still apply exactly once, one `HOLE` and one
+  `GREEN`, so neither moved by accident. Then each mutant on a copy, same operand edit both sides:
+  before, `... want [1, 0] and 1` and `capture self-test: 0 of 81 rules failed`; after, the same
+  mutant prints `... want [1, 1] and 1` and `capture self-test: 0 of 81 rules failed, 1 canary
+  trip(s)`; the crash probe's trip prints the same tail; a real rule made false prints `capture
+  self-test: 1 of 81 rules failed` with no tail, which is the common case's shape unchanged. In every
+  mutant the attack suite exits 2 with its baseline refusal — the correct answer to a copy whose guard
+  cannot pass, and the reason the contract's own line is the receipt for these three.
