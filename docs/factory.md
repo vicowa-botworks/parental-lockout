@@ -1903,10 +1903,12 @@ repository's name to work, that is a defect in it, not a convenience.
 
 ## A citation in a decision log carries its own anchor
 
-`DECISIONS.md` and `factory/DECISIONS.md` hold 534 backticked `path:line` citations (measured at this
-head by `--citations`, which is the only way to keep that figure honest). A coordinate is how
+`DECISIONS.md` and `factory/DECISIONS.md` hold 554 backticked `path:line` citations (measured at this
+head by `python3 scripts/check-decisions.py`, whose closing line is the only way to keep that figure
+honest). A coordinate is how
 an entry says *what it measured*, so the log is re-runnable: `python3 -c "..."` at
-`triage.sh:122`, the ratchet at `scripts/check-decisions.py:569`. A coordinate is also the one part of an entry a
+`triage.sh:122`, the ratchet at `scripts/check-decisions.py:580`. A coordinate is also the one part
+of an entry a
 merge can invalidate without touching the entry. Merging `origin/main` into `issue-310` added lines to
 files the other side cited, and two of `H-0139`'s pointers moved out from under their own sentences. The
 judgement in that entry was right; only the pointer rotted, and nothing in `make verify` could see it.
@@ -1919,9 +1921,17 @@ the tree being gated:
 ```
 
 The fragment must be at least 16 characters, inside double quotes, with nothing between it and the
-closing backtick but spaces. It has to be found on the cited line, or within the cited range
+closing backtick but spaces and at most one apostrophe. It has to be found on the cited line, or
+within the cited range
 (`factory/common.sh:224-235`): no window of tolerance, because a pointer wrong by three lines still
 lands on the wrong sentence, and a check that passes at ±5 is a check that reports drift it cannot name.
+A quotation that sits further away is not an anchor — and since #367 the refusal says which floor it
+applied instead of claiming there was no quotation. Measured on the two logs: 3 citations carry a
+quotation of 16+ characters within six characters of the coordinate that this class declines (the
+possessive `s ` of `` `README.md:588`'s "…" `` is the ordinary shape), and 2 carry a shorter one; those
+five authors were told their citation had no anchor, by a message that never mentioned the separator.
+Widening the class was measured and refused: it reclassifies 3 pointers in other units' entries for a
+0.6% dent in the debt, and buys a rule that will accept the neighbouring sentence's quotation.
 
 Shapes that are understood and are not the same claim:
 
@@ -1943,17 +1953,25 @@ any git subcommand but `cat-file`, because a verdict that changes between a bran
 and CI reads as flakiness and gets re-run until it agrees. The gate reads the files in front of it and
 answers the same question in every checkout.
 
-**What cannot be checked is counted, and the count may only fall.** 517 of those citations predate this
-rule and carry no anchor; that number is `POINTER_DEBT` in `scripts/check-decisions.py`. Above it the run
+**What cannot be checked is counted, and the count may only fall.** 535 of those citations predate this
+rule and carry no anchor; that number is `POINTER_DEBT` in `scripts/check-decisions.py` (re-measured at
+this head: `--citations` answers `debt this gate ratchets on: 535`). Above it the run
 is refused, and so is a run that measures *below* it — an unlowered number is a ratchet with the pawl
-filed off, and the next unanchored citation hides in the slack. A merge from `main` raises the count with
-nothing written by you — measured on this branch's own merge, 11 citations arrived in other units' entries
+filed off, and the next unanchored citation hides in the slack. **Neither comparison runs while a single
+pointer cannot be opened** (H-0170), because that number is not always a measurement of the logs: one
+untracked `vendor/AGENTS.md` moves a dozen bare pointers from `unanchored` into the cannot-open list, and
+the gate then refuses five other units' entries *and* orders `POINTER_DEBT` lowered — the one repair that
+permanently disarms the ratchet, issued to a reader under a green-gate deadline. `tree_index` only ever
+gains candidates, so stray content can only ever push the number down; the guard closes that direction and
+the must-be-zero refusal keeps its own teeth. When it fires, the headline and `--citations` both say
+`NOT judged this run` rather than `which may only fall`, so the pause cannot be read as a pass. A
+merge from `main` raises the count with nothing written by you — measured on this branch's own merge, 11 citations arrived in other units' entries
 — so a merge re-measures with `--citations` and raises the constant in the same commit, which is the only
 direction the ratchet permits a rise and the diff is the audit. A citation absent from the tree, or
 ambiguous across two files, is refused outright rather than grandfathered: 54 were made resolvable by
 writing the path, 17 of them delivered by that same merge, and folding that class into the baseline would
 have hidden 54 dead pointers inside 517 with the headline green. A citation that points past the end of a
-file is *not* refused on its own, and that is a choice, not an oversight: the 517 unanchored pointers
+file is *not* refused on its own, and that is a choice, not an oversight: the 535 unanchored pointers
 cannot be length-checked without refusing sentences that are true on their own terms, so the length check
 holds only where an anchor already proves what the line should say — measured on this head, 7 citations sit
 past the end of the file they name, all 7 unanchored, and every one of them is either a continuation a

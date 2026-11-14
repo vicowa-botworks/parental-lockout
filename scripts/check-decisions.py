@@ -41,6 +41,7 @@ the Makefile), so a deleted step here would otherwise stay green forever.
 Exit 0 clean · 1 the log has problems · 2 usage.
 """
 
+import collections
 import os
 import re
 import sys
@@ -604,12 +605,22 @@ POINTER_DEBT_AT = 214
 
 CITATION = re.compile(r"`([^\s`]*?):(\d{1,5}(?:\s*-\s*\d{1,5})?)`")
 # The anchor: a double-quoted fragment that follows the citation with nothing between it and the
-# closing backtick but the apostrophe of a possessive and spaces. Anything further away is another
-# sentence's quotation and belongs to a different claim. Sixteen characters is the shortest fragment
+# closing backtick but spaces and an apostrophe -- up to three characters of them, so `` `x.md:9` "…" ``
+# and `` `x.md:9'"…` `` both read. What it does NOT admit is the `s` of a possessive: the corpus shape is
+# `` `README.md:588`'s "…" ``, four characters of gap, and this class declines it. That is measured, not
+# oversight -- see `NEAR_QUOTE` below for what widening would and would not buy. Anything further away is
+# another sentence's quotation and belongs to a different claim. Sixteen characters is the shortest fragment
 # that cannot be an accident: `the`, `verify` and `Chose: a` match half the tree, and an anchor that
 # matches anything is a check that cannot fail.
 ANCHOR_AFTER = re.compile(r"^[ ']{0,3}\"([^\"]{16,})\"")
 MIN_ANCHOR = 16
+# A quotation that is close to the coordinate but not flush against it, or flush and too short. The rule
+# declines both, and a refusal that only says "has no anchor" sends the author to look for a rule they
+# cannot see: they wrote a quotation, and the sentence that declines it never mentions the separator or
+# the length. This regex exists so the refusal can name what it declined. It is NOT a second anchor rule:
+# nothing here is judged by it, and widening `ANCHOR_AFTER` to what it matches was measured and refused
+# (H-0170: three pointers in other units' entries change class for a 0.6% dent in a debt of 535).
+NEAR_QUOTE = re.compile(r"^(.{0,6})\"([^\"]+)\"")
 # Refusals name at most this many offenders; the count is in the headline either way.
 MAX_LISTED = 12
 
@@ -720,9 +731,18 @@ def scan_citations(text, entries, index):
             if not written and last:
                 written, continued = last, True
             anchor = None
+            near = None
             am = ANCHOR_AFTER.match(line[m.end():])
             if am:
                 anchor = am.group(1)
+            else:
+                nm = NEAR_QUOTE.match(line[m.end():])
+                if nm:
+                    # (the gap itself, length of the quote) -- what the refusal has to name when it
+                    # declines this one for having no anchor at all. The gap is kept as text, not as a
+                    # width, because `` `x.md:9`'s "…" `` is three characters wide and the third of them
+                    # is what the rule declines; a width alone cannot tell the two refusals apart.
+                    near = (nm.group(1), len(nm.group(2)))
             bounds = [int(x) for x in span.replace(" ", "").split("-")]
             low, high = bounds[0], bounds[-1]
             malformed = high < low or low < 1
@@ -752,6 +772,7 @@ def scan_citations(text, entries, index):
                 kind, resolved, cand = "not-a-path", None, []
             found.append({"written": written, "kind": kind, "path": resolved,
                           "cands": cand, "low": low, "high": high, "anchor": anchor,
+                          "near": near,
                           "line": n, "entry": entry_of(entries, n),
                           "continued": continued})
     return found
@@ -781,6 +802,47 @@ def debt_applies(entries, floor=POINTER_DEBT_AT):
     return entries is not None and entries >= floor
 
 
+def no_anchor_note(near):
+    """What the 'has no anchor' refusal adds when a quotation is sitting right there.
+
+    The rule declines two shapes silently: a quotation separated from the closing backtick by more than
+    three characters -- the possessive `s ` of `` `README.md:588`'s "…" `` is the ordinary one -- and a
+    quotation flush against it but shorter than `MIN_ANCHOR`. Both leave the author with a sentence that
+    says their citation has no anchor when they wrote one, and neither the separator nor the floor is
+    named. Measured on the two logs: 3 citations carry a quotation of 16+ characters within six
+    characters of the coordinate that the class declines, and 2 carry one of 12 or 13.
+    """
+    if not near:
+        return ""
+    gap, length = near
+    if len(gap) > 3 or set(gap) - set(" '"):
+        return (" -- there IS a quotation %d characters long sitting %d characters after the closing "
+                "backtick, and the gap is `%s`: this rule reads only spaces and a lone apostrophe in that "
+                "gap, so that quotation checks nothing. Move it tight against the coordinate; if the gap "
+                "is a possessive, drop the possessive and put the coordinate after the sentence."
+                % (length, len(gap), gap))
+    return (" -- there IS a quotation right after the closing backtick but it is only %d characters, and "
+            "the floor is %d: a fragment that short matches half the tree and a check that cannot fail is "
+            "not a check -- quote the sentence, not a word" % (length, MIN_ANCHOR))
+
+
+def stray_note(cands):
+    """What the ambiguity refusal adds when one of the candidates may not belong to the repository.
+
+    The tree walk is the filesystem, not `git ls-files` (H-0162: the gate reads no refs, so CI, the
+    review loop and the merge commit answer identically). That is what makes an untracked directory able
+    to ambiguous-ify a bare name -- a vendored checkout, a scratch tree, an ignored agent-state dir -- and
+    the pointers this hits were written by other units, years of log history that no edit in this commit
+    caused. Say so, and hand over the one read that separates the two, or the reader's only available
+    repair is to re-path entries they did not touch.
+    """
+    return (" -- nothing here can tell which of these is the stray, because the gate reads the tree and "
+            "not git. If one is untracked or ignored it is not the logs' defect and the repair is to "
+            "remove it, not to re-path other units' entries: `git ls-files --others --ignored "
+            "--exclude-standard` names it. A pointer that names %d files is still ambiguous either way, "
+            "so the full path is owed whichever tree this is" % len(cands))
+
+
 def classify(found, read):
     """The three buckets a citation falls into, plus the count that owes an anchor.
 
@@ -794,6 +856,13 @@ def classify(found, read):
     one merge from `main` delivered inside a baseline of 500 while the headline stayed green (measured
     on this branch's own merge of `origin/main`: 17 unopenable citations arrived in other units'
     entries, 10 of them a bare `README.md`, which five files in this tree answer to).
+
+    That separation is why `citation_problems` refuses to JUDGE the number while either of the other two
+    buckets is non-empty (#367 review #1). One untracked `vendor/AGENTS.md` moved 12 pointers out of
+    `unanchored` and into `unresolvable` and the gate printed "below the recorded debt of 517 -- pay it
+    down by lowering POINTER_DEBT to 505": the same tree content both invented a defect in five other
+    units' entries and ordered the one repair that permanently disarms the ratchet. The number stays a
+    statement about the logs, and the must-be-zero check keeps its own teeth.
     """
     unanchored = []
     unresolvable = []
@@ -814,9 +883,9 @@ def classify(found, read):
                             else "%d-%d" % (c["low"], c["high"]))
         if c["kind"] == "ambiguous":
             unresolvable.append("%s %s names %d files (%s) -- a pointer the reader has to guess at is "
-                                "not a pointer; write the path you mean, or `./%s` for one at the root"
+                                "not a pointer; write the path you mean, or `./%s` for one at the root%s"
                                 % (at, cite, len(c["cands"]), ", ".join(sorted(c["cands"])),
-                                   os.path.basename(c["written"])))
+                                   os.path.basename(c["written"]), stray_note(c["cands"])))
             continue
         body = lines_of(c["path"])
         want = norm(c["anchor"]) if c["anchor"] is not None else None
@@ -830,8 +899,8 @@ def classify(found, read):
             continue
         if want is None:
             unanchored.append("%s %s -> %s has no anchor, so nothing here can tell whether line %d "
-                              "still says what the entry measured"
-                              % (at, cite, c["path"], c["low"]))
+                              "still says what the entry measured%s"
+                              % (at, cite, c["path"], c["low"], no_anchor_note(c.get("near"))))
             continue
         now = [i + 1 for i, l in enumerate(body) if want in norm(l)]
         if c["low"] > len(body):
@@ -853,14 +922,24 @@ def classify(found, read):
     return unanchored, unresolvable, broken
 
 
+CitationVerdict = collections.namedtuple(
+    "CitationVerdict",
+    # `judged` is the answer to "did the ratchet actually compare this number?", and `unjudged_because`
+    # is the sentence that says why it did not. Both exist because the headline used to claim "the first
+    # number is the recorded debt, which may only fall" on a run where the number had just been moved by
+    # an untracked directory -- a true sentence about a false measurement. One classifier, one verdict,
+    # so the headline cannot disagree with the refusal list above it.
+    "problems measured unanchored unresolvable broken judged unjudged_because")
+
+
 def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
-    """Problems, and the measured count of citations that still owe an anchor.
+    """Problems, and a `CitationVerdict` carrying the measured count of citations that still owe an anchor.
 
     `read(path)` is injected so `--self-test` can assert every arm without a filesystem: the moved
     anchor, the deleted one, the path that is two files, the range written backwards, a missing file
-    anchored and unanchored, a citation that names its own revision, and the ratchet in both
-    directions. `judge_debt=False` is the `--log` case, where the corpus the number describes is not
-    the corpus being read.
+    anchored and unanchored, a citation that names its own revision, the ratchet in both directions, and
+    the ratchet NOT running when a pointer cannot be opened. `judge_debt=False` is the `--log` case,
+    where the corpus the number describes is not the corpus being read.
     """
     problems = []
     for c in found:
@@ -881,11 +960,31 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
             problems.append("    ... and %d more; `python3 scripts/check-decisions.py --citations` "
                             "lists all of them" % (len(group) - MAX_LISTED))
     measured = len(unanchored)
+    unopenable = len(unresolvable) + len(broken)
     if not judge_debt:
-        return problems, measured
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+                               False, "--log narrows the corpus the number is a count of")
     if debt is None:
         problems.append("the citation-debt number could not be read, so the rule did not run")
-        return problems, measured
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+                               False, "the recorded debt could not be read")
+    if unopenable:
+        # The ratchet is a statement about the logs, and this number is not one: every pointer in the two
+        # lists above left `unanchored` without the logs changing, and a stray directory can do it to a
+        # dozen at a time. Measured at `bc1c08c` with one untracked `vendor/AGENTS.md`: 12 pointers moved
+        # and the gate ordered "lower POINTER_DEBT to 505" -- the one repair that permanently disarms it,
+        # issued to a reader under a green-gate deadline (#367 review #1). The must-be-zero refusals above
+        # still stand on their own; only the comparison with the constant waits.
+        problems.append("%d citation(s) above are not in the %d the ratchet guards: a pointer a reader "
+                        "cannot open is a defect, not a grandfathered promise. The number is therefore "
+                        "NOT judged this run, and that is not an invitation to edit POINTER_DEBT -- an "
+                        "untracked or ignored directory moves pointers out of the debt and into that list, "
+                        "so a number measured against a tree the repository does not have says nothing "
+                        "about the logs. Fix the list, make `git status --short --ignored` empty of "
+                        "anything the logs did not write, and the comparison comes back on the next run."
+                        % (unopenable, measured))
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+                               False, "%d citation(s) a reader cannot open" % unopenable)
     if measured > debt:
         problems.append("the decision logs hold %d `path:line` citations that owe an anchor, and the "
                         "recorded debt is %d: the count went UP. A citation you add today has to carry "
@@ -903,10 +1002,10 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
                         "debt of %d -- pay it down by lowering POINTER_DEBT to %d in this same commit. "
                         "An unlowered number is a ratchet with the pawl filed off: the next unanchored "
                         "citation hides in the slack." % (measured, debt, measured))
-    return problems, measured
+    return CitationVerdict(problems, measured, unanchored, unresolvable, broken, True, None)
 
 
-def citation_report(found, read, only=None):
+def citation_report(found, read, only=None, verdict=None):
     """The `--citations` listing: what the debt is made of, by the file it points at.
 
     With `only`, it answers the other question instead -- the one to ask BEFORE editing a file: every
@@ -914,6 +1013,10 @@ def citation_report(found, read, only=None):
     that moves a line has to find the pointers to fix in the same commit, and the by-file counts above
     cannot tell a reader which ones. Without this, the question was answerable only by grepping the
     logs for a basename and reading 378 lines of prose.
+
+    `verdict` is the one the gate already computed; passing it is what makes the last line of this report
+    and the refusal's headline the same number by construction rather than by two runs of `classify()`
+    agreeing (#367 review, non-blocking: three calls to one classifier was three chances to drift).
     """
     if only:
         want = only[2:] if only.startswith("./") else only
@@ -935,7 +1038,14 @@ def citation_report(found, read, only=None):
                   "pointing at whatever line arrived where the number used to be.")
         return []
 
-    unanchored, unresolvable, broken = classify(found, read)
+    if verdict is None:
+        # A report asked for on its own has no verdict to borrow; classifying here is the one copy of the
+        # rule, not a second implementation of it.
+        unanchored, unresolvable, broken = classify(found, read)
+        note = ""
+    else:
+        unanchored, unresolvable, broken = verdict.unanchored, verdict.unresolvable, verdict.broken
+        note = "" if verdict.judged else " (NOT judged this run: %s)" % verdict.unjudged_because
     counts = {}
     for c in found:
         if c["kind"] in ("file", "file-missing") and c["anchor"] is None:
@@ -949,7 +1059,7 @@ def citation_report(found, read, only=None):
     out.extend("  " + b for b in broken)
     out.append("citations that name their own revision, exempt from both (%d):"
                % len([c for c in found if c["kind"] == "revision-qualified"]))
-    out.append("debt this gate ratchets on: %d" % (len(unanchored)))
+    out.append("debt this gate ratchets on: %d%s" % (len(unanchored), note))
     return out
 
 
@@ -1196,7 +1306,8 @@ def self_test():
 
     def cite_case(body, name, needle, debt=0, judge=True):
         counts[0] += 1
-        probs, measured = citation_problems(cites(body), read_fixture, debt=debt, judge_debt=judge)
+        verdict = citation_problems(cites(body), read_fixture, debt=debt, judge_debt=judge)
+        probs = verdict.problems
         if not probs:
             fails.append("%s: an unresolvable citation passed -- the rule is not being applied" % name)
         elif not any(needle in p for p in probs):
@@ -1204,10 +1315,10 @@ def self_test():
 
     def cite_ok(body, name, debt=0):
         counts[1] += 1
-        probs, measured = citation_problems(cites(body), read_fixture, debt=debt)
-        if probs:
-            fails.append("%s: expected clean, got %s" % (name, probs))
-        return measured
+        verdict = citation_problems(cites(body), read_fixture, debt=debt)
+        if verdict.problems:
+            fails.append("%s: expected clean, got %s" % (name, verdict.problems))
+        return verdict.measured
 
     # The good case, and it is asserted at debt 0: a clean citation must also measure clean, or the
     # ratchet below is judging a number nothing produced.
@@ -1261,10 +1372,10 @@ def self_test():
     counts[1] += 1
     narrowed = citation_problems(cites("`notes.md:2` says something.\n"), read_fixture,
                                  debt=0, judge_debt=False)
-    if narrowed[0]:
+    if narrowed.problems:
         fails.append("debt-not-judged-under-log: --log was refused on a number that counts the other "
-                     "log too -- %s" % narrowed[0])
-    if narrowed[1] != 1:
+                     "log too -- %s" % narrowed.problems)
+    if narrowed.measured != 1:
         fails.append("debt-not-judged-under-log: the unanchored citation was not even counted -- %r"
                      % (narrowed,))
     # The floor. `POINTER_DEBT` is a number about a corpus, and a tree with fewer entries in its logs
@@ -1281,9 +1392,9 @@ def self_test():
     counts[0] += 1
     foreign = citation_problems(cites('`docs/factory.md:2` "a sentence nothing in this file ever '
                                       'wrote".\n'), read_fixture, debt=0, judge_debt=False)
-    if not any("nowhere in docs/factory.md" in p for p in foreign[0]):
+    if not any("nowhere in docs/factory.md" in p for p in foreign.problems):
         fails.append("foreign-corpus-still-checks: below the floor the anchor rule went quiet too -- %s"
-                     % foreign[0])
+                     % foreign.problems)
 
     # What is NOT a citation. `pr:209` and `unclaimed:263` are a triage `class:PR` pair that appears
     # in both logs; `STATE_PROPS:1040` is a symbol. Refusing every `word:digit` span would have been
@@ -1312,8 +1423,95 @@ def self_test():
     counts[0] += 1
     short = citation_problems(cites('`notes.md:3` "the third line" is all it quoted.\n'),
                               read_fixture, debt=0)
-    if short[1] != 1 or not any("went UP" in p for p in short[0]):
+    if short.measured != 1 or not any("went UP" in p for p in short.problems):
         fails.append("short-anchor: a %d-character quote was taken for an anchor -- %r" % (MIN_ANCHOR, short))
+    # ... and the refusal says which of its two floors it applied. Measured on the two logs: 3 citations
+    # carry a quotation of 16+ characters within six characters of the coordinate that the separator class
+    # declines, and 2 carry one of 12 or 13 characters. A message that only says "has no anchor" sends all
+    # five to look for a rule that is not there (#367 review, non-blocking).
+    counts[0] += 2
+    for shape, needle, name in (
+            ('`notes.md:3`\'s "the third line is long enough to anchor a citation to".\n',
+             "the gap is `'s `", "declined-separator-names-the-gap"),
+            ('`notes.md:3`, "the third line is long enough to anchor a citation to".\n',
+             "characters long sitting 2 characters after", "declined-comma-names-the-gap")):
+        got = citation_problems(cites(shape), read_fixture, debt=0)
+        if not any(needle in q for q in got.problems):
+            fails.append("%s: a quotation the separator class declines was refused with no hint of the "
+                         "separator -- %s" % (name, got.problems))
+        if not any("the count went UP" in q for q in got.problems):
+            fails.append("%s: the declined quotation was not counted either -- %s" % (name, got.problems))
+    # The separator note has to stay silent when there is no quotation in sight, or every one of the 535
+    # old pointers would grow a sentence about a quote it never had.
+    counts[1] += 1
+    naked = citation_problems(cites("`notes.md:2` says something.\n"), read_fixture, debt=0)
+    if any("there IS a quotation" in q for q in naked.problems):
+        fails.append("declined-separator-phantom: a citation with no quotation nearby was told about one "
+                     "-- %s" % naked.problems)
+
+    # ---------------------------------------------------------------------------------------------
+    # #367 review #1: an untracked directory must not be able to order the ratchet lowered.
+    #
+    # The fixture's two `SKILL.md` basenames are the reviewer's `vendor/AGENTS.md` in miniature: one extra
+    # file in the tree makes a bare pointer ambiguous, which moves it OUT of `unanchored`. Before this
+    # commit that lowered the measured number and the gate answered with "pay it down by lowering
+    # POINTER_DEBT", i.e. the tree content both invented the defect and disarmed the guard.
+    counts[0] += 3
+    stray = cites("Both `skills/a/SKILL.md:1` and `SKILL.md:1` are cited here.\n")
+    moved = citation_problems(stray, read_fixture, debt=4)
+    if any("lowering POINTER_DEBT" in q for q in moved.problems):
+        fails.append("stray-tree-orders-the-ratchet-lowered: 3 pointers left the debt because a file "
+                     "appeared, and the gate told the reader to disarm it -- %s" % moved.problems)
+    if moved.judged is not False or moved.unjudged_because is None:
+        fails.append("stray-tree-not-flagged: the headline has no reason to print instead of \"may only "
+                     "fall\" -- %r" % (moved,))
+    if not any("cannot open at all" in q for q in moved.problems):
+        fails.append("stray-tree-quiet: the must-be-zero refusal vanished with the number -- %s"
+                     % moved.problems)
+    # The same stray tree, and the ratchet must stay shut on the way UP too: an unanchored pointer
+    # arriving beside 3 unopenable ones is still refused, but by the list, not by the comparison.
+    rose = citation_problems(cites("Both `skills/a/SKILL.md:1` and `SKILL.md:1` are cited here, and "
+                                   "`notes.md:2` says something.\n"), read_fixture, debt=0)
+    if any("went UP" in q for q in rose.problems):
+        fails.append("stray-tree-still-ratchets-up: the number was compared with the constant while 3 "
+                     "pointers could not be opened -- %s" % rose.problems)
+    if not any("cannot open at all" in q for q in rose.problems):
+        fails.append("stray-tree-lost-the-new-pointer: the unanchored citation was not refused either -- %s"
+                     % rose.problems)
+    # The control, which is the whole point: with nothing unopenable, both arms of the ratchet still bite.
+    # Suppressing the comparison must not become a way to switch the rule off.
+    counts[1] += 2
+    for body, needle, name in (
+            ("`notes.md:2` says something.\n", "the count went UP", "ratchet-up-still-bites"),
+            ('`docs/factory.md:3` "the escalation label is printed by exactly one script".\n',
+             "lowering POINTER_DEBT to 0", "ratchet-down-still-bites")):
+        clean = citation_problems(cites(body), read_fixture, debt=4 if "factory" in body else 0)
+        if not any(needle in q for q in clean.problems):
+            fails.append("%s: the unopenable guard silenced the ratchet for a tree that has no unopenable "
+                         "pointer -- %s" % (name, clean.problems))
+        if clean.judged is not True or clean.unjudged_because is not None:
+            fails.append("%s: a clean tree reported itself as not judged -- %r" % (name, clean))
+    # And `--citations` says so on the line the reader actually reads.
+    counts[0] += 1
+    report = [l for l in citation_report(stray, read_fixture, verdict=moved)
+              if l.startswith("debt this gate ratchets on")]
+    if not report or "NOT judged this run" not in report[0]:
+        fails.append("report-headline-quiet: --citations printed the moved number as if it were the debt "
+                     "-- %s" % report)
+    counts[1] += 1
+    clean_report = [l for l in citation_report(cites("`notes.md:2` says something.\n"), read_fixture,
+                                               verdict=citation_problems(
+                                                   cites("`notes.md:2` says something.\n"),
+                                                   read_fixture, debt=1))
+                    if l.startswith("debt this gate ratchets on")]
+    if not clean_report or "NOT judged" in clean_report[0]:
+        fails.append("report-headline-phantom: a judged run called itself unjudged -- %s" % clean_report)
+    # The ambiguity refusal has to hand over the read that separates "the logs are wrong" from "a stray
+    # directory is in the tree", or the only repair a reader can see is re-pathing other units' entries.
+    counts[0] += 1
+    if not any("git ls-files --others --ignored" in q for q in moved.problems):
+        fails.append("stray-note-missing: the ambiguity refusal orders work on files it cannot tell apart "
+                     "-- %s" % moved.problems)
 
     if fails:
         print("check-decisions --self-test FAILED:")
@@ -1324,8 +1522,9 @@ def self_test():
           "invocations in `verify`, four Makefiles that delete this gate, the cross-log id rule, "
           "checkpoint existence, the out-of-order refusal in both logs and in a file holding both, and "
           "the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
-          "file, revision-qualified, class:PR prose, inherited ranges, the ratchet both ways), each "
-          "asserted both ways" % (counts[0], counts[1]))
+          "file, revision-qualified, class:PR prose, inherited ranges, the ratchet both ways, the ratchet "
+          "held shut while a pointer cannot be opened, and the refusal that names which anchor floor it "
+          "applied), each asserted both ways" % (counts[0], counts[1]))
     return 0
 
 
@@ -1398,23 +1597,29 @@ def main(argv):
         # Fail closed, in the shape of every other unreadable input here: an unevaluated rule is not a
         # passed rule.
         problems.append("citations: %s" % walk_problem)
-        judged, debt_note, measured, unresolvable, broken = False, None, 0, [], []
+        judged, debt_note, measured = False, None, 0
+        verdict = CitationVerdict([], 0, [], [], [], False, "the tree cannot be walked")
     else:
         # `POINTER_DEBT` counts the citations in THIS pair of logs. A tree whose logs are smaller than
         # the corpus that number was measured on is a different repository -- a fixture, a fork, an old
         # checkout -- and refusing it with a foreign constant reports a defect that does not exist.
         judged = judge_debt and debt_applies(total)
-        cite_problems, measured = citation_problems(found, read_tree, debt=POINTER_DEBT,
-                                                    judge_debt=judged)
-        problems += cite_problems
-        # The same classifier the refusal used, so the headline cannot disagree with the list above it.
-        _, unresolvable, broken = classify(found, read_tree)
+        verdict = citation_problems(found, read_tree, debt=POINTER_DEBT, judge_debt=judged)
+        problems += verdict.problems
+        measured = verdict.measured
+        # One classifier, one verdict, and the headline reads the verdict's own fields. It used to call
+        # `classify()` a second time for these two counts, which is how a run could print "the recorded
+        # debt, which may only fall" beside a number the tree had just moved (#367 review #1).
         debt_note = ("not judged here: these logs hold %d entries and the recorded debt was measured "
                      "against %d, so the number is not a statement about this tree"
                      % (total, POINTER_DEBT_AT)) if judge_debt and not judged else None
+        if judged and not verdict.judged:
+            debt_note = ("not judged this run: %s, so the anchor count is a statement about this tree and "
+                         "not about the logs -- fix the list above and the comparison comes back"
+                         % verdict.unjudged_because)
 
     if report:
-        for line in citation_report(found, read_tree, only=report_only):
+        for line in citation_report(found, read_tree, only=report_only, verdict=verdict):
             print(line)
         return 0
 
@@ -1442,10 +1647,11 @@ def main(argv):
               "%s" % (len([c for c in found if c["kind"] != "not-a-path"]), debt_note))
     elif judge_debt:
         print("check-decisions: %d `path:line` citations resolve against this tree, %d of them owing "
-              "an anchor and %d pointing somewhere a reader cannot open -- the first number is the "
-              "recorded debt, which may only fall"
+              "an anchor and %d pointing somewhere a reader cannot open -- %s"
               % (len([c for c in found if c["kind"] != "not-a-path"]), measured,
-                 len(unresolvable) + len(broken)))
+                 len(verdict.unresolvable) + len(verdict.broken),
+                 "the first number is the recorded debt, which may only fall" if verdict.judged
+                 else "the ratchet was NOT judged this run: %s" % verdict.unjudged_because))
     else:
         print("check-decisions: %d `path:line` citations checked for anchors; the debt number was not "
               "judged, because --log narrows the corpus it is a count of"

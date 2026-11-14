@@ -7830,7 +7830,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   this one. Each placement was decided before the edit by `--citations <path>` -- the highest cited line
   was 50 in `AGENTS.md`, 1083 in `docs/factory.md` and 434 in the skill, so every insertion went below it
   -- and `faf4590` then moved two of those three, which is the rule's thesis stated about its own entry.
-  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:1940` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
+  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:1950` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
   six checked against the tree and five naming the revision they were read at -- and the gate refused it
   three times on the way in, which is the only proof here that the rule bites: an anchor split by a line
   wrap is no anchor, a bare `5be86e5`-style coordinate is what a revision-qualified citation says instead
@@ -8236,3 +8236,75 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - What it cost, stated plainly. **(a)** The new legs do not execute the shipped ranking loop; they execute the shipped `first-seen` arithmetic in `factory_age_at` and the shipped `sort` flags, retyped in `proc_clock_first`. `proc_mutate_sort` above them keeps those flags honest -- it refuses a `factory.sh` that does not carry `-k2,2nr -k3,3n)` exactly once, so the flags cannot drift from the dispatcher without a leg going red -- but the loop's own plumbing (row serialisation, `factory_slug`, the class rank) is not run here. The end-to-end path stays what it was: a boundary landing about once in 200 passes, now with a leg that schedules one on purpose. **(b)** The clock-stub legs are sensitive to the tick COUNT, which already produced one misleading failure and cost its own assertion: measured under a probe build that read the clock twice per row, the per-row pair came back `1s` and `3s`, and a control demanding exactly `+1` reddened for arithmetic while pointing at the one file that was correct. The control now requires only a positive separation plus the inversion -- the hazard is that two equal stamps stopped being equal, not how far apart they went -- and the monotone cell's message names both readings of a broken delta (a stale snapshot, or a reader consulting the clock itself). **(c)** The text census refuses a `factory_age` call whose first argument is the row variable, so a per-row call spelled another way (a helper `age2=$(row_age "$unit2")`, or the call moved into the row-building printf) would read as clean. The behavioural legs cover the primitive and the site's shape, not every spelling. **(d)** No leg proves the live queue is now stable -- the live supervisor stamps and reads whatever clock the host has, and `next-decision-id.sh`'s own 300s REFRESH bound is measured against the same seconds. What is pinned is that the order of two rows read in one ranking pass is decided by their stamps and nothing else.
 - Checkpoint: 7f3edbdf67569457ebf3f72947d9490400c0bdcc
 - Effect: `factory/common.sh` (`factory_age_at` takes the reading as its first argument and refuses a missing or non-numeric one; `factory_age` becomes the one-line threshold form); `factory/factory.sh` (one `rank_now` before the ranking loop, measured after the stamping loop; the paragraph above the sort states the mechanism the guide had wrong); `factory/selftest.sh` (four legs -- `the ranking age is one clock reading`, pinned from both sides; `control: a per-row reading inverts that pair`, which reproduces both red runs on demand against a `date` stub that advances one second per reading; `the ranking pass takes one clock reading`, a text census of the site; `control: a per-row ranking site is refused`, with two plants, the retired call and a re-read inside the loop, each verified to have landed in a copy outside the repository before it is asserted); `docs/factory.md` (the #307 section: the read boundary replaces the stamp boundary, and the paragraph records that this page carried the wrong mechanism for three days). Measured: `bash factory/selftest.sh` **568 passed, 0 failed** -- 564 before this commit, the four new legs the whole delta, both controls reporting their plants. Adversarial check: `factory_age_at` edited in place to read the clock per row and restored byte-identical from a `/tmp` copy (`cmp` clean) -- `566 passed, 2 failed`, the behavioural leg RED while `the ranking pass takes one clock reading` stayed GREEN, so a semantic revert and a structural revert each need their own leg and neither is redundant. `make verify` **verify: OK**, exit 0, at 00:36:11Z; its first attempt at 00:32:35Z was RED with exit 2 on `check-shell` -- the `export PATH` inside a subshell that this commit's first draft used is the file's only SC2030, and it activated SC2031 on seven pre-existing lines, so the fixture now uses the file's own command-prefix idiom. The run with this entry in the tree, and its exit status, are quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
+
+## H-0170 · A stray directory moves the number the citation ratchet guards and the gate then orders the one repair that disarms it: the number is not judged while any pointer cannot be opened
+
+- Question: #367's review reproduced this at `bc1c08c` and it reproduced here on the first try: create one
+  untracked `vendor/AGENTS.md`, run `python3 scripts/check-decisions.py`, and the gate emits 13 refusals of
+  entries nobody edited (`H-0139`, `H-0143`, `H-0144`, `H-0145`, `H-0152`, every one of them a bare
+  `AGENTS.md` aiming at line 38) *and*
+  `the decision logs now hold 505 citations that owe an anchor, below the recorded debt of 517 -- pay it
+  down by lowering POINTER_DEBT to 505 in this same commit`. Twelve pointers had moved from `unanchored`
+  to `unresolvable` because a file appeared, so one tree content both invented a defect in five other
+  units' work and prescribed the single edit that permanently disarms the ratchet -- the "gate inventing a
+  defect" that `H-0162` exists to refuse, issued to a reader under a green-gate deadline, who will comply.
+  The same review asks separately whether the "has no anchor" refusal is honest: 3 citations in the two
+  logs carry a quotation of 16+ characters within six characters of the coordinate that `ANCHOR_AFTER`
+  declines, and 2 carry one of 12 or 13, so five authors are told their citation has no anchor when the
+  rule declined a separator or a length it never named. What may the gate conclude about a number, when
+  the number is a function of the filesystem rather than of the logs?
+- Options: count the unopenable pointers into the ratcheted number too, so it stays one statement about
+  the logs while the must-be-zero refusal stands alone | suppress the comparison with the constant while
+  `unresolvable + broken > 0`, in both directions, and print the reason wherever the number is printed |
+  skip ignored and generated directories when indexing the tree, since `.gitignore` reads as a plain file
+  and `gate_reads_no_refs` is no reason to walk everything | leave the rule and rewrite only the refusal
+- Chose: suppress the comparison with the constant while `unresolvable + broken > 0`, in both directions,
+  and print the reason wherever the number is printed
+- Why: option one is the reviewer's own first suggestion and it is a no-op once option two is in. Measured
+  with the stray file present: counting the 13 unopenable pointers back in gives 505 + 13 = 518 against a
+  recorded debt of 517, so the run flips from "pay it down to 505" to "the count went UP" -- a *different*
+  order to edit the same constant, still issued by stray content, still wrong. Option two removes the
+  order instead of renumbering it. The asymmetry that makes it enough is that `tree_index` only ever
+  *gains* candidates: untracked content can turn a resolvable pointer into an ambiguous one and nothing
+  else, so stray files can only ever push the number DOWN, and the arm that raises it is beyond their
+  reach. The one upward path is an untracked file arriving at the exact slashed path a dead pointer names
+  -- that makes it openable, which moves it out of the must-be-zero list and into the debt -- and the tree
+  was already refused before that file appeared, so the gate is red on both sides of it and only the
+  sentence changes. Option three was refused on its own measurement: this tree's `.gitignore` is 8 lines
+  and lists `.cortexkit/`, `plock`, `*.test.txt` and four capture artefacts, none of them a vendored tree,
+  so honouring it stops the reviewer's *untracked* scratch tree no better than today while making the
+  verdict read a file the walk was written not to read -- and `gate_reads_no_refs` (`factory/selftest.sh:11823` "0 when that gate asks git for nothing but object lookups") exists precisely so the walk
+  stays dumb. Widening `ANCHOR_AFTER` to what `NEAR_QUOTE` matches was measured and refused too: it
+  reclassifies 3 pointers in other units' entries (0.6% of a debt of 535) and buys a rule that accepts a
+  quotation belonging to the neighbouring sentence, which is the failure mode the 3-character budget was
+  written to exclude. The refusal now names which floor it applied instead. What lost: the ratchet stops
+  biting for a run that has any unopenable pointer, so a unit that adds an unanchored citation while the
+  list is non-empty is refused by the list rather than by the number. That is still a red gate -- measured,
+  both directions, in `--self-test`'s `stray-tree-still-ratchets-up` and its two controls -- but the run
+  no longer says two true things where it used to say one true thing and one order nobody should obey. The
+  verdict is now one object (`CitationVerdict`) passed from the classifier to the refusal, the headline and
+  `--citations`, because three calls to `classify()` was three chances for the headline to disagree with
+  the list above it, which is the invariant the comment above that function has always claimed.
+- Effect: `scripts/check-decisions.py` gains `no_anchor_note` and `stray_note` (the ambiguity refusal names
+  the read that separates "the logs are wrong" from "a stray directory is in the tree": `git ls-files
+  --others --ignored --exclude-standard`), `scan_citations` records the gap between a coordinate and a
+  nearby quotation as text rather than as a width -- `x.md:9`'s "…" is three characters wide and the third
+  of them is what the rule declines -- `citation_problems` returns a `CitationVerdict` carrying `judged`
+  and `unjudged_because`, refuses the comparison in both directions while anything is unopenable, and
+  `main`/`citation_report` print that reason instead of "which may only fall". `docs/factory.md` states the
+  guard beside the ratchet and re-measures the two figures it quotes, and the `AGENTS.md` bullet that
+  summarises the rule for a unit who never opens the guide now says the number is not judged while a
+  pointer cannot be opened. `factory/selftest.sh` is unchanged:
+  `gate_verdict_off_refs` copies this script into a two-entry fixture, which is below `POINTER_DEBT_AT` and
+  so never reached the arm this entry touches. `--self-test` goes from 47 must-fail / 17 must-pass to 54 /
+  21, and every new arm has its control on the clean tree, including the phantom cases: a citation with no
+  quotation nearby must not be told about one, and a clean run must not call itself unjudged. Reproduced
+  after the repair at this head with the reviewer's own probe: one untracked `vendor/AGENTS.md` gives 13
+  refusals, `0` occurrences of "lowering POINTER_DEBT", exit 1, and
+  `debt this gate ratchets on: 523 (NOT judged this run: 13 citation(s) a reader cannot open)`; with the
+  file gone, `535 of them owing an anchor and 0 pointing somewhere a reader cannot open -- the first number
+  is the recorded debt, which may only fall`, exit 0. The pointer `H-0162` aimed at this script's own
+  constant moved when the constant was re-measured, and the rule caught that in the merge commit before
+  this one (`bc1c08c:scripts/check-decisions.py:573` is now spelled with the revision it was read at).
+  Refs #367, Refs #318.
+- Checkpoint: 5c10382ff9c175159e769350c8bbb62d870f5e04
