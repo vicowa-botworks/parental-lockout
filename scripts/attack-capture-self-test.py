@@ -108,23 +108,32 @@ CAUGHT, HOLE, GREEN = "caught", "hole", "green"
 # a fix closes. A NEW hole fails this run, and a listed hole that has stopped being a hole fails it
 # too, so the list cannot rot in either direction.
 #
-# The classes below are four: the floor every guard of this shape has, which now shows up at three
-# sites, and one claim about what the 81 rules do not look at. Each is re-measured by its rows on
-# every push rather than remembered:
+# The classes below are three, and all three are the same floor seen at three sites -- the floor
+# every guard of this shape has, which `attack-self-test.py` documents for `mutate.py`'s `if bad:`:
+# a check cannot police its own deletion. The sites are the canary pair's comparison, the verdict's
+# `if bad:`, and the probe harness's own arms. The last is the largest, because what it guards is
+# the guard for all 81 rules. Nothing else is listed: the one finding that was not a floor, the
+# bytes of a kept frame, is closed below.
 #
-#   1. A check cannot police its own deletion -- the floor `attack-self-test.py` documents for
-#      `mutate.py`'s `if bad:`. Three sites: the canary pair's comparison, the verdict's `if bad:`,
-#      and the probe harness's own arms. The last is the largest, because what it guards is the
-#      guard for all 81 rules.
-#   2. What the rules do not look at: the bytes of the frame a refusal keeps.
+#   1. A check cannot police its own deletion -- at the canary pair, at the verdict, and at the
+#      probe harness.
 #
-# Two classes ran with these and are gone. `rule()`'s crash arm is witnessed by a canary that raises
-# on purpose (#323, `D-0072`). And #322's -- "a hollowed rule is invisible to the count", the class
-# this file was written to describe, whose seven rows all printed `HOLE` -- is closed by `pages.py`'s
-# probe pass: `_probe_every_rule` breaks the contract each rule names and requires THAT rule to go
-# red, so those seven rows read CAUGHT now and the class retires with them. What did not close is the
-# floor under the repair: every arm of the harness is one `if`, and deleting the
-# `_rule_probes_are_live` call is silent. That is class 1 at a new site, listed rather than fixed.
+# Three classes ran with these and are gone, and each left its row attacked rather than deleted,
+# because a guard is only as good as the run that re-measures it. `rule()`'s crash arm is witnessed
+# by a canary that raises on purpose (#323, `D-0072`). #322's -- "a hollowed rule is invisible to
+# the count", the class this file was written to describe, whose seven rows all printed `HOLE` -- is
+# closed by `pages.py`'s probe pass: `_probe_every_rule` breaks the contract each rule names and
+# requires THAT rule to go red, so those seven rows read CAUGHT now and the class retires with them.
+# And #324's -- the bytes of the frame a refusal keeps, the class that was NOT a floor -- closed the
+# way its own body said it would (#324, `D-0077`): `a_refused_run_says_where_its_frames_are` now
+# opens every frame the refusal announces and compares it with the payload
+# `_FakeSession.screenshot()` handed the driver, so `the kept frame is written as an empty file`
+# prints CAUGHT and the class comes out below with its mapping. The row filed beside it writes the
+# same number of different bytes, and it is there because #324's body names a length comparison as
+# not accepted: a `len()` clause would still pass that one, so the rejection is a row now rather
+# than a sentence. What the probe pass did NOT buy is a witness for itself: every arm of the harness
+# is one `if`, and deleting the `_rule_probes_are_live` call is silent. That is the floor at its new
+# site, listed rather than fixed.
 # ---------------------------------------------------------------------------------------------
 DOCUMENTED_HOLES = {
     "a probe-harness arm's own comparison is unguarded":
@@ -165,13 +174,13 @@ DOCUMENTED_HOLES = {
         "`CAUGHT` into `NEW HOLE` -- 35 of them for `if bad:`. The link no witness reached was the "
         "`verify:` clause: delete it and every row runs against a copy of a tree nobody checked and "
         "reports `0 problem(s)` at exit 0. That clause is in `WIRED` now (D-0079).",
-    "the kept frame's bytes are never compared to the bytes the browser returned":
-        "`_FakeSession.screenshot()` hands `cdp.capture_refused` a payload and the rules read the "
-        "directory back -- names, counts, the note's sentences -- and nothing reads the file's "
-        "contents. Writing an empty file at the announced path therefore keeps the transcript and "
-        "the listing in perfect agreement about a frame with no picture in it. What closes it is "
-        "one clause in `a_refused_run_says_where_its_frames_are`: the kept file's bytes equal the "
-        "fake's payload. Filed as its own issue.",
+    # The fourth class this map carried on `origin/main` -- "the kept frame's bytes are never
+    # compared to the bytes the browser returned" -- is gone, and it is gone because it was the one
+    # finding here that was a gap rather than a floor, so unlike the three above it can be shut:
+    # `pages.py`'s `a_refused_run_says_where_its_frames_are` opens the kept frame now and compares
+    # its bytes with the fake's payload (#324, `D-0077`). Its two rows stayed and moved to CAUGHT
+    # rather than being deleted, because the sentence "nothing reads the bytes" is exactly the kind
+    # of claim a later edit makes false again -- #322's own lesson, applied to this file.
 }
 
 HOLE_CLASS = {
@@ -196,8 +205,14 @@ HOLE_CLASS = {
         "a probe-harness arm's own comparison is unguarded",
     "the verdict witness answers without asking":
         "a probe-harness arm's own comparison is unguarded",
-    "the kept frame is written as an empty file":
-        "the kept frame's bytes are never compared to the bytes the browser returned",
+    # Two mappings came out of this map in the merge with `origin/main`, one from each side, and they
+    # are not the same kind of edit. "the reach check is switched off" and "the reach check runs and
+    # returns success" left because #322's probe pass makes both CAUGHT, so keeping their mappings
+    # would trip `shape_problems`' "mapped to a hole class but expects caught" fault. "the kept
+    # frame is written as an empty file" left because #324's clause in `pages.py` reads the bytes, so
+    # the row is CAUGHT here for the branch's own reason. Both are checked by that same fault rather
+    # than by this comment: if either fix is reverted, the row goes back to `HOLE` with no class and
+    # reports as undocumented, which is the loud way to say a guard rotted.
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -406,10 +421,19 @@ ROWS = [
      "    def a_clean_run_names_its_fixture_to_the_publish(problems):",
      "    def a_clean_run_names_its_fixture_to_the_publish(problems):\n        return"),
 
-    # ---- the bytes ----
-    (HOLE, "cdp.py", "the kept frame is written as an empty file",
+    # ---- the bytes (#324) ----
+    # Two rows on one statement, applied one at a time. The first is the clause's re-measurement:
+    # empty the write and the rule that opens the kept frame goes red, where on `origin/main` it
+    # printed `81 refusal rules hold` over two zero-byte files. The second is the guard against the
+    # degenerate fix -- the same COUNT of bytes, none of them the picture -- so a replacement that
+    # compared `len()` instead of the bytes cannot pass for this clause. #324's body names a length
+    # comparison as not accepted, and that rejection is a row now rather than a sentence.
+    (CAUGHT, "cdp.py", "the kept frame is written as an empty file",
      '        with open(path, "wb") as fh:\n            fh.write(data)',
      '        with open(path, "wb") as fh:\n            fh.write(b"")'),
+    (CAUGHT, "cdp.py", "the kept frame is rewritten with the same number of different bytes",
+     '        with open(path, "wb") as fh:\n            fh.write(data)',
+     '        with open(path, "wb") as fh:\n            fh.write(b"r" * len(data))'),
 
     # ---- #317: a refusal's report and its keeping must not be able to leave the driver ----
     #
@@ -515,7 +539,12 @@ ROWS = [
 # A row deleted from ROWS makes the tally smaller and every remaining row still reports its expected
 # verdict, so the run prints a confident "40 attacks, 0 problems" over a guard that lost a test.
 # 54 -> 72 on 14 Nov: the nine rows for #322's probe machinery and the nine for its arms.
-EXPECTED_ROWS = 72
+# 72 -> 73 on 14 Nov, in the merge with #324: one row added ("the kept frame is rewritten with the
+# same number of different bytes"). The row beside it, "the kept frame is written as an empty file",
+# was already here and stays one row -- only its expectation moves, from `HOLE` on `origin/main` to
+# `CAUGHT` here. A merge of two branches that each added rows and left this number at one side's
+# value is a merge that dropped rows, which is the failure this pin exists to catch.
+EXPECTED_ROWS = 73
 
 
 def shape_problems():

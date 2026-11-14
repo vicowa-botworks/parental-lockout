@@ -4563,6 +4563,187 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `make verify` and the state read after the push are quoted with their exit statuses in the
   pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
 
+## D-0077 · #324: a refusal's kept frame was listed at every viewport and never read, so `fh.write(b"")` printed "81 refusal rules hold" over two empty PNGs — compare the bytes against a value the fake supplies, against one it cannot, or compare only how many there are
+
+- Question: `a_refused_run_says_where_its_frames_are` reads the kept drawer back — the announced
+  count, the list beside it, the pointer sentence at each viewport, `REFUSED.txt`'s four sentences —
+  and has never opened a frame. Measured on this branch at `607966e` before anything was written, in a
+  copy of the tree (`/tmp/opencode/verify324.py`; never the gated tree, #1807): replacing the
+  `fh.write(data)` inside `cdp.capture_refused` with `fh.write(b"")` — one statement, the write that
+  happens after the fake hands the driver 36 bytes — prints `capture self-test: 81 refusal rules
+  hold` with `exit=0` and leaves two zero-byte files in the drawer, and the attack suite scores the
+  same patch `HOLE     the kept frame is written as an empty file` inside `TOTAL  54 attacks: 36
+  caught, 6 honest edits still green, 12 holes, 0 invalid, 0 unexpected`, `VERDICT: 54 attacks, 0
+  problem(s), 4 hole class(es), 12 hole row(s)`, rc 0. So the transcript and the directory can agree
+  perfectly about a frame that holds no picture, which is the property #211 and D-0054 exist to hold
+  and `manifest.py` already refuses for the PUBLISHED set, where D-0056 decodes pixels. The choice is
+  the shape of the comparison, because #324's own body names one shape as not accepted.
+
+- Options: compare each kept frame's bytes with the payload `_FakeSession.screenshot()` returned, held in one module constant that both the fake and the rule read | compare them with a literal the rule holds itself while `screenshot()` keeps its own copy | compare how many bytes landed, not which | require the kept bytes to decode as a PNG, as the published path does | leave the row as a documented hole, which is where D-0058 left it
+
+- Chose: compare them with a literal the rule holds itself while `screenshot()` keeps its own copy
+
+- Why: three measurements decide it, in the order the arguments arrive.
+
+  Length is not the property, and that is a defect report rather than a style objection. With the
+  clause weakened to `len(got) != len(_SELFTEST_FRAME)` — exactly the fix #324 refuses — the self-test
+  answers `exit=0`, `capture self-test: 81 refusal rules hold` over a frame of 36 `r` bytes written in
+  place of the payload (probe 4 of the same file). So a length comparison is a live and plausible
+  guard that grades nothing, and the answer to a live wrong guard is a gate, not advice: the suite
+  gained `the kept frame is rewritten with the same number of different bytes`, whose patch is
+  `fh.write(b"r" * len(data))`. Measured with the weakened clause installed in a copy, that row alone
+  prints `NEW HOLE` and the run says `VERDICT: 55 attacks, 1 problem(s)`, rc 1; measured with the
+  clause switched off outright (`if False:`) both byte rows print `NEW HOLE`, `2 problem(s)`, rc 1.
+  The clause is therefore policed at both ends — removed, and degenerated — which is more than most
+  fixes in this file were given.
+
+  The expected value must not be one the code under check supplies. Option 1, the obvious DRY edit of
+  a shared constant, is vacuous the moment the fake is hollowed: measured in
+  `/tmp/opencode/verify324c.py`, design A (`screenshot()` returns `_SELFTEST_FRAME`, the rule compares
+  against it) with the constant set to `b""` answers `exit=0`, `81 refusal rules hold`, because both
+  sides agree about nothing — this entry's own hole, relocated into the harness. The shipped design
+  answers the same patch with `exit=1`, `capture self-test: 1 of 81 rules failed`, naming both
+  viewports and both byte counts. `pages.py` already makes this argument to itself about `CENSUS`
+  ("deliberately NOT derived from `PAGES`", on the ground that a derived expectation turns the census
+  into a tautology), and #1048 makes it about a cell that grades a run where nothing was attacked;
+  spelling the payload twice is that argument applied to an expected value. Tie-break order for the
+  record: no option adds a module, so #856 separates none of them; none decodes a config key, so #873
+  is silent; option 2 is the one that refuses rather than proceeds when the bytes are missing or empty
+  (probe B) and the one the surrounding code already takes.
+
+  Option 4 is what a reader would expect from this repository and the fake declines to support it:
+  `_FakeSession.screenshot()` is not a PNG on purpose, on the stated ground that real pixels would
+  mean shipping a picture in a source file to prove a path is written, and what #324 states as the
+  property is that the driver writes the bytes it was handed, not that the browser photographed a
+  page. Decoding there would also be D-0056's job in the wrong place — pixels belong to a frame that
+  is about to be published, where they can be re-derived from git.
+
+- What lost: three things, one of them a tax this very file keeps rows to notice.
+
+  The payload string is now load-bearing in two places, so an honest edit — rewording the fake's
+  payload — turns the gate red with a sentence naming both sides, and the repair is two keystrokes.
+  `attack-capture-self-test.py` carries GREEN rows precisely because a guard that taxes honest edits
+  gets switched off, and there is no GREEN row for this literal: the first person to reword it meets a
+  red gate and must decide which spelling is the one that moved. If that reads as brittleness, the
+  repair is to give the rule an independent way to know the browser returned *something* (the fake's
+  `log` already tells `screenshot` from `shot-refused`), not to loosen the comparison.
+
+  Pixels are still never read. The clause pins "the bytes on disk are the bytes the driver was
+  handed", so a fake that returns nonsense still passes and a browser that photographed a blank page
+  still passes; the refused set has no equivalent of D-0056's decoding, and #324 asked for exactly
+  this much and no more.
+
+  The blast radius is one rule. The clause lives in `a_refused_run_says_where_its_frames_are`, so it
+  reads the `pages` fixture's kept frames; `lock.py` and `testlock.py` still keep frames nobody opens,
+  which is the limit #324's body sets by naming that rule and no other. And the class the fix sits
+  inside is still open: emptying the whole rule keeps printing green — `a hollowed rule is invisible
+  to the count`, the last of the 11 Nov findings still unretired, 7 rows — so deleting the clause is
+  caught and deleting the rule is not.
+
+- Checkpoint: 607966e
+
+- Effect: two files, and every number below read back after the run that produced it.
+  `testing/capture/pages.py`: `_SELFTEST_FRAME` above `_FakeSession`, the byte clause inside the
+  per-viewport loop of `a_refused_run_says_where_its_frames_are`, and `screenshot()`'s docstring
+  corrected — it had been asserting that the property under test is not the contents, which stopped
+  being true here. `scripts/attack-capture-self-test.py`: the empty-file row moved `HOLE` → `CAUGHT`,
+  one `CAUGHT` row added beside it, the class and its `HOLE_CLASS` mapping retired, `EXPECTED_ROWS`
+  54 → 55, and the header's class census restated as three open and two gone. Read back: `python3
+  testing/capture/pages.py --self-test` → `capture self-test: 81 refusal rules hold`, rc 0; `python3
+  scripts/attack-capture-self-test.py` → `TOTAL  55 attacks: 38 caught, 6 honest edits still green, 11
+  holes, 0 invalid, 0 unexpected`, `VERDICT: 55 attacks, 0 problem(s), 3 hole class(es), 11 hole
+  row(s)`, rc 0 — both byte rows print `CAUGHT`, so neither the clause nor the row beside it is
+  decorative, and the class did not merely stop being listed, it stopped being measured as a hole. The
+  four probes named in `Why:` are `/tmp/opencode/verify324.py` and `/tmp/opencode/verify324c.py`, kept
+  outside the tree; `make verify`'s own last line is quoted in the pull-request body, because an
+  `Effect:` written before the gate runs is a prophecy (#1180). One thing this commit moved and no gate
+  can see: four pointers in `D-0062`, `D-0063` and `D-0064` locate that suite's `if hits != 1:` anchor
+  guard by line number, all of them unanchored. The guard stood at 672 at the checkpoint and stands at
+  679 here, so those four pointers were already ninety-six lines off before this commit touched the
+  file and are now a hundred and three off; they have no quoted text, so `--citations` reports them as
+  debt in both states and refuses nothing in either. Named here rather than repaired here because
+  editing three other entries' records is not this unit's call, and because a number with nothing
+  beside it is the exact defect #374 keeps open.
+- Correction (`D-0077`, 14 Nov — the count and the arithmetic in that paragraph are both wrong, found by
+  running the check it names): `--citations` aimed at `scripts/attack-capture-self-test.py` — the command
+  is `python3 scripts/check-decisions.py --citations PATH`, and the PATH here is that one file — lists
+  **six** pointers at this head, not four: three inside `D-0062`, one inside `D-0063`, two inside
+  `D-0064`, each naming the `if hits != 1:` arm by line number and each printed `UNANCHORED`. The grep
+  `grep -n 'if hits != 1:' scripts/attack-capture-self-test.py` answers 679 at this head, and the same
+  grep over `607966e`'s copy of the file answers 672, so the drift is one number per pointer and the
+  pair written above fits only the citation spelled `:573-576` — 96 lines off at the checkpoint,
+  103 here. The three spelled `:573` are 99 and 106, and the two spelled `:566-570` are 102 and 109, so
+  the sentence understates its own worst case by six lines and says four where the checker says six.
+  What that paragraph was load-bearing for survives the recount untouched: none of the six carries quoted
+  text, so `--citations` counts them as debt in both trees and the gate refuses nothing in either —
+  `python3 scripts/check-decisions.py` at this head reads "600 …citations read out of the two logs, 539
+  of them owing an anchor and 0 pointing somewhere a reader cannot open", with `POINTER_DEBT` in
+  `scripts/check-decisions.py` still at 539, so this correction added no citation of its own. The repair
+  is still not this unit's, and the recount sharpens why: a dead coordinate inside somebody else's
+  published entry is repaired by naming the tree it was read at — the revision-qualified form, whose
+  specimen is `H-0162`'s and which `revision_qualified` in `scripts/check-decisions.py` lets stand
+  without an anchor precisely because it states which tree to open — while rewriting three entries'
+  correction chains to read 679 would make every one of those sentences describe a tree it was not
+  written in. #374 stays open as the question of whether anything obliges 539 to fall.
+- Correction (`D-0077`, 14 Nov — one sentence of `What lost:` is false in the merge result, and false twice,
+  because `D-0076` landed while this pull request was open): that paragraph ends "the class the fix sits
+  inside is still open: emptying the whole rule keeps printing green — `a hollowed rule is invisible to the
+  count`, the last of the 11 Nov findings still unretired, 7 rows — so deleting the clause is caught and
+  deleting the rule is not". The refuted claim sits inside that sentence at both ends, and the review
+  counted them as two: the opening `the class the fix sits inside is still open` and the closing `deleting
+  the rule is not` are one assertion written twice, and #379 retired the class that made either half true.
+  #379 merged at 20:18Z, `pages.py`'s probe pass now breaks the contract each rule names and requires THAT
+  rule to go red, and the class came out of `DOCUMENTED_HOLES` with its seven rows reading `CAUGHT` — the
+  comment above that set now counts three classes open and three gone, and names this retirement among the
+  gone. Re-measured at the merged head
+  `f0d1cf5`, in a copy and never the gated tree (#1807), hollowed in the form the suite's own rows use (the
+  rule's `def …(problems):` line gains `return` as its first statement, asserted to have matched exactly
+  once before the result was believed): the unmutated copy prints `capture self-test: 81 refusal rules
+  hold` at rc 0, and the emptied rule exits **rc 1** with `capture self-test: PROBE: a refused run says
+  where its frames are stayed green with its own contract broken (hollow cdp.keep_refused), so the rule
+  inspects a stand-in rather than the driver it names` and `PROBE: 80 of 81 rules were broken and re-run`
+  above `capture self-test: 0 of 81 rules failed`. So deleting the rule is caught, which is the opposite of
+  what was written, and "the last of the 11 Nov findings still unretired" was the last, and is retired.
+  Only `What lost:` is corrected here: the `Effect:` census above ("three open and two gone") records what
+  `01306c1` did to that header at that head, and stays true as the record of a commit.
+
+  What the retirement does not buy, measured in the same session because the probe pass is what moved the
+  risk: this clause reads `op.isfile(frame)` before it opens anything, so a mutation to the clause's **own**
+  path literal skips it without a sound. Renaming only that literal — `audit@` to `auditX@`, `cdp.py` left
+  alone — prints `capture self-test: 81 refusal rules hold` at rc 0, and it still prints that with the kept
+  write emptied as well, which is the clause grading nothing while the transcript, the drawer and the
+  pointer all agree. The rows are the catcher, not the clause: the same single rename with `cdp.py`
+  unmutated turns both byte rows `NEW HOLE` and the suite answers `TOTAL  73 attacks: 54 caught, 6 honest
+  edits still green, 11 holes, 0 invalid, 2 unexpected` / `VERDICT: 73 attacks, 2 problem(s), 5 hole
+  class(es), 13 hole row(s)` at rc 1. That is #322's floor one level down — a clause cannot police its own
+  address — and it is worth knowing before anyone renames the fixture page, because the frame's name is
+  spelled twice now, once in the pointer sentence and once in the bytes, and moving one moves only the check
+  that reads the other. The review's own variant, the rename **and** the emptied write together, also exits
+  1 with two problems, but as `2 invalid` — `anchor matched 0 times in cdp.py` on both rows, because the
+  anchor those two rows mutate is the write that has already been emptied — so the finding is the same
+  and the mechanism is not, and a person re-running one of the two should expect the other's word for it.
+  Recorded, not repaired: the repair is one name shared by both checks, a design change of its own and not
+  this review's ask, and the two rows above are what witness it today.
+- Correction (`D-0077`, 14 Nov — the head the pointer bullet above was written at is not the head it ships
+  in): that bullet states the grep for the suite's `if hits != 1:` guard "answers 679 at this head". It
+  answers **778** in the merged tree, 749 on `origin/main`, 679 at `57c4a2d` — the head it was written at —
+  and 672 at `607966e`, so the six pointers are now 208 lines off for the two spelled `:566-570`, 205 for
+  the three spelled `:573` and 202 for the one spelled `:573-576`, against the 109, 106 and 103 that table
+  priced. The bullet is not false, it is unqualified — 679 is what the command answers in the tree it names
+  and nothing in the sentence says which tree that was — and that is the defect #374 stays open on, and the
+  reason `AGENTS.md` asks for the measured sentence beside a coordinate rather than the coordinate alone.
+  Read again here, not repaired: `--citations` still lists those six, every one still prints `UNANCHORED`,
+  `POINTER_DEBT` is still 539, and this bullet deliberately writes no `path:line` of its own, because a
+  fresh coordinate is the precise thing that goes false on the next merge.
+
+## D-0078 · PR #385 collides with `main` over whether a hole is still open: merge #322's probe pass and #324's byte clause into one list of three classes, take one side's list whole, or trim a row off each side until the counts agree
+
+- Question: `origin/main` moved four commits past this branch's `0673832` and three files collide, only two of them TEXTUALLY -- `DECISIONS.md`, where both sides appended an entry, and `scripts/attack-capture-self-test.py`, in five hunks. The third is the risk: `testing/capture/pages.py` merged with no conflict at all, because `main`'s 543 added lines (`RULE_PROBES`, `_probe_every_rule`, `_rule_probes_are_live`) and this branch's clause that opens a kept frame land in different parts of one file. The collision in the attack suite is not layout either -- the two branches assert opposite things about the same guard. `main` carries `the kept frame's bytes are never compared to the bytes the browser returned` as an open class with one `HOLE` row; this branch exists to make that sentence false and its rows say `CAUGHT`. Both cannot stand, and the file's own checker refuses the merge before a single child starts: keeping the class while its row turns `CAUGHT` trips the fault `DOCUMENTED_HOLES lists … and no row maps to it, so nothing can ever re-measure it`, and keeping the mapping trips `mapped to a hole class but expects caught`. The two sides also disagree about one number, `EXPECTED_ROWS`, this branch moved 54 → 55 and `main` moved 54 → 72. Which side is right about the hole is settled by a run, not by a merge: on the merged tree `python3 testing/capture/pages.py --self-test` prints `capture self-test: 81 refusal rules hold` at rc 0, and `python3 scripts/attack-capture-self-test.py` prints `TOTAL  73 attacks: 56 caught, 6 honest edits still green, 11 holes, 0 invalid, 0 unexpected` and `VERDICT: 73 attacks, 0 problem(s), 3 hole class(es), 11 hole row(s)` at rc 0 in 8.2 s. Every row the two branches disagree about prints `CAUGHT` in that run -- #322's seven emptied rule bodies, the two reach-check rows whose `HOLE` the pass retired, and #324's two byte rows.
+- Options: take `main`'s side whole and re-apply #324's clause as a later commit | take this branch's side whole and let the probe pass arrive on the next merge | keep both intents as one list -- #322's pass and its three floor classes, #324's byte clause with both byte rows `CAUGHT`, the byte class retired together with its `HOLE_CLASS` mapping, `EXPECTED_ROWS` re-derived rather than picked -- and check the silently-merged `pages.py` by measurement | make the counts agree by deleting one row from each side
+- Chose: keep both intents as one list -- #322's pass and its three floor classes, #324's byte clause with both byte rows `CAUGHT`, the byte class retired together with its `HOLE_CLASS` mapping, `EXPECTED_ROWS` re-derived rather than picked -- and check the silently-merged `pages.py` by measurement
+- Why: the tie-break that separates them is the fourth, fewest files, and it agrees with the substance -- the two changes witness different claims, so a side that wins is a side that loses a guard. Each whole-side option breaks the invariants in the other direction: `--theirs` deletes #324's rows and reopens a hole this tree no longer has, `--ours` deletes eighteen of #322's rows and leaves the branch at 54 beside a `main` at 72, so the next merge re-collides on the same four sentences. Deleting a row per side is refused by the thing the rows exist for: `EXPECTED_ROWS` is pinned because `A row deleted from ROWS makes the tally smaller and every remaining row still reports its expected verdict`, so agreement bought with a deletion is bought with the exact rot the pin catches. Then both intents were measured on the merged tree rather than assumed to coexist, in a copy and never the gated tree (#1807), each mutation asserted to have matched exactly once before its result was believed. Emptying the kept frame's write returns rc 1 with `the kept frame audit@360.png is not the picture this run was handed: 0 byte(s)`; writing the same COUNT of different bytes returns rc 1 naming the 36 bytes it got instead; emptying one rule body returns rc 1 with `PROBE: each fixture keeps its refused frames apart stayed green with its own contract broken (hollow cdp.keep_refused)`. The fourth probe is the null variant and it is the one that shows the two are load-bearing and not merely present: downgrade this branch's clause from byte equality to `len(got) != len(_SELFTEST_FRAME)` and the same-count mutation prints `81 refusal rules hold` at rc 0 again, so what the second byte row pins is equality and not length -- the option #324's own body refused. `EXPECTED_ROWS` 73 is that arithmetic and nothing else: `main`'s 72 plus #324's one added row, the byte row counted once because only its expectation moved. `python3 scripts/check-decisions.py` on the resolved tree reads 235 entries, `0 pointing somewhere a reader cannot open`, and the debt unchanged at 539, so this merge added no citation of its own and moved no measured number.
+- What lost: `main`'s count sentence -- `The classes below are four … and one claim about what the 81 rules do not look at` -- is false on the merged tree and goes, and the comment above `DOCUMENTED_HOLES` now says three, all of them one floor at three sites. So does that class's own text: the sentence `nothing reads the file's contents` survives nowhere in the file, because a listed hole with no row is refused and a shut hole cannot be re-measured -- the record of what the hole was is `D-0076`, `D-0077` and this entry. This branch's wording of the verdict class (three arms: `if bad:`, the reach check, its `return 1`) goes too, and it goes because it is out of date rather than wrong at the time: #322's pass pinned two of those three arms. `Fifty-five attacks nobody invokes` loses to `main`'s `f"{EXPECTED_ROWS} attacks…"`, which cannot rot, and this branch's hand-typed count goes with it. In `DECISIONS.md` the two appended entries sit by id, `D-0076` above `D-0077`, which breaks append order on purpose: `D-0077` was written first (checkpoint `607966e`, 14 Nov 12:07 local) and `D-0076` reached `main` later (PR #379 merged 15:18 local), while the gate refuses an inverted log -- `is out of order (… came before it); the log is a history and a history that jumps around cannot be bisected` -- so append order loses to resolvability. What this entry does NOT repair: `--citations` lists fifteen pointers at `testing/capture/pages.py` and six at `scripts/attack-capture-self-test.py`, every one of them UNANCHORED before this merge and unchanged by it, and both files' line numbers moved underneath them -- repairing published entries is #374's, on `D-0077`'s own ruling, and the number this commit could move, 539, it did not. `testing/capture/pages.py` carries no resolution of mine at all, only the union git produced; the claim that union is sound is the four measurements above, not a sentence about a diff.
+- Checkpoint: 5765e45
 ## D-0079 · #325: the three verdict statements in `pages.py --self-test` are said to police nothing that polices them — pin the contract's `make verify` clause from the runner, give every `verify:` step one owner, or record the floor where the measurement puts it
 
 - Question: #325 claims `if bad:`, `if len(ran) != EXPECTED_RULES:` and
