@@ -242,6 +242,16 @@ rows carry content (58, 15, 14, 6, 4, 4, 2 and 1 files) and none was empty. The 
 defect, `issue-249`, had acquired a real commit of its own -- H-0130's -- two hours before this was
 written. The fix is for the next one.
 
+A tally sentence is one `printf` format, and one format has to be one word. #329 found both tallies
+shipped with the literal closed immediately before a `\<newline>` and the rest of the sentence on an
+indented line: the shell deletes the continuation and what is left between the two literals is that
+line's indentation, a field separator, so `printf` received a format with no `\n` in it plus the literal
+`offered: %s\n` as its first argument, and re-applied the format once per remaining argument. What an
+operator got was three lines, the first of them the format string. `bash -n` and shellcheck both exit 0
+on that file, and a leg that greps the sentence for a fragment is green on the result -- the format's own
+words are exactly what got printed -- so the assertion here is the whole sentence, and
+`scripts/check-scripts.py` refuses the shape in every shipped script (`H-0154`).
+
 **A ref whose pull request merged reports the delivery (#291, ask 2).** GitHub deletes a branch when its
 pull request merges only if the repository asks it to; this one does not, so the ref survives -- usually
 at zero commits ahead, and often as nothing but the `--allow-empty` checkpoint that Step 3 takes before a

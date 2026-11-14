@@ -1015,13 +1015,15 @@ if [ -n "$main_sha" ]; then
 	)
 	# Both tallies speak on every pass that sees such a branch, and neither one is a row. Naming the
 	# branches is the point: a count alone says the scan is odd, a list of names says where to look.
+	# Each format is ONE word: a quoted literal continued onto an indented line is two words, because
+	# the `\<newline>` is removed and what is left between the literals is the indentation. The guard
+	# in scripts/check-scripts.py refuses the split shape now (#329); `H-0154` records what lost.
 	if [ "$empty_count" -gt 0 ]; then
-		printf 'triage: %s branch(es) ahead of main hold no content the trunk lacks, so none is '\
-			'offered: %s\n' "$empty_count" "${empty_branches# }" >&2
+		printf 'triage: %s branch(es) ahead of main hold no content the trunk lacks, so none is offered: %s\n' \
+			"$empty_count" "${empty_branches# }" >&2
 	fi
 	if [ "$unjudged_count" -gt 0 ]; then
-		printf 'triage: %s branch(es) ahead of main have no merge base with main, so their content '\
-			'could not be compared; they are still offered, unverified: %s\n' \
+		printf 'triage: %s branch(es) ahead of main have no merge base with main, so their content could not be compared; they are still offered, unverified: %s\n' \
 			"$unjudged_count" "${unjudged_branches# }" >&2
 	fi
 fi
