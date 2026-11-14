@@ -375,6 +375,30 @@ negation: measured on this repository, `**This does not close #10.**` closed iss
 the merge landed. For partial work write `Part of #10 only; the umbrella is not finished.` or
 `Refs #10`.
 
+**And when the issue really is finished, put the verb where GitHub can see it: in plain text, never
+inside a code span.** A keyword wrapped in backticks asks GitHub for nothing. Measured over all 176
+merged pull requests here (`scripts/check-close-verb.py` ships the classifier this count came from):
+a plain-text verb closed its issue within two seconds of the merge **92 times in 94**, with nothing at
+all in the three-to-120-second bucket; a verb inside inline code did it **0 times in 2** -- PR #308's
+`` `Closes #304` `` left #304 to be closed by hand 6086 s later, and PR #338's `` `Closes #301.` `` sat
+on a line stating the keyword was deliberate and left #301 open 14472 s past its merge, which is what
+cost a second full unit on a ticket `main` had already delivered. `factory/triage.sh`'s claim pattern
+takes a backtick as filler, so the harness reads a spanned verb as a claim anyway: the body looks
+linked to every reader in this repository and does nothing to the artifact.
+
+So do not eyeball this. Run the body file through the checker before you create the pull request --
+it separates the four things that look alike and are not (a verb that fires, a verb on a line saying
+`not` that fires anyway, a verb in a span that will not, and `Refs`/`Part of` that were never
+closers):
+
+```bash
+python3 scripts/check-close-verb.py /tmp/pr-body.md    # exit 1 = something cannot do what it reads
+gh pr create --base main --title "..." --body-file /tmp/pr-body.md
+```
+
+Everything in this page written inside a code span is a *quotation* of a form, which is the inert
+place for one. Write the real thing in running text.
+
 Do not try to verify the linkage afterwards, and do not reach for `gh api` to do it: `gh api` is denied
 to this agent, and `gh pr view --json closingIssuesReferences` is not a field `gh` exposes (measured —
 it answers `Unknown JSON field` and lists the fields it does have). A GraphQL read is the only way to

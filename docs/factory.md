@@ -367,6 +367,67 @@ not a review request, and the classifier routes it to `draft`, which is a wait a
 does not cancel an individual request it did not make (H-0117) -- the person who holds it may hold it
 because somebody with better knowledge asked them.
 
+### The merge that closed nothing the body said it closed (#353)
+
+A closing keyword is a request to GitHub, not an event in this harness, and until now nothing ever
+asked whether the request was granted. `factory_verify_closure` (`factory/factory.sh`) is called at
+the end of `factory_merge`, after the ledger is stamped, and it reads back every issue the merged body
+named with a verb.
+
+The population, all 176 merged pull requests here, classified by where the verb sits in the markdown
+(`scripts/check-close-verb.py` ships the classifier):
+
+| where the keyword is | pairs | closed within 2 s of the merge | closed later |
+|---|---|---|---|
+| plain text | 94 | **92** | 2 — #207 at +159415 s, #211 at +27586 s |
+| inline code, with no plain-text pair naming the same issue | 2 | **0** | 2 — #304 at +6086 s, #301 at +14472 s |
+| a fenced block | 0 | — | nothing in this repository has ever done this |
+
+Nothing at all landed in the three-to-120-second bucket, which is what lets the ≤2 s cluster be read as
+the parser firing rather than as human latency: GitHub takes under two seconds or it did not do it. The
+two inline-code specimens are PR #308 (`` `Closes #304` ``) and PR #338 (`` `Closes #301.` ``, on a line
+that states the keyword is deliberate). #301 is the expensive one: it stayed open until a second unit
+was dispatched to re-derive work `main` already had, and it was closed 14472 s after the merge that
+claimed it, by that unit's own delivery comment rather than by the keyword.
+
+**The scan is span-blind on purpose, and a tidier one would have missed the defect.** The obvious
+implementation strips code blocks and inline spans first, because that models GitHub. This one matches
+the verb wherever it appears, inside backticks included -- the same way `CLAIM_RE` in `triage.sh` does.
+The specimen *is* a verb inside a code span: a span-stripping scan reports no claim, compares nothing,
+and passes the merge that started this ticket. The disagreement between what the body asked for and what
+the artifact got is only visible to a reader that reads the body the way the harness's other reader does
+and then checks GitHub's answer. What closes and what does not is reported, not assumed.
+
+**What it does when a ticket is still open: write on the artifact, close nothing.** Three options were
+weighed (H-0156): close with a comment naming the merge commit, comment only, or halt the pass. Halting
+is refused for the reason #341 documents -- one un-closed ticket must not park every later activation.
+Closing is refused for the reason this repository has been taught twice: a verb is not evidence, and
+#1256 is the record of a keyword firing on a line written to *negate* it. Whether the delivered artifact
+met the ticket's requirements is a judgement with measurements behind it, and the merge does not carry
+those measurements. So the failure is written into the issue, where the next reader of the issue finds
+it, and the state change stays with a person.
+
+The note keeps the quoted verb lines inside a code span of their own. That is load-bearing and a leg
+pins it: a comment that put `Closes #301` in running text would close the ticket it is reporting on, by
+accident, with no measurement behind it -- the exact failure mode being documented. The checker from
+Step 5 reads the generated note and reports no firing keyword in it.
+
+**The healthy path writes nothing.** A ticket closed within the window is not a fact worth a journal
+line; #334 priced the pass at 37 lines already. Three sentences appear only on the abnormal branches:
+`CLOSE-OPEN` (the ticket is still open after the re-probe, and a note was attempted), `CLOSE-LATE`
+(closed, but `${FACTORY_CLOSE_FIRED_S}` -- default 120 -- seconds of slack separate a keyword from a
+hand close; the measured population has zero pairs between 3 and 120 s, so any bound in that range
+separates the same two sets, and 120 states a window rather than tuning one), and `CLOSE-UNTIMED`
+(closed with no readable timestamp, which is not the same answer as a delta of zero). An issue that
+cannot be read is `CLOSE-CHECK-UNKNOWN`, and a body that cannot be read is `CLOSE-CHECK-SKIPPED`:
+neither is ever reported as an open ticket, because a failure to read is not a finding.
+
+The re-probe is one sleep, `FACTORY_CLOSE_PROBE` seconds (default 10), because GitHub's closer is
+asynchronous and a single `OPEN` read milliseconds after a merge means nothing; 10 s is five times the
+widest delta in the measured population. A closer that lands between the two reads is `CLOSE-SETTLED`.
+
+Nothing here closes an issue, and nothing here claims a requirement was met.
+
 ### The approval a push voids
 
 `reviewDecision` is a fact about a pull request's head, not a record of its past. This repository does

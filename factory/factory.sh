@@ -459,6 +459,10 @@ factory_merge() {
 	factory_ledger_clear "pr:$pr" stuck-since
 	factory_ledger_clear "pr:$pr" last-notice
 	factory_ledger_now "pr:$pr" merged-at
+	# And then the question the merge arm never asked: did the issues this body named with a verb
+	# actually close? It goes here, after the ledger is stamped, because a failure to notice must not
+	# cost a merge its own record (#353).
+	factory_verify_closure "$pr"
 	# The tree goes with the branch. Leaving one behind is how /tmp/opencode acquired six
 	# abandoned worktrees, two of them on the same commit.
 	if [ -n "$branch" ] && [ -d "$FACTORY_TREES/$(factory_slug "$branch")" ]; then
@@ -482,6 +486,166 @@ factory_merge() {
 			log_event "BRANCH-KEPT $branch $(printf '%s' "$gone" | tr -d '\r\n' | cut -c1-120)"
 		fi
 	fi
+	return 0
+}
+
+# Did the merge actually close what the body said it closed? (#353)
+#
+# A closing keyword is a request to GitHub, not an event in the harness, and until now nothing ever
+# asked whether the request was granted. Measured over all 176 merged pull requests of this
+# repository (`/tmp/opencode/p353/closer_audit_all.py`): a keyword in plain text closed the issue
+# within two seconds of the merge **92 times out of 94**, with nothing at all in the three-to-120-second
+# bucket, so the two outliers and the whole delay question are settled -- GitHub takes under two
+# seconds or it did not do it at all. A keyword written inside a code span closed **0 of 2**: PR #308
+# said `Closes #304` and #304 was closed by hand 6086 s later; PR #338 said `Closes #301` on a line
+# that states the keyword is deliberate, and #301 was closed 14472 s after the merge, by the unit that
+# had just been dispatched a second time to re-derive work `main` already had.
+#
+# Which references get checked is the interesting decision, and it goes against the obvious tidy
+# answer. The scan here is SPAN-BLIND: it matches the verb wherever it appears, inside backticks
+# included, exactly like `triage.sh`'s `CLAIM_RE` does. A scan that stripped code spans first would
+# be a more faithful model of GitHub and would have missed #301 entirely -- the specimen IS a verb
+# inside a code span. The point of this component is to notice the disagreement between what the body
+# asked for and what the artifact got, so it has to read the body the way the harness's other reader
+# does and then compare against the state GitHub reports. The quoted lines in the comment it writes
+# show the reader which of the two cases they are looking at; a verb wrapped in backticks is visible
+# in the quotation itself, which is why the quotation keeps its backticks.
+#
+# It never closes anything. The options weighed were close-and-comment, comment-only, and halt; the
+# entry is H-0156. Closing belongs to the evidence about the requirements, and a merge is not that
+# evidence -- `AGENTS.md` and this repository's own history are blunt about inferring delivery from a
+# verb (#1256: `**This does not close #10.**` closed #10, because the parser has no notion of
+# negation). Halting is also wrong: one un-closed ticket must not stop every activation (#341's
+# fourteen-hour halt is the precedent). So the failure is written into the artifact, where the next
+# reader sees it, and the judgement stays with a person.
+#
+# Deliberately silent on the healthy path -- see #334 on the journal's size: a pass already writes 37
+# lines, and "GitHub did what it was asked" is not a fact worth one of them.
+CLOSER_RE='(?i)\b(?:clos(?:e|es|ed|ing)|fix(?:e[sd])?|resolv(?:e|es|ed|ing))\b[^#\n]{0,20}#[1-9][0-9]*'
+
+# The re-probe interval, in seconds. GitHub's closer is asynchronous, so a single read of `OPEN`
+# milliseconds after a merge means nothing; 10 s is five times the widest delta in the measured
+# population and one read more on the rare ticket. Legs set it to 0.
+FACTORY_CLOSE_PROBE=${FACTORY_CLOSE_PROBE:-10}
+# Anything closed later than this was not closed by the keyword. The measured population has 92 pairs
+# at <=2 s, ZERO between 3 and 120 s, and two at +27586 s and +159415 s, so any bound from 3 s to
+# 27000 s separates the same two sets; 120 is stated as the window rather than tuned.
+FACTORY_CLOSE_FIRED_S=${FACTORY_CLOSE_FIRED_S:-120}
+
+# Seconds between a merge and a close, or the word `unknown`. Two timestamps that will not parse are
+# reported as unknown rather than as a zero or a negative number, because a delta nobody can read must
+# not become a delta that says something.
+#
+# The empty case is asked BEFORE `date`, and it is not paranoia: GNU date accepts the empty string,
+# exits 0, and answers with today's midnight -- measured on this box, `date -u -d "" +%s` printed
+# 1794614400 with rc 0. A `closed_at` the API returned as null arrives here as an empty string, so a
+# guard that only asks whether `date` succeeded calls a missing timestamp a delta of four years.
+factory_close_delta() {
+	local m c
+	# Not `[ -n "$1" ] && [ -n "$2" ] || { … }`: this file has already been burned by the chain, where a
+	# failing arm of the test runs the refusal it was testing against.
+	if [ -z "$1" ] || [ -z "$2" ]; then
+		printf 'unknown'
+		return 0
+	fi
+	m=$(date -u -d "$1" +%s 2>/dev/null) || {
+		printf 'unknown'
+		return 0
+	}
+	c=$(date -u -d "$2" +%s 2>/dev/null) || {
+		printf 'unknown'
+		return 0
+	}
+	printf '%s' "$((c - m))"
+}
+
+factory_verify_closure() {
+	local pr=$1 body merged_at scan scan_state=ok n state closed_at delta
+	local verb_lines sha comment
+
+	body=$(api_get "pulls/$pr" '.body // ""' '')
+	if [ -z "$body" ]; then
+		log_event "CLOSE-CHECK-SKIPPED pr:$pr the merged body could not be read, so nothing was compared"
+		return 0
+	fi
+	merged_at=$(api_get "pulls/$pr" '.merged_at // ""' '')
+	if [ -z "$merged_at" ]; then
+		log_event "CLOSE-CHECK-SKIPPED pr:$pr the API reports no merged_at, so this pass is not after a merge"
+		return 0
+	fi
+	scan=$(printf '%s\n' "$body" | jq -Rsr --arg re "$CLOSER_RE" \
+		'[splits("\n") | select(test($re)) | capture("#(?<n>[1-9][0-9]*)").n] | unique | join(" ")' \
+		2>/dev/null) || scan_state=failed
+	if [ "$scan_state" = "failed" ]; then
+		log_event "CLOSE-CHECK-SKIPPED pr:$pr the verb scan could not read the body, so nothing was compared"
+		return 0
+	fi
+	# An empty list is a real answer: a body that names nothing with a verb asked for nothing. `Refs`
+	# and `Part of` are not in `CLOSER_RE`, and they must stay out of it -- that is the whole of #1256.
+	[ -n "$scan" ] || return 0
+
+	for n in $scan; do
+		state=$(api_get "issues/$n" '.state // ""' '')
+		closed_at=$(api_get "issues/$n" '.closed_at // ""' '')
+		if [ -z "$state" ]; then
+			log_event "CLOSE-CHECK-UNKNOWN pr:$pr issue:$n the issue could not be read, so this pass says nothing about it"
+			continue
+		fi
+		if [ "$state" = "OPEN" ]; then
+			sleep "$FACTORY_CLOSE_PROBE"
+			state=$(api_get "issues/$n" '.state // ""' '')
+			closed_at=$(api_get "issues/$n" '.closed_at // ""' '')
+			if [ "$state" = "OPEN" ]; then
+				log_event "CLOSE-OPEN pr:$pr issue:$n merged_at=$merged_at and the issue is still open past the re-probe"
+				verb_lines=$(printf '%s\n' "$body" | jq -Rsr --arg re "$CLOSER_RE" \
+					'[splits("\n") | select(test($re))] | .[0:3] | join("\n    ")' 2>/dev/null) ||
+					verb_lines='(the body could not be re-read for this note)'
+				sha=$(api_get "pulls/$pr" '.merge_commit_sha // ""' '')
+				# The quoted lines keep their backticks and stay inside a code span of their own. Two
+				# reasons, and the second is the finding: a keyword inside a code span is inert, so the
+				# quotation cannot itself close the ticket it is complaining about.
+				comment=$(printf '%s\n' \
+					"**The merge landed and this ticket is still open.** $FACTORY_OWNER/$FACTORY_NAME pull request #${pr} merged at \`$merged_at\`${sha:+, commit \`$sha\`}. Its body asked for this issue to close, in these lines:" \
+					'' \
+					'```' \
+					"    $verb_lines" \
+					'```' \
+					'' \
+					'A keyword inside a code span asks GitHub for nothing -- that is what the span above is evidence of, and it is why this note quotes rather than paraphrases. A keyword in plain text fires within two seconds; this ticket is still open after a re-probe, so neither happened.' \
+					'' \
+					'**Nothing has been closed by this note, on purpose.** Closing belongs to the evidence about the requirements, not to the presence of a verb: read the merge against what the ticket asked, then close it naming the commit, or say here what is still owed and the queue will treat it as open work. This comment carries no closing keyword in plain text, so it cannot close the thing it is reporting on.' \
+					'') || comment=''
+				if [ -n "$comment" ]; then
+					# `if !` and not `rc=$?`: `run_action` has already journalled the failed command
+					# itself, so this line's only job is to tie the failure to the merge it belongs to.
+					if ! run_action gh issue comment "$n" --body "$comment"; then
+						log_event "CLOSE-NOTE-FAILED pr:$pr issue:$n the note could not be written, so only the journal knows"
+					fi
+				fi
+				continue
+			fi
+			if [ "$state" = "CLOSED" ]; then
+				delta=$(factory_close_delta "$merged_at" "$closed_at")
+				log_event "CLOSE-SETTLED pr:$pr issue:$n closed $delta s after the merge, inside the window GitHub takes"
+				continue
+			fi
+			log_event "CLOSE-CHECK-UNKNOWN pr:$pr issue:$n read back state=$state after the re-probe, which is neither answer"
+			continue
+		fi
+		[ "$state" = "CLOSED" ] || {
+			log_event "CLOSE-CHECK-UNKNOWN pr:$pr issue:$n read back state=$state, which is neither answer"
+			continue
+		}
+		delta=$(factory_close_delta "$merged_at" "$closed_at")
+		if [ "$delta" = "unknown" ]; then
+			log_event "CLOSE-UNTIMED pr:$pr issue:$n is closed with no readable timestamp (closed_at=$closed_at), so this pass cannot say what closed it"
+		# A close that predates the merge is the same finding as a slow one: the keyword did not do it.
+		# Reopened-and-reclosed tickets make the negative case real, so it is named rather than sorted
+		# into the healthy bucket by an absolute value.
+		elif [ "$delta" -lt 0 ] 2>/dev/null || [ "$delta" -gt "$FACTORY_CLOSE_FIRED_S" ] 2>/dev/null; then
+			log_event "CLOSE-LATE pr:$pr issue:$n closed_at=$closed_at is ${delta}s after the merge, past the ${FACTORY_CLOSE_FIRED_S}s GitHub takes: the keyword did not fire, something else closed it"
+		fi
+	done
 	return 0
 }
 

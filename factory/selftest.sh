@@ -13993,6 +13993,270 @@ claim_leg 'log-move: each copy refusal names its own clause' lm_leg_refusal_name
 # journal it wrote. No text scan of factory.sh sits here, for the reason the note above the reap legs
 # gives: a scan that asserts a stronger harness does not exist is a lie waiting to be cited.
 
+# ======================================= the merge that closed nothing the body said it closed (#353)
+#
+# `factory_verify_closure` (`factory/factory.sh`) asks, after a merge, whether the issues the merged
+# body named with a verb actually closed. These legs run the SHIPPED function: its bytes, plus the
+# `CLOSER_RE` line it reads, are lifted out of `factory/factory.sh` at run time and sourced over three
+# stubs -- `api_get` answered from a plant directory, `log_event` appending to a journal, `run_action`
+# recording the write instead of performing it. Nothing re-types the component, so a leg cannot pass
+# on a paraphrase of it.
+#
+# The fidelity limit, stated instead of glossed. The `proc_*` tick fixture further up runs the shipped
+# `factory.sh` end to end and is the right home for the strongest kind of call-site claim, but its
+# queue answers `pr-merged.json` as `[]` and its stub lists `pr:merge` among the writes it refuses, so
+# no pass in that fixture reaches a merge -- and this component is only interesting AT a merge. So
+# `the call site sits in factory_merge, after the ledger stamp` is a call-site pin and asserts only
+# that the line is there and in order. Nothing here claims no stronger harness exists.
+
+cv_work="$work/close-verb"
+cv_plant="$cv_work/plant"
+cv_rec="$cv_work/rec"
+cv_script="$HERE/../scripts/check-close-verb.py"
+mkdir -p "$cv_plant" "$cv_rec"
+
+# Lift the shipped function, and the pattern line it reads, out of the shipped file -- and refuse to
+# run anything if the lift came up short. An empty extraction would make every leg below a pass over
+# nothing, which is the dead mutant in a costume.
+cv_extract() {
+	{
+		grep -m1 '^CLOSER_RE=' "$1" || return 1
+		# Both functions the component calls. Lifting only `factory_verify_closure` was measured here:
+		# the legs that read a delta failed while the ones that read a note passed, and the trace said
+		# `factory_close_delta: command not found` -- a fixture missing a helper, not a defect in the
+		# component.
+		sed -n '/^factory_close_delta()/,/^}/p' "$1" || return 1
+		sed -n '/^factory_verify_closure() {/,/^}/p' "$1" || return 1
+	} >"$cv_work/fvc.sh"
+	[ -s "$cv_work/fvc.sh" ] || return 1
+	grep -q 'CLOSE-OPEN' "$cv_work/fvc.sh" || return 1
+	grep -q 'factory_close_delta()' "$cv_work/fvc.sh" || return 1
+	[ "$(grep -c '^CLOSER_RE=' "$cv_work/fvc.sh")" = 1 ]
+}
+
+# One plant per REST path, slashes turned into underscores. A path with no plant answers the caller's
+# own default, exactly as the shipped `api_get` does when `gh api` fails: that is the case the
+# unreadable-ticket leg needs, and the reason the stub reproduces the default rather than inventing one.
+#
+# A plant whose JSON is an ARRAY is a sequence of answers, one per call, and the last repeats. The
+# re-probe needs a ticket that reads OPEN first and CLOSED second; without that the asynchronous
+# closer -- the reason the re-probe exists at all -- could not be exercised.
+cv_api_get() {
+	local path=$1 filt=$2 def=$3 f pick n
+	f="$cv_plant/$(printf '%s' "$path" | tr '/' '_').json"
+	[ -f "$f" ] || {
+		printf '%s' "$def"
+		return 0
+	}
+	if jq -e 'type == "array"' "$f" >/dev/null 2>&1; then
+		n=0
+		[ -f "$cv_rec/seq" ] && n=$(cat "$cv_rec/seq")
+		pick=$(jq -c --argjson i "$n" 'if (length - 1) < $i then .[-1] else .[$i] end' "$f" 2>/dev/null) || {
+			printf '%s' "$def"
+			return 0
+		}
+		printf '%s' "$((n + 1))" >"$cv_rec/seq"
+		printf '%s' "$pick" | jq -r "$filt" 2>/dev/null || printf '%s' "$def"
+		return 0
+	fi
+	jq -r "$filt" "$f" 2>/dev/null || printf '%s' "$def"
+}
+
+# cv_run <script> <pr> -> the journal in $cv_work/journal, notes in $cv_rec/<n>.body
+cv_run() {
+	(
+		set +eu
+		# shellcheck disable=SC2034  # the repository's own name and the two windows are read by the
+		# shipped function sourced below -- by everything except a static read of this file.
+		FACTORY_OWNER=example FACTORY_NAME=repo FACTORY_CLOSE_PROBE=0 FACTORY_CLOSE_FIRED_S=120
+		# The three stubs a factory.sh function actually needs. They are assigned as functions here,
+		# and `cv_api_get` is installed under the name the component calls, so the shipped bytes are
+		# what runs.
+		# shellcheck disable=SC2317  # the shadows read as unreachable code, and they are: to everything
+		# except the function below them, which calls all three by name. Same reason as the shadows at
+		# the head of this file. One directive per shadow, because the directive ends with the command
+		# it precedes -- measured here, where the first one covered `api_get` and left its two siblings.
+		api_get() { cv_api_get "$@"; }
+		# shellcheck disable=SC2317
+		log_event() { printf '%s\n' "$*" >>"$cv_work/journal"; }
+		# shellcheck disable=SC2317
+		run_action() {
+			printf '%s\n' "$*" >>"$cv_rec/calls"
+			if [ "$1" = "gh" ] && [ "$2" = "issue" ] && [ "$3" = "comment" ]; then
+				printf '%s' "${6:-}" >"$cv_rec/$4.body"
+			fi
+			return 0
+		}
+		# shellcheck disable=SC1090
+		source "$1"
+		factory_verify_closure "$2"
+	)
+}
+
+cv_reset() {
+	rm -rf "$cv_plant" "$cv_rec"
+	mkdir -p "$cv_plant" "$cv_rec"
+	: >"$cv_work/journal"
+	# The repository's own two specimens, at their measured deltas: #301, closed 14472 s after PR #338
+	# merged, and #304, closed 6086 s after PR #308 merged.
+	printf '%s\n' '{"body":"The work is finished.\n\nCloses #301 — the whole repair.\n","merged_at":"2026-11-13T19:15:34Z","merge_commit_sha":"90f3c21"}' >"$cv_plant/pulls_77.json"
+	printf '%s\n' '{"state":"OPEN","closed_at":null}' >"$cv_plant/issues_301.json"
+	printf '%s\n' '{"body":"One fix.\n\nCloses #9.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_78.json"
+	printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T19:15:36Z"}' >"$cv_plant/issues_9.json"
+	printf '%s\n' '{"body":"Two tickets, one verb.\n\nCloses #304 on merge.\n","merged_at":"2026-11-12T00:45:14Z"}' >"$cv_plant/pulls_79.json"
+	printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-12T02:26:40Z"}' >"$cv_plant/issues_304.json"
+	printf '%s\n' '{"body":"Closed with no clock.\n\nCloses #11.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_80.json"
+	printf '%s\n' '{"state":"CLOSED","closed_at":null}' >"$cv_plant/issues_11.json"
+	printf '%s\n' '{"body":"A ticket nobody can read.\n\nCloses #12.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_81.json"
+	printf '%s\n' '{"body":"Nothing named with a verb here, only prose.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_82.json"
+	printf '%s\n' '{"body":"Part of #14 only; the umbrella is not finished.\n\nRefs #15.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_83.json"
+	printf '%s\n' '{"body":"The keyword is deliberate. `Closes #8.` — inside a span.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_84.json"
+	printf '%s\n' '{"state":"OPEN","closed_at":null}' >"$cv_plant/issues_8.json"
+	printf '%s\n' '{"body":"In flight.\n\nCloses #10.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_85.json"
+	printf '%s\n' '[{"state":"OPEN","closed_at":null},{"state":"CLOSED","closed_at":"2026-11-13T19:15:37Z"}]' >"$cv_plant/issues_10.json"
+}
+
+cv_reset
+cv_extract "$HERE/factory.sh"
+
+# --- the specimen: the body asked, the ticket stayed open -----------------------------------------
+cv_run "$cv_work/fvc.sh" 77 >/dev/null 2>&1
+claim_leg 'a verb naming an open ticket is CLOSE-OPEN' bash -c \
+	'grep -q "CLOSE-OPEN pr:77 issue:301" "$1" && ! grep -q "CLOSE-SETTLED pr:77" "$1"' _ \
+	"$cv_work/journal"
+claim_leg '…and the note goes to the ticket, not to the pull request' bash -c \
+	'grep -q "^gh issue comment 301 --body" "$1/calls" &&
+	 ! grep -q "gh pr comment" "$1/calls" || {
+		printf "\trec holds [%s]\n" "$(ls "$1" 2>&1 | tr "\n" " ")"
+		printf "\tcalls head [%s]\n" "$(head -c 140 "$1/calls" 2>&1 | tr "\n" "|")"
+		exit 1
+	}' _ "$cv_rec"
+claim_leg '…and the note quotes the verb line inside a span of its own' bash -c \
+	'grep -qF "Closes #301 — the whole repair." "$1/301.body" && grep -qF "$2" "$1/301.body"' _ \
+	"$cv_rec" '```'
+claim_leg '…and the closing-keyword checker runs over the note it wrote' bash -c \
+	'python3 "$1" "$2/301.body" >"$2/verdict" 2>&1 || [ -s "$2/verdict" ]' _ "$cv_script" "$cv_rec"
+claim_leg '…which finds the quoted verb inert and nothing that fires' bash -c \
+	'grep -q "inert #301" "$1/verdict" && ! grep -qE "closes #|CLOSES DESPITE" "$1/verdict"' _ "$cv_rec"
+claim_leg '…and says in words that nothing was closed' bash -c \
+	'grep -qF "Nothing has been closed by this note, on purpose" "$1/301.body"' _ "$cv_rec"
+
+# --- the design decision: the scan reads spans the way GitHub does not ----------------------------
+cv_reset
+cv_run "$cv_work/fvc.sh" 84 >/dev/null 2>&1
+claim_leg 'a verb only ever inside a code span is still noticed' bash -c \
+	'grep -q "CLOSE-OPEN pr:84 issue:8" "$1"' _ "$cv_work/journal"
+claim_leg '…because the specimen that started this was exactly that' bash -c \
+	'grep -qF "\`Closes #8.\`" "$1/8.body"' _ "$cv_rec"
+
+# --- the healthy path is silent; an in-flight closer is not a failure -----------------------------
+cv_reset
+cv_run "$cv_work/fvc.sh" 78 >/dev/null 2>&1
+claim_leg 'a ticket closed two seconds after the merge says nothing at all' bash -c \
+	'[ ! -s "$1" ] && [ ! -e "$2/9.body" ]' _ "$cv_work/journal" "$cv_rec"
+cv_reset
+cv_run "$cv_work/fvc.sh" 85 >/dev/null 2>&1
+claim_leg 'a closer still in flight is re-probed, not reported' bash -c \
+	'grep -q "CLOSE-SETTLED pr:85 issue:10" "$1" && [ ! -e "$2/10.body" ]' _ \
+	"$cv_work/journal" "$cv_rec"
+
+# --- the two ways a close can be somebody else doing it -------------------------------------------
+cv_reset
+cv_run "$cv_work/fvc.sh" 79 >/dev/null 2>&1
+claim_leg 'a close 6086 s after the merge is named a hand close' bash -c \
+	'grep -q "CLOSE-LATE pr:79 issue:304" "$1" && grep -q "6086s after the merge" "$1" &&
+	 [ ! -e "$2/304.body" ]' _ "$cv_work/journal" "$cv_rec"
+cv_reset
+cv_run "$cv_work/fvc.sh" 80 >/dev/null 2>&1
+claim_leg 'a closed ticket with no timestamp is untimed, not a delta of zero' bash -c \
+	'grep -q "CLOSE-UNTIMED pr:80 issue:11" "$1" && ! grep -q "0s after the merge" "$1"' _ \
+	"$cv_work/journal"
+# The helper on its own, because `date -u -d "" +%s` SUCCEEDS on this box: measured, it prints
+# 1794614400 with rc 0, which is today's midnight. A `closed_at` the API returns as null reaches the
+# helper as an empty string, so a guard that only asks whether `date` worked turns a missing clock into
+# a delta of a few thousand seconds -- and the pass then prints the most confident sentence it has,
+# "the keyword did not fire, something else closed it", about a ticket whose close time was never
+# recorded. Refusing to answer is the only honest verdict, and `CLOSE-UNTIMED` is what says so.
+cv_delta_empty() {
+	local out
+	out=$(
+		# shellcheck disable=SC1090,SC1091  # the lifted bytes, by path; nothing static to follow.
+		source "$cv_work/fvc.sh"
+		factory_close_delta 2026-11-13T19:15:34Z ''
+	)
+	[ "$out" = "unknown" ] || {
+		printf '\tthe helper answered %s for a missing timestamp, and date -d "" answers %s with rc 0\n' \
+			"${out:-<empty>}" "$(date -u -d '' +%s 2>/dev/null)"
+		return 1
+	}
+}
+claim_leg 'a missing timestamp is the word unknown, not the number date hands back' cv_delta_empty
+
+# --- what a reader that cannot read has to say ----------------------------------------------------
+cv_reset
+cv_run "$cv_work/fvc.sh" 81 >/dev/null 2>&1
+claim_leg 'a ticket that cannot be read is UNKNOWN, not open' bash -c \
+	'grep -q "CLOSE-CHECK-UNKNOWN pr:81 issue:12" "$1" && ! grep -q "CLOSE-OPEN pr:81" "$1"' _ \
+	"$cv_work/journal"
+cv_reset
+rm -f "$cv_plant/pulls_82.json"
+cv_run "$cv_work/fvc.sh" 82 >/dev/null 2>&1
+claim_leg 'a body that cannot be read skips the check in words' bash -c \
+	'grep -q "CLOSE-CHECK-SKIPPED pr:82 the merged body could not be read" "$1"' _ "$cv_work/journal"
+
+# --- what is not a closer -------------------------------------------------------------------------
+cv_reset
+cv_run "$cv_work/fvc.sh" 82 >/dev/null 2>&1
+claim_leg 'a body naming nothing with a verb compares nothing' bash -c \
+	'[ ! -s "$1" ] && [ ! -s "$2/calls" ]' _ "$cv_work/journal" "$cv_rec"
+cv_reset
+cv_run "$cv_work/fvc.sh" 83 >/dev/null 2>&1
+claim_leg 'Refs and Part of are not closers and get no verdict' bash -c \
+	'[ ! -s "$1" ] && ! grep -q "issue comment" "$2/calls"' _ "$cv_work/journal" "$cv_rec"
+
+# --- the call site --------------------------------------------------------------------------------
+cv_leg_call_site() {
+	local here end stamped verify
+	here=$(grep -n '^factory_merge() {' "$HERE/factory.sh" | cut -d: -f1)
+	end=$(awk -v a="$here" 'NR>a && /^\}/ {print NR; exit}' "$HERE/factory.sh")
+	stamped=$(awk -v a="$here" -v b="$end" \
+		'NR>=a && NR<=b && /factory_ledger_now "pr:\$pr" merged-at/ {print NR; exit}' "$HERE/factory.sh")
+	verify=$(awk -v a="$here" -v b="$end" \
+		'NR>=a && NR<=b && /factory_verify_closure "\$pr"/ {print NR; exit}' "$HERE/factory.sh")
+	[ -n "$stamped" ] && [ -n "$verify" ] && [ "$verify" -gt "$stamped" ]
+}
+claim_leg 'the call site sits in factory_merge, after the ledger stamp' cv_leg_call_site
+
+# --- control: does this section bite? -------------------------------------------------------------
+# Empty the shipped function's body and the open-ticket legs must go red. A section that stays green
+# over a function that does nothing is not a section about that function.
+cv_control() {
+	local mut="$cv_work/fvc-empty.sh"
+	awk '/^factory_verify_closure\(\) \{/ {print; print "\treturn 0"; skip=1; next}
+	     skip && /^\}/ {skip=0; print; next}
+	     skip {next} {print}' "$HERE/factory.sh" >"$mut" || return 1
+	grep -q 'CLOSE-OPEN' "$HERE/factory.sh" || return 1
+	if grep -q 'CLOSE-OPEN' "$mut"; then return 1; fi
+	cv_reset
+	cv_run "$mut" 77 >/dev/null 2>&1
+	if grep -q 'CLOSE-OPEN' "$cv_work/journal"; then
+		printf '\tthe emptied function still wrote CLOSE-OPEN, so the leg is not reading the function\n'
+		return 1
+	fi
+	if [ -e "$cv_rec/301.body" ]; then
+		printf '\tthe emptied function still wrote the note, so the note is not coming from it\n'
+		return 1
+	fi
+	cv_reset
+	cv_run "$cv_work/fvc.sh" 77 >/dev/null 2>&1
+	grep -q 'CLOSE-OPEN' "$cv_work/journal" || {
+		printf '\tthe shipped function never wrote CLOSE-OPEN, so the control proved nothing\n'
+		return 1
+	}
+	return 0
+}
+claim_leg 'control: the legs die when the function body is emptied' cv_control
+
 # The tally names the world it was counted in, because it is not one number everywhere. H-0045
 # measured the `core.excludesFile` leg printing TWO legs where git refuses a directory exclude file
 # and ONE where it swallows it, and the question is answered by the filesystem under `$TMPDIR`, not
