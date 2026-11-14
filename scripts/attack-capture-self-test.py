@@ -60,6 +60,18 @@ about the publish and not the file.
 Cost: about four seconds, against 0.08 s for the self-test it attacks and ~3m9s for ``make verify``,
 which runs this beside the thing it guards. A suite that starts no compiler and no browser has no
 excuse for living in a job somebody can skip (#124).
+
+Nothing in here attacks this file, and that is structural rather than an oversight: every row is a
+patch to ``testing/capture/``, so a guard for the guard has to be a different shape.
+``wiring_problems()`` is that shape. It reads the ``verify:`` recipe of the Makefile this file ships
+in against the ``WIRED`` table -- the five clauses that have to keep running for the capture guard
+to mean anything -- and feeds each row its own deletion back through the predicate, the in-process
+control ``check-decisions.py`` uses for its own invocation pins. The shape is forced: the only thing
+that would notice a deleted clause is a program the clause is the only thing that runs, so the
+witness has to be code that survives the deletion. ``EXPECTED_CLAUSES`` pins the table's size for
+the reason the rows are pinned by count -- a witness deleted from the witness table is the same hole
+one level up. ``D-0079`` wrote it after measuring that 20 of the 22 labelled clauses in ``verify:``
+could be deleted without one line of red anywhere.
 """
 
 import hashlib
@@ -132,7 +144,14 @@ DOCUMENTED_HOLES = {
         "`if bad:` is where every problem becomes an exit code, the `len(ran) != EXPECTED_RULES` "
         "comparison is the reach check, and its `return 1` is the last link. Each is one edit above "
         "anything a rule compares: a rule that policed its own count check would have to hold the "
-        "number the check exists to hold. This is the floor, so it is listed rather than fixed.",
+        "number the check exists to hold. That is the floor, and it is one statement wide rather "
+        "than one suite wide -- measured 14 Nov, neutering each of the three makes THIS suite exit "
+        "1, because a verdict that no longer reports is a verdict under which rows that were CAUGHT "
+        "print green: 35 `NEW HOLE` rows for `if bad:`, and for the reach check and the canary "
+        "comparison the single row each of them is the only witness of (`one refusal rule is "
+        "unregistered`, `the canary pair is deleted`). What nobody witnessed was the contract's own "
+        "`verify:` clause -- delete it and all 54 rows run against a copy of a tree nobody checked "
+        "and report `0 problem(s)` at exit 0. That clause is in `WIRED` now (D-0079).",
     "the kept frame's bytes are never compared to the bytes the browser returned":
         "`_FakeSession.screenshot()` hands `cdp.capture_refused` a payload and the rules read the "
         "directory back -- names, counts, the note's sentences -- and nothing reads the file's "
@@ -590,16 +609,116 @@ def verify_recipe(text):
     return "\n".join(out)
 
 
-def wiring_problems():
-    """Are both of this suite's `make verify` steps still in the Makefile this file ships in?
+# Every clause of the `verify:` recipe that has to keep running for the capture guard to mean
+# anything, as (what it is, the pattern that finds it in the recipe, what its absence costs).
+#
+# The cheapest way to pass a check is to stop calling it, and nothing under `scripts/mutations/`
+# names a file under `scripts/`, so no mutant can see a deleted step. `manifest.py` answered that in
+# #144 by reading the Makefile it ships in. This table does the same, and adds two things.
+#
+# One: this suite is called from TWO steps and they witness each other. The gate step runs it with
+# no argument; the empty-filter loop names it in its `for runner` list. Each of the two assertions
+# is reachable from the other, so deleting either step makes the surviving one refuse.
+#
+# Two: a step can never witness its OWN deletion -- the clause is the only thing that runs the
+# program which would have noticed -- so a clause belonging to a different step is named here too.
+# Measured 14 Nov, clause by clause, in a copy of the tree (#1807): of the 22 labelled clauses in
+# `verify:`, exactly two had a witness outside themselves -- `manifest.py check`, witnessed by
+# `manifest.py --self-test`, and this suite's pair -- and the other twenty could be deleted without
+# one line of red. The one that matters here is the contract's: deleting
+#
+#     echo "==> capture refusal contract"; python3 testing/capture/pages.py --self-test; \
+#
+# left the two capture steps reading `VERDICT: 54 attacks, 0 problem(s)` and `capture manifest
+# self-test: 54 rules hold`, each at exit 0, because this file copies `testing/capture/` into its
+# own box and never asks who runs the original. D-0079.
+WIRED = [
+    ("this suite's gate step",
+     r"python3 scripts/attack-capture-self-test\.py\b",
+     "fifty-four attacks nobody invokes are a list of intentions, not a gate; if the step was "
+     "deleted because this file's verdict became inconvenient, the finding is in the verdict"),
+    ("this suite's empty-filter step",
+     r"for runner in [^\n]*attack-capture-self-test\.py",
+     "a filter matching nothing could exit 0 and the run would report a confident verdict over "
+     "nothing attempted. This clause and the one above witness each other: delete either and the "
+     "other refuses"),
+    ("the refusal contract's step (`testing/capture/pages.py --self-test`)",
+     r"python3 testing/capture/pages\.py --self-test\b",
+     "nothing else runs it, and this suite stays green without it because it attacks a COPY of "
+     "`testing/capture/`. The contract is the only gate that reads those files at all -- the mutants "
+     "name `.go` and `.tmpl`, nothing imports `pages.py`, shellcheck does not read Python -- so the "
+     "clause is the guard, and a guard is deleted more quietly than it is edited"),
+    ("the sibling attack suite's gate step (`scripts/attack-self-test.py`)",
+     r"python3 scripts/attack-self-test\.py\b",
+     "that suite attacks `mutate.py --self-test`, and nothing anywhere notices its deletion: a "
+     "step's own program is the last thing that can see it go, which is why the witness has to live "
+     "in a file that survives it"),
+    ("the sibling attack suite's empty-filter step",
+     r"for runner in [^\n]*attack-self-test\.py",
+     "a filter matching nothing there could exit 0 over nothing attempted. The loop names both "
+     "attack suites on one line, so this clause is that suite's second witness in the way the loop "
+     "above is this file's"),
+]
 
-    The cheapest way to pass a check is to stop calling it, and nothing under `scripts/mutations/`
-    names a file under `scripts/`, so no mutant can see a deleted step. `manifest.py` answered that
-    in #144 by reading the Makefile it ships in, and does the same thing here -- with one addition
-    this suite needs and that file does not: it is called from TWO steps, and they witness each
-    other. The gate step runs it with no argument; the empty-filter loop names it in its `for runner`
-    list. Each of the two assertions below is therefore reachable from the other, so deleting either
-    step makes the surviving one refuse.
+# A row of this table is a witness, so a deleted row is a step that can vanish from `verify:` with
+# nobody noticing -- the same hole the table exists to close, one level up. Pinned by count the way
+# the sibling suite pins its own row count (`EXPECTED_ROWS` in `attack-self-test.py`).
+EXPECTED_CLAUSES = 5
+
+
+def clause_message(what, cost):
+    """The refusal a missing clause produces, built in one place so the control can name it exactly."""
+    return f"the clause for {what} is missing from the `verify:` recipe -- {cost}"
+
+
+def table_problems():
+    """Is the wiring table itself whole?"""
+    if len(WIRED) != EXPECTED_CLAUSES:
+        return [f"the wiring table holds {len(WIRED)} clauses, expected {EXPECTED_CLAUSES}: a clause "
+                "dropped from this table is a `make verify` step that can be deleted without anyone "
+                "noticing, so the count is pinned for the same reason the attack rows are"]
+    return []
+
+
+def clause_problems(recipe):
+    """Which of the `WIRED` clauses are missing from the given `verify:` recipe text?"""
+    return [clause_message(what, cost) for what, pattern, cost in WIRED
+            if not re.search(pattern, recipe)]
+
+
+def pin_controls(recipe):
+    """Each clause above, deleted from the recipe, has to produce its own refusal.
+
+    Every assertion in `clause_problems` is one `re.search`, and a pattern is the easiest thing in
+    this file to widen until it matches again -- replacing the whole function with `lambda recipe:
+    []` keeps `make verify` green, which is exactly the state the table exists to refuse. So each row
+    is fed its own deletion here, in-process, where the code doing the checking is the thing still
+    standing. This is the shape `check-decisions.py` uses for its own invocation pins.
+
+    Only the row's own refusal is required, never the silence of the others: two of the clauses are
+    one line of the Makefile, so deleting one can also move the text the other searches for.
+    """
+    problems = []
+    for what, pattern, cost in WIRED:
+        mangled, hits = re.subn(pattern, "", recipe, count=1)
+        if hits != 1:
+            problems.append(f"the control for {what} matched {hits} times instead of once, so the "
+                            "clause is either already gone or no longer unique and the pin above is "
+                            "searching for something else")
+            continue
+        want = clause_message(what, cost)
+        if want not in clause_problems(mangled):
+            problems.append(f"deleting {what} from the recipe does not make this suite refuse: the "
+                            "pin that is supposed to see it going is itself unwitnessed")
+    return problems
+
+
+def wiring_problems():
+    """Does the Makefile this file ships in still run every step the capture guard depends on?
+
+    Reads the recipe, not the file: a mention in the prose above `verify:` is not a step, and the
+    sentence explaining why a step exists must not be able to satisfy the assertion the step is
+    supposed to satisfy.
     """
     try:
         with open(op.join(ROOT, "Makefile"), encoding="utf-8") as fh:
@@ -608,17 +727,7 @@ def wiring_problems():
         return [f"the Makefile could not be read ({exc}), so nothing here can promise `make verify` "
                 f"still runs this suite"]
     recipe = verify_recipe(text)
-    problems = []
-    if not re.search(r"python3 scripts/attack-capture-self-test\.py\b", recipe):
-        problems.append("`make verify` no longer runs this suite. Fifty-four attacks nobody invokes "
-                        "are a list of intentions, not a gate; if the step was deleted because this "
-                        "file's verdict became inconvenient, the finding is in the verdict")
-    if not re.search(r"for runner in [^\n]*attack-capture-self-test\.py", recipe):
-        problems.append("`make verify` no longer passes this suite through the empty-filter loop, so "
-                        "a filter matching nothing could exit 0 and the run would report a "
-                        "confident verdict over nothing attempted. This loop is also the second "
-                        "witness of the gate step above: delete it and that step goes red")
-    return problems
+    return table_problems() + clause_problems(recipe) + pin_controls(recipe)
 
 
 def main():

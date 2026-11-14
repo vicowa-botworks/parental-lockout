@@ -4454,3 +4454,83 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   class `DOCUMENTED_HOLES` already describes, now carrying six rows instead of four. What is graded is
   the production guard, not the rule: each of the four `CAUGHT` rows deletes one of the four guards from
   `cdp.py`/`pages.py` and the run goes red, which is the only claim this entry makes about coverage.
+
+## D-0079 · #325: the three verdict statements in `pages.py --self-test` are said to police nothing that polices them — pin the contract's `make verify` clause from the runner, give every `verify:` step one owner, or record the floor where the measurement puts it
+
+- Question: #325 claims `if bad:`, `if len(ran) != EXPECTED_RULES:` and
+  `if counts != [1, 0] or len(probe_bad) != 1:` are guards with no witness, and points the closure at
+  `wiring_problems()`, which has pinned the *attack suite's* two `make verify` steps since #144.
+  Measured first, on a copy of the tree at `0a1aea8` (#1807 — never the gated tree), the premise is
+  half true and the actionable half sits one link outside it. Neutering each of the three leaves
+  `pages.py --self-test` printing `capture self-test: 81 refusal rules hold` at exit 0, as the ticket
+  says, and does NOT leave the gate green: `scripts/attack-capture-self-test.py` exits 1 with 36
+  problems for `if bad:` — 35 rows that were `CAUGHT` re-reported as `NEW HOLE … the self-test printed
+  "…81 refusal rules hold…" with this live` — and with 2 each for the reach check and the canary
+  comparison, whose genuine half of those 2 is `NEW HOLE one refusal rule is unregistered, and the
+  count is what notices` and `NEW HOLE the canary pair is deleted` (the other half is an anchor the
+  mutation itself destroys, plus a `DOCUMENTED HOLE NO LONGER SEEN` for the canary). A verdict that
+  stops reporting turns every caught row green, so the caught set is the witness and it already
+  exists. What DOES leave the gate green is deleting the contract's `verify:` clause: every surviving
+  step then reads `VERDICT: 54 attacks, 0 problem(s)` at exit 0 beside `capture manifest self-test:
+  54 rules hold`, because this suite attacks a COPY of `testing/capture/` and nothing anywhere asked
+  who runs the original. Then the whole recipe, one clause deleted at a time against 11 fast
+  witnesses plus `check-decisions.py`'s predicate called in-process: of the 22 single-line labelled
+  clauses in `verify:` — 24 labelled steps counting the two multi-line ones — exactly 2 refused their
+  own deletion from anything outside themselves (`screenshot manifest`, refused by
+  `manifest.py --self-test`; `decision-log contract`, refused by its own in-process control). Who owns
+  a witness for a clause, and what shape survives the deletion it is watching for?
+
+- Options: a `WIRED` table in `attack-capture-self-test.py` naming the contract's clause and the sibling suite's two beside this suite's own pair, every row fed its own deletion in-process and the table's size pinned by count | one new script whose only job is the wiring of all 24 `verify:` steps, called from a step of its own | leave every clause unpinned and close #325 by recording that the three statements are policed by the caught set and that the clause is the one exposure
+
+- Chose: a `WIRED` table in `attack-capture-self-test.py` naming the contract's clause and the sibling suite's two beside this suite's own pair, every row fed its own deletion in-process and the table's size pinned by count
+
+- Why: a clause's own program is the last thing that can see it deleted — deleting the step silences
+  the only witness inside it — so a witness has to be code in a step that survives the deletion it
+  watches. That shape already exists twice in this repository: `manifest.py --self-test` refuses when
+  `manifest.py check` goes, and this suite's two clauses have witnessed each other since #144 because
+  it is called from two steps. Extending it to the contract is the move #325 itself names ("wiring
+  `pages.py --self-test`'s own invocation can be pinned from `attack-capture-self-test.py`").
+  In-process controls are the other half and the precedent is `check-decisions.py`, which feeds its own
+  `invocation_problems()` four synthetic Makefiles: without them the table's five `re.search` calls
+  were themselves the un-witnessed layer — replacing `wiring_problems()` with `lambda: []` keeps
+  `make verify` green, which is #325's defect one level up, and a control is the only thing that can
+  see a predicate hollowed while the file still runs. The sibling's two clauses ride along because
+  they are one row each in a table that already exists, and filing them instead would leave a measured
+  hole standing for a tick to re-measure.
+
+- What lost: 18 of the 22 single-line clauses still have no witness and no owner — `go vet`,
+  `dependencies`, `shellcheck`, `agent deny list`, the bare `decision log` gate and the rest — because
+  the option that covers all of them is a file whose own clause is the only thing that runs it, which
+  is #325's floor aimed at the harness rather than a task; filed as its own issue with the sweep table,
+  including the caveat that the sweep ran only fast witnesses, so the Go and shell rows say "no python
+  guard refuses", not "nothing refuses". The cross-witnessing is one-sided: this file refuses when the
+  sibling's steps vanish and the sibling says nothing when this file's do, because the sibling has no
+  table. Two rows are one Makefile line, so deleting one fires the other's message too, and the control
+  therefore asks only that the row's OWN refusal appears. A pattern and its step can be renamed in
+  lockstep — one honest edit changing both reads green, and only a diff reader sees it.
+  `EXPECTED_CLAUSES` makes every addition a two-place edit, and the counts quoted in the hole text and
+  here are dated because the row set moves.
+
+- Checkpoint: 0a1aea8
+
+- Effect: one file. `scripts/attack-capture-self-test.py` gains `WIRED` (5 clauses: this suite's gate
+  step and empty-filter clause, the contract's step, the sibling's gate step and empty-filter clause),
+  `EXPECTED_CLAUSES`, `clause_message`, `table_problems`, `clause_problems`, `pin_controls`, and
+  `wiring_problems` reduced to read-the-Makefile-and-call-the-three; the `verify:` clause is no longer
+  the one link in the capture chain with no witness outside itself. The `DOCUMENTED_HOLES` class `the
+  verdict's final decision is unguarded` is corrected: it said "this is the floor, so it is listed
+  rather than fixed", which read as *nothing notices*, and the measurement is that the floor is one
+  statement wide — the contract's own exit code — while this suite refuses with 35 `NEW HOLE` rows for
+  `if bad:` and one each for the other two; the class now says that and names the clause as the
+  exposure `WIRED` closes. The module docstring gains the paragraph on why nothing here attacks this
+  file and what witnesses it instead. Read back: `make verify` → `verify: OK`, exit 0, with
+  `==> capture refusal contract` and `==> capture refusal attack suite` both present;
+  `python3 scripts/attack-capture-self-test.py` → `VERDICT: 54 attacks, 0 problem(s), 4 hole class(es),
+  12 hole row(s)`, exit 0, so all five controls pass against the live Makefile. Then the closure proof,
+  each deletion applied to a fresh copy and the surviving suite run BY HAND (a deleted clause is not
+  run by `make verify`, which is the whole point): before, deleting the contract's clause printed
+  `VERDICT: 54 attacks, 0 problem(s)` at exit 0; after, all five deletions exit 2 naming their own
+  clause — gate step, empty-filter clause, contract step, sibling gate step, sibling empty-filter
+  clause — and deleting both capture clauses at once exits 2 with both messages. The re-sweep of all 22
+  clauses now shows `capture refusal contract` and `self-test attack suite` refused by
+  `capture refusal attack suite`, where the pre-fix sweep showed `*** NOTHING ***` for both.
