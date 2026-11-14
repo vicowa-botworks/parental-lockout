@@ -68,7 +68,11 @@ thing that needs something (or, for `delivered`, one row per thing that needs no
   detail why that class, with the timestamps the verdict was made from. One `unclaimed` row may open
          with `$FACTORY_MERGED_MARK` -- a merged pull request named the issue and the sole-claim or
          `Part of` arm refused it, so part of this ticket may already be on the trunk. The class and
-         the tick are unchanged; see the refused-claim block.
+         the tick are unchanged; see the refused-claim block. One `branch_without_pr` row may open
+         with `$FACTORY_DUP_MARK` -- the ref holds content, and every file in it is already on the head
+         of somebody else's OPEN pull request, so the supervisor refuses it; or with
+         `[dup-scan-limited:N ...]`, which says the duplicate question was not asked of N open pull
+         requests because `FACTORY_DUP_SCAN` ran out. Neither mark changes the class.
   branch the PR head / orphan branch
   issue  the issue GitHub says the PR closes, when there is one
   ask    the reviewer's own words for `address_review`, bounded at
@@ -1006,7 +1010,100 @@ if [ -n "$main_sha" ]; then
 		else
 			content="$ahead commit(s), content not comparable to main"
 		fi
-		rows+="$(emit branch "$branch" branch_without_pr "$content ahead of main, no open PR ($where)" "$branch" '')"$'\n'
+		# Is what this ref carries already sitting on a branch somebody else has a pull request open on?
+		#
+		# The name arm in `factory/factory.sh` catches a safety copy by how it is spelled, and #284
+		# measured the hole: `backup/*` needs a literal slash, so `backup-tip` walked past it and was
+		# handed a worktree and a model. A name is a poor proxy for intent however many separators are
+		# listed -- `preserve/issue-222-stale-base` and `preserve/issue-318-wip` are outside the list
+		# today -- so the question is asked of the content: does this ref add a single file that the
+		# head of some open pull request does not already have.
+		#
+		# Two readings, strong one first. Containment (`merge-base --is-ancestor`) is the exact case:
+		# every commit on this ref is on that head, so that pull request covers it. The byte reading is
+		# the rebase-and-cherry-pick case, and it is the one worth the code: compare the two TREES
+		# (`git diff --name-only <head> <ref>`, one read per head) and ask whether any file this ref
+		# touches is among the ones that differ. None differing means the head holds this ref's bytes for
+		# every file the ref changes, whatever the commit graph looks like.
+		#
+		# A reading from the merge base was written first and is wrong, so it is recorded here rather
+		# than quietly replaced: `diff $(merge-base ref head)..ref` asks what the ref added since the two
+		# histories parted, and a change that was cherry-picked onto the pull request's branch still
+		# looks freshly added from there -- the graph differs even though the bytes do not. The case #284
+		# is made of is exactly that shape: `backup-tip`'s two content commits are the pre-rebase
+		# originals of commits that are on an open pull request, identical subjects, identical file
+		# profiles, different shas. The merge-base reading concludes nothing about it. The tree reading
+		# says in one read what the other could not.
+		#
+		# A file the ref DELETES is content (#291's `br-delete`), and it is handled by the same question:
+		# if the head still has the file, that path differs, so the reading declines and the ref keeps its
+		# row. Ambiguity goes toward reporting.
+		#
+		# `git cherry` is NOT used, and the measurement that removed it is in the checkpoint commit: the
+		# three refs whose single ahead-commit is empty -- the `git commit --allow-empty` checkpoint
+		# Step 3 makes every tick take before a judgement call -- read as patch-equal to every one of
+		# the five open heads, because cherry marks a commit `-` when there is no patch to compare. A
+		# cherry-based arm refuses a tick's own checkpoint branch, which is the artifact this harness
+		# asks people to keep. The byte reading has no such hole: an empty commit touches no file, so the
+		# intersection is empty for the trivial reason that the ref's own file list is empty -- and that
+		# branch never reaches this line, because #291's content question already held it back.
+		#
+		# Draft heads are NOT an input. A draft has not asked for anything, and the tombstone draft is
+		# not hypothetical: #285 was one titled "reference only, do not merge", and for three days it
+		# was the only record the queue had of #284 and #222. Refusing a ref whose content lives only on
+		# such a pull request hides the work for as long as the tombstone stands, which is the
+		# permanently-invisible failure; working it costs one ceiling of re-derivation, which is the
+		# recoverable one. So the tie-break goes the way #873 and the unjudgeable arm above go it:
+		# spend the ceiling rather than silence the artifact.
+		#
+		# Bounded, and saying so when the bound bit. A scan that stops early and reports nothing looks
+		# identical to a scan that found nothing, which is the shape this file refuses everywhere else.
+		dup_pr='' dup_kind='' dup_scanned=0 dup_skipped=0
+		if [ "$comparable" = 1 ]; then
+			while IFS=$'\t' read -r onum ohead osha odraft; do
+				[ -n "${ohead:-}" ] || continue
+				[ -n "${onum:-}" ] || continue
+				[ "$ohead" = "$branch" ] && continue
+				# A draft head buys no refusal. It will never merge, so a match against it retires a ref
+				# no delivery will ever cover -- the shape is draft #285 on `backup-tip` ("reference only,
+				# do not merge", closed unmerged 16:34:58Z on 12 Nov), not a live instance of it.
+				[ "$odraft" = "true" ] && continue
+				[ -n "${osha:-}" ] || continue
+				if [ "$dup_scanned" -ge "$FACTORY_DUP_SCAN" ]; then
+					dup_skipped=$((dup_skipped + 1))
+					continue
+				fi
+				dup_scanned=$((dup_scanned + 1))
+				git -C "$FACTORY_ROOT" rev-parse --verify -q "${osha}^{commit}" >/dev/null 2>&1 || continue
+				if git -C "$FACTORY_ROOT" merge-base --is-ancestor "$sha" "$osha" 2>/dev/null; then
+					dup_pr=$onum
+					dup_kind='every commit on it is already on that head'
+					break
+				fi
+				differ=$(git -C "$FACTORY_ROOT" diff --name-only "$osha" "$sha" 2>/dev/null) || continue
+				# Both lists come out of `git diff --name-only`, which sorts them, so `comm` needs no
+				# help. Anything left in the intersection is a file this ref changed whose bytes are NOT
+				# on that head, which is the ref having something of its own to offer.
+				own=$(comm -12 <(printf '%s\n' "$delta") <(printf '%s\n' "$differ") |
+					grep -c . || true)
+				if [ "${own:-1}" = "0" ]; then
+					dup_pr=$onum
+					dup_kind='every file it touches holds the same bytes on that head'
+					break
+				fi
+			done < <(printf '%s' "$pr_json" | jq -r '.[] |
+					[(.number | tostring), (.headRefName // ""), (.headRefOid // ""), (.isDraft | tostring)] | @tsv' 2>/dev/null)
+		fi
+		dup_note=''
+		if [ -n "$dup_pr" ]; then
+			# The mark first, anchored, for the reason `FACTORY_DUP_MARK` gives in `common.sh`: the
+			# dispatch loop matches these characters to decide not to spend a model, and the rest of the
+			# column is prose. The head's name is quoted because it is somebody's bytes.
+			dup_note="$FACTORY_DUP_MARK$dup_pr] the content of \`$branch\` is already on the head of open pull request #$dup_pr ($dup_kind), so this ref has nothing of its own to offer; "
+		elif [ "$dup_skipped" -gt 0 ]; then
+			dup_note="[dup-scan-limited:$dup_skipped open pull request(s) past FACTORY_DUP_SCAN=$FACTORY_DUP_SCAN were not asked] "
+		fi
+		rows+="$(emit branch "$branch" branch_without_pr "$dup_note$content ahead of main, no open PR ($where)" "$branch" '')"$'\n'
 	done < <(
 		git -C "$FACTORY_ROOT" for-each-ref --format="%(objectname)"$'\t'"%(refname)"$'\torigin' \
 			refs/remotes/origin/ 2>/dev/null
