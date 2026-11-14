@@ -1989,17 +1989,20 @@ def _died_disposal_problems(where, got, refused, died_marker, expect_note, expec
 # that rule's break, re-runs that rule's body alone, and requires a problem the body did not report
 # a moment ago. Three things it does not do, each because of how this file is built:
 #
-#   * It does not pretend a raise and a report are the same witness. Measured 14 Nov, instrumented:
-#     of the 81, NINETEEN answer their own break with a problem sentence and SIXTY-TWO let it escape
-#     as an exception. Both retire #322's defect -- a body emptied to `return` does neither, and
-#     `rule()` turns the raise into a problem named by the rule's `why`, the arm #323's crash canary
-#     witnesses on every run -- but they prove different strengths, and the weaker reading of the 62
-#     is the true one: a raise says the rule sits on the path of the guard its name names, not that
-#     it JUDGES that guard. Only a break that changes what the guard ANSWERS can show the judgement,
-#     which is why `empty`, `data`, `page` and `shadow` exist where they were derivable and why
-#     `_rule_probes_are_live` refuses a pass in which nothing at all reports. Widening the reporting
-#     set is the follow-up #322 leaves open; it needs a `returns`-style break per guard, not a new
-#     kind of claim, and it is worth the count moving in the transcript rather than in prose here.
+#   * It does not pretend a raise and a report are the same witness. Measured 14 Nov by instrumenting
+#     the loop on the shipped tree: of the 81, TWENTY append a problem sentence for their own break,
+#     SIXTY-ONE let it escape as an exception with nothing appended, and NONE answer nothing at all.
+#     The three counts come from one `print` added to a copy of the loop -- the recipe, with the
+#     command and its output, is in #378 -- so the split is read off behaviour and not inferred from
+#     the kind an entry declares. Both reacting shapes retire #322's defect -- a body
+#     emptied to `return` does neither, and `rule()` turns the raise into a problem named by the rule's
+#     own `why`, the arm #323's crash canary witnesses on every run -- but they prove different
+#     strengths, and the weaker reading of the 61 is the true one: a raise says the rule sits on the
+#     path of the guard its name names, not that it JUDGES that guard. Only a break that changes what
+#     the guard ANSWERS can show the judgement, which is why `empty`, `data`, `page` and `shadow` exist
+#     where they were derivable and why `_rule_probes_are_live` refuses a pass in which nothing at all
+#     reports. #378 carries widening the reporting set: a `returns`-style break per guard, and the
+#     baseline it has to beat is the 20 above.
 #   * It does not write outside a temp directory. Two rules read files from disk, so no `setattr`
 #     reaches them. `_probe_shadow` copies what they read into a directory laid out so that
 #     `cdp.HERE/../../internal/web/templates` still resolves, edits the copies, and moves `cdp.HERE`

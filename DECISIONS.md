@@ -4501,17 +4501,23 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   81: a probe is not a claim about a driver, so it never enters `ran`, the same discipline `D-0072`
   held its crash canary to.
 
-- What lost: five things, and the first is the real cost. Sixty-two of the 81 answer their own broken
-  contract by RAISING and nineteen by reporting a problem sentence — measured by instrumenting the loop
-  and reading which path each body took, not by assuming the table's kind. Both retire #322's defect,
+- What lost: five things, and the first is the real cost. Sixty-one of the 81 answer their own broken
+  contract by RAISING silently, twenty append a problem sentence, and none are silent — measured by
+  instrumenting the loop and reading which path each body took, not by assuming the table's kind. The
+  pair this entry carried at `0a4a528` was 62 and 19, read off a copy made before the loop counted
+  `reported` separately: that classifier asked "did it raise?" first, so a body that raised *and*
+  appended scored as a raise and one rule moved sides. Corrected here and in the file's own comment in
+  the next commit on this branch, because an entry that quotes a stale measurement is a pointer nobody
+  can re-open. Both retire #322's defect,
   because a body emptied to `return` does neither and `rule()` turns the raise into a problem named by
   the rule's own `why` (the arm #323's crash canary witnesses on every run). But the honest reading of
   a raise is weaker than the sentence in this entry's title: it proves the rule sits on the path of the
   guard its name names, not that it JUDGES that guard, and only a break that changes what the guard
   ANSWERS can show the judgement. `if not reported:` is the floor under that — a run in which nothing
-  reports refuses — and it is deliberately not a ratchet on 19, because pinning the number would punish
-  the next unit for improving a spec. Closing the gap needs a `returns`-style break per guard, which is
-  the follow-up this entry leaves open and which #322 stays open for. Second, the repair has its own
+  reports refuses — and it is deliberately not a ratchet on 20, because pinning the number would punish
+  the next unit for improving a spec. Closing the gap needs a `returns`-style break per guard, and that
+  is #378, filed with the measurement above and the acceptance list a unit can re-run; #322's own claim,
+  the silent hollow rule, is what this change delivers. Second, the repair has its own
   floor and it is bigger than what it replaced: every arm of the harness is one `if`, and deleting the
   `_rule_probes_are_live` call from `self_test()` is silent, so the suite keeps exactly four
   documented hole classes and exactly twelve hole rows, 12 -> 12, and the identity of every one of them
