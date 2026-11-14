@@ -4454,3 +4454,105 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   class `DOCUMENTED_HOLES` already describes, now carrying six rows instead of four. What is graded is
   the production guard, not the rule: each of the four `CAUGHT` rows deletes one of the four guards from
   `cdp.py`/`pages.py` and the run goes red, which is the only claim this entry makes about coverage.
+
+## D-0077 · #324: a refusal's kept frame was listed at every viewport and never read, so `fh.write(b"")` printed "81 refusal rules hold" over two empty PNGs — compare the bytes against a value the fake supplies, against one it cannot, or compare only how many there are
+
+- Question: `a_refused_run_says_where_its_frames_are` reads the kept drawer back — the announced
+  count, the list beside it, the pointer sentence at each viewport, `REFUSED.txt`'s four sentences —
+  and has never opened a frame. Measured on this branch at `607966e` before anything was written, in a
+  copy of the tree (`/tmp/opencode/verify324.py`; never the gated tree, #1807): replacing the
+  `fh.write(data)` inside `cdp.capture_refused` with `fh.write(b"")` — one statement, the write that
+  happens after the fake hands the driver 36 bytes — prints `capture self-test: 81 refusal rules
+  hold` with `exit=0` and leaves two zero-byte files in the drawer, and the attack suite scores the
+  same patch `HOLE     the kept frame is written as an empty file` inside `TOTAL  54 attacks: 36
+  caught, 6 honest edits still green, 12 holes, 0 invalid, 0 unexpected`, `VERDICT: 54 attacks, 0
+  problem(s), 4 hole class(es), 12 hole row(s)`, rc 0. So the transcript and the directory can agree
+  perfectly about a frame that holds no picture, which is the property #211 and D-0054 exist to hold
+  and `manifest.py` already refuses for the PUBLISHED set, where D-0056 decodes pixels. The choice is
+  the shape of the comparison, because #324's own body names one shape as not accepted.
+
+- Options: compare each kept frame's bytes with the payload `_FakeSession.screenshot()` returned, held in one module constant that both the fake and the rule read | compare them with a literal the rule holds itself while `screenshot()` keeps its own copy | compare how many bytes landed, not which | require the kept bytes to decode as a PNG, as the published path does | leave the row as a documented hole, which is where D-0058 left it
+
+- Chose: compare them with a literal the rule holds itself while `screenshot()` keeps its own copy
+
+- Why: three measurements decide it, in the order the arguments arrive.
+
+  Length is not the property, and that is a defect report rather than a style objection. With the
+  clause weakened to `len(got) != len(_SELFTEST_FRAME)` — exactly the fix #324 refuses — the self-test
+  answers `exit=0`, `capture self-test: 81 refusal rules hold` over a frame of 36 `r` bytes written in
+  place of the payload (probe 4 of the same file). So a length comparison is a live and plausible
+  guard that grades nothing, and the answer to a live wrong guard is a gate, not advice: the suite
+  gained `the kept frame is rewritten with the same number of different bytes`, whose patch is
+  `fh.write(b"r" * len(data))`. Measured with the weakened clause installed in a copy, that row alone
+  prints `NEW HOLE` and the run says `VERDICT: 55 attacks, 1 problem(s)`, rc 1; measured with the
+  clause switched off outright (`if False:`) both byte rows print `NEW HOLE`, `2 problem(s)`, rc 1.
+  The clause is therefore policed at both ends — removed, and degenerated — which is more than most
+  fixes in this file were given.
+
+  The expected value must not be one the code under check supplies. Option 1, the obvious DRY edit of
+  a shared constant, is vacuous the moment the fake is hollowed: measured in
+  `/tmp/opencode/verify324c.py`, design A (`screenshot()` returns `_SELFTEST_FRAME`, the rule compares
+  against it) with the constant set to `b""` answers `exit=0`, `81 refusal rules hold`, because both
+  sides agree about nothing — this entry's own hole, relocated into the harness. The shipped design
+  answers the same patch with `exit=1`, `capture self-test: 1 of 81 rules failed`, naming both
+  viewports and both byte counts. `pages.py` already makes this argument to itself about `CENSUS`
+  ("deliberately NOT derived from `PAGES`", on the ground that a derived expectation turns the census
+  into a tautology), and #1048 makes it about a cell that grades a run where nothing was attacked;
+  spelling the payload twice is that argument applied to an expected value. Tie-break order for the
+  record: no option adds a module, so #856 separates none of them; none decodes a config key, so #873
+  is silent; option 2 is the one that refuses rather than proceeds when the bytes are missing or empty
+  (probe B) and the one the surrounding code already takes.
+
+  Option 4 is what a reader would expect from this repository and the fake declines to support it:
+  `_FakeSession.screenshot()` is not a PNG on purpose, on the stated ground that real pixels would
+  mean shipping a picture in a source file to prove a path is written, and what #324 states as the
+  property is that the driver writes the bytes it was handed, not that the browser photographed a
+  page. Decoding there would also be D-0056's job in the wrong place — pixels belong to a frame that
+  is about to be published, where they can be re-derived from git.
+
+- What lost: three things, one of them a tax this very file keeps rows to notice.
+
+  The payload string is now load-bearing in two places, so an honest edit — rewording the fake's
+  payload — turns the gate red with a sentence naming both sides, and the repair is two keystrokes.
+  `attack-capture-self-test.py` carries GREEN rows precisely because a guard that taxes honest edits
+  gets switched off, and there is no GREEN row for this literal: the first person to reword it meets a
+  red gate and must decide which spelling is the one that moved. If that reads as brittleness, the
+  repair is to give the rule an independent way to know the browser returned *something* (the fake's
+  `log` already tells `screenshot` from `shot-refused`), not to loosen the comparison.
+
+  Pixels are still never read. The clause pins "the bytes on disk are the bytes the driver was
+  handed", so a fake that returns nonsense still passes and a browser that photographed a blank page
+  still passes; the refused set has no equivalent of D-0056's decoding, and #324 asked for exactly
+  this much and no more.
+
+  The blast radius is one rule. The clause lives in `a_refused_run_says_where_its_frames_are`, so it
+  reads the `pages` fixture's kept frames; `lock.py` and `testlock.py` still keep frames nobody opens,
+  which is the limit #324's body sets by naming that rule and no other. And the class the fix sits
+  inside is still open: emptying the whole rule keeps printing green — `a hollowed rule is invisible
+  to the count`, the last of the 11 Nov findings still unretired, 7 rows — so deleting the clause is
+  caught and deleting the rule is not.
+
+- Checkpoint: 607966e
+
+- Effect: two files, and every number below read back after the run that produced it.
+  `testing/capture/pages.py`: `_SELFTEST_FRAME` above `_FakeSession`, the byte clause inside the
+  per-viewport loop of `a_refused_run_says_where_its_frames_are`, and `screenshot()`'s docstring
+  corrected — it had been asserting that the property under test is not the contents, which stopped
+  being true here. `scripts/attack-capture-self-test.py`: the empty-file row moved `HOLE` → `CAUGHT`,
+  one `CAUGHT` row added beside it, the class and its `HOLE_CLASS` mapping retired, `EXPECTED_ROWS`
+  54 → 55, and the header's class census restated as three open and two gone. Read back: `python3
+  testing/capture/pages.py --self-test` → `capture self-test: 81 refusal rules hold`, rc 0; `python3
+  scripts/attack-capture-self-test.py` → `TOTAL  55 attacks: 38 caught, 6 honest edits still green, 11
+  holes, 0 invalid, 0 unexpected`, `VERDICT: 55 attacks, 0 problem(s), 3 hole class(es), 11 hole
+  row(s)`, rc 0 — both byte rows print `CAUGHT`, so neither the clause nor the row beside it is
+  decorative, and the class did not merely stop being listed, it stopped being measured as a hole. The
+  four probes named in `Why:` are `/tmp/opencode/verify324.py` and `/tmp/opencode/verify324c.py`, kept
+  outside the tree; `make verify`'s own last line is quoted in the pull-request body, because an
+  `Effect:` written before the gate runs is a prophecy (#1180). One thing this commit moved and no gate
+  can see: four pointers in `D-0062`, `D-0063` and `D-0064` locate that suite's `if hits != 1:` anchor
+  guard by line number, all of them unanchored. The guard stood at 672 at the checkpoint and stands at
+  679 here, so those four pointers were already ninety-six lines off before this commit touched the
+  file and are now a hundred and three off; they have no quoted text, so `--citations` reports them as
+  debt in both states and refuses nothing in either. Named here rather than repaired here because
+  editing three other entries' records is not this unit's call, and because a number with nothing
+  beside it is the exact defect #374 keeps open.

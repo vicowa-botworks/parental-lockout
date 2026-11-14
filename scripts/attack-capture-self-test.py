@@ -93,20 +93,27 @@ CAUGHT, HOLE, GREEN = "caught", "hole", "green"
 # a fix closes. A NEW hole fails this run, and a listed hole that has stopped being a hole fails it
 # too, so the list cannot rot in either direction.
 #
-# The classes below are four: the floor every suite of this shape has, which shows up at two sites
-# and so counts twice, and the findings this suite made the first time it ran (11 Nov) that are still
-# open -- each one a claim about the guard, filed as an issue so the queue can see it, and kept here
-# as a row so the claim is re-measured on every push instead of remembered:
+# The classes below are three: the floor every suite of this shape has, which shows up at two sites
+# and so counts twice, and the one finding this suite made the first time it ran (11 Nov) that is
+# still open -- a claim about the guard, filed as an issue so the queue can see it, and kept here as
+# a row so the claim is re-measured on every push instead of remembered:
 #
 #   1. A counted rule cannot police its own call site -- the class #125 tracks from the other end.
 #      The canary pair proves `rule()` is not hollow; nothing proves a *rule* is not.
 #   2. A check cannot police its own deletion -- the same floor `attack-self-test.py` documents for
 #      `mutate.py`'s `if bad:`. It shows up twice here, at the verdict and at the canary.
-#   3. What the 81 rules do not look at: the bytes of the frame a refusal keeps.
 #
-# A fifth class ran with these for two days and is gone: `rule()`'s crash arm was the third thing
-# the suite could not see, and `pages.py` now carries a canary that raises on purpose, so the arm is
-# witnessed on every run and the row is CAUGHT (#323, `D-0072`).
+# Two classes ran with these for a while and are gone, and each left its row attacked rather than
+# deleted, because a guard is only as good as the run that re-measures it. `rule()`'s crash arm was
+# the third thing the suite could not see, and `pages.py` now carries a canary that raises on
+# purpose, so the arm is witnessed on every run and the row is CAUGHT (#323, `D-0072`). The other is
+# the bytes of a kept frame -- #324, `D-0077` -- and it closed the way its own body said it would:
+# `a_refused_run_says_where_its_frames_are` now opens every frame the refusal announces and compares
+# it with the payload `_FakeSession.screenshot()` handed the driver, so `the kept frame is written
+# as an empty file` prints CAUGHT and the class comes out below with its mapping. The row filed
+# beside it writes the same number of different bytes, and it is there because #324's body names a
+# length comparison as not accepted: a `len()` clause would still pass that one, so the rejection is
+# a row now rather than a sentence.
 # ---------------------------------------------------------------------------------------------
 DOCUMENTED_HOLES = {
     "a hollowed rule is invisible to the count":
@@ -133,13 +140,6 @@ DOCUMENTED_HOLES = {
         "comparison is the reach check, and its `return 1` is the last link. Each is one edit above "
         "anything a rule compares: a rule that policed its own count check would have to hold the "
         "number the check exists to hold. This is the floor, so it is listed rather than fixed.",
-    "the kept frame's bytes are never compared to the bytes the browser returned":
-        "`_FakeSession.screenshot()` hands `cdp.capture_refused` a payload and the rules read the "
-        "directory back -- names, counts, the note's sentences -- and nothing reads the file's "
-        "contents. Writing an empty file at the announced path therefore keeps the transcript and "
-        "the listing in perfect agreement about a frame with no picture in it. What closes it is "
-        "one clause in `a_refused_run_says_where_its_frames_are`: the kept file's bytes equal the "
-        "fake's payload. Filed as its own issue.",
 }
 
 HOLE_CLASS = {
@@ -164,8 +164,6 @@ HOLE_CLASS = {
         "the verdict's final decision is unguarded",
     "the reach check runs and returns success":
         "the verdict's final decision is unguarded",
-    "the kept frame is written as an empty file":
-        "the kept frame's bytes are never compared to the bytes the browser returned",
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -360,10 +358,19 @@ ROWS = [
      "    def a_clean_run_names_its_fixture_to_the_publish(problems):",
      "    def a_clean_run_names_its_fixture_to_the_publish(problems):\n        return"),
 
-    # ---- the bytes ----
-    (HOLE, "cdp.py", "the kept frame is written as an empty file",
+    # ---- the bytes (#324) ----
+    # Two rows on one statement, applied one at a time. The first is the clause's re-measurement:
+    # empty the write and the rule that opens the kept frame goes red, where on `origin/main` it
+    # printed `81 refusal rules hold` over two zero-byte files. The second is the guard against the
+    # degenerate fix -- the same COUNT of bytes, none of them the picture -- so a replacement that
+    # compared `len()` instead of the bytes cannot pass for this clause. #324's body names a length
+    # comparison as not accepted, and that rejection is a row now rather than a sentence.
+    (CAUGHT, "cdp.py", "the kept frame is written as an empty file",
      '        with open(path, "wb") as fh:\n            fh.write(data)',
      '        with open(path, "wb") as fh:\n            fh.write(b"")'),
+    (CAUGHT, "cdp.py", "the kept frame is rewritten with the same number of different bytes",
+     '        with open(path, "wb") as fh:\n            fh.write(data)',
+     '        with open(path, "wb") as fh:\n            fh.write(b"r" * len(data))'),
 
     # ---- #317: a refusal's report and its keeping must not be able to leave the driver ----
     #
@@ -416,7 +423,7 @@ ROWS = [
 # The suite's own count pin, on the pattern of `mutate.py`'s three and `attack-self-test.py`'s one.
 # A row deleted from ROWS makes the tally smaller and every remaining row still reports its expected
 # verdict, so the run prints a confident "40 attacks, 0 problems" over a guard that lost a test.
-EXPECTED_ROWS = 54
+EXPECTED_ROWS = 55
 
 
 def shape_problems():
@@ -610,7 +617,7 @@ def wiring_problems():
     recipe = verify_recipe(text)
     problems = []
     if not re.search(r"python3 scripts/attack-capture-self-test\.py\b", recipe):
-        problems.append("`make verify` no longer runs this suite. Fifty-four attacks nobody invokes "
+        problems.append("`make verify` no longer runs this suite. Fifty-five attacks nobody invokes "
                         "are a list of intentions, not a gate; if the step was deleted because this "
                         "file's verdict became inconvenient, the finding is in the verdict")
     if not re.search(r"for runner in [^\n]*attack-capture-self-test\.py", recipe):
