@@ -242,6 +242,16 @@ rows carry content (58, 15, 14, 6, 4, 4, 2 and 1 files) and none was empty. The 
 defect, `issue-249`, had acquired a real commit of its own -- H-0130's -- two hours before this was
 written. The fix is for the next one.
 
+A tally sentence is one `printf` format, and one format has to be one word. #329 found both tallies
+shipped with the literal closed immediately before a `\<newline>` and the rest of the sentence on an
+indented line: the shell deletes the continuation and what is left between the two literals is that
+line's indentation, a field separator, so `printf` received a format with no `\n` in it plus the literal
+`offered: %s\n` as its first argument, and re-applied the format once per remaining argument. What an
+operator got was three lines, the first of them the format string. `bash -n` and shellcheck both exit 0
+on that file, and a leg that greps the sentence for a fragment is green on the result -- the format's own
+words are exactly what got printed -- so the assertion here is the whole sentence, and
+`scripts/check-scripts.py` refuses the shape in every shipped script (`H-0154`).
+
 **A ref whose pull request merged reports the delivery (#291, ask 2).** GitHub deletes a branch when its
 pull request merges only if the repository asks it to; this one does not, so the ref survives -- usually
 at zero commits ahead, and often as nothing but the `--allow-empty` checkpoint that Step 3 takes before a
@@ -366,6 +376,63 @@ draft (`#230` and `#233` are drafts on purpose -- a draft pull request is the au
 not a review request, and the classifier routes it to `draft`, which is a wait and not a poke), and it
 does not cancel an individual request it did not make (H-0117) -- the person who holds it may hold it
 because somebody with better knowledge asked them.
+
+### The ref that is not a contribution (#284)
+
+`branch_without_pr` asks a ref one question: does it hold content the trunk lacks? The class name is
+about the missing pull request, and both halves of the decision were being made by the wrong thing.
+Two refusals now exist, one on the name and one on the content, and neither may start a tick.
+
+**The name.** `factory_refuseto_work` (`factory/factory.sh`) listed the families with a slash and
+nothing else -- `backup/* local/* integration/* wip/* tmp/*` -- so a hyphen spelling walked straight
+past it and `preserve/` was not on the list at all. Measured over the 11 refs ahead of `main` with no
+open pull request at 00:40Z on 14 Nov, that let exactly three through: `backup-tip` (7 files across 5
+commits), `preserve/issue-222-stale-base` (2 across 2) and `preserve/issue-318-wip` (6 across 3),
+while four `backup/` and `local/` refs were already refused and the four `issue-*` names in that census
+are untouched by the pattern -- and none of those four prints a row today: `issue-248` reads
+`delivered` behind merged PR #262, while `issue-309` and `issue-318` sit one commit ahead with zero
+files, which is the empty commit that makes `git cherry` useless below. The journal agrees the arm was
+firing for what a slash could reach: **24 `REFUSED branch` lines** between 11 Nov 09:54:49Z and
+14:14:10Z, so the 12 Nov addendum's "refuses nothing" was false the day it was written;
+what was true is that it refused only what a slash could reach. The pattern is `backup[-/]*` and the
+same for each family, plus `preserve[-/]*`, and #291's ask-1 control blinds the separator to demand
+`backup-tip` be dispatched again. Two costs, measured against the live names rather than reasoned:
+`preserve-scroll-position` and `tmp-dir-cleanup` are refused, because a family word is also the first
+token of a feature branch, and bare `backup` is not, because `[-/]` asks for a family or a path and
+not for the word. `preserve[-/]*` is a decision written above the pattern, not a family inherited
+from the list: a preservation branch says *keep this*, not *work on this*, and the arm has always made
+that trade for `wip/`. The row survives either way, because the row is a report and the arm only stops
+the dispatch -- `REFUSED branch:<name> the name says it is a backup, not a contribution`.
+**The content.** A ref whose work is already sitting in an open pull request is not stranded work, and
+`git cherry` cannot tell you that: it marks a commit `-` when the commit is **empty**, not when the
+work landed. Measured at 00:50Z on 14 Nov, `issue-248`, `issue-309` and `issue-318` are each one empty
+commit with zero files and all three read patch-equal to every non-draft open head -- a verdict about
+the shape of a commit, never about whether work landed. The reading is bytes instead: the head itself if the ref is contained
+in it, otherwise one `git diff` between the two trees restricted to the files the ref touches. The
+merge-base form was written first and is wrong, because a change cherry-picked onto the pull request's
+head still names the file in a merge-base diff; `br-pick` in the fixture is that case, and a leg pins
+that the byte reading and not containment is what refused it. A draft head buys no refusal: a draft
+never merges, so refusing a ref because a draft's bytes match it retires work no merge will ever
+deliver. The case that taught it was draft #285 on `backup-tip`, titled "reference only, do not merge"
+and closed unmerged at 16:34:58Z on 12 Nov. Up to
+`FACTORY_DELIVERED_WINDOW` merged pull requests are consulted, and open heads up to
+`FACTORY_DUP_SCAN` (40, against the 5 open heads measured 00:45Z on 14 Nov); past either bound the row says
+`[dup-scan-limited:N …]` and draws no conclusion rather than a cheap one.
+
+The refusal is a **mark**, not a class: `[content-on:PR#901]` rides in the `branch_without_pr` detail
+and the arm in `factory/factory.sh` refuses on its first characters, the way the `delivered` arm reads
+`[merged-pr:`. A class would have been the smaller diff and the worse one -- the detail is prose, and
+inside it sits somebody else's branch name. Both refusals are pinned by running the supervisor over a
+fixture ("the marked ref is refused by content, naming the pull request", "the hyphenated backup is
+refused by name", "…while the ordinary branch is still worked") rather than by reading the arm.
+
+No live ref triggers the content refusal today: the shipped classifier run against the real queue at
+00:45Z on 14 Nov prints 11 `branch_without_pr` rows and 37 `branch delivered`, with no
+`[content-on:PR#` mark and no `[dup-scan-limited` note -- the reading asks all five open heads and
+concludes nothing. That half is
+pinned by the fixture alone, and what it buys is the day a head and a branch carry the same commit.
+What the name half changes live is three refs, `backup-tip`, `preserve/issue-222-stale-base` and
+`preserve/issue-318-wip`: they keep their rows, because a row is a report, and lose their tick.
 
 ### The merge that closed nothing the body said it closed (#353)
 
@@ -1123,6 +1190,34 @@ the one that keeps real paths rather than the demo vocabulary -- its `old=` is a
 this was written on, which has no `factory/log`, and its `new=` is a scratch directory. It is quoted as a
 machine answered it because that case only exists where a real tree is missing its log directory.
 
+
+### The run directory holds a stream, not a verdict (#351)
+
+`factory/run/` holds the pass's lock and, for each tick, one more file: `factory_worktree`'s stderr, under
+`worktree-stderr.<pid>`, so a refusal can be read back by name rather than folded into the tree path —
+`2>&1` on that command substitution splices an error sentence into the value assigned to `tree` and hands a
+later `git -C` a path with a period in it. **Both paths delete it**: the failure arm after reading it into
+the journal line, the success path because a file left by a pass that got its tree asserts a verdict nobody
+reached. Until #351 only the failure arm deleted it, and the file was named `worktree-error.<pid>`.
+
+Measured at 00:54Z on 14 Nov: four of those files, all zero bytes, stamped 22:03, 22:59, 23:31 and 00:22Z —
+the last four ticks, every one of them a **success** — while `grep -c 'no worktree' factory/log/supervisor.log`
+answers **0**: the failure the name reports had never once been journaled on this machine. Three reads of that
+directory on two days each concluded, from those four files, that the supervisor cannot build trees at all and
+the queue is stalled. The `-mmin +180` sweep is the backstop for the one pass that cannot delete anything — a
+tick killed by the wall-clock ceiling dies between the write and the delete — and it still matches the retired
+name so the four files above do not outlive the change. `factory/selftest.sh` pins the three answers the sweep
+must tell apart (retired name past the bound gone, stream past the bound gone, a fresh one spared because a
+supervisor may be writing it now), pins that a tick which got its tree leaves the directory empty, and pins
+that a refusal's reason reaches `TICK-SKIPPED … no worktree for <branch> ::` in the stream's own words; two
+controls redden when the success-path delete or the sweep's retired term is taken out.
+
+What the sweep is *not* for is the sentence that justified it for eight days — "the run directory collected
+eight zero-byte `worktree-error.<pid>` files in a day", read as eight killed ticks. Four stood at once with
+zero journaled failures, so they were successful builds, which is exactly why bounding by age only treated the
+symptom: it leaves three hours of alarms standing in the directory at all times. Same rule as
+`factory_journal_age`: a file that has to be maintained, and asserts something nobody confirmed, is itself the
+defect.
 
 ## Decision ids are allocated against refs, not prose
 

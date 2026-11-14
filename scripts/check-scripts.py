@@ -47,6 +47,9 @@ Runs the parts of the mutation gate that need no Go toolchain:
     a subprocess call that decodes a child's output in the operator's locale (#151's tail)
   * every set file under scripts/mutations/ read for bytes a generator wrote rather than a
     person declared (#133, #151)
+  * every shell script under factory/, scripts/ and testing/ read for a flag variable run as a
+    command (#217) and for a quoted literal split from its own continuation by that
+    continuation's indentation (#329)
 
 Exit is decided by check-mutations.exit_status, the same function the full pass uses, so the
 two gates cannot disagree about what a problem costs. The apply-and-compile half stays in
@@ -164,6 +167,52 @@ def shape_problems(label, text, flags=None):
     return problems
 
 
+# ------------------------------------------------------------------- quoted-continuation guard
+#
+# A quoted literal continued onto an indented line is not one literal. The shell deletes `\<newline>`
+# and what is left between the two literals is the continuation line's OWN INDENTATION, a field
+# separator. So `printf 'a %s b '\` + tabs + `'offered: %s\n' x y` hands printf a format with one slot
+# and no newline, and the literal `offered: %s\n` as its first argument; POSIX printf re-applies the
+# format while arguments remain, so an operator reads three lines, the first of them a format string
+# with `%s\n` in it as two characters.
+#
+# Measured on `origin/main` = `f5e0fe9` (#329, shipped by PR #292 in the tallies #291 asked for):
+#
+#     triage: offered: %s\n branch(es) ahead of main hold no content the trunk lacks, so none is
+#     triage: 3 branch(es) ahead of main hold no content the trunk lacks, so none is
+#     triage: issue-302 issue-309 issue-318 branch(es) ahead of main … so none is
+#
+# `bash -n` parses it and shellcheck 0.10.0 says nothing, and a leg that greps the sentence for a
+# fragment passes -- the format's own words are still on stderr, just re-ordered. So this refuses the
+# SHAPE: a line whose last two characters are a closing quote and a backslash, with an indented line
+# after it. Two correct shapes stay green, and both are load-bearing here: the house idiom
+# `printf '…%s\n' \` keeps a space between the quote and the backslash, so it is arguments being
+# continued and not a literal being split, and a continuation whose next line starts at column 0
+# really does join the two literals into one word.
+SPLIT_LITERAL = ("'\\", '"\\')
+
+
+def continuation_problems(label, text):
+    """Every quoted literal split from its own continuation by that continuation's indentation."""
+    problems = []
+    lines = text.splitlines()
+    for number, raw in enumerate(lines, 1):
+        stripped = raw.rstrip()
+        if not stripped.endswith(SPLIT_LITERAL) or raw.lstrip().startswith("#"):
+            continue
+        if number >= len(lines) or lines[number][:1] not in (" ", "\t"):
+            continue
+        follow = lines[number].strip().split()
+        problems.append(
+            "%s:%d: a quoted literal is continued onto an indented line, so this is TWO words where "
+            "one was meant -- the shell deletes `\\<newline>` and the next line's indentation is a "
+            "field separator. The command is handed %s as data instead of the rest of the string, and "
+            "printf re-applies a format with no `\\n` left in it. shellcheck and `bash -n` both pass "
+            "this: finish the string on this line, or start the next one at column 0"
+            % (label, number, follow[0] if follow else "the indented line"))
+    return problems
+
+
 def shell_files():
     """The shell scripts this repository ships."""
     found = []
@@ -188,6 +237,29 @@ SHAPE_GOOD = [
     ("arg.sh", 'DRY_RUN=0\nx="$DRY_RUN"\nif [ "$DRY_RUN" != "1" ]; then :; fi\n'),
 ]
 
+# The shipped bug, byte for byte: the literal closes, the backslash follows with no space between, and
+# the rest of the sentence is indented on the next line. Both quote characters are covered because the
+# rule is about the continuation, not the quoting style.
+CONT_BAD = [
+    ("tally.sh", "\tif [ \"$n\" -gt 0 ]; then\n"
+                 "\t\tprintf 'triage: %s branch(es) ahead of main hold no content, so none is '\\\n"
+                 "\t\t\t'offered: %s\\n' \"$n\" \"${names# }\" >&2\n"
+                 "\tfi\n", "'offered"),
+    ("dquote.sh", "\tprintf \"triage: %s branch(es) unjudged, so their content \"\\\n"
+                  "\t\t\t\"could not be compared: %s\\n\" \"$n\" \"$names\" >&2\n", '"could'),
+]
+# Both accepted shapes are load-bearing: `house.sh` is the idiom every other sentence in `triage.sh`
+# uses (a space between the quote and the backslash, so the ARGUMENTS are what continues) and
+# `column0.sh` is the join that genuinely works. A guard that refuses them is a guard that gets turned
+# off, which is how the first draft of the flag rule refused six call sites (#217).
+CONT_GOOD = [
+    ("house.sh", "\tprintf 'triage: %s offered: %s\\n' \\\n\t\t\"$n\" \"${names# }\" >&2\n"),
+    ("column0.sh", "printf 'a %s b '\\\n'c %s\\n' \"$x\" \"$y\" >&2\n"),
+    ("one-line.sh", "\tprintf 'triage: %s offered: %s\\n' \"$n\" \"$names\" >&2\n"),
+    ("comment.sh", "# the old shape was printf 'a %s b '\\n#\t\t'c\\n' x y\n"),
+    ("tail.sh", "printf 'a %s b '\\"),
+]
+
 
 def shape_self_test():
     """Both directions, asserted. A guard nobody can redden is a comment, and a guard that refuses
@@ -202,6 +274,19 @@ def shape_self_test():
         problems = shape_problems(label, text)
         if problems:
             fails.append("the guard refused %s: %s" % (label, problems[0]))
+    for label, text, needle in CONT_BAD:
+        found = continuation_problems(label, text)
+        if not found:
+            fails.append("the guard accepted %s, the split format that printed its own format slot on "
+                         "origin/main at f5e0fe9" % label)
+        elif not any(needle in why for why in found):
+            fails.append("the guard found %s but never named %s, the literal it took as data: %s"
+                         % (label, needle, found[0]))
+    for label, text in CONT_GOOD:
+        problems = continuation_problems(label, text)
+        if problems:
+            fails.append("the guard refused %s, a shape that prints correctly: %s"
+                         % (label, problems[0]))
     mixed = [("a.sh", "DRY_RUN=0\n"), ("b.sh", 'DRY_RUN=$(/bin/echo 1)\n')]
     if flag_variables(mixed):
         fails.append("a name that holds something other than 0/1 in one file was still classed as a "
@@ -223,14 +308,16 @@ def main_shape(argv, texts):
     problems = []
     for label, text in texts:
         problems += shape_problems(label, text, flags)
+        problems += continuation_problems(label, text)
     if problems:
-        print("\n%d command-position problem(s):" % len(problems))
+        print("\n%d command-shape problem(s):" % len(problems))
         for why in problems:
             print("  " + why)
         return 1
     print("check-scripts --self-test: the flag-in-command-position guard bites on both shapes that "
-          "shipped, stays green on `\"$PLOCK_BIN\" version`, and sees %d flag variable(s) across %d "
-          "shipped scripts" % (len(flags), len(texts)))
+          "shipped, the split-format guard bites on the shape that printed its own format string on "
+          "f5e0fe9 and stays green on the house idiom and the column-0 join, and there are %d flag "
+          "variable(s) across %d shipped scripts" % (len(flags), len(texts)))
     return 0
 
 
@@ -254,6 +341,7 @@ def main(argv):
     flags = flag_variables(texts)
     for label, text in texts:
         tree_problems += shape_problems(label, text, flags)
+        tree_problems += continuation_problems(label, text)
 
     gate = load_gate()
 
@@ -275,7 +363,7 @@ def main(argv):
         for why in script_problems:
             print(f"  {why}")
     if tree_problems:
-        print(f"\n{len(tree_problems)} command-position problem(s):")
+        print(f"\n{len(tree_problems)} shell command-shape problem(s):")
         for why in tree_problems:
             print(f"  {why}")
     if file_problems:
@@ -294,7 +382,7 @@ def main(argv):
         return status
     print(f"check-scripts: {len(script_problems) + len(file_problems) + len(tree_problems)} problems in "
           f"{len(gate.script_files())} tools and {len(sets)} set files, and {len(texts)} shipped shell "
-          f"scripts for command position")
+          f"scripts for command position and quoted continuations")
     return 0
 
 

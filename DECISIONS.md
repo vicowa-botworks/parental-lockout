@@ -4227,3 +4227,106 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   problem(s), 4 hole class(es), 9 hole row(s)`, rc 0. `scripts/check-decisions.py` → 207 entries across 2 logs.
   `make verify` and the state read after the push are quoted with their exit statuses in the
   pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
+
+
+## D-0075 · #317: a refusal whose own report raises escaped as a traceback and took the rest of the sweep with it — make the report unable to raise, refuse to keep on a dead stream, or wrap the disposal where it stands
+
+- Question: `cdp.report_refusal` and `cdp.capture_refused` have been documented since #296 as "report
+  and never raise", and `cdp.SingleRefusal.refuse` has been the single disposal point since #304 — so
+  the contract says a refusal cannot die, and #317 says it does. Re-measured here at `e16ab68` before
+  anything was written, with `/tmp/opencode/probe317.py` driving the real `main()` of each driver
+  through `pages.py`'s own harness, one stderr that refuses exactly ONE write (`_StderrThatDiesOnce`,
+  the injection #304 shipped): the two fixture arms, which have a single handler and therefore nothing
+  downstream, answered `rc=raised:OSError: [Errno 9] the report's own print died` with `blocks=0
+  frames=None` and an EMPTY transcript — the refusal was never spoken at all — and the page arm of
+  both drivers answered the same injection with `rc=1` and the frame on disk, because its outer
+  handler caught the death. On the sweep one dead `print` at the first refused page escaped `_run_main`
+  as `OSError: [Errno 9]` having entered 1 page-shot of the 12 the run owns, and the same with the
+  keep's `os.replace` dying instead (`OSError: [Errno 5]`); the clean run with nothing injected enters
+  12, writes one `REFUSED.txt` block and 4 frames, and exits 1. `pages.py`'s comment at the sweep's
+  outer arm claims "This is the failure mode #149's ticket describes — a traceback escaping past the
+  handler and the run dying with a refusal unreported" is impossible, and it is false on both single
+  drivers, at the exact sha #317's title names.
+
+- Options: one stream helper in `cdp` that cannot raise, used by every sentence a refusal speaks, with the disposals wrapped so a death in the file machinery is reported as a failed disposal rather than allowed to leave `main()` | wrap each call site in the three drivers where the report is spoken, leaving `report_refusal` and `capture_refused` raising for any caller that wants the exception | treat a refused write as proof the stream is gone: say so once on stdout, abandon the rest of the report and the keeping, and return 1 | keep the raise and give the drivers a distinct exit status for it so an operator can tell a refusal from a death
+
+- Chose: one stream helper in `cdp` that cannot raise, used by every sentence a refusal speaks, with the disposals wrapped so a death in the file machinery is reported as a failed disposal rather than allowed to leave `main()`
+
+- Why: the two halves fix two different halves of the same defect, and neither alone closes it. A
+  `print` that raises is not one event but three, because each sentence is its own write: measured for
+  this entry, the run whose `REFUSED:` headline died had already printed the sentence after it, and the
+  run whose pointer sentence died had already landed two lines above it. So "the stream is gone" is not
+  a fact a refused write establishes, and option 3 would be built on an inference the tree contradicts
+  — it would throw away the note and the frame to protect against a loss that did not happen. What
+  survives is a helper that moves the ONE line that died to stdout whole and lets the next sentence try
+  stderr on its own merits, so the refusal is still spoken and the disposal still finishes; the
+  alternative reading, "a `print` never fails", is what `report_refusal`'s docstring has been asserting
+  since #296 — it even names `EPIPE` from `| head` — and had never been tested until #317. The wrap is
+  the half the helper cannot be: `keep_refused` raises `OSError` from `os.replace`, `os.makedirs` and
+  `os.listdir` without printing anything, and `SingleRefusal.refuse` called its disposal outside any
+  `try`, so the disposal was allowed to escape. `pages.py`'s sweep has the worse shape and needed the
+  same treatment one level down: the three handlers are siblings rather than nested, so a raise from
+  inside one is not a refusal another arm can read, and the run's only `keep_refused` is the statement
+  after both loops — which is why one death cost 11 of 12 measurements and the entire note. A page
+  whose keeping died is now still counted as refused, still gets its line in the note with the death
+  named under it, and is named in the fit count (`; 1 refusal(s) could not be disposed of (/) —
+  recorded in REFUSED.txt, their frames are not here`), because a numerator printed over frames nobody
+  kept is #220's shape one step later. Both single drivers keep their existing `return 1`, which is the
+  only statement that distinguishes a finished refusal from a death, since an uncaught exception exits
+  1 as well. Three rules witness it (`pages.py --self-test` 78 → 80): the old `a refusal whose own
+  report raises is disposed of once` is renamed and widened to six page-arm cells, and the fixture arm
+  and the sweep get rules of their own — the two arms #304's `What lost:` forfeited rather than widen.
+  The once-flag's witness had to move with the fix: a dying report can no longer reach the outer
+  handler, so the second event is now the browser's teardown raising (`_FakeCap(exit_raises=True)`,
+  which is what the real `__exit__` does when the CDP socket is gone), and the `keep-exit` cell is the
+  case where the disposal died AND the teardown raised, so `SingleRefusal.refuse` has to read
+  `REFUSED.txt` off the disk rather than trust its own flag — D-0065's lesson that the note's
+  *existence* is a filesystem fact, in the other direction.
+
+- What lost: four things, one of them this log's own accuracy. Option 2 loses the diagnosis at every
+  site that does not take it: the refusal sentences are twelve call sites in `cdp.py` and one in
+  `pages.py`, and a per-call-site `try` is thirteen chances to forget the fourteenth — the same
+  asymmetry that put `refusal_note` in `cdp` (#296). Option 3 loses the note and the frame — the run
+  whose headline died still had a page to photograph and a refusal to write down, and it would have
+  published neither. Option 4 loses the operator: exit 2 separates a refusal from a death in the
+  transcript and puts the distinction nowhere on the page, while the transcript still reads as a
+  refusal that said nothing.
+  And the wording lost: `SingleRefusal.refuse`'s docstring and its `else` arm both asserted that a
+  second arrival at the outer handler means "the report about it raised", and #304's `What lost:`
+  records that the sentence's *cause* was never observed — a death was manufactured by a test harness
+  built for exactly that purpose, and no driver was ever instrumented to see one. All three places now
+  say "something raised after it" and let the transcript name what. Nothing about #304's rule was
+  relaxed — its three injections (`note`, `headline`, `shot`) still run and still assert what they
+  asserted, and its three `HOLE` rows are untouched; the renamed rule keeps them, so the flag's
+  contract is graded by a stronger injection than a dying `print`. The cost of that is the rule's old
+  name: `report-dies-*` cell labels are gone from `pages.py --self-test`'s vocabulary, and a reader of
+  #304's `Effect:` will not find them — the names are `page-arm-*` now, and the row in
+  `attack-capture-self-test.py` that empties the rule body was re-pointed at the new function name.
+
+- Checkpoint: e16ab68
+
+- Effect: six files. `/tmp/opencode/probe317.py` (kept outside the tree) is the before/after
+  instrument; both tables are quoted verbatim in the pull-request body with their exit statuses, not
+  here, because an `Effect:` written before a gate runs is a prophecy (#1180). `testing/capture/cdp.py`
+  +143/-45: `operator_print` added above `capture_refused`, the six refusal sentences in
+  `report_refusal`/`capture_refused`/`keep_refused`/`refuse_single_shot` spoken through it, and the
+  disposal inside `SingleRefusal.refuse` wrapped with the disk-reading sentence that replaces the
+  invented cause. `testing/capture/pages.py` +543/-167: `_refused_frame` wrapped with the `unreported`
+  record, the fit count's honesty clause, `_FakeCap(exit_raises=)`, `_run_main(stderr=, keep_fails=)`,
+  `_run_single_shot(keep_fails=, exit_raises=)` and the shared `_died_disposal_problems`; three rules
+  where one was, `EXPECTED_RULES` 78 → 80. `lock.py`/`testlock.py` are comments and the docstrings
+  their nested handlers cite — no behaviour line changed, and both still dispose through
+  `cdp.SingleRefusal`, which is option 1's other half. `scripts/attack-capture-self-test.py` +60/-18:
+  four rows for the four guards, three `HOLE` rows for the three rules, and four anchors re-pointed
+  that had gone `INVALID` — the two `capture_refused` sentences `operator_print` rewrapped, the emptied
+  rule body's function name, and the canary's success-arm print. Read back: `python3
+  testing/capture/pages.py --self-test` → `capture self-test: 80 refusal rules hold`, rc 0; `python3
+  scripts/attack-capture-self-test.py` → `TOTAL  53 attacks: 36 caught, 6 honest edits still green, 11
+  holes, 0 invalid, 0 unexpected`, `VERDICT: 53 attacks, 0 problem(s), 4 hole class(es), 11 hole
+  row(s)`, rc 0 — the four new rows all print `CAUGHT`, so none of the four guards is decorative, and
+  the run went from 4 `INVALID` rows to 0. What the three new rules are themselves worth is the honest
+  half of that tally and it is not much: their `HOLE` rows confirm that emptying any of the three rule
+  bodies leaves `pages.py --self-test` green, because a hollowed rule is invisible to the count — the
+  class `DOCUMENTED_HOLES` already describes, now carrying six rows instead of four. What is graded is
+  the production guard, not the rule: each of the four `CAUGHT` rows deletes one of the four guards from
+  `cdp.py`/`pages.py` and the run goes red, which is the only claim this entry makes about coverage.
