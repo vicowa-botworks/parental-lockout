@@ -61,10 +61,14 @@
 # and the id is still the best answer available, merely an unreserved one. Two offline verdicts are
 # made, below the union read:
 #
-#   coverage  can `refs/remotes` here learn that a sibling exists at all? A fetch refspec that names
-#             one branch updates the trunk and nothing else, and a sibling's ids are on the branch it
-#             pushed. `factory/factory.sh` journals exactly this as `REFRESH-BLIND` once per activation;
-#             this command, the one that answers in the unit's own tree, said nothing.
+#   coverage  can `refs/remotes` here learn that a sibling exists at all? The test is per line, on the
+#             SOURCE side of the colon: only a line that fetches `refs/heads/*` can put another machine's
+#             branch in the union. A refspec naming one branch updates the trunk and nothing else, and a
+#             sibling's ids are on the branch it pushed; a star on the destination side
+#             (`+refs/pull/*/head:refs/remotes/origin/pr/*`) fetches no branches either, which #309
+#             measured as a clean read. `factory/factory.sh` journals exactly this as `REFRESH-BLIND`
+#             once per activation, reading the same rule; this command, the one that answers in the
+#             unit's own tree, said nothing.
 #   clock     when did this repository last hear from origin? Newest of three clocks -- this worktree's
 #             FETCH_HEAD, the common dir's FETCH_HEAD, and the newest reflog under `logs/refs/remotes`.
 #             No one of the three is always there: `git clone` writes no FETCH_HEAD at all (measured on
@@ -93,10 +97,12 @@ named log, and refs git cannot read, are ignored. The result is the first free i
 gaps below the ceiling stay closed. No fetch is performed.
 
 stderr carries how far that union can see: REFRESH with the age of the read, or REFRESH-BLIND with
-the reason a sibling could be invisible here and the refresh that would close it. stdout stays the id
-alone, and the exit status stays 0 either way -- a blind read is still the best read available, and a
-refusal is what sends a session back to numbering by eye. FACTORY_ID_MAX_AGE (default 300 seconds) is
-how stale the read may get before the clock arm calls it blind.
+the reason a sibling could be invisible here and the repair that would close it -- a fetch when the
+read is stale, a git config remote.origin.fetch write when a refspec cannot fetch a branch, because
+a fetch cannot widen a refspec. stdout stays the id alone, and the exit status stays 0
+either way -- a blind read is still the best read available, and a refusal is what sends a session
+back to numbering by eye. FACTORY_ID_MAX_AGE (default 300 seconds) is how stale the read may get
+before the clock arm calls it blind.
 stderr attributes the ceiling when the working file alone raised it: a PENDING line names the heading
 sitting in that file and on no ref this clone can see -- the entry you are writing -- and the highest id
 the refs really do carry. It is a note, not a refusal: the exit status stays 0 and stdout stays the id
@@ -363,29 +369,57 @@ blind_why=''
 blind_age=''
 blind_now=$(date -u +%s)
 
-# Can `refs/remotes` here learn that a sibling exists at all? A single-branch clone's refspec names one
-# branch, so every fetch this repository makes -- however recent -- updates the trunk and nothing else,
-# and a sibling's ids are on the branch it pushed (H-0071, measured: `git fetch --prune origin main`
-# leaves the allocator on its stale answer and still prints a line with `->` in it). The `*` test reads
-# the whole refspec, not its prefix, matching `factory_refresh_origin`: the wildcard form
-# `+refs/heads/*:refs/remotes/origin/*` starts with a star, and a test that asked only about the front
-# of the line would call the healthy shape blind. An absent or unreadable refspec is not called blind
-# here either, for the same reason -- the arms that report a real shape (no origin, no remote refs, a
-# stale clock) name what they found, and this one would only be guessing.
+# Can `refs/remotes` here learn that a sibling exists at all? The question is what the clone fetches
+# FROM, so the test is a prefix on the SOURCE side of the colon, one per line: only a line that fetches
+# `refs/heads/*` can put another machine's branch into the union. A single-branch clone's refspec names
+# one branch, so every fetch this repository makes -- however recent -- updates the trunk and nothing
+# else, and a sibling's ids are on the branch it pushed (H-0071, measured: `git fetch --prune origin
+# main` leaves the allocator on its stale answer and still prints a line with `->` in it).
+#
+# A wildcard on the DESTINATION side is the other shape, and the star-anywhere test this replaces read
+# it as a clean read: `+refs/pull/*/head:refs/remotes/origin/pr/*` -- what a person adds when they want
+# pull-request heads locally -- fetches everything except the branches, it carries a star, and it left
+# the allocator printing `D-0002` beside `REFRESH … 0s old` while `origin` already held `D-0002` on
+# `refs/heads/issue-sib` (#309, measured 14 Nov on the shipped script). The same line is why the
+# instruction that travels with a blind verdict has to name a config write: `git fetch` obeys the
+# refspec it is given, so the unrefspec'd fetch the footer names cannot widen this clone (measured: the
+# clone still held only `refs/remotes/origin/HEAD` and `…/main` after running it, same answer).
+#
+# It is read per line, and any learning line satisfies it, because the healthy wildcard and an added
+# `pr/*` line coexist (`git config --add` is how that line gets there): measured on such a clone the
+# union is complete (`refs/remotes/origin/issue-sib` is present, the answer is `D-0003`) and calling it
+# blind would be the false blind, costing a fetch on every entry commit for no wrong id.
+#
+# An absent or unreadable refspec is still not called blind, for the reason it has always been -- the
+# arms that report a real shape (no origin, no remote refs, a stale clock) name what they found, and
+# this one would only be guessing (measured: origin, `refs/remotes/origin/*` present, and no
+# `remote.origin.fetch` key at all answers `REFRESH`, clean).
+#
+# `+refs/*:refs/*`, a mirror's refspec, is called blind, and that is the true verdict for every shape
+# this command can actually be aimed at: a bare mirror never reaches these arms -- it is refused as "not
+# a readable git checkout" at exit 2 -- and a working clone carrying it cannot fill `refs/remotes` even
+# when it fetches, because git refuses the write (`fatal: refusing to fetch into branch
+# 'refs/heads/main' checked out at …`); measured on such a clone, the star-anywhere test answered
+# `D-0002` over the sibling's `D-0002` with a clean `REFRESH` line beside it (H-0178).
 blind_coverage() {
-	local rs n
+	local rs line learns=0 n
 	if ! git -C "$root" remote get-url origin >/dev/null 2>&1; then
 		blind='this checkout has no origin remote, so refs/remotes here holds nothing any other machine has ever pushed'
 		return 1
 	fi
 	rs=$(git -C "$root" config --get-all remote.origin.fetch 2>/dev/null) || rs=''
-	case $rs in
-	'' | *\**) : ;;
-	*)
-		blind="this clone fetches only '$rs', so refs/remotes here can never learn a branch another clone pushed -- widen it with: git -C $root config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'"
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		# `+` is the force flag and says nothing about what arrives; past the colon is the
+		# destination, which is the half a `pr/*` refspec puts a star in.
+		case ${line#+} in
+		'refs/heads/*:'*) learns=1 ;;
+		esac
+	done <<<"${rs:-}"
+	if [ -n "$rs" ] && [ "$learns" -ne 1 ]; then
+		blind="this clone fetches only '${rs//$'\n'/ }', so refs/remotes here can never learn a branch another clone pushed -- widen it first, because a fetch cannot widen a refspec: git -C $root config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'"
 		return 1
-		;;
-	esac
+	fi
 	n=$(git -C "$root" for-each-ref --format='%(refname)' refs/remotes/origin 2>/dev/null |
 		grep -c . || true)
 	if [ "${n:-0}" -eq 0 ]; then

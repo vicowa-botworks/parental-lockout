@@ -1277,7 +1277,7 @@ is open or updated. Merging belongs to the supervisor and is denied to you." \
 # factory_refresh_origin <tree> -- every branch, once per activation, before anything is dispatched.
 # Prints one journal line either way. Returns 0 whatever the fetch did.
 factory_refresh_origin() {
-	local tree=${1:-$FACTORY_ROOT} rc=0 started elapsed before changed age refspec why
+	local tree=${1:-$FACTORY_ROOT} rc=0 started elapsed before changed age refspec why line learns
 	# The log directory is created before the fetch is aimed at it. `log_event` calls `factory_paths`
 	# on every line, so the pass has always made it by the time anything is logged -- but this function
 	# writes its own file first, and a redirect to a directory that is not there yet fails as status 1
@@ -1328,19 +1328,28 @@ factory_refresh_origin() {
 		fi
 	fi
 	# The one shape where a successful fetch still cannot see a sibling, said out loud instead of
-	# leaving `REFRESH … 0 moved` to be read as "nothing new anywhere". A single-branch clone's refspec
-	# names one branch, so `refs/remotes` here can never learn the branch another machine pushed --
-	# the exact window H-0071 measured, and it is widened by an operator, not by this script. The test
-	# is a literal `*` anywhere in the refspec: the whole line is matched, so a pattern that merely
-	# *starts* with a star would call the wildcard form blind, which is the bug the control for this
-	# leg plants.
-	refspec=$(git -C "$tree" config --get remote.origin.fetch 2>/dev/null) || refspec=''
-	case "$refspec" in
-	'' | *\**) : ;;
-	*)
-		log_event "REFRESH-BLIND $tree fetches only '$refspec', so refs/remotes here cannot learn a branch another clone pushed; widen it with \`git -C $tree config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'\` (H-0071)"
-		;;
-	esac
+	# leaving `REFRESH … 0 moved` to be read as "nothing new anywhere". The rule is the allocator's --
+	# `blind_coverage` in `factory/next-decision-id.sh` -- and it has to stay the same rule, because
+	# with two rules the activation journals a clean refresh for exactly the clone the command inside
+	# the unit refuses, which is #309 said out loud. So: a prefix on the SOURCE side of the colon, one
+	# line at a time, and only `refs/heads/*` satisfies it. `--get-all`, not `--get`, and that is a
+	# measurement rather than tidiness -- `--get` answers with the LAST value of a multi-valued key
+	# (git 2.53.0: with the wildcard written first and `+refs/pull/*/head:…` appended, it returned the
+	# `pr/*` line), so a prefix test read through `--get` would call a healthy clone blind depending on
+	# the order two lines happened to be written in. A single-branch clone's refspec names one branch,
+	# so `refs/remotes` here can never learn the branch another machine pushed -- the exact window
+	# H-0071 measured -- and widening it is an operator's act, not this script's.
+	refspec=$(git -C "$tree" config --get-all remote.origin.fetch 2>/dev/null) || refspec=''
+	learns=0
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		case ${line#+} in
+		'refs/heads/*:'*) learns=1 ;;
+		esac
+	done <<<"${refspec:-}"
+	if [ -n "$refspec" ] && [ "$learns" -ne 1 ]; then
+		log_event "REFRESH-BLIND $tree fetches only '${refspec//$'\n'/ }', so refs/remotes here cannot learn a branch another clone pushed; widen it first -- a fetch cannot widen a refspec -- with \`git -C $tree config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'\` (H-0071, #309)"
+	fi
 	return 0
 }
 

@@ -7825,12 +7825,12 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   on this branch before the merge and 17 that arrived with `origin/main` in `faf4590`, 10 of them one bare
   `README.md` because `main` grew a fifth file with that name. That is also why the constant moved from 378
   to 517 in this commit instead of falling. The rule is written into the three documents that govern an
-  entry: `docs/factory.md:1904` "carries its own anchor" is the section, `AGENTS.md:52` "naming what is owed, and stop"
+  entry: `docs/factory.md:1935` "carries its own anchor" is the section, `AGENTS.md:52` "naming what is owed, and stop"
    sits in the bullet that now shows the form, and the last hazard in the factory skill is
   this one. Each placement was decided before the edit by `--citations <path>` -- the highest cited line
   was 50 in `AGENTS.md`, 1083 in `docs/factory.md` and 434 in the skill, so every insertion went below it
   -- and `faf4590` then moved two of those three, which is the rule's thesis stated about its own entry.
-  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:1956` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
+  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:1987` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
   six checked against the tree and five naming the revision they were read at -- and the gate refused it
   three times on the way in, which is the only proof here that the rule bites: an anchor split by a line
   wrap is no anchor, a bare `5be86e5`-style coordinate is what a revision-qualified citation says instead
@@ -8458,3 +8458,71 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
  any head is the authority; these two numbers are a measurement with a date on it, which is what the one
  above lacked.
 - Checkpoint: 4fcf9a42f7ed05d7a515007a21a0f5ad3ff4c80d
+
+## H-0178 · The coverage arm asked whether the fetch refspec contained a star, so a destination-side wildcard read clean beside a taken id -- and the fetch that verdict tells a session to run cannot widen the clone
+
+- Question: #309, reproduced against the shipped script at the checkpoint. A clone whose only
+  `remote.origin.fetch` line is `+refs/pull/*/head:refs/remotes/origin/pr/*` answers `D-0002`, with
+  `REFRESH … 0s old` beside it, while `origin` already carries `D-0002` on `refs/heads/issue-sib`. The
+  arm asks whether the refspec contains a `*`, and this line does -- on the destination side of the
+  colon, the half that says where a ref lands and nothing about what is fetched, so the clone fetches
+  every pull-request head and no branch, which is exactly where a sibling's entry lives. The ticket's
+  second half is the verdict's own instruction: the footer tells the session to run
+  `git fetch --prune origin`, a fetch obeys the refspec it is given, and running it there left the clone
+  holding `origin/HEAD` and `origin/main` with the answer unmoved. So: what does "can this clone learn a
+  sibling's branch" test, where does the repair belong when a fetch cannot perform it, and is a mirror's
+  `+refs/*:refs/*` clean or blind?
+- Options: keep the star-anywhere test and fix only the sentence printed beside the verdict | require the
+  refspec to equal the canonical wildcard line, compared whole | read each line's source side for
+  `refs/heads/*`, any one line satisfying it | widen only the copy in `factory_refresh_origin`, which is
+  the one the activation journals | call `+refs/*:refs/*` clean, because a mirror really does fetch every
+  branch
+- Chose: read each line's source side for `refs/heads/*`, any one line satisfying it
+- Why: the sentence alone loses, because no wording makes a `refs/pull/*` fetch learn a branch and the
+  first symptom is a wrong id, not a missing apology. Compared-whole loses to a measurement:
+  `git config --get` answers with the LAST value of a multi-valued key (git 2.53.0), and `--add` is how
+  the `pr/*` line gets written beside a healthy wildcard, so a whole-value comparison calls a clone that
+  fetches every branch blind depending on the order two lines were appended -- the false blind,
+  manufactured inside the repair, and there is a new leg on exactly that clone so the choice is measured
+  rather than argued. Widening only the activation loses on its own control: with the allocator's
+  coverage arm deleted the journal and the allocator read one tree two ways, and it is the allocator that
+  answers in the unit's tree and hands a tick its number, so the copy with no teeth at the id cannot be
+  the copy that fixes the id -- which is how the two drifted apart here in the first place. The shipped
+  comment beside the activation's sentence announced that "the control for this leg plants" the narrow
+  shape, and nothing in `factory/selftest.sh` planted it: the refresh harness had exactly two call sites
+  and both used the healthy wildcard, so deleting that whole arm moved no leg. The leg added here runs the
+  shipped function over a primary checkout planted with the `pr/*` refspec and refuses until the journal
+  says `REFRESH-BLIND` *and* the allocator refuses the unit tree beside it, and its control turns the
+  guard false so the journal goes quiet while the allocator keeps refusing at `D-0002` -- two components,
+  one refspec, one verdict, watched. `+refs/*:refs/*` clean loses to reachability, and that reverses what
+  `H-0137` expected here -- on its measurement, not by inheritance, since `H-0137` is the entry that filed
+  #309 and its reasoning is the reason the arm still read a star. `H-0137` calls a blind mirror verdict a
+  false blind "although its local `refs/heads` union is complete": true of a *bare* mirror, and a bare
+  mirror never arrives at this arm, because it is refused as "not a readable git checkout" at exit 2
+  (measured at both heads). The tree that does arrive is a working clone carrying the line, and its union is
+  not complete -- `git fetch` there is `fatal: refusing to fetch into branch 'refs/heads/main' checked out
+  at …`, rc 128 (measured), so no branch ever lands; and on exactly that clone the star-anywhere test
+  answered `D-0002` over the sibling's `D-0002` with a clean line. So the shape that reads clean today is the
+  false clean read in a new costume, while calling it blind costs one fetch and no wrong id. Unchanged on purpose: stdout stays the id alone at exit 0, and an absent
+  `remote.origin.fetch` key stays not-blind (H-0134) -- the arms that refuse name a shape they found, and
+  a missing key is not one. The instruction is the other half of the fix, so it changed too: the widen
+  line now says the config write comes first and why ("a fetch cannot widen a refspec"), in the footer,
+  in `factory_refresh_origin`'s journal line, in the usage text, in this guide and in the skill.
+- Checkpoint: c7d6ccf6beae8aecf31166549b75c63c98acda23
+- Effect: factory/next-decision-id.sh, factory/factory.sh, factory/selftest.sh, docs/factory.md,
+  .opencode/skills/factory/SKILL.md
+- Reproduction: clone a repository whose sibling has pushed a branch but not the trunk, then
+  `git config remote.origin.fetch '+refs/pull/*/head:refs/remotes/origin/pr/*' && git fetch --prune origin`
+  and run `bash factory/next-decision-id.sh --repo <clone> DECISIONS.md`. At the checkpoint: `D-0002` on
+  stdout, `REFRESH … 0s old` on stderr. At this commit: `D-0002` on stdout (still the right answer -- the
+  id is the best read available, not a refusal) and `REFRESH-BLIND … widen it first, because a fetch
+  cannot widen a refspec: git -C <clone> config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'`
+  on stderr; make that write, re-fetch, and the answer becomes `D-0003`.
+- Confirmed by: the suite, and the four mutations around it -- baseline 647 passed before the change and
+  652 after with 0 failed. Re-introducing the star-anywhere test reddens exactly the two new coverage
+  legs plus the agreement leg (4 failed); turning the activation's guard false reddens exactly the
+  agreement leg and its control (2); `--get-all` back to `--get` reddens exactly the "added beside the
+  wildcard stays clear" half (1); deleting the allocator's arm from the arm list reddens 9, including the
+  controls whose plant pattern names it. Four new counted legs sit at the coverage arm: the `pr/*` refspec
+  refused and asked for the config write, the `pr/*` line merely added beside the wildcard still clean, an
+  absent key still not blind, and a mirror's `+refs/*:refs/*` refused.
