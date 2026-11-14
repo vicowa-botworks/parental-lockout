@@ -90,7 +90,11 @@ def report(path, body):
     if c["neutral"]:
         parts.append("neutral %s" % ", ".join("#" + n for n in sorted(c["neutral"], key=int)))
     if not parts:
-        print("%s: no issue reference of any kind" % path)
+        # Accurate about its own reach. A bare `#123` with no keyword beside it is a real reference and
+        # this tool does not see it: it reads keywords, not links, and a sentence that claimed to have
+        # found no reference "of any kind" would be citing a scan that never looked for one.
+        print("%s: no closing keyword and no Refs/Part of line; a bare `#N` here is a reference this "
+              "tool does not look at" % path)
     else:
         print("%s: %s" % (path, "; ".join(parts)))
     for n in sorted(c["negated"], key=int):
