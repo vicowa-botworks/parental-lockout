@@ -1191,6 +1191,13 @@ def main(shoot_fn=None, record_fn=None):
 # lock that keeps a receipt from being written where no `fixture.env` exists are pinned one file
 # over, in `manifest.py --self-test`, which drives the real `cdp.Session.publish` and reads it back
 # with the real `record`.
+#
+# And what the number does NOT buy, which #322 measured instead of assuming: `ran` counts bodies
+# `rule()` called, so replacing a body with `return` leaves this at 81 and the summary true. That gap
+# is closed one rule at a time by `RULE_PROBES` and `_rule_probes_are_live`, below -- every rule has
+# an entry naming the thing it claims to guard, and the pass breaks it and requires THAT rule to go
+# red. A rule added without an entry reddens the run rather than passing unexamined, so the number
+# here and the table there are the two halves of one claim.
 EXPECTED_RULES = 81
 
 
@@ -1967,14 +1974,541 @@ def _died_disposal_problems(where, got, refused, died_marker, expect_note, expec
     return problems
 
 
+# -------------------------------------------------------------------------------------------
+# One probe per rule (#322): a count cannot see inside a body, so every body gets broken.
+#
+# `EXPECTED_RULES` is the number of claims and `ran` is the number of bodies `rule()` called. Empty
+# a body to `return` and both numbers are unchanged, so the sentence that prints them -- `capture
+# self-test: 81 refusal rules hold`, exit 0 -- is true about a guard that checks nothing. Measured
+# 14 Nov at `1e193d2` with a rule's body emptied and the break live: rc 0, that sentence, 81. The
+# sibling suite (`scripts/attack-capture-self-test.py`) carried seven rows for exactly this, all
+# seven printing `HOLE`, and its own class text named the repair -- "one probe per rule that breaks
+# the thing that rule names and insists THAT rule goes red" -- which is what this is.
+#
+# `_probe_every_rule` runs once per registered rule after the last real rule has run: it applies
+# that rule's break, re-runs that rule's body alone, and requires a problem the body did not report
+# a moment ago. Three things it does not do, each because of how this file is built:
+#
+#   * It does not pretend a raise and a report are the same witness. Measured 14 Nov, instrumented:
+#     of the 81, NINETEEN answer their own break with a problem sentence and SIXTY-TWO let it escape
+#     as an exception. Both retire #322's defect -- a body emptied to `return` does neither, and
+#     `rule()` turns the raise into a problem named by the rule's `why`, the arm #323's crash canary
+#     witnesses on every run -- but they prove different strengths, and the weaker reading of the 62
+#     is the true one: a raise says the rule sits on the path of the guard its name names, not that
+#     it JUDGES that guard. Only a break that changes what the guard ANSWERS can show the judgement,
+#     which is why `empty`, `data`, `page` and `shadow` exist where they were derivable and why
+#     `_rule_probes_are_live` refuses a pass in which nothing at all reports. Widening the reporting
+#     set is the follow-up #322 leaves open; it needs a `returns`-style break per guard, not a new
+#     kind of claim, and it is worth the count moving in the transcript rather than in prose here.
+#   * It does not write outside a temp directory. Two rules read files from disk, so no `setattr`
+#     reaches them. `_probe_shadow` copies what they read into a directory laid out so that
+#     `cdp.HERE/../../internal/web/templates` still resolves, edits the copies, and moves `cdp.HERE`
+#     in for the one body. Rewriting `testing/capture/lock.py` where it lives would leave the
+#     repository patched if the probe were interrupted, and that is the hazard every box in this
+#     file exists to avoid (#124).
+#   * It does not report what the break produced. The problems a broken rule prints are the pass
+#     condition, so they go nowhere; only a `PROBE:` line is added to `bad`. Those lines arrive with
+#     every rule reporting clean, which is why they read oddly against the existing summary's
+#     `0 of 81 rules failed` -- the count there is of rules, and a harness finding is not one.
+#
+# The kinds, in the words of the code that applies them. Every entry below was MEASURED, not picked:
+# each rule was run against every candidate break whose name shares a word with its `why`, and the
+# table records a break that turned it red. Where several did, the one naming what the rule names
+# won; where the only reachability at all was a run-level function, the entry says that function
+# rather than dressing the row up as a per-guard break.
+#
+#   hollow    the named function's body raises. The nearest mechanical stand-in for what #297
+#             shipped: from outside, an emptied function and an absent one are the same object.
+#   refuse    the named function refuses every page (see the first bullet above).
+#   empty     the named `manifest` function answers nothing, so the recorder reports no page.
+#   page      `DEFAULT_FIXTURE` moves, so `Page.__init__`'s own coupling test can no longer fire.
+#   data      a module-level table shrinks: `PAGES`, `CENSUS`.
+#   shadow    a file a rule reads from disk, rewritten in a shadow copy.
+PROBE = "PROBE"
+
+
+def _probe_target(dotted):
+    """The object a spec names, as `(owner, attribute)`.
+
+    Dotted from the module the table is written against -- `cdp.keep_refused`, `cdp.Session.value`,
+    `capture_manifest.pages_by_artifact` -- and the owner is what `setattr` runs against. Resolving
+    to a module attribute or refusing is the whole reason specs are strings rather than the functions
+    themselves: an entry naming a helper inside `self_test()` would break a local binding nobody
+    reads and still report its rule as probed.
+    """
+    parts = dotted.split(".")
+    modules = {"cdp": cdp, "capture_manifest": capture_manifest, "pages": sys.modules[__name__]}
+    if parts[0] not in modules:
+        raise _ProbeUnapplicable(f"{dotted} names no module this file can break")
+    owner = modules[parts[0]]
+    for part in parts[1:-1]:
+        owner = getattr(owner, part)
+    return owner, parts[-1]
+
+
+class _ProbeUnapplicable(Exception):
+    """A table entry names something the machinery cannot break. Never scored as a pass."""
+
+
+def _probe_shadow(edits):
+    """A shadow copy of the tree a file-reading rule reads, `edits` applied, `cdp.HERE` moved in.
+
+    Returns `(undo, changed)`; `changed` is how many files an edit actually found something to
+    replace, and zero means the break is not a break -- which the caller is told about by
+    `_apply_probe` refusing rather than reporting a probe that did nothing.
+    """
+    box = tempfile.mkdtemp(prefix="plock-capture-probe-")
+    here = op.join(box, "one", "two")
+    os.makedirs(here)
+    for name in sorted(os.listdir(cdp.HERE)):
+        if name.endswith(".py") and op.isfile(op.join(cdp.HERE, name)):
+            shutil.copyfile(op.join(cdp.HERE, name), op.join(here, name))
+    templates = op.normpath(op.join(cdp.HERE, "..", "..", "internal", "web", "templates"))
+    shadow = op.join(box, "internal", "web", "templates")
+    old = cdp.HERE
+    cdp.HERE = here
+    changed = 0
+    try:
+        shutil.copytree(templates, shadow)
+        for name, find, repl in edits:
+            if name.endswith(".tmpl"):
+                targets = [op.join(base, f) for base, _d, fs in os.walk(shadow)
+                           for f in fs if f.endswith(name)]
+            else:
+                targets = [op.join(here, name)]
+            for path in targets:
+                with open(path, encoding="utf-8") as fh:
+                    text = fh.read()
+                if find not in text:
+                    continue
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text.replace(find, repl))
+                changed += 1
+    except OSError as exc:
+        cdp.HERE = old
+        shutil.rmtree(box, ignore_errors=True)
+        raise _ProbeUnapplicable(f"the shadow copy could not be written: {exc}")
+    return ((lambda: (setattr(cdp, "HERE", old), shutil.rmtree(box, ignore_errors=True))),
+            changed)
+
+
+def _apply_probe(spec):
+    """Apply one probe spec. Returns `(undo, note)`, or raises `_ProbeUnapplicable`.
+
+    Every kind hands back the object it found, not a copy made later, so an undo can no more
+    reinstall the break than a rule can unstage a frame it never moved. The machinery's own witness
+    arm in `_probe_harness` checks the restore on every run for that reason: a probe that breaks and
+    does not put back poisons every probe after it, and the transcript blames the next rule.
+    """
+    kind = spec[0]
+    if kind in ("hollow", "refuse"):
+        owner, name = _probe_target(spec[1])
+        original = getattr(owner, name)
+        if not callable(original):
+            raise _ProbeUnapplicable(f"{spec[1]} is a {type(original).__name__}, so hollowing it "
+                                     "changes nothing a rule can notice")
+
+        def broken(*_args, **_kw):
+            if kind == "hollow":
+                raise RuntimeError(f"{spec[1]} was hollowed by a probe")
+            raise FixtureRefusal("PROBE: the guard named by a probe refuses every page")
+
+        setattr(owner, name, broken)
+        return (lambda: setattr(owner, name, original)), f"{kind} {spec[1]}"
+    if kind == "empty":
+        owner, name = _probe_target(spec[1])
+        original = getattr(owner, name)
+        setattr(owner, name, lambda *_a, **_k: {})
+        return (lambda: setattr(owner, name, original)), f"emptied {spec[1]}"
+    if kind == "page":
+        original = DEFAULT_FIXTURE
+        setattr(sys.modules[__name__], "DEFAULT_FIXTURE", "probe-not-the-default-fixture")
+        return ((lambda: setattr(sys.modules[__name__], "DEFAULT_FIXTURE", original)),
+                "moved DEFAULT_FIXTURE, so Page's own coupling test cannot fire")
+    if kind == "data":
+        owner, name = _probe_target(spec[1])
+        original, variant = getattr(owner, name), spec[2]
+        if variant == "empty":
+            broken = {"pages": [], "pages-noprof": []}
+        elif variant == "short":
+            broken = original[:-1]
+        elif variant == "gone":
+            broken = []
+        else:
+            raise _ProbeUnapplicable(f"data variant {variant!r} is not one this file implements")
+        setattr(owner, name, broken)
+        return (lambda: setattr(owner, name, original)), f"{spec[1]} is {variant}"
+    if kind == "shadow":
+        undo, changed = _probe_shadow(spec[1])
+        if not changed:
+            undo()
+            raise _ProbeUnapplicable(f"no shadow file held what {spec[1][0]} says to replace")
+        return undo, f"rewrote {changed} shadow file(s)"
+    raise _ProbeUnapplicable(f"probe kind {kind!r} is not one this file implements")
+
+
+def _probe_every_rule(registry, bad):
+    """Break every registered rule's own contract, one rule at a time.
+
+    Returns `(probed, reported)`: how many rules reacted, and how many of them reacted by reporting a
+    problem rather than by raising. See the block above `RULE_PROBES` for why both numbers are needed
+    and what each one buys.
+
+    Called after the last `rule()`, which is also why a break here cannot corrupt a real verdict: the
+    only thing that runs afterwards is this loop. A rule body that leaves fixture state behind -- the
+    fake's last census, a class attribute a needle rule restored -- would be lying to the next probe,
+    not to a claim about a driver, and the ordering is what makes "the next probe" the worst case.
+    """
+    probed = reported = 0
+    for why, body in registry:
+        spec = RULE_PROBES.get(why)
+        if spec is None:
+            bad.append(f"{PROBE}: {why} has no probe entry: a rule nobody can break is a rule whose "
+                       "body can be emptied for free, which is the defect this loop retires")
+            continue
+        try:
+            undo, note = _apply_probe(spec)
+        except (_ProbeUnapplicable, AttributeError, OSError) as exc:
+            bad.append(f"{PROBE}: the probe for {why} cannot be applied ({exc}), so the rule is "
+                       "counted, and unproven, and green")
+            continue
+        problems = []
+        raised = None
+        try:
+            body(problems)
+        except Exception as exc:  # noqa: BLE001 -- an exception is an answer here; scored below
+            raised = exc
+        finally:
+            undo()
+        if not problems and raised is None:
+            bad.append(f"{PROBE}: {why} stayed green with its own contract broken ({note}), so the "
+                       "rule inspects a stand-in rather than the driver it names")
+            continue
+        probed += 1
+        if problems:
+            reported += 1
+    return probed, reported
+
+
+def _probe_harness(registry, ran, bad):
+    """The four shapes that are not rules, so no entry in `RULE_PROBES` can reach them.
+
+    Returns `(arms, shapes)` and `_rule_probes_are_live` holds both to a number: an arm that stops
+    running is invisible to everything else in here, which is the floor #118 describes for
+    `mutate.py`'s `if bad:` -- a check cannot police its own deletion. What is NOT the floor is the
+    verdict: `self_test_verdict` is a different function from the one whose findings it prints, so
+    this CAN and does police it. Two of the three rows the sibling suite filed under "the verdict's
+    final decision is unguarded" -- the reach check switched off, and the reach check answering 0 --
+    are caught by arm 2. The third stays a hole for the reason given in the class text: a finding
+    raised because `if bad:` stopped printing can only be printed by `if bad:`.
+    """
+    arms = 0
+    # 1. The registry, the count, and the table, in both directions. `rule()` appends to `registry`
+    #    and `ran` in the same call, so an append that stopped running is the only way those two
+    #    part; the table is the third copy of the rule list and the one a person edits. Any one of
+    #    the three comparisons can be switched off and the other two still refuse the mutation they
+    #    describe -- drop `registry.append` and the unclaimed entries below name 81 rules nobody
+    #    registered, switch this arm off and `_probe_every_rule`'s own per-rule check names the
+    #    missing entries -- so the mutation has to be two edits to pass, which is the same argument
+    #    the Makefile's two `make verify` steps make about each other.
+    whys = [why for why, _ in registry]
+    unclaimed = sorted(set(RULE_PROBES) - set(whys))
+    if unclaimed:
+        bad.append(f"{PROBE}: {len(unclaimed)} probe entries name no registered rule "
+                   f"({unclaimed[:3]}), so the table and the rules have come apart: one of them is "
+                   "being described by someone else's break")
+    if len(registry) != len(ran):
+        bad.append(f"{PROBE}: {len(registry)} rules are registered and {len(ran)} ran, so the loop "
+                   "that breaks bodies and the count that reports them are not the same set of "
+                   "rules any more")
+    arms += 1
+    # 2. The verdict, on four shapes, one of them the control. Everything this file adds -- every
+    #    PROBE line below -- reaches an operator only through that function, and its arms are two
+    #    `if`s and a `return 1`. The control matters as much as the rest: a verdict that always
+    #    returned 1 would satisfy the three shapes above it and print `0 of 81 rules failed` over a
+    #    clean run. Both streams are fenced because the green line is a plain `print()` on stdout,
+    #    and the sibling suite decides "green" from the child's LAST stdout line -- leaking one of
+    #    these would let a broken tree report itself as the pass.
+    full = [("rule %d" % i, 0) for i in range(EXPECTED_RULES)]
+    failing = [("rule %d" % i, 1 if i < 3 else 0) for i in range(EXPECTED_RULES)]
+    shapes = 0
+    for label, ran_shape, bad_shape, want in (
+            ("one harness finding and 81 clean rules", full, [f"{PROBE}: a"], 1),
+            ("a harness finding beside three failing rules", failing,
+             [f"{PROBE}: a", "some rule: its own finding"], 1),
+            ("a short run and nothing to report", full[:-1], [], 1),
+            ("nothing at all", full, [], 0)):
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            code = self_test_verdict(list(ran_shape), list(bad_shape))
+        shapes += 1
+        if code != want:
+            bad.append(f"{PROBE}: self_test_verdict returned {code}, want {want}, for {label}. "
+                       "Every finding this loop raises is printed by that function or not at all, "
+                       "so an arm of it that stopped refusing is a gate that reports green over a "
+                       "guard that stopped checking")
+    arms += 1
+    # 3. The machinery, on a break aimed at itself: applying has to change the object named and put
+    #    it back, and an entry the table cannot honour has to refuse rather than no-op. An
+    #    `_apply_probe` hollowed to `return (lambda: None, "done")` would report all 81 rules as
+    #    probed while touching nothing, and no other line in this file would notice.
+    marker = cdp.capture_out
+    try:
+        undo, _note = _apply_probe(("hollow", "cdp.capture_out"))
+        applied = cdp.capture_out is not marker
+        undo()
+        restored = cdp.capture_out is marker
+    except Exception as exc:  # noqa: BLE001 -- the witness answers, it does not crash the run
+        applied = restored = False
+        bad.append(f"{PROBE}: the probe machinery raised on its own witness break: "
+                   f"{type(exc).__name__}: {exc}")
+    if not applied:
+        bad.append(f"{PROBE}: _apply_probe did not change cdp.capture_out, so nothing in "
+                   "RULE_PROBES is a break and every rule above was reported as probed by a loop "
+                   "that touches nothing")
+    if not restored:
+        bad.append(f"{PROBE}: _apply_probe left cdp.capture_out broken after its undo, so the first "
+                   "probe poisons every probe after it and the transcript names the wrong rule")
+    for shape, label in ((("nonsense", "cdp.capture_out"), "an unknown kind"),
+                         (("data", "pages.PAGES", "nonsense"), "an unknown data variant"),
+                         (("hollow", "pages.EXPECTED_RULES"), "a spec naming a number")):
+        try:
+            _apply_probe(shape)
+        except _ProbeUnapplicable:
+            continue
+        except Exception as exc:  # noqa: BLE001 -- named, not crashed through
+            bad.append(f"{PROBE}: {label} escaped as {type(exc).__name__} instead of refusing, so a "
+                       "corrupted table entry reads as a verdict")
+            continue
+        bad.append(f"{PROBE}: {label} was applied as though it were a break. An entry that cannot be "
+                   "honoured has to refuse: a probe that no-ops is a rule that passes")
+    arms += 1
+    # 4. A rule with no entry has to be a problem -- the day somebody adds a rule and forgets this
+    #    table is exactly as easy as emptying a body. Driven through the real function rather than
+    #    asserted about it, so switching the `spec is None` arm off reddens this arm. Into its own
+    #    list: the finding it produces is the pass condition, and it is not a finding about this run.
+    witness = []
+    _probe_every_rule([("a rule added without a probe entry", lambda problems: None)], witness)
+    if not any(p.startswith(f"{PROBE}:") for p in witness):
+        bad.append(f"{PROBE}: a rule with no entry in RULE_PROBES was accepted, so the table can be "
+                   "emptied and all 81 rules reported as probed")
+    arms += 1
+    return arms, shapes
+
+
+def _rule_probes_are_live(registry, ran, bad):
+    """Run the probe pass and its harness arms, and hold each to a count of what it did.
+
+    The counts are pinned here, in the caller of the code they describe, for the same reason
+    `self_test_verdict` is a separate function: the thing that notices a check being skipped has to
+    be somewhere else. They do not escape the floor -- `_rule_probes_are_live` itself is one line in
+    `self_test()` and deleting that line is silent -- and that is the hole the sibling suite keeps.
+    """
+    probed, reported = _probe_every_rule(registry, bad)
+    if probed != len(registry):
+        bad.append(f"{PROBE}: {probed} of {len(registry)} rules were broken and re-run. A rule "
+                   "nobody broke is a rule whose body can be emptied for free, and `81 refusal "
+                   "rules hold` says nothing about it (#322)")
+    if not reported:
+        bad.append(f"{PROBE}: none of the {probed} rules answered its own broken contract with a "
+                   "problem sentence -- every one of them raised. #322's defect stays retired, "
+                   "because an emptied body neither reports nor raises, but a pass that only ever "
+                   "witnesses a raise has stopped distinguishing a rule that judges the guard its "
+                   "name names from one that merely calls it")
+    arms, shapes = _probe_harness(registry, ran, bad)
+    if arms != 4:
+        bad.append(f"{PROBE}: the harness ran {arms} of 4 arms, so one of the checks no rule can "
+                   "reach -- the registry's bookkeeping, the verdict's four shapes, the machinery's "
+                   "own break, and the table's coverage -- is not running")
+    if shapes != 4:
+        bad.append(f"{PROBE}: the verdict was offered {shapes} of 4 shapes. Three of the four are "
+                   "the reason the refuse-and-return arms are pinned and the fourth is the control "
+                   "that keeps the other three honest; a shape dropped from the tuple is a verdict "
+                   "arm nobody asks about any more")
+
+
+RULE_PROBES = {
+    "a refusal on every page still measures every page":
+     ("hollow", "pages.select_pages"),
+    "the literal census matches the page declaration":
+     ("data", "pages.CENSUS", "empty"),
+    "a fixture mode selects only its own pages":
+     ("hollow", "pages.select_pages"),
+    "an unknown fixture refuses before the browser starts":
+     ("hollow", "pages.fixture_mode"),
+    "a page from the wrong document refuses":
+     ("hollow", "pages.require_needles"),
+    "a needle page must name a non-default fixture":
+     ("page",),
+    "capture_out resolves --out and returns one directory":
+     ("hollow", "cdp.capture_out"),
+    "a page is recorded where it is photographed":
+     ("empty", "capture_manifest.pages_by_artifact"),
+    "one refusal names it and counts the rest":
+     ("hollow", "cdp.refusal_note"),
+    "a clean run publishes and exits 0":
+     ("hollow", "pages.select_pages"),
+    "a clean run hands the publish the fixture it ran under, which is the only "
+     "thing that makes the run's receipt writable (#302)":
+     ("hollow", "pages.select_pages"),
+    "a crash in shoot is a refusal, not an abort":
+     ("hollow", "pages.select_pages"),
+    "a refused run says where its frames are":
+     ("hollow", "cdp.keep_refused"),
+    "each fixture keeps its refused frames apart":
+     ("hollow", "cdp.keep_refused"),
+    "a kept frame is moved out of the publish queue":
+     ("hollow", "cdp.keep_refused"),
+    "a refused directory is opened once and cleared once":
+     ("hollow", "cdp.keep_refused"),
+    "a keep that could be read as evidence is refused":
+     ("hollow", "cdp.keep_refused"),
+    "a dead browser still leaves the refusal standing":
+     ("hollow", "cdp.capture_refused"),
+    "report_refusal reports and returns":
+     ("refuse", "cdp.report_refusal"),
+    "a missing token census refuses":
+     ("hollow", "pages.require_unbreakable"),
+    "a token under the floor refuses":
+     ("hollow", "pages.require_unbreakable"),
+    "an absent stress row refuses":
+     ("hollow", "pages.require_stress_row"),
+    "a stress row needs a table":
+     ("hollow", "pages.main"),
+    "somebody must carry the stress row":
+     ("hollow", "pages.main"),
+    "lock.py and testlock.py keep what a refusal measured and return 1":
+     ("hollow", "cdp.keep_refused"),
+    "a kept POST frame cannot be read as the committed evidence":
+     ("hollow", "cdp.keep_refused"),
+    "a refusal whose report cannot be written still finishes its disposal":
+     ("hollow", "cdp.capture_refused"),
+    "a refusal in a fixture still disposes of itself once":
+     ("hollow", "cdp.keep_refused"),
+    "a page whose keeping died does not stop the sweep":
+     ("hollow", "cdp.keep_refused"),
+    "a desktop-only refusal fails the run":
+     ("hollow", "pages.select_pages"),
+    "every page is measured at every viewport":
+     ("hollow", "pages.select_pages"),
+    "each summary line names its viewport":
+     ("hollow", "pages.select_pages"),
+    "the viewport is moved before the page is loaded":
+     ("hollow", "pages.shoot"),
+    "only the artifact viewport writes bytes":
+     ("hollow", "pages.shoot"),
+    "a refusal names the viewport that failed":
+     ("hollow", "pages.shoot"),
+    "the fixture guards run at the artifact viewport only":
+     ("hollow", "pages.shoot"),
+    "the viewport is verified, not assumed":
+     ("hollow", "pages.shoot"),
+    "a fixture refusal carries to the other viewport":
+     ("hollow", "pages.shoot"),
+    "an untested page is not a refusal at the other viewport":
+     ("hollow", "pages.select_pages"),
+    "a photographed refusal has to be a refusal":
+     ("hollow", "pages.require_refusal"),
+    "the refusal is produced by clicking the shipped form":
+     ("hollow", "pages.refusal_form"),
+    "the kept box is read out of the form that posted":
+     ("hollow", "pages.refusal_extra"),
+    "the fill script slices a NodeList like an array":
+     ("hollow", "pages.fill_script"),
+    "a script that never parsed is not a vanished form":
+     ("hollow", "cdp.Session.value"),
+    "the refused artifact is refused about its own refusal":
+     ("hollow", "pages.require_refusal"),
+    "the control census is asked for, at both viewports":
+     ("hollow", "pages.shoot"),
+    "a control in the browser's own font refuses":
+     ("hollow", "cdp.require_control_font"),
+    "two field widths on one page refuse":
+     ("hollow", "cdp.require_control_width"),
+    "a field sized by nothing refuses":
+     ("hollow", "cdp.require_control_width"),
+    "a tick box outside its words refuses":
+     ("hollow", "cdp.require_choice_groups"),
+    "the census a page was shown is printed":
+     ("hollow", "cdp.census_line"),
+    "a census that was never taken refuses":
+     ("hollow", "cdp.require_control_font"),
+    "a frame photographed over the wrong session census refuses":
+     ("hollow", "cdp.require_declared_sessions"),
+    "the navigation census is asked for, at both viewports":
+     ("hollow", "pages.shoot"),
+    "a navigation that marks nothing refuses":
+     ("hollow", "cdp.require_nav_marked"),
+    "a link still in the browser's own values refuses":
+     ("hollow", "cdp.require_nav_in_palette"),
+    "two entries marked current refuse":
+     ("hollow", "cdp.require_nav_marked"),
+    "a mark on the wrong entry refuses":
+     ("hollow", "cdp.require_nav_marked"),
+    "a mark no property can see refuses":
+     ("hollow", "cdp.require_nav_distinguishable"),
+    "a mark on a target nobody can hit refuses":
+     ("hollow", "cdp.require_nav_marked"),
+    "a mark the browser never draws refuses":
+     ("hollow", "cdp.require_nav_distinguishable"),
+    "a mark outside the header refuses":
+     ("hollow", "cdp.require_nav_marked"),
+    "a navigation row of one link refuses":
+     ("hollow", "cdp.require_nav_marked"),
+    "a navigation census that was never taken refuses":
+     ("hollow", "cdp.require_nav_distinguishable"),
+    "the accepted mark is printed":
+     ("hollow", "cdp.nav_census_line"),
+    "the state census is asked for, at both viewports":
+     ("hollow", "pages.shoot"),
+    "a driver that measures the state census prints it":
+     ("shadow", (("lock.py", "cdp.state_census_line",
+                    "cdp.CENSUS_LINE_WITHDRAWN"),
+                   ("testlock.py", "cdp.state_census_line",
+                    "cdp.CENSUS_LINE_WITHDRAWN"))),
+    "a state the stylesheet never drew refuses":
+     ("hollow", "cdp.require_state_legible"),
+    "a state marked only by its parent's box refuses":
+     ("hollow", "cdp.require_state_legible"),
+    "any one visible channel counts as drawn":
+     ("refuse", "cdp.require_state_legible"),
+    "an invisible state is skipped, its neighbour still refuses":
+     ("hollow", "cdp.require_state_legible"),
+    "a state census that was never taken refuses":
+     ("hollow", "cdp.require_state_legible"),
+    "the state census is printed, zeros included":
+     ("hollow", "cdp.state_census_line"),
+    "the census is the vocabulary the templates use":
+     ("shadow", ((".tmpl", "state-held", "state-held-renamed"),)),
+    "a published set of PNGs is recorded in the manifest":
+     ("hollow", "pages.select_pages"),
+    "a refused run records no manifest":
+     ("hollow", "pages.select_pages"),
+    "the declared state is the thing photographed":
+     ("hollow", "pages.require_declared_state"),
+    "the audit row count is the fixture's":
+     ("hollow", "pages.require_declared_rows"),
+    "the driver hands the recorder the envs of the fixtures it photographed":
+     ("hollow", "pages.fixture_envs"),
+    "the conditions are handed over at the manifest step":
+     ("hollow", "pages.main"),
+    "the scripts condition reaches the browser, not just the manifest":
+     ("hollow", "cdp.scripts_disabled"),
+}
+
+
 def self_test():
     """Every rule below is a claim about what a refusal does. Eleven of them were false when
     written, and the file still exited 1, which is exactly why a count and an exit code are not
     evidence that a driver did its job."""
-    ran, bad = [], []
+    ran, bad, registry = [], [], []
 
     def rule(why, body, ran_to=None, bad_to=None):
         problems = []
+        if ran_to is None and bad_to is None:
+            # Registered for the probe pass below. Only a claim about a driver is registered: the
+            # canaries at the end pass their own two lists, and probing one would aim a break at the
+            # harness, which `_probe_harness` does on purpose and counts.
+            registry.append((why, body))
         try:
             body(problems)
         except Exception as exc:  # a rule that throws has not passed
@@ -4856,6 +5390,12 @@ def self_test():
                    f"{probe_crash} with counts {crash_counts}, want {crash_want} and [1] -- a rule "
                    "that throws has not passed, and this arm is the only thing between one and a "
                    "green run (#323)")
+
+    # One probe per rule, last of everything: the count and `ran` both survive an emptied body, so
+    # the only thing that notices a rule which stopped checking is a break aimed at it. Deliberately
+    # not one of the 81 -- it is not a claim about a driver, and a rule that policed its own probe
+    # table would need the table to be broken first.
+    _rule_probes_are_live(registry, ran, bad)
 
     return ran, bad
 
