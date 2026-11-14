@@ -8445,4 +8445,16 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   basename as `names 2 files`; with both repaired, `check-decisions.py` answers 224 entries and
   `563 path:line citations read out of the two logs, 539 of them owing an anchor and 0 pointing somewhere a
   reader cannot open`, exit 0, with the ratchet unmodified at 539. Refs #367, Refs #318.
+ Erratum, measured 14 Nov after this entry was committed, and it makes the finding worse rather than softer.
+ The `Why:` above says the taught number "has already drifted twice", which reads as though the example was
+ right once. It never was: at `bc1c08c` -- the head the review is filed on, and the commit that introduced
+ the example -- the sentence it quotes was already at AGENTS.md line 52 while the example said 46. The number
+ was copied from the instruction's earlier position rather than measured, so the worked example this rule
+ tells every unit to write has been false for its entire existence, and "correct the number" was never an
+ option that had ever worked. Second correction, same class as the one filed against `H-0162`: the two
+ figures in the `Effect:` above (224 entries, 563 citations) were read at d29017e, and the very next commit
+ on this branch moved them to 225 and 565, which is precisely why docs/factory.md now prints the command
+ instead of trusting a figure copied into prose. The closing line of `python3 scripts/check-decisions.py` at
+ any head is the authority; these two numbers are a measurement with a date on it, which is what the one
+ above lacked.
 - Checkpoint: 4fcf9a42f7ed05d7a515007a21a0f5ad3ff4c80d
