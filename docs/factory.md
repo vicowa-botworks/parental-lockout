@@ -434,6 +434,154 @@ pinned by the fixture alone, and what it buys is the day a head and a branch car
 What the name half changes live is three refs, `backup-tip`, `preserve/issue-222-stale-base` and
 `preserve/issue-318-wip`: they keep their rows, because a row is a report, and lose their tick.
 
+### The merge that closed nothing the body said it closed (#353)
+
+A closing keyword is a request to GitHub, not an event in this harness, and until now nothing ever
+asked whether the request was granted. `factory_verify_closure` (`factory/factory.sh`) is called at
+the end of `factory_merge`, after the ledger is stamped, and it reads back every issue the merged body
+named with a verb.
+
+The population, all 180 merged pull requests here, read 14 Nov 2026 and classified by where the verb
+sits in the markdown (`scripts/check-close-verb.py` ships the classifier, and the audit that counts
+this table drives that same shipped pattern instead of a re-typed copy of it):
+
+| where the keyword is | pairs | closed within 2 s of the merge | closed later |
+|---|---|---|---|
+| plain text | 100 | **98** | 2 — #207 at +159415 s, #211 at +27586 s |
+| inline code, with no plain-text pair naming the same issue | 2 | **0** | 2 — #304 at +6086 s, #301 at +14472 s |
+| a fenced block | 0 | — | nothing in this repository has ever done this |
+
+Nothing at all landed in the three-to-120-second bucket, which is what lets the ≤2 s cluster be read as
+the parser firing rather than as human latency: GitHub takes under two seconds or it did not do it. The
+two inline-code specimens are PR #308 (`` `Closes #304` ``) and PR #338 (`` `Closes #301.` ``, on a line
+that states the keyword is deliberate). #301 is the expensive one: it stayed open until a second unit
+was dispatched to re-derive work `main` already had, and it was closed 14472 s after the merge that
+claimed it, by that unit's own delivery comment rather than by the keyword.
+
+**The pattern is GitHub's keyword set, and the verb has to touch the number.** `close closes closed fix
+fixes fixed resolve resolves resolved`, then at most a colon, a comma or a tab, then `#N`. Both halves
+are measurements. No `-ing` form is in GitHub's set, and the shipped line used to carry two of them
+because the stems had been copied from `triage.sh`'s claim matcher rather than from the keyword list.
+The copy was incomplete as well as over-wide: `fix(?:e[sd])?` has no `-ing` arm, so one merged body's
+shape decided which `-ing` verb the harness believed -- `Closing #77` and `Resolving #78` scanned as
+requests while `Fixing #79`, the same spelling one stem over, did not. Neither spelling was GitHub's.
+The filler window mattered more. The pattern used to allow `[^#\n]{0,20}` -- twenty characters of
+prose -- between verb and number, and a window invents claims: over the same 180 bodies it answers 115
+plain-text matches where 100 exist. Seven of the invented pairs name real issues no sentence asked
+about, seven name pull requests, which no closer can act on, and one names `#1180`, a cross-repository
+citation that is not an artifact of this repository at all. Six of them ship as fixtures in the checker,
+each quoted exactly as it was merged -- `pull request #292 has the fix. Refs #291 for context only.`
+read as a request for #291, which is still open; `needs the boundary resolved by hand, and #1180 is
+why` read as a request for #1180; and four more of the same shape, one of them naming an issue closed
+29398 s *before* the merge that "closed" it. An invented closer is not a harmless over-read here: every
+one of them becomes a
+sentence written onto a live ticket by the function above, so a false positive is a false statement in
+the artifact. Both halves are pinned twice now -- the checker carries the six merged lines as fixtures
+that must not be reported as closers, and `factory/selftest.sh` runs the two shipped spellings of the
+pattern, the jq one in `factory.sh` and the Python one in the checker, over one table of lines and
+refuses any line where they disagree.
+
+**One verb, every number it touches, and what kind of thing that number is.** The scan used to ask `jq`
+for a `capture`, which answers the FIRST `#N` on a matching line and nothing else, so a line whose verb
+is not the first thing on it reported the wrong ticket and never read the right one: `#7 is the reason.
+Fixes #12.` came back as `7`, and GitHub's own multi-issue sentence came back as its first number alone.
+`scan($re)` returns one entry per match -- the pattern's capture group, so bare digits -- so a number is
+reported only when a keyword was touching it. Kind matters as much as position: a pull request is also an
+issue to the REST API, so
+`issues/282` answers `state: closed` with a real `closed_at`, and a body may point its verb at a merged
+sibling -- #292's says `its fix merged as #282 at 11:01:37Z on 11 Nov`. The pass now reads
+`pull_request` in the same call as `state` and `closed_at` (one read, because two reads of one artifact
+can straddle a write, and a delta built across them is a delta nobody observed) and prints
+`CLOSE-NOT-ISSUE pr:N ref:M` for a pull request instead of an issue verdict. The separator between those
+three fields is U+001F, not a tab: tab is IFS *whitespace*, so `IFS=$'\t' read` collapses the empty
+middle field of an open ticket and the kind lands in `closed_at` (measured). Both arms grade through one
+`factory_close_verdict` now, because the re-probe arm carried its own copy of the verdict and that copy
+had only the healthy branch: a ticket that closed during the probe with no readable timestamp printed
+`closed unknown s after the merge, inside the window GitHub takes`, and one closed 40400 s after the
+merge printed the same healthy sentence with the window at 120 s. And the re-probe is one wait for the
+batch rather than one per ticket -- the sleep sat inside the loop, so five open tickets held
+`factory_merge` for fifty seconds before the worktree cleanup ran.
+
+**A commit message is text GitHub parses too, and nothing read it (H-0166).** The body file is checked
+at review time; the messages were never checked by anything. Measured on the branch that added this
+paragraph: `git log --format=%B origin/main..HEAD` at `17b37c7` answered two verbs adjacent to a number
+inside one commit message, in the sentence written to warn about them -- the PR #245 shape from #1256,
+one layer down. Both of its numbers happened to be artifacts already closed when the message was
+written (#77, #78, read back with `gh issue view N --state all --json number,state,closedAt`), so that
+merge would have changed nothing. That is luck about two numbers, not a property of the shape: the same
+sentence over two open issues closes them with no review and no note. So `scripts/check-commit-verbs.sh`
+runs the checker over every message between a basis ref and HEAD -- `origin/main`, or `main`, or the
+`PLOCK_COMMITS_BASE` or first positional argument -- one commit at a time so a refusal names its commit,
+and `make verify` runs it. Two rules about what happens next are worth stating, because both are places
+where a guard can quietly become a lie:
+
+- **The remedy depends on whether the commit is published.** Not published: rewrite the message. Already
+  published: do *not* rewrite it -- `git revert` is the only rollback here, force-pushing an in-flight
+  branch is forbidden, and every merge on this repository is a merge commit, so the message is permanent
+  history and the claim cannot be recalled. Read the named artifacts back and decide deliberately, then
+  write the decision into `factory/close-verb-waivers`: full sha, the exact number set the report prints,
+  a reason that says what was read back. The waiver is checked for exactness and *reprinted on every
+  run* -- a green line that hides an adjudication is indistinguishable from no adjudication. That only
+  published claims are waivable is a reviewer's rule, not a mechanical one; what is mechanical is that a
+  waiver naming fewer numbers than the report, or more, leaves it failing.
+- **An undocumented inflection is refused even though nobody knows what GitHub does with it.** The
+  published keyword set has no `-ing` form, and all 180 merged bodies of this repository contain exactly
+  one adjacent `-ing` specimen (PR #47's `closing #46`), so the corpus cannot settle the question -- one
+  observation, confounded because that same body also carries a documented keyword on the same number.
+  The two sides of this tool answer the uncertainty in opposite directions on purpose: the *read* side,
+  `factory_verify_closure`, whose verdict is written onto a live ticket, keeps the documented nine so it
+  never invents a claim (H-0164); the *write* side refuses the superset, because being wrong there costs
+  a reworded sentence and being wrong the other way costs an unplanned close. A documented keyword in a
+  message is still allowed -- a leg pins that, because a guard that refuses every number in every message
+  would pass this section's own bite test for the wrong reason.
+- **Three scans, and only one of them strips code spans.** `scripts/check-close-verb.py` reads a *body*
+  with spans stripped, because that a span is inert is a measurement made over merged bodies on 14 Nov
+  (a keyword inside inline code and nowhere else fired 0 of 2). `factory_verify_closure` reads a body
+  span-blind, because the specimen that started #353 *is* a verb inside a span and the read side has to
+  see the disagreement between what was asked and what happened. `check-commit-verbs.sh` reads a
+  *message* span-blind for a third reason: nobody has ever measured spans in a message, so no span is
+  treated as a shelter there, and the direction of the doubt is the one that costs a reworded sentence
+  rather than a close. Every one of the three is refusing to assume; a single shared "right answer" about
+  backticks across all three would itself be the assumption.
+
+**The scan is span-blind on purpose, and a tidier one would have missed the defect.** The obvious
+implementation strips code blocks and inline spans first, because that models GitHub. This one matches
+the verb wherever it appears, inside backticks included -- the same way `CLAIM_RE` in `triage.sh` does.
+The specimen *is* a verb inside a code span: a span-stripping scan reports no claim, compares nothing,
+and passes the merge that started this ticket. The disagreement between what the body asked for and what
+the artifact got is only visible to a reader that reads the body the way the harness's other reader does
+and then checks GitHub's answer. What closes and what does not is reported, not assumed.
+
+**What it does when a ticket is still open: write on the artifact, close nothing.** Three options were
+weighed (H-0156): close with a comment naming the merge commit, comment only, or halt the pass. Halting
+is refused for the reason #341 documents -- one un-closed ticket must not park every later activation.
+Closing is refused for the reason this repository has been taught twice: a verb is not evidence, and
+#1256 is the record of a keyword firing on a line written to *negate* it. Whether the delivered artifact
+met the ticket's requirements is a judgement with measurements behind it, and the merge does not carry
+those measurements. So the failure is written into the issue, where the next reader of the issue finds
+it, and the state change stays with a person.
+
+The note keeps the quoted verb lines inside a code span of their own. That is load-bearing and a leg
+pins it: a comment that put `Closes #301` in running text would close the ticket it is reporting on, by
+accident, with no measurement behind it -- the exact failure mode being documented. The checker from
+Step 5 reads the generated note and reports no firing keyword in it.
+
+**The healthy path writes nothing.** A ticket closed within the window is not a fact worth a journal
+line; #334 priced the pass at 37 lines already. Three sentences appear only on the abnormal branches:
+`CLOSE-OPEN` (the ticket is still open after the re-probe, and a note was attempted), `CLOSE-LATE`
+(closed, but `${FACTORY_CLOSE_FIRED_S}` -- default 120 -- seconds of slack separate a keyword from a
+hand close; the measured population has zero pairs between 3 and 120 s, so any bound in that range
+separates the same two sets, and 120 states a window rather than tuning one), and `CLOSE-UNTIMED`
+(closed with no readable timestamp, which is not the same answer as a delta of zero). An issue that
+cannot be read is `CLOSE-CHECK-UNKNOWN`, and a body that cannot be read is `CLOSE-CHECK-SKIPPED`:
+neither is ever reported as an open ticket, because a failure to read is not a finding.
+
+The re-probe is one sleep, `FACTORY_CLOSE_PROBE` seconds (default 10), because GitHub's closer is
+asynchronous and a single `OPEN` read milliseconds after a merge means nothing; 10 s is five times the
+widest delta in the measured population. A closer that lands between the two reads is `CLOSE-SETTLED`.
+
+Nothing here closes an issue, and nothing here claims a requirement was met.
+
 ### The approval a push voids
 
 `reviewDecision` is a fact about a pull request's head, not a record of its past. This repository does
