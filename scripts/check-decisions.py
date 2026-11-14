@@ -1038,6 +1038,40 @@ def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
     return CitationVerdict(problems, measured, unanchored, unresolvable, broken, True, None)
 
 
+# The files that TEACH this rule are the one place a false pointer is invisible by construction: the rule
+# reads the two decision logs and nothing else, so a worked example six lines off is copied by every unit
+# that opens it. Measured at `4fcf9a4` -- the checkpoint before this code -- `.opencode/skills/factory/SKILL.md`
+# taught `AGENTS.md` at line 46 for a sentence that sits at line 52, and wrote a bare `DECISIONS.md:2221-2231`
+# that this gate refuses outright inside a log because two files answer to that name.
+TEACHES_RULE = (".opencode/skills/factory/SKILL.md", "AGENTS.md")
+
+
+def teaches_problems(read, index, paths=TEACHES_RULE):
+    """Refuse a pointer in the instruction that teaches the rule, and nothing else about it.
+
+    Same classifier as the logs, deliberately -- a second copy of the anchor logic is the bug H-0170
+    removed from the headline. What differs is what is owed: an entry in a decision log makes a promise
+    forever, so an unanchored one is counted against the ratchet; a guide is edited as a unit and its
+    pointers are re-read by this command, so what it owes is that every coordinate it tells a unit to
+    copy resolves today, and an unanchored one is not a defect. That is why `unanchored` is dropped here
+    and the two must-be-zero lists are not. `docs/factory.md` is NOT in `TEACHES_RULE` and that is a
+    measured choice, not an oversight: it is the reference, and it carries the shapes the rule refuses on
+    purpose (`gonee.md:3`, `pr:209`, a `README.md:588` past a 349-line EOF) inside the table that
+    explains them, so pointing this pass at it refuses the guide's own examples.
+    """
+    found = []
+    for path in paths:
+        text = read(path)
+        if text is None:
+            continue          # a fixture tree, a fork without the skill: absent is not false
+        for c in scan_citations(text, [], index):
+            c["label"], c["entry"] = path, "the guide"
+            found.append(c)
+    _, unresolvable, broken = classify(found, read)
+    return ["the file that teaches this rule has a pointer a reader cannot follow: " + r
+            for r in unresolvable + broken]
+
+
 def citation_report(found, read, only=None, verdict=None):
     """The `--citations` listing: what the debt is made of, by the file it points at.
 
@@ -1533,6 +1567,43 @@ def self_test():
     if verdict.problems or verdict.measured:
         fails.append("orphan-continuation-still-a-limit: the sentence-limit became a defect -- %s"
                      % verdict.problems)
+    # ---------------------------------------------------------------------------------------------
+    # #367 review #3: the files that teach the rule were the one place a false pointer could not be seen,
+    # because the rule read only the two logs. Three legs refuse a bad pointer in a guide, four hold the
+    # exemptions open -- the one that matters is the unanchored coordinate, which is a debt in a log and
+    # is NOT a defect in a guide.
+    counts[0] += 3
+    counts[1] += 3
+
+    def teach(body):
+        read = dict(CITES_TREE, **{"guide.md": body}).get
+        return teaches_problems(read, CITES_INDEX, paths=("guide.md",))
+
+    for body, name, needle in (
+            ('read `SKILL.md:1` by its bare name here.\n', "guide-ambiguous-basename",
+             "names 3 files"),
+            ('read `docs/factory.md:2` "the escalation label is printed by exactly one script".\n',
+             "guide-anchor-moved", "it is at line 3 now, not 2"),
+            ('read `gonee.md:3` for it.\n', "guide-gone-file", "not in the tree being gated")):
+        probs = teach(body)
+        if not any(needle in q for q in probs):
+            fails.append("%s: expected a refusal containing %r, got %s" % (name, needle, probs))
+    for body, name in (
+            ('read `docs/factory.md:3` "the escalation label is printed by exactly one script".\n',
+             "guide-anchor-exact"),
+            ('read `docs/factory.md:3` and that is the whole promise a guide owes.\n',
+             "guide-may-go-unanchored"),
+            ('`pr:209` and an orphan `:19` are still not citations here either.\n',
+             "guide-shapes-stay-exempt")):
+        probs = teach(body)
+        if probs:
+            fails.append("%s: a guide was refused for a shape the rule does not owe it -- %s"
+                         % (name, probs))
+    counts[1] += 1
+    if teaches_problems(CITES_TREE.get, CITES_INDEX, paths=("no-such-guide.md",)):
+        fails.append("guide-absent-is-not-false: a fixture tree with no skill file is refused for a "
+                     "file it does not have")
+
     # A wrapped anchor is not an anchor. The rule reads the coordinate's own physical line, so a
     # quotation that starts on the next line leaves the citation in the debt instead of checked: a number
     # moves and nothing is refused. Pinned both ways because these logs are markdown wrapped at ~110
@@ -1748,6 +1819,11 @@ def main(argv):
         # a tree cut before this file existed sees none of it. Both files now have their own id space,
         # so the only thing left to enforce is that they do not meet.
         problems += cross_log_problems(where_seen)
+
+    if not walk_problem and path == LOG:
+        # Not under `--log`: that invocation narrows the corpus deliberately, and a run aimed at one file
+        # is not a verdict on the repository's instructions either.
+        problems += teaches_problems(read_tree, index)
 
     if problems:
         print("\n%d decision-log problem(s):" % len(problems))

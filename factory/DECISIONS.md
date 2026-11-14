@@ -8378,3 +8378,59 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   unanchored one `the file was renamed, deleted, or never lived where the entry said`, both exit 1.
   Refs #367, Refs #318.
 - Checkpoint: dacaa890bc92619ec530e2be2f1fd3288529580a
+
+## H-0172 · The files that teach this rule were the one place a false pointer was invisible by construction, so the rule now reads them -- and refuses what it cannot open, without ratcheting on them
+
+- Question: #367 review #3, reproduced at the checkpoint: `.opencode/skills/factory/SKILL.md` tells every
+  unit what an anchored citation looks like and taught a pointer to the escalation instruction six lines
+  above where it is: the sentence sits at `AGENTS.md:52` "naming what is owed, and stop", while the example
+  named line 46 -- and the gate cannot see it, because the anchor rule reads the two
+  decision logs and nothing else. A false pointer in the instruction that teaches the rule is copied by
+  every unit that opens the file, and the one mechanism built to catch a false pointer is the one thing
+  that does not look there. Running the same classifier over that file found a second defect the reviewer
+  did not name: it writes a bare `./DECISIONS.md` sibling -- line 2221-2231 of the root log, spelled with a
+  basename that `factory/DECISIONS.md` also answers to -- which is the exact shape the gate refuses inside
+  a log as ambiguous. So: what may the rule read, and does a guide owe the same promise an entry does?
+- Options: correct the number and leave the mechanism | add the two teaching files to the logs' corpus, so
+  their citations count against `POINTER_DEBT` like any other | run the same classifier over a named set of
+  teaching files and refuse only what a reader cannot follow, with no debt and no ratchet | widen it to every
+  markdown file in the tree, `docs/factory.md` included, so the whole corpus of instructions is checked
+- Chose: run the same classifier over a named set of teaching files and refuse only what a reader cannot
+  follow, with no debt and no ratchet
+- Why: the number alone is the same defect with a fresh number, and this one has already drifted twice --
+  the example said 46 while the #312 merge slid the instruction to 48-53, and #318's repair slid it on to 52;
+  two drifts in the log's own lifetime, one of them caught by this very rule aimed at other units' entries.
+  Option one also leaves the reviewer's mechanism standing, which is the finding. Option two is refused by
+  H-0170's own measurement: the ratchet is a statement about a corpus that grows one entry at a time, and a
+  guide is rewritten in whole paragraphs, so ratcheting on prose makes the number a function of how someone
+  wrapped a sentence -- the class of "stray content orders an edit to the constant" this session refused an
+  hour earlier, moved one step closer to the logs. Option four refuses the reference for carrying the shapes
+  it exists to explain: `docs/factory.md` quotes a gone file, a triage class pair, and a coordinate 239
+  lines past the EOF of the 349-line README it is measuring, all of them examples of what the rule catches,
+  so checking it is refusing the guide. What is owed by a guide instead is narrow and true: every coordinate
+  it tells a unit to copy resolves today -- so ambiguous, unopenable and moved are refused, and `unanchored`
+  is dropped. The pass reuses `classify()` rather than restating the anchor logic, which is the invariant
+  #367 review #1 bought (`scripts/check-decisions.py:1049` "def teaches_problems(read, index,"); it runs on
+  the tree only when the corpus is the real pair of logs, because `--log` narrows the subject deliberately;
+  and a teaching file that is absent is skipped, since a fixture tree with two entries and a copied script
+  must not be refused for instructions it does not have. What lost, both pinned so they are decisions and
+  not accidents: a guide may still carry an unanchored pointer that will drift silently
+  (`guide-may-go-unanchored` holds that door open on purpose -- ratcheting prose is option two, which is
+  refused), and `make verify` now walks two more files, so a fork that keeps our skill text while renaming
+  what it points at inherits our refusals. That is the point of the pass, but it is a new coupling between
+  the guide and the tree and it is named here rather than discovered downstream.
+- Effect: `scripts/check-decisions.py` gains `TEACHES_RULE` (the factory skill and `AGENTS.md`, the two
+  files that state the rule to a unit) and `teaches_problems`, called from `main` beside the log verdict.
+  `.opencode/skills/factory/SKILL.md` loses both false pointers -- the example now cites the line the
+  sentence is on and the label-measurement names the root log by path -- and its bullet tells the unit to
+  re-read the number with `grep -n` and to keep a coordinate and its quotation on one physical line, which
+  is the trap that cost this branch two rewrites today. `AGENTS.md`'s own taught example is now kept honest
+  by the pass rather than by hand-measuring. `docs/factory.md` states the pass, its exemption from the
+  ratchet and why the reference is outside it. `--self-test` goes 62/27 -> 65/31: three refusals (ambiguous
+  basename, moved anchor, gone file in a guide) and four exemptions held open (exact anchor, unanchored
+  coordinate, non-path shapes, absent file). Reproduced after the repair: the pass refuses the example as
+  the reviewer filed it -- the refusal reads "it is at line 52, 57 now, not 46" -- and refuses the bare
+  basename as `names 2 files`; with both repaired, `check-decisions.py` answers 224 entries and
+  `563 path:line citations read out of the two logs, 539 of them owing an anchor and 0 pointing somewhere a
+  reader cannot open`, exit 0, with the ratchet unmodified at 539. Refs #367, Refs #318.
+- Checkpoint: 4fcf9a42f7ed05d7a515007a21a0f5ad3ff4c80d

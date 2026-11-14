@@ -1987,6 +1987,17 @@ past the end of the file they name, all 7 unanchored, and every one of them is e
 wrapped paragraph mis-aimed (4) or a row an entry is *reporting* as past the end (3). Fixing the first four
 needs a rule about sentences, not lines, and that is filed as its own issue.
 
+**The files that teach this rule are checked by it, and that is a separate pass.** The rule reads the two
+decision logs, so a false coordinate in the instruction that tells a unit what to write was invisible by
+construction: the worked example sat in `.opencode/skills/factory/SKILL.md` six lines away from the sentence
+it quoted, and the gate could not see it. `teaches_problems` now runs the same classifier over
+`TEACHES_RULE` — that skill and `AGENTS.md` — and refuses a pointer there that is ambiguous, unopenable, or
+anchored to text that has moved. It does NOT ratchet there: an entry in a log makes a promise forever, so an
+unanchored coordinate is counted against `POINTER_DEBT`, while a guide is edited as a unit and its numbers
+are re-read by this command, so an unanchored one is not a defect. `docs/factory.md` is deliberately outside
+the pass — it is the reference, and the table that explains the shapes carries `gonee.md:3`, `pr:209` and a
+`README.md:588` past a 349-line EOF on purpose, so checking it would refuse the guide's own examples.
+
 **A name with an extension is a path, even bare, even when the file is gone.** `gonee.md:3` promises a
 reader a line, and the promise is false whether the entry meant the root or a directory three levels
 down — so it is refused, anchored or not. What stays exempt is a left half with no extension: `pr:209`
