@@ -58,6 +58,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
 | `delivered` | an **issue**: a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. A **branch** (#291): a merged pull request ran under that name into `main`, and the ref holds no content the trunk lacks. Either way the row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
+| `parked` | an **issue** carrying the escalation label -- the name comes from `FACTORY_ESCALATION_LABEL` (`factory/common.sh`) and is read through `factory/escalation-label.sh`, never spelled here. It is the marker a unit applies when it reaches one of the four decisions that are not its to make (#313). `delivered` outranks it: a fix verifiably on the trunk is a delivery, not a wait | nothing: the supervisor logs the row and dispatches no tick |
 | `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
 
@@ -83,6 +84,41 @@ adjacent inflection of "close" is never a harmless way to say it),
 the merge reached `FACTORY_BASE`, the issue has not been updated since the merge, and no closure of
 that issue has already been rejected. The last of those is also the human's override in the other
 direction: one comment on the issue puts it back in the queue for a tick.
+
+`parked` is the same blindness on the other side of an escalation (#313). `AGENTS.md` and the skill end
+a unit that reaches a reserved decision with the same three steps -- comment on the issue, apply the
+label, stop -- and only the comment was machine-visible: `grep -c labels` answered `0` for `triage.sh`
+and `0` for `factory.sh` at `65e980b`, re-measured at `f5e0fe9`. An honest escalation ships no pull
+request, and an open body's claim verb plus `closingIssuesReferences` are the only things standing
+between its own ticket and the next tick. Measured 13 Nov: `#301` went out at 20:11, 21:07 and 22:03Z
+and each pass ended `TICK-FAILED … exit=124 (124 means the 2700s ceiling)`, its `updatedAt` unmoved
+since the previous day because the terminal write is the first thing a truncated budget costs -- while
+`#284`, an open enhancement with no claim of any kind, never reached a tick at all behind it. So the
+class is read exactly the way `delivered` is: `triage.sh` asks for `labels(first:10)` in the issue query
+it was already making, and emits the row in the place `unclaimed` would have taken, which is why a real
+delivery still wins the row.
+
+Two things about that read are said on stderr rather than left implicit. The configured name is one the
+repository does not have -- #311 is that open decision, against eighteen labels none of them matching --
+so a pass that parks nothing says so, naming the name it looked for; the alternative is a queue that
+quietly agrees with itself that nobody ever escalated anything. And `labels(first:10)` is a bound that
+fails one way only: a match at the tenth label is still a match, so the sentence names just the issues
+that filled the list without matching anything, whose park status is unknown and which therefore stay
+workable instead of being called parked. What the marker may not do is a leg rather than a sentence:
+every label-bearing line in `triage.sh` may name `parked` and no other class, so a unit's own marker can
+stop a dispatch and can neither pick its next assignment nor grade its own work as delivered.
+
+The release is the one write the read above never states, and it belongs in the guide because
+`delivered` states its override outright: take the label off the issue -- `gh issue edit <N>
+--remove-label <the name the row printed>`, the name `factory/escalation-label.sh` prints and never a
+spelling of it here -- and the next pass reads that issue as workable again. Nothing is reopened and no
+marker is cleared, because a park wrote nothing but the label. What `delivered` gets from
+`FACTORY_DELIVERED_WINDOW`, a park does not have: a park has no expiry, so the label is the only release
+and a label nobody removes prints `PARKED` on every pass for as long as it sits. That repetition is the
+same choice the `delivered)` arm defends for itself -- a queue that reports a thing once and then goes
+quiet is a queue nobody can audit -- except `delivered` stops printing on its own when the window runs
+out and `parked` stops only when a person acts, which is why the row carries the name it read rather
+than making anyone guess it.
 
 Precedence is unchanged -- `delivered` is reached only where nothing open claims the issue -- and that
 has a consequence worth writing down before the class surprises anybody, because the open-claim channel

@@ -23,6 +23,8 @@
 #   branch_without_pr  assess stranded work    one tick
 #   review_unreadable  say the ask is missing  bash, throttled: no tick, ever (#242)
 #   delivered          report the issue        bash: one journal line, nothing closed (#235)
+#   parked             report the issue        bash: one journal line, nothing dispatched -- the
+#                                              unit that got here parked its own ticket (#313)
 #
 # Exit codes, because a timer must be able to tell these apart:
 #   0  the pass is over and nothing failed
@@ -1493,6 +1495,15 @@ factory_body() {
 		# triage.sh looks for still arrives here as a report, not as a done.
 		delivered)
 			log_event "DELIVERED $unit/$key $detail -- reported, not worked: nothing is dispatched and nothing is closed"
+			;;
+		parked)
+			# The other half of #313, and the reason the class exists: an escalating unit is told to
+			# comment, label, and stop, and a stop that no later pass can read is not a stop -- it is a
+			# re-offer. This arm is deliberately as quiet as `delivered`: the ask lives on the issue, in
+			# the unit's own comment and the label it applied, and a supervisor that nagged about it
+			# would be re-asking a question a person was already given in words. What it must not do is
+			# start a tick, because the tick would be sent to make the decision the unit refused to make.
+			log_event "PARKED $unit/$key $detail -- reported, not worked: a human holds this one"
 			;;
 		*)
 			log_event "UNKNOWN-CLASS $unit/$key class=$class -- no handler, so nothing was done"
