@@ -198,7 +198,11 @@ def capture(cap, name):
     s.write_png(name)
     # Every check above has passed, and only now do the bytes land: a refusal earlier in this
     # function leaves the target exactly as it was, staged frames and all.
-    s.publish()
+    #
+    # `FIXTURE` names this run's receipt (#302), for the reason written out in `lock.py`: this is
+    # the second of the two drivers that record nothing themselves, and `testlock.png` is the other
+    # row whose rev was typed rather than measured.
+    s.publish(FIXTURE)
     print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
     print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
           flush=True)

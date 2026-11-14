@@ -494,6 +494,10 @@ factory_merge() {
 	factory_ledger_clear "pr:$pr" stuck-since
 	factory_ledger_clear "pr:$pr" last-notice
 	factory_ledger_now "pr:$pr" merged-at
+	# And then the question the merge arm never asked: did the issues this body named with a verb
+	# actually close? It goes here, after the ledger is stamped, because a failure to notice must not
+	# cost a merge its own record (#353).
+	factory_verify_closure "$pr"
 	# The tree goes with the branch. Leaving one behind is how /tmp/opencode acquired six
 	# abandoned worktrees, two of them on the same commit.
 	if [ -n "$branch" ] && [ -d "$FACTORY_TREES/$(factory_slug "$branch")" ]; then
@@ -517,6 +521,270 @@ factory_merge() {
 			log_event "BRANCH-KEPT $branch $(printf '%s' "$gone" | tr -d '\r\n' | cut -c1-120)"
 		fi
 	fi
+	return 0
+}
+
+# Did the merge actually close what the body said it closed? (#353)
+#
+# A closing keyword is a request to GitHub, not an event in the harness, and until now nothing ever
+# asked whether the request was granted. Measured over all 180 merged pull requests of this repository,
+# read 14 Nov 2026, with the pattern on the line below (`/tmp/opencode/p357/audit_closers.py`, which
+# imports that pattern from `scripts/check-close-verb.py` rather than re-typing it, over `gh pr list
+# --json number,body,mergedAt` joined to `gh issue list --json number,state,closedAt`): a keyword in
+# plain text naming an issue closed it within two seconds of the merge **98 times out of 100**, with
+# nothing at all in the three-to-120-second bucket, so the two outliers and the whole delay question are
+# settled -- GitHub takes under two seconds or it did not do it at all. A keyword written inside a code
+# span, and nowhere else, closed **0 of 2**: PR #308 put the verb beside #304 inside backticks and #304
+# was closed by hand 6086 s later; PR #338 put it beside #301 inside backticks on a line that states
+# the keyword is deliberate, and #301 was closed 14472 s after the merge, by the unit that had just
+# been dispatched a second time to re-derive work `main` already had. The two late plain-text specimens
+# are #207 at +159415 s and #211 at +27586 s.
+#
+# The pattern is GitHub's documented keyword set -- close, closes, closed, fix, fixes, fixed, resolve,
+# resolves, resolved -- and the verb has to TOUCH the number. Both halves are measurements, not taste.
+# There is no `-ing` form in that set, and until 14 Nov this line carried two of them (`clos...|ing`,
+# `resolv...|ing`) because the stems were copied from `triage.sh`'s claim matcher instead of from the
+# keyword list. The copy was also incomplete in a way that shows what a hand-copied stem list costs:
+# `fix(?:e[sd])?` has no `ing` arm, so on this one line `Closing #77` and `Resolving #78` scanned as
+# requests while `Fixing #79` did not. The two shipped spellings -- this one, handed to jq as Oniguruma,
+# and `CLOSER` in `scripts/check-close-verb.py` -- were byte-identical modulo their flags up to 14 Nov, so
+# nothing had drifted yet; this change edits the same rule in two languages, which is why the drift is
+# now pinned by a leg in `factory/selftest.sh` instead of by luck.
+#
+# The filler window `[^#\n]{0,20}` invented claims from the other direction: over these same 180 bodies it
+# answers 115 plain-text matches where 100 exist -- 7 invented closers naming real issues no sentence
+# asked about (#291, still open behind `pull request #292 has the fix. Refs #291 for context only.`;
+# #228, closed 29398 s BEFORE the merge that named it; then #168, #304, #25, #232, #10), 7 naming pull
+# requests, which no closer can act on, and 1 naming #1180, a cross-repository citation that is not an
+# artifact of this repository at all. An invented closer is not a harmless over-read here: every one of
+# them is a sentence this function writes onto a live ticket.
+#
+# The separator is `[:, \t]*`, not `\s*`. Every scan here hands the pattern ONE LINE -- `jq` splits on
+# `"\n"`, the checker iterates `splitlines()` -- so a separator that can match a newline cannot pay off
+# inside a single line; what it can match is a `\r`, a form feed or a vertical tab, which is what a
+# body imported from a Windows editor carries. Measured on the same 180 bodies the two spellings give
+# the identical population -- 100 plain-text pairs, 98 fired, 2 late, 2 inline-only, 0 fenced -- so the
+# narrow one costs nothing today, and `\s` is a filler window waiting for the first CRLF body.
+#
+# Which references get checked is the interesting decision, and it goes against the obvious tidy
+# answer. The scan here is SPAN-BLIND: it matches the verb wherever it appears, inside backticks
+# included, exactly like `triage.sh`'s `CLAIM_RE` does. A scan that stripped code spans first would
+# be a more faithful model of GitHub and would have missed #301 entirely -- the specimen IS a verb
+# inside a code span. The point of this component is to notice the disagreement between what the body
+# asked for and what the artifact got, so it has to read the body the way the harness's other reader
+# does and then compare against the state GitHub reports. The quoted lines in the comment it writes
+# show the reader which of the two cases they are looking at; a verb wrapped in backticks is visible
+# in the quotation itself, which is why the quotation keeps its backticks.
+#
+# It never closes anything. The options weighed were close-and-comment, comment-only, and halt; the
+# entry is H-0156. Closing belongs to the evidence about the requirements, and a merge is not that
+# evidence -- `AGENTS.md` and this repository's own history are blunt about inferring delivery from a
+# verb (#1256: `**This does not close #10.**` closed #10, because the parser has no notion of
+# negation). Halting is also wrong: one un-closed ticket must not stop every activation (#341's
+# fourteen-hour halt is the precedent). So the failure is written into the artifact, where the next
+# reader sees it, and the judgement stays with a person.
+#
+# Deliberately silent on the healthy path -- see #334 on the journal's size: a pass already writes 37
+# lines, and "GitHub did what it was asked" is not a fact worth one of them.
+CLOSER_RE='(?i)\b(?:clos(?:e|es|ed)|fix(?:e[sd])?|resolv(?:e|es|ed))[:, \t]*#([1-9][0-9]*)'
+
+# The re-probe interval, in seconds. GitHub's closer is asynchronous, so a single read of `OPEN`
+# milliseconds after a merge means nothing; 10 s is five times the widest delta in the measured
+# population and one read more on the rare ticket. Legs set it to 0.
+FACTORY_CLOSE_PROBE=${FACTORY_CLOSE_PROBE:-10}
+# Anything closed later than this was not closed by the keyword. The measured population has 98 of its
+# 100 plain-text pairs at <=2 s, ZERO between 3 and 120 s, and two at +27586 s and +159415 s, so any
+# bound from 3 s to 27000 s separates the same two sets; 120 is stated as the window rather than tuned.
+FACTORY_CLOSE_FIRED_S=${FACTORY_CLOSE_FIRED_S:-120}
+
+# Seconds between a merge and a close, or the word `unknown`. Two timestamps that will not parse are
+# reported as unknown rather than as a zero or a negative number, because a delta nobody can read must
+# not become a delta that says something.
+#
+# The empty case is asked BEFORE `date`, and it is not paranoia: GNU date accepts the empty string,
+# exits 0, and answers with today's midnight -- measured on this box, `date -u -d "" +%s` printed
+# 1794614400 with rc 0. A `closed_at` the API returned as null arrives here as an empty string, so a
+# guard that only asks whether `date` succeeded calls a missing timestamp a delta of four years.
+factory_close_delta() {
+	local m c
+	# Not `[ -n "$1" ] && [ -n "$2" ] || { … }`: this file has already been burned by the chain, where a
+	# failing arm of the test runs the refusal it was testing against.
+	if [ -z "$1" ] || [ -z "$2" ]; then
+		printf 'unknown'
+		return 0
+	fi
+	m=$(date -u -d "$1" +%s 2>/dev/null) || {
+		printf 'unknown'
+		return 0
+	}
+	c=$(date -u -d "$2" +%s 2>/dev/null) || {
+		printf 'unknown'
+		return 0
+	}
+	printf '%s' "$((c - m))"
+}
+
+# One read of one named artifact, answering three things: its state, its close timestamp, and whether
+# the number is a ticket at all.
+#
+# The kind is why this is a helper and not two `api_get` calls in the loop. `pull_request` is the REST
+# field that says the number is a pull request, and a body may well point its verb at one -- #292's
+# body says `its fix merged as #282 at 11:01:37Z on 11 Nov`, and the pattern that allows twenty
+# characters of prose used to read that as a request for #282. A pull request is also an issue to the
+# REST API, so `issues/282` answers `state: closed` and a real `closed_at`: without the discriminator
+# this pass reports a merged sibling as a ticket GitHub failed to close, and writes a note about it.
+# Measured here: `gh issue view 282 --json state` answers `MERGED`, which is gh's own projection -- the
+# REST `state` a pull request carries is `closed`. The raw REST read is refused in this session's
+# harness (`gh api repos/.../issues/282` prints `Permission denied: shell`), so the discriminator is
+# pinned by a planted payload in `factory/selftest.sh`, not by a live read.
+#
+# One read, not three, because two reads of one ticket can straddle a write: a verdict built from the
+# state before a close and the timestamp after it is a delta nobody observed.
+#
+# The separator is the unit separator, NOT a tab. Tab is IFS *whitespace*, so `IFS=$'\t' read` collapses
+# a run of two tabs and an OPEN ticket with no `closed_at` -- `OPEN<tab><tab>ISSUE` -- arrives as
+# state=OPEN, closed_at=ISSUE, kind empty (measured on this box). U+001F is not whitespace and does not
+# collapse.
+factory_close_read() {
+	api_get "issues/$1" \
+		'[.state // "", (.closed_at // ""), (if .pull_request then "PR" else "ISSUE" end)] | join("\u001f")' ''
+}
+
+# The verdict for a ticket that reads CLOSED, spelled ONCE because both arms of the pass used to have
+# their own copy and only one of them was complete. The re-probe arm graded whatever it found as
+# healthy: run over the re-probe arm as shipped, a ticket that went OPEN then CLOSED with
+# `closed_at: null` printed `CLOSE-SETTLED ... closed unknown s after the merge, inside the window
+# GitHub takes`, and one closed 40400 s after the merge -- a reopened-and-reclosed ticket -- printed the
+# same sentence with `FACTORY_CLOSE_FIRED_S=120`. Both are the finding, and the first read already said
+# so for the same bytes.
+#
+# `quiet` is the first read's healthy path: a close inside the window is what the keyword is supposed to
+# do, and the pass is deliberately silent when it happens. The re-probe says so out loud, because a
+# close that appeared between the two reads is worth one journal line.
+factory_close_verdict() {
+	local pr=$1 n=$2 merged_at=$3 closed_at=$4 mode=$5 delta
+	delta=$(factory_close_delta "$merged_at" "$closed_at")
+	if [ "$delta" = "unknown" ]; then
+		log_event "CLOSE-UNTIMED pr:$pr issue:$n is closed with no readable timestamp (closed_at=$closed_at), so this pass cannot say what closed it"
+	# A close that predates the merge is the same finding as a slow one: the keyword did not do it.
+	# Reopened-and-reclosed tickets make the negative case real, so it is named rather than sorted
+	# into the healthy bucket by an absolute value.
+	elif [ "$delta" -lt 0 ] 2>/dev/null || [ "$delta" -gt "$FACTORY_CLOSE_FIRED_S" ] 2>/dev/null; then
+		log_event "CLOSE-LATE pr:$pr issue:$n closed_at=$closed_at is ${delta}s after the merge, past the ${FACTORY_CLOSE_FIRED_S}s GitHub takes: the keyword did not fire, something else closed it"
+	elif [ "$mode" != "quiet" ]; then
+		log_event "CLOSE-SETTLED pr:$pr issue:$n closed $delta s after the merge, inside the window GitHub takes"
+	fi
+}
+
+factory_verify_closure() {
+	local pr=$1 body merged_at scan scan_state=ok n state closed_at kind
+	local verb_lines sha comment
+
+	body=$(api_get "pulls/$pr" '.body // ""' '')
+	if [ -z "$body" ]; then
+		log_event "CLOSE-CHECK-SKIPPED pr:$pr the merged body could not be read, so nothing was compared"
+		return 0
+	fi
+	merged_at=$(api_get "pulls/$pr" '.merged_at // ""' '')
+	if [ -z "$merged_at" ]; then
+		log_event "CLOSE-CHECK-SKIPPED pr:$pr the API reports no merged_at, so this pass is not after a merge"
+		return 0
+	fi
+	# `scan`, not `capture`. `capture` answers ONE number per line -- the first `#N` anywhere on it --
+	# so a line whose verb is not the first thing on the line reports the wrong ticket and misses the
+	# right one, and GitHub's own multi-issue sentence reports only its first issue. Measured on this
+	# box with the shipped pattern: `#7 is the reason. Fixes #12.` came back as `7` where the verb
+	# belongs to `12`, and `Closes #301 and Closes #304.` came back as `301` alone. `scan($re)` yields one
+	# entry per match -- the capture group, so bare digits -- so each number it returns had a verb
+	# touching it, and both lines answer correctly. The pattern carries the capture group for exactly this
+	# reason, and `ltrimstr("#")` keeps this line correct if the group is ever dropped: with no group,
+	# `scan` hands back the whole match including the `#`.
+	scan=$(printf '%s\n' "$body" | jq -Rsr --arg re "$CLOSER_RE" \
+		'[scan($re) | .[0] | ltrimstr("#")] | unique | join(" ")' \
+		2>/dev/null) || scan_state=failed
+	if [ "$scan_state" = "failed" ]; then
+		log_event "CLOSE-CHECK-SKIPPED pr:$pr the verb scan could not read the body, so nothing was compared"
+		return 0
+	fi
+	# An empty list is a real answer: a body that names nothing with a verb asked for nothing. `Refs`
+	# and `Part of` are not in `CLOSER_RE`, and they must stay out of it -- that is the whole of #1256.
+	[ -n "$scan" ] || return 0
+
+	local opens=""
+	# First pass: read every named artifact once and COLLECT the ones that still say OPEN rather than
+	# probing them where they stand. GitHub's closer is asynchronous, so a single OPEN means nothing
+	# until the batch has been given the probe interval -- but that interval is one wait for the batch,
+	# not one per ticket. As shipped the sleep was inside the loop, so a body naming five still-open
+	# tickets held `factory_merge` for fifty seconds before the worktree cleanup ran, and the asynchrony
+	# argument only ever needed one wait (#357's review, non-blocking 6).
+	for n in $scan; do
+		IFS=$'\x1f' read -r state closed_at kind <<<"$(factory_close_read "$n")"
+		if [ -z "$state" ]; then
+			log_event "CLOSE-CHECK-UNKNOWN pr:$pr issue:$n the issue could not be read, so this pass says nothing about it"
+			continue
+		fi
+		# A verb aimed at a pull request is not a closing request at all: GitHub's closer moves issues.
+		# The line says `ref:`, not `issue:`, because saying which kind of artifact it read is the whole
+		# point of the field the branch exists to look at.
+		if [ "$kind" = "PR" ]; then
+			log_event "CLOSE-NOT-ISSUE pr:$pr ref:$n the verb points at a pull request, which no closing keyword acts on, so this pass says nothing about it"
+			continue
+		fi
+		if [ "$state" = "OPEN" ]; then
+			opens="$opens $n"
+			continue
+		fi
+		if [ "$state" = "CLOSED" ]; then
+			factory_close_verdict "$pr" "$n" "$merged_at" "$closed_at" quiet
+			continue
+		fi
+		log_event "CLOSE-CHECK-UNKNOWN pr:$pr issue:$n read back state=$state, which is neither answer"
+	done
+
+	if [ -n "$opens" ]; then sleep "$FACTORY_CLOSE_PROBE"; fi
+
+	# Second pass: one read each, then the SAME classification the first pass used. That is the repair
+	# for #357's review's non-blocking 1 -- the arm below used to have its own copy of the verdict and
+	# its copy had only the healthy branch, so a ticket that closed during the probe with no readable
+	# timestamp, or 40400 s after the merge, was reported as having closed inside the window GitHub
+	# takes.
+	for n in $opens; do
+		IFS=$'\x1f' read -r state closed_at kind <<<"$(factory_close_read "$n")"
+		if [ "$state" = "OPEN" ]; then
+			log_event "CLOSE-OPEN pr:$pr issue:$n merged_at=$merged_at and the issue is still open past the re-probe"
+			verb_lines=$(printf '%s\n' "$body" | jq -Rsr --arg re "$CLOSER_RE" \
+				'[splits("\n") | select(test($re))] | .[0:3] | join("\n    ")' 2>/dev/null) ||
+				verb_lines='(the body could not be re-read for this note)'
+			sha=$(api_get "pulls/$pr" '.merge_commit_sha // ""' '')
+			# The quoted lines keep their backticks and stay inside a code span of their own. Two
+			# reasons, and the second is the finding: a keyword inside a code span is inert, so the
+			# quotation cannot itself close the ticket it is complaining about.
+			comment=$(printf '%s\n' \
+				"**The merge landed and this ticket is still open.** $FACTORY_OWNER/$FACTORY_NAME pull request #${pr} merged at \`$merged_at\`${sha:+, commit \`$sha\`}. Its body asked for this issue to close, in these lines:" \
+				'' \
+				'```' \
+				"    $verb_lines" \
+				'```' \
+				'' \
+				'A keyword inside a code span asks GitHub for nothing -- that is what the span above is evidence of, and it is why this note quotes rather than paraphrases. A keyword in plain text fires within two seconds; this ticket is still open after a re-probe, so neither happened.' \
+				'' \
+				'**Nothing has been closed by this note, on purpose.** Closing belongs to the evidence about the requirements, not to the presence of a verb: read the merge against what the ticket asked, then close it naming the commit, or say here what is still owed and the queue will treat it as open work. This comment carries no closing keyword in plain text, so it cannot close the thing it is reporting on.' \
+				'') || comment=''
+			if [ -n "$comment" ]; then
+				# `if !` and not `rc=$?`: `run_action` has already journalled the failed command
+				# itself, so this line's only job is to tie the failure to the merge it belongs to.
+				if ! run_action gh issue comment "$n" --body "$comment"; then
+					log_event "CLOSE-NOTE-FAILED pr:$pr issue:$n the note could not be written, so only the journal knows"
+				fi
+			fi
+			continue
+		fi
+		if [ "$state" = "CLOSED" ]; then
+			factory_close_verdict "$pr" "$n" "$merged_at" "$closed_at" loud
+			continue
+		fi
+		log_event "CLOSE-CHECK-UNKNOWN pr:$pr issue:$n read back state=$state after the re-probe, which is neither answer"
+	done
 	return 0
 }
 
@@ -1256,6 +1524,27 @@ factory_body() {
 	# stamps now, because nothing pinned either one before: the direction was a comment, and the
 	# comment was not what the code did.
 	#
+	# What that repair did not close is the SECOND boundary, and it is the one that still bites. The
+	# paragraph above, and `docs/factory.md` until `H-0169`, both put the boundary between the two
+	# STAMPS -- "stamped 900, did the worktree lookup, stamped 901 in the next second". That cannot
+	# invert anything: the stamping loop above runs to completion before this loop reads a single age,
+	# so a stamp that lands a second later is a second YOUNGER at every read, which is the order the
+	# key wants. The boundary is between the two READS. `factory_age` called `date -u +%s` per row, so
+	# for two stamps inside one second the first row answers 0s and the second 1s whenever a boundary
+	# falls in the ~10 ms between the two calls, and the descending key then ranks the younger unit
+	# first. #335's journal is that arithmetic verbatim: `NEXT unclaimed 901 age=1s` over `NEXT
+	# unclaimed 900 age=0s`, both stamped in one pass, 900 first. Planting ages cannot help a leg that
+	# does not plant them -- `…then starts a tick for unit B` and #335's guard control both read the
+	# unstamped fixture, so both stayed coin flips, and run 43532152285 landed the second head on this
+	# branch's verify job on 14 Nov (`563 passed, 1 failed`, `quarantine at line 14, tick at line 10`).
+	#
+	# So the pass takes ONE reading, below, and every age in this ranking is measured against it. That
+	# makes the key a monotone function of `first-seen`: equal stamps tie and the number decides, as
+	# this comment has always promised, and no interval between two reads can turn a later stamp into
+	# an older one. `rank_is_one_clock_reading` pins the site and `rank_snapshot_no_straddle` provokes
+	# the boundary on demand with a clock that ticks per call -- the fixture cannot, which is the whole
+	# reason this leg took two CI runs to appear.
+	#
 	# The never-seen sentinel (999999999) sorts FIRST under a descending key, which is what `factory_age`
 	# has promised since it was written -- "huge when there is no timestamp, so \"never\" means
 	# \"ready\"" -- and it sorted last under the retired ascending one. That is the only behaviour that
@@ -1264,14 +1553,20 @@ factory_body() {
 	# (`factory_ledger_set` returns before writing) and a ledger that will not take a write -- skip it
 	# for EVERY row, so those rows all carry the sentinel and the tie-break decides, as it did before.
 	workable=$(printf '%s' "$workable" | sed -e '/^[[:space:]]*$/d')
-	local ranked class2 key2 detail2 branch2 issue2 ask2 unit2 age2 rank2 row2
+	local ranked class2 key2 detail2 branch2 issue2 ask2 unit2 age2 rank2 row2 rank_now
 	ranked=''
+	# One clock reading for the whole ranking pass -- see the paragraph above. It is taken HERE, after
+	# the stamping loop has written every `first-seen`, so a unit stamped in this very second reads 0s
+	# and one stamped a second earlier reads 1s; taken before it, both would clamp to 0 and a real
+	# age gap would be thrown away. It is a snapshot only of the ranking: the dispatch loop below keeps
+	# its own `now` for the pass budget, because that one is supposed to notice the clock moving.
+	rank_now=$(date -u +%s)
 	while IFS=$'\037' read -r class2 key2 detail2 branch2 issue2 ask2 unit2; do
 		[ -n "${class2:-}" ] || continue
 		# The id is the unit's, not the class's. Stamping `pr:215` and ranking on `conflict:215`
 		# makes every age come back as "never seen", which silently turns oldest-first into
 		# first-row-first.
-		age2=$(factory_age "$unit2:$(factory_slug "$key2")" first-seen)
+		age2=$(factory_age_at "$rank_now" "$unit2:$(factory_slug "$key2")" first-seen)
 		rank2=$(factory_class_rank "$class2")
 		# The ask travels with the row and is not a sort key: `sort -k1,1n -k2,2nr -k3,3n` reads the
 		# first three fields only, and the field is eighth so nothing a reviewer typed can move a unit
