@@ -14764,6 +14764,101 @@ claim_leg 'a verb only ever inside a code span is still noticed' bash -c \
 claim_leg '…because the specimen that started this was exactly that' bash -c \
 	'grep -qF "\`Closes #8.\`" "$1/8.body"' _ "$cv_rec"
 
+# --- the two shipped spellings of one rule ----------------------------------------------------------
+# `CLOSER_RE` in `factory/factory.sh` is an Oniguruma program handed to jq; `CLOSER` in
+# `scripts/check-close-verb.py` is a Python one. Two files, one rule, and the rule is the thing that
+# cost a unit of work -- so the drift between them is a defect with a price on it, and until now
+# NOTHING compared the two: every leg in this section exercises the shipped function, and the function
+# never reads the checker's pattern. Neither spelling is re-typed here. The jq one is lifted out of
+# `factory.sh` on the line below and the Python one is imported out of the checker, so a leg cannot
+# pass on a paraphrase of either -- which is the only reason it is a test of agreement rather than a
+# second copy of the rule.
+#
+# Both engines see ONE LINE AT A TIME, the only surface they share: the checker classifies whole bodies
+# with spans stripped and that is its own business, pinned by its own `--self-test`. The table is the
+# whole disagreement set plus the load-bearing agreements -- every spelling in GitHub's documented
+# keyword set, the two `-ing` forms that used to be in the shipped pattern, the separator forms, the
+# merged lines a 20-character filler window used to turn into closers, `Refs`, a negation, the specimen,
+# and GitHub's own multi-issue sentence.
+cv_spellings_agree() {
+	local line py sh re_line
+	re_line=$(grep -m1 "^CLOSER_RE=" "$HERE/factory.sh" | sed "s/^CLOSER_RE='//; s/'\$//")
+	[ -n "$re_line" ] || {
+		printf '\tCLOSER_RE could not be read out of factory/factory.sh\n'
+		return 1
+	}
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		py=$(python3 -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("cv", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(" ".join(sorted(set(mod.CLOSER.findall(sys.argv[2])))))
+' "$HERE/../scripts/check-close-verb.py" "$line") || {
+			printf '\tthe checker could not classify [%s]\n' "$line"
+			return 1
+		}
+		sh=$(printf '%s\n' "$line" | jq -Rsr --arg re "$re_line" \
+			'[scan($re) | .[0] | ltrimstr("#")] | unique | join(" ")' 2>/dev/null) || {
+			printf '\tjq refused the shipped pattern on [%s]\n' "$line"
+			return 1
+		}
+		if [ "$py" != "$sh" ]; then
+			printf '\tline    [%s]\n\tchecker [%s]\n\tfactory  [%s]\n' "$line" "$py" "$sh"
+			return 1
+		fi
+	done <<'LINES'
+Closes #301 — the whole repair.
+Closes: #77
+close, #77
+Closed #12 by the merge
+Fixed #13
+Fixes #14
+Resolve #15
+Resolves #16
+Resolved #17
+Closes #301 and Closes #304.
+Closing #77
+Resolving #78
+Fixing #79
+Closes the write half of #10's remaining criteria
+Also fixes item 1 of #25 in passing
+pull request #292 has the fix. Refs #291 for context only.
+needs the boundary resolved by hand, and #1180 is why
+Refs #167 rather than closing it: criterion 2 is #168's
+**This does not close #10.**
+The harness reads `Closes #8` inside a span
+Part of #14 only; the umbrella is not finished
+LINES
+	return 0
+}
+claim_leg 'the two shipped spellings of the closer answer the same on every line of the table' \
+	cv_spellings_agree
+
+# The same repair at the function level, because the agreement leg above cannot see what the scan does
+# with a number. A body whose only verb sits twenty characters from the number it used to reach has to
+# produce NO verdict and NO write: `pull request #292 has the fix. Refs #291 for context only.` used to
+# be scanned as a request for #291 -- which is still open, so the function would then have written a
+# note onto #291 saying its own merge failed to close it, about a keyword that was never aimed at it.
+cv_leg_no_window() {
+	cv_reset
+	printf '%s\n' \
+		'{"body":"The repair is elsewhere: pull request #292 has the fix. Refs #291 for context only.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_86.json"
+	cv_run "$cv_work/fvc.sh" 86 >/dev/null 2>&1
+	if [ -s "$cv_work/journal" ]; then
+		printf '\tthe windowed line still produced a verdict: %s\n' "$(head -1 "$cv_work/journal")"
+		return 1
+	fi
+	if [ -s "$cv_rec/calls" ]; then
+		printf '\tthe windowed line still wrote somewhere: %s\n' "$(head -1 "$cv_rec/calls")"
+		return 1
+	fi
+	return 0
+}
+claim_leg 'a verb twenty characters away from a number is not scanned as a closer at all' \
+	cv_leg_no_window
+
 # --- the healthy path is silent; an in-flight closer is not a failure -----------------------------
 cv_reset
 cv_run "$cv_work/fvc.sh" 78 >/dev/null 2>&1

@@ -525,14 +525,44 @@ factory_merge() {
 # Did the merge actually close what the body said it closed? (#353)
 #
 # A closing keyword is a request to GitHub, not an event in the harness, and until now nothing ever
-# asked whether the request was granted. Measured over all 176 merged pull requests of this
-# repository (`/tmp/opencode/p353/closer_audit_all.py`): a keyword in plain text closed the issue
-# within two seconds of the merge **92 times out of 94**, with nothing at all in the three-to-120-second
-# bucket, so the two outliers and the whole delay question are settled -- GitHub takes under two
-# seconds or it did not do it at all. A keyword written inside a code span closed **0 of 2**: PR #308
-# said `Closes #304` and #304 was closed by hand 6086 s later; PR #338 said `Closes #301` on a line
-# that states the keyword is deliberate, and #301 was closed 14472 s after the merge, by the unit that
-# had just been dispatched a second time to re-derive work `main` already had.
+# asked whether the request was granted. Measured over all 180 merged pull requests of this repository,
+# read 14 Nov 2026, with the pattern on the line below (`/tmp/opencode/p357/audit_closers.py`, which
+# imports that pattern from `scripts/check-close-verb.py` rather than re-typing it, over `gh pr list
+# --json number,body,mergedAt` joined to `gh issue list --json number,state,closedAt`): a keyword in
+# plain text naming an issue closed it within two seconds of the merge **98 times out of 100**, with
+# nothing at all in the three-to-120-second bucket, so the two outliers and the whole delay question are
+# settled -- GitHub takes under two seconds or it did not do it at all. A keyword written inside a code
+# span, and nowhere else, closed **0 of 2**: PR #308 put the verb beside #304 inside backticks and #304
+# was closed by hand 6086 s later; PR #338 put it beside #301 inside backticks on a line that states
+# the keyword is deliberate, and #301 was closed 14472 s after the merge, by the unit that had just
+# been dispatched a second time to re-derive work `main` already had. The two late plain-text specimens
+# are #207 at +159415 s and #211 at +27586 s.
+#
+# The pattern is GitHub's documented keyword set -- close, closes, closed, fix, fixes, fixed, resolve,
+# resolves, resolved -- and the verb has to TOUCH the number. Both halves are measurements, not taste.
+# There is no `-ing` form in that set, and until 14 Nov this line carried two of them (`clos...|ing`,
+# `resolv...|ing`) because the stems were copied from `triage.sh`'s claim matcher instead of from the
+# keyword list. The copy was also incomplete in a way that shows what a hand-copied stem list costs:
+# `fix(?:e[sd])?` has no `ing` arm, so on this one line `Closing #77` and `Resolving #78` scanned as
+# requests while `Fixing #79` did not. The two shipped spellings -- this one, handed to jq as Oniguruma,
+# and `CLOSER` in `scripts/check-close-verb.py` -- were byte-identical modulo their flags up to 14 Nov, so
+# nothing had drifted yet; this change edits the same rule in two languages, which is why the drift is
+# now pinned by a leg in `factory/selftest.sh` instead of by luck.
+#
+# The filler window `[^#\n]{0,20}` invented claims from the other direction: over these same 180 bodies it
+# answers 115 plain-text matches where 100 exist -- 7 invented closers naming real issues no sentence
+# asked about (#291, still open behind `pull request #292 has the fix. Refs #291 for context only.`;
+# #228, closed 29398 s BEFORE the merge that named it; then #168, #304, #25, #232, #10), 7 naming pull
+# requests, which no closer can act on, and 1 naming #1180, a cross-repository citation that is not an
+# artifact of this repository at all. An invented closer is not a harmless over-read here: every one of
+# them is a sentence this function writes onto a live ticket.
+#
+# The separator is `[:, \t]*`, not `\s*`. Every scan here hands the pattern ONE LINE -- `jq` splits on
+# `"\n"`, the checker iterates `splitlines()` -- so a separator that can match a newline cannot pay off
+# inside a single line; what it can match is a `\r`, a form feed or a vertical tab, which is what a
+# body imported from a Windows editor carries. Measured on the same 180 bodies the two spellings give
+# the identical population -- 100 plain-text pairs, 98 fired, 2 late, 2 inline-only, 0 fenced -- so the
+# narrow one costs nothing today, and `\s` is a filler window waiting for the first CRLF body.
 #
 # Which references get checked is the interesting decision, and it goes against the obvious tidy
 # answer. The scan here is SPAN-BLIND: it matches the verb wherever it appears, inside backticks
@@ -554,15 +584,15 @@ factory_merge() {
 #
 # Deliberately silent on the healthy path -- see #334 on the journal's size: a pass already writes 37
 # lines, and "GitHub did what it was asked" is not a fact worth one of them.
-CLOSER_RE='(?i)\b(?:clos(?:e|es|ed|ing)|fix(?:e[sd])?|resolv(?:e|es|ed|ing))\b[^#\n]{0,20}#[1-9][0-9]*'
+CLOSER_RE='(?i)\b(?:clos(?:e|es|ed)|fix(?:e[sd])?|resolv(?:e|es|ed))[:, \t]*#([1-9][0-9]*)'
 
 # The re-probe interval, in seconds. GitHub's closer is asynchronous, so a single read of `OPEN`
 # milliseconds after a merge means nothing; 10 s is five times the widest delta in the measured
 # population and one read more on the rare ticket. Legs set it to 0.
 FACTORY_CLOSE_PROBE=${FACTORY_CLOSE_PROBE:-10}
-# Anything closed later than this was not closed by the keyword. The measured population has 92 pairs
-# at <=2 s, ZERO between 3 and 120 s, and two at +27586 s and +159415 s, so any bound from 3 s to
-# 27000 s separates the same two sets; 120 is stated as the window rather than tuned.
+# Anything closed later than this was not closed by the keyword. The measured population has 98 of its
+# 100 plain-text pairs at <=2 s, ZERO between 3 and 120 s, and two at +27586 s and +159415 s, so any
+# bound from 3 s to 27000 s separates the same two sets; 120 is stated as the window rather than tuned.
 FACTORY_CLOSE_FIRED_S=${FACTORY_CLOSE_FIRED_S:-120}
 
 # Seconds between a merge and a close, or the word `unknown`. Two timestamps that will not parse are

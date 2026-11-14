@@ -7839,3 +7839,96 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   on tmpfs, git 2.53.0); `make verify` -> `verify: OK`, exit 0 -- once on the resolved merge before
   this entry, once on the bytes this commit ships, both quoted in the pull-request body (#1180: an
   `Effect:` written before the gate runs is a prophecy).
+
+## H-0164 · #357's review blocks on the width of one pattern: a 20-character filler window invents 15 closers GitHub was never asked for, two of the stems are not GitHub's keywords, and the copy that invented them is asymmetric
+
+- Question: `gh pr view 357 --json headRefName,updatedAt` (the type read of #2027 -- a bare
+  `--json number` answers the same for an issue) says `issue-353`, and the review submitted at
+  `2026-11-14T05:13:30Z` is `CHANGES_REQUESTED` against head `f27b614`, so it was written after the 17
+  commits of `main` and before this branch's resolution of them. Its blocking 1 is "the 20-character
+  filler window claims closers GitHub was never asked for"; its blocking 2 is "two of the stems are not
+  GitHub's keywords"; and it says plainly that none of its four blocking items touches the design. The
+  population was re-derived here rather than inherited: `gh pr list --state merged --limit 1000
+  --json number,body,mergedAt` -> 180 rows, `gh issue list --state all --limit 1000 --json
+  number,state,closedAt` -> 175 rows, both re-run minutes before the counts below, and
+  `/tmp/opencode/p357/audit_closers.py` IMPORTS `CLOSER` out of `scripts/check-close-verb.py` instead of
+  re-typing it, so the count and the shipped rule cannot disagree by transcription. Shipped pattern: 100
+  plain-text pairs naming an issue, 98 closed within 2 s of their merge, 2 late (#207 +159415 s, #211
+  +27586 s) and zero in the 3-to-120 s band; 2 inline-code-only pairs, 0 fired (#304 +6086 s, #301
+  +14472 s); 0 fenced. `CLOSER_RE` as it stood at the checkpoint below -- `clos(?:e|es|ed|ing)
+  |fix(?:e[sd])?|resolv(?:e|es|ed|ing)` then `\b[^#\n]{0,20}` -- answers 107 plain-text pairs plus 8
+  naming a pull request or nothing: 115 matches where 100 exist, 15 of them invented. What the pattern
+  is FOR decides whether 15 inventions are free: `factory_verify_closure` writes its verdict as a
+  comment on the named ticket, so an invented closer is a false sentence on a live artifact. How wide
+  may a closer be, do the `-ing` stems stay, is `\s` a legal separator, and does one spelling become the
+  source of the other?
+- Options: keep the shipped window and the `-ing` stems, because they are the shape `triage.sh`'s claim
+  matcher already uses and the harness should notice anything a person might have meant | GitHub's
+  documented keyword set, adjacent (`[:, \t]*`), in both shipped spellings, with a leg pinning the two
+  engines against each other | the window kept in `factory.sh` so the span-blind scan keeps seeing
+  intent, narrowed only in the checker | narrowed in `factory.sh` and the checker left wide | `\s*` as
+  the separator, so a tab, a newline or a `\r` all count | one spelling imported from the other (the
+  checker parses `CLOSER_RE` out of `factory.sh`, or `factory.sh` shells into the checker) so they
+  cannot drift | separate the two jobs honestly: keep the claim matcher wide, narrow only the closer,
+  and write down that they are different questions | ship the audit script in the branch so the
+  population is re-derivable by anyone with `gh` access
+- Chose: GitHub's documented keyword set, adjacent (`[:, \t]*`), in both shipped spellings, with a leg
+  pinning the two engines against each other
+- Why: a closer is not a claim, and the two widths answer different questions. The claim matcher's job is
+  "did anybody say anything about this ticket", where a backtick and a long sentence are both worth
+  noticing, and H-0156 makes this scan span-blind for exactly that reason. The closer's job is "what did
+  GitHub agree to do", and GitHub's list is nine words -- close, closes, closed, fix, fixes, fixed,
+  resolve, resolves, resolved -- with the reference touching the verb. Option 1 is the measured defect:
+  15 invented pairs, 7 naming real issues no sentence asked about. The most expensive is live now --
+  `pull request #292 has the fix. Refs #291 for context only.`, merged in #293, read by the window as a
+  request for #291, which is still OPEN, so the function would comment on #291 that its own merge failed
+  to close it, about a keyword never aimed at it; another invented pair names #228, closed 29398 s BEFORE
+  the merge that "closed" it. Options 3 and 4 are refused by the pairing: the checker is what a unit runs
+  on its own body before it opens the pull request, so a checker that still sees a window tells the
+  author a closer exists where GitHub sees none, and the guard argues with itself. Option 5 is a window
+  by another name, refused by the shape of every scan here -- `jq` gets `splits("\n")`, the checker
+  iterates `splitlines()` -- so a separator that can match a newline never pays off inside one line and
+  can only ever match a `\r` out of a CRLF body; measured, `[:,\s]*` and `[:, \t]*` give the identical
+  population today, which is why the narrow one is free. Option 6 was the tempting one and fails
+  mechanically: the two engines are different dialects handed to different programs (Oniguruma to `jq`,
+  `re` to Python), so importing means one program parsing the other's escaping, and a leg costs less
+  than that parser. Option 7 is where the `-ing` forms belong -- kept in `CLAIM_RE`, dropped here -- and
+  the checkpoint's line is the evidence of what hand-copying a stem list does: `clos...|ing` and
+  `resolv...|ing` came across and `fix(?:e[sd])?` has no `-ing` arm, so one merged body's spelling
+  decided which progressive verb the harness believed -- on the `HEAD` pattern `Closing #77` and
+  `Resolving #78` scan as closers and `Fixing #79` does not. Both shipped spellings were byte-identical
+  modulo their flags at the checkpoint (`git show HEAD:factory/factory.sh` line 557 against `git show
+  HEAD:scripts/check-close-verb.py` line 42), so nothing had drifted yet; this change edits one rule in
+  two languages, which is why the leg holds them together now rather than the accident of two copies.
+  Option 8 is right in principle and wrong in this commit: the audit reads `gh` dumps and `/tmp`, so it
+  would land as an untested file no gate runs. It stays where it is, with its command line quoted here
+  and in the pull-request body, and #353's Step 6 owns making the population a branch artifact.
+- Checkpoint: 19353cebb4b3ebbf4af17b4e7d592dfda94bbaa6
+- Effect: the checkpoint is an empty commit whose tree is `025f9bc`, the merge this review sits above,
+  written after the edits were drafted in the working tree and before any of them was staged, so what it
+  records is the pre-change state -- `git show HEAD:factory/factory.sh | sed -n 557p` at that commit
+  prints the window. `CLOSER_RE` (`factory/factory.sh`) and `CLOSER` (`scripts/check-close-verb.py`) are
+  both
+  `\b(?:clos(?:e|es|ed)|fix(?:e[sd])?|resolv(?:e|es|ed))` with `[:, \t]*` before `#([1-9][0-9]*)`, and
+  that capture group is the first the shell scan has ever had. Re-derived on the same fresh dumps with
+  the narrowed rule: 100 plain-text pairs, 98 fired, 2 late, 2 inline-only, 0 fenced -- the population
+  the window found and nothing taken away from it, so the narrowing loses no real closer. `python3
+  scripts/check-close-verb.py --self-test` -> `18 fixtures, every class where the parser says it is`,
+  exit 0: six of the invented lines ship as `BAD` fixtures each asserted to report no closer, and the
+  three `-ing` spellings ship as one `GOOD` fixture (`no-ing`) no engine may claim. Two new legs in
+  `factory/selftest.sh`: `the two shipped spellings of the closer answer the same on every line of the
+  table` lifts `CLOSER_RE` out of `factory.sh` with `grep`+`sed` and imports `CLOSER` out of the checker,
+  so it cannot pass on a paraphrase of either, and walks 21 lines through both engines refusing any line
+  whose number sets differ; `a verb twenty characters away from a number is not scanned as a closer at
+  all` plants the #293/#291 body in the fixture `gh` and requires the shipped function to write neither a
+  journal line nor a call. The prose that argued the old width is corrected in all three places that
+  carried it -- `docs/factory.md`, `.opencode/skills/factory/SKILL.md` and the `factory.sh` header -- and
+  the corrected table now says 180 merged pull requests, 100 plain-text pairs, 98 inside 2 s, 0 of 2
+  inline. Gate, on these bytes and alone in this worktree with no mutation sweep in flight (#1807), each
+  command re-run on the bytes this commit ships: `python3 scripts/check-decisions.py` -> `216 entries
+  across 2 log(s)`, exit 0; `python3 scripts/check-scripts.py` -> `0 problems in 9 tools and 13 set
+  files, and 24 shipped shell scripts`, exit 0; `python3 scripts/check-close-verb.py --self-test` -> `18
+  fixtures, every class where the parser says it is`, exit 0; `bash factory/selftest.sh` -> **625
+  passed, 0 failed** (fixture root on tmpfs, git 2.53.0) -- 623 before this entry's two legs, and the
+  delta is those two; `make verify` -> `verify: OK`, exit 0, quoted from the run whose log carries these
+  bytes (#1180).

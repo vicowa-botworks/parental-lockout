@@ -370,21 +370,30 @@ gh pr create --base main --title "…" --body "…"
 
 The body says what changed, what the gate printed, and links the issue -- **and it never puts any
 inflection of "close" next to an issue number unless the issue is really finished** (#1256). GitHub
-matches `close|closes|closed|closing` immediately followed by an issue reference with no notion of
-negation: measured on this repository, `**This does not close #10.**` closed issue #10 the second
-the merge landed. For partial work write `Part of #10 only; the umbrella is not finished.` or
-`Refs #10`.
+matches a closing keyword immediately followed by an issue reference, with no notion of negation:
+measured on this repository, `**This does not close #10.**` closed issue #10 the second the merge
+landed. For partial work write `Part of #10 only; the umbrella is not finished.` or `Refs #10`.
 
-**And when the issue really is finished, put the verb where GitHub can see it: in plain text, never
-inside a code span.** A keyword wrapped in backticks asks GitHub for nothing. Measured over all 176
-merged pull requests here (`scripts/check-close-verb.py` ships the classifier this count came from):
-a plain-text verb closed its issue within two seconds of the merge **92 times in 94**, with nothing at
-all in the three-to-120-second bucket; a verb inside inline code did it **0 times in 2** -- PR #308's
+**And when the issue really is finished, put the verb where GitHub can see it: in plain text, touching
+the number, never inside a code span.** A keyword wrapped in backticks asks GitHub for nothing. Measured
+over all 180 merged pull requests here, read 14 Nov 2026 (`scripts/check-close-verb.py` ships the
+classifier, and the count comes from that same pattern rather than a re-typed copy): a plain-text verb
+closed its issue within two seconds of the merge **98 times in 100**, with nothing at all in the
+three-to-120-second bucket; a verb inside inline code did it **0 times in 2** -- PR #308's
 `` `Closes #304` `` left #304 to be closed by hand 6086 s later, and PR #338's `` `Closes #301.` `` sat
 on a line stating the keyword was deliberate and left #301 open 14472 s past its merge, which is what
 cost a second full unit on a ticket `main` had already delivered. `factory/triage.sh`'s claim pattern
 takes a backtick as filler, so the harness reads a spanned verb as a claim anyway: the body looks
 linked to every reader in this repository and does nothing to the artifact.
+
+Two more things the parser does not do, both measured rather than assumed. It does not reach: the verb
+has to touch the number (`Closes #10`, `Closes: #10`, `close, #10`), so do not write a sentence with
+prose in between -- `Closes the write half of #10's remaining criteria` asks GitHub for nothing, and it
+is the shape that cost a unit of work when the harness's own scanner claimed it. And it has no `-ing`
+form: GitHub documents `close closes closed fix fixes fixed resolve resolves resolved` and nothing in
+that list ends in `-ing`, while the harness's scanner had `closing` and `resolving` copied in from the
+claim matcher. There is no specimen of either in these 180 bodies, so nothing here claims to have tested
+GitHub with one -- the shipped pattern follows the documented set and drops both.
 
 So do not eyeball this. Run the body file through the checker before you create the pull request --
 it separates the four things that look alike and are not (a verb that fires, a verb on a line saying

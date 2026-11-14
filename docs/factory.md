@@ -441,12 +441,13 @@ asked whether the request was granted. `factory_verify_closure` (`factory/factor
 the end of `factory_merge`, after the ledger is stamped, and it reads back every issue the merged body
 named with a verb.
 
-The population, all 176 merged pull requests here, classified by where the verb sits in the markdown
-(`scripts/check-close-verb.py` ships the classifier):
+The population, all 180 merged pull requests here, read 14 Nov 2026 and classified by where the verb
+sits in the markdown (`scripts/check-close-verb.py` ships the classifier, and the audit that counts
+this table drives that same shipped pattern instead of a re-typed copy of it):
 
 | where the keyword is | pairs | closed within 2 s of the merge | closed later |
 |---|---|---|---|
-| plain text | 94 | **92** | 2 — #207 at +159415 s, #211 at +27586 s |
+| plain text | 100 | **98** | 2 — #207 at +159415 s, #211 at +27586 s |
 | inline code, with no plain-text pair naming the same issue | 2 | **0** | 2 — #304 at +6086 s, #301 at +14472 s |
 | a fenced block | 0 | — | nothing in this repository has ever done this |
 
@@ -456,6 +457,29 @@ two inline-code specimens are PR #308 (`` `Closes #304` ``) and PR #338 (`` `Clo
 that states the keyword is deliberate). #301 is the expensive one: it stayed open until a second unit
 was dispatched to re-derive work `main` already had, and it was closed 14472 s after the merge that
 claimed it, by that unit's own delivery comment rather than by the keyword.
+
+**The pattern is GitHub's keyword set, and the verb has to touch the number.** `close closes closed fix
+fixes fixed resolve resolves resolved`, then at most a colon, a comma or a tab, then `#N`. Both halves
+are measurements. No `-ing` form is in GitHub's set, and the shipped line used to carry two of them
+because the stems had been copied from `triage.sh`'s claim matcher rather than from the keyword list.
+The copy was incomplete as well as over-wide: `fix(?:e[sd])?` has no `-ing` arm, so one merged body's
+shape decided which `-ing` verb the harness believed -- `Closing #77` and `Resolving #78` scanned as
+requests while `Fixing #79`, the same spelling one stem over, did not. Neither spelling was GitHub's.
+The filler window mattered more. The pattern used to allow `[^#\n]{0,20}` -- twenty characters of
+prose -- between verb and number, and a window invents claims: over the same 180 bodies it answers 115
+plain-text matches where 100 exist. Seven of the invented pairs name real issues no sentence asked
+about, seven name pull requests, which no closer can act on, and one names `#1180`, a cross-repository
+citation that is not an artifact of this repository at all. Six of them ship as fixtures in the checker,
+each quoted exactly as it was merged -- `pull request #292 has the fix. Refs #291 for context only.`
+read as a request for #291, which is still open; `needs the boundary resolved by hand, and #1180 is
+why` read as a request for #1180; and four more of the same shape, one of them naming an issue closed
+29398 s *before* the merge that "closed" it. An invented closer is not a harmless over-read here: every
+one of them becomes a
+sentence written onto a live ticket by the function above, so a false positive is a false statement in
+the artifact. Both halves are pinned twice now -- the checker carries the six merged lines as fixtures
+that must not be reported as closers, and `factory/selftest.sh` runs the two shipped spellings of the
+pattern, the jq one in `factory.sh` and the Python one in the checker, over one table of lines and
+refuses any line where they disagree.
 
 **The scan is span-blind on purpose, and a tidier one would have missed the defect.** The obvious
 implementation strips code blocks and inline spans first, because that models GitHub. This one matches
