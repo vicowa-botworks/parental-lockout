@@ -13571,6 +13571,66 @@ stop_leg 'a log of only turn openers' "$stop_dir/openers.log" 0 'emitted nothing
 printf '\n \n\t\n' >"$stop_dir/blank.log"
 stop_leg 'a log of only blanks' "$stop_dir/blank.log" 2 'no output at all'
 
+# The cost of the blank test above, pinned. It asks "is there a non-blank byte" of the whole log, and the
+# first version asked it with `[ -z "${clean//[[:space:]]/}" ]` -- one bash expansion, no fork, and the
+# wrong shape. A whole-value expansion re-synchronises its multibyte decode from byte 0 for every multibyte
+# character in the value, so the cost is multibyte characters times how far into the value they sit. On the
+# real log `20261104T153010Z.unclaimed:202` -- 441,215 bytes carrying 487 of them, all of them ordinary
+# prose (EM DASH, MIDDLE DOT, arrows) -- that is 162.88 s and 164.43 s on a quiet box, against 0.007 s for
+# the streamed test that replaced it. Placement is the driver, not count: two synthetic files of the same
+# size with the same 487 characters cost 207.96 s scattered and 9.29 s clustered at byte 1000.
+#
+# This is the arm that runs AFTER `timeout` has returned, so the tick ceiling was already spent and nothing
+# bounded the wait; the stall lands on the unit's `TimeoutStartSec` instead. Over the 114 logs in the
+# directory the timer writes, 60 took more than the 25 s a probe was willing to wait and 98 more than a
+# second -- the median log there is already in the band.
+#
+# Fixture: ordinary prose at the dash density a real log carries -- four EM DASHes on every 94-byte line,
+# 1,300 of them, 127,200 bytes, 4,800 multibyte characters. The whole-value expansion measures 14.66 s on
+# that file here and the streamed test 0.01 s, so the 1 s bound below has 14x of margin against the
+# regression and 100x against a loaded box. The duration is asserted as a verdict, not as a measurement:
+# rc=124 is `timeout` saying it killed the call, and a machine that finished the bad shape inside 1 s would
+# have to be ~14x faster than the one that measured this.
+printf 'reading the queue, then the ledger\n' >"$stop_dir/dense.log"
+for _dash_i in $(seq 1 1300); do
+	printf 'this is a tick log line with ordinary prose and no markup at all, and it ends with a dash \342\200\224 \342\200\224 \342\200\224 \342\200\224\n'
+done >>"$stop_dir/dense.log"
+# The verdict on that fixture is pinned first -- a dense multibyte log is an ordinary log, and arm (c) owes
+# it the same last line it owes any other. The cost is pinned by the control below, because the old shape
+# answers this correctly too; it just takes 14.66 s to do it.
+stop_leg 'a dense log is read, not mulled over' "$stop_dir/dense.log" 1 'its last line reads'
+
+# The control, and the reason the leg above is not decoration. A leg that merely calls the function on the
+# dense fixture cannot say anything about cost -- it would sit there for 14.66 s and still report ok, because
+# the old shape answers correctly too. So the assertion is about the bound, in both directions, on this
+# fixture on this machine:
+#
+#   rc_ok   the REAL function, sourced from $HERE, inside `timeout 1` -- must not be 124.
+#   rc_ctl  the expression this change replaced, on the same bytes under the same bound -- must be 124,
+#           because `timeout` says it killed it.
+#
+# If the second one ever stops being 124, the bound has gone slack on some faster machine and the first
+# assertion has stopped meaning anything; the leg says so rather than going quietly green. Neither half
+# edits anything: the first sources the file as shipped, the second runs the old expression over the same
+# bytes. An earlier draft reached for a `sed` copy of common.sh instead, and its proof-of-mutation grepped
+# for the needle string -- which matched the string in this file's own prose comment, not the assignment. The
+# copy was never mutated and the control passed while proving nothing.
+dash_ctl() { # -> 0 when the function answers inside the bound and the old shape does not
+	local rc_ok rc_ctl
+	rc_ok=$(timeout 1 bash -c 'FACTORY_DIR="$1"; . "$1/common.sh" >/dev/null 2>&1 || exit 90
+		factory_stop_reason "$2" >/dev/null 2>&1' _ "$HERE" "$stop_dir/dense.log" >/dev/null 2>&1
+		printf '%s' "$?")
+	rc_ctl=$(timeout 1 bash -c 'c=$(tr -d "\033\r" <"$1"); _x="${c//[[:space:]]/}"' \
+		_ "$stop_dir/dense.log" >/dev/null 2>&1
+		printf '%s' "$?")
+	printf '      function rc=%s, old shape rc=%s (124 is `timeout` saying it killed it)\n' \
+		"$rc_ok" "$rc_ctl"
+	[ "$rc_ok" != 124 ] && [ "$rc_ctl" = 124 ]
+}
+gen_leg 'the streaming test is what answers' \
+	'function inside 1 s, old shape killed at it' dash_ctl
+
+
 # A run cut off in the middle of its call: the markup opens the turn and there is no closing tag to
 # find. This is what makes the block's FIRST line a test rather than a second way of writing the same
 # thing -- with only the closing-tag arm, a log that stops inside `<parameter=code>` reports prose.

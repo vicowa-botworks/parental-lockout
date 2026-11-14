@@ -3002,7 +3002,18 @@ factory_stop_reason() { # logfile -> the reason on stdout
 	clean=$(tr -d '\033\r' <"$log" 2>/dev/null) || clean=''
 	# The test is "is there a non-blank byte", not "is the string empty": a log of nothing but newlines
 	# is a non-empty string and every reader downstream would be handed a blank as if it were content.
-	if [ -z "${clean//[[:space:]]/}" ]; then
+	# The test streams, and that is load-bearing. The shape this replaced -- `[ -z "${clean//[[:space:]]/}" ]`
+	# -- asked the same question of one bash expansion, and a whole-value expansion re-synchronises its
+	# multibyte decode from byte 0 for every multibyte character in the value. Measured on a real 441,215-byte
+	# tick log holding 487 of them (EM DASH, MIDDLE DOT, arrows -- ordinary model prose): 162.88 s and 164.43 s
+	# on a quiet box, against 0.007 s for this line. Placement, not count, is the driver: two synthetic files of
+	# the same size with the same 487 characters cost 207.96 s scattered and 9.29 s clustered. Over the 114 logs
+	# the timer's own directory held, 60 needed more than the 25 s probe bound and 98 more than a second. It sat
+	# in the `exit=0`-with-no-PR arm, which runs AFTER `timeout` has returned, so nothing bounded the wait: the
+	# tick ceiling was already spent and the stall was charged to the unit's `TimeoutStartSec`. A here-string
+	# rather than a pipe so the status is `grep`'s alone -- `factory.sh` runs with `pipefail`, and a `printf`
+	# killed by `SIGPIPE` mid-write would otherwise answer for a pipeline that had already found its match.
+	if ! grep -q '[^[:space:]]' <<<"$clean"; then
 		printf 'the tick log %s holds nothing -- the session wrote no output at all\n' "${log##*/}"
 		return 2
 	fi
