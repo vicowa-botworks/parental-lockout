@@ -167,8 +167,24 @@ When you reach a decision point, do this instead, in this order:
    standing in. Never take the highest heading in
    the current file as the whole answer: a sibling branch's entry is already a durable citation and a
    merge target even though this checkout has never seen it (#253). Re-run the allocator immediately
-   before the entry commit. It is a read, not a reservation, and the second read sees only what moved
-   **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
+   before the entry commit, **and take that re-read before you write the entry, not after it**. The
+   union includes the working file, so once your own heading is in the log the re-read counts it and
+   answers one above the id you hold: measured in `wt/issue-320` on 12 Nov, `H-0145` on the committed
+   log and `H-0146` with an uncommitted `## H-0145` in the file and no ref holding it. That is not a
+   collision, and the allocator says so -- a `PENDING` line on stderr names the heading that is in your
+   working file and on no ref this clone can see, and the id the refs actually top out at. So read a
+   moved answer by its stderr: **`PENDING` naming the id you already hold means nothing was taken** --
+   keep that id, and do not renumber into a gap `docs/factory.md` says must never be inexplicable. A
+   higher answer with **no PENDING line** is the real thing: some ref carries your id, and you yield the
+   way that guide says. Read the note's absence, never the emptiness of stderr. Since PR #307 every
+   answer carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it, so there is
+   no answer that leaves stderr empty -- measured at `487d572` on one fixture, 460 bytes with the tree
+   clean, 855 with your own heading uncommitted, 460 one commit later. Nor would silence discriminate if
+   something produced it: a ceiling a sibling left on a ref and a ceiling your own committed entry put
+   on `HEAD` print the same stderr, both without a note. The note goes quiet by itself once the entry is
+   committed, because `HEAD` joins the union -- and durable includes yours, so a second entry in the
+   same tick takes the next id instead of yielding the one already written.
+   It is a read, not a reservation, and the second read sees only what moved **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
    `refs/heads` (measured: `D-0002` before the sibling commits, `D-0010` after, with no fetch), while
    a sibling that pushed from a different clone does not, because an unfetched push never moves
    `refs/remotes` (measured: the same call answers `D-0002` while origin already holds `D-0007`, and
@@ -243,10 +259,12 @@ recommend, and the exact command to proceed…"
 git add "$LOG"          # DECISIONS.md, or factory/DECISIONS.md for harness work
 git commit -m "docs(decisions): escalate D-NNNN (awaiting a human)" -m "Decision: D-NNNN"
 
-# 2. the marker, whose name comes out of its one home.
+# 2. the marker, whose name comes out of its one home. A pull request takes THIS verb with its own
+#    number -- `gh issue edit "$PR"` -- because `gh pr edit` cannot put a label on anything here, and
+#    it fails for a reason that has nothing to do with labels. Measured below the block.
 gh issue edit "$ISSUE" --add-label "$(factory/escalation-label.sh)"
 
-# 3. the read-back, in the same breath as the claim. Same read on a pull request:
+# 3. the read-back, in the same breath as the claim. The read is the one place the `pr` verb is right:
 #    `gh pr view "$PR" --json labels`.
 gh issue view "$ISSUE" --json labels -q '[.labels[].name] | join(",")'
 ```
@@ -261,6 +279,21 @@ result you report and not a step to retry harder. Doing the label last is what m
 one sentence instead of the record: under `set -e` a middle-of-the-step refusal used to kill the
 escalation with the comment written, the label absent, and `Awaiting:` never committed, which is
 indistinguishable from a unit that quietly gave up (#311, #315).
+
+The verb is the other half of the step, and it is the half the harness left unsaid. Measured 12 Nov on
+this box's gh 2.46.0, one 67-character probe name aimed at pull request #314 with its labels read
+before and after: `gh pr edit 314 --add-label zzprobe-does-not-exist-and-sixty-seven-characters-long-so-nothing-can-land`
+printed `GraphQL: Projects (classic) is being deprecated … (repository.pullRequest.projectCards)` for
+exit 1, and `gh issue edit 314` with the same name printed
+`'zzprobe-…' not found` / `failed to update 1 issue` for exit 1, and `gh pr view 314 --json labels`
+read back empty in both cases -- nothing was written either way. Same exit, two different failures, and
+only one of them is fixable by a person: gh 2.46.0 reads `projectCards` on its way into `pr edit`, so
+that call dies **before** it resolves the label name, which means it cannot land a marker under *any*
+name #311 might choose. `D-0047` measured the split from the other side -- `gh issue edit 240
+--remove-label blocked --remove-label question` exited 0 and read back `labels: []` where `gh pr edit`
+died on that field (`./DECISIONS.md:2221-2231`) -- and it is the same reason `gh pr edit --add-reviewer`
+is refused in Step 5. So: `gh issue edit` to write, on an issue or a pull request alike; `gh pr view`
+to read.
 
 Never invent a label name. Not by typing one from memory, not by substituting the nearest label that
 exists, not with `gh label create`, and not by skipping the marker on the grounds that the comment is
@@ -337,19 +370,72 @@ gh pr create --base main --title "…" --body "…"
 
 The body says what changed, what the gate printed, and links the issue -- **and it never puts any
 inflection of "close" next to an issue number unless the issue is really finished** (#1256). GitHub
-matches `close|closes|closed|closing` immediately followed by an issue reference with no notion of
-negation: measured on this repository, `**This does not close #10.**` closed issue #10 the second
-the merge landed. For partial work write `Part of #10 only; the umbrella is not finished.` or
-`Refs #10`.
+matches a closing keyword immediately followed by an issue reference, with no notion of negation:
+measured on this repository, `**This does not close #10.**` closed issue #10 the second the merge
+landed. For partial work write `Part of #10 only; the umbrella is not finished.` or `Refs #10`.
 
-Do not try to verify the linkage afterwards, and do not reach for `gh api` to do it: `gh api` is denied
-to this agent, and `gh pr view --json closingIssuesReferences` is not a field `gh` exposes (measured —
-it answers `Unknown JSON field` and lists the fields it does have). A GraphQL read is the only way to
-ask GitHub what a body closed, and that read belongs to the supervisor: `factory/triage.sh` reads
-closing references plus verb-phrases out of every open body and treats either as a claim, which is why
-writing the verb rule correctly the first time is the whole obligation. If you are unsure whether a
-phrase will register, do not write it: use `Refs #10`, and say in the pull-request body what is still
-unfinished.
+**And when the issue really is finished, put the verb where GitHub can see it: in plain text, touching
+the number, never inside a code span.** A keyword wrapped in backticks asks GitHub for nothing. Measured
+over all 180 merged pull requests here, read 14 Nov 2026 (`scripts/check-close-verb.py` ships the
+classifier, and the count comes from that same pattern rather than a re-typed copy): a plain-text verb
+closed its issue within two seconds of the merge **98 times in 100**, with nothing at all in the
+three-to-120-second bucket; a verb inside inline code did it **0 times in 2** -- PR #308's
+`` `Closes #304` `` left #304 to be closed by hand 6086 s later, and PR #338's `` `Closes #301.` `` sat
+on a line stating the keyword was deliberate and left #301 open 14472 s past its merge, which is what
+cost a second full unit on a ticket `main` had already delivered. `factory/triage.sh`'s claim pattern
+takes a backtick as filler, so the harness reads a spanned verb as a claim anyway: the body looks
+linked to every reader in this repository and does nothing to the artifact.
+
+Two more things the parser does not do, both measured rather than assumed. It does not reach: the verb
+has to touch the number (`Closes #10`, `Closes: #10`, `close, #10`), so do not write a sentence with
+prose in between -- `Closes the write half of #10's remaining criteria` asks GitHub for nothing, and it
+is the shape that cost a unit of work when the harness's own scanner claimed it. And it has no `-ing`
+form: GitHub documents `close closes closed fix fixes fixed resolve resolves resolved` and nothing in
+that list ends in `-ing`, while the harness's scanner had `closing` and `resolving` copied in from the
+claim matcher. There is no specimen of either in these 180 bodies, so nothing here claims to have tested
+GitHub with one -- the shipped pattern follows the documented set and drops both.
+
+So do not eyeball this. Run the body file through the checker before you create the pull request --
+it separates the four things that look alike and are not (a verb that fires, a verb on a line saying
+`not` that fires anyway, a verb in a span that will not, and `Refs`/`Part of` that were never
+closers):
+
+```bash
+python3 scripts/check-close-verb.py /tmp/pr-body.md    # exit 1 = something cannot do what it reads
+gh pr create --base main --title "..." --body-file /tmp/pr-body.md
+```
+
+Everything in this page written inside a code span is a *quotation* of a form, which is the inert
+place for one. Write the real thing in running text.
+
+**The same rule covers your commit messages, and `make verify` reads them.** A message is text GitHub
+parses exactly like a body, and its verbs act the moment the commit reaches the default branch. Measured
+on the branch that wrote this paragraph: PR #357 carried two adjacent `-ing` verbs in one commit message,
+in the sentence written to warn about them, and nothing had ever looked. So
+`scripts/check-commit-verbs.sh` -- wired into `make verify` -- reads every message between the base and
+HEAD, one at a time so a refusal names its commit, and refuses an inflection GitHub does not document
+(`Closing #77`, `Resolving #78`) where the body checker would stay silent. Practically: put the
+documented keyword (`Closes #313`) in running text, or write no verb at all, and never an `-ing` form
+beside a number. If a message you have already pushed carries one, do **not** amend or force-push --
+history here is never rewritten and a merge commit makes the message permanent. Read the named artifacts
+back (`gh issue view N --state all --json number,state,closedAt`), decide whether anything is still
+owed, and write that decision into `factory/close-verb-waivers`: full sha, the exact numbers the report
+printed, and what you read back. The check is also the reason a `chore(checkpoint)` or
+`fix(factory)` subject line is not a place to name what a commit "closes" in prose.
+
+Do not try to verify the linkage afterwards — that read is the supervisor's, not yours, and it happens
+twice over: `factory/triage.sh` reads closing references plus verb-phrases out of every open body and
+treats either as a claim, and `factory_verify_closure` (`factory/factory.sh`) asks the same question
+again AT the merge — it re-reads every number the merged body's verb pointed at, compares the close
+timestamp with `merged_at`, and writes what it found onto that ticket: a note in plain text when the
+ticket is still open past a re-probe, a journal line when something else closed it. And do not reach for
+`gh api` to do it: `gh api` is denied to this agent, and `gh pr view --json closingIssuesReferences` is
+not a field `gh` exposes (measured — it answers `Unknown JSON field` and lists the fields it does have).
+A GraphQL read is the only way to ask GitHub what a body closed, and only the supervisor can make it,
+which is why writing the verb rule correctly the first time is the whole obligation. So a verb aimed at
+the wrong number is not a private mistake: it becomes a sentence on somebody's artifact. If you are
+unsure whether a phrase will register, do not write it: use `Refs #10`, and say in the pull-request body
+what is still unfinished.
 
 Requesting the review is **not yours to do**, and the reason is measured, not stylistic: H-0010 found
 `gh pr edit --add-reviewer` fails on this account with nothing but a `Projects (classic) is being
@@ -470,3 +556,15 @@ outcome this system produces: it is indistinguishable from a machine that is wor
   because the code changed; fix the anchor, and say so in the PR body.
 - Touching `vendor/` or a submodule to get a build green: there is no `vendor/`.
 - Working outside your worktree, or reading another unit's worktree to "help".
+- A `path:line` citation in a decision entry with nothing beside it but the number. A merge adds lines to
+  the cited file and the pointer moves out from under the sentence that made it — `make verify` cannot see
+  it, and the entry reads as though it is still re-runnable. Write the text you measured after the
+  coordinate: `` `AGENTS.md:52` "naming what is owed, and stop" ``, at least 16 quoted characters, and
+  `scripts/check-decisions.py` refuses the entry when the quote and the line part. Re-read that number with
+  `grep -n` as you write yours — this example's own drifted twice, which is why the gate now checks the
+  files that teach it (`--self-test`'s teaching pass), and why a coordinate and its quotation have to sit on
+  the SAME physical line: the rule reads one line, so a fragment wrapped onto the next one is not an anchor
+  and the citation lands in the debt instead of being checked. A citation with no
+  quote is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
+  the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
+  same commit.

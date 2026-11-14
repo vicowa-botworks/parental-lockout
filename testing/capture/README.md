@@ -260,7 +260,7 @@ summary `print` after the note is one. The cell stayed anyway, because the empty
 being explained by a sentence that blamed the fixture whatever the cause was; `cap is None` now chooses
 the reason, and the fixture arm's wording is unchanged byte for byte.
 
-`python3 scripts/attack-capture-self-test.py` — 47 attacks, 31 caught, 6 honest edits still green, 10
+`python3 scripts/attack-capture-self-test.py` — 48 attacks, 31 caught, 6 honest edits still green, 11
 holes — patches each of the five places that could undo any of that (the flag, the branch that reads the
 disk, the branch that reads `cap`, and the outer arm of either driver) into a copy of the tree and
 requires a red verdict. Each of the five makes exactly one rule fail, `capture self-test: 1 of 78 rules
@@ -719,17 +719,89 @@ for an unrecorded frame than for any other, because an unrecorded frame is the o
 see — `is committed with no entry in` fires on it — and recording it deletes that finding and installs
 in its place the drift arm that compares a fabricated rev against nothing.
 
-The published set carries the specimen one step further along, in `git show 7e65d3b`: `lock.png` and
-`testlock.png` are the only two of the nine entries with no `carried_from` — both revs minted — both
-dated `2088043cb`, written eighteen seconds after that commit landed, while the newest commit over each PNG's
-own pixels is `3bcbfdd`, an ancestor of `2088043`. By this file's own model those two photographs predate
-their page, and `manifest.py check` on that tree answers *9 photographs current*, rc 0: the rev the gate
-would have compared is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so those
-revs are hand-typed from wherever whoever noticed was standing — the recipe below is what tells them what
-to type, and a commit eighteen seconds old is not evidence about a frame taken four hours and twenty-one minutes earlier. Closing it
-takes a re-take, not an edit: `./lock.py` and `./testlock.py`, then
-`record --fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock
---shot testlock`.
+The specimen one step further along is in `git show 7e65d3b` — the state of *that* tree, not the
+published set: there none of the nine carried, because `carried_from` arrived a commit later; the split
+is in `git show 7ff2a67`, the blob `main` publishes today, where `lock.png` and `testlock.png` were the
+only two of the nine with no `carried_from`, both revs minted at `2088043cb`. `7e65d3b` had just moved
+all nine rows off `3bcbfdd`, six of the nine PNGs' own newest commit and an ancestor of `2088043`, onto
+the page commit eighteen seconds after it landed. By this file's own model those two photographs predate
+their page, and `manifest.py check` there answers *9 photographs current*, rc 0: the rev the gate would
+compare is the one the record wrote. `lock.py` and `testlock.py` write no manifest, so those revs are
+hand-typed from wherever whoever noticed was standing — the recipe below tells them what to type, and a
+commit eighteen seconds old is not evidence about a frame taken four hours and twenty-one minutes
+earlier. Closing it takes a re-take, not an edit: `./lock.py` and `./testlock.py`, then `record
+--fixture-env runs/lock/fixture.env --fixture-env runs/testlock/fixture.env --shot lock --shot testlock`.
+
+**That re-take ran on 11 Nov, all nine frames, and what it measured is the finding (#301).** Every fixture
+was re-seeded and every driver run through the recipe below with `--out docs/screenshots/360 --overwrite`,
+then `record` ran once naming all nine with `--shot` and handing over all four `fixture.env` files. **All
+nine frames came back byte-identical to the committed files** — `sha256` equality, nine of nine, measured
+twice, including `audit.png`, whose pixels are the oldest in the folder. So the seven rows #301 counted
+were never a picture of an old page: `2088043cb` renamed the state classes and rewrote 69 lines of
+`app.css` without moving one pixel on any of those seven, which is the claim its own message makes and
+repeats ("two PNGs changed and seven byte-identical — the browser's half of the claim that `.exempt` moved
+no pixels"), and the two frames that did change are the two rows that were honest throughout. What was
+wrong was the record, not the photograph: seven rows certified their pixels through a `carried_from`
+pointing at a manifest whose `head` was the mint, and nothing in this folder can tell that from a re-take.
+The delivered diff is therefore seven deleted `carried_from` lines plus `captured_at` and `head` — **no PNG
+byte and no `sources_rev` moved** — and that is also its limit: `current` is still `newest_commit(sources)`,
+so the file still cannot distinguish the run that photographed nine frames from a hand edit, and `check`
+still answers `9 photographs current` having asked history nothing about the seven. #302 owns that half.
+
+**And #301's other remedy is not merely harsher — it cannot be satisfied, a trap worth keeping for whoever
+reads the drift arm next.** Re-dating the seven rows to the newest commit over each PNG, measured in a
+clone, makes `manifest.py check` exit 1 over exactly seven problems, each ending with the instruction:
+*"Re-take it and re-run `manifest.py record`, in a commit after the one that changed the page or in that
+same commit; what it may not be is older than the page."* That paragraph **is** that re-take and silences
+none of the seven: bytes that did not move produce no commit touching the PNG, so `newest_commit(png)` can
+never catch a page commit that moved no pixels. Any rule reading *"the last commit that changed this file's
+bytes"* as *"the last time anyone photographed this page"* refuses a current frame forever, and the seven
+it refuses are those whose page did not move — a verdict about a stylesheet edit, not about whether anyone
+looked. #302 sketches exactly this arm, measured against the post-record manifest: same seven rows, exit 1.
+
+**`--shot` is the driver's word, and since #302 that word is checkable.** The recipe names the frames
+because nothing else says which ones a run took — and naming them used to be the end of it: `record`
+dated a named frame at its *page's* newest commit and never asked what the frame's own pixels were last
+committed at, while `check`'s drift arm opens `if recorded == current: continue`, so the equality the
+recorder mints is the equality the gate reads. That is how the seven rows above read *current* for five
+weeks. No later reading of history can order those bytes — a re-take whose pixels do not change never
+produces a commit touching the PNG — so the answer had to come from the run. `cdp.publish` now leaves it
+where it falls: `runs/<fixture>/capture.json`, beside the `fixture.env` that fixture was run with,
+carrying the commit the capture stood in and the `sha256` of every frame it wrote. `record` reads it at
+one moment only — the page has moved past this frame's pixels and this run claims the frame — and it
+demands the frame, under the fixture whose driver photographs it, at those exact bytes; the entry then
+gains `photographed`, and `check` re-asks the ordering from that block on every run after, which is the
+re-take deadline this folder used to promise in prose and could not enforce. Two refusals follow and each
+has a door: a page that moves past its own capture goes red, and the way out is the recipe above —
+re-take, re-record — never an edit of `sources_rev`; and a `photographed` naming a commit this checkout
+cannot order (a rebase, a capture taken in another clone) says which and points at `git fetch`. What
+stays open is printed rather than hidden: `record`'s summary counts the rows dated on its own arithmetic
+because no receipt covers them, since the alternative is refusing the ordering this folder prescribes —
+capture, record, commit, in that order — which is #144's trap in the fix's clothes.
+
+A receipt is one commit conservative, and that is not a defect to tighten: the driver photographs and
+records **before** the operator commits, so the commit a receipt can name is the parent of the commit
+that lands the photograph — for every honest capture, every time. The claim therefore cannot be the
+only witness standing behind a claimed frame, or this folder's own recipe refuses itself. The one commit
+that changes a template, re-takes its frame and re-records the manifest is legal here, and #302 lists it
+among the orderings that must stay legal; measured 13 Nov with real git over a throwaway repository it
+was refused, by the claim arm, on exactly that recipe — `/tmp/opencode/302b/probe.py` case 1 and
+`claimpath.py`, which is the receipt-backed path at the self-test's own scale. `origin/main` accepts the
+same ordering, via D-0056's comparison over the blob. So the frame's own newest commit now gets the same
+vote the drift arm gives it: the claim clears when a commit at or after the page's touches the
+photograph, pinned by the self-test rule *"a `--shot` frame whose own pixels moved with the page's commit
+is not contradicted, though the receipt behind it is one commit conservative"*.
+
+What that does not buy is the frame whose bytes did not travel. A re-take that changes no pixel produces
+no commit touching the PNG, so the frame's history stays behind the page, the claim is the only witness
+left, and a claim one commit conservative cannot tell a byte-identical re-take from a frame nobody
+photographed at all. That row is red on `origin/main` as well — same probe, 9 problems on both trees,
+#144's arm there and this arm here — and it is #338's finding, not a residue of this one. What #302
+changes about it is the sentence: the repair named here is reachable (re-take, re-record — measured
+green, `probe.py` cases 4 and 7), where the advice on `main`, to re-take the frame "in that same commit" the
+page moved in, cannot be followed by anyone for a frame whose pixels did not move. It stays listed
+rather than guarded because the one witness that could close it is the run's word about when it
+photographed, and that word is what this arm already spends.
 
 The `*-setup.sh` on each line is not ceremony. #207 made a fixture single-use for the sign-in,
 because the sign-in appends the one row whose count the artifact's height is: re-running the driver

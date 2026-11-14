@@ -53,6 +53,42 @@ func waitFor(t *testing.T, b *syncBuffer, want string, timeout time.Duration) {
 	t.Fatalf("did not see %q within %s; output so far:\n%s", want, timeout, b.String())
 }
 
+// waitForEither waits until one of two buffers contains the line asked of it, so a
+// test can wait for the daemon to reach a decision point without pre-judging which way
+// it decided.
+//
+// It deliberately does not report which line arrived: the caller's own assertions are
+// what turn the two outcomes into a verdict, and a helper that pronounced would
+// replace the daemon's reason with the helper's words. It fails only when NEITHER line
+// arrives, which is the one state the caller's assertions do not describe -- a daemon
+// that announced a start and then wrote neither report nor refusal.
+//
+// Why this exists beside waitFor: waitFor pins one line, which is the right shape when
+// the line asserted on is the line waited for. It is the wrong shape when the line
+// waited for is printed EARLIER than the line asserted on, because then the wait
+// proves only that the daemon got that far. runServeContext prints the startup line,
+// then probes, and the probe's answer is what both assertions in
+// TestServeStartsWhenOneBackendIsUsable read -- on stdout when a backend answered, on
+// stderr when none did. Measured on run 43296841286's runner: that test failed there
+// with `the probe report is missing` and a transcript holding nothing but the startup
+// line, on the same commit that passed 5/5 on this box and passed the run 44 minutes
+// earlier on the same branch, whose only diff touches factory scripts. The window is
+// reproducible without waiting for a scheduler: a 3s sleep between the two prints in
+// runServeContext fails the test with the runner's message and transcript byte for
+// byte (serve_test.go:407), and the test passes with this wait in place instead.
+func waitForEither(t *testing.T, a *syncBuffer, aWant string, b *syncBuffer, bWant string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(a.String(), aWant) || strings.Contains(b.String(), bWant) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("saw neither %q nor %q within %s; first stream:\n%s\nsecond stream:\n%s",
+		aWant, bWant, timeout, a.String(), b.String())
+}
+
 // A config the daemon will accept, written where serve expects to find one.
 // serveRunnerFunc adapts a function to platform.Runner so a test can decide what
 // loginctl does rather than what the host's does.
@@ -400,6 +436,12 @@ func TestServeStartsWhenOneBackendIsUsable(t *testing.T) {
 	// which is the shape being tested here; nothing needs to be passed in.
 	out, errOut, cancel, code := startServe(t)
 	waitFor(t, out, "starting, config", 10*time.Second)
+	// The startup line comes FIRST, ahead of the probe, so waiting for it says only
+	// that the daemon began starting. Both assertions below read what the probe
+	// answered, and the probe answers on one stream or the other -- so the wait has to
+	// be for either answer, not for the line before it. See waitForEither for the
+	// measurement behind this line.
+	waitForEither(t, out, "backend logind is available", errOut, "refusing to start", 10*time.Second)
 	if strings.Contains(errOut.String(), "refusing to start") {
 		t.Errorf("a machine with a usable backend was refused:\n%s", errOut.String())
 	}

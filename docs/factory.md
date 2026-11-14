@@ -57,7 +57,7 @@ deliberately *not* suppressed: a dry run you cannot audit afterwards is a dry ru
 | `review_unreadable` | that same change request, with nothing in its body: empty, a bare path, an `@`-mention, or under 40 bytes | nothing: one throttled comment says what arrived, and the row waits |
 | `checks_failing` | a check concluded failure | a tick |
 | `unclaimed` | open issue nothing claims -- no closing reference from an open pull request, and no claim verb in an open body. A merged body that named it and was refused rides along as a `[merged:PR#…]` marker | a tick |
-| `delivered` | a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. The row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
+| `delivered` | an **issue**: a merged pull request claims it, it landed on `main`, the issue has said nothing since, and no earlier closure was rejected. A **branch** (#291): a merged pull request ran under that name into `main`, and the ref holds no content the trunk lacks. Either way the row names the pull request, **the branch that carried it**, the instant and the words | nothing: the supervisor logs it, and closes nothing |
 | `branch_without_pr` | **content** ahead of `main` -- at least one file the trunk lacks, measured from the merge base -- and no open pull request | a tick, to adopt or refuse the stranded work |
 | `awaiting_review`, `awaiting_merge`, `checks_pending`, `draft` | a wait, not a failure: a verdict still stands, or somebody already holds the request | nothing, except the throttle and the daily notice |
 
@@ -167,7 +167,8 @@ issues and pull requests; the first run of this script found five, one of them s
 ### Which unit a pass takes first (#307)
 
 Within a class the queue is oldest-first, and the key that decides it counts **up**, so it sorts
-descending: `factory_age` answers elapsed seconds since `first-seen`, so `sort -t$'\037' -k1,1n
+descending: `factory_age_at` answers elapsed seconds since `first-seen`, measured against the one clock
+reading the ranking pass takes before it ranks anything, so `sort -t$'\037' -k1,1n
 -k2,2nr -k3,3n` puts the longest-waiting unit first and the number breaks the tie. The key shipped
 ascending from `88848c5` until `H-0135`, which is `H-0007` written backwards -- the row stamped most
 recently went first. On a live queue that is not a fairness problem but a starvation one, because every
@@ -179,17 +180,35 @@ old, sat in the same rank; all five `unclaimed` rows were still open two hours l
 
 Nothing in the suite noticed for seven days, because the fixture stamps both of its units inside one
 second, and equal ages fall to the number tie-break -- which sends unit 900 first, the same answer the
-correct key gives. What surfaced it was a second boundary: CI run 43105189339 stamped 900, did the
-worktree lookup and the `gh` shims, and stamped 901 in the next second, so that pass dispatched the
-younger unit first and `…then starts a tick for unit B` went red (`quarantine at line 12, tick at
-line 8`) while the same fixture stayed green where the inter-stamp gap measures 3.8-7.9 ms. The
-boundary is not the bug; it was the only witness the fixture had. `factory/selftest.sh` now plants the two
-`first-seen` values rather than waiting for a boundary, asks the question in **both** polarities -- one
-polarity alone is also satisfied by a dispatcher that sorts on the number and never reads the age -- and
-retires the `r` in a control, so the ok means the direction rather than the tie-break.
+correct key gives. What surfaced it was a second boundary. This page said for three days that the
+boundary fell **between the two stamps** -- "stamped 900, did the worktree lookup and the `gh` shims,
+and stamped 901 in the next second" -- and that story cannot invert anything: the stamping loop runs to
+completion before the ranking loop reads a single age, so a stamp that lands a second later is a second
+*younger* at every read, which is the order the key wants. The boundary is between the two **reads**.
+`factory_age` called `date -u +%s` inside itself, so with both stamps in one second the first row
+answered `0s` and the second `1s` whenever a boundary fell in the ~10 ms between the two calls, and the
+descending key ranked the younger unit first. That is what CI run 43105189339 printed (`quarantine at
+line 12, tick at line 8`), what run 43532152285 printed again on 14 Nov (`quarantine at line 14, tick at
+line 10`, three days later and the same one line red), and what #335 caught under load on a
+developer box with the arithmetic visible in the journal: `NEXT unclaimed 901 age=1s` above
+`NEXT unclaimed 900 age=0s`, for two stamps one pass wrote 900-then-901.
+
+Planting ages was the right repair for the legs that plant them, and no repair at all for the legs that
+do not: `…then starts a tick for unit B` and #335's guard control both read the unstamped fixture, so
+both stayed a coin flip landing about once in 200 passes. `H-0169` closes it at the source -- the
+ranking pass takes one `date -u +%s` after the stamping loop and measures every age against it, which
+makes the key a monotone function of `first-seen`: equal stamps tie, the number decides, and no interval
+between two reads can turn a later stamp into an older one. `factory/selftest.sh` still plants the two
+`first-seen` values and asks in **both** polarities -- one polarity alone is also satisfied by a
+dispatcher that sorts on the number and never reads the age -- and retires the `r` in a control, so the
+ok means the direction rather than the tie-break. Three more legs hold the clock itself: the boundary is
+now *scheduled* by a stub `date` that advances one second per reading (a fixture cannot schedule it,
+which is why this defect needed two CI runs to appear), the retired per-row reader is made to reproduce
+the red pair on demand beside it, and a ranking site that goes back to reading the clock per row is
+refused by the text, with that reading planted as the control.
 
 The sentinel is the one behaviour that changes on the way. A unit with no `first-seen` answered
-999999999, which used to sort last and now sorts first -- what `factory_age`'s own comment has always
+999999999, which used to sort last and now sorts first -- what `factory_age_at`'s own comment has always
 promised ("never" means "ready"). It cannot reorder a queue whose ages are real, because the loop that
 builds the rows stamps every workable unit before the loop that ranks them reads the age; the only paths
 that skip a stamp are a dry run and a ledger that will not take a write, and both skip it for *every*
@@ -226,7 +245,10 @@ rule rather than the one-liner, and each has legs in `factory/selftest.sh`:
 What is dropped is said out loud every pass that still sees it -- `triage: 2 branch(es) ahead of main
 hold no content the trunk lacks, so none is offered: br-empty br-merge-empty` -- on stderr rather than
 as a row, because a row is an offer and there is nothing to offer, and because a class that quietly
-stops printing rows is the failure `factory.sh` calls "a queue nobody can audit". The dangerous edit here
+stops printing rows is the failure `factory.sh` calls "a queue nobody can audit". Since #291 the
+sentence carries only the refs nothing else can account for: a content-free ref that a merged pull
+request names is reported by number as a `branch delivered` row instead (below), and the branch is left
+out of this tally so one pass does not describe one ref twice in two sentences that can disagree. The dangerous edit here
 is one character: "skip branches with no content" becomes "skip branches" and every real stranded branch
 leaves the queue with the fake ones. That is why the fixture plants `br-work` and `br-delete` beside
 `br-empty` and demands they stay, and why a control deletes the content test and demands the empty
@@ -238,6 +260,60 @@ against GitHub and this machine's refs at 13:21Z on 11 Nov moved no row: all eig
 rows carry content (58, 15, 14, 6, 4, 4, 2 and 1 files) and none was empty. The live instance of the
 defect, `issue-249`, had acquired a real commit of its own -- H-0130's -- two hours before this was
 written. The fix is for the next one.
+
+A tally sentence is one `printf` format, and one format has to be one word. #329 found both tallies
+shipped with the literal closed immediately before a `\<newline>` and the rest of the sentence on an
+indented line: the shell deletes the continuation and what is left between the two literals is that
+line's indentation, a field separator, so `printf` received a format with no `\n` in it plus the literal
+`offered: %s\n` as its first argument, and re-applied the format once per remaining argument. What an
+operator got was three lines, the first of them the format string. `bash -n` and shellcheck both exit 0
+on that file, and a leg that greps the sentence for a fragment is green on the result -- the format's own
+words are exactly what got printed -- so the assertion here is the whole sentence, and
+`scripts/check-scripts.py` refuses the shape in every shipped script (`H-0154`).
+
+**A ref whose pull request merged reports the delivery (#291, ask 2).** GitHub deletes a branch when its
+pull request merges only if the repository asks it to; this one does not, so the ref survives -- usually
+at zero commits ahead, and often as nothing but the `--allow-empty` checkpoint that Step 3 takes before a
+judgement call. Such a ref belongs to neither half of the classifier. It is level with the trunk, so the
+arm above never asks it a question; and the scan that reports a delivery is keyed to `kind == issue`. It
+was continued past in silence, which is the sentence #291's last comment names as still owed after
+PR #293: "`issue-249` is now silent, which is the other half of #291: *a merged pull request's leftover
+ref must be reported as delivered, not silently dropped*". The arm now reads the newest merge that ran
+under the name off the `merged_json` the pass already holds -- `baseRefName == FACTORY_BASE`, so a pull
+request merged into another branch delivers nothing (H-0103's stacked chain) -- and emits
+
+```
+branch  issue-249  delivered  merged PR #293 on `issue-249` at 2026-11-12T18:29:26Z, the ref holds no content the trunk lacks, and 2 merged pull requests ran under that name (window 100)
+```
+
+The row is bought by the same content question the arm above asks, and that conjunct is the whole design:
+a name is evidence and never a verdict (H-0108, H-0148). `issue-301` is the counter-example sitting on
+this repository -- 4 files across 2 commits ahead of `main`, and PR #312 merged under that name at
+17:37:23Z on 12 Nov -- and an arm that stopped at the name reports it `delivered`, after which no queue
+offers its real work again. Three controls hold the three ways that happens: the merged test inverted
+(the silence returns, and the tally names the ref again), the base filter off (a stacked branch is buried),
+the content conjunct off (`br-reopened`, merged once and re-cut with a file the trunk lacks, is buried).
+No new supervisor arm was needed and none was added: its `delivered` arm keys on the class, so the row is
+logged as `DELIVERED branch/issue-249 … reported, not worked` and nothing is dispatched or closed -- three
+legs run the supervisor over a fixture whose merged pull request sits on `issue-902` and read that line,
+the absence of a tick, and the absence of any write to the queue.
+
+Measured against GitHub and this machine's refs at ~21:00Z on 12 Nov, both ends from the same tree: **32
+rows before the change, 69 after**. The 37 that appear are all `branch delivered`, every one of the 11
+`branch_without_pr` rows is still offered, and the tally falls from three refs to two -- the one of them
+a merged pull request names is now reported by number. Thirty-seven is what #291's own census predicted
+(34 leftover refs, 33 silent, counted 11 Nov), and it is also the price: a supervisor pass wrote 13
+journal lines the day before this paragraph and writes 50 after it. Nothing in the harness bounds that
+file or the transcripts beside it -- `log()` appends to `$FACTORY_LOG/supervisor.log`
+(`factory/common.sh:340`) and no code rotates, truncates or prunes it, nor the `<stamp>.<unit>.log`
+transcripts one per tick (`factory/factory.sh:766`). Measured in the primary checkout at 22:05Z on
+12 Nov: **20 MB across 100 files** under `factory/log/`, oldest 10 Nov, individual transcripts up to
+480 KB, `supervisor.log` at 2,397 lines. With 19, 47 and 20 passes journalled on 10, 11 and 12 Nov,
+this branch adds roughly 700 to 1,700 lines a day to a file nothing prunes. Filed as its own ticket.
+
+Two claims in the ticket measured false and are not implemented: an empty ref at zero ahead is not
+`branch_without_pr` (the arm above refuses it, #292), and its census of 34 leftover refs was 37 by the
+time it was counted.
 
 ### When the issue half knows a pull request exists (#291)
 
@@ -319,6 +395,211 @@ draft (`#230` and `#233` are drafts on purpose -- a draft pull request is the au
 not a review request, and the classifier routes it to `draft`, which is a wait and not a poke), and it
 does not cancel an individual request it did not make (H-0117) -- the person who holds it may hold it
 because somebody with better knowledge asked them.
+
+### The ref that is not a contribution (#284)
+
+`branch_without_pr` asks a ref one question: does it hold content the trunk lacks? The class name is
+about the missing pull request, and both halves of the decision were being made by the wrong thing.
+Two refusals now exist, one on the name and one on the content, and neither may start a tick.
+
+**The name.** `factory_refuseto_work` (`factory/factory.sh`) listed the families with a slash and
+nothing else -- `backup/* local/* integration/* wip/* tmp/*` -- so a hyphen spelling walked straight
+past it and `preserve/` was not on the list at all. Measured over the 11 refs ahead of `main` with no
+open pull request at 00:40Z on 14 Nov, that let exactly three through: `backup-tip` (7 files across 5
+commits), `preserve/issue-222-stale-base` (2 across 2) and `preserve/issue-318-wip` (6 across 3),
+while four `backup/` and `local/` refs were already refused and the four `issue-*` names in that census
+are untouched by the pattern -- and none of those four prints a row today: `issue-248` reads
+`delivered` behind merged PR #262, while `issue-309` and `issue-318` sit one commit ahead with zero
+files, which is the empty commit that makes `git cherry` useless below. The journal agrees the arm was
+firing for what a slash could reach: **24 `REFUSED branch` lines** between 11 Nov 09:54:49Z and
+14:14:10Z, so the 12 Nov addendum's "refuses nothing" was false the day it was written;
+what was true is that it refused only what a slash could reach. The pattern is `backup[-/]*` and the
+same for each family, plus `preserve[-/]*`, and #291's ask-1 control blinds the separator to demand
+`backup-tip` be dispatched again. Two costs, measured against the live names rather than reasoned:
+`preserve-scroll-position` and `tmp-dir-cleanup` are refused, because a family word is also the first
+token of a feature branch, and bare `backup` is not, because `[-/]` asks for a family or a path and
+not for the word. `preserve[-/]*` is a decision written above the pattern, not a family inherited
+from the list: a preservation branch says *keep this*, not *work on this*, and the arm has always made
+that trade for `wip/`. The row survives either way, because the row is a report and the arm only stops
+the dispatch -- `REFUSED branch:<name> the name says it is a backup, not a contribution`.
+**The content.** A ref whose work is already sitting in an open pull request is not stranded work, and
+`git cherry` cannot tell you that: it marks a commit `-` when the commit is **empty**, not when the
+work landed. Measured at 00:50Z on 14 Nov, `issue-248`, `issue-309` and `issue-318` are each one empty
+commit with zero files and all three read patch-equal to every non-draft open head -- a verdict about
+the shape of a commit, never about whether work landed. The reading is bytes instead: the head itself if the ref is contained
+in it, otherwise one `git diff` between the two trees restricted to the files the ref touches. The
+merge-base form was written first and is wrong, because a change cherry-picked onto the pull request's
+head still names the file in a merge-base diff; `br-pick` in the fixture is that case, and a leg pins
+that the byte reading and not containment is what refused it. A draft head buys no refusal: a draft
+never merges, so refusing a ref because a draft's bytes match it retires work no merge will ever
+deliver. The case that taught it was draft #285 on `backup-tip`, titled "reference only, do not merge"
+and closed unmerged at 16:34:58Z on 12 Nov. Up to
+`FACTORY_DELIVERED_WINDOW` merged pull requests are consulted, and open heads up to
+`FACTORY_DUP_SCAN` (40, against the 5 open heads measured 00:45Z on 14 Nov); past either bound the row says
+`[dup-scan-limited:N …]` and draws no conclusion rather than a cheap one.
+
+The refusal is a **mark**, not a class: `[content-on:PR#901]` rides in the `branch_without_pr` detail
+and the arm in `factory/factory.sh` refuses on its first characters, the way the `delivered` arm reads
+`[merged-pr:`. A class would have been the smaller diff and the worse one -- the detail is prose, and
+inside it sits somebody else's branch name. Both refusals are pinned by running the supervisor over a
+fixture ("the marked ref is refused by content, naming the pull request", "the hyphenated backup is
+refused by name", "…while the ordinary branch is still worked") rather than by reading the arm.
+
+No live ref triggers the content refusal today: the shipped classifier run against the real queue at
+00:45Z on 14 Nov prints 11 `branch_without_pr` rows and 37 `branch delivered`, with no
+`[content-on:PR#` mark and no `[dup-scan-limited` note -- the reading asks all five open heads and
+concludes nothing. That half is
+pinned by the fixture alone, and what it buys is the day a head and a branch carry the same commit.
+What the name half changes live is three refs, `backup-tip`, `preserve/issue-222-stale-base` and
+`preserve/issue-318-wip`: they keep their rows, because a row is a report, and lose their tick.
+
+### The merge that closed nothing the body said it closed (#353)
+
+A closing keyword is a request to GitHub, not an event in this harness, and until now nothing ever
+asked whether the request was granted. `factory_verify_closure` (`factory/factory.sh`) is called at
+the end of `factory_merge`, after the ledger is stamped, and it reads back every issue the merged body
+named with a verb.
+
+The population, all 180 merged pull requests here, read 14 Nov 2026 and classified by where the verb
+sits in the markdown (`scripts/check-close-verb.py` ships the classifier, and the audit that counts
+this table drives that same shipped pattern instead of a re-typed copy of it):
+
+| where the keyword is | pairs | closed within 2 s of the merge | closed later |
+|---|---|---|---|
+| plain text | 100 | **98** | 2 — #207 at +159415 s, #211 at +27586 s |
+| inline code, with no plain-text pair naming the same issue | 2 | **0** | 2 — #304 at +6086 s, #301 at +14472 s |
+| a fenced block | 0 | — | nothing in this repository has ever done this |
+
+Nothing at all landed in the three-to-120-second bucket, which is what lets the ≤2 s cluster be read as
+the parser firing rather than as human latency: GitHub takes under two seconds or it did not do it. The
+two inline-code specimens are PR #308 (`` `Closes #304` ``) and PR #338 (`` `Closes #301.` ``, on a line
+that states the keyword is deliberate). #301 is the expensive one: it stayed open until a second unit
+was dispatched to re-derive work `main` already had, and it was closed 14472 s after the merge that
+claimed it, by that unit's own delivery comment rather than by the keyword.
+
+**The pattern is GitHub's keyword set, and the verb has to touch the number.** `close closes closed fix
+fixes fixed resolve resolves resolved`, then at most a colon, a comma or a tab, then `#N`. Both halves
+are measurements. No `-ing` form is in GitHub's set, and the shipped line used to carry two of them
+because the stems had been copied from `triage.sh`'s claim matcher rather than from the keyword list.
+The copy was incomplete as well as over-wide: `fix(?:e[sd])?` has no `-ing` arm, so one merged body's
+shape decided which `-ing` verb the harness believed -- `Closing #77` and `Resolving #78` scanned as
+requests while `Fixing #79`, the same spelling one stem over, did not. Neither spelling was GitHub's.
+The filler window mattered more. The pattern used to allow `[^#\n]{0,20}` -- twenty characters of
+prose -- between verb and number, and a window invents claims: over the same 180 bodies it answers 115
+plain-text matches where 100 exist. Seven of the invented pairs name real issues no sentence asked
+about, seven name pull requests, which no closer can act on, and one names `#1180`, a cross-repository
+citation that is not an artifact of this repository at all. Six of them ship as fixtures in the checker,
+each quoted exactly as it was merged -- `pull request #292 has the fix. Refs #291 for context only.`
+read as a request for #291, which is still open; `needs the boundary resolved by hand, and #1180 is
+why` read as a request for #1180; and four more of the same shape, one of them naming an issue closed
+29398 s *before* the merge that "closed" it. An invented closer is not a harmless over-read here: every
+one of them becomes a
+sentence written onto a live ticket by the function above, so a false positive is a false statement in
+the artifact. Both halves are pinned twice now -- the checker carries the six merged lines as fixtures
+that must not be reported as closers, and `factory/selftest.sh` runs the two shipped spellings of the
+pattern, the jq one in `factory.sh` and the Python one in the checker, over one table of lines and
+refuses any line where they disagree.
+
+**One verb, every number it touches, and what kind of thing that number is.** The scan used to ask `jq`
+for a `capture`, which answers the FIRST `#N` on a matching line and nothing else, so a line whose verb
+is not the first thing on it reported the wrong ticket and never read the right one: `#7 is the reason.
+Fixes #12.` came back as `7`, and GitHub's own multi-issue sentence came back as its first number alone.
+`scan($re)` returns one entry per match -- the pattern's capture group, so bare digits -- so a number is
+reported only when a keyword was touching it. Kind matters as much as position: a pull request is also an
+issue to the REST API, so
+`issues/282` answers `state: closed` with a real `closed_at`, and a body may point its verb at a merged
+sibling -- #292's says `its fix merged as #282 at 11:01:37Z on 11 Nov`. The pass now reads
+`pull_request` in the same call as `state` and `closed_at` (one read, because two reads of one artifact
+can straddle a write, and a delta built across them is a delta nobody observed) and prints
+`CLOSE-NOT-ISSUE pr:N ref:M` for a pull request instead of an issue verdict. The separator between those
+three fields is U+001F, not a tab: tab is IFS *whitespace*, so `IFS=$'\t' read` collapses the empty
+middle field of an open ticket and the kind lands in `closed_at` (measured). Both arms grade through one
+`factory_close_verdict` now, because the re-probe arm carried its own copy of the verdict and that copy
+had only the healthy branch: a ticket that closed during the probe with no readable timestamp printed
+`closed unknown s after the merge, inside the window GitHub takes`, and one closed 40400 s after the
+merge printed the same healthy sentence with the window at 120 s. And the re-probe is one wait for the
+batch rather than one per ticket -- the sleep sat inside the loop, so five open tickets held
+`factory_merge` for fifty seconds before the worktree cleanup ran.
+
+**A commit message is text GitHub parses too, and nothing read it (H-0166).** The body file is checked
+at review time; the messages were never checked by anything. Measured on the branch that added this
+paragraph: `git log --format=%B origin/main..HEAD` at `17b37c7` answered two verbs adjacent to a number
+inside one commit message, in the sentence written to warn about them -- the PR #245 shape from #1256,
+one layer down. Both of its numbers happened to be artifacts already closed when the message was
+written (#77, #78, read back with `gh issue view N --state all --json number,state,closedAt`), so that
+merge would have changed nothing. That is luck about two numbers, not a property of the shape: the same
+sentence over two open issues closes them with no review and no note. So `scripts/check-commit-verbs.sh`
+runs the checker over every message between a basis ref and HEAD -- `origin/main`, or `main`, or the
+`PLOCK_COMMITS_BASE` or first positional argument -- one commit at a time so a refusal names its commit,
+and `make verify` runs it. Two rules about what happens next are worth stating, because both are places
+where a guard can quietly become a lie:
+
+- **The remedy depends on whether the commit is published.** Not published: rewrite the message. Already
+  published: do *not* rewrite it -- `git revert` is the only rollback here, force-pushing an in-flight
+  branch is forbidden, and every merge on this repository is a merge commit, so the message is permanent
+  history and the claim cannot be recalled. Read the named artifacts back and decide deliberately, then
+  write the decision into `factory/close-verb-waivers`: full sha, the exact number set the report prints,
+  a reason that says what was read back. The waiver is checked for exactness and *reprinted on every
+  run* -- a green line that hides an adjudication is indistinguishable from no adjudication. That only
+  published claims are waivable is a reviewer's rule, not a mechanical one; what is mechanical is that a
+  waiver naming fewer numbers than the report, or more, leaves it failing.
+- **An undocumented inflection is refused even though nobody knows what GitHub does with it.** The
+  published keyword set has no `-ing` form, and all 180 merged bodies of this repository contain exactly
+  one adjacent `-ing` specimen (PR #47's `closing #46`), so the corpus cannot settle the question -- one
+  observation, confounded because that same body also carries a documented keyword on the same number.
+  The two sides of this tool answer the uncertainty in opposite directions on purpose: the *read* side,
+  `factory_verify_closure`, whose verdict is written onto a live ticket, keeps the documented nine so it
+  never invents a claim (H-0164); the *write* side refuses the superset, because being wrong there costs
+  a reworded sentence and being wrong the other way costs an unplanned close. A documented keyword in a
+  message is still allowed -- a leg pins that, because a guard that refuses every number in every message
+  would pass this section's own bite test for the wrong reason.
+- **Three scans, and only one of them strips code spans.** `scripts/check-close-verb.py` reads a *body*
+  with spans stripped, because that a span is inert is a measurement made over merged bodies on 14 Nov
+  (a keyword inside inline code and nowhere else fired 0 of 2). `factory_verify_closure` reads a body
+  span-blind, because the specimen that started #353 *is* a verb inside a span and the read side has to
+  see the disagreement between what was asked and what happened. `check-commit-verbs.sh` reads a
+  *message* span-blind for a third reason: nobody has ever measured spans in a message, so no span is
+  treated as a shelter there, and the direction of the doubt is the one that costs a reworded sentence
+  rather than a close. Every one of the three is refusing to assume; a single shared "right answer" about
+  backticks across all three would itself be the assumption.
+
+**The scan is span-blind on purpose, and a tidier one would have missed the defect.** The obvious
+implementation strips code blocks and inline spans first, because that models GitHub. This one matches
+the verb wherever it appears, inside backticks included -- the same way `CLAIM_RE` in `triage.sh` does.
+The specimen *is* a verb inside a code span: a span-stripping scan reports no claim, compares nothing,
+and passes the merge that started this ticket. The disagreement between what the body asked for and what
+the artifact got is only visible to a reader that reads the body the way the harness's other reader does
+and then checks GitHub's answer. What closes and what does not is reported, not assumed.
+
+**What it does when a ticket is still open: write on the artifact, close nothing.** Three options were
+weighed (H-0156): close with a comment naming the merge commit, comment only, or halt the pass. Halting
+is refused for the reason #341 documents -- one un-closed ticket must not park every later activation.
+Closing is refused for the reason this repository has been taught twice: a verb is not evidence, and
+#1256 is the record of a keyword firing on a line written to *negate* it. Whether the delivered artifact
+met the ticket's requirements is a judgement with measurements behind it, and the merge does not carry
+those measurements. So the failure is written into the issue, where the next reader of the issue finds
+it, and the state change stays with a person.
+
+The note keeps the quoted verb lines inside a code span of their own. That is load-bearing and a leg
+pins it: a comment that put `Closes #301` in running text would close the ticket it is reporting on, by
+accident, with no measurement behind it -- the exact failure mode being documented. The checker from
+Step 5 reads the generated note and reports no firing keyword in it.
+
+**The healthy path writes nothing.** A ticket closed within the window is not a fact worth a journal
+line; #334 priced the pass at 37 lines already. Three sentences appear only on the abnormal branches:
+`CLOSE-OPEN` (the ticket is still open after the re-probe, and a note was attempted), `CLOSE-LATE`
+(closed, but `${FACTORY_CLOSE_FIRED_S}` -- default 120 -- seconds of slack separate a keyword from a
+hand close; the measured population has zero pairs between 3 and 120 s, so any bound in that range
+separates the same two sets, and 120 states a window rather than tuning one), and `CLOSE-UNTIMED`
+(closed with no readable timestamp, which is not the same answer as a delta of zero). An issue that
+cannot be read is `CLOSE-CHECK-UNKNOWN`, and a body that cannot be read is `CLOSE-CHECK-SKIPPED`:
+neither is ever reported as an open ticket, because a failure to read is not a finding.
+
+The re-probe is one sleep, `FACTORY_CLOSE_PROBE` seconds (default 10), because GitHub's closer is
+asynchronous and a single `OPEN` read milliseconds after a merge means nothing; 10 s is five times the
+widest delta in the measured population. A closer that lands between the two reads is `CLOSE-SETTLED`.
+
+Nothing here closes an issue, and nothing here claims a requirement was met.
 
 ### The approval a push voids
 
@@ -443,6 +724,20 @@ read back unchanged. With the record committed first, a refusal like that costs 
 `NEXT:`. With the label in the middle of the step, under `set -e`, it cost the record: the comment
 written, the marker absent, `Awaiting:` never committed, and an escalation that reads exactly like a unit
 that quietly gave up (#311, #315).
+
+The verb travels with the name, and #315 measured it separately. Both artifacts take `gh issue edit`,
+a pull request included, because `gh pr edit` cannot put a label on anything on this account. Measured
+12 Nov on gh 2.46.0, one 67-character probe name aimed at pull request #314 with its labels read before
+and after: `gh pr edit 314 --add-label zzprobe-…` died on
+`repository.pullRequest.projectCards` for exit 1 -- gh reads that retired field on its way in, so the
+call ends **before** it resolves the label name -- while `gh issue edit 314 --add-label zzprobe-…`
+reached the label step and answered `'zzprobe-…' not found`, also exit 1, and the labels read back
+unchanged both times. Two identical exit codes with two different meanings, and only one of them is a
+name a person can still supply; the other is a field GitHub has retired, so no answer to #311 makes
+`gh pr edit` work. That is why the empty-ask branch of `factory/factory.sh` now carries the two calls a
+stopped unit runs -- the write with the issue verb, the read with `gh pr view` -- instead of the word
+`label` on its own, and why a leg in `factory/selftest.sh` refuses any live file pairing `gh pr edit`
+with a label flag.
 
 What a reader may conclude from the marker is that a named human owes a decision on that artifact. What
 no reader may conclude from it is that the unit is parked or released. `factory/triage.sh` reads no
@@ -736,7 +1031,9 @@ same two lines with more to say: `code: 95e1816 (issue-249, 0 behind origin/main
 fork, which a fast-forward will not fix) + 5 uncommitted path(s)` is the line from the tree this change
 was written in, printed at 17:29:33Z while the work was in progress.
 
-`SUPERVISOR-AT` is on every pass. `SUPERVISOR-STALE`, `SUPERVISOR-FORKED` (the tree also holds commits
+`SUPERVISOR-AT` is on every pass that reaches the pass body -- the same boundary `LOG-AT` documents, and
+the same exception: a pass stopped by a `factory/HALT` marker writes none of the self-report lines.
+`SUPERVISOR-STALE`, `SUPERVISOR-FORKED` (the tree also holds commits
 the trunk does not), `SUPERVISOR-NOBASE` (no `origin/<trunk>` ref to compare against) and
 `SUPERVISOR-UNKNOWN` (git could not read the tree) appear only for the state each names, and
 `factory/selftest.sh` pins all five against trees planted in each state. `dirty=` is a path count from
@@ -880,6 +1177,154 @@ fast-forward is *not* available and names the three real choices. A stale tree c
 *removed*: `--remove` runs before the check, because the wrong reason to be unable to stop a broken
 loop is that it is broken.
 
+### The pass says where the journal is, and writes into the one it is leaving (#260)
+
+The installer above says the move is coming. The pass is what says it happened, and it says it in the
+journal that is about to become the only live one -- then writes a copy into the file going dead, which is
+the half the installer cannot do. `UNIT-TREE` is printed by whichever tree the installer was run FROM, so
+on 10 Nov it landed in the tree being left and the tree being entered never mentioned it. These are the
+lines a pass emits (`factory_log_move_lines`, `factory/common.sh`):
+
+```
+2026-11-12T19:14:34Z LOG-AT /tmp/opencode/demo-ff/factory/log
+2026-11-12T19:14:34Z LOG-MOVED old=/tmp/opencode/demo-fork/factory/log new=/tmp/opencode/demo-ff/factory/log prev-pass=2026-11-10T10:17:19Z how=recorded tail=ok -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there. The journal that went quiet is /tmp/opencode/demo-fork/factory/log/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed the append itself was refused, skipped nothing was opened -- and skipped carries refuse= naming the clause that refused, because five clauses answer skipped and they are not one fact: old-directory-is-a-symlink, old-directory-not-writable, old-journal-is-a-symlink and old-journal-not-a-regular-file each name something sitting at the old path this pass will not write through or into, and only no-such-directory says there is nothing there to tail. The clauses in the order they are judged: old-directory-is-a-symlink, no-such-directory, old-directory-not-writable, old-journal-is-a-symlink, old-journal-not-a-regular-file (#260)
+```
+
+and that is the whole of what the old file gained, below the line that was already there:
+
+```
+2026-11-10T10:17:21Z HALTED code=3962919 -- a HALT file is present
+2026-11-12T19:14:34Z LOG-MOVED old=/tmp/opencode/demo-fork/factory/log new=/tmp/opencode/demo-ff/factory/log prev-pass=2026-11-10T10:17:19Z how=recorded copy=old-journal -- …(#260)
+```
+
+`LOG-AT` is on every pass that reaches the pass body, for the reason `SUPERVISOR-AT` and `UNIT-AT` are -- a
+read nobody prints cannot be told apart from a read that is not there -- and it is also what the next pass
+reads back as this pass's answer, so it is printed before the `PASS` line: a pass that halts at triage
+writes no `PASS` at all, and that is exactly the pass somebody is trying to locate. **Where that boundary
+is, and what sits outside it:** all four of a pass's self-report lines -- `UNIT-AT`, `LOG-AT`,
+`SUPERVISOR-AT` and `PASS` -- are emitted inside `factory_body`, and the halt check logs `HALTED` and
+exits before `factory_body` is called, so a pass stopped by a `factory/HALT` marker writes none of them.
+The dead tail this section opens with is precisely that `HALTED` line, left by a pass that never said which
+directory it was writing to. `#331` holds the three ways to close that and the lock boundary a hoist has to
+answer for. The previous directory comes from the
+unit's own journal lines, not from a marker file (a record that has to be maintained is the defect
+`factory_journal_age` exists to avoid), not from the tree (two of the 10 Nov trees were deleted inside the
+hour), and not from `$FACTORY_LOG`, which is this pass's own answer. It is read with
+`journalctl --user -u <unit> -n $FACTORY_LOG_TAIL` and **no** `-t systemd`: the measurement that gives the
+reaping read its filter says a 400-line window taken WITH it holds 0 of the 325 lines the unit's own
+processes wrote in it, and this read wants precisely those 325. Manager lines are refused instead by
+anchoring in the third field, and both marks are anchored to the start of the message -- the ticket that
+filed this requirement pastes a `PASS` block into its own body, and a substring match reads a move out of
+a quote.
+
+`how=` says whether the old directory was recorded or inferred: `recorded` from a previous `LOG-AT`,
+`derived` from an older `PASS … root=<tree>` plus the `/factory/log` suffix, which is the path the
+generated unit implies because it sets no `FACTORY_LOG`. Recorded wins regardless of line order, and that
+is not a preference: a pass writes `LOG-AT` and then its own `PASS` a few hundred milliseconds later, so a
+newest-line-wins rule answers `derived` on every pass and the fact never reaches the log.
+
+`tail=` is about the copy, the only write here outside stdout. It is refused unless the old directory is a
+real directory, writable, and not a link, and the file in it is absent or a real regular file -- with each
+link test as its own clause, asked before anything that follows the path. A dangling symlink is `-e` false,
+and the first cut folded the file's link test behind that shape check, never reached it, and the append
+created the link's target. Writing a path this harness did not create, named by a record read off a log, is
+the shape #874 names; #182 is what it costs (#260, `H-0148`).
+
+`--dry-run` spares GitHub, git and the model, and it does not spare this write. Measured at head with
+`DRY_RUN=1`: the neighbour's `supervisor.log` gained the `copy=old-journal` line and the pass reported
+`tail=ok`. That is intended and it is the fourth thing a dry run touches -- `log_event` writes this pass's
+own journal line in a dry run too, and the banner promises only the three -- but it belongs in the page so
+the next reader does not file it as a bug (#330 review, finding 2).
+
+Those five clauses are a chain, not one `&&` group, so the refusing one can be named: `tail=skipped` is
+what all five look like, and `refuse=<clause>` says which. The sentence used to assert the commonest reason
+-- "found no directory there" -- whatever had refused, and four of the five print it beside a directory that
+exists: a linked old directory, an unwritable one, a linked old journal, a journal that is a FIFO or a
+directory. Measured with those fixtures on 12 Nov, before the field existed, all four printed that sentence
+(#260, `H-0149`). The order is the finding, not a style: `-d` and `-e` both follow links, so the first cut
+asked them first and a *dangling* link at the old path answered `no-such-directory` -- unreachable link
+clause, and the wrong advice for the one shape a hand-moved tree actually leaves. Asking what a path *is*
+before asking what is behind it is the same rule twice, once for the directory and once for the file.
+
+The clauses, in the order they are judged: `old-directory-is-a-symlink`, `no-such-directory`,
+`old-directory-not-writable`, `old-journal-is-a-symlink`, `old-journal-not-a-regular-file`. Only
+`no-such-directory` says there is nothing there to tail; the other four say something is sitting at the old
+path and this pass will not write through or into it. `tail=failed` is the sixth state and carries no
+`refuse=`, because there the append *was* attempted and the file itself refused it.
+
+One `refuse=` arrives with advice attached, because on a live machine it is the common case rather than an
+edge. `how=derived` means no old pass ever named its directory, so the path was built from that pass's
+`root=` plus `/factory/log` -- the path the generated unit implies, since it sets no `FACTORY_LOG`. Whether
+that path holds a journal depends on the tree, and both answers were measured here on 12 Nov: a record whose
+`root=` is the main checkout resolves to a real journal and copies into it (`tail=ok`), while a record whose
+`root=` is a worktree with no `factory/log` -- a fresh one, or one of the trees deleted inside the hour on
+10 Nov -- answers `tail=skipped refuse=no-such-directory`:
+
+```
+2026-11-12T20:04:11Z LOG-MOVED old=/home/rodney/prj/wt/issue-260/factory/log new=/tmp/opencode/linectl2/newlog prev-pass=2026-11-10T10:17:19Z how=derived tail=skipped refuse=no-such-directory -- the journal lives inside the tree the loop runs from, so this pass writes where the pass before it did not; whichever of the two files this line is in, the OTHER one is the tail an operator may still be reading, and its last line is the last thing this loop ever said there. The old path is derived from that pass's own root= field, because it ran before a pass could name its journal directory; where it names the tree rather than the directory, FACTORY_LOG was overridden by hand. That is also why this answer often arrives with tail=skipped refuse=no-such-directory: a path built from root= points at no journal at all unless the old pass overrode FACTORY_LOG, and it says nothing about where that pass really wrote. The journal that went quiet is /home/rodney/prj/wt/issue-260/factory/log/supervisor.log. The tail= field is about the copy of this line written into it: ok wrote it, failed the append itself was refused, skipped nothing was opened -- and skipped carries refuse= naming the clause that refused, because five clauses answer skipped and they are not one fact: old-directory-is-a-symlink, old-directory-not-writable, old-journal-is-a-symlink and old-journal-not-a-regular-file each name something sitting at the old path this pass will not write through or into, and only no-such-directory says there is nothing there to tail. The clauses in the order they are judged: old-directory-is-a-symlink, no-such-directory, old-directory-not-writable, old-journal-is-a-symlink, old-journal-not-a-regular-file (#260)
+```
+
+Neither answer says where the old pass actually wrote, and that is what the sentence on the line now says
+out loud: the derived path is where the unit would have put it, not where the pass said it put it. The only
+record of the latter is a `LOG-AT` written by a pass of this build or newer, which the next pass reads and
+reports as `how=recorded`.
+
+A refusal to answer is said rather than left as silence, so that the absence of `LOG-MOVED` is never
+evidence nothing moved:
+
+```
+2026-11-12T19:14:34Z LOG-MOVED-UNKNOWN rc=2 the journal window holds 0 line(s) and none of them records a log directory, so this pass cannot say whether the journal moved; it is writing to /tmp/opencode/demo-ff/factory/log. The window is FACTORY_LOG_TAIL=400 lines -- raise it if a single pass outwrites it, and expect this arm on a machine whose journal holds no earlier pass of this unit (#260)
+```
+
+`rc=1` is journalctl failing, `rc=2` a window that records no directory -- normal on a unit's first pass,
+and the arm to expect on a box whose journal holds no earlier pass of this unit -- and `rc=3` a newest
+record naming no directory. All three still print `LOG-AT`, because the pass always knows where it is
+writing even when it cannot say where the last one was.
+
+Every block above is output from the shipped function, with the demo trees the section above uses and the
+journal supplied by the same `journalctl` stub `factory/selftest.sh` plants for its four `proc_*` legs --
+`the pass names its own journal directory`, `…and says so in the journal it is leaving`, `…and says
+nothing when the journal stayed put`, `…and refuses in words when it cannot read` -- which run the shipped
+`factory.sh` and read the journal it wrote. Seven more legs replay the arms from transcripts: recorded over
+derived, the quoted `PASS`, damaged against absent, the tail knob at both sizes, a symlinked old journal, an
+unwritable one, and each of the five refusal clauses named separately against a plain old journal that
+refuses nothing.
+
+Two honest qualifications about the blocks above. The `journalctl` stub is a fixture, so every line here was
+produced by the shipped function but not by a real activation; and the `refuse=no-such-directory` block is
+the one that keeps real paths rather than the demo vocabulary -- its `old=` is a worktree on the machine
+this was written on, which has no `factory/log`, and its `new=` is a scratch directory. It is quoted as a
+machine answered it because that case only exists where a real tree is missing its log directory.
+
+
+### The run directory holds a stream, not a verdict (#351)
+
+`factory/run/` holds the pass's lock and, for each tick, one more file: `factory_worktree`'s stderr, under
+`worktree-stderr.<pid>`, so a refusal can be read back by name rather than folded into the tree path —
+`2>&1` on that command substitution splices an error sentence into the value assigned to `tree` and hands a
+later `git -C` a path with a period in it. **Both paths delete it**: the failure arm after reading it into
+the journal line, the success path because a file left by a pass that got its tree asserts a verdict nobody
+reached. Until #351 only the failure arm deleted it, and the file was named `worktree-error.<pid>`.
+
+Measured at 00:54Z on 14 Nov: four of those files, all zero bytes, stamped 22:03, 22:59, 23:31 and 00:22Z —
+the last four ticks, every one of them a **success** — while `grep -c 'no worktree' factory/log/supervisor.log`
+answers **0**: the failure the name reports had never once been journaled on this machine. Three reads of that
+directory on two days each concluded, from those four files, that the supervisor cannot build trees at all and
+the queue is stalled. The `-mmin +180` sweep is the backstop for the one pass that cannot delete anything — a
+tick killed by the wall-clock ceiling dies between the write and the delete — and it still matches the retired
+name so the four files above do not outlive the change. `factory/selftest.sh` pins the three answers the sweep
+must tell apart (retired name past the bound gone, stream past the bound gone, a fresh one spared because a
+supervisor may be writing it now), pins that a tick which got its tree leaves the directory empty, and pins
+that a refusal's reason reaches `TICK-SKIPPED … no worktree for <branch> ::` in the stream's own words; two
+controls redden when the success-path delete or the sweep's retired term is taken out.
+
+What the sweep is *not* for is the sentence that justified it for eight days — "the run directory collected
+eight zero-byte `worktree-error.<pid>` files in a day", read as eight killed ticks. Four stood at once with
+zero journaled failures, so they were successful builds, which is exactly why bounding by age only treated the
+symptom: it leaves three hours of alarms standing in the directory at all times. Same rule as
+`factory_journal_age`: a file that has to be maintained, and asserts something nobody confirmed, is itself the
+defect.
+
 ## Decision ids are allocated against refs, not prose
 
 `DECISIONS.md` and `factory/DECISIONS.md` are append-only references. A tick that numbers from the
@@ -954,6 +1399,43 @@ current by the time the allocator runs in a tick's shell. The command an operato
 `git fetch --prune origin`, and the shape matters more than it looks: measured in a fixture,
 `git fetch --prune origin main` updates the trunk only, leaves the allocator on its stale answer, and
 still prints a line with `->` in it. A sibling's ids are on the branch it pushed.
+
+The union has two halves and they mean opposite things, so the read separates them and says which one
+raised the ceiling. A ceiling some ref carries is a sibling that took the number. A ceiling only the
+working file carries is the entry you are writing, and the id printed above it is what a *second* entry
+in the same tick would take. That distinction is not academic, because the re-read is scheduled for the
+one moment the second case is certain: immediately before the entry commit, the heading is already in
+the file. Measured in `wt/issue-320` on 12 Nov against `factory/DECISIONS.md` (git 2.53.0), the
+single-maximum read answered `H-0145` with the log as committed and `H-0146` after an uncommitted
+`## H-0145` was appended -- and no ref anywhere held that heading: `git grep -c` over `refs/heads` and
+`refs/remotes` found the string in one sibling's prose as a citation and in no heading. A session handed
+the bare `H-0146` has two reactions and both cost the log: yield to the phantom and leave a gap at 145
+that no entry explains, or stop trusting the allocator at the last guard before a duplicate id. So the
+ceiling is attributed on stderr, as `PENDING`, naming the heading it is standing on and the ceiling the
+refs really hold. stdout is unchanged and the status stays 0, for the reason the script's own header
+gives -- a refusal in front of a session sends it back to numbering by eye -- and the note goes quiet on
+its own once the entry is committed, because `HEAD` joins the union and the two maxima agree. What
+discriminates is therefore the **absence of the note**, never the emptiness of stderr: since PR #307
+every answer carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it, so there
+is no answer that leaves stderr empty. Measured at `487d572` on one fixture (git 2.53.0), the shipped
+allocator writes 460 bytes with the tree clean, 855 with the caller's own heading uncommitted, and 460
+one commit later -- never zero, so emptiness is not a reading anything can take. (A byte count carries
+the fixture's path in the refresh line, so it moves a byte or two between fixtures; the claim is that
+none of the three is zero.) A moved ceiling with
+**no PENDING line** is therefore the collision, and the four steps below are what to do with it.
+
+What the note's absence does not say is *whose* ref the ceiling sits on, and the two answers differ in
+what they owe you. A ceiling a sibling left on `refs/heads` is the collision: you yield. A ceiling your
+own committed entry put on `HEAD` is durable, and durable includes yours -- the next id is there to be
+taken, and the entry already written is not the one to move. Measured on one fixture the two are
+indistinguishable on the wire: `H-0042`, the note absent, byte-identical stderr, whether a sibling's
+branch or your own commit carries `H-0041`. So the third case is told from the collision by what you did
+one commit ago and not by the allocator's output, which is why it is written down rather than left to be
+inferred. `factory/selftest.sh` pins both directions and plants one per direction -- the note deleted,
+which puts the phantom back, and the note printed whatever the ceiling, because a marker on every answer
+is a marker that gets read once and then ignored -- and one further leg pins this discriminator's
+wording across the skill, this guide and the script, because for one revision the two rules for this one
+signal sat fourteen lines apart in the same file and no leg could see the drift.
 
 Two things the fetch cannot do. It does not make the id *reserved*: two ticks that allocate in the
 same second still agree, and only the re-read immediately before the entry commit narrows that. And it
@@ -1085,6 +1567,7 @@ answering in a shell that has never sourced the harness.
 | `FACTORY_ESCALATE_AFTER` | `86400` | how long in a non-progress state before one comment |
 | `FACTORY_REAP_NOTICE_SECS` | `5` | the teardown that counts as held: past this, `REAP-CLEAN` becomes `REAP-HELD how=unexplained` unless systemd named a cause |
 | `FACTORY_REAP_TAIL` | `400` | how many of the unit's journal lines the reaping read is allowed to look at -- a bound on the read, never the measurement |
+| `FACTORY_LOG_TAIL` | `400` | how many of the unit's journal lines the read of the journal's own location looks back for the last line that named a directory (#260); a line-count window, so a pass that outwrites it is told `LOG-MOVED-UNKNOWN rc=2`, never "it has not moved" |
 | `SHELLCHECK` etc. | — | see `make check-shell` |
 
 ## Stopping it
@@ -1417,3 +1900,162 @@ That is the price of the second half of this
 task: once this has survived a real queue, `factory/` moves to a shared location and each repository
 keeps only its `.opencode/opencode.jsonc` and `DECISIONS.md`. If a line here ever needs this
 repository's name to work, that is a defect in it, not a convenience.
+
+## A citation in a decision log carries its own anchor
+
+`DECISIONS.md` and `factory/DECISIONS.md` hold 565 backticked `path:line` citations, and the closing line
+of `python3 scripts/check-decisions.py` is the only figure to trust — at this head it reads 539 owing an
+anchor, 15 carrying one and 11 naming the revision they were read at. A coordinate is how
+an entry says *what it measured*, so the log is re-runnable: `python3 -c "..."` at
+`triage.sh:122`, the ratchet at `scripts/check-decisions.py:580`. A coordinate is also the one part
+of an entry a
+merge can invalidate without touching the entry. Merging `origin/main` into `issue-310` added lines to
+files the other side cited, and two of `H-0139`'s pointers moved out from under their own sentences. The
+judgement in that entry was right; only the pointer rotted, and nothing in `make verify` could see it.
+
+So the citation carries its own evidence. A citation written with a quoted fragment is checked against
+the tree being gated:
+
+```
+`AGENTS.md:52` "naming what is owed, and stop"
+```
+
+The fragment must be at least 16 characters, inside double quotes, with nothing between it and the
+closing backtick but spaces and at most one apostrophe. It has to be found on the cited line, or
+within the cited range
+(`factory/common.sh:224-235`): no window of tolerance, because a pointer wrong by three lines still
+lands on the wrong sentence, and a check that passes at ±5 is a check that reports drift it cannot name.
+A quotation that sits further away is not an anchor — and since #367 the refusal says which floor it
+applied instead of claiming there was no quotation. **The quotation has to start on the coordinate's own
+physical line.** These logs are markdown wrapped at ~110 columns, so the natural place for a 20-character
+fragment is the next line, and there it is not an anchor: the citation falls silently into the debt instead
+of being checked, which is a number moving, not an error. Hit twice writing H-0171 — both times the gate
+said `the count went UP` and `--citations` named the two rows in seconds; re-wrap the sentence rather than
+adding an unanchored pointer to the corpus you are paying down. Measured on the two logs: 3 citations carry a
+quotation of 16+ characters within six characters of the coordinate that this class declines (the
+possessive `s ` of `` `README.md:588`'s "…" `` is the ordinary shape), and 2 carry a shorter one; those
+five authors were told their citation had no anchor, by a message that never mentioned the separator.
+Widening the class was measured and refused: it reclassifies 3 pointers in other units' entries for a
+0.6% dent in the debt, and buys a rule that will accept the neighbouring sentence's quotation.
+
+Shapes that are understood and are not the same claim:
+
+| written | meaning |
+|---|---|
+| `factory/common.sh:235` | a path, looked up exactly |
+| `./DECISIONS.md:1847` | the root's copy — `./` is root-relative and is never matched by basename |
+| `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
+| `gonee.md:3` | a bare name carrying an extension is a path, so a file that is gone is refused, not skipped — the extension is what tells it from the row below |
+| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **on the same line** — and "line" is physical, so inside a wrapped paragraph that is a known limit, not a guarantee: see the third finding below |
+| `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
+| `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half carries no extension, so nothing in the tree could ever answer to it |
+
+**It is judged against the tree, never against the revision that wrote it.** That is the load-bearing
+choice, and #318's own option 2 had it the other way. `AGENTS.md:38` was *correct* at `5be86e5`, the
+revision `H-0139` measured, and wrong at `e41ce80`, the merge. Resolving at the cited revision therefore
+passes the exact class of failure the issue was filed about, and refuses only entries that were false the
+day they were written. It also needs git: `gate_reads_no_refs` in `factory/selftest.sh` refuses this gate
+any git subcommand but `cat-file`, because a verdict that changes between a branch head, a merge preview
+and CI reads as flakiness and gets re-run until it agrees. The gate reads the files in front of it and
+answers the same question in every checkout.
+
+**What cannot be checked is counted, and the count may only fall.** 539 of those citations predate this
+rule and carry no anchor (the four above 535 are pointers that used to be skipped entirely — see the
+paragraph on a name that carries an extension); that number is `POINTER_DEBT` in
+`scripts/check-decisions.py` (re-measured at
+this head: `--citations` answers `debt this gate ratchets on: 535`). Above it the run
+is refused, and so is a run that measures *below* it — an unlowered number is a ratchet with the pawl
+filed off, and the next unanchored citation hides in the slack. **Neither comparison runs while a single
+pointer cannot be opened** (H-0170), because that number is not always a measurement of the logs: one
+untracked `vendor/AGENTS.md` moves a dozen bare pointers from `unanchored` into the cannot-open list, and
+the gate then refuses five other units' entries *and* orders `POINTER_DEBT` lowered — the one repair that
+permanently disarms the ratchet, issued to a reader under a green-gate deadline. `tree_index` only ever
+gains candidates, so stray content can only ever push the number down; the guard closes that direction and
+the must-be-zero refusal keeps its own teeth. When it fires, the headline and `--citations` both say
+`NOT judged this run` rather than `which may only fall`, so the pause cannot be read as a pass. A
+merge from `main` raises the count with nothing written by you — measured on this branch's own
+merge, 11 citations arrived in other units' entries
+— so a merge re-measures with `--citations` and raises the constant in the same commit, which is the only
+direction the ratchet permits a rise and the diff is the audit. A citation absent from the tree, or
+ambiguous across two files, is refused outright rather than grandfathered: 54 were made resolvable by
+writing the path, 17 of them delivered by that same merge, and folding that class into the baseline would
+have hidden 54 dead pointers inside 517 with the headline green. A citation that points past the end of a
+file is *not* refused on its own, and that is a choice, not an oversight: the 539 unanchored pointers
+cannot be length-checked without refusing sentences that are true on their own terms, so the length check
+holds only where an anchor already proves what the line should say — measured on this head, 7 citations sit
+past the end of the file they name, all 7 unanchored, and every one of them is either a continuation a
+wrapped paragraph mis-aimed (4) or a row an entry is *reporting* as past the end (3). Fixing the first four
+needs a rule about sentences, not lines, and that is filed as its own issue.
+
+**The files that teach this rule are checked by it, and that is a separate pass.** The rule reads the two
+decision logs, so a false coordinate in the instruction that tells a unit what to write was invisible by
+construction: the worked example sat in `.opencode/skills/factory/SKILL.md` six lines away from the sentence
+it quoted, and the gate could not see it. `teaches_problems` now runs the same classifier over
+`TEACHES_RULE` — that skill and `AGENTS.md` — and refuses a pointer there that is ambiguous, unopenable, or
+anchored to text that has moved. It does NOT ratchet there: an entry in a log makes a promise forever, so an
+unanchored coordinate is counted against `POINTER_DEBT`, while a guide is edited as a unit and its numbers
+are re-read by this command, so an unanchored one is not a defect. `docs/factory.md` is deliberately outside
+the pass — it is the reference, and the table that explains the shapes carries `gonee.md:3`, `pr:209` and a
+`README.md:588` past a 349-line EOF on purpose, so checking it would refuse the guide's own examples.
+
+**A name with an extension is a path, even bare, even when the file is gone.** `gonee.md:3` promises a
+reader a line, and the promise is false whether the entry meant the root or a directory three levels
+down — so it is refused, anchored or not. What stays exempt is a left half with no extension: `pr:209`
+(a triage `class:PR` pair), `STATE_PROPS:1040` (a symbol), `D-0033:236` (an entry id), `verify:1` (a
+verb). The extension is the only marker that survives both `triage.sh` and `internal/web/handlers.go`,
+and it is a weaker test than the one that would be free — `git ls-files` answers "was this name ever
+tracked?" in one read — but this rule reads no git, deliberately, so the weaker test is the price of a
+verdict that is the same in CI, in a merge preview and at a branch head. The cost lands on prose that
+*names a shape*: an illustrative `x.md:9` is refused too and has to be spelled without the colon. The
+limit that remains, stated because it is the one a reader will hit: a bare `:NNN` with no file named
+earlier on the same physical line names no file at all and is not refused, because 158 rows of these
+logs are that shape inside wrapped paragraphs and refusing them refuses 158 true sentences (H-0153 sets
+the same-line rule; the repair is a rule about sentences, and it is filed).
+
+**The floor.** `POINTER_DEBT` is a number about a corpus, so it is a statement only about a tree whose
+logs are that corpus. `POINTER_DEBT_AT` records how many entries the two logs held when it was measured,
+and below that size the number is reported as not judged rather than applied. Measured, not designed:
+`factory/selftest.sh`'s `gate_verdict_off_refs` leg copies this script into a synthetic two-entry
+repository to prove the verdict is a reading of files and not of the ref store, and the first full run
+after this rule landed answered that leg with *"the decision logs now hold 0 citations that owe an anchor,
+below the recorded debt of 378: pay it down"* — a constant from this repository's logs refusing a
+repository that has no such logs, in a checkout where the rule under test was someone else's. What that
+costs: a run whose logs hold fewer entries escapes the ratchet, so deleting entries from a log is the one
+way to move the floor. It is visible in a diff, the logs are append-only, and the refusal that is about a
+pointer rather than a count — an anchored citation whose text is not on the line — has no floor at all.
+
+Three findings came from the tool being wrong rather than the log, and all three are the hazard:
+
+- The first census matched a **fully-qualified** citation by basename and took the first alphabetical
+  candidate. `factory/DECISIONS.md:3178`, cited at `39dd88e54:factory/DECISIONS.md:3497` with its path
+  spelled out in full, was measured against `DECISIONS.md` — 2621 lines at that revision, so it looked
+  past EOF — while the file it names held 3531 and the coordinate lands on exactly the tally sentence the
+  entry quotes. So the log's claim that these coordinates "all resolve" was true, and the audit's
+  "citation false the day it was written" finding was the fabrication — produced inside the session sent
+  to fix false findings. Resolution is now exact-path first and basename second, and refused when two
+  files answer. (`README.md:588` is the token this log argues about most, and it is a different case: the
+  root `README.md` has never exceeded 349 lines in its 12 revisions, so on the root reading it really is
+  past EOF, which is what `H-0152` records. `H-0159` reads the same token both ways — see the Effect of
+  `H-0162`, where the repair is disclosed rather than smoothed over.)
+- The rule refused the disambiguation its own message recommended. `./DECISIONS.md:1847` was stripped to
+  `DECISIONS.md`, matched by basename, and answered "two files". Advice that does not work is worse than
+  none: the reader follows it and cannot tell what broke. `./` is now looked up as a path and nothing else,
+  pinned by a self-test case.
+- A bare `:NNN` is aimed by the last file resolved *on the same physical line*, and an entry in these logs
+  is markdown wrapped at ~110 columns, so a physical line is often a whole paragraph naming several files.
+  Four continuations are aimed by the wrong file: `H-0110`'s "`emit()` is defined TWICE in
+  `factory/selftest.sh`, at `:2766` … and `:3731`" sits on a line whose earlier citation is
+  `scripts/check-decisions.py:161`, and `H-0111`'s shim plants at `:2853` and `:3833` sit on a line whose
+  earlier citation is `factory/triage.sh:600`. All four land in the debt, where they cost nothing today —
+  and all four are why the length check is anchor-only: applied to every citation the rule would
+  refuse 7 sentences that are each true on their own terms to catch zero false ones (these four, plus
+  three rows an entry is itself reporting as past the end of the file it names). Fixing it is a rule
+  about sentences, not lines, and it is filed as its own issue rather than improvised inside this one.
+
+Re-derive any of it:
+
+```
+python3 scripts/check-decisions.py                      # the counts, in the refusal-proof shape
+python3 scripts/check-decisions.py --citations          # what the debt is made of, by target file
+python3 scripts/check-decisions.py --citations AGENTS.md # every pointer aimed at one file: ask BEFORE editing it
+```

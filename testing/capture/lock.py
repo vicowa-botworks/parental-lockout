@@ -220,7 +220,13 @@ def capture(cap, name):
     s.write_png(name)
     # Every check above has passed, and only now do the bytes land. A refusal anywhere earlier
     # leaves the target exactly as it was, staged frames and all.
-    s.publish()
+    #
+    # `FIXTURE` is named so the publish also writes this run's receipt (#302). `lock.py` is one of
+    # the two drivers that records no manifest -- the README recipe hands the frames to
+    # `manifest.py record` by hand, which is how `lock.png` and `testlock.png` came to be dated at
+    # a rev typed eighteen seconds after a page commit (`7e65d3b`, #294's specimen). The receipt is
+    # what that recorder can then check the claim against instead of taking the typing on faith.
+    s.publish(FIXTURE)
     print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
     print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
           flush=True)
@@ -243,12 +249,15 @@ def main():
     # wearing that name is the ambiguity this folder refuses hardest (#222).
     frame = f"{ARTIFACT}@{cdp.WIDTH}.png"
     # One disposal per refusal, decided in one place. The two handlers below are nested, so anything
-    # that raises INSIDE the first disposal -- the pointer sentence `capture_refused` prints after the
-    # note has already landed, on a stderr that has stopped taking writes -- reaches the outer handler
-    # as though the page had refused a second time, and the second disposal appends a second
-    # `refusals (1):` block whose sentence is the diagnostic's. #304 measured it; `cdp.SingleRefusal`
-    # is the fix shape that ticket names, held in cdp so the two single-frame drivers cannot mean two
-    # different things by "once".
+    # that raises INSIDE the first disposal used to reach the outer handler as though the page had
+    # refused a second time, and the second disposal appended a second `refusals (1):` block whose
+    # sentence was the diagnostic's. #304 measured it; `cdp.SingleRefusal` is the fix shape that
+    # ticket names, held in cdp so the two single-frame drivers cannot mean two different things by
+    # "once". #317 closes the other half of the same pair of arms: a disposal used to be able to
+    # ESCAPE, and the outer arm has nothing left to catch that -- measured here as
+    # `raised:OSError: [Errno 9]` and an empty transcript. `SingleRefusal.refuse` now wraps the whole
+    # disposal, so this driver's `return 1` below is the only way out of a refusal, and a dead
+    # `print` is moved to stdout by `cdp.operator_print` instead of raising at all.
     disposal = cdp.SingleRefusal(FIXTURE, out, name, frame)
     try:
         with cdp.Capture(FIXTURE) as cap:
@@ -265,8 +274,11 @@ def main():
     except (Exception, SystemExit) as exc:
         # The fixture refused before there was a browser to photograph: no `lock-setup.sh` has run,
         # no daemon binary, a port somebody else is holding. The refusal and the stale-file sentence
-        # are still owed to the operator, and so is the note; there is simply no page to look at. And
-        # when the inner disposal is what raised, this is the arm that sees it -- and writes nothing.
+        # are still owed to the operator, and so is the note; there is simply no page to look at.
+        # Since #317 the inner disposal can no longer raise into this arm -- `SingleRefusal.refuse`
+        # wraps it -- so what reaches here a second time is something else that failed after the
+        # refusal (the browser's teardown, say), and the once-flag is what keeps that from appending
+        # a second block to the note the first disposal already wrote.
         disposal.refuse(None, cdp.refusal_reason(exc))
     # Every refusal lands here and the exit code is decided once, on the outside. It used to come
     # from the refusal helper raising, which also made the disposal on the line after every call to

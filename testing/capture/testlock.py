@@ -198,7 +198,11 @@ def capture(cap, name):
     s.write_png(name)
     # Every check above has passed, and only now do the bytes land: a refusal earlier in this
     # function leaves the target exactly as it was, staged frames and all.
-    s.publish()
+    #
+    # `FIXTURE` names this run's receipt (#302), for the reason written out in `lock.py`: this is
+    # the second of the two drivers that record nothing themselves, and `testlock.png` is the other
+    # row whose rev was typed rather than measured.
+    s.publish(FIXTURE)
     print(f"viewport {cdp.WIDTH} px  page={want}", flush=True)
     print(f"  scrollWidth={g['scroll']} innerWidth={g['inner']} height={g['height']}",
           flush=True)
@@ -219,7 +223,11 @@ def main():
     frame = f"{ARTIFACT}@{cdp.WIDTH}.png"
     # Same shape as lock.py, same reason: one disposal per refusal, decided by `cdp.SingleRefusal`
     # because the two handlers below are nested and a raise from inside the first disposal otherwise
-    # reaches the outer one as a second refusal -- which is #304, measured on both drivers.
+    # reaches the outer one as a second refusal -- which is #304, measured on both drivers. #317 is
+    # the escape that flag did not stop: this arm has a single handler, so a disposal that raised had
+    # nothing downstream left to catch it and left the driver as a traceback that exits 1, the code a
+    # refusal was supposed to print. `SingleRefusal.refuse` wraps the disposal for that, and
+    # `cdp.operator_print` is why the report can no longer raise to be wrapped in the first place.
     disposal = cdp.SingleRefusal(FIXTURE, out, name, frame)
     try:
         with cdp.Capture(FIXTURE) as cap:
@@ -232,8 +240,8 @@ def main():
                 disposal.refuse(cap, cdp.refusal_reason(exc))
     except (Exception, SystemExit) as exc:
         # The probe fixture refused before a browser existed -- no `testlock-setup.sh`, no binary.
-        # And the arm that sees a disposal raise on its own report, which it must not answer with a
-        # second refusal.
+        # A disposal can no longer raise into this arm (#317 wrapped it), so a second arrival here is
+        # a second event after the refusal, and it must still not be answered with a second refusal.
         disposal.refuse(None, cdp.refusal_reason(exc))
     # One explicit 1, outside both handlers, exactly as in lock.py: reaching the end of this function
     # means a refusal happened, and the keeping has already run beside the live browser.

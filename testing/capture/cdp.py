@@ -21,6 +21,7 @@ photographs that page, next to the sentence it is checking.
 import argparse
 import base64
 import datetime
+import hashlib
 import json
 import os
 import os.path as op
@@ -86,6 +87,103 @@ def refused_dir(mode):
     return op.join(RUNS, f"{mode}-refused")
 
 
+# What a publish leaves beside the fixture's own conditions file: the frames THIS run photographed,
+# with the bytes it wrote for each of them.
+RECEIPT = "capture.json"
+
+
+def receipt_path(fixture):
+    """`testing/capture/runs/<fixture>/capture.json` -- one run's word about its own frames.
+
+    Named from the fixture and from `RUNS`, exactly as `refused_dir` is, and for the same reason:
+    the file belongs to the fixture that ran, and `--out` says only where the bytes ended up. It
+    lives in `runs/`, which is gitignored, because it is a transcript of one run on one machine,
+    and what it is for is being read by `manifest.py record` in the minutes after that run -- the
+    committed half of the claim is the `photographed` block `record` writes from it (#302).
+    """
+    return op.join(RUNS, fixture, RECEIPT)
+
+
+def git_head():
+    """Where this checkout stands, as the capture itself sees it. Empty when git will not answer.
+
+    Asked at capture time and not at record time, which is the whole point (#302): the commit a
+    frame is dated at has to be the commit the photograph was rendered FROM, and by the time
+    anyone runs `record` the tree may have moved. An empty answer is kept empty rather than
+    invented -- a receipt naming no commit cannot vouch for a frame, and `record` says so.
+    """
+    try:
+        out = subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True,
+                             text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def write_receipt(fixture, frames, head=None, at=None):
+    """Write what this run photographed, over whatever an earlier run claimed. Returns the path.
+
+    #302 is the reason this exists. `manifest.py record` dates a frame at `newest_commit(sources)`
+    -- the page's newest commit -- and for a frame the run *claims* (`--shot`) that is the driver's
+    word, not a measurement: `D-0055` conceded it in the sentence "the ordering obligation now
+    lives in the notes instead of in a check", and `7e65d3b` is what that costs (nine `--shot` names
+    typed eighteen seconds after a page commit, no PNG in the commit, seven rows moved onto a date
+    their pixels predate). A second reading of history cannot repair it, measured twice on #302 and
+    on #301: a re-take whose pixels do not change never produces a commit touching the PNG, so
+    `newest_commit(png)` can never catch a page commit that moved no pixels. So the answer has to
+    come from the run, and this is the one thing only the run can say.
+
+    Three properties, each load-bearing:
+
+      * **Digest-bound.** The frame is named with the sha256 of the bytes this run wrote, so the
+        claim attaches to *these* pixels and not to the filename.
+      * **Rewritten whole, never merged.** Yesterday's receipt for a frame today's run did not
+        photograph is a claim about a frame nobody photographed, which is the exact thing being
+        bought here. One run, one list.
+      * **Written only where a fixture ran.** `fixture_envs` returns a path only when the setup
+        script wrote its env, and the same rule applies: no `runs/<fixture>/fixture.env`, no
+        receipt, no conditions, no claim -- a weaker statement rather than a false one (#211).
+
+    A frame named and not on disk is refused here, at the source, rather than reaching the
+    recorder as a claim about a file that is not there -- the shape `record` already refuses
+    ("a driver that reports photographing a frame it did not write").
+    """
+    if not op.exists(op.join(RUNS, fixture, "fixture.env")):
+        return None
+    missing = [f for f in frames if not op.exists(f)]
+    if missing:
+        raise SystemExit(
+            f"{fixture}: this run reports photographing {op.basename(missing[0])}, and the file is "
+            f"not there, so no receipt is written. A run's word about a frame it did not publish is "
+            f"worth nothing, which is why `record` refuses one too (#302).")
+    entry = {"fixture": fixture,
+             "head": head if head is not None else git_head(),
+             "at": at or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "frames": {}}
+    for path in frames:
+        stem = op.basename(path)
+        if not stem.endswith(".png"):
+            raise SystemExit(f"{fixture}: {path} is not a PNG, so it is not a frame this run "
+                             f"photographed.")
+        entry["frames"][stem[:-len(".png")]] = {"sha256": sha256_file(path),
+                                                "at": entry["at"], "head": entry["head"]}
+    path = receipt_path(fixture)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(entry, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def keep_refused(keep, note=None, out=None):
     """Move what this run has staged into `keep`; write `note` beside it; touch nothing at `--out`.
 
@@ -131,8 +229,8 @@ def keep_refused(keep, note=None, out=None):
     if not inside or overlaps:
         why = (f"{keep} is not inside {real_runs}" if not inside else
                f"{keep} is the directory this run publishes to (--out {out})")
-        print(f"REFUSED-KEEP: {why}, so a frame left here could be read as the evidence this run "
-              "refused to write. The frames it measured are destroyed instead.", file=sys.stderr)
+        operator_print(f"REFUSED-KEEP: {why}, so a frame left here could be read as the evidence "
+                       "this run refused to write. The frames it measured are destroyed instead.")
         discard_stage()
         return None
     if _REFUSED != real_keep:
@@ -143,8 +241,8 @@ def keep_refused(keep, note=None, out=None):
             os.remove(op.join(real_keep, name))
         _REFUSED = real_keep
         if stale:
-            print(f"  {op.basename(real_keep)}/ cleared {len(stale)} file(s) from an earlier "
-                  "refusal; everything in it now came from this run", file=sys.stderr)
+            operator_print(f"  {op.basename(real_keep)}/ cleared {len(stale)} file(s) from an "
+                           "earlier refusal; everything in it now came from this run")
     stage = _stage_dir()
     moved = []
     for name in sorted(os.listdir(stage)) if op.isdir(stage) else []:
@@ -162,6 +260,52 @@ def keep_refused(keep, note=None, out=None):
         with open(op.join(real_keep, REFUSED_NOTE), "a") as fh:
             fh.write(note)
     return moved
+
+
+def operator_print(text):
+    """One sentence to the operator, spoken from inside a refusal handler, that cannot raise.
+
+    Every disposal in this package tells the operator what happened with `print`, and every one of
+    those sentences is spoken while the run is already standing inside somebody else's failure. A
+    `print` can die -- a closed stderr, an `EPIPE` from `| head`, a device that stopped taking writes
+    -- and when it dies the ordinary way the exception lands in the handler that was catching the
+    REFUSAL. #317 measures what that costs on `origin/main` at `5be86e5`: both single-frame drivers'
+    fixture arms end in `raised:OSError: [Errno 9]` with an empty stderr, and one dying `REFUSED:`
+    print in the sweep escapes `main()` at the first refused page, taking every page after it, the
+    count sentence, and `REFUSED.txt`. All three exit 1, because an uncaught exception exits 1 --
+    the same code a refusal was supposed to produce, which is what launders it.
+
+    So the rule `refuse_single_shot`'s docstring has always stated -- "`report_refusal` and
+    `capture_refused` both report and never raise" -- is enforced here rather than by intent. That
+    docstring called it "a wish about a `print`", and it was.
+
+    One refused write is not a dead stream: measured for #317, the run whose `REFUSED:` headline died
+    still printed the sentence after it, and the run whose pointer sentence died had already landed
+    two lines above it. So this does not conclude "stderr is gone" and give up -- the NEXT sentence
+    gets its own attempt at stderr, which is what keeps a single failed write from costing the whole
+    report. Only the line that died is moved, and it is repeated on stdout WHOLE rather than
+    summarised or dropped: an operator reading a transcript should not have to notice which sentence
+    is missing, and a refusal that arrives on the wrong stream is still a refusal. If stdout is gone
+    as well the line is lost and nothing is raised, because a diagnostic never outranks the refusal it
+    is reporting -- the same reason `capture_refused` returns None instead of propagating.
+
+    Returns True when the line reached stderr, False when it had to be moved or was lost. That is all
+    a caller can usefully do with the answer; the point of this function is that the caller is never
+    interrupted by it.
+    """
+    try:
+        print(text, file=sys.stderr, flush=True)
+        return True
+    except (Exception, SystemExit) as died:  # SystemExit is not under Exception, and it is a real one
+        why = f"{type(died).__name__}: {died}"
+    try:
+        print(f"  stderr refused the line below ({why}); it is repeated here, whole, because a run "
+              "that cannot say out loud what it refused is the failure this package exists to end",
+              file=sys.stdout, flush=True)
+        print(text, file=sys.stdout, flush=True)
+    except (Exception, SystemExit):
+        pass  # both streams are gone: the refusal still stands, and it still exits 1
+    return False
 
 
 def capture_refused(cap, path):
@@ -193,10 +337,10 @@ def capture_refused(cap, path):
         # call is most likely to take: `require_running` raises it, and a dead browser is one of the
         # refusals that reaches here. The rule that found this (`a dead browser still leaves the
         # refusal standing`) is the reason it is not left as a bare `except Exception`.
-        print(f"  no frame of the refused page: {type(exc).__name__}: {exc}", file=sys.stderr)
+        operator_print(f"  no frame of the refused page: {type(exc).__name__}: {exc}")
         return None
-    print(f"  what the page actually renders is at {path} -- this run refused to publish it, so "
-          "it is not evidence; read it with REFUSED.txt beside it", file=sys.stderr)
+    operator_print(f"  what the page actually renders is at {path} -- this run refused to publish "
+                   "it, so it is not evidence; read it with REFUSED.txt beside it")
     return path
 
 
@@ -281,12 +425,18 @@ def refuse_single_shot(cap, mode, out, name, frame, why):
     `report_refusal` and `capture_refused` both report and never raise, because this runs from inside
     a refusal handler and a diagnostic that dies replaces the real cause with the diagnostic's own.
 
-    That rule is a wish about a `print`, and a `print` can die: a closed stderr, an `EPIPE` from
-    `| head`, and the sentence after the note is on disk raises `OSError`. So the rule is not left to
-    good behaviour -- `SingleRefusal` below is what makes a disposal that raises unable to be refused
-    a second time, and `pages.py --self-test`'s rule "a refusal whose own report raises is disposed
-    of once" is what keeps it true (#304 measures the broken version: two `refusals (1):` blocks in
-    one `REFUSED.txt`, the second one quoting the diagnostic instead of the page).
+    That rule used to be a wish about a `print`, and a `print` can die: a closed stderr, an `EPIPE`
+    from `| head`, and the sentence after the note is on disk raises `OSError`. Two things now hold it
+    up instead of intent. `cdp.operator_print` is how every sentence below is spoken, so a stream that
+    refuses a write moves that line to stdout rather than raising into the caller's own `except`
+    handler; and `SingleRefusal` below wraps the whole disposal, so a step that can raise for a
+    non-print reason -- `keep_refused` moving bytes with `os.replace`, `refused_dir` creating the
+    drawer -- cannot escape `main()` either. #317 measures the version with neither: the fixture arm
+    of both drivers ending `raised:OSError: [Errno 9]` with nothing on stderr at all.
+
+    `SingleRefusal` also keeps #304's symptom out: a disposal that raises inside a nested handler used
+    to be caught by the outer one and read as a second refusal, appending a second `refusals (1):`
+    block whose sentence quoted the diagnostic instead of the page.
     """
     keep = refused_dir(mode)
     report_refusal(name, why)
@@ -301,9 +451,9 @@ def refuse_single_shot(cap, mode, out, name, frame, why):
         return None
     left = sorted(f for f in os.listdir(keep) if f.endswith(".png")) if op.isdir(keep) else []
     if left:
-        print(f"  {len(left)} frame(s) this run kept are in {keep}, with {REFUSED_NOTE} beside "
-              f"them; nothing was written to {out}, and none of these frames is evidence",
-              file=sys.stderr)
+        operator_print(f"  {len(left)} frame(s) this run kept are in {keep}, with {REFUSED_NOTE} "
+                       f"beside them; nothing was written to {out}, and none of these frames is "
+                       "evidence")
     else:
         # The refusal came from the fixture, before there was a page to photograph. "0 frame(s)" would
         # be a true sentence that answers the wrong question -- the operator is looking for a picture
@@ -321,8 +471,9 @@ def refuse_single_shot(cap, mode, out, name, frame, why):
                     if cap is None else
                     "the page was up and the photograph of it is what failed -- the line above this "
                     "one is what the browser answered")
-        print(f"  no frame could be taken, so {keep} holds none: {why_none}. {REFUSED_NOTE} is there "
-              f"with the refusal and the conditions; nothing was written to {out}", file=sys.stderr)
+        operator_print(f"  no frame could be taken, so {keep} holds none: {why_none}. "
+                       f"{REFUSED_NOTE} is there with the refusal and the conditions; nothing was "
+                       f"written to {out}")
     return kept
 
 
@@ -372,37 +523,76 @@ class SingleRefusal:
         self.disposed = False
 
     def refuse(self, cap, why):
-        """Dispose of this run once, however many handlers its refusal passes through.
+        """Dispose of this run once, and never let the disposal leave the driver.
 
-        Returns what `refuse_single_shot` returned on the one call this makes, and None on every call
-        after it. On those, `why` is no longer a refusal -- it is a diagnostic about the report -- so
-        it is reported as one, and the sentence is chosen from what is actually on disk rather than
-        from the flag: a disposal that died in its FIRST print never wrote the note, and telling the
+        Two properties, one flag and one `try`.
+
+        **Once.** Returns what `refuse_single_shot` returned on the one call this makes, and None on
+        every call after it. On those, `why` is no longer the page refusing -- it is whatever else
+        raised between the two handlers, and since #317 a dying report is not one of those, because
+        the report cannot raise. The sentence is still chosen from what is actually on disk rather
+        than from the flag: a disposal that died before the note never wrote it, and telling the
         operator that a note exists which does not is the same invention in the opposite direction.
-        Measured 11 Nov on the page arm with the sink dying on `report_refusal`'s headline: `rc 1`, no
-        `REFUSED.txt`, the drawer never created, `--out` untouched.
+        (`pages.py --self-test` keeps both branches honest: one where the note is there and one where
+        the disposal wrote nothing, both reached by a second event after the first disposal.)
 
-        The failed disposal is not retried when it wrote nothing either. A stderr that refused one
-        write refuses the retry's first print as well, and that second death lands in the outer
-        handler with nothing left to catch it -- a traceback over a run that had already decided to
-        return 1. Saying what is missing costs nothing and cannot fail twice.
+        The failed disposal is not retried when it wrote nothing either. Whatever stopped it -- a
+        drawer that cannot be created, a directory that will not open -- stops the retry in the same
+        place, and a second block in a note that does not exist buys nothing. Saying what is missing
+        costs nothing and cannot fail twice.
+
+        **Never leaves the driver.** The call is wrapped, so an `OSError` from the file machinery
+        below becomes a sentence and a `None`, not a traceback out of `main()`. That is the half
+        #304's once-flag could not do: the flag decides whether a disposal runs twice, and it says
+        nothing about a disposal that escapes. #317 measured both drivers' fixture arms -- the arm
+        with a single handler, so nothing was left downstream to catch it -- ending
+        `raised:OSError: [Errno 9] Bad file descriptor`, and the sweep losing every page after the
+        first refused one. `pages.py --self-test`'s rules "a refusal whose report cannot be written
+        still finishes its disposal" and "a refusal in a fixture still disposes of itself once" grade
+        it, one per arm.
         """
         if self.disposed:
             note = op.join(refused_dir(self.mode), REFUSED_NOTE)
             if op.isfile(note):
-                print(f"  this refusal was already disposed of: the report about it raised ({why}), "
-                      f"and a second disposal would append a second block to {note} for one "
-                      f"refusal. {note} holds the one note this run wrote, and nothing was "
-                      f"appended to it.", file=sys.stderr)
+                operator_print(f"  this refusal was already disposed of: something raised after it "
+                               f"({why}), and a second disposal would append a second block to "
+                               f"{note} for one refusal. {note} holds the one note this run wrote, "
+                               f"and nothing was appended to it.")
             else:
-                print(f"  this run's refusal was disposed of once already, and that disposal wrote "
-                      f"nothing: the report about it raised ({why}) before {REFUSED_NOTE} existed. "
-                      f"There is no {REFUSED_NOTE} for this refusal and it will not be retried on a "
-                      f"stderr that has already refused one write; anything this run staged is still "
-                      f"in the stage, and nothing was written to {self.out}.", file=sys.stderr)
+                operator_print(f"  this run's refusal was disposed of once already, and that "
+                               f"disposal wrote nothing: the second refusal-shaped failure reached "
+                               f"the outer handler ({why}) with no {REFUSED_NOTE} on disk. There is "
+                               f"no {REFUSED_NOTE} for this refusal and it will not be retried, "
+                               f"because whatever stopped the first disposal stops the second; "
+                               f"anything this run staged is still in the stage, and nothing was "
+                               f"written to {self.out}.")
             return None
         self.disposed = True
-        return refuse_single_shot(cap, self.mode, self.out, self.name, self.frame, why)
+        # The disposal is the last thing a refusal does, and it is allowed to die. `keep_refused`
+        # moves bytes with `os.replace`, `refused_dir` creates a directory, and the drawer is counted
+        # with `os.listdir` -- three ways an `OSError` reaches the handler that caught the REFUSAL,
+        # none of them a print. Before #317 every one of them escaped `main()`: an uncaught exception
+        # exits 1, the code a refusal was supposed to produce, and the driver's own `return 1` -- the
+        # one statement proving it finished deciding -- never ran.
+        try:
+            return refuse_single_shot(cap, self.mode, self.out, self.name, self.frame, why)
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 -- a dying disposal is not a second refusal
+            died = refusal_reason(exc)
+            note = op.join(refused_dir(self.mode), REFUSED_NOTE)
+            # Read off the disk, never off the attempt: a disposal can die before the note or after
+            # it, and D-0065's lesson is that the sentence has to say which. `op.exists` rather than
+            # `op.isfile` here is not a spelling preference -- the check above is an attack anchor and
+            # a second identical line would make it match twice, which this repository's attack suite
+            # refuses rather than resolving.
+            told = (f"{note} was written before it died, and the refusal is in it"
+                    if op.exists(note) else
+                    f"no {REFUSED_NOTE} was written, so this refusal has no note beside its frames")
+            operator_print(f"  this run's refusal was disposed of ONCE and that disposal died "
+                           f"({died}) part way through: {told}, {self.out} was not written, and "
+                           f"nothing this run staged was published. The refusal stands, the driver "
+                           f"returns 1, and a report that dies is neither a second refusal nor a "
+                           f"traceback.")
+            return None
 
 
 def fixture(name):
@@ -653,9 +843,20 @@ class Session:
             fh.write(self.screenshot())
         _PENDING.append((stage, dest))
 
-    def publish(self):
+    def publish(self, fixture=None):
         """Copy every staged capture to its final path. Only ever called once the last check on
-        the last page has passed."""
+        the last page has passed.
+
+        `fixture` is named by the caller -- `pages.py` passes the mode it selected, the two
+        single-frame drivers pass their own `FIXTURE` -- and it is what lets this one moment write
+        the run's own receipt beside that fixture's conditions file (#302). Named here and not by
+        the caller because this is the only place that holds both halves of the claim: the bytes
+        this run photographed, and the paths they were published to. A driver that publishes and
+        names no fixture publishes frames nobody can later date honestly: `manifest.py record`
+        refuses to mint a rev for a claimed frame whose pixels are older than its page once there
+        is no receipt to stand behind it.
+        """
+        published = [dest for _, dest in _PENDING]
         for stage, dest in _PENDING:
             os.makedirs(op.dirname(dest), exist_ok=True)
             with open(stage, "rb") as src:
@@ -663,6 +864,8 @@ class Session:
             with open(dest, "wb") as out:
                 out.write(data)
             os.remove(stage)
+        if fixture:
+            write_receipt(fixture, published)
         _PENDING.clear()
         if op.isdir(_stage_dir()):
             os.rmdir(_stage_dir())
@@ -2287,14 +2490,20 @@ def report_refusal(path, exc):
     the caller, which is the only place that knows whether one more page can be measured. There
     is deliberately no raising variant sitting next to it: one verb, so the next statement after
     a refusal cannot be a silent casualty.
+
+    The same argument runs the other way about its own output. All three sentences are spoken with
+    `operator_print`, because every call site is inside a `except` handler in one of the three
+    drivers, and a headline that raises on the way out is a refusal the operator never hears AND a
+    traceback that exits 1: #317 measures the sweep losing 11 of its 12 measurements to one dead
+    `print`, and both single-frame drivers' fixture arms printing nothing at all.
     """
-    print(f"REFUSED: {exc}", file=sys.stderr)
+    operator_print(f"REFUSED: {exc}")
     if path and op.exists(path):
         st = os.stat(path)
         when = datetime.datetime.fromtimestamp(st.st_mtime, datetime.timezone.utc)
-        print(f"  a previous {op.basename(path)} is still at {path} -- mtime "
-              f"{when.strftime('%Y-%m-%dT%H:%M:%SZ')}, {st.st_size} bytes -- and it is NOT from "
-              "this run. Do not quote it as current.", file=sys.stderr)
+        operator_print(f"  a previous {op.basename(path)} is still at {path} -- mtime "
+                       f"{when.strftime('%Y-%m-%dT%H:%M:%SZ')}, {st.st_size} bytes -- and it is NOT "
+                       "from this run. Do not quote it as current.")
     else:
-        print("  no file was written", file=sys.stderr)
+        operator_print("  no file was written")
 

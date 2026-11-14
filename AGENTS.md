@@ -26,7 +26,11 @@ rule that exists because of a measured failure, and the measurement is cited.
   request, names `FACTORY_REVIEWER_TEAM` or `FACTORY_REVIEWER`, and leaves the timer's environment to
   whoever installed it.
 - A branch with commits and no pull request is work that has already been paid for and is invisible
-  to every queue that reads issues. `factory/triage.sh` reports it as `branch_without_pr`.
+  to every queue that reads issues. `factory/triage.sh` reports it as `branch_without_pr`. The same ref
+  name with a merged pull request behind it and no content the trunk lacks is the opposite thing -- a
+  delivery, reported as `branch delivered` and worked by nobody (#291). Telling the two apart is a
+  content question, never the name: `issue-301` has 4 files across 2 commits ahead of `main` under a
+  name whose earlier pull request merged, and an arm that stopped at the name retired that work.
 
 ## Decisions
 
@@ -47,6 +51,18 @@ rule that exists because of a measured failure, and the measurement is cited.
   only place that name is written), write the entry with `Chose: escalated` and `Awaiting:`
   naming what is owed, and stop. Adding a `require` line to `go.mod` needs the user, not a
   justification in a PR body.
+- A `path:line` citation in a decision log is a promise that a reader can go and look, and a merge can
+  take the ground from under it: `H-0139` cited `AGENTS.md:38` for the escalation instruction, and the
+  merge of #312 slid that instruction down to `AGENTS.md:48-53` without editing a word of the entry. So
+  write the measured sentence beside the coordinate — `AGENTS.md:52` "naming what is owed, and stop" — and
+  `scripts/check-decisions.py` compares the quote with the line and refuses the entry when they part.
+  A citation with no quote is allowed but counted, and `POINTER_DEBT` in that script may only fall;
+  a merge that grows the logs re-measures it with `--citations` and records the number in the same
+  commit. Before editing a file the logs quote, ask what you are about to move:
+  `python3 scripts/check-decisions.py --citations <path>` lists every pointer aimed at it.
+  That number is not judged at all while any citation cannot be opened, because a stray untracked
+  directory moves pointers out of it, and no number measured against such a tree is a statement about
+  the logs.
 
 ## Worktrees
 
