@@ -4556,3 +4556,24 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   debt in both states and refuses nothing in either. Named here rather than repaired here because
   editing three other entries' records is not this unit's call, and because a number with nothing
   beside it is the exact defect #374 keeps open.
+- Correction (`D-0077`, 14 Nov — the count and the arithmetic in that paragraph are both wrong, found by
+  running the check it names): `--citations` aimed at `scripts/attack-capture-self-test.py` — the command
+  is `python3 scripts/check-decisions.py --citations PATH`, and the PATH here is that one file — lists
+  **six** pointers at this head, not four: three inside `D-0062`, one inside `D-0063`, two inside
+  `D-0064`, each naming the `if hits != 1:` arm by line number and each printed `UNANCHORED`. The grep
+  `grep -n 'if hits != 1:' scripts/attack-capture-self-test.py` answers 679 at this head, and the same
+  grep over `607966e`'s copy of the file answers 672, so the drift is one number per pointer and the
+  pair written above fits only the citation spelled `:573-576` — 96 lines off at the checkpoint,
+  103 here. The three spelled `:573` are 99 and 106, and the two spelled `:566-570` are 102 and 109, so
+  the sentence understates its own worst case by six lines and says four where the checker says six.
+  What that paragraph was load-bearing for survives the recount untouched: none of the six carries quoted
+  text, so `--citations` counts them as debt in both trees and the gate refuses nothing in either —
+  `python3 scripts/check-decisions.py` at this head reads "600 …citations read out of the two logs, 539
+  of them owing an anchor and 0 pointing somewhere a reader cannot open", with `POINTER_DEBT` in
+  `scripts/check-decisions.py` still at 539, so this correction added no citation of its own. The repair
+  is still not this unit's, and the recount sharpens why: a dead coordinate inside somebody else's
+  published entry is repaired by naming the tree it was read at — the revision-qualified form, whose
+  specimen is `H-0162`'s and which `revision_qualified` in `scripts/check-decisions.py` lets stand
+  without an anchor precisely because it states which tree to open — while rewriting three entries'
+  correction chains to read 679 would make every one of those sentences describe a tree it was not
+  written in. #374 stays open as the question of whether anything obliges 539 to fall.
