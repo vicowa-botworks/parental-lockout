@@ -1016,8 +1016,8 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Options: leave all five open for the next lane to re-derive | close all five on the strength of this log's claim | walk each issue's own acceptance list row by row, closing only where every row holds and reducing the rest | rebase `origin/issue-199` onto `e74b42f` and reduce it to whatever survives | file the reconciliation as one issue and touch nothing
 - Chose: walk each issue's own acceptance list row by row, closing only where every row holds and reducing the rest
 - Why: the outcome first, so the line above is not the only place to read it: #219 and #220 closed as satisfied, #213 and #204 reduced to the rows that did not hold, with every settled row and the command that re-checks it written into the issue rather than into this log. The log's claim is not the acceptance list, and #204 proves it — the only entry here that names #204 is D-0016, whose markup comment at `internal/web/templates/page.tmpl:45` reads *"There is no skip link in this shell yet -- #204"*, i.e. it names the issue to say the work is absent. A grep for `#204` in this file, which is what #224 says a lane does, closes an issue that `main` does not implement: `git grep -n aria-current origin/main -- internal testing` returns nothing and `app.css` still has no `nav` selector, so the navigation is on the user-agent sheet exactly as reported. Closing all five therefore had to be refused on evidence, not on principle.
-  The two that closed were measured rather than read. #219: `internal/web/page_heading_test.go:29`/`:78` assert one `<h1>` per page, its agreement with the page's own `<title>`, and that it does not name the product, over all seven pages including the two a GET cannot reach and the login page that is not the shell (`go test ./internal/web -run Heading` → ok, 6 Nov 13:44Z). #220: `internal/schedule/fixture_hours_test.go` gives 1440 minutes of the fixture's declared day and 1464 instants across 2026 one verdict, and its second test rewrites `06:30` back in and gets two — so the sweep that closes the issue is the same sweep that could have failed it (`go test ./internal/schedule -run PagesFixture` → PASS, same minute). #213 kept two rows because a re-take is not the same as a declared condition: the census is still a caveat in `README.md:280-281` and the two-arm measurement that exists is `scripts` off/on on one machine in one zone, not this issue's two zones.
-  Two things were filed instead of done, both because the honest version needs a rig this fence does not have. `README.md:588` and the table at `:661-662` still call `b59bb2be…`/`acc5ba4d…` the committed digests when D-0028 moved those frames to `7ec1a664…`/`d008fdf9…` (`sha256sum`, 6 Nov) — rewriting them to values this turn did not photograph is the same overquoting D-0029 and D-0030 exist to remove, so it is #213's third row with the two arms named. And the rebase was not attempted: `origin/issue-199` is another unit's pushed branch, 42 commits behind with its own D-0025..D-0027 that collide with this file's, so what this lane could do was write the pointer into #204 — the implementation is in `2e919aa`/`8db322a`/`a2ccac0` on that ref, and the next lane rebases it instead of re-deriving it, which is the half of #224 this tree can actually fix.
+  The two that closed were measured rather than read. #219: `internal/web/page_heading_test.go:29`/`:78` assert one `<h1>` per page, its agreement with the page's own `<title>`, and that it does not name the product, over all seven pages including the two a GET cannot reach and the login page that is not the shell (`go test ./internal/web -run Heading` → ok, 6 Nov 13:44Z). #220: `internal/schedule/fixture_hours_test.go` gives 1440 minutes of the fixture's declared day and 1464 instants across 2026 one verdict, and its second test rewrites `06:30` back in and gets two — so the sweep that closes the issue is the same sweep that could have failed it (`go test ./internal/schedule -run PagesFixture` → PASS, same minute). #213 kept two rows because a re-take is not the same as a declared condition: the census is still a caveat in `testing/capture/README.md:280-281` and the two-arm measurement that exists is `scripts` off/on on one machine in one zone, not this issue's two zones.
+  Two things were filed instead of done, both because the honest version needs a rig this fence does not have. `testing/capture/README.md:588` and the table at `:661-662` still call `b59bb2be…`/`acc5ba4d…` the committed digests when D-0028 moved those frames to `7ec1a664…`/`d008fdf9…` (`sha256sum`, 6 Nov) — rewriting them to values this turn did not photograph is the same overquoting D-0029 and D-0030 exist to remove, so it is #213's third row with the two arms named. And the rebase was not attempted: `origin/issue-199` is another unit's pushed branch, 42 commits behind with its own D-0025..D-0027 that collide with this file's, so what this lane could do was write the pointer into #204 — the implementation is in `2e919aa`/`8db322a`/`a2ccac0` on that ref, and the next lane rebases it instead of re-deriving it, which is the half of #224 this tree can actually fix.
   The id is D-0032, not the D-0031 this file's sequence gives. Pull request #217 is open and carries a *different* D-0031 in this same file (the #211/#222/#223 closes), and `check-decisions.py` on that branch refuses both a repeated id in one log — *"'revert to before D-0031' would name two commits"* — and a decreasing sequence. So whichever of the two branches merges second must renumber its own entry, and that is written here so the collision is a known instruction rather than a red gate on `main` after a merge. Choosing D-0031 anyway was the option that made `main` provably invalid for a window; a gap in the log if #217 never lands costs nothing, because the rule is monotonic, not dense.
   What lost. #220's other two options lose: pinning the daemon's clock through `web.Server.Now` and declaring the window in `pages-setup.sh` — both recorded as rejected in D-0017, and #220's body carried them as offers, not requirements. #213 loses the argument that byte identity proved the condition, which #207's own withdrawal already retired. #204 loses two measured rows — the duplicate `href="/"` and the `h1` weight comparison — both fixed under D-0016 as that entry predicted, and the issue now says so instead of sending a lane to re-measure them. Nothing here is irreversible: every close is one `git show origin/main:<path>` away from being re-checked, the four comments carry those commands row by row, and #224 is shut only as the walk it asked for — #216 still owns whether the supervisor should reconcile at all.
 - Checkpoint: ab7263a2df0b8e662eb68f1a3107f143e17c65a6
@@ -2123,7 +2123,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   published about itself, and the reviewer re-measured both at this head. (1) `D-0045` says the channel
   rule is "written into the rules rather than left to a reviewer: colour plus one of weight, style,
   underline or a box property"; the shipped guard is self-tested *not* to have it. (2) The pre-fix count is
-  on the record as *two of thirteen* (`DECISIONS.md:1847`, and #240's body leading with "two of them … the
+  on the record as *two of thirteen* (`./DECISIONS.md:1847`, and #240's body leading with "two of them … the
   other eleven"), *one of nine* (the entry's title), *eight of thirteen* (the same sentence's other half)
   and *one* (`D-0046`) -- four numbers and no stated base. So: which base does this repository use, and does
   a false sentence stay where a reader meets it? And is the log made to say what the guard does, or the
@@ -3854,7 +3854,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
 - Question: #296 owed four things and #299 delivered three. Its item 4 was a correction: `D-0054`
   defers the two single-frame drivers "because their `--out` is a single named file", and that is not
   what the code does. Read back off `origin/main` at `7c0a3e5` after the merge: the sentence is still
-  at `DECISIONS.md:2706`, and `D-0057` repeats it at `:2986` and adds that the two drivers "still
+  at `./DECISIONS.md:2706`, and `D-0057` repeats it at `:2986` and adds that the two drivers "still
   dispose of their staged frame with `discard_stage()`" -- true of `66c9162`, which is the head that
   entry reproduced on, false of every tree since `14f1826`. The flag was never a file:
   `cdp.capture_out` declares `--out` with `metavar="DIR"` and the help "directory for the PNGs"
@@ -3946,7 +3946,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the log's version of the same instinct — a sentence that has become false gets a dated correction
   beside it rather than being left standing. What made this a decision and not an edit is the shape the
   fixes had to take: both `DECISIONS.md` and `factory/DECISIONS.md` cite `path:NNN` coordinates into
-  these two files, including `manifest.py:749` and `README.md:1005`, both *below* the text being changed
+  these two files, including `manifest.py:749` and `testing/capture/README.md:1005`, both *below* the text being changed
   — #318's hazard, 272 citations with two already broken — so every replacement had to be line-neutral:
   15 comment lines in and 15 out (`git show --numstat 335c6f4` on `testing/capture/manifest.py` counts
   15/15; the block at `:523-538` spans 16 lines and one of them survived byte-identical), a 10-line
@@ -4020,7 +4020,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   Dropping the comparison keeps the mint and loses `lock.png` and `testlock.png`, the two frames #294's
   clause and the README's re-take recipe both exist for and the only two no driver records. Tie-break
   four does not separate them: all three edit both files, and the line budget is fixed by `D-0069`'s own
-  constraint — `manifest.py:749` and `README.md:1005` sit below the text, and `D-0069` itself cites six
+  constraint — `manifest.py:749` and `testing/capture/README.md:1005` sit below the text, and `D-0069` itself cites six
   coordinates into the lines being rewritten. Tie-break six is the paragraph's own convention: it
   already gives one rev to the pixels (`3bcbfdd`) and another to the page (`2088043cb`), so naming a
   third tree for a third fact continues a pattern rather than inventing one. That the split fits the 11
@@ -4055,7 +4055,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   `grep -c '"carried_from"'` over `git show $t:docs/screenshots/360/manifest.json` answers 0 of nine at
   `7e65d3b`, 7 of nine at `7ff2a67` and 7 of nine at `origin/main`, and the two rows the seven exclude
   at `7ff2a67` are exactly `lock.png` and `testlock.png`; `grep -n 'only two'` over the two files
-  answers one line each, `manifest.py:527` and `README.md:725`, and in both it sits inside the clause
+  answers one line each, `manifest.py:527` and `testing/capture/README.md:725`, and in both it sits inside the clause
   that opens with `7ff2a67`. Gates, each run after the text it certifies was written and before this
   line was: `manifest.py --self-test` -> `capture manifest self-test: 44 rules hold`, rc 0; `manifest.py
   check` -> *9 photographs current*, rc 0, with no carried-frame disclaimer printed; `pages.py
@@ -4099,7 +4099,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   <png>` and not on `--stat`. Second item, non-blocking: as `7dd09d1` shipped it, `D-0069`'s `Effect:`
   said of the corpus "resolved and de-duplicated at `335c6f4`, is 126 coordinates, 11 of them naming a
   line in the two files this commit edits" — 126 reproduces, and so does 4, the four being
-  `testing/capture/manifest.py:360`, `:507`, `:525` and `README.md:1005`; 11 is the count at `7dd09d1`,
+  `testing/capture/manifest.py:360`, `:507`, `:525` and `testing/capture/README.md:1005`; 11 is the count at `7dd09d1`,
   where `D-0070` states it. So: scope each sentence to the census it can show, strike the census from
   the two capture sites, or leave the artifact as shipped and answer in prose?
 
@@ -4116,7 +4116,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   the probe that produced it, `D-0066` and `D-0070` both quote their census in that shape, and the
   finding *is* a count — seven frames sitting under a mint that reported nine current is a stronger
   sentence than nine frames under a mint that reported nine current. The line budget is not cosmetic
-  either: `manifest.py:749` and `README.md:1005` sit below the passage, so the repair had to come back
+  either: `manifest.py:749` and `testing/capture/README.md:1005` sit below the passage, so the repair had to come back
   to 6 comment lines and 8 README lines at the same 104 and 105 columns: 556 characters of prose inside
   the 564 the six manifest lines hold (6 × 104 behind a 10-column gutter), 811 inside the 840 the eight
   README lines hold. `git diff -U0 -- testing/capture` was re-run until it named nothing outside
@@ -4148,7 +4148,7 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   in place, 8 lines in and 8 out, file still 1183, its text differing from `7dd09d1`'s by one
   substitution ("each PNG's own newest commit" -> "six of the nine PNGs' own newest commit") re-wrapped
   at 105 columns with no other word changed; `grep -n 'only two'` still answers
-  `testing/capture/manifest.py:527` and `README.md:725`, and `git diff -U0 -- testing/capture` named
+  `testing/capture/manifest.py:527` and `testing/capture/README.md:725`, and `git diff -U0 -- testing/capture` named
   exactly those two hunks. This log: `D-0069`'s integer with its tree named beside it, `D-0070`'s
   census scoped to six, and this entry. The citation audit re-run at this head under the rule `D-0069`
   names 135 coordinate strings across the two logs, 134 resolved, 12 of them naming a line in either

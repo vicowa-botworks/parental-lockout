@@ -1733,3 +1733,110 @@ That is the price of the second half of this
 task: once this has survived a real queue, `factory/` moves to a shared location and each repository
 keeps only its `.opencode/opencode.jsonc` and `DECISIONS.md`. If a line here ever needs this
 repository's name to work, that is a defect in it, not a convenience.
+
+## A citation in a decision log carries its own anchor
+
+`DECISIONS.md` and `factory/DECISIONS.md` hold 534 backticked `path:line` citations (measured at this
+head by `--citations`, which is the only way to keep that figure honest). A coordinate is how
+an entry says *what it measured*, so the log is re-runnable: `python3 -c "..."` at
+`triage.sh:122`, the ratchet at `scripts/check-decisions.py:569`. A coordinate is also the one part of an entry a
+merge can invalidate without touching the entry. Merging `origin/main` into `issue-310` added lines to
+files the other side cited, and two of `H-0139`'s pointers moved out from under their own sentences. The
+judgement in that entry was right; only the pointer rotted, and nothing in `make verify` could see it.
+
+So the citation carries its own evidence. A citation written with a quoted fragment is checked against
+the tree being gated:
+
+```
+`AGENTS.md:52` "naming what is owed, and stop"
+```
+
+The fragment must be at least 16 characters, inside double quotes, with nothing between it and the
+closing backtick but spaces. It has to be found on the cited line, or within the cited range
+(`factory/common.sh:224-235`): no window of tolerance, because a pointer wrong by three lines still
+lands on the wrong sentence, and a check that passes at ±5 is a check that reports drift it cannot name.
+
+Shapes that are understood and are not the same claim:
+
+| written | meaning |
+|---|---|
+| `factory/common.sh:235` | a path, looked up exactly |
+| `./DECISIONS.md:1847` | the root's copy — `./` is root-relative and is never matched by basename |
+| `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
+| `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **on the same line** — and "line" is physical, so inside a wrapped paragraph that is a known limit, not a guarantee: see the third finding below |
+| `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
+| `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half names no file |
+
+**It is judged against the tree, never against the revision that wrote it.** That is the load-bearing
+choice, and #318's own option 2 had it the other way. `AGENTS.md:38` was *correct* at `5be86e5`, the
+revision `H-0139` measured, and wrong at `e41ce80`, the merge. Resolving at the cited revision therefore
+passes the exact class of failure the issue was filed about, and refuses only entries that were false the
+day they were written. It also needs git: `gate_reads_no_refs` in `factory/selftest.sh` refuses this gate
+any git subcommand but `cat-file`, because a verdict that changes between a branch head, a merge preview
+and CI reads as flakiness and gets re-run until it agrees. The gate reads the files in front of it and
+answers the same question in every checkout.
+
+**What cannot be checked is counted, and the count may only fall.** 517 of those citations predate this
+rule and carry no anchor; that number is `POINTER_DEBT` in `scripts/check-decisions.py`. Above it the run
+is refused, and so is a run that measures *below* it — an unlowered number is a ratchet with the pawl
+filed off, and the next unanchored citation hides in the slack. A merge from `main` raises the count with
+nothing written by you — measured on this branch's own merge, 11 citations arrived in other units' entries
+— so a merge re-measures with `--citations` and raises the constant in the same commit, which is the only
+direction the ratchet permits a rise and the diff is the audit. A citation absent from the tree, or
+ambiguous across two files, is refused outright rather than grandfathered: 54 were made resolvable by
+writing the path, 17 of them delivered by that same merge, and folding that class into the baseline would
+have hidden 54 dead pointers inside 517 with the headline green. A citation that points past the end of a
+file is *not* refused on its own, and that is a choice, not an oversight: the 517 unanchored pointers
+cannot be length-checked without refusing sentences that are true on their own terms, so the length check
+holds only where an anchor already proves what the line should say — measured on this head, 7 citations sit
+past the end of the file they name, all 7 unanchored, and every one of them is either a continuation a
+wrapped paragraph mis-aimed (4) or a row an entry is *reporting* as past the end (3). Fixing the first four
+needs a rule about sentences, not lines, and that is filed as its own issue.
+
+**The floor.** `POINTER_DEBT` is a number about a corpus, so it is a statement only about a tree whose
+logs are that corpus. `POINTER_DEBT_AT` records how many entries the two logs held when it was measured,
+and below that size the number is reported as not judged rather than applied. Measured, not designed:
+`factory/selftest.sh`'s `gate_verdict_off_refs` leg copies this script into a synthetic two-entry
+repository to prove the verdict is a reading of files and not of the ref store, and the first full run
+after this rule landed answered that leg with *"the decision logs now hold 0 citations that owe an anchor,
+below the recorded debt of 378: pay it down"* — a constant from this repository's logs refusing a
+repository that has no such logs, in a checkout where the rule under test was someone else's. What that
+costs: a run whose logs hold fewer entries escapes the ratchet, so deleting entries from a log is the one
+way to move the floor. It is visible in a diff, the logs are append-only, and the refusal that is about a
+pointer rather than a count — an anchored citation whose text is not on the line — has no floor at all.
+
+Three findings came from the tool being wrong rather than the log, and all three are the hazard:
+
+- The first census matched a **fully-qualified** citation by basename and took the first alphabetical
+  candidate. `factory/DECISIONS.md:3178`, cited at `39dd88e54:factory/DECISIONS.md:3497` with its path
+  spelled out in full, was measured against `DECISIONS.md` — 2621 lines at that revision, so it looked
+  past EOF — while the file it names held 3531 and the coordinate lands on exactly the tally sentence the
+  entry quotes. So the log's claim that these coordinates "all resolve" was true, and the audit's
+  "citation false the day it was written" finding was the fabrication — produced inside the session sent
+  to fix false findings. Resolution is now exact-path first and basename second, and refused when two
+  files answer. (`README.md:588` is the token this log argues about most, and it is a different case: the
+  root `README.md` has never exceeded 349 lines in its 12 revisions, so on the root reading it really is
+  past EOF, which is what `H-0152` records. `H-0159` reads the same token both ways — see the Effect of
+  `H-0162`, where the repair is disclosed rather than smoothed over.)
+- The rule refused the disambiguation its own message recommended. `./DECISIONS.md:1847` was stripped to
+  `DECISIONS.md`, matched by basename, and answered "two files". Advice that does not work is worse than
+  none: the reader follows it and cannot tell what broke. `./` is now looked up as a path and nothing else,
+  pinned by a self-test case.
+- A bare `:NNN` is aimed by the last file resolved *on the same physical line*, and an entry in these logs
+  is markdown wrapped at ~110 columns, so a physical line is often a whole paragraph naming several files.
+  Four continuations are aimed by the wrong file: `H-0110`'s "`emit()` is defined TWICE in
+  `factory/selftest.sh`, at `:2766` … and `:3731`" sits on a line whose earlier citation is
+  `scripts/check-decisions.py:161`, and `H-0111`'s shim plants at `:2853` and `:3833` sit on a line whose
+  earlier citation is `factory/triage.sh:600`. All four land in the debt, where they cost nothing today —
+  and all four are why the length check is anchor-only: applied to every citation the rule would
+  refuse 7 sentences that are each true on their own terms to catch zero false ones (these four, plus
+  three rows an entry is itself reporting as past the end of the file it names). Fixing it is a rule
+  about sentences, not lines, and it is filed as its own issue rather than improvised inside this one.
+
+Re-derive any of it:
+
+```
+python3 scripts/check-decisions.py                      # the counts, in the refusal-proof shape
+python3 scripts/check-decisions.py --citations          # what the debt is made of, by target file
+python3 scripts/check-decisions.py --citations AGENTS.md # every pointer aimed at one file: ask BEFORE editing it
+```

@@ -503,3 +503,11 @@ outcome this system produces: it is indistinguishable from a machine that is wor
   because the code changed; fix the anchor, and say so in the PR body.
 - Touching `vendor/` or a submodule to get a build green: there is no `vendor/`.
 - Working outside your worktree, or reading another unit's worktree to "help".
+- A `path:line` citation in a decision entry with nothing beside it but the number. A merge adds lines to
+  the cited file and the pointer moves out from under the sentence that made it — `make verify` cannot see
+  it, and the entry reads as though it is still re-runnable. Write the text you measured after the
+  coordinate: `` `AGENTS.md:46` "naming what is owed, and stop" ``, at least 16 quoted characters, and
+  `scripts/check-decisions.py` refuses the entry when the quote and the line part. A citation with no
+  quote is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
+  the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
+  same commit.
