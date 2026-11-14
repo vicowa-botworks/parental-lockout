@@ -18,9 +18,20 @@ wrong. It refuses the entries that cannot be argued with later:
     for -- the failure mode where a ticket goes quiet and nobody knows it is blocked on a person
   * a `Checkpoint:` that is not a commit, except on an escalated entry, which changed nothing
   * a reused or out-of-order id, which makes "roll back to before D-0012" ambiguous
+  * a `path:line` citation whose quoted anchor is not on the line it names, a new citation with no
+    anchor at all, and a pointer whose name belongs to more than one file
 
 An entry is `## D-0007 · title` followed by `- Field: value` lines, and the six field names are the
 contract this file and `.opencode/skills/factory/SKILL.md` share.
+
+The citation rule exists because a coordinate is a promise that a reader can go and look, and a merge
+can take the ground out from under it. Merging `origin/main` into `issue-310` moved `AGENTS.md:38` from
+the escalation instruction to a checkpoint bullet without editing the entry that cited it, and that
+false pointer survived a month because every rule here was about the entry's shape. It reads the tree,
+not the history, on purpose: `factory/selftest.sh`'s `gate_reads_no_refs` leg refuses this file any git
+subcommand but `cat-file`, because a verdict that changes between a branch head and a merge commit
+reads as flaky and gets re-run until it agrees. See the block above `POINTER_DEBT` for what that
+leaves checkable and what it leaves counted instead.
 
 The self-test is in `make verify` next to this check, and the first assertion is that `verify` still
 invokes this script: the cheapest way to pass a gate is to stop calling it, and nothing in the
@@ -30,6 +41,7 @@ the Makefile), so a deleted step here would otherwise stay green forever.
 Exit 0 clean · 1 the log has problems · 2 usage.
 """
 
+import collections
 import os
 import re
 import sys
@@ -39,7 +51,7 @@ LOGS = (os.path.join(ROOT, "DECISIONS.md"), os.path.join(ROOT, "factory/DECISION
 LOG = LOGS[0]
 MAKEFILE = os.path.join(ROOT, "Makefile")
 
-USAGE = """usage: check-decisions.py [--self-test] [--log PATH]
+USAGE = """usage: check-decisions.py [--self-test] [--log PATH] [--citations]
 
 Checks every entry in DECISIONS.md has the fields that make it arguable later, and that the log is
 still being invoked by `make verify`. Takes no positional arguments: a filename in a shell variable
@@ -51,7 +63,29 @@ Makefile. Narrowing the file is not narrowing the rules -- the old wording
 promised checkpoint existence here while the code skipped it, which is how a
 fabricated checkpoint survived four passes of exactly this invocation. A `--log` run over one file still
 asks the duplicate-id rule, but against that file alone -- that is the only thing about `--log` that
-narrows.
+narrows. It also reports `path:line` citations for that file but does not judge them against
+POINTER_DEBT, which is a count over the pair; the closing line says which of the two it did.
+
+--citations prints what the citation rule found instead of refusing on it: the unanchored
+count by the file pointed at, the citations a reader cannot open, and the anchored ones whose
+text has moved. It reads and changes nothing, and it is how the debt number is re-derived.
+
+--citations PATH lists every citation pointing at that path instead, with the log line that cites
+it. Ask before editing a file that other people's decisions quote: a merge that moves a line has to
+fix those pointers in the same commit, and nothing else in this repository can tell you which they
+are. `--citations AGENTS.md` is the ordinary first call.
+
+A citation is `path:NNN` in backticks. It is judged against the tree being gated -- no git, no
+revision, the same answer in CI as at the merge -- and it is checked when it carries an anchor: a
+quoted fragment of at least 16 characters with nothing between it and the closing backtick.
+
+    `AGENTS.md:43` "write the entry with `Chose: escalated` and `Awaiting:` naming what is owed"
+
+Then the fragment has to be on line 43 of AGENTS.md. No window: a pointer wrong by three lines still
+lands on the wrong sentence, which is the bug #318 was written about. A citation with no anchor cannot
+be checked, so it is counted, and the count is recorded in this file as POINTER_DEBT. That number may
+only fall: a new unanchored citation is refused, and so is a run that measured below it, because an
+unlowered number hides the next broken pointer in the slack.
 """
 
 FIELDS = ("Question", "Options", "Chose", "Why", "Checkpoint")
@@ -304,6 +338,23 @@ def read(path):
                      "and a run that reads nothing must not report that as clean" % (path, exc)
 
 
+def read_tree(rel):
+    """A cited file, as the tree being gated holds it. None is "absent or unreadable".
+
+    Relative to this checkout, because that is what a citation means: `triage.sh:122` is a promise
+    about the file in front of the reader, not about a revision they would have to name. Read fresh
+    from disk rather than from git, so a file a unit has edited but not committed is the file the
+    citations are judged against -- the failure this rule exists to catch is a merge moving a line,
+    and the unit that moves it has to be told before the commit, not after the merge.
+    """
+    try:
+        with open(os.path.join(ROOT, rel.replace("/", os.sep)), encoding="utf-8",
+                  errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
 GOOD = """
 ## D-0001 · Keep the harness in the repository
 
@@ -453,6 +504,634 @@ def checkpoint_problems(entries, resolve):
 
 def label_of(e):
     return "%s:%d" % (e["label"], e["line"])
+
+
+# ---------------------------------------------------------------------------------------------
+# `path:NNN` citations (issue #318)
+# ---------------------------------------------------------------------------------------------
+#
+# Why this is here. A decision-log entry is the only reason an unattended judgement call is
+# reversible, and almost every entry leans on a coordinate to say what it measured: `triage.sh:122`,
+# `pages.py:368`, `AGENTS.md:38`. A coordinate is a promise that a reader can go and look. Merging
+# `origin/main` into `issue-310` broke two of them without touching a word of the prose that made
+# them, because the other side of the merge added lines to the files they point at. `H-0139` cited
+# `AGENTS.md:38` for the escalation instruction; on the merged tree line 38 is a checkpoint bullet.
+# Nothing in `make verify` could see it, and the log carried a false pointer for a month before
+# somebody followed it by accident. The census that found this produced a SECOND finding, and the
+# second one was wrong: it reported that `factory/DECISIONS.md:3178` and `:3259` -- cited at
+# `39dd88e54:factory/DECISIONS.md:3497`, where the entry says they "all resolve" -- were false the day
+# they were written, because the file at that revision holds 2621 lines. It was matching a
+# fully-qualified citation by BASENAME and taking the first candidate, `DECISIONS.md`, which is a
+# different file with 2621 lines. The factory log holds 3531 lines there, both coordinates land on the
+# tally sentence and the `reviewRequests` Effect they name, and they still land today. So the audit was
+# the only false thing in the room -- and it produced that finding inside the session sent to fix false
+# findings. Which is why resolution is exact-path first, a basename second, and refused when two files
+# answer: a wrong path is not an unreadable one, it is a fabricated verdict.
+#
+# What this rule is NOT, and why. The obvious design resolves each citation at the revision that
+# wrote it, which is where the entry's measurement actually lives. It needs `git blame`, and `blame`
+# is a walk down `HEAD`, so the verdict would differ between the branch head CI checks and the merge
+# commit the supervisor merges, and again in a shallow clone -- `factory/selftest.sh`'s
+# `gate_reads_no_refs` leg exists to refuse exactly that (H-0056, #253): a verdict that changes
+# between two identical checkouts reads as flaky and gets re-run until it agrees. So this rule asks
+# git nothing at all -- not `blame`, not `ls-files`, not a rev -- and reads only the two logs and the
+# files they cite, in the tree being gated. `gate_reads_no_refs` witnesses that from the outside on
+# every `make verify`.
+#
+# What it IS: the citation carries its own anchor, and the anchor is checked against the tree.
+#
+#     `AGENTS.md:43` "write the entry with `Chose: escalated` and `Awaiting:` naming what is owed"
+#
+# A citation followed by a quoted fragment of at least 16 characters must find that fragment inside
+# the cited lines -- no window, no fuzzy match: a pointer that is right by three lines still lands
+# on the wrong sentence, which is the bug. A citation with no anchor cannot be checked at all, so it
+# is counted instead of judged, and the count is `POINTER_DEBT` below. That number may only fall.
+# It is the grandfathering that option 2 of #318 needs and the thing a silent exemption would not
+# be: a merge that moves an unanchored pointer leaves the count alone, while a unit that writes one
+# new unanchored citation, or one anchored citation whose sentence is not there, is refused.
+#
+# The path half is measured, not assumed. `pr:209`, `unclaimed:263` and `address_review:240` appear
+# in these logs and are not citations -- they are a triage `class:PR` pair, and `STATE_PROPS:1040`
+# is a symbol in a file named earlier in the sentence. Refusing every `word:digit` span would have
+# been 15 false refusals in the first run. So a span is a citation only when its path half names a
+# file that exists in this tree, which is also what makes the `.git` exclusion load-bearing: it is
+# done by NAME below, because `"/.git" in "./.github/workflows"` is a true statement and the first
+# census of #318 used it and reported `ci.yml:62` as a dead citation.
+
+# The citations a reader cannot follow in this tree: the file is absent, the line is past it, the
+# name belongs to more than one file, or there is no anchor to check. `scripts/check-decisions.py
+# --citations` prints them grouped, `--citations PATH` answers it for one file, and a run whose count is
+# above this number is refused; a run below it is refused too, because an unlowered number is a ratchet
+# with the pawl filed off -- the next broken pointer hides inside the slack.
+#
+# 539, re-measured on 14 Nov 2026 after the #367 review repairs, by `--citations | tail -1`. 535 + 4, and
+# all four are the SAME defect being paid for rather than four new promises: they are the `:NNN`
+# continuations that re-resolved their parent's basename, got two candidates back, and fell out as
+# `not-a-path` -- checked by nothing, so they were in neither the debt nor the refusal. Making a citation
+# that names no file a defect (H-0171) is what surfaces them, and the rise is recorded beside the entry
+# that measures it, which is the only direction this constant may move up.
+# 535, re-measured on 14 Nov 2026 on the SECOND merge of `origin/main` into `issue-318` (`8437eea`, 22
+# commits) by `python3 scripts/check-decisions.py --citations | tail -1`. 517 + 18: every one of the 18 is
+# inside `H-0163`..`H-0169`, the five harness entries `main` published while #367 was in review, and none
+# of them was written by this unit. The merge also moved four anchored pointers in this branch's own
+# `H-0162` -- `factory/selftest.sh:11568`->`:11823`, `:11577`->`:11832`, `docs/factory.md:1737`->`:1904`,
+# `:1773`->`:1940` -- and the anchor rule named all four with their new lines, which is the first time
+# this rule caught its own author across a merge. The previous measurement was 517 on 13 Nov, AFTER the
+# 54 ambiguous pointers were given their full paths -- 37 on this branch's side, and 17 that arrived
+# with `main` while this was in review (10 of them a bare `README.md`, which five files here answer to).
+# All 535 were written before this rule existed in the tree -- the rule is only on this branch -- and 4 of
+# them are the paragraph-length continuations `scan_citations` documents it cannot place. None of them is
+# refused today; every one is visible, and none may grow except by a merge that re-measures. Paying one
+# down means editing this line in the same commit.
+POINTER_DEBT = 539
+
+# How many entries the two logs held when that number was measured, and therefore the smallest corpus
+# the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
+# debt on 13 Nov 2026: 214 entries across the two logs on the merge of `origin/main` into `issue-318`.
+# Re-measured again on 14 Nov with the debt at 535: 222 entries, the eight new ones arriving with `main`.
+# The floor deliberately stays at the older, lower figure: the logs are append-only, so a tree smaller
+# than 214 is a fixture or a fork rather than a checkout one commit behind, and every entry added between
+# 214 and 222 keeps being judged instead of quietly escaping. Raising this number is the one edit that
+# makes the ratchet judge LESS, which is why it does not move with a merge.
+#
+# This is not a rounding convenience; it is the rule not lying to a tree it did not measure.
+# `factory/selftest.sh`'s `gate_verdict_off_refs` leg copies this script into a synthetic repository --
+# two logs, one entry each -- to prove the verdict is a reading of files and not of the ref store, and the
+# first full run after this rule landed answered that leg with `the decision logs now hold 0 citations
+# that owe an anchor, below the recorded debt of 378: pay it down`. A constant from this repository's logs
+# refused a repository that has no such logs, in a checkout where the thing under test was a different
+# rule entirely. Below the floor the number is reported as not judged rather than applied.
+#
+# What that costs: a run whose logs hold FEWER entries than this escapes the ratchet, so deleting entries
+# from a log is the one way to move the floor. It is visible in a diff, the logs are append-only, and a
+# unit that deletes an entry to pass a citation check has told you what it did in the only place that
+# records it. The other half -- an anchored citation whose text is not there -- is refused at any size.
+POINTER_DEBT_AT = 214
+
+
+CITATION = re.compile(r"`([^\s`]*?):(\d{1,5}(?:\s*-\s*\d{1,5})?)`")
+# Does the left half name a FILE? An extension is the only marker that survives both spellings:
+# `triage.sh`, `./DECISIONS.md`, `internal/web/handlers.go` all answer to it, and `pr`, `unclaimed`,
+# `STATE_PROPS`, `D-0033`, `verify` and `H-0153` all refuse it. It is what separates "a path whose file
+# has gone" from "a triage class, a symbol, an entry id" now that a bare name counts as a path too
+# (#367 review #2): `gonee.md:3` is a promise about a file, and the promise is false when no file answers
+# to it, wherever the entry meant it to live.
+FILENAME_SHAPE = re.compile(r"[\w.+-]*[A-Za-z0-9][.][A-Za-z][A-Za-z0-9]*$")
+# The anchor: a double-quoted fragment that follows the citation with nothing between it and the
+# closing backtick but spaces and an apostrophe -- up to three characters of them, so `` `x.md:9` "…" ``
+# and `` `x.md:9'"…` `` both read. What it does NOT admit is the `s` of a possessive: the corpus shape is
+# `` `README.md:588`'s "…" ``, four characters of gap, and this class declines it. That is measured, not
+# oversight -- see `NEAR_QUOTE` below for what widening would and would not buy. Anything further away is
+# another sentence's quotation and belongs to a different claim. Sixteen characters is the shortest fragment
+# that cannot be an accident: `the`, `verify` and `Chose: a` match half the tree, and an anchor that
+# matches anything is a check that cannot fail.
+ANCHOR_AFTER = re.compile(r"^[ ']{0,3}\"([^\"]{16,})\"")
+MIN_ANCHOR = 16
+# A quotation that is close to the coordinate but not flush against it, or flush and too short. The rule
+# declines both, and a refusal that only says "has no anchor" sends the author to look for a rule they
+# cannot see: they wrote a quotation, and the sentence that declines it never mentions the separator or
+# the length. This regex exists so the refusal can name what it declined. It is NOT a second anchor rule:
+# nothing here is judged by it, and widening `ANCHOR_AFTER` to what it matches was measured and refused
+# (H-0170: three pointers in other units' entries change class for a 0.6% dent in a debt of 535).
+NEAR_QUOTE = re.compile(r"^(.{0,6})\"([^\"]+)\"")
+# Refusals name at most this many offenders; the count is in the headline either way.
+MAX_LISTED = 12
+
+
+def norm(text):
+    """Whitespace-collapsed, for comparing a hand-wrapped quote against a wrapped source line."""
+    return " ".join(text.split())
+
+
+def tree_files(root=None):
+    """Every file in the tree being gated, repo-relative, forward-slashed.
+
+    `os.walk`, not `git ls-files`: the rule must answer the same way in CI, in the review loop and at
+    the merge, and the gate reads no refs (see `gate_reads_no_refs` in `factory/selftest.sh`). An
+    untracked file a unit has just written is therefore visible here, which is the right answer -- it
+    is the file the citation will point at in the commit being prepared.
+    """
+    root = root or ROOT
+    paths = []
+    try:
+        for dirpath, dirnames, filenames in os.walk(root):
+            # `.git` by NAME, never by substring -- see the census note above.
+            dirnames[:] = sorted(d for d in dirnames if d != ".git")
+            for name in filenames:
+                paths.append(os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/"))
+    except OSError as exc:
+        return None, "the tree cannot be walked (%s), so no citation was resolved and the rule did " \
+                     "not run" % exc
+    return sorted(paths), None
+
+
+def tree_index(paths):
+    """What a written path means, in two tables that are consulted in a fixed order.
+
+    `exact` is keyed by repo-relative path, `base` by basename. A written path with a `/` in it -- or
+    leading `./` -- is looked up in `exact` ONLY, which is what makes `./DECISIONS.md` mean the root
+    log rather than "one of the two logs, you pick". Measured on the first run against the real logs:
+    the repair wrote `./DECISIONS.md:1847`, a single-key index then stripped the `./` and answered with
+    both logs, and the rule refused the very spelling its own message recommends -- the ambiguity it
+    exists to prevent, reproduced inside the fix.
+
+    A file at the repository root is its own basename, and appending it under both keys makes it
+    "ambiguous with itself": every citation to `Makefile`, `README.md` and `AGENTS.md` would be refused
+    for naming two files, both of them the one file. Measured on that same first run, where
+    `notes.md:9` came back as `names 2 files (notes.md, notes.md)`. The keys are sets, so one file has
+    one answer whatever it is called.
+    """
+    exact = {}
+    base = {}
+    for p in set(paths):
+        exact.setdefault(p, set()).add(p)
+        base.setdefault(os.path.basename(p), set()).add(p)
+    return {"exact": {k: sorted(v) for k, v in exact.items()},
+            "base": {k: sorted(v) for k, v in base.items()}}
+
+
+def resolve_citation(written, index):
+    """Which files a written path could mean, in the order a reader would check them."""
+    if not written:
+        return None
+    if written.startswith("./") or "/" in written:
+        return index["exact"].get(written[2:] if written.startswith("./") else written)
+    return index["base"].get(written)
+
+
+def entry_of(entries, line):
+    """The entry a citation sits under, for the refusal to name."""
+    owner = None
+    for e in entries:
+        if e["line"] > line:
+            break
+        owner = e["id"]
+    return owner or "the log's own preamble"
+
+
+def scan_citations(text, entries, index):
+    """Every `path:NNN` citation in a log, as a dict the checker can judge.
+
+    Three shapes are in these logs and they are not the same claim:
+
+      * `` `triage.sh:122` `` -- a file, by full path or by a basename nothing else owns.
+      * `` `:661-662` `` -- the same file again ("`README.md:588` and the table at `:661-662`"), so it
+        inherits the last file resolved on the same line and never the last line read: a continuation
+        is a property of its sentence, and inheriting across sentences would silently re-aim a
+        pointer at a different file.
+      * `` `gonee.md:3` `` -- a bare name WITH an extension is a path, and a file that is not in the tree
+        is refused, not skipped: the anchor or the coordinate promised a reader something to open.
+      * `` `pr:209` ``, `` `STATE_PROPS:1040` `` -- a triage `class:PR` pair and a symbol. Not
+        citations. They fall out because their left half carries no extension, so it names no file in
+        this tree and could not be made to without reading git for what used to be tracked.
+
+    Known limit, measured rather than discovered later. "The same line" is a physical line, and an entry
+    in these logs is markdown wrapped at ~110 columns, so one physical line is often a whole paragraph
+    naming several files. Four continuations in `factory/DECISIONS.md` are aimed by a file that is not
+    the one the prose means: `H-0110` writes "`emit()` is defined TWICE in `factory/selftest.sh`, at
+    `:2766` ... and `:3731`" on a line whose earlier citation is `scripts/check-decisions.py:161`, and
+    `H-0111` writes the PROCESS/CLAIM shim plants as `:2853` and `:3833` on a line whose earlier
+    citation is `factory/triage.sh:600`. All four land in `unanchored`, where they cost nothing today --
+    and all four would be refused as past-EOF by the length check #318's option 3 proposes, which is a
+    fourth reason that option is out: it refuses four true sentences to catch zero false ones. The
+    repair is a rule about sentences, not lines, and it is filed as its own issue rather than
+    improvised here; a bare `:NNN` inside a wrapped paragraph is the one shape this rule admits it
+    cannot place.
+    """
+    found = []
+    for n, line in enumerate(text.splitlines(), 1):
+        last = None
+        for m in CITATION.finditer(line):
+            written, span = m.group(1), m.group(2)
+            continued = False
+            if not written and last:
+                written, continued = last, True
+            anchor = None
+            near = None
+            am = ANCHOR_AFTER.match(line[m.end():])
+            if am:
+                anchor = am.group(1)
+            else:
+                nm = NEAR_QUOTE.match(line[m.end():])
+                if nm:
+                    # (the gap itself, length of the quote) -- what the refusal has to name when it
+                    # declines this one for having no anchor at all. The gap is kept as text, not as a
+                    # width, because `` `x.md:9`'s "…" `` is three characters wide and the third of them
+                    # is what the rule declines; a width alone cannot tell the two refusals apart.
+                    near = (nm.group(1), len(nm.group(2)))
+            bounds = [int(x) for x in span.replace(" ", "").split("-")]
+            low, high = bounds[0], bounds[-1]
+            malformed = high < low or low < 1
+            if continued:
+                # A continuation inherits the FILE, not the spelling. `last` is already a resolved
+                # tree-relative path; re-resolving it by NAME can answer two candidates, and the
+                # no-guess guard below then turned the continuation into "no file at all" -- which is how
+                # `./DECISIONS.md:2706` and `:2986` left the continuation checked by nothing, because
+                # `DECISIONS.md` is also `factory/DECISIONS.md` (#367 review #2, found by measuring the
+                # reviewer's own repro: 4 rows in the two logs, all of them a `./`-prefixed parent whose
+                # basename is ambiguous with a nested copy).
+                written, cand = last, [last]
+            else:
+                cand = resolve_citation(written, index)
+            if cand:
+                kind = "ambiguous" if len(cand) > 1 else ("bad-range" if malformed else "file")
+                resolved = cand[0] if kind == "file" else None
+                if kind == "file":
+                    last = resolved
+            elif written and revision_qualified(written):
+                # `origin/main:factory/selftest.sh:4120` and `refs/heads/sibling:11` are in these logs.
+                # They name the revision they were read at, which is the other half of the same promise
+                # an anchor makes, so they owe no anchor -- and they cannot be checked here, because
+                # checking them means reading another revision and this rule reads no git at all. The
+                # pinned spelling is a sha; a branch name is the loose one, and `--citations` counts
+                # them so the loose half stays visible.
+                kind, resolved, cand = "revision-qualified", None, []
+            elif written and ("/" in written or FILENAME_SHAPE.match(written)):
+                # A path with a directory in it is a path even when nothing answers to it: the file was
+                # renamed, or the entry misremembered where it lived. So is a bare name that carries an
+                # extension -- `gonee.md:3` promised a reader a line in a file, and before #367 that
+                # promise was checked by nothing whenever the file was gone, because this arm could only
+                # be reached by a written value containing `/`. What stays exempt is a left half with no
+                # extension: `pr:209` (a triage `class:PR` pair, common in both logs), `STATE_PROPS:1040`
+                # (a symbol), `D-0033:236` and `H-0153:45` (an entry id and a line of prose about one),
+                # `verify:1` and `make:2`. The cost is honest and measured: an ILLUSTRATIVE coordinate in
+                # prose -- `x.md:9` written to explain a shape -- is refused too, and has to be spelled
+                # without the colon or aimed at a real file. That is one edit in this log today. The read
+                # that would separate the two for free is `git ls-files`, which says whether a name was
+                # ever tracked; this rule reads no git at all (`gate_reads_no_refs`), deliberately.
+                kind = "bad-range" if malformed else "file-missing"
+                resolved, cand = written, [written]
+            else:
+                kind, resolved, cand = "not-a-path", None, []
+            found.append({"written": written, "kind": kind, "path": resolved,
+                          "cands": cand, "low": low, "high": high, "anchor": anchor,
+                          "near": near,
+                          "line": n, "entry": entry_of(entries, n),
+                          "continued": continued})
+    return found
+
+
+def revision_qualified(written):
+    """Does this coordinate name the revision it was read at (`origin/main:file`, `refs/heads/x`,
+    `3044b80:file`)? Such a citation states which tree to open, so it cannot silently drift.
+
+    It is exempt from the anchor rule for the same reason an anchored one is checked: the reader has
+    something to verify against. It is not checked *here*, because here means this tree and no other,
+    and this rule reads no git (`gate_reads_no_refs`). `--citations` counts them separately: a branch
+    name is the loose spelling of this form and a sha is the pinned one.
+    """
+    if ":/" in written or written.startswith(("refs/", "origin/", "upstream/", "heads/", "tags/", "HEAD")):
+        return True
+    return bool(re.fullmatch(r"[0-9a-f]{7,40}", written.split(":")[0]))
+
+
+def debt_applies(entries, floor=POINTER_DEBT_AT):
+    """Is the corpus in this tree the one `POINTER_DEBT` is a number about?
+
+    Kept out as a function so `--self-test` can pin both sides of the boundary: a synthetic repository
+    with two entries is not, and a tree that has grown since the measurement is. See the note above
+    `POINTER_DEBT_AT` for the leg that measured this.
+    """
+    return entries is not None and entries >= floor
+
+
+def no_anchor_note(near):
+    """What the 'has no anchor' refusal adds when a quotation is sitting right there.
+
+    The rule declines two shapes silently: a quotation separated from the closing backtick by more than
+    three characters -- the possessive `s ` of `` `README.md:588`'s "…" `` is the ordinary one -- and a
+    quotation flush against it but shorter than `MIN_ANCHOR`. Both leave the author with a sentence that
+    says their citation has no anchor when they wrote one, and neither the separator nor the floor is
+    named. Measured on the two logs: 3 citations carry a quotation of 16+ characters within six
+    characters of the coordinate that the class declines, and 2 carry one of 12 or 13.
+    """
+    if not near:
+        return ""
+    gap, length = near
+    if len(gap) > 3 or set(gap) - set(" '"):
+        return (" -- there IS a quotation %d characters long sitting %d characters after the closing "
+                "backtick, and the gap is `%s`: this rule reads only spaces and a lone apostrophe in that "
+                "gap, so that quotation checks nothing. Move it tight against the coordinate; if the gap "
+                "is a possessive, drop the possessive and put the coordinate after the sentence."
+                % (length, len(gap), gap))
+    return (" -- there IS a quotation right after the closing backtick but it is only %d characters, and "
+            "the floor is %d: a fragment that short matches half the tree and a check that cannot fail is "
+            "not a check -- quote the sentence, not a word" % (length, MIN_ANCHOR))
+
+
+def stray_note(cands):
+    """What the ambiguity refusal adds when one of the candidates may not belong to the repository.
+
+    The tree walk is the filesystem, not `git ls-files` (H-0162: the gate reads no refs, so CI, the
+    review loop and the merge commit answer identically). That is what makes an untracked directory able
+    to ambiguous-ify a bare name -- a vendored checkout, a scratch tree, an ignored agent-state dir -- and
+    the pointers this hits were written by other units, years of log history that no edit in this commit
+    caused. Say so, and hand over the one read that separates the two, or the reader's only available
+    repair is to re-path entries they did not touch.
+    """
+    return (" -- nothing here can tell which of these is the stray, because the gate reads the tree and "
+            "not git. If one is untracked or ignored it is not the logs' defect and the repair is to "
+            "remove it, not to re-path other units' entries: `git ls-files --others --ignored "
+            "--exclude-standard` names it. A pointer that names %d files is still ambiguous either way, "
+            "so the full path is owed whichever tree this is" % len(cands))
+
+
+def classify(found, read):
+    """The three buckets a citation falls into, plus the count that owes an anchor.
+
+    `read(path)` returns the file's text or None. Split out of `citation_problems` so `--citations`
+    reports exactly what the gate refuses on, rather than a second implementation that can drift from
+    it -- the same reason `check-scripts.py` imports the encoding guard instead of copying it.
+
+    Only `unanchored` feeds the ratchet. A pointer to a file that is absent, or to a name five files
+    answer to, is not an unverified promise, it is a pointer that does not work today, and that is
+    refused on its own and must be zero -- folding it into the number would have hidden the 17 pointers
+    one merge from `main` delivered inside a baseline of 500 while the headline stayed green (measured
+    on this branch's own merge of `origin/main`: 17 unopenable citations arrived in other units'
+    entries, 10 of them a bare `README.md`, which five files in this tree answer to).
+
+    That separation is why `citation_problems` refuses to JUDGE the number while either of the other two
+    buckets is non-empty (#367 review #1). One untracked `vendor/AGENTS.md` moved 12 pointers out of
+    `unanchored` and into `unresolvable` and the gate printed "below the recorded debt of 517 -- pay it
+    down by lowering POINTER_DEBT to 505": the same tree content both invented a defect in five other
+    units' entries and ordered the one repair that permanently disarms the ratchet. The number stays a
+    statement about the logs, and the must-be-zero check keeps its own teeth.
+    """
+    unanchored = []
+    unresolvable = []
+    broken = []
+    cache = {}
+
+    def lines_of(path):
+        if path not in cache:
+            body = read(path)
+            cache[path] = body.splitlines() if body is not None else None
+        return cache[path]
+
+    for c in found:
+        if c["kind"] in ("not-a-path", "revision-qualified"):
+            continue
+        at = "%s:%d (%s)" % (c.get("label", "?"), c["line"], c["entry"])
+        cite = "`%s:%s`" % (c["written"], c["low"] if c["high"] == c["low"]
+                            else "%d-%d" % (c["low"], c["high"]))
+        if c["kind"] == "ambiguous":
+            unresolvable.append("%s %s names %d files (%s) -- a pointer the reader has to guess at is "
+                                "not a pointer; write the path you mean, or `./%s` for one at the root%s"
+                                % (at, cite, len(c["cands"]), ", ".join(sorted(c["cands"])),
+                                   os.path.basename(c["written"]), stray_note(c["cands"])))
+            continue
+        body = lines_of(c["path"])
+        want = norm(c["anchor"]) if c["anchor"] is not None else None
+        if body is None:
+            row = broken if c["anchor"] else unresolvable
+            row.append("%s %s cites %s, which is not in the tree being gated -- %s"
+                       % (at, cite, c["path"],
+                          "an anchored citation promises the reader a line and there is no file to "
+                          "read it in" if c["anchor"] else "the file was renamed, deleted, or never "
+                          "lived where the entry said; write the path a reader can open today"))
+            continue
+        if want is None:
+            unanchored.append("%s %s -> %s has no anchor, so nothing here can tell whether line %d "
+                              "still says what the entry measured%s"
+                              % (at, cite, c["path"], c["low"], no_anchor_note(c.get("near"))))
+            continue
+        now = [i + 1 for i, l in enumerate(body) if want in norm(l)]
+        if c["low"] > len(body):
+            broken.append("%s %s cites line %d of %s, which has %d lines, anchored to %r -- %s"
+                          % (at, cite, c["low"], c["path"], len(body), c["anchor"][:48],
+                             "it is at line %s" % ", ".join(str(x) for x in now[:6]) if now
+                             else "it is nowhere in the file"))
+            continue
+        if want in norm(" ".join(body[c["low"] - 1:c["high"]])):
+            continue
+        where = ("it is at line %s now, not %d -- the lines above it moved, and a pointer that is "
+                 "wrong by one line still lands on the wrong sentence"
+                 % (", ".join(str(x) for x in now[:6]), c["low"])) if now else \
+                ("it is nowhere in %s -- the sentence was deleted, or the entry never quoted it "
+                 "faithfully; line %d reads: %s"
+                 % (c["path"], c["low"], norm(body[c["low"] - 1])[:96]))
+        broken.append("%s %s in %s is anchored to %r and %s"
+                      % (at, cite, c["path"], c["anchor"][:48], where))
+    return unanchored, unresolvable, broken
+
+
+CitationVerdict = collections.namedtuple(
+    "CitationVerdict",
+    # `judged` is the answer to "did the ratchet actually compare this number?", and `unjudged_because`
+    # is the sentence that says why it did not. Both exist because the headline used to claim "the first
+    # number is the recorded debt, which may only fall" on a run where the number had just been moved by
+    # an untracked directory -- a true sentence about a false measurement. One classifier, one verdict,
+    # so the headline cannot disagree with the refusal list above it.
+    "problems measured unanchored unresolvable broken judged unjudged_because")
+
+
+def citation_problems(found, read, debt=POINTER_DEBT, judge_debt=True):
+    """Problems, and a `CitationVerdict` carrying the measured count of citations that still owe an anchor.
+
+    `read(path)` is injected so `--self-test` can assert every arm without a filesystem: the moved
+    anchor, the deleted one, the path that is two files, the range written backwards, a missing file
+    anchored and unanchored, a citation that names its own revision, the ratchet in both directions, and
+    the ratchet NOT running when a pointer cannot be opened. `judge_debt=False` is the `--log` case,
+    where the corpus the number describes is not the corpus being read.
+    """
+    problems = []
+    for c in found:
+        if c["kind"] == "bad-range":
+            problems.append("%s:%d (%s) `%s:%d-%d` cites no lines: the range runs backwards or starts "
+                            "before the first line of the file, so there is nothing for a reader to "
+                            "open" % (c.get("label", "?"), c["line"], c["entry"], c["written"],
+                                      c["low"], c["high"]))
+    unanchored, unresolvable, broken = classify(found, read)
+    for group, head in ((broken, "anchored citation(s) in the decision logs point at text that is not "
+                                 "there"),
+                        (unresolvable, "citation(s) in the decision logs a reader cannot open at all")):
+        if not group:
+            continue
+        problems.append("%d %s:" % (len(group), head))
+        problems.extend("    " + g for g in group[:MAX_LISTED])
+        if len(group) > MAX_LISTED:
+            problems.append("    ... and %d more; `python3 scripts/check-decisions.py --citations` "
+                            "lists all of them" % (len(group) - MAX_LISTED))
+    measured = len(unanchored)
+    unopenable = len(unresolvable) + len(broken)
+    if not judge_debt:
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+                               False, "--log narrows the corpus the number is a count of")
+    if debt is None:
+        problems.append("the citation-debt number could not be read, so the rule did not run")
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+                               False, "the recorded debt could not be read")
+    if unopenable:
+        # The ratchet is a statement about the logs, and this number is not one: every pointer in the two
+        # lists above left `unanchored` without the logs changing, and a stray directory can do it to a
+        # dozen at a time. Measured at `bc1c08c` with one untracked `vendor/AGENTS.md`: 12 pointers moved
+        # and the gate ordered "lower POINTER_DEBT to 505" -- the one repair that permanently disarms it,
+        # issued to a reader under a green-gate deadline (#367 review #1). The must-be-zero refusals above
+        # still stand on their own; only the comparison with the constant waits.
+        problems.append("%d citation(s) above are not in the %d the ratchet guards: a pointer a reader "
+                        "cannot open is a defect, not a grandfathered promise. The number is therefore "
+                        "NOT judged this run, and that is not an invitation to edit POINTER_DEBT -- an "
+                        "untracked or ignored directory moves pointers out of the debt and into that list, "
+                        "so a number measured against a tree the repository does not have says nothing "
+                        "about the logs. Fix the list, make `git status --short --ignored` empty of "
+                        "anything the logs did not write, and the comparison comes back on the next run."
+                        % (unopenable, measured))
+        return CitationVerdict(problems, measured, unanchored, unresolvable, broken,
+                               False, "%d citation(s) a reader cannot open" % unopenable)
+    if measured > debt:
+        problems.append("the decision logs hold %d `path:line` citations that owe an anchor, and the "
+                        "recorded debt is %d: the count went UP. A citation you add today has to carry "
+                        "one -- a quoted fragment of at least %d characters immediately after the "
+                        "closing backtick, the text you actually read at that line -- and nothing may "
+                        "be added to this number. If yours is not in the list, one of these is already "
+                        "yours to pay down. A merge from `main` raises this number with nothing written "
+                        "by you: `--citations` re-derives it, and raising POINTER_DEBT to the new "
+                        "measurement is legal only beside the entry that records the measurement, "
+                        "because the one-line diff is the whole audit trail."
+                        % (measured, debt, MIN_ANCHOR))
+        problems.extend("    " + u for u in unanchored[:MAX_LISTED])
+    elif measured < debt:
+        problems.append("the decision logs now hold %d citations that owe an anchor, below the recorded "
+                        "debt of %d -- pay it down by lowering POINTER_DEBT to %d in this same commit. "
+                        "An unlowered number is a ratchet with the pawl filed off: the next unanchored "
+                        "citation hides in the slack." % (measured, debt, measured))
+    return CitationVerdict(problems, measured, unanchored, unresolvable, broken, True, None)
+
+
+# The files that TEACH this rule are the one place a false pointer is invisible by construction: the rule
+# reads the two decision logs and nothing else, so a worked example six lines off is copied by every unit
+# that opens it. Measured at `4fcf9a4` -- the checkpoint before this code -- `.opencode/skills/factory/SKILL.md`
+# taught `AGENTS.md` at line 46 for a sentence that sits at line 52, and wrote a bare `DECISIONS.md:2221-2231`
+# that this gate refuses outright inside a log because two files answer to that name.
+TEACHES_RULE = (".opencode/skills/factory/SKILL.md", "AGENTS.md")
+
+
+def teaches_problems(read, index, paths=TEACHES_RULE):
+    """Refuse a pointer in the instruction that teaches the rule, and nothing else about it.
+
+    Same classifier as the logs, deliberately -- a second copy of the anchor logic is the bug H-0170
+    removed from the headline. What differs is what is owed: an entry in a decision log makes a promise
+    forever, so an unanchored one is counted against the ratchet; a guide is edited as a unit and its
+    pointers are re-read by this command, so what it owes is that every coordinate it tells a unit to
+    copy resolves today, and an unanchored one is not a defect. That is why `unanchored` is dropped here
+    and the two must-be-zero lists are not. `docs/factory.md` is NOT in `TEACHES_RULE` and that is a
+    measured choice, not an oversight: it is the reference, and it carries the shapes the rule refuses on
+    purpose (`gonee.md:3`, `pr:209`, a `README.md:588` past a 349-line EOF) inside the table that
+    explains them, so pointing this pass at it refuses the guide's own examples.
+    """
+    found = []
+    for path in paths:
+        text = read(path)
+        if text is None:
+            continue          # a fixture tree, a fork without the skill: absent is not false
+        for c in scan_citations(text, [], index):
+            c["label"], c["entry"] = path, "the guide"
+            found.append(c)
+    _, unresolvable, broken = classify(found, read)
+    return ["the file that teaches this rule has a pointer a reader cannot follow: " + r
+            for r in unresolvable + broken]
+
+
+def citation_report(found, read, only=None, verdict=None):
+    """The `--citations` listing: what the debt is made of, by the file it points at.
+
+    With `only`, it answers the other question instead -- the one to ask BEFORE editing a file: every
+    citation pointing at that path, with the log line that cites it and the number it names. A merge
+    that moves a line has to find the pointers to fix in the same commit, and the by-file counts above
+    cannot tell a reader which ones. Without this, the question was answerable only by grepping the
+    logs for a basename and reading 378 lines of prose.
+
+    `verdict` is the one the gate already computed; passing it is what makes the last line of this report
+    and the refusal's headline the same number by construction rather than by two runs of `classify()`
+    agreeing (#367 review, non-blocking: three calls to one classifier was three chances to drift).
+    """
+    if only:
+        want = only[2:] if only.startswith("./") else only
+        rows = []
+        for c in found:
+            if c["kind"] == "not-a-path":
+                continue
+            if c["path"] == want or os.path.basename(c["written"] or "") == os.path.basename(want):
+                rows.append("%s:%d (%s) `%s:%s` -> %s %s"
+                            % (c.get("label", "?"), c["line"], c["entry"], c["written"],
+                               c["low"] if c["high"] == c["low"] else "%d-%d" % (c["low"], c["high"]),
+                               c["path"] or "(unresolved)",
+                               "anchored" if c["anchor"] else "UNANCHORED"))
+        # Returned, not printed: the census branch below returns its lines and `main` prints both, and a
+        # function with two output channels is one the self-test cannot assert on (H-0171 found this the
+        # hard way -- the leg that proves `--citations gonee.md` still finds a pointer whose file is
+        # already gone was asserting on `[]`).
+        out = ["citations pointing at %s (%d):" % (want, len(rows))]
+        for r in sorted(rows, key=lambda s: s.split("`")[0]):
+            out.append("  " + r)
+        if rows:
+            out.append("  -- editing that file moves these. Fix them in the same commit, or the log "
+                       "keeps pointing at whatever line arrived where the number used to be.")
+        return out
+
+    if verdict is None:
+        # A report asked for on its own has no verdict to borrow; classifying here is the one copy of the
+        # rule, not a second implementation of it.
+        unanchored, unresolvable, broken = classify(found, read)
+        note = ""
+    else:
+        unanchored, unresolvable, broken = verdict.unanchored, verdict.unresolvable, verdict.broken
+        note = "" if verdict.judged else " (NOT judged this run: %s)" % verdict.unjudged_because
+    counts = {}
+    for c in found:
+        if c["kind"] in ("file", "file-missing") and c["anchor"] is None:
+            counts[c["path"]] = counts.get(c["path"], 0) + 1
+    out = ["citations that owe an anchor, by the file they point at (%d):" % sum(counts.values())]
+    for path in sorted(counts, key=lambda p: (-counts[p], p)):
+        out.append("  %3d  %s" % (counts[path], path))
+    out.append("citations a reader cannot open (%d):" % len(unresolvable))
+    out.extend("  " + u for u in unresolvable)
+    out.append("anchored citations whose text has moved or gone (%d):" % len(broken))
+    out.extend("  " + b for b in broken)
+    out.append("citations that name their own revision, exempt from both (%d):"
+               % len([c for c in found if c["kind"] == "revision-qualified"]))
+    out.append("debt this gate ratchets on: %d%s" % (len(unanchored), note))
+    return out
 
 
 def cross_log_problems(where_seen):
@@ -671,6 +1350,354 @@ def self_test():
         fails.append("cross-log-clean: `D-0012` and `H-0012` are different decisions in different logs "
                      "and the rule refused them -- %s" % separated)
 
+    # ---------------------------------------------------------------------------------------------
+    # `path:line` citations (#318). A fixture tree of the exact shape the rule has to survive:
+    #   * two files that answer to the basename `SKILL.md`, which is the ambiguity #318 counted;
+    #   * a directory whose name begins with `.git` that must NOT be skipped -- `"/.git" in
+    #     "./.github/workflows"` is true, and the first census of #318 wrote that and reported a
+    #     living citation in ci.yml as dead;
+    #   * a file three lines long, to cite past the end of.
+    # Nothing here touches git or the filesystem, because the rule itself must not either.
+    CITES_TREE = {
+        ".github/workflows/ci.yml": "name: CI\non: push\njobs:\n  verify:\n    runs-on: ubuntu-latest\n",
+        "docs/factory.md": "one\ntwo\nthe escalation label is printed by exactly one script\nfour\n",
+        "SKILL.md": "the root skill file is the one a bare name must not silently choose\n",
+        "skills/a/SKILL.md": "aaa\n",
+        "skills/b/SKILL.md": "the second skill file's first line is long enough\n",
+        "notes.md": "first\nsecond\nthe third line is long enough to anchor a citation to\n",
+    }
+    CITES_INDEX = tree_index(sorted(CITES_TREE))
+    read_fixture = CITES_TREE.get
+
+    def cites(body):
+        found = scan_citations(body, parse(GOOD, "log"), CITES_INDEX)
+        for c in found:
+            c["label"] = "log"
+        return found
+
+    def cite_case(body, name, needle, debt=0, judge=True):
+        counts[0] += 1
+        verdict = citation_problems(cites(body), read_fixture, debt=debt, judge_debt=judge)
+        probs = verdict.problems
+        if not probs:
+            fails.append("%s: an unresolvable citation passed -- the rule is not being applied" % name)
+        elif not any(needle in p for p in probs):
+            fails.append("%s: expected a refusal containing %r, got %s" % (name, needle, probs))
+
+    def cite_ok(body, name, debt=0):
+        counts[1] += 1
+        verdict = citation_problems(cites(body), read_fixture, debt=debt)
+        if verdict.problems:
+            fails.append("%s: expected clean, got %s" % (name, verdict.problems))
+        return verdict.measured
+
+    # The good case, and it is asserted at debt 0: a clean citation must also measure clean, or the
+    # ratchet below is judging a number nothing produced.
+    cite_ok('See `docs/factory.md:3` "the escalation label is printed by exactly one script".\n',
+            "anchor-exact")
+    cite_ok('Lines `docs/factory.md:2-3` "the escalation label is printed by exactly one script".\n',
+            "anchor-in-range")
+    # The ticket's own caveat, as a case: `.github` is a directory whose name starts with the string
+    # `.git`, and skipping by substring would drop every citation into `.github/` from the tree.
+    cite_ok('`.github/workflows/ci.yml:5` "runs-on: ubuntu-latest" is the runner.\n',
+            "dot-dir-not-skipped")
+    cite_case('`docs/factory.md:2` "the escalation label is printed by exactly one script".\n',
+              "anchor-moved", "it is at line 3 now, not 2")
+    cite_case('`docs/factory.md:3` "a sentence nothing in this file ever wrote".\n',
+              "anchor-absent", "nowhere in docs/factory.md")
+    cite_case('`docs/factory.md:2-3` "a sentence nothing in this file ever wrote".\n',
+              "anchor-outside-range", "nowhere in docs/factory.md")
+    cite_case('`notes.md:9` "the third line is long enough to anchor a citation to".\n',
+              "anchor-past-eof", "which has 3 lines")
+    cite_case('`notes.md:1-0` is not a range a reader can open.\n', "range-backwards", "cites no lines")
+    cite_case('Both `skills/a/SKILL.md:1` and `SKILL.md:1` are cited here.\n',
+              "ambiguous-basename", "names 3 files")
+    # The disambiguation this rule tells you to write, asserted to work: `./` is root-relative and is
+    # looked up ONLY as a path, never by basename. It is in the message above, and the first run of the
+    # real repair wrote `./DECISIONS.md:1847` and was refused by the rule for it -- advice that does not
+    # work is worse than no advice, because the reader follows it and then cannot tell what is wrong.
+    cite_ok('`./SKILL.md:1` "a bare name must not silently choose" is the root file.\n',
+            "dot-slash-is-root-relative")
+    cite_case('`./SKILL.md:1` "the second skill file\'s first line".\n',
+              "dot-slash-not-basename", "nowhere in SKILL.md")
+    cite_case('`gone/file.md:2` "the third line is long enough to anchor a citation".\n',
+              "anchored-file-gone", "not in the tree being gated")
+    # The same absent file with no anchor is not "unverified", it is a pointer that does not work
+    # today. It is refused outright rather than added to the debt, or 41 of them could sit inside a
+    # baseline of 375 with the headline green.
+    cite_case('`gone/file.md:2` names a file this tree does not have.\n',
+              "unanchored-file-gone", "cannot open at all")
+    # A citation that names its own revision states which tree to open, which is the promise the
+    # anchor exists to make. It is exempt -- and exempt means "not counted", asserted at debt 0: an
+    # exempt citation that still raised the number would be refused, and the exemption would be a
+    # sentence in a docstring rather than a property of the rule.
+    cite_ok('`origin/main:factory/selftest.sh:4120` and `refs/heads/sibling:11` both name a revision.\n',
+            "revision-qualified-exempt")
+    # The ratchet, both ways. Over: a new pointer arrived with nothing to check it against.
+    cite_case("`notes.md:2` says something.\n", "debt-rose", "the count went UP")
+    # Under: somebody paid one down and left the number claiming the old figure.
+    cite_case('`docs/factory.md:3` "the escalation label is printed by exactly one script".\n',
+              "debt-fell", "lowering POINTER_DEBT to 0", debt=4)
+    # And the narrowing that makes the number mean what it says: `--log` reads one file, and the
+    # number describes the pair, so it is not judged -- yet the anchor rule above still runs there.
+    counts[1] += 1
+    narrowed = citation_problems(cites("`notes.md:2` says something.\n"), read_fixture,
+                                 debt=0, judge_debt=False)
+    if narrowed.problems:
+        fails.append("debt-not-judged-under-log: --log was refused on a number that counts the other "
+                     "log too -- %s" % narrowed.problems)
+    if narrowed.measured != 1:
+        fails.append("debt-not-judged-under-log: the unanchored citation was not even counted -- %r"
+                     % (narrowed,))
+    # The floor. `POINTER_DEBT` is a number about a corpus, and a tree with fewer entries in its logs
+    # than that corpus held is a different repository. This one is measured, not designed:
+    # `gate_verdict_off_refs` in `factory/selftest.sh` copies this script into a two-entry fixture to
+    # prove the verdict reads files and not refs, and the first full run refused that fixture with "the
+    # decision logs now hold 0 citations that owe an anchor, below the recorded debt of 378".
+    counts[1] += 1
+    if not debt_applies(POINTER_DEBT_AT) or debt_applies(POINTER_DEBT_AT - 1) \
+            or debt_applies(None):
+        fails.append("debt-floor: the boundary between this corpus and a foreign one moved -- %d judged,"
+                     " %d not, None %r" % (POINTER_DEBT_AT, POINTER_DEBT_AT - 1, debt_applies(None)))
+    # And the floor does not silence the part that is about a pointer rather than a count.
+    counts[0] += 1
+    foreign = citation_problems(cites('`docs/factory.md:2` "a sentence nothing in this file ever '
+                                      'wrote".\n'), read_fixture, debt=0, judge_debt=False)
+    if not any("nowhere in docs/factory.md" in p for p in foreign.problems):
+        fails.append("foreign-corpus-still-checks: below the floor the anchor rule went quiet too -- %s"
+                     % foreign.problems)
+
+    # What is NOT a citation. `pr:209` and `unclaimed:263` are a triage `class:PR` pair that appears
+    # in both logs; `STATE_PROPS:1040` is a symbol. Refusing every `word:digit` span would have been
+    # fifteen false refusals in the first run of this rule, so a span counts only when its path half
+    # names a file in the tree -- and that is why the `.git` exclusion above is done by name.
+    counts[1] += 1
+    prose = cites("The supervisor dispatched `pr:209` and `unclaimed:263` at 06:30 on `2026-11-10T23:51`.\n")
+    if [c for c in prose if c["kind"] != "not-a-path"]:
+        fails.append("not-a-citation: class:PR and clock spans were read as citations -- %s"
+                     % [c for c in prose if c["kind"] != "not-a-path"])
+    # A continuation ("`README.md:588` and the table at `:661-662`") inherits the file named earlier in
+    # the SAME LINE. Inheriting across lines would silently re-aim a pointer at whatever file the
+    # previous sentence happened to name.
+    counts[0] += 2
+    cont = cites('`notes.md:3` "the third line is long enough" and the row at `:1` agree.\n')
+    tail = [c for c in cont if c["continued"]]
+    if len(tail) != 1 or tail[0]["path"] != "notes.md":
+        fails.append("continuation: `:1` did not inherit notes.md from its own line -- %s" % cont)
+    orphan = cites("and the row at `:1` agrees, in a sentence naming no file.\n")
+    if [c for c in orphan if c["kind"] != "not-a-path"]:
+        fails.append("continuation-orphan: a bare `:1` with no file on its line resolved to something "
+                     "anyway -- %s" % orphan)
+    # A short quote is not an anchor: `notes` and `Chose: a` match half the tree, and an anchor that
+    # matches anything is a check that cannot fail. It falls into the debt instead, which the ratchet
+    # then refuses -- the loophole closes itself.
+    counts[0] += 1
+    short = citation_problems(cites('`notes.md:3` "the third line" is all it quoted.\n'),
+                              read_fixture, debt=0)
+    if short.measured != 1 or not any("went UP" in p for p in short.problems):
+        fails.append("short-anchor: a %d-character quote was taken for an anchor -- %r" % (MIN_ANCHOR, short))
+    # ... and the refusal says which of its two floors it applied. Measured on the two logs: 3 citations
+    # carry a quotation of 16+ characters within six characters of the coordinate that the separator class
+    # declines, and 2 carry one of 12 or 13 characters. A message that only says "has no anchor" sends all
+    # five to look for a rule that is not there (#367 review, non-blocking).
+    counts[0] += 2
+    for shape, needle, name in (
+            ('`notes.md:3`\'s "the third line is long enough to anchor a citation to".\n',
+             "the gap is `'s `", "declined-separator-names-the-gap"),
+            ('`notes.md:3`, "the third line is long enough to anchor a citation to".\n',
+             "characters long sitting 2 characters after", "declined-comma-names-the-gap")):
+        got = citation_problems(cites(shape), read_fixture, debt=0)
+        if not any(needle in q for q in got.problems):
+            fails.append("%s: a quotation the separator class declines was refused with no hint of the "
+                         "separator -- %s" % (name, got.problems))
+        if not any("the count went UP" in q for q in got.problems):
+            fails.append("%s: the declined quotation was not counted either -- %s" % (name, got.problems))
+    # The separator note has to stay silent when there is no quotation in sight, or every one of the 535
+    # old pointers would grow a sentence about a quote it never had.
+    counts[1] += 1
+    naked = citation_problems(cites("`notes.md:2` says something.\n"), read_fixture, debt=0)
+    if any("there IS a quotation" in q for q in naked.problems):
+        fails.append("declined-separator-phantom: a citation with no quotation nearby was told about one "
+                     "-- %s" % naked.problems)
+
+    # ---------------------------------------------------------------------------------------------
+    # #367 review #2: a citation that names no file was skipped instead of refused, and one of the
+    # shapes that got away was a `:NNN` continuation.
+    #
+    # `last` holds a RESOLVED path, and the continuation re-resolved it by name. For `./SKILL.md:1`
+    # -- a root file whose basename three files answer to -- that returned three candidates, the
+    # no-guess guard turned them into "no file", and the continuation fell out as `not-a-path`: a
+    # coordinate in a decision log checked by nothing. The fixture already carries the ambiguity, so
+    # the case below is the bug as written, not a new file invented to hold it.
+    counts[0] += 3
+    counts[1] += 1
+    ROOT_SKILL = "the root skill file is the one a bare name must not silently choose"
+    cite_case('`./SKILL.md:1` "%s", again at `:2` "%s".\n' % (ROOT_SKILL, ROOT_SKILL),
+              "continuation-of-ambiguous-parent-is-checked", "which has 1 lines")
+    cite_ok('`./SKILL.md:1` "%s", again at `:1` "%s".\n' % (ROOT_SKILL, ROOT_SKILL),
+            "continuation-of-ambiguous-parent-resolves")
+    # A bare name with an extension is a promise about a file. Before #367 the absent-file arm could
+    # only be reached by a written value containing `/`, so this exact body -- the reviewer's own
+    # repro, verbatim -- produced zero problems and left the debt untouched.
+    cite_case('`gonee.md:3` "the third line is long enough to anchor a citation".\n',
+              "bare-name-gone-anchored", "there is no file to read it in")
+    cite_case('`gonee.md:3` is where it said so.\n',
+              "bare-name-gone-unanchored", "never lived where the entry said")
+    # The exemption has to survive the widening, and these are shapes both logs are full of. None
+    # carries an extension, so no tree can ever answer to them and refusing them would refuse the
+    # prose that reports triage output, quotes a symbol, or names an entry id and a line about it.
+    for shapes, name in (
+            ("`pr:209`, `unclaimed:263` and `STATE_PROPS:1040` are triage classes and a symbol.\n",
+             "class-pair-and-symbol-stay-exempt"),
+            ("`D-0033:236` is the id of `H-0153:45` in prose, and `verify:1` and `make:2` are a verb "
+             "and a tool.\n", "id-prose-and-verb-stay-exempt")):
+        verdict = citation_problems(cites(shapes), read_fixture, debt=0)
+        if verdict.problems or verdict.measured:
+            fails.append("%s: a citation-shaped token with no extension was refused, or counted as "
+                         "debt -- %s" % (name, verdict.problems))
+        else:
+            counts[1] += 1
+    # A bare `:NNN` with no file named earlier on its own line names no file at all, and is still NOT
+    # refused: that is the documented limit of the inheritance rule (H-0153 -- the same physical line,
+    # never the last line read) and 158 rows of these logs are that shape, so refusing them refuses
+    # 158 true sentences. Pinned as a must-pass so the widening cannot swallow it by accident.
+    counts[1] += 1
+    verdict = citation_problems(cites("`:19` continues nothing on this line and stays a limit.\n"),
+                                read_fixture, debt=0)
+    if verdict.problems or verdict.measured:
+        fails.append("orphan-continuation-still-a-limit: the sentence-limit became a defect -- %s"
+                     % verdict.problems)
+    # ---------------------------------------------------------------------------------------------
+    # #367 review #3: the files that teach the rule were the one place a false pointer could not be seen,
+    # because the rule read only the two logs. Three legs refuse a bad pointer in a guide, four hold the
+    # exemptions open -- the one that matters is the unanchored coordinate, which is a debt in a log and
+    # is NOT a defect in a guide.
+    counts[0] += 3
+    counts[1] += 3
+
+    def teach(body):
+        read = dict(CITES_TREE, **{"guide.md": body}).get
+        return teaches_problems(read, CITES_INDEX, paths=("guide.md",))
+
+    for body, name, needle in (
+            ('read `SKILL.md:1` by its bare name here.\n', "guide-ambiguous-basename",
+             "names 3 files"),
+            ('read `docs/factory.md:2` "the escalation label is printed by exactly one script".\n',
+             "guide-anchor-moved", "it is at line 3 now, not 2"),
+            ('read `gonee.md:3` for it.\n', "guide-gone-file", "not in the tree being gated")):
+        probs = teach(body)
+        if not any(needle in q for q in probs):
+            fails.append("%s: expected a refusal containing %r, got %s" % (name, needle, probs))
+    for body, name in (
+            ('read `docs/factory.md:3` "the escalation label is printed by exactly one script".\n',
+             "guide-anchor-exact"),
+            ('read `docs/factory.md:3` and that is the whole promise a guide owes.\n',
+             "guide-may-go-unanchored"),
+            ('`pr:209` and an orphan `:19` are still not citations here either.\n',
+             "guide-shapes-stay-exempt")):
+        probs = teach(body)
+        if probs:
+            fails.append("%s: a guide was refused for a shape the rule does not owe it -- %s"
+                         % (name, probs))
+    counts[1] += 1
+    if teaches_problems(CITES_TREE.get, CITES_INDEX, paths=("no-such-guide.md",)):
+        fails.append("guide-absent-is-not-false: a fixture tree with no skill file is refused for a "
+                     "file it does not have")
+
+    # A wrapped anchor is not an anchor. The rule reads the coordinate's own physical line, so a
+    # quotation that starts on the next line leaves the citation in the debt instead of checked: a number
+    # moves and nothing is refused. Pinned both ways because these logs are markdown wrapped at ~110
+    # columns, which is exactly where a 20-character fragment wants to go (H-0171 hit it twice).
+    counts[0] += 1
+    counts[1] += 1
+    body = ('`docs/factory.md:3` "the escalation label is printed by\n'
+            '  exactly one script" continues onto the next line.\n')
+    verdict = citation_problems(cites(body), read_fixture, debt=1)
+    if verdict.measured != 1 or verdict.problems:
+        fails.append("wrapped-anchor-is-debt: a quotation on the following line %s -- measured %s, %s"
+                     % ("was treated as an anchor" if verdict.measured == 0 else "was refused",
+                        verdict.measured, verdict.problems))
+    body = ('`docs/factory.md:3` "the escalation label is printed by exactly one script" stays on its '
+            'own line.\n')
+    verdict = citation_problems(cites(body), read_fixture, debt=0)
+    if verdict.measured != 0 or verdict.problems:
+        fails.append("same-line-anchor-is-checked: the unwrapped form of that sentence should be "
+                     "checked, not counted -- %s" % verdict.problems)
+
+    # ... and the affordance still answers the question a deletion asks -- what points at this file --
+    # when the answer is a file that is already gone.
+    counts[0] += 1
+    gone_rows = [l for l in citation_report(cites("`gonee.md:3` is where it said so.\n"),
+                                           read_fixture, only="gonee.md")
+                 if "-> gonee.md" in l]
+    if len(gone_rows) != 1:
+        fails.append("gone-file-census: --citations gonee.md could not find the dead pointer it just "
+                     "refused -- %s" % gone_rows)
+
+    # ---------------------------------------------------------------------------------------------
+    # #367 review #1: an untracked directory must not be able to order the ratchet lowered.
+    #
+    # The fixture's two `SKILL.md` basenames are the reviewer's `vendor/AGENTS.md` in miniature: one extra
+    # file in the tree makes a bare pointer ambiguous, which moves it OUT of `unanchored`. Before this
+    # commit that lowered the measured number and the gate answered with "pay it down by lowering
+    # POINTER_DEBT", i.e. the tree content both invented the defect and disarmed the guard.
+    counts[0] += 3
+    stray = cites("Both `skills/a/SKILL.md:1` and `SKILL.md:1` are cited here.\n")
+    moved = citation_problems(stray, read_fixture, debt=4)
+    if any("lowering POINTER_DEBT" in q for q in moved.problems):
+        fails.append("stray-tree-orders-the-ratchet-lowered: 3 pointers left the debt because a file "
+                     "appeared, and the gate told the reader to disarm it -- %s" % moved.problems)
+    if moved.judged is not False or moved.unjudged_because is None:
+        fails.append("stray-tree-not-flagged: the headline has no reason to print instead of \"may only "
+                     "fall\" -- %r" % (moved,))
+    if not any("cannot open at all" in q for q in moved.problems):
+        fails.append("stray-tree-quiet: the must-be-zero refusal vanished with the number -- %s"
+                     % moved.problems)
+    # The same stray tree, and the ratchet must stay shut on the way UP too: an unanchored pointer
+    # arriving beside 3 unopenable ones is still refused, but by the list, not by the comparison.
+    rose = citation_problems(cites("Both `skills/a/SKILL.md:1` and `SKILL.md:1` are cited here, and "
+                                   "`notes.md:2` says something.\n"), read_fixture, debt=0)
+    if any("went UP" in q for q in rose.problems):
+        fails.append("stray-tree-still-ratchets-up: the number was compared with the constant while 3 "
+                     "pointers could not be opened -- %s" % rose.problems)
+    if not any("cannot open at all" in q for q in rose.problems):
+        fails.append("stray-tree-lost-the-new-pointer: the unanchored citation was not refused either -- %s"
+                     % rose.problems)
+    # The control, which is the whole point: with nothing unopenable, both arms of the ratchet still bite.
+    # Suppressing the comparison must not become a way to switch the rule off.
+    counts[1] += 2
+    for body, needle, name in (
+            ("`notes.md:2` says something.\n", "the count went UP", "ratchet-up-still-bites"),
+            ('`docs/factory.md:3` "the escalation label is printed by exactly one script".\n',
+             "lowering POINTER_DEBT to 0", "ratchet-down-still-bites")):
+        clean = citation_problems(cites(body), read_fixture, debt=4 if "factory" in body else 0)
+        if not any(needle in q for q in clean.problems):
+            fails.append("%s: the unopenable guard silenced the ratchet for a tree that has no unopenable "
+                         "pointer -- %s" % (name, clean.problems))
+        if clean.judged is not True or clean.unjudged_because is not None:
+            fails.append("%s: a clean tree reported itself as not judged -- %r" % (name, clean))
+    # And `--citations` says so on the line the reader actually reads.
+    counts[0] += 1
+    report = [l for l in citation_report(stray, read_fixture, verdict=moved)
+              if l.startswith("debt this gate ratchets on")]
+    if not report or "NOT judged this run" not in report[0]:
+        fails.append("report-headline-quiet: --citations printed the moved number as if it were the debt "
+                     "-- %s" % report)
+    counts[1] += 1
+    clean_report = [l for l in citation_report(cites("`notes.md:2` says something.\n"), read_fixture,
+                                               verdict=citation_problems(
+                                                   cites("`notes.md:2` says something.\n"),
+                                                   read_fixture, debt=1))
+                    if l.startswith("debt this gate ratchets on")]
+    if not clean_report or "NOT judged" in clean_report[0]:
+        fails.append("report-headline-phantom: a judged run called itself unjudged -- %s" % clean_report)
+    # The ambiguity refusal has to hand over the read that separates "the logs are wrong" from "a stray
+    # directory is in the tree", or the only repair a reader can see is re-pathing other units' entries.
+    counts[0] += 1
+    if not any("git ls-files --others --ignored" in q for q in moved.problems):
+        fails.append("stray-note-missing: the ambiguity refusal orders work on files it cannot tell apart "
+                     "-- %s" % moved.problems)
+
     if fails:
         print("check-decisions --self-test FAILED:")
         for f in fails:
@@ -678,8 +1705,12 @@ def self_test():
         return 1
     print("check-decisions --self-test: %d cases that must fail, %d that must pass, the two "
           "invocations in `verify`, four Makefiles that delete this gate, the cross-log id rule, "
-          "checkpoint existence, and the out-of-order refusal in both logs and in a file holding "
-          "both, each asserted both ways" % (counts[0], counts[1]))
+          "checkpoint existence, the out-of-order refusal in both logs and in a file holding both, and "
+          "the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
+          "file, revision-qualified, class:PR prose and the extension line, inherited ranges and the "
+          "continuation that inherits a file, the ratchet both ways, the ratchet held shut while a "
+          "pointer cannot be opened, and the refusal that names which anchor floor it applied), each "
+          "asserted both ways" % (counts[0], counts[1]))
     return 0
 
 
@@ -689,6 +1720,12 @@ def main(argv):
         return 0
     if len(argv) > 1 and argv[1] == "--self-test":
         return self_test()
+    report = len(argv) > 1 and argv[1] == "--citations"
+    report_only = argv[2] if report and len(argv) > 2 else None
+    if report and report_only not in (None, "--help", "-h") and report_only.startswith("-"):
+        print("check-decisions: --citations takes at most one path, not %r\n%s" % (report_only, USAGE),
+              file=sys.stderr)
+        return 2
 
     path = LOG
     if len(argv) > 2 and argv[1] == "--log":
@@ -697,13 +1734,22 @@ def main(argv):
                   "default", file=sys.stderr)
             return 2
         path = argv[2]
-    elif len(argv) > 1:
+    elif len(argv) > 1 and argv[1] not in ("--citations",):
         print("check-decisions: unknown argument %r\n%s" % (argv[1], USAGE), file=sys.stderr)
         return 2
 
     paths = [path] if path != LOG else list(LOGS)
+    # The debt is a number about THIS pair of logs. Narrowing the file narrows everything the rules
+    # can see, and `POINTER_DEBT` describes the pair -- counting one log against it would refuse every
+    # `--log` run with a number that means nothing. So the debt is not judged here, and the line below
+    # says so rather than going quiet about it: `--log` used to skip two rules silently, which is what
+    # a fabricated checkpoint survived (#229).
+    judge_debt = path == LOG
+    tree, walk_problem = tree_files()
+    index = tree_index(tree or [])
     problems = []
     total = 0
+    found = []
     where_seen = {}
     for p in paths:
         text, problem = read(p)
@@ -721,13 +1767,47 @@ def main(argv):
         #   (no argument)       -> 5 problems, "D-0034 names checkpoint e2dbd46e..., not a commit"
         # A fabricated checkpoint is the rule an agent walking one branch's log most needs, and the
         # usage text promised it in this mode. There is no reason for either rule to depend on which
-        # path the caller named: a checkpoint resolves against git whatever the file is called, and the
-        # Makefile guard asks about a file in this checkout.
+        # path the caller named: a checkpoint resolves against git whatever the file is called, and
+        # the Makefile guard asks about a file in this checkout.
         for e in entries:
             where_seen.setdefault(e["id"], []).append(label)
         shas = sorted({e["fields"].get("Checkpoint", "").strip() for e in entries
                        if SHA.match(e["fields"].get("Checkpoint", "").strip())})
         problems += checkpoint_problems(entries, git_checkpoint_resolver(shas))
+        cites = scan_citations(text, entries, index)
+        for c in cites:
+            c["label"] = label
+        found += cites
+
+    if walk_problem:
+        # Fail closed, in the shape of every other unreadable input here: an unevaluated rule is not a
+        # passed rule.
+        problems.append("citations: %s" % walk_problem)
+        judged, debt_note, measured = False, None, 0
+        verdict = CitationVerdict([], 0, [], [], [], False, "the tree cannot be walked")
+    else:
+        # `POINTER_DEBT` counts the citations in THIS pair of logs. A tree whose logs are smaller than
+        # the corpus that number was measured on is a different repository -- a fixture, a fork, an old
+        # checkout -- and refusing it with a foreign constant reports a defect that does not exist.
+        judged = judge_debt and debt_applies(total)
+        verdict = citation_problems(found, read_tree, debt=POINTER_DEBT, judge_debt=judged)
+        problems += verdict.problems
+        measured = verdict.measured
+        # One classifier, one verdict, and the headline reads the verdict's own fields. It used to call
+        # `classify()` a second time for these two counts, which is how a run could print "the recorded
+        # debt, which may only fall" beside a number the tree had just moved (#367 review #1).
+        debt_note = ("not judged here: these logs hold %d entries and the recorded debt was measured "
+                     "against %d, so the number is not a statement about this tree"
+                     % (total, POINTER_DEBT_AT)) if judge_debt and not judged else None
+        if judged and not verdict.judged:
+            debt_note = ("not judged this run: %s, so the anchor count is a statement about this tree and "
+                         "not about the logs -- fix the list above and the comparison comes back"
+                         % verdict.unjudged_because)
+
+    if report:
+        for line in citation_report(found, read_tree, only=report_only, verdict=verdict):
+            print(line)
+        return 0
 
     if os.path.exists(os.path.join(ROOT, "Makefile")):
         problems += verify_invocation()
@@ -740,6 +1820,11 @@ def main(argv):
         # so the only thing left to enforce is that they do not meet.
         problems += cross_log_problems(where_seen)
 
+    if not walk_problem and path == LOG:
+        # Not under `--log`: that invocation narrows the corpus deliberately, and a run aimed at one file
+        # is not a verdict on the repository's instructions either.
+        problems += teaches_problems(read_tree, index)
+
     if problems:
         print("\n%d decision-log problem(s):" % len(problems))
         for p in problems:
@@ -748,6 +1833,20 @@ def main(argv):
 
     print("check-decisions: %d entries across %d log(s), every one with its question, options, "
           "choice, reason and checkpoint" % (total, len(paths)))
+    if judge_debt and debt_note:
+        print("check-decisions: %d `path:line` citations checked for anchors, and the recorded debt is "
+              "%s" % (len([c for c in found if c["kind"] != "not-a-path"]), debt_note))
+    elif judge_debt:
+        print("check-decisions: %d `path:line` citations read out of the two logs, %d of them owing "
+              "an anchor and %d pointing somewhere a reader cannot open -- %s"
+              % (len([c for c in found if c["kind"] != "not-a-path"]), measured,
+                 len(verdict.unresolvable) + len(verdict.broken),
+                 "the first number is the recorded debt, which may only fall" if verdict.judged
+                 else "the ratchet was NOT judged this run: %s" % verdict.unjudged_because))
+    else:
+        print("check-decisions: %d `path:line` citations checked for anchors; the debt number was not "
+              "judged, because --log narrows the corpus it is a count of"
+              % len([c for c in found if c["kind"] != "not-a-path"]))
     return 0
 
 
