@@ -1903,9 +1903,9 @@ repository's name to work, that is a defect in it, not a convenience.
 
 ## A citation in a decision log carries its own anchor
 
-`DECISIONS.md` and `factory/DECISIONS.md` hold 554 backticked `path:line` citations (measured at this
-head by `python3 scripts/check-decisions.py`, whose closing line is the only way to keep that figure
-honest). A coordinate is how
+`DECISIONS.md` and `factory/DECISIONS.md` hold 565 backticked `path:line` citations, and the closing line
+of `python3 scripts/check-decisions.py` is the only figure to trust — at this head it reads 539 owing an
+anchor, 15 carrying one and 11 naming the revision they were read at. A coordinate is how
 an entry says *what it measured*, so the log is re-runnable: `python3 -c "..."` at
 `triage.sh:122`, the ratchet at `scripts/check-decisions.py:580`. A coordinate is also the one part
 of an entry a

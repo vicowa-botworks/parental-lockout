@@ -7866,6 +7866,18 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   nothing deleted, no pull request merged. `make verify`'s line and exit status on the tree this commit
   leaves are quoted in the pull-request body rather than here, because an `Effect:` written before the gate
   runs is a prophecy (#1180). Refs #318.
+ Erratum, re-measured 14 Nov against the head #367 is filed on, for that review's third non-blocking note:
+ the 382 in this entry's Question is not reproducible at this entry's own checkpoint, 92d0e39, by any of the
+ four censuses that answer there -- 512 matches of the gate's own citation regex over the two logs as they
+ stood at that commit, 375 of them gate-shaped (a kind other than not-a-path), 332 distinct lines carrying at
+ least one, and 334 resolving to a file in the tree. No command any reader can run there prints 382, so the
+ figure is withdrawn rather than defended: what the Question needed was the exposure's order of magnitude
+ and the fact that it grows with the log, and both hold at 375 exactly as they did at 382. The durable half
+ of the note is the reason docs/factory.md now prints the command that re-derives a corpus figure instead of
+ trusting one copied into prose -- at this head that line reads 565 read out of the two logs, 539 owing an
+ anchor, 15 carrying one, 11 naming the revision they were read at, and 0 pointing somewhere a reader cannot
+ open. Recorded beside the entry rather than inside its Question because #1180 makes a silently corrected
+ record indistinguishable from one that was always right.
  Renumbered 13 Nov, second pass: this entry was written as `H-0147` on `92d0e39` while that id was free (the allocator answered `H-0147` there and `H-0162` on the merged tree), and `main` published its own `H-0147` -- "PR #307 made nothing on stderr an answer no allocator could give" -- before this branch merged. The rule keeps the published id and moves the unmerged side, so this entry is now `H-0162`; the checkpoint commit is `chore(checkpoint): pre-H-0147 ...` and its message names the id that was current when it was taken, not the one the entry ended up under.
 - Checkpoint: 92d0e398a961228bddce9be7d22173350f125578
 
