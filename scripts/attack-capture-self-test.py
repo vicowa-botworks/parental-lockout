@@ -92,12 +92,16 @@ PYTHON = sys.executable or "python3"
 # The two sentences `self_test_verdict` ends with, and the third it ends with when a `return`
 # truncated the run. `green` is the only one that means "the guard believes 81 rules hold"; a run
 # that exits 0 without printing it has reported nothing, which is its own state (`silent`) and not a
-# variant of green -- the whole content of #118. The optional tail on the failure line is the canary
+# variant of green -- the whole content of #118. The optional tail on the failure line is the trip
 # count `D-0080` adds, so that a run whose only problem is a tripped probe cannot read as "0 of 81
-# rules failed"; it is optional because a run with quiet canaries keeps the shape it has had since
-# #297, and this pattern is a pin on the shape, not on the arithmetic.
+# rules failed"; it is optional because a run with quiet probes keeps the shape it has had since
+# #297, and this pattern is a pin on the shape, not on the arithmetic. D-0081 widened what the tail
+# counts -- the battery's PROBE-prefixed findings joined the two helper canaries in it, and the word
+# became `probe trip(s)` -- because that promised sentence was false for the battery until then:
+# `if arms != 4:` -> `if arms >= 0:` on a copy (#1807) put one PROBE sentence on stderr, exited 1,
+# and its last line read `0 of 81 rules failed` with no tail.
 GREEN_SUMMARY = re.compile(r"^capture self-test: \d+ refusal rules hold\b")
-FAILED_SUMMARY = re.compile(r"^capture self-test: \d+ of \d+ rules failed(, \d+ canary trip\(s\))?$")
+FAILED_SUMMARY = re.compile(r"^capture self-test: \d+ of \d+ rules failed(, \d+ probe trip\(s\))?$")
 RAN_SUMMARY = re.compile(r"^capture self-test: \d+ rules ran, want \d+")
 
 CAUGHT, HOLE, GREEN = "caught", "hole", "green"
@@ -145,10 +149,13 @@ DOCUMENTED_HOLES = {
         "`if shapes != 4`, `if not applied`, `if not restored`, or arm 4's table-coverage witness; or satisfy a "
         "witness with a constant instead of driving the function it claims to drive. Same floor as "
         "the verdict's `if bad:` and the canary pair, and the same answer: listed. What would close "
-        "the first of them -- the only one that costs the whole guard -- is a probe tally the verdict "
-        "is HANDED as a third argument rather than a list `self_test()` chooses whether to fill; "
-        "nothing smaller does, because every channel out of `self_test()` is a value it decides to "
-        "put there. The mutations the arms DO catch are rows above: hollowing `_apply_probe`, making "
+        "the first of them -- the only one that costs the whole guard -- is a tally of what the pass "
+        "DID (probed, reported, arms, shapes) handed to the verdict as a third argument rather than "
+        "a list `self_test()` chooses whether to fill; nothing smaller does, because every channel "
+        "out of `self_test()` is a value it decides to put there. Not to be confused with the trip "
+        "count the verdict takes since D-0081: that counts what the pass FOUND, and a deleted call "
+        "finds nothing, which reads exactly like a clean run. The mutations the arms DO catch are "
+        "rows above: hollowing `_apply_probe`, making "
         "an undo not undo, dropping a verdict shape, and stopping `rule()` registering its rules all "
         "come back CAUGHT.",
     "the canary pair's own comparison is unguarded":
@@ -167,8 +174,9 @@ DOCUMENTED_HOLES = {
         "-- `self_test_verdict` is a different function from the one whose findings it reports, so "
         "arm 2 can ask it four shapes, and switching the reach check off or turning its `return 1` "
         "into `return 0` is CAUGHT now -- which is why this class is one row where it used to be "
-        "three. What closes the last one is the same thing named above: a probe tally handed to the "
-        "verdict rather than a pair of lists that can be handed to it empty. What was NOT in the "
+        "three. What closes the last one is the same thing named above -- a tally of what the pass "
+        "DID, not the trip count of what it found that the verdict takes since D-0081, which a "
+        "deleted call leaves at zero like any clean run. What was NOT in the "
         "measurement until 14 Nov is that the statement is not the only link: neutering each of the "
         "three makes THIS suite exit 1, because a verdict that stops reporting turns rows that were "
         "`CAUGHT` into `NEW HOLE` -- 35 of them for `if bad:`. The link no witness reached was the "

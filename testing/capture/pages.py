@@ -2260,7 +2260,9 @@ def _probe_harness(registry, ran, bad):
             # The third argument is what the shape itself contains: `D-0080` made the verdict's tail
             # speak for a check that tripped without a claim failing, and every finding this loop
             # raises is one of those. Derived from `bad_shape` rather than written as a literal so a
-            # shape that gains a PROBE line cannot silently mislabel itself.
+            # shape that gains a PROBE line cannot silently mislabel itself. D-0081: the real call
+            # site in self_test() derives the battery's share from `bad` with this same formula, so
+            # the arm and the run cannot mean different things by the third argument.
             trips = sum(1 for p in bad_shape if p.startswith(f"{PROBE}:"))
             code = self_test_verdict(list(ran_shape), list(bad_shape), trips)
         shapes += 1
@@ -5411,12 +5413,13 @@ def self_test():
     counts = [n for _, n in probe_ran]
     # Counted apart from `bad`, and reported apart by `self_test_verdict`: a tripped probe is not a
     # broken claim, so a run that trips one and prints `0 of 81 rules failed` says nothing failed
-    # while exiting 1. Measured the same afternoon, on the same mutant.
-    canaries = 0
+    # while exiting 1. Measured the same afternoon, on the same mutant. `trips`, not `canaries`,
+    # from D-0081: the battery's findings join this number below, and they are not canaries.
+    trips = 0
     if counts != want_counts or len(probe_bad) != want_problems:
         bad.append(f"the rule helper is hollow: the canary pair recorded counts {counts} and "
                    f"{len(probe_bad)} problems, want {want_counts} and {want_problems}")
-        canaries += 1
+        trips += 1
 
     # Third canary, deliberately raising. Neither of the two above throws, so the `except Exception`
     # arm one screen up -- the only place a crashing rule becomes a problem -- had no witness at all,
@@ -5430,8 +5433,9 @@ def self_test():
     #
     # So throw on purpose, into two lists of its own: the arm is then the thing under test on every
     # run, not only on the run where something else breaks. It is not a claim about a driver, so it
-    # never enters `ran` and `EXPECTED_RULES` stays the count of claims -- and it enters `canaries`,
-    # which is the number that says a probe tripped when no claim did (D-0080).
+    # never enters `ran` and `EXPECTED_RULES` stays the count of claims -- and it enters `trips`,
+    # the number that says a probe tripped when no claim did (D-0080), which since D-0081 also
+    # counts the battery's findings below.
     probe_crash_ran, probe_crash = [], []
 
     def _throws_in_a_rule(problems):
@@ -5449,18 +5453,27 @@ def self_test():
                    f"{probe_crash} with counts {crash_counts}, want {crash_want} and [1] -- a rule "
                    "that throws has not passed, and this arm is the only thing between one and a "
                    "green run (#323)")
-        canaries += 1
+        trips += 1
 
     # One probe per rule, last of everything: the count and `ran` both survive an emptied body, so
     # the only thing that notices a rule which stopped checking is a break aimed at it. Deliberately
     # not one of the 81 -- it is not a claim about a driver, and a rule that policed its own probe
     # table would need the table to be broken first.
     _rule_probes_are_live(registry, ran, bad)
+    # The battery's findings join `trips` here, not at their append sites: the battery speaks only
+    # through sentences carrying the PROBE prefix -- the same test arm 2 of its own harness uses and
+    # arm 4's witness keys on -- and one derivation from that single source cannot drift from what
+    # the battery reported, because there is no second counter to drift from. Without this line a
+    # battery-only trip exits 1 printing `capture self-test: 0 of 81 rules failed` with no tail:
+    # measured 15 Nov on a copy (#1807) with `if arms != 4:` -> `if arms >= 0:`, one PROBE sentence
+    # on stderr, exit 1, no tail -- D-0080's defect one path over, because D-0080's tail was wired
+    # only to the two helper canaries (D-0081).
+    trips += sum(1 for p in bad if p.startswith(f"{PROBE}:"))
 
-    return ran, bad, canaries
+    return ran, bad, trips
 
 
-def self_test_verdict(ran, bad, canaries):
+def self_test_verdict(ran, bad, trips):
     """Turn what self_test() returned into an exit code, outside the code whose reach it measures.
 
     The count check lives here rather than at the tail of self_test() for the reason mutate.py
@@ -5468,10 +5481,15 @@ def self_test_verdict(ran, bad, canaries):
     both lists are already complete by then, so a reach check placed after them cannot see the
     block that never ran.
 
-    `canaries` comes back as a number of its own rather than being folded into `len(bad) - failed`,
-    because that arithmetic is wrong twice over: a rule may append more than one problem, so the
-    difference is not a count of canaries, and the two probes are not claims about a driver, so
-    counting them as rules would make the denominator lie in the other direction. D-0080.
+    `trips` counts the findings in `bad` that are not claims about a driver -- the two helper
+    canaries, counted at their sites, and every PROBE-prefixed battery finding, derived from the
+    prefix at the battery call. It comes back as a number of its own rather than being folded into
+    `len(bad) - failed`, because that arithmetic is wrong twice over: a rule may append more than
+    one problem, so the difference is not a count of probes, and the probes are not claims about a
+    driver, so counting them as rules would make the denominator lie in the other direction.
+    D-0080 sized this number to the canaries; D-0081 gave it the battery's findings as well,
+    because a tail that claims a run "whose only problem is a tripped probe cannot read as 0 of 81
+    rules failed" has to mean every probe, and the battery was the one it did not mean.
     """
     if len(ran) != EXPECTED_RULES:
         print(f"capture self-test: {len(ran)} rules ran, want {EXPECTED_RULES} "
@@ -5480,7 +5498,7 @@ def self_test_verdict(ran, bad, canaries):
     if bad:
         for p in bad:
             print(f"  capture self-test: {p}", file=sys.stderr)
-        tail = f", {canaries} canary trip(s)" if canaries else ""
+        tail = f", {trips} probe trip(s)" if trips else ""
         print(f"capture self-test: {len([n for n, k in ran if k])} of {EXPECTED_RULES} "
               f"rules failed{tail}", file=sys.stderr)
         return 1
