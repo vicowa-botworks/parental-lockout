@@ -1201,6 +1201,17 @@ def main(shoot_fn=None, record_fn=None):
 EXPECTED_RULES = 81
 
 
+# The bytes `_FakeSession.screenshot()` hands `cdp.capture_refused`, spelled a SECOND time inside
+# that method rather than shared with it. `a_refused_run_says_where_its_frames_are` compares the
+# frame a refusal kept against THIS literal, so the check holds an expectation the thing it checks
+# cannot supply: share the two and hollowing `screenshot` to `b""` leaves both sides agreeing about
+# an empty file, which is #324's hole wearing the fake's clothes. The same argument keeps `CENSUS`
+# below written out by hand instead of derived from `PAGES` -- a check derived from the thing it
+# checks is a tautology, and that one used to be one. Edit either spelling and the rule goes red;
+# that is the pin working, not the pin being brittle.
+_SELFTEST_FRAME = b"selftest frame, not a PNG on purpose"
+
+
 class _FakeSession:
     """A CDP session that answers, and can be made to fail its photograph exactly once.
 
@@ -1227,9 +1238,13 @@ class _FakeSession:
     def screenshot(self):
         """Bytes, so `cdp.capture_refused` has something to write on the refusal path.
 
-        Not a PNG -- nothing in the self-test decodes these, and the property under test is where
-        the bytes land and what says so, not their contents. Real bytes would mean shipping a
-        picture in a source file to prove a path is written.
+        Not a PNG -- nothing in the self-test decodes these. What it does read, since #324, is
+        their CONTENTS: a kept frame has to be the picture the fake handed the driver, not merely a
+        file at the path the transcript names, and the rule that says so is
+        `a_refused_run_says_where_its_frames_are`. The literal is deliberately spelled twice --
+        here, and above as `_SELFTEST_FRAME`, which is what that rule compares against -- so
+        neither side can be emptied without the other turning red. Real pixels would mean shipping
+        a picture in a source file to prove a path is written.
 
         It refuses after `__exit__`, because that is what the real session does: the CDP socket is
         closed with the browser. #296 moved a driver's keeping inside the `with` for this fact alone,
@@ -1246,7 +1261,7 @@ class _FakeSession:
             self.log.append("shot-refused")
             raise RuntimeError("the photograph died")
         self.log.append("screenshot")
-        return b"selftest frame, not a PNG on purpose"
+        return b"selftest frame, not a PNG on purpose"  # not `_SELFTEST_FRAME` -- two, on purpose (#324)
 
 
 class _FakeCap:
@@ -4863,6 +4878,30 @@ def self_test():
                 elif "not evidence" not in line[0]:
                     problems.append("the kept frame is announced without saying it is not "
                                     f"evidence: {line[0].strip()!r}")
+                # The bytes behind the name (#324). Every other sentence in this rule asks about a
+                # NAME -- the count, the list, the directory, the pointer, the note -- and a file
+                # with nothing in it answers all of them at once while being no picture at all.
+                # Measured before written: `fh.write(data)` -> `fh.write(b"")` in
+                # `cdp.capture_refused` left the transcript and the kept directory in perfect
+                # agreement over two empty files and printed `81 refusal rules hold`. So open what
+                # the refusal says it kept and compare it with the bytes the fake handed the
+                # driver. Length is NOT the property: the attack suite carries a row that writes
+                # the same number of different bytes so a `len()` comparison cannot pass for this
+                # clause -- #324's "not accepted: comparing file size alone", pinned rather than
+                # declined in prose. A file that is not there at all is the count check's and the
+                # pointer check's finding above; reading it here would trade their sentence for a
+                # traceback, and a crashing rule reports worse than a rule that answers.
+                frame = op.join(keep, f"audit@{width}.png")
+                if op.isfile(frame):
+                    with open(frame, "rb") as fh:
+                        got = fh.read()
+                    if got != _SELFTEST_FRAME:
+                        problems.append(
+                            f"the kept frame {op.basename(frame)} is not the picture this run was "
+                            f"handed: {len(got)} byte(s) {got[:40]!r} on disk, want the "
+                            f"{len(_SELFTEST_FRAME)} byte(s) {_SELFTEST_FRAME!r} the fake returned. "
+                            "A file at the announced path is not the claim that the refusal kept "
+                            "what the browser photographed (#324)")
             note_path = op.join(keep, cdp.REFUSED_NOTE)
             if not op.isfile(note_path):
                 problems.append("no REFUSED.txt beside the kept frames -- a frame with no sentence "

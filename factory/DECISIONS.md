@@ -9128,7 +9128,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   (`plock-awaiting-a-human`, invented for the probe) is **674 passed, 0 failed**, rc 0, 37s, so
   `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}" really is the one line `common.sh` claims it is; `blocked` is **673 passed, 1
   failed**, rc 1, 36s, sole failure `esc_one_home`, because that leg greps the name as a bare substring
-  across eight live files and finds three spellings outside the home — `factory/selftest.sh:15255` "the pass blocked instead of refusing",
+  across eight live files and finds three spellings outside the home — `factory/selftest.sh:15315` "the pass blocked instead of refusing",
   `.opencode/skills/factory/SKILL.md:280` "has not yet said what the name" and
   `.opencode/skills/factory/SKILL.md:296` "exited 0 and read back". The first is not a
   label at all: it is the English word in an unrelated leg's message ("the pass blocked instead of
@@ -9234,7 +9234,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   `H-0179` counted at the base. The merge moved those lines and added none.
 
   The one line both sides wrote with different contents is `H-0177`'s `Effect:`, which reads
-  `0592233:factory/selftest.sh:13786-13793` on this branch and `factory/selftest.sh:13968-13975` "the names git does not hold at 100755" on `main` -- neither written by this branch's commit; `main` repaired it in #376. Decided by reading the tree, not by side: every one of the five auto-merged paths is
+  `0592233:factory/selftest.sh:13786-13793` on this branch and `factory/selftest.sh:14028-14035` "the names git does not hold at 100755" on `main` -- neither written by this branch's commit; `main` repaired it in #376. Decided by reading the tree, not by side: every one of the five auto-merged paths is
   byte-identical to `origin/main` (`git diff --quiet origin/main -- <path>`, five times rc 0) and this
   log is the only path where the merged tree differs from `main` at all, by the 91 lines of `H-0179`, so
   the merged `factory/selftest.sh` IS `main`'s and `main`'s number is the one a reader can open today.
@@ -9294,3 +9294,36 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   purpose; and the collision itself is untouched -- every merge re-conflicts every open branch on these
   logs, which is what #381 is for. No governing file was edited, no label created or deleted, no GitHub
   write made, no branch force-pushed, nothing merged by this commit.
+
+## H-0181 · The trunk moved sixty lines under two published pointers on this branch's merge surface, so the repair is digits plus an erratum, not a new claim
+
+- Question: PR #385 is `OPEN` and `BLOCKED` because CI runs `make verify` on the merge surface against
+  `origin/main`, not on the branch alone. On that surface the log's own gate says two anchors moved:
+  H-0179 reads `factory/selftest.sh:15315` "the pass blocked instead of refusing", and H-0180 reads
+  `factory/selftest.sh:14028-14035` "the names git does not hold at 100755". Both old coordinates were
+  true when written, this branch's product diff does not touch this log, and the drift arrived from the
+  trunk. What does this branch owe?
+- Options: repair only the digits inside the two published entries and file this erratum in the same
+  merge | amend the old entries' prose and figures so they claim the new tree | revision-qualify the old
+  coordinates and leave the merge red | raise POINTER_DEBT to the drifted measurement and call the
+  pointers grandfathered | leave the pointers for a separate trunk repair and ship a red pull request
+  anyway
+- Chose: repair only the digits inside the two published entries and file this erratum in the same merge
+- Why: the checker distinguishes a pointer from a claim. The two coordinates are pointers at text the
+  current tree still holds, so the digits move with the text; the surrounding measurements remain stamped
+  at the tree where they were taken. Option 2 is refused by tie-break 3 because it would turn a coordinate
+  repair into an unmeasured re-assertion of somebody else's published claim. Option 3 preserves the old
+  reading but leaves this merge with two pointers a reader cannot open. Option 4 is exactly what the gate
+  refuses: the unopenable-pointer count is a defect, not slack. Option 5 violates the unit's job of
+  delivering a pull request whose gate reads green. Tie-break 1: no `go.mod` change, stdlib only.
+  Tie-break 2: no lockout semantics move. Tie-break 4: one log, two same-length numeric substitutions, and
+  this entry. Tie-break 5: `git revert -m 1` of this merge retires the repair without rewriting history.
+  Tie-break 6: H-0177, H-0180, and this log's merge-repair convention place the correction in a new entry
+  while leaving published figures where they were measured.
+- Checkpoint: 48f509c68e62cbff1740643f7e98407e949b3523
+- Effect: two same-length digit repairs and this entry, carried by the merge commit that records this
+  decision. The gate output is read back after it runs and is quoted in the commit message and the
+  pull-request body rather than written here as a prophecy. Rollback: `git revert` of this entry's commit
+  retires the erratum and the two digits alone, or `git revert -m 1` of the merge retires the whole update.
+  What lost: this branch carries a harness-log repair that may duplicate a separate trunk repair, and the
+  published figures in the two repaired entries remain stamped at older trees on purpose.
