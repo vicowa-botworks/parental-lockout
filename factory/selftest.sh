@@ -14640,12 +14640,20 @@ cv_extract() {
 		# the legs that read a delta failed while the ones that read a note passed, and the trace said
 		# `factory_close_delta: command not found` -- a fixture missing a helper, not a defect in the
 		# component.
-		sed -n '/^factory_close_delta()/,/^}/p' "$1" || return 1
-		sed -n '/^factory_verify_closure() {/,/^}/p' "$1" || return 1
+		# ONE span, from the first helper through the closing brace of the component. Two ranges that
+		# each stop at the first `^}` silently drop whichever helpers sit between them, and the
+		# component now calls three: `factory_close_delta`, `factory_close_read` and
+		# `factory_close_verdict`. This block already documents being bitten once by a helper the lift
+		# forgot (`factory_close_delta: command not found`), so the two newest are asserted below as
+		# well -- a leg that fails with command-not-found is a broken fixture, not a verdict.
+		awk '/^factory_close_delta\(\) \{/{f=1} /^factory_verify_closure\(\) \{/{v=1}
+		     f{print} v && /^\}$/ {exit}' "$1" || return 1
 	} >"$cv_work/fvc.sh"
 	[ -s "$cv_work/fvc.sh" ] || return 1
 	grep -q 'CLOSE-OPEN' "$cv_work/fvc.sh" || return 1
 	grep -q 'factory_close_delta()' "$cv_work/fvc.sh" || return 1
+	grep -q 'factory_close_read()' "$cv_work/fvc.sh" || return 1
+	grep -q 'factory_close_verdict()' "$cv_work/fvc.sh" || return 1
 	[ "$(grep -c '^CLOSER_RE=' "$cv_work/fvc.sh")" = 1 ]
 }
 
@@ -14698,6 +14706,12 @@ cv_run() {
 		run_action() {
 			printf '%s\n' "$*" >>"$cv_rec/calls"
 			if [ "$1" = "gh" ] && [ "$2" = "issue" ] && [ "$3" = "comment" ]; then
+				# A plant named `fail-note` refuses the note write. Without a switch the stub always
+				# succeeds, so `CLOSE-NOTE-FAILED` is an arm nobody has ever run -- which is #357's
+				# review, non-blocking 2, stated for this branch in particular.
+				if [ -e "$cv_plant/fail-note" ]; then
+					return 1
+				fi
 				printf '%s' "${6:-}" >"$cv_rec/$4.body"
 			fi
 			return 0
@@ -14921,8 +14935,128 @@ claim_leg 'a body naming nothing with a verb compares nothing' bash -c \
 	'[ ! -s "$1" ] && [ ! -s "$2/calls" ]' _ "$cv_work/journal" "$cv_rec"
 cv_reset
 cv_run "$cv_work/fvc.sh" 83 >/dev/null 2>&1
+# `[ ! -e ]`, not `! grep`: the healthy path never creates the call log, so grepping it printed
+# `grep: ... /rec/calls: No such file or directory` on every run and the `!` counted that error as
+# the pass -- a leg that passes because its own read failed (#357's review, non-blocking 7).
 claim_leg 'Refs and Part of are not closers and get no verdict' bash -c \
-	'[ ! -s "$1" ] && ! grep -q "issue comment" "$2/calls"' _ "$cv_work/journal" "$cv_rec"
+	'[ ! -s "$1" ] && [ ! -e "$2/calls" ]' _ "$cv_work/journal" "$cv_rec"
+
+
+# --- one verb, every number it touches, and what the number is ------------------------------------
+# #357's review's blocking 3: the scan used `capture`, which answers the FIRST `#N` on a matching line
+# and nothing else. Two shapes break on that, both measured on this box with the shipped pattern before
+# the repair: `Closes #301 and Closes #304.` -- GitHub's own multi-issue sentence -- came back as `301`
+# alone, and `#7 is the reason. Fixes #12.` came back as `7`, which is not the ticket the verb belongs
+# to. `scan($re)` yields every match of the pattern, so a number only appears if a keyword touched it.
+cv_reset
+printf '%s\n' '{"body":"Two tickets, one verb.\n\nCloses #91 and Closes #92.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_87.json"
+printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T21:45:34Z"}' >"$cv_plant/issues_91.json"
+printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T21:12:14Z"}' >"$cv_plant/issues_92.json"
+cv_run "$cv_work/fvc.sh" 87 >/dev/null 2>&1
+claim_leg 'one verb over two numbers verdicts BOTH of them' bash -c \
+	'grep -q "CLOSE-LATE pr:87 issue:91" "$1" && grep -q "CLOSE-LATE pr:87 issue:92" "$1" &&
+	 [ "$(wc -l <"$1")" = 2 ]' _ "$cv_work/journal"
+
+cv_reset
+printf '%s\n' '{"body":"The number first is not the number asked about.\n\n#7 is the reason. Fixes #12.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_88.json"
+printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T21:45:34Z"}' >"$cv_plant/issues_7.json"
+printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T22:45:34Z"}' >"$cv_plant/issues_12.json"
+cv_run "$cv_work/fvc.sh" 88 >/dev/null 2>&1
+claim_leg 'a verb verdicts the number it touches, not the first number on the line' bash -c \
+	'grep -q "CLOSE-LATE pr:88 issue:12" "$1" && ! grep -q "issue:7" "$1" &&
+	 [ "$(wc -l <"$1")" = 1 ]' _ "$cv_work/journal"
+
+# A verb aimed at a pull request is not a closing request: GitHub's closer moves issues. The fixture
+# plants the REST shape a pull request actually carries on the issues route -- `state: closed`, a real
+# `closed_at`, and a non-null `pull_request` -- because without the third field the pass reports a
+# merged sibling as a ticket GitHub failed to close. The raw REST read is refused in this session
+# (`gh api repos/.../issues/282` prints `Permission denied: shell`), so the payload is planted here
+# rather than quoted from a live call.
+cv_reset
+printf '%s\n' '{"body":"Its fix merged as a sibling.\n\nCloses #282.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_89.json"
+printf '%s\n' '{"state":"closed","closed_at":"2026-11-13T19:15:35Z","pull_request":{"url":"https://api.example/repos/repo/pulls/282"}}' >"$cv_plant/issues_282.json"
+cv_run "$cv_work/fvc.sh" 89 >/dev/null 2>&1
+claim_leg 'a verb aimed at a pull request is named, and gets no issue verdict' bash -c \
+	'grep -q "CLOSE-NOT-ISSUE pr:89 ref:282" "$1" && ! grep -qE "CLOSE-(SETTLED|LATE|OPEN|UNTIMED)" "$1" &&
+	 [ ! -e "$2/282.body" ]' _ "$cv_work/journal" "$cv_rec"
+
+# --- the re-probe arm grades by the same rule as the first read -----------------------------------
+# #357's review's non-blocking 1, reproduced against the bytes as shipped: a ticket that read OPEN then
+# CLOSED with `closed_at: null` printed `CLOSE-SETTLED ... closed unknown s after the merge, inside the
+# window GitHub takes`, and one closed 40400 s after the merge printed the same healthy sentence with
+# the window at 120 s. Both arms now call `factory_close_verdict`, so both say what the first read says.
+cv_reset
+printf '%s\n' '{"body":"Closes it late and with no clock.\n\nCloses #93.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_90.json"
+printf '%s\n' '[{"state":"OPEN","closed_at":null},{"state":"CLOSED","closed_at":null}]' >"$cv_plant/issues_93.json"
+cv_run "$cv_work/fvc.sh" 90 >/dev/null 2>&1
+claim_leg 'a close that lands during the re-probe with no clock is UNTIMED, not settled' bash -c \
+	'grep -q "CLOSE-UNTIMED pr:90 issue:93" "$1" && ! grep -q "CLOSE-SETTLED pr:90" "$1" &&
+	 ! grep -q "unknown s after the merge" "$1"' _ "$cv_work/journal"
+cv_reset
+printf '%s\n' '{"body":"Closes it nine hours late.\n\nCloses #94.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_91.json"
+printf '%s\n' '[{"state":"OPEN","closed_at":null},{"state":"CLOSED","closed_at":"2026-11-14T06:28:54Z"}]' >"$cv_plant/issues_94.json"
+cv_run "$cv_work/fvc.sh" 91 >/dev/null 2>&1
+claim_leg 'a close that lands during the re-probe 40400 s late is LATE, not settled' bash -c \
+	'grep -q "CLOSE-LATE pr:91 issue:94" "$1" && grep -q "40400s after the merge" "$1" &&
+	 ! grep -q "CLOSE-SETTLED pr:91" "$1"' _ "$cv_work/journal"
+
+# --- the arms the section had no way to reach -----------------------------------------------------
+# #357's review's non-blocking 2: five branches of this function had no leg. Four are lit here. The
+# fifth -- the `scan_state = failed` skip -- stays dark on purpose: it fires only when `jq` itself
+# fails on a well-formed body, and the only way to make that happen in this harness is to break the
+# `jq` the body read uses too, which lands the run in the `CLOSE-CHECK-SKIPPED ... body could not be
+# read` arm instead. A leg there would be a leg about the fixture.
+cv_reset
+printf '%s\n' '{"body":"Names a ticket that answers neither way.\n\nCloses #95.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_92.json"
+printf '%s\n' '{"state":"MERGED","closed_at":"2026-11-13T19:15:36Z"}' >"$cv_plant/issues_95.json"
+cv_run "$cv_work/fvc.sh" 92 >/dev/null 2>&1
+claim_leg 'a state that is neither OPEN nor CLOSED is UNKNOWN, in words' bash -c \
+	'grep -q "CLOSE-CHECK-UNKNOWN pr:92 issue:95 read back state=MERGED, which is neither answer" "$1"' \
+	_ "$cv_work/journal"
+cv_reset
+printf '%s\n' '{"body":"Answers neither way, then answers it again.\n\nCloses #96.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_93.json"
+printf '%s\n' '[{"state":"OPEN","closed_at":null},{"state":"MERGED","closed_at":null}]' >"$cv_plant/issues_96.json"
+cv_run "$cv_work/fvc.sh" 93 >/dev/null 2>&1
+claim_leg 'the re-probe names a state that is neither answer too' bash -c \
+	'grep -q "read back state=MERGED after the re-probe, which is neither answer" "$1" &&
+	 ! grep -q "CLOSE-SETTLED pr:93" "$1"' _ "$cv_work/journal"
+cv_reset
+printf '%s\n' '{"body":"A merge the API has no timestamp for.\n\nCloses #97.\n"}' >"$cv_plant/pulls_94.json"
+printf '%s\n' '{"state":"OPEN","closed_at":null}' >"$cv_plant/issues_97.json"
+cv_run "$cv_work/fvc.sh" 94 >/dev/null 2>&1
+claim_leg 'no merged_at means this pass is not after a merge, and says so' bash -c \
+	'grep -q "CLOSE-CHECK-SKIPPED pr:94 the API reports no merged_at" "$1" &&
+	 [ ! -s "$2/calls" ]' _ "$cv_work/journal" "$cv_rec"
+cv_reset
+printf '%s\n' '{"body":"Closed before it was merged.\n\nCloses #98.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_95.json"
+printf '%s\n' '{"state":"CLOSED","closed_at":"2026-11-13T18:15:34Z"}' >"$cv_plant/issues_98.json"
+cv_run "$cv_work/fvc.sh" 95 >/dev/null 2>&1
+claim_leg 'a close that predates the merge is named with its negative delta' bash -c \
+	'grep -q "CLOSE-LATE pr:95 issue:98" "$1" && grep -q -- "-3600s after the merge" "$1"' \
+	_ "$cv_work/journal"
+cv_reset
+printf '%s\n' '{"body":"Still open, and the note cannot be written.\n\nCloses #99.\n","merged_at":"2026-11-13T19:15:34Z"}' >"$cv_plant/pulls_96.json"
+printf '%s\n' '{"state":"OPEN","closed_at":null}' >"$cv_plant/issues_99.json"
+: >"$cv_plant/fail-note"
+cv_run "$cv_work/fvc.sh" 96 >/dev/null 2>&1
+claim_leg 'a note that cannot be written is journalled, not swallowed' bash -c \
+	'grep -q "CLOSE-OPEN pr:96 issue:99" "$1" && grep -q "CLOSE-NOTE-FAILED pr:96 issue:99" "$1" &&
+	 ! grep -q "issue:99 the issue could not be read" "$1"' _ "$cv_work/journal"
+cv_reset
+
+# One wait for the batch, not one per open ticket (#357's review, non-blocking 6): the sleep is outside
+# the loop, so the shipped source has exactly one `sleep` between the two passes and none inside either
+# loop body. Read as text because a leg cannot time a 0-second probe, and the defect was a count.
+cv_one_sleep() {
+	local body start
+	start=$(grep -n '^factory_verify_closure() {' "$cv_work/fvc.sh" | cut -d: -f1)
+	body=$(awk -v a="$start" 'NR>a' "$cv_work/fvc.sh")
+	# Counted on the variable, not on the word: the comment above the batch line says "the sleep was
+	# inside the loop", and a count of the word reads that sentence as a second call site.
+	[ "$(printf '%s\n' "$body" | grep -c 'sleep "$FACTORY_CLOSE_PROBE"')" = 1 ] || return 1
+	printf '%s\n' "$body" | grep -q 'if \[ -n "$opens" \]; then sleep "$FACTORY_CLOSE_PROBE"; fi'
+}
+claim_leg 'the probe waits once for the batch, not once per open ticket' cv_one_sleep
 
 # --- the call site --------------------------------------------------------------------------------
 cv_leg_call_site() {

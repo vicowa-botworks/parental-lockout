@@ -7932,3 +7932,87 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   passed, 0 failed** (fixture root on tmpfs, git 2.53.0) -- 623 before this entry's two legs, and the
   delta is those two; `make verify` -> `verify: OK`, exit 0, quoted from the run whose log carries these
   bytes (#1180).
+
+## H-0165 · #357's review asks which number a verb actually pointed at: `capture` reports the first on the line, and the re-probe arm had its own copy of the verdict with only the healthy branch in it
+
+- Question: the same `CHANGES_REQUESTED` review as H-0164, against the same head `f27b614`, filed four
+  more items beside the pattern ones -- blocking 3, and non-blocking 1, 2 and 6 -- and all four are about
+  the pass that reads GitHub's answer rather than the rule that reads the body. Blocking 3 is that `jq`
+  was asked for a `capture`, which answers the FIRST `#N` on a matching line and nothing else, so "a line
+  with two references reports the wrong one and misses the right one, and `Closes #1 and Closes #2`
+  reports only #1". Non-blocking 1 is that the re-probe arm decided for itself and printed a healthy
+  sentence for an untimed close and for a 40400 s close. Non-blocking 6 is the sleep inside the loop.
+  Non-blocking 2 is that five of the function's arms had no leg. Each was reproduced before it was
+  believed: `printf '%s\n' '#7 is the reason. Fixes #12.' | jq -Rsr '[splits("\n") | select(test($re)) |
+  capture("#(?<n>[1-9][0-9]*)").n]'` answers `["7"]` and the same body through `scan($re)` answers `12`;
+  `Closes #301 and Closes #304.` answers `301` alone. For the re-probe arm, the fixture run over the bytes
+  at `8c9999b` printed `CLOSE-SETTLED pr:1 issue:2 closed unknown s after the merge, inside the window
+  GitHub takes` for a ticket that went OPEN then CLOSED with `closed_at: null`, and the same sentence with
+  `40400` in it with `FACTORY_CLOSE_FIRED_S=120`. The review names a fifth thing the shipped read cannot
+  see: a pull request is also an issue to the REST API, so `issues/282` answers `state: closed` with a
+  real `closed_at`, and #292's body says `its fix merged as #282 at 11:01:37Z on 11 Nov` -- a verb aimed
+  at a merged sibling. Measured here: `gh issue view 282 --json state` answers `MERGED`, and the raw REST
+  read that would show the discriminator is refused in this session
+  (`gh api repos/vicowa-botworks/parental-lockout/issues/282` prints `Permission denied: shell`, #1180's
+  first failure class), so the field is pinned by a planted payload rather than a live call.
+- Options: `scan($re)` for the numbers, one verdict helper behind both arms, one probe wait per batch, and
+  a kind field read in the same call as the state | keep `capture` and light the legs the review counted
+  | three `api_get` calls per artifact, state then timestamp then kind | delimit the triple with a tab, as
+  the harness's other stubs do | pass a verb aimed at a pull request in silence | leave the sleep in the
+  loop and set `FACTORY_CLOSE_PROBE=0` in the legs
+- Chose: `scan($re)` for the numbers, one verdict helper behind both arms, one probe wait per batch, and a
+  kind field read in the same call as the state
+- Why: a reader that reports what it pattern-matched instead of what the artifact says, four times over.
+  `capture` reports the first number on a line, so keeping it and adding legs would be a coverage fix for
+  a correctness fault: the pass names a ticket the verb never pointed at and never reads the one it did,
+  and its verdict is a comment written on that artifact. Three calls per artifact was what the surrounding
+  code already did for state and timestamp, and it is wrong at three: two reads of one ticket can
+  straddle a write, so a delta built from the state before a close and the timestamp after it is a delta
+  nobody observed -- one jq filter, one read, one instant. A tab as the separator was rejected on
+  measurement, not taste: tab is IFS *whitespace*, so `IFS=$'\t' read -r a b c` over
+  `OPEN<tab><tab>ISSUE` answers `a=OPEN b=ISSUE c=` -- an open ticket's kind lands in its timestamp and
+  the kind is empty, the one artifact the branch exists to distinguish; both spellings were run and
+  U+001F is not whitespace. Silently passing a verb aimed at a pull request was rejected because it is a
+  real finding about the body -- the author pointed the keyword at something no closer acts on -- and a
+  silent pass is exactly how #353 began, with nobody saying what the merge had done. Leaving the sleep in
+  the loop was rejected because the finding is a count: a body naming five open tickets held
+  `factory_merge` for fifty seconds before the worktree cleanup ran, on every merge, for a reason -- the
+  closer's seconds-long asynchrony -- that belongs to the batch, not to each ticket. Measured cost of the
+  four: 2 wrong numbers out of 2 test lines, 2 false healthy verdicts, 40 s of wall clock per bad merge,
+  and one misattributed note waiting on a merged sibling.
+- Affects: `factory/factory.sh` -- `factory_close_read` and `factory_close_verdict` are new, the scan in
+  `factory_verify_closure` says `scan($re)` where it said `capture(...)`, the loop is two passes with one
+  `sleep` between them, and the note-building arm is unchanged bytes. `factory/selftest.sh` -- the lift
+  takes one awk span instead of two `sed` ranges that each stopped at the first `^}` (the two new helpers
+  sit between the old ranges, and the fixture already documents being bitten once by a helper the lift
+  forgot, so all three are asserted now); the `run_action` stub gains a `fail-note` switch, because an
+  always-succeeding stub leaves `CLOSE-NOTE-FAILED` unlit; the `Refs`/`Part of` leg asserts
+  `[ ! -e "$2/calls" ]` where it grepped a file the healthy path never creates and counted its own `No
+  such file or directory` as the pass; ten legs are new. `docs/factory.md` and
+  `.opencode/skills/factory/SKILL.md` carry the same finding in prose, the latter naming the merge-time
+  read as the supervisor's second ask.
+- Reproduction: the ten new legs are: one verb over two numbers verdicts both; a verb verdicts the number
+  it touches, not the first on the line; a verb aimed at a pull request is named and gets no issue
+  verdict; a close that lands during the re-probe with no clock is UNTIMED; one 40400 s late is LATE; a
+  state that is neither answer on the first read; the same after the re-probe; no `merged_at` skips in
+  words; a close that predates the merge keeps its negative delta; a note that cannot be written is
+  journalled. Plus one text leg: exactly one `sleep` in the function, on the batch line. The fifth arm the
+  review counted -- `scan_state = failed` -- stays dark on purpose and says so where it stands: it fires
+  only when `jq` fails on a well-formed body, and the only way to make that happen here breaks the body
+  read too, landing the run in `CLOSE-CHECK-SKIPPED` instead. The misattribution is re-runnable in one
+  line: `CLOSER_RE=$(grep -m1 '^CLOSER_RE=' factory/factory.sh | cut -d"'" -f2); printf '%s\n' '#7 is the
+  reason. Fixes #12.' | jq -Rsr --arg re "$CLOSER_RE" '[scan($re) | .[0]]'` answers `["12"]` -- the
+  capture group, so bare digits -- and the same pipeline over `Closes #301 and Closes #304.` answers
+  `301 304`, where the shipped `capture` answered `301`.
+- Refs: #353 (the ticket this component exists for), #357 (the review), H-0157 (the pass's first shape),
+  H-0164 (the pattern it reads), #1180 (read the artifact; the raw REST refusal above is quoted, not
+  inferred), #1807 (the gate ran alone in this worktree, no mutation sweep in flight).
+- Checkpoint: f20cb35
+- Effect: the checkpoint is an empty commit whose tree is `8c9999b`, so it holds the pass exactly as the
+  review read it. Its ordering is stated rather than hidden: it was taken after the edits were drafted,
+  which means it records the pre-decision bytes by content, not by position in the history. `git revert
+  f20cb35..HEAD` returns `capture`, the duplicated verdict and the in-loop sleep. Gate, each command
+  quoted from its own log on the bytes this commit ships (#1180): `python3 scripts/check-decisions.py`,
+  `python3 scripts/check-scripts.py`, `python3 scripts/check-close-verb.py --self-test` -> `18 fixtures,
+  every class where the parser says it is`, exit 0, `bash factory/selftest.sh`, and `make verify` ->
+  `verify: OK`, exit 0.

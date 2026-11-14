@@ -481,6 +481,27 @@ that must not be reported as closers, and `factory/selftest.sh` runs the two shi
 pattern, the jq one in `factory.sh` and the Python one in the checker, over one table of lines and
 refuses any line where they disagree.
 
+**One verb, every number it touches, and what kind of thing that number is.** The scan used to ask `jq`
+for a `capture`, which answers the FIRST `#N` on a matching line and nothing else, so a line whose verb
+is not the first thing on it reported the wrong ticket and never read the right one: `#7 is the reason.
+Fixes #12.` came back as `7`, and GitHub's own multi-issue sentence came back as its first number alone.
+`scan($re)` returns one entry per match -- the pattern's capture group, so bare digits -- so a number is
+reported only when a keyword was touching it. Kind matters as much as position: a pull request is also an
+issue to the REST API, so
+`issues/282` answers `state: closed` with a real `closed_at`, and a body may point its verb at a merged
+sibling -- #292's says `its fix merged as #282 at 11:01:37Z on 11 Nov`. The pass now reads
+`pull_request` in the same call as `state` and `closed_at` (one read, because two reads of one artifact
+can straddle a write, and a delta built across them is a delta nobody observed) and prints
+`CLOSE-NOT-ISSUE pr:N ref:M` for a pull request instead of an issue verdict. The separator between those
+three fields is U+001F, not a tab: tab is IFS *whitespace*, so `IFS=$'\t' read` collapses the empty
+middle field of an open ticket and the kind lands in `closed_at` (measured). Both arms grade through one
+`factory_close_verdict` now, because the re-probe arm carried its own copy of the verdict and that copy
+had only the healthy branch: a ticket that closed during the probe with no readable timestamp printed
+`closed unknown s after the merge, inside the window GitHub takes`, and one closed 40400 s after the
+merge printed the same healthy sentence with the window at 120 s. And the re-probe is one wait for the
+batch rather than one per ticket -- the sleep sat inside the loop, so five open tickets held
+`factory_merge` for fifty seconds before the worktree cleanup ran.
+
 **The scan is span-blind on purpose, and a tidier one would have missed the defect.** The obvious
 implementation strips code blocks and inline spans first, because that models GitHub. This one matches
 the verb wherever it appears, inside backticks included -- the same way `CLAIM_RE` in `triage.sh` does.

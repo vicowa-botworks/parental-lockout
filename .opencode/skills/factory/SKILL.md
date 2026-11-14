@@ -413,9 +413,13 @@ to this agent, and `gh pr view --json closingIssuesReferences` is not a field `g
 it answers `Unknown JSON field` and lists the fields it does have). A GraphQL read is the only way to
 ask GitHub what a body closed, and that read belongs to the supervisor: `factory/triage.sh` reads
 closing references plus verb-phrases out of every open body and treats either as a claim, which is why
-writing the verb rule correctly the first time is the whole obligation. If you are unsure whether a
-phrase will register, do not write it: use `Refs #10`, and say in the pull-request body what is still
-unfinished.
+writing the verb rule correctly the first time is the whole obligation. The supervisor asks the same
+question a second time AT the merge: `factory_verify_closure` (`factory/factory.sh`) re-reads every
+number the merged body's verb pointed at, compares the close timestamp with `merged_at`, and writes what
+it found onto that ticket — a note in plain text when the ticket is still open past a re-probe, a
+journal line when something else closed it. So a verb aimed at the wrong number is not a private
+mistake: it becomes a sentence on somebody's artifact. If you are unsure whether a phrase will register,
+do not write it: use `Refs #10`, and say in the pull-request body what is still unfinished.
 
 Requesting the review is **not yours to do**, and the reason is measured, not stylistic: H-0010 found
 `gh pr edit --add-reviewer` fails on this account with nothing but a `Projects (classic) is being
