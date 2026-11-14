@@ -4685,14 +4685,17 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   without an anchor precisely because it states which tree to open — while rewriting three entries'
   correction chains to read 679 would make every one of those sentences describe a tree it was not
   written in. #374 stays open as the question of whether anything obliges 539 to fall.
-- Correction (`D-0077`, 14 Nov — the last clause of `What lost:` is false in the merge result, because
-  `D-0076` landed while this pull request was open): that paragraph ends "the class the fix sits inside is
-  still open: emptying the whole rule keeps printing green — `a hollowed rule is invisible to the count`,
-  the last of the 11 Nov findings still unretired, 7 rows — so deleting the clause is caught and deleting
-  the rule is not". The final clause is the refuted one. #379 merged at 20:18Z, `pages.py`'s probe pass now
-  breaks the contract each rule names and requires THAT rule to go red, and the class came out of
-  `DOCUMENTED_HOLES` with its seven rows reading `CAUGHT` — the comment above that set now counts three
-  classes open and three gone, and names this retirement among the gone. Re-measured at the merged head
+- Correction (`D-0077`, 14 Nov — one sentence of `What lost:` is false in the merge result, and false twice,
+  because `D-0076` landed while this pull request was open): that paragraph ends "the class the fix sits
+  inside is still open: emptying the whole rule keeps printing green — `a hollowed rule is invisible to the
+  count`, the last of the 11 Nov findings still unretired, 7 rows — so deleting the clause is caught and
+  deleting the rule is not". The refuted claim sits inside that sentence at both ends, and the review
+  counted them as two: the opening `the class the fix sits inside is still open` and the closing `deleting
+  the rule is not` are one assertion written twice, and #379 retired the class that made either half true.
+  #379 merged at 20:18Z, `pages.py`'s probe pass now breaks the contract each rule names and requires THAT
+  rule to go red, and the class came out of `DOCUMENTED_HOLES` with its seven rows reading `CAUGHT` — the
+  comment above that set now counts three classes open and three gone, and names this retirement among the
+  gone. Re-measured at the merged head
   `f0d1cf5`, in a copy and never the gated tree (#1807), hollowed in the form the suite's own rows use (the
   rule's `def …(problems):` line gains `return` as its first statement, asserted to have matched exactly
   once before the result was believed): the unmutated copy prints `capture self-test: 81 refusal rules
