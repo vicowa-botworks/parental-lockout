@@ -7277,3 +7277,60 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   What it cost, stated plainly. **(a)** The census refuses a file that *prescribes* the dead verb -- a line that begins with it, the shape a command takes in a fenced block or a prompt string -- and deliberately does not redden on the probe quoted mid-sentence, because a leg that ate this repository's own measurements would be widened away inside a month; `esc_not_a_park` records the same objection against reddening on comment lines. A prescription written inside a sentence is therefore invisible to it, and the load-bearing half is the arm check, which reads `factory/factory.sh` as text and never runs a write. **(b)** The leg pins two whole prose phrases, one in the skill and one in the guide, so rewording either sentence reddens a leg: a leg that reads prose constrains prose, and that is #272's cure and its price in the same breath. **(c)** The tick's prompt still interpolates the name (`-- ${FACTORY_ESCALATION_LABEL} --`) while telling the tick to take the name from its one home, because `ask_prompt_assembles_it` requires that variable inside the `address_review` arm and its own failure message endorses the variable as "never spelled out"; a tick could still type the word it was shown, and deleting the interpolation to close that was refused rather than widening a measured leg this unit was not sent to widen. **(d)** No leg proves `gh issue edit` lands a *valid* label on a pull request. That is a network write, and today nobody can run it -- not a tick, not a person -- without answering #311 first, because the name the harness prints is not one of the eighteen. So the verb is verified up to gh's label-resolution step and no further, and the end-to-end escalation write stays unverified until #311 is answered. That is #311's open half, not a new hole. **(e)** #311 is not delivered by this branch. It stays open, still carrying the `blocked` stand-in its own record disclosed, and the only thing still owed on it is the decision itself.
 - Checkpoint: e8db1c223158b2a1cd71843ef07b216255a47040
 - Effect: `.opencode/skills/factory/SKILL.md` (step 2 names the verb a pull request takes; the measurement is the paragraph *after* the code block, beside the probe measurement already there -- a second `gh issue edit … --add-label` line inside the block would break `esc_step_control`'s plant, which requires exactly one); `factory/factory.sh` (the empty-ask branch carries the two calls, with the command substitution escaped so the tick runs it in its own worktree rather than the supervisor expanding it at prompt-build time); `docs/factory.md` (the verb paragraph in "What an escalation leaves on the artifact"); `factory/selftest.sh` (`esc_pr_verb`, plus `esc_pr_verb_control` with three plants -- the dead verb restored as a command line, the two commands lifted out of the instruction, the guide sentence deleted -- each checked to have landed before it is asserted). Measured: `claim_leg` calls 285 → 286; `bash factory/selftest.sh` **564 passed, 0 failed**, all three controls reported; `grep -rn` over `scripts/mutations/*.json` for `factory/factory.sh` and `factory/selftest.sh` answers nothing, so `make check-mutations` was not run for this commit; `make verify` → `verify: OK`, exit 0, run once across the four changed files without this entry and once more with this entry in the tree, both results quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
+
+## H-0157 · A ref with no pull request is refused by its name and by its bytes, and neither judgement is allowed to invent a class
+
+- Question: A branch ahead of `main` with no open pull request is offered to a tick as stranded work.
+  Some of those refs are kept copies, some are work already sitting in an open pull request, and some
+  are contributions. Who decides, on what evidence, and what does the queue do with the answer -- a new
+  class, or something the supervisor already refuses?
+- Options: A name test only, widened to the families the refs actually use | A content test only,
+  comparing every ref against every open pull request head | Both -- the name test refuses the family
+  names and `triage.sh` marks a ref whose bytes are already on an open pull request head, the mark
+  riding in the `branch_without_pr` detail for the supervisor arm to refuse on | A new row class for a
+  ref delivered by an open pull request, beside the delivered row #291 shipped
+- Chose: Both -- the name test refuses the family names and `triage.sh` marks a ref whose bytes are
+  already on an open pull request head, the mark riding in the `branch_without_pr` detail for the
+  supervisor arm to refuse on
+- Why: The name alone cannot settle whether a ref was delivered. `backup-tip` was 7 files and 5 commits
+  ahead of `main` and `preserve/issue-318-wip` 6 across 3, both printed as workable rows at 00:38Z on
+  14 Nov, while `wip/issue-220-refused-frames` carried content and is still not
+  something to point a session at -- the two questions are independent, so option 1 and option 2 each
+  answer one of them. The content test lives in `triage.sh` because that is where the open payload is
+  already paid for; #277 measured that read at 43 s against a 10 s all-up queue, and H-0013 prices a
+  network read in front of a dispatch at 5min2s, so `factory.sh` may not ask again. Option 4 re-invents
+  what #291 shipped and does it the dangerous way, because a class retires a ref. The reading is bytes,
+  and the measurement that decided it is why `git cherry` is not in the file: `git cherry` marks a
+  commit `-` when the commit is **empty**, so `issue-248`, `issue-309` and `issue-318` -- each two
+  files clear of all five open heads -- all read patch-equal to every one of them. What replaced it is
+  the head itself when the ref is contained in it, otherwise one `git diff` between the two trees
+  restricted to the files the ref touches. The merge-base form was written first and discarded: a change
+  cherry-picked onto the pull request head still names the file in a merge-base diff, which is the only
+  case the reading exists for. A draft head buys no refusal -- #285's head is a tombstone, and refusing
+  `backup-tip` for it would retire a ref a real branch shares.
+  What lost: `preserve-scroll-position` and `tmp-dir-cleanup` are now refused, because a family word is
+  also the first token of a feature branch, and bare `backup` is still not refused, because `[-/]` asks
+  for a family or a path and not for the word.
+- Consequences: The arm in `factory/factory.sh` refuses on the mark's first characters the way the
+  `delivered` arm reads `[merged-pr:`, because the detail is prose and carries somebody else's branch
+  name; the pull request number in the journal is cut off the front of the detail rather than
+  re-derived from git, so it names the pull request the classifier actually looked at. Two named bounds,
+  `FACTORY_DELIVERED_WINDOW` and `FACTORY_DUP_SCAN` (40, against the 5 open heads measured 23:20Z on
+  13 Nov), and past either one the row says `[dup-scan-limited:N …]` and draws no conclusion rather than
+  a cheap one. The ticket's 12 Nov premise that the arm refuses nothing is recorded false -- 24
+  `REFUSED branch` lines, 11 Nov 09:54:49Z through 14:14:10Z. The content refusal fires on no live ref:
+  the shipped classifier against the real queue at 00:45Z on 14 Nov prints 12 `branch_without_pr` rows
+  with no mark and no bound note, so that half is pinned by the fixture alone, and what the name half
+  changes live is three refs -- `backup-tip`, `preserve/issue-222-stale-base`, `preserve/issue-318-wip`
+  -- which keep their rows and lose their tick.
+- Checkpoint: 3c2d68fbf16215b61145261698097718a1b6b6d3
+- Effect: `factory/common.sh` (`FACTORY_DELIVERED_WINDOW`, `FACTORY_DUP_SCAN`, `FACTORY_DUP_MARK`),
+  `factory/factory.sh` (`factory_refuseto_work` widened to `[-/]` per family, with the `preserve`
+  decision written at the pattern, and the content arm beside the name arm so the journal names the
+  pull request), `factory/triage.sh` (the open-head scan, the ancestor and tree-byte readings, the
+  bound and its note), `factory/selftest.sh` (twenty-five legs, two of them controls, over the
+  classifier and the supervisor; the section reads 588 passed, 0 failed), `docs/factory.md` (the
+  section)
+- Refers: #284 (this ticket), #291 (asks 1 and 2, and the `delivered` row whose mark this copies), #233
+  (the name test's origin), #285 (the draft whose head must not buy a refusal), H-0131 (the content
+  conjunct this sits behind), H-0013 and #277 (the read budgets)
