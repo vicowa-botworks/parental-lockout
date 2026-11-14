@@ -948,18 +948,40 @@ factory_ledger_int() {
 	case "$v" in ('' | *[!0-9]*) printf '0\n' ;; (*) printf '%s\n' "$v" ;; esac
 }
 
-# Seconds since a ledger timestamp; huge when there is no timestamp, so "never" means "ready".
-factory_age() {
-	local v now then_ts
-	v=$(factory_ledger_get "$1" "$2")
+# Seconds since a ledger timestamp, measured against a clock reading the CALLER hands in; huge when
+# there is no timestamp, so "never" means "ready".
+#
+# The reading is an argument because a pass that ranks rows must not read the clock once per row.
+# `factory_age` takes its own reading inside itself, so two units stamped inside the same second are
+# ordered by the instant their two age reads happened rather than by their stamps: when a second
+# boundary falls between the reads, the row stamped LATER answers one second OLDER and a descending
+# age key puts it first. That is what reddened `…then starts a tick for unit B` on CI run 43105189339
+# (11 Nov, `520 passed, 1 failed`) and again on run 43532152285 (14 Nov, `563 passed, 1 failed`), and
+# what #335 measured locally as `551 passed, 1 failed` then `552 passed, 0 failed` on one commit --
+# that issue's own journal is the arithmetic: `NEXT unclaimed 901 age=1s` above `NEXT unclaimed 900
+# age=0s`, for two stamps the stamping loop wrote 900-then-901 in the same pass. Equal stamps, read
+# across a boundary, so the younger unit was called the older one. `H-0157`.
+#
+# A missing or non-numeric reading is refused, not guessed at. Falling back to `date` here would put
+# the per-row reading back inside the primitive that exists to remove it, and an empty age key sorts
+# as 0 -- which is a silent reorder of the queue, the exact thing this separates.
+factory_age_at() { # <epoch> <id> <field>
+	local v then_ts
+	case "$1" in ('' | *[!0-9]*) return 2 ;; esac
+	v=$(factory_ledger_get "$2" "$3")
 	if [ -z "$v" ]; then
 		printf '999999999\n'
 		return 0
 	fi
-	now=$(date -u +%s)
 	then_ts=$(date -u -d "$v" +%s 2>/dev/null || printf '0\n')
-	printf '%s\n' "$((now > then_ts ? now - then_ts : 0))"
+	printf '%s\n' "$(( $1 > then_ts ? $1 - then_ts : 0 ))"
 }
+
+# The age right now, for a threshold test on one stamp -- the nine call sites that ask "has this been
+# stuck for FACTORY_ESCALATE_AFTER s". A straddled reading cannot reorder anything there, because
+# nothing sorts on the answer. Ranking rows against each other takes the pass's one reading through
+# `factory_age_at` instead, and `rank_is_one_clock_reading` refuses a ranking site that calls this one.
+factory_age() { factory_age_at "$(date -u +%s)" "$1" "$2"; }
 
 # --------------------------------------------------------------------------- GitHub reads
 #

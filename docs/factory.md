@@ -167,7 +167,8 @@ issues and pull requests; the first run of this script found five, one of them s
 ### Which unit a pass takes first (#307)
 
 Within a class the queue is oldest-first, and the key that decides it counts **up**, so it sorts
-descending: `factory_age` answers elapsed seconds since `first-seen`, so `sort -t$'\037' -k1,1n
+descending: `factory_age_at` answers elapsed seconds since `first-seen`, measured against the one clock
+reading the ranking pass takes before it ranks anything, so `sort -t$'\037' -k1,1n
 -k2,2nr -k3,3n` puts the longest-waiting unit first and the number breaks the tie. The key shipped
 ascending from `88848c5` until `H-0135`, which is `H-0007` written backwards -- the row stamped most
 recently went first. On a live queue that is not a fairness problem but a starvation one, because every
@@ -179,17 +180,35 @@ old, sat in the same rank; all five `unclaimed` rows were still open two hours l
 
 Nothing in the suite noticed for seven days, because the fixture stamps both of its units inside one
 second, and equal ages fall to the number tie-break -- which sends unit 900 first, the same answer the
-correct key gives. What surfaced it was a second boundary: CI run 43105189339 stamped 900, did the
-worktree lookup and the `gh` shims, and stamped 901 in the next second, so that pass dispatched the
-younger unit first and `…then starts a tick for unit B` went red (`quarantine at line 12, tick at
-line 8`) while the same fixture stayed green where the inter-stamp gap measures 3.8-7.9 ms. The
-boundary is not the bug; it was the only witness the fixture had. `factory/selftest.sh` now plants the two
-`first-seen` values rather than waiting for a boundary, asks the question in **both** polarities -- one
-polarity alone is also satisfied by a dispatcher that sorts on the number and never reads the age -- and
-retires the `r` in a control, so the ok means the direction rather than the tie-break.
+correct key gives. What surfaced it was a second boundary. This page said for three days that the
+boundary fell **between the two stamps** -- "stamped 900, did the worktree lookup and the `gh` shims,
+and stamped 901 in the next second" -- and that story cannot invert anything: the stamping loop runs to
+completion before the ranking loop reads a single age, so a stamp that lands a second later is a second
+*younger* at every read, which is the order the key wants. The boundary is between the two **reads**.
+`factory_age` called `date -u +%s` inside itself, so with both stamps in one second the first row
+answered `0s` and the second `1s` whenever a boundary fell in the ~10 ms between the two calls, and the
+descending key ranked the younger unit first. That is what CI run 43105189339 printed (`quarantine at
+line 12, tick at line 8`), what run 43532152285 printed again on 14 Nov (`quarantine at line 14, tick at
+line 10`, three days later and the same one line red), and what #335 caught under load on a
+developer box with the arithmetic visible in the journal: `NEXT unclaimed 901 age=1s` above
+`NEXT unclaimed 900 age=0s`, for two stamps one pass wrote 900-then-901.
+
+Planting ages was the right repair for the legs that plant them, and no repair at all for the legs that
+do not: `…then starts a tick for unit B` and #335's guard control both read the unstamped fixture, so
+both stayed a coin flip landing about once in 200 passes. `H-0157` closes it at the source -- the
+ranking pass takes one `date -u +%s` after the stamping loop and measures every age against it, which
+makes the key a monotone function of `first-seen`: equal stamps tie, the number decides, and no interval
+between two reads can turn a later stamp into an older one. `factory/selftest.sh` still plants the two
+`first-seen` values and asks in **both** polarities -- one polarity alone is also satisfied by a
+dispatcher that sorts on the number and never reads the age -- and retires the `r` in a control, so the
+ok means the direction rather than the tie-break. Three more legs hold the clock itself: the boundary is
+now *scheduled* by a stub `date` that advances one second per reading (a fixture cannot schedule it,
+which is why this defect needed two CI runs to appear), the retired per-row reader is made to reproduce
+the red pair on demand beside it, and a ranking site that goes back to reading the clock per row is
+refused by the text, with that reading planted as the control.
 
 The sentinel is the one behaviour that changes on the way. A unit with no `first-seen` answered
-999999999, which used to sort last and now sorts first -- what `factory_age`'s own comment has always
+999999999, which used to sort last and now sorts first -- what `factory_age_at`'s own comment has always
 promised ("never" means "ready"). It cannot reorder a queue whose ages are real, because the loop that
 builds the rows stamps every workable unit before the loop that ranks them reads the age; the only paths
 that skip a stamp are a dry run and a ledger that will not take a write, and both skip it for *every*
