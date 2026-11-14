@@ -7328,6 +7328,16 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: d2d8eedf8346e263f389a2acde6b9b033778aaca
 - Effect: factory/triage.sh, factory/selftest.sh, scripts/check-scripts.py, docs/factory.md
 
+## H-0156 · A merged body's closing keyword is a request to GitHub and nothing ever asked whether it was granted, so the loop now reads the issue back — and reads the body span-blind, because the tidier scan cannot see the defect
+
+- Question: after `gh pr merge` succeeds, the issues the body named with `Closes #N` are never read back. Measured over all 176 merged pull requests here, a keyword in plain text closed its issue within two seconds of the merge 92 times in 94 — with nothing at all in the three-to-120-second bucket — while a keyword inside inline code closed 0 in 2: #308's `` `Closes #304` `` left #304 to a hand close 6086 s later, and #338's `` `Closes #301.` `` sat on a line stating the keyword was deliberate and left #301 open 14472 s past the merge, which is what cost a second unit on a ticket trunk had already delivered. What does the loop do when the keyword did not do what the body said it did?
+- Options: close the issue and comment, since the body asked for it | comment and journal only, and leave the state change to a person | halt the activation until the ticket is resolved | write nothing and let `triage.sh` notice on a later pass
+- Chose: comment and journal only, and leave the state change to a person
+- Why: three measurements decided this, and one of them argues against the option that looks strongest. **The re-probe exists because GitHub's closer is asynchronous.** A single read milliseconds after a merge is not an answer, so the check sleeps `FACTORY_CLOSE_PROBE` (10 s default — five times the widest delta in the measured population) and reads again; 10 s buys one read on the rare ticket rather than a false note on every slow one. **The window is stated, not tuned.** `FACTORY_CLOSE_FIRED_S` defaults to 120 because the population has zero pairs between 3 and 120 s, so any bound from 3 s to 27000 s separates the same two sets; the two plain-text outliers are +27586 s and +159415 s, and the two code-span ones +6086 s and +14472 s. **Closing is refused because a merge is not evidence about requirements.** #1256 is this repository's record of a keyword firing on a line written to *negate* it, and #301 is the case where a body named two issues and the right answer was to refuse to close either — a component that closes on the strength of a verb would have made that call with less information than the unit had. Halting is refused for the reason #341 documents: one un-closed ticket must not park every later activation. Writing nothing is the status quo that cost the unit. **The scan is span-blind on purpose:** stripping code spans first models GitHub faithfully and would have reported no claim for #301 at all, because the specimen IS a keyword inside a span; the check has to read the body the way `CLAIM_RE` does — which takes a backtick as filler — and then compare against what GitHub reports, so the disagreement is the finding. The note quotes the verb lines inside a code span of its own, which is load-bearing twice: it shows the reader which case they are looking at, and a note that put `Closes #301` in running text would close the very ticket it is reporting on. `scripts/check-close-verb.py` reads the generated note and reports `inert #301`, nothing firing — pinned by a leg. The healthy path writes no journal line at all (#334 priced a pass at 37 lines already), and a failure to read is never reported as an open ticket: unreadable issue is `CLOSE-CHECK-UNKNOWN`, unreadable body is `CLOSE-CHECK-SKIPPED`, no timestamp is `CLOSE-UNTIMED`.
+- Checkpoint: 022bb7876885036c957b99e93ccfb53293ff8f63
+- Effect: `factory/factory.sh` (`factory_verify_closure` and `factory_close_delta`, called from `factory_merge` after the merged-at stamp), `scripts/check-close-verb.py` (new, with `--self-test`), `Makefile` (the contract line in `verify`), `factory/selftest.sh` (a section that sources the shipped bytes over three stubs, plus a control that empties the function), `.opencode/skills/factory/SKILL.md` (Step 5, where every example was a code span), `docs/factory.md` (the population table and the span-blind reasoning)
+- Refers: #353 (this ticket), #301/#338 and #304/#308 (the two specimens, and the re-dispatch #301 cost), #341 (a halt is not the answer to one bad ticket), #334 (the journal's size), #1256 (the parser has no notion of negation — the reason the note quotes inside a span), #1180 (read the artifact back; a write's exit status is not its effect — the same error aimed at a verb instead of a call), #1264 (this repository offers only a merge commit, so what merges is permanent)
+
 ## H-0157 · A ref with no pull request is refused by its name and by its bytes, and neither judgement is allowed to invent a class
 
 - Question: A branch ahead of `main` with no open pull request is offered to a tick as stranded work.
@@ -7766,9 +7776,9 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   check performed at the cited revision therefore passes the exact class of failure the issue was filed
   about, and refuses only entries that were false the day they were written -- a weaker question, asked of
   a tree nobody is reading. It also needs git, and this log already refuses that: `gate_reads_no_refs`
-  `factory/selftest.sh:11568` "0 when that gate asks git for nothing but object lookups" exists so CI, the
+  `factory/selftest.sh:11823` "0 when that gate asks git for nothing but object lookups" exists so CI, the
   review loop and the merge commit answer identically, and its refusal is
-  `factory/selftest.sh:11577` "the gate asks git for a subcommand that is not cat-file" (H-0056). Checking
+  `factory/selftest.sh:11832` "the gate asks git for a subcommand that is not cat-file" (H-0056). Checking
   the tree is the only place left where the drift class is visible, and it is hermetic. Dropping the number
   entirely keeps the truth and loses the affordance that makes an entry re-runnable in ten seconds; 517
   pointers would still say nothing about themselves. What lost: those 517 old citations are refused
@@ -7805,19 +7815,22 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   merge's own commit, which is the one direction the ratchet permits a rise, and a rise written without its
   measurement is the prophecy #1180 refuses.
 - Effect: `scripts/check-decisions.py` gains the rule, `--citations`, and
-  `scripts/check-decisions.py:573` "POINTER_DEBT = 517"; the self-test goes from 32 must-fail / 9
+  `bc1c08c:scripts/check-decisions.py:573` "POINTER_DEBT = 517" -- pinned to the revision it was read at,
+  because the constant is a moving line and the next merge re-measures it (H-0162's own rule refused this
+  sentence on the second merge into this branch, which is the exemption being used for its stated purpose);
+  the self-test goes from 32 must-fail / 9
   must-pass to 47 / 17, including the two directions of the ratchet, the `.git`-by-name directory filter
   #318 asked for, `class:PR` prose, the inherited `:NNN` range, and `./` being root-relative. 54 ambiguous
   citations across the two logs now carry a full path and nothing else on their lines changed -- 37 found
   on this branch before the merge and 17 that arrived with `origin/main` in `faf4590`, 10 of them one bare
   `README.md` because `main` grew a fifth file with that name. That is also why the constant moved from 378
   to 517 in this commit instead of falling. The rule is written into the three documents that govern an
-  entry: `docs/factory.md:1737` "carries its own anchor" is the section, `AGENTS.md:52` "naming what is owed, and stop"
+  entry: `docs/factory.md:1904` "carries its own anchor" is the section, `AGENTS.md:52` "naming what is owed, and stop"
    sits in the bullet that now shows the form, and the last hazard in the factory skill is
   this one. Each placement was decided before the edit by `--citations <path>` -- the highest cited line
   was 50 in `AGENTS.md`, 1083 in `docs/factory.md` and 434 in the skill, so every insertion went below it
   -- and `faf4590` then moved two of those three, which is the rule's thesis stated about its own entry.
-  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:1773` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
+  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:1940` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
   six checked against the tree and five naming the revision they were read at -- and the gate refused it
   three times on the way in, which is the only proof here that the rule bites: an anchor split by a line
   wrap is no anchor, a bare `5be86e5`-style coordinate is what a revision-qualified citation says instead
@@ -7855,3 +7868,371 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   runs is a prophecy (#1180). Refs #318.
  Renumbered 13 Nov, second pass: this entry was written as `H-0147` on `92d0e39` while that id was free (the allocator answered `H-0147` there and `H-0162` on the merged tree), and `main` published its own `H-0147` -- "PR #307 made nothing on stderr an answer no allocator could give" -- before this branch merged. The rule keeps the published id and moves the unmerged side, so this entry is now `H-0162`; the checkpoint commit is `chore(checkpoint): pre-H-0147 ...` and its message names the id that was current when it was taken, not the one the entry ended up under.
 - Checkpoint: 92d0e398a961228bddce9be7d22173350f125578
+
+## H-0163 · PR #357's collision is one anchor in two files at once, so the log needs three cuts out of two blobs and the guide needs both of its two new sections -- and the gate, not the layout, is what says which splice is a history
+
+- Question: read back before anything was touched, with the field that answers only for a pull
+  request (#2027's type read -- a bare `--json number` answers the same for an issue):
+  `gh pr view 357 --json headRefName` answers `issue-353`, and the same call says `state` `OPEN`,
+  base `main`, `headRefOid` `f27b614f5d9a7060e02a2a7bd74c18a45fdc4fbd` -- this worktree's `HEAD` --
+  `mergeable` `CONFLICTING`, `mergeStateStatus` `DIRTY`, `reviewDecision` `CHANGES_REQUESTED`,
+  `isDraft` false. Its own second call says `reviewRequests` is `[]`, so no reviewer holds the
+  request and the supervisor's poke still owes the ask -- which is the queue's row to notice
+  (`docs/factory.md`, `needs_reviewer`), not a sentence this unit may spend a call on. The tree is
+  clean at the start, the branch matches the brief, no `factory/HALT` exists, `gh auth status` is
+  green. `git rev-list --left-right --count HEAD...origin/main` is `3 17` on merge base `9d15457`,
+  and `git merge --no-commit --no-ff origin/main` names TWO `UU` files against eleven auto-merged:
+  `docs/factory.md` and `factory/DECISIONS.md`. In the log the base ends at 7279 lines; this branch
+  appends a blank and `H-0156` (9 lines, 7281..7289, file 7289); `main` appends a blank and FIVE
+  entries -- `H-0154` (49 lines, 7281..7329), `H-0157` (60), `H-0158`, `H-0159`, `H-0161` (file
+  7734). So `H-0156` lands BETWEEN `main`'s `H-0154` and `main`'s `H-0157`: the third shape
+  `H-0161` names, where no arrangement of two whole blocks is a legal history. In the guide the two
+  sides added different `###` sections at one anchor (line 380): `main`'s "The ref that is not a
+  contribution (#284)" and this branch's "The merge that closed nothing the body said it closed
+  (#353)". Which cut is legal, does the yield rule's renumber step apply, and what does the merge do
+  to a `path:NNN` citation?
+- Options: this branch's file (`--ours`) | `main`'s file (`--theirs`) | both blocks with git's three
+  conflict markers deleted, keeping git's own hunk order | three cuts in ascending id order --
+  `main`'s blob through the end of `H-0154`, then this branch's whole `H-0156` block, then `main`'s
+  blob from the `H-0157` heading to its end, every separator taken from the blob that owns it |
+  the log by three cuts and the guide with both sections, `main`'s first | the log by three cuts and
+  the guide with both sections, this branch's first | renumber this branch's entry to a free id above
+  `H-0161` so the log stays a pure append | `git merge -X ours` / `-X theirs` / `--union` for the log
+  and let git settle it | in the guide, one section deleted | cut both files and leave the coordinates
+  this merge moves unrecorded
+- Chose: the log by three cuts and the guide with both sections, `main`'s first
+- Why: order is arithmetic, and it was measured rather than argued. Git's own layout -- both blocks,
+  the three marker lines deleted, ours first because `--ours` is stage 2 -- is 7743 lines and
+  `python3 scripts/check-decisions.py --log` answers ONE problem at exit 1:
+  `gitlayout.md:7290: H-0154 is out of order (H-0156 came before it)`. Keeping `main` whole is illegal
+  the other way, because `H-0156` would sit above five ids it belongs under. Only the ascending splice
+  passes: the spliced blob answers `214 entries across 2 log(s)`, exit 0. Options 1 and 2 are
+  arithmetic, not taste: `--theirs` deletes the 9 lines that ARE #357's record -- heading, question,
+  options, costs and `- Checkpoint: 022bb7876885036c957b99e93ccfb53293ff8f63`, the address a person
+  types into `git revert` -- and `--ours` deletes 455 lines `main` merged behind it, of which 248 are
+  themselves the product of merges (#350, #358, #359, #363 and their base merges); a branch has no
+  standing to un-write a merge and this repository offers only merge commits, so the deletion would be
+  permanent history. The renumber option is refused by what an id is: `H-0156` is durable on
+  `origin/issue-353` and quoted in the body of #357, the yield rule (`docs/factory.md`) moves a number
+  only where two branches took the SAME one, and `grep -oE '^## H-[0-9]{4}'` over both appended blocks
+  piped to `sort | uniq -d` answers nothing -- there is no collision to yield, only an ordering to
+  satisfy. The `-X` option is refused by what it produces: `-X` silently drops one side's lines and `--union`
+  duplicates headings, the defect `H-0144` measured in this file. In the guide both orders pass every
+  gate -- nothing reads section order -- so the tie-break decides, and both of the cheap ones point
+  the same way: `main`'s block is already in the trunk's layout and this branch is the one being
+  delivered into it, and keeping `main` contiguous moves 61 of the guide's lines instead of 56
+  (tie-break 4, fewest lines moved; tie-break 5, the undo is one `git revert -m 1 <this merge>` back
+  to `fbd41b2`, no force-push). The allocator was read four times because the fourth is the one the
+  skill asks for. First, on the pre-checkpoint tree: `H-0163`, `REFRESH`, union 54s old. Second, on
+  the spliced tree before the entry was written: `H-0163` again at a 292s-old union -- inside the
+  300s bound, so `REFRESH` and not `REFRESH-BLIND`, but close enough to it that the `git fetch --prune
+  origin` the note names was run. Third, after that fetch: `H-0163` with a 0s union and `origin/main`
+  unchanged at `aac8218`, and a loop over every `refs/heads` and `refs/remotes` ref finds `H-0162` on
+  `issue-318` local and remote and `H-0163` on zero refs, so the answer is known to be about a real
+  ceiling and not about a probe that never fires. Fourth, once this heading is in the working file,
+  below: `PENDING` naming `H-0163` and the answer moved to `H-0164` -- #320's guaranteed inflation,
+  and the note is what says nothing was taken, so the id stays `H-0163` and no gap opens. The product
+  log's allocator answers `D-0076` and goes unused; this is harness work. What the merge does to a
+  citation, measured the way `H-0161` measured it: with `[A-Za-z0-9_./-]+\.(md|sh|py|go|json|yaml|c):[0-9]{2,5}`,
+  the log holds 264 tokens on the base and on this branch, 288 on `main` and 288 spliced -- the splice
+  adds none and repairs none; 12 of them name `factory/DECISIONS.md` itself on `main` and spliced,
+  none past the end of that file on any of the four trees, and NONE of the twelve names a line at or
+  past 7331, so the +10 the splice gives `main`'s `H-0157`..`H-0161` moves no citation at all; and
+  nothing anywhere in the tree cites `DECISIONS.md:7[2-9]NN` from outside the log. The guide is not so
+  clean, and it was already that way before this unit: 20 citations in the log name
+  `docs/factory.md` at a line at or past the anchor 380, `main`'s own insertion moved them 57 lines
+  relative to the shared base and this merge moves them a further 61 relative to `main`. `H-0143` and
+  `H-0144` settle that: disclosed here, not rewritten in place, because an in-place edit deletes lines
+  the other side wrote -- which poisons the zero-deletion census that is the only evidence a splice
+  kept both intents -- and re-dates a measurement that was true at the head it was taken. This entry
+  then adds its own coordinates, and each was re-read against this tree after it was written: the two
+  `docs/factory.md` headings at `:380` and `:437`, the three log headings at `:7281`, `:7331` and
+  `:7341`, and the guide's insertion anchor at `:380` all land.
+- Checkpoint: fbd41b2792f640333c61bed0df8870cc3a292496
+- Effect: `factory/DECISIONS.md` and `docs/factory.md`, plus the twelve files the merge auto-merged
+  with no help. Proof the splice moved nothing, by `cmp` on the blobs: merged 1..7330 is
+  byte-identical to `origin/main`'s 1..7330; merged 7331..7339 is byte-identical to this branch's
+  7281..7289; merged 7341..7744 is byte-identical to `origin/main`'s 7331..7734. `git diff --no-index
+  --numstat` of the merged blob against each parent blob is `10 0` against `main` and `455 0` against
+  this branch -- zero deletions against either parent, in either direction -- and zero conflict
+  markers; the guide is `61 0` against `main` and `95 0` against this branch, also zero deletions,
+  both sections present (`:380` and `:437`) and 1796 lines. Gate, on this tree and alone in this
+  worktree with no mutation sweep in flight (#1807), each command re-run on the bytes this merge
+  commits: `python3 scripts/check-decisions.py` -> `215 entries across 2 log(s)`, exit 0, this entry
+  included (the spliced blob without it is the 214 quoted above); `python3 scripts/check-scripts.py`
+  -> `0 problems in 9 tools and 13 set files, and 24 shipped shell scripts for command position and
+  quoted continuations`, exit 0; `bash factory/selftest.sh` -> **623 passed, 0 failed** (fixture root
+  on tmpfs, git 2.53.0); `make verify` -> `verify: OK`, exit 0 -- once on the resolved merge before
+  this entry, once on the bytes this commit ships, both quoted in the pull-request body (#1180: an
+  `Effect:` written before the gate runs is a prophecy).
+
+## H-0164 · #357's review blocks on the width of one pattern: a 20-character filler window invents 15 closers GitHub was never asked for, two of the stems are not GitHub's keywords, and the copy that invented them is asymmetric
+
+- Question: `gh pr view 357 --json headRefName,updatedAt` (the type read of #2027 -- a bare
+  `--json number` answers the same for an issue) says `issue-353`, and the review submitted at
+  `2026-11-14T05:13:30Z` is `CHANGES_REQUESTED` against head `f27b614`, so it was written after the 17
+  commits of `main` and before this branch's resolution of them. Its blocking 1 is "the 20-character
+  filler window claims closers GitHub was never asked for"; its blocking 2 is "two of the stems are not
+  GitHub's keywords"; and it says plainly that none of its four blocking items touches the design. The
+  population was re-derived here rather than inherited: `gh pr list --state merged --limit 1000
+  --json number,body,mergedAt` -> 180 rows, `gh issue list --state all --limit 1000 --json
+  number,state,closedAt` -> 175 rows, both re-run minutes before the counts below, and
+  `/tmp/opencode/p357/audit_closers.py` IMPORTS `CLOSER` out of `scripts/check-close-verb.py` instead of
+  re-typing it, so the count and the shipped rule cannot disagree by transcription. Shipped pattern: 100
+  plain-text pairs naming an issue, 98 closed within 2 s of their merge, 2 late (#207 +159415 s, #211
+  +27586 s) and zero in the 3-to-120 s band; 2 inline-code-only pairs, 0 fired (#304 +6086 s, #301
+  +14472 s); 0 fenced. `CLOSER_RE` as it stood at the checkpoint below -- `clos(?:e|es|ed|ing)
+  |fix(?:e[sd])?|resolv(?:e|es|ed|ing)` then `\b[^#\n]{0,20}` -- answers 107 plain-text pairs plus 8
+  naming a pull request or nothing: 115 matches where 100 exist, 15 of them invented. What the pattern
+  is FOR decides whether 15 inventions are free: `factory_verify_closure` writes its verdict as a
+  comment on the named ticket, so an invented closer is a false sentence on a live artifact. How wide
+  may a closer be, do the `-ing` stems stay, is `\s` a legal separator, and does one spelling become the
+  source of the other?
+- Options: keep the shipped window and the `-ing` stems, because they are the shape `triage.sh`'s claim
+  matcher already uses and the harness should notice anything a person might have meant | GitHub's
+  documented keyword set, adjacent (`[:, \t]*`), in both shipped spellings, with a leg pinning the two
+  engines against each other | the window kept in `factory.sh` so the span-blind scan keeps seeing
+  intent, narrowed only in the checker | narrowed in `factory.sh` and the checker left wide | `\s*` as
+  the separator, so a tab, a newline or a `\r` all count | one spelling imported from the other (the
+  checker parses `CLOSER_RE` out of `factory.sh`, or `factory.sh` shells into the checker) so they
+  cannot drift | separate the two jobs honestly: keep the claim matcher wide, narrow only the closer,
+  and write down that they are different questions | ship the audit script in the branch so the
+  population is re-derivable by anyone with `gh` access
+- Chose: GitHub's documented keyword set, adjacent (`[:, \t]*`), in both shipped spellings, with a leg
+  pinning the two engines against each other
+- Why: a closer is not a claim, and the two widths answer different questions. The claim matcher's job is
+  "did anybody say anything about this ticket", where a backtick and a long sentence are both worth
+  noticing, and H-0156 makes this scan span-blind for exactly that reason. The closer's job is "what did
+  GitHub agree to do", and GitHub's list is nine words -- close, closes, closed, fix, fixes, fixed,
+  resolve, resolves, resolved -- with the reference touching the verb. Option 1 is the measured defect:
+  15 invented pairs, 7 naming real issues no sentence asked about. The most expensive is live now --
+  `pull request #292 has the fix. Refs #291 for context only.`, merged in #293, read by the window as a
+  request for #291, which is still OPEN, so the function would comment on #291 that its own merge failed
+  to close it, about a keyword never aimed at it; another invented pair names #228, closed 29398 s BEFORE
+  the merge that "closed" it. Options 3 and 4 are refused by the pairing: the checker is what a unit runs
+  on its own body before it opens the pull request, so a checker that still sees a window tells the
+  author a closer exists where GitHub sees none, and the guard argues with itself. Option 5 is a window
+  by another name, refused by the shape of every scan here -- `jq` gets `splits("\n")`, the checker
+  iterates `splitlines()` -- so a separator that can match a newline never pays off inside one line and
+  can only ever match a `\r` out of a CRLF body; measured, `[:,\s]*` and `[:, \t]*` give the identical
+  population today, which is why the narrow one is free. Option 6 was the tempting one and fails
+  mechanically: the two engines are different dialects handed to different programs (Oniguruma to `jq`,
+  `re` to Python), so importing means one program parsing the other's escaping, and a leg costs less
+  than that parser. Option 7 is where the `-ing` forms belong -- kept in `CLAIM_RE`, dropped here -- and
+  the checkpoint's line is the evidence of what hand-copying a stem list does: `clos...|ing` and
+  `resolv...|ing` came across and `fix(?:e[sd])?` has no `-ing` arm, so one merged body's spelling
+  decided which progressive verb the harness believed -- on the `HEAD` pattern `Closing #77` and
+  `Resolving #78` scan as closers and `Fixing #79` does not. Both shipped spellings were byte-identical
+  modulo their flags at the checkpoint (`git show HEAD:factory/factory.sh` line 557 against `git show
+  HEAD:scripts/check-close-verb.py` line 42), so nothing had drifted yet; this change edits one rule in
+  two languages, which is why the leg holds them together now rather than the accident of two copies.
+  Option 8 is right in principle and wrong in this commit: the audit reads `gh` dumps and `/tmp`, so it
+  would land as an untested file no gate runs. It stays where it is, with its command line quoted here
+  and in the pull-request body, and #353's Step 6 owns making the population a branch artifact.
+- Checkpoint: 19353cebb4b3ebbf4af17b4e7d592dfda94bbaa6
+- Effect: the checkpoint is an empty commit whose tree is `025f9bc`, the merge this review sits above,
+  written after the edits were drafted in the working tree and before any of them was staged, so what it
+  records is the pre-change state -- `git show HEAD:factory/factory.sh | sed -n 557p` at that commit
+  prints the window. `CLOSER_RE` (`factory/factory.sh`) and `CLOSER` (`scripts/check-close-verb.py`) are
+  both
+  `\b(?:clos(?:e|es|ed)|fix(?:e[sd])?|resolv(?:e|es|ed))` with `[:, \t]*` before `#([1-9][0-9]*)`, and
+  that capture group is the first the shell scan has ever had. Re-derived on the same fresh dumps with
+  the narrowed rule: 100 plain-text pairs, 98 fired, 2 late, 2 inline-only, 0 fenced -- the population
+  the window found and nothing taken away from it, so the narrowing loses no real closer. `python3
+  scripts/check-close-verb.py --self-test` -> `18 fixtures, every class where the parser says it is`,
+  exit 0: six of the invented lines ship as `BAD` fixtures each asserted to report no closer, and the
+  three `-ing` spellings ship as one `GOOD` fixture (`no-ing`) no engine may claim. Two new legs in
+  `factory/selftest.sh`: `the two shipped spellings of the closer answer the same on every line of the
+  table` lifts `CLOSER_RE` out of `factory.sh` with `grep`+`sed` and imports `CLOSER` out of the checker,
+  so it cannot pass on a paraphrase of either, and walks 21 lines through both engines refusing any line
+  whose number sets differ; `a verb twenty characters away from a number is not scanned as a closer at
+  all` plants the #293/#291 body in the fixture `gh` and requires the shipped function to write neither a
+  journal line nor a call. The prose that argued the old width is corrected in all three places that
+  carried it -- `docs/factory.md`, `.opencode/skills/factory/SKILL.md` and the `factory.sh` header -- and
+  the corrected table now says 180 merged pull requests, 100 plain-text pairs, 98 inside 2 s, 0 of 2
+  inline. Gate, on these bytes and alone in this worktree with no mutation sweep in flight (#1807), each
+  command re-run on the bytes this commit ships: `python3 scripts/check-decisions.py` -> `216 entries
+  across 2 log(s)`, exit 0; `python3 scripts/check-scripts.py` -> `0 problems in 9 tools and 13 set
+  files, and 24 shipped shell scripts`, exit 0; `python3 scripts/check-close-verb.py --self-test` -> `18
+  fixtures, every class where the parser says it is`, exit 0; `bash factory/selftest.sh` -> **625
+  passed, 0 failed** (fixture root on tmpfs, git 2.53.0) -- 623 before this entry's two legs, and the
+  delta is those two; `make verify` -> `verify: OK`, exit 0, quoted from the run whose log carries these
+  bytes (#1180).
+
+## H-0165 · #357's review asks which number a verb actually pointed at: `capture` reports the first on the line, and the re-probe arm had its own copy of the verdict with only the healthy branch in it
+
+- Question: the same `CHANGES_REQUESTED` review as H-0164, against the same head `f27b614`, filed four
+  more items beside the pattern ones -- blocking 3, and non-blocking 1, 2 and 6 -- and all four are about
+  the pass that reads GitHub's answer rather than the rule that reads the body. Blocking 3 is that `jq`
+  was asked for a `capture`, which answers the FIRST `#N` on a matching line and nothing else, so "a line
+  with two references reports the wrong one and misses the right one, and `Closes #1 and Closes #2`
+  reports only #1". Non-blocking 1 is that the re-probe arm decided for itself and printed a healthy
+  sentence for an untimed close and for a 40400 s close. Non-blocking 6 is the sleep inside the loop.
+  Non-blocking 2 is that five of the function's arms had no leg. Each was reproduced before it was
+  believed: `printf '%s\n' '#7 is the reason. Fixes #12.' | jq -Rsr '[splits("\n") | select(test($re)) |
+  capture("#(?<n>[1-9][0-9]*)").n]'` answers `["7"]` and the same body through `scan($re)` answers `12`;
+  `Closes #301 and Closes #304.` answers `301` alone. For the re-probe arm, the fixture run over the bytes
+  at `8c9999b` printed `CLOSE-SETTLED pr:1 issue:2 closed unknown s after the merge, inside the window
+  GitHub takes` for a ticket that went OPEN then CLOSED with `closed_at: null`, and the same sentence with
+  `40400` in it with `FACTORY_CLOSE_FIRED_S=120`. The review names a fifth thing the shipped read cannot
+  see: a pull request is also an issue to the REST API, so `issues/282` answers `state: closed` with a
+  real `closed_at`, and #292's body says `its fix merged as #282 at 11:01:37Z on 11 Nov` -- a verb aimed
+  at a merged sibling. Measured here: `gh issue view 282 --json state` answers `MERGED`, and the raw REST
+  read that would show the discriminator is refused in this session
+  (`gh api repos/vicowa-botworks/parental-lockout/issues/282` prints `Permission denied: shell`, #1180's
+  first failure class), so the field is pinned by a planted payload rather than a live call.
+- Options: `scan($re)` for the numbers, one verdict helper behind both arms, one probe wait per batch, and
+  a kind field read in the same call as the state | keep `capture` and light the legs the review counted
+  | three `api_get` calls per artifact, state then timestamp then kind | delimit the triple with a tab, as
+  the harness's other stubs do | pass a verb aimed at a pull request in silence | leave the sleep in the
+  loop and set `FACTORY_CLOSE_PROBE=0` in the legs
+- Chose: `scan($re)` for the numbers, one verdict helper behind both arms, one probe wait per batch, and a
+  kind field read in the same call as the state
+- Why: a reader that reports what it pattern-matched instead of what the artifact says, four times over.
+  `capture` reports the first number on a line, so keeping it and adding legs would be a coverage fix for
+  a correctness fault: the pass names a ticket the verb never pointed at and never reads the one it did,
+  and its verdict is a comment written on that artifact. Three calls per artifact was what the surrounding
+  code already did for state and timestamp, and it is wrong at three: two reads of one ticket can
+  straddle a write, so a delta built from the state before a close and the timestamp after it is a delta
+  nobody observed -- one jq filter, one read, one instant. A tab as the separator was rejected on
+  measurement, not taste: tab is IFS *whitespace*, so `IFS=$'\t' read -r a b c` over
+  `OPEN<tab><tab>ISSUE` answers `a=OPEN b=ISSUE c=` -- an open ticket's kind lands in its timestamp and
+  the kind is empty, the one artifact the branch exists to distinguish; both spellings were run and
+  U+001F is not whitespace. Silently passing a verb aimed at a pull request was rejected because it is a
+  real finding about the body -- the author pointed the keyword at something no closer acts on -- and a
+  silent pass is exactly how #353 began, with nobody saying what the merge had done. Leaving the sleep in
+  the loop was rejected because the finding is a count: a body naming five open tickets held
+  `factory_merge` for fifty seconds before the worktree cleanup ran, on every merge, for a reason -- the
+  closer's seconds-long asynchrony -- that belongs to the batch, not to each ticket. Measured cost of the
+  four: 2 wrong numbers out of 2 test lines, 2 false healthy verdicts, 40 s of wall clock per bad merge,
+  and one misattributed note waiting on a merged sibling.
+- Affects: `factory/factory.sh` -- `factory_close_read` and `factory_close_verdict` are new, the scan in
+  `factory_verify_closure` says `scan($re)` where it said `capture(...)`, the loop is two passes with one
+  `sleep` between them, and the note-building arm is unchanged bytes. `factory/selftest.sh` -- the lift
+  takes one awk span instead of two `sed` ranges that each stopped at the first `^}` (the two new helpers
+  sit between the old ranges, and the fixture already documents being bitten once by a helper the lift
+  forgot, so all three are asserted now); the `run_action` stub gains a `fail-note` switch, because an
+  always-succeeding stub leaves `CLOSE-NOTE-FAILED` unlit; the `Refs`/`Part of` leg asserts
+  `[ ! -e "$2/calls" ]` where it grepped a file the healthy path never creates and counted its own `No
+  such file or directory` as the pass; ten legs are new. `docs/factory.md` and
+  `.opencode/skills/factory/SKILL.md` carry the same finding in prose, the latter naming the merge-time
+  read as the supervisor's second ask.
+- Reproduction: the ten new legs are: one verb over two numbers verdicts both; a verb verdicts the number
+  it touches, not the first on the line; a verb aimed at a pull request is named and gets no issue
+  verdict; a close that lands during the re-probe with no clock is UNTIMED; one 40400 s late is LATE; a
+  state that is neither answer on the first read; the same after the re-probe; no `merged_at` skips in
+  words; a close that predates the merge keeps its negative delta; a note that cannot be written is
+  journalled. Plus one text leg: exactly one `sleep` in the function, on the batch line. The fifth arm the
+  review counted -- `scan_state = failed` -- stays dark on purpose and says so where it stands: it fires
+  only when `jq` fails on a well-formed body, and the only way to make that happen here breaks the body
+  read too, landing the run in `CLOSE-CHECK-SKIPPED` instead. The misattribution is re-runnable in one
+  line: `CLOSER_RE=$(grep -m1 '^CLOSER_RE=' factory/factory.sh | cut -d"'" -f2); printf '%s\n' '#7 is the
+  reason. Fixes #12.' | jq -Rsr --arg re "$CLOSER_RE" '[scan($re) | .[0]]'` answers `["12"]` -- the
+  capture group, so bare digits -- and the same pipeline over `Closes #301 and Closes #304.` answers
+  `301 304`, where the shipped `capture` answered `301`.
+- Refs: #353 (the ticket this component exists for), #357 (the review), H-0157 (the pass's first shape),
+  H-0164 (the pattern it reads), #1180 (read the artifact; the raw REST refusal above is quoted, not
+  inferred), #1807 (the gate ran alone in this worktree, no mutation sweep in flight).
+- Checkpoint: f20cb35
+- Effect: the checkpoint is an empty commit whose tree is `8c9999b`, so it holds the pass exactly as the
+  review read it. Its ordering is stated rather than hidden: it was taken after the edits were drafted,
+  which means it records the pre-decision bytes by content, not by position in the history. `git revert
+  f20cb35..HEAD` returns `capture`, the duplicated verdict and the in-loop sleep. Gate, each command
+  quoted from its own log on the bytes this commit ships (#1180): `python3 scripts/check-decisions.py`,
+  `python3 scripts/check-scripts.py`, `python3 scripts/check-close-verb.py --self-test` -> `18 fixtures,
+  every class where the parser says it is`, exit 0, `bash factory/selftest.sh`, and `make verify` ->
+  `verify: OK`, exit 0.
+
+## H-0166 · Nothing ever read a commit message, and this branch's own carried two verbs GitHub may honour: the write side is made stricter than the read side on purpose, and published history is adjudicated in a file rather than rewritten
+
+- Question: #357's review asked for a rule about what a writer may put beside an issue number. H-0164
+  built that rule into `scripts/check-close-verb.py` and it reads FILES -- a body handed to it at review
+  time. The question this entry answers is what protects the text nobody hands to it: the commit messages
+  on the same branch, which GitHub parses the same way and acts on when the commit reaches the default
+  branch. Measured on this branch before anything was changed: `git log --format=%B origin/main..HEAD`
+  at `17b37c7`, read with the WIDE claim scan -- a verb, then the nearest following number, the width
+  `CLAIM_RE` carries -- answered `Closing -> #77` and `Resolving -> #78` in `8c9999b`, in the sentence
+  written to WARN about the hazard, which is PR #245's shape from #1256 reproduced one layer down. The
+  tight adjacency regex and the checker as shipped both answered nothing on the same bytes, because the
+  number sits after a line break; that is the width question from the other side, and it is why the
+  report prints the verb it refused. The live read
+  says #77 is `MERGED` (closedAt 2026-10-17T00:00:04Z) and #78 `CLOSED` (2026-10-16T15:00:51Z), both
+  closed long before the message was written, so that merge would have changed nothing: luck about two
+  numbers, not a property of the shape. The open question underneath is what to DO about it, because the
+  message is already pushed.
+- Options: refuse undocumented inflections at WRITE time -- a fifth class in the checker, a span-blind
+  scan of every message between the base and HEAD inside `make verify`, and a waiver file for claims that
+  are already published, exact on sha and number set and reprinted on every run -- while the read side
+  keeps the documented nine | widen the read-side `CLOSER_RE` to the `-ing` forms too, so both engines
+  agree on one superset | report undocumented forms in messages as advice and exit 0, so the gate stays
+  green and the reader is told | rewrite `8c9999b` so the branch is clean and no waiver is needed
+- Chose: refuse undocumented inflections at WRITE time -- a fifth class in the checker, a span-blind scan
+  of every message between the base and HEAD inside `make verify`, and a waiver file for claims that are
+  already published, exact on sha and number set and reprinted on every run -- while the read side keeps
+  the documented nine
+- Why: the two sides fail in opposite directions and only one of them touches an artifact. The read side,
+  `factory_verify_closure`, writes its verdict ONTO a live ticket, so a pattern that reaches too far
+  writes a false sentence on somebody's issue -- that is exactly what H-0164 measured (a 20-character
+  window invented 15 closers across the merged corpus) and why the read side stays narrow. The write side
+  costs a reworded sentence when it says no, and an unplanned close when it says yes. Given one form --
+  `Closing #77` -- whose behaviour is genuinely unknown here, the narrow question and the strict question
+  are both right, in their own place. What is NOT known is whether GitHub honours an `-ing` verb, and
+  this corpus cannot answer it: all 180 merged bodies contain ONE adjacent `-ing` specimen, PR #47's
+  `closing #46`, and that body also carries the documented `Closes #46.` two lines later -- one
+  observation, confounded, so #46 closing 2 s after the merge proves nothing about the `-ing` line. So
+  the write side refuses it without claiming it fires, and says so in the report ("whether it fires is
+  unmeasured here, so it is refused"). The superset option is refused because it imports the invented-claim
+  defect into the side that writes. The advisory option is refused because it is the state that let the specimen
+  through: a warning in a log nobody reads is what a green gate already is. The rewrite option is refused before it is
+  weighed -- AGENTS.md permits only `git revert`, force-pushing an in-flight branch is forbidden, and
+  this repository has `allow_squash_merge=false` and `allow_rebase_merge=false` (#1264), so a merged
+  message is permanent history either way.
+- Affects: `scripts/check-close-verb.py` -- `KEYWORDS`, `HAZARD`, the `hazard` class in `classify`, a
+  `spans` switch (the inertness of a code span is a measurement made over BODIES, 0 fired of 2, and has
+  never been made over messages, so a message is read span-blind), a `-` path meaning stdin, and
+  `--span-blind`; `scripts/check-commit-verbs.sh` is new; `Makefile` gains `==> commit-message claims`
+  in the `verify:` recipe; `factory/close-verb-waivers` is new, with one entry, for `8c9999b`;
+  `factory/selftest.sh` gains seven legs; `docs/factory.md` and the factory SKILL carry the rule.
+  `factory/factory.sh` is deliberately NOT changed: its nine keywords are correct for what it does.
+- Reproduction: `git log --format=%B origin/main..HEAD | python3 scripts/check-close-verb.py --span-blind
+  -` exits 1 and prints `REFUSED, NOT A KEYWORD #77, #78`, naming its own motivating specimen; the same
+  pipe without `--span-blind` exits 0, because in a body a backtick is a measured shelter. The new script,
+  run on this tree: `./scripts/check-commit-verbs.sh` prints one `WAIVED 8c9999b080:` line naming the
+  read-back and exits 0 over 10 messages. In a fixture repo it bites -- `sh scripts/check-commit-verbs.sh
+  HEAD~1` over a commit whose message says `so Closing #99 scanned as a closer` exits 1 naming the short
+  sha, `#99` and the verb; a commit saying `Closes #98 with the documented keyword` exits 0; a waiver
+  naming `98` for a report about `99` exits 1 with `stale record, not a shelter`; a repo on a branch
+  named `trunk` with no `main` and no `origin/main` exits 1 with `nothing was scanned`; `HEAD..HEAD`
+  exits 0 with `0 commits between`. The wiring control was run by deleting the Makefile step: the
+  wiring leg goes FAIL and the driver reports 6 passed 1 failed, and with the two `-ing` refusals
+  neutered in the checker three legs go FAIL -- so the section bites and is not a description.
+- Refs: #353 (the ticket the component exists for), #357 (the review that asked), H-0164 (the narrower
+  read-side pattern, unchanged here on purpose), H-0165 (the same review round, the harness side), #1256
+  (the parser has no notion of negation, and this is the same failure one layer down), #1264 (every
+  merge is a merge commit, which is why history is the thing that cannot be fixed), #1807 (every gate
+  above was run alone in this worktree, no mutation sweep in flight).
+- Checkpoint: 663948b
+- Effect: the checkpoint is an empty commit whose tree is `17b37c7`, so it holds the guard exactly as
+  #357's reviewer read it -- a checker that reads files and nothing else. The effect commit adds the
+  fifth class, the script, the wiring, the waiver file and the seven legs. One thing is deliberately left
+  as a reviewer's rule and is recorded as such so nobody mistakes it for a gate: nothing mechanically
+  proves a waived claim was already PUBLISHED when its waiver was written. What is mechanical is the
+  exactness (full sha, exact number set, reprint on every run) and the fact that an unwaived finding
+  fails; whether the order was respected -- rewrite while unpublished, waive once published -- is a line
+  a human reads in a diff.
+
+## H-0169 · The ranking key reads the clock once per row, so a second boundary between two reads calls the later stamp the older one and dispatches the young unit first
+
+- Id: this entered the harness log as `H-0157` on `issue-302`, allocated by `factory/next-decision-id.sh` at `7f3edbd`, 2026-11-13T19:26:33-05:00. That number is published on `main` as *A ref with no pull request is refused by its name and by its bytes, and neither judgement is allowed to invent a class*, written on `issue-284` at `9ef0645` (2026-11-13T19:44:07-05:00, seventeen minutes and thirty-four seconds after this entry's allocator ran) and merged by #358 at `aac8218`. A merged entry's id never moves -- `allow_squash_merge` and `allow_rebase_merge` are both off, so that entry's ancestors are permanent history and moving it would be a force-push, denied here -- so this one, unmerged, is the one that can yield, and `docs/factory.md` (*When two branches take the same number, the side that has not merged yields*) keys the rule on merge status rather than on who was first. This side holds the EARLIER allocation and yields anyway, and that is the rule working: #358 merged and #356 has not. It took `H-0169`, the answer the allocator printed on the merged tree: `H-0167` is carried by `issue-344` and `H-0168` by `issue-313`, both local and remote, so 169 is the first id free on every ref this clone can see. The two decisions share nothing but the digit -- this one is *The ranking key reads the clock once per row, so a second boundary between two reads calls the later stamp the older one and dispatches the young unit first* -- and neither cites the other, so nothing but the heading had to move. Seven citations of the retired number moved with it, and the coordinates here are the merged tree's, not the pre-merge ones the checkpoint named: `docs/factory.md:198`, `factory/common.sh:990`, `factory/factory.sh:1517`, `factory/selftest.sh:3818`, `factory/selftest.sh:3887`, `factory/selftest.sh:3955`, `factory/selftest.sh:4087`. `main`'s own `H-0157` heading, and every citation of it in `H-0161`, `H-0163` and `H-0166`, is untouched, because those point at the other decision -- which is why the renumber is a search on this branch's five files and not a sweep over the tree. What the renumber cannot reach is this branch's own history: `7f3edbd`'s subject still reads `pre-H-0157` and `6ff3287` still carries `Decision: H-0157`, because rewriting a pushed branch is the denied force-push, and this pull request's body carried the old number until it was rewritten at this push. A reader who greps the history for `H-0157` therefore finds two entries, and this paragraph is the reason they are not the same one.
+- Question: `…then starts a tick for unit B` went red on PR #356's verify job (CI run 43532152285, 14 Nov, `factory/selftest.sh: 563 passed, 1 failed`) printing `quarantine at line 14, tick at line 10` -- the fixture's clean unit B was dispatched BEFORE the quarantined unit A, so the leg's own premise could not hold. The same leg was red on CI run 43105189339 (11 Nov, `520 passed, 1 failed`, `quarantine at line 12, tick at line 8`), and #335 measured the identical inversion twice on one commit on a loaded box (`551 passed, 1 failed`, then `552 passed, 0 failed`). `H-0135` fixed the direction of this key eight days ago and planted both polarities, so why does a fixture with planted ages still land on its head, and what is the smallest change that makes the order a property of `first-seen` rather than of the wall clock?
+- Options: plant `first-seen` in the legs that do not plant it, as #335 proposed | make the affected assertions order-independent -- require that the pass stops after the dirty unit wherever it sorted | give the ranking pass one clock reading and measure every age against it, then pin the site | escalated: #335 owns this mechanism and is open, so post the measurement there and change nothing
+- Chose: give the ranking pass one clock reading and measure every age against it, then pin the site
+- Why: the mechanism first, because both written accounts of it are wrong and the wrong one is load-bearing. `docs/factory.md` said the boundary fell between the two `first-seen` STAMPS -- "stamped 900, did the worktree lookup and the `gh` shims, and stamped 901 in the next second" -- and #335's body says 901's stamp "landed a whole second before 900's". Neither can invert the queue: the stamping loop at `factory/factory.sh:1112-1114` runs to completion before the ranking loop at `:1241-1247` reads a single age, so a stamp written a second later is a second YOUNGER at every read, which is the order `H-0007` wants. The boundary is between the two READS. `factory_age` called `date -u +%s` inside itself and the ranking loop called it once per row, so for two stamps inside one second the first row answered `0s` and the second `1s` whenever a boundary fell in the interval between the calls, and the sort at `:1304` then ranked the younger unit first. #335's own journal is that arithmetic verbatim: `NEXT unclaimed 901 age=1s` above `NEXT unclaimed 900 age=0s`, for a pair its body confirms was stamped 900-then-901 in one pass, both at 22:05:16Z. The interval that carries the boundary is measured in the fixture comment added with the #307 fix -- the two reads plus the shipped rank and re-serialise, 10.5ms a trial, with 2 ties in 300 trials at a 2s/1s pair and 0 in 300 at 3s/1s (`factory/selftest.sh:3533-3546`) -- which is the ~1-in-200 the dispatcher comment quotes ("0 of 40 unseeded fixture runs on this box crossed it; that CI run did"), and consistent with the four standalone `bash factory/selftest.sh` runs in this session -- one on the unrepaired tree, three after the repair -- every one of them reading 0 failed. That comment calls the same exposure a fairness problem; for two stamps in one second it is a correctness one, because a straddle is not a tie, it is a REVERSAL.
+-
+- The third option is the only one that removes the interval. `factory_age_at` (`factory/common.sh:968`) now takes the reading as its first argument and refuses a missing or non-numeric one -- falling back to `date` inside the primitive would put the per-row read back where the bug was -- and `factory_age` stays as the threshold form, `factory_age_at "$(date -u +%s)" "$1" "$2"` (`:984`), for the call sites that ask whether one stamp is older than a bound (`last-poke`, `stuck-since`, `conflict-at`, `last-ask-note`, `halt-notice`); a straddled reading cannot reorder anything there because nothing sorts on those answers. The ranking loop takes `rank_now=$(date -u +%s)` once, after the stamping loop, and every `age2` is measured against it -- which is what the comment above that sort has promised since `H-0007` ("rows with the same age tie on the age key and the number decides"), a sentence the per-row read made false whenever the two stamps shared a second. Taken BEFORE the stamping loop the snapshot would clamp this pass's own new stamps to 0 and throw a real age gap away, so its position is part of the repair and the second cell of the first leg pins it.
+-
+- Options 1, 2 and 4 each leave the interval in place. Planting ages (#335's proposal 1) cannot help a leg that does not plant: `…then starts a tick for unit B` and #335's guard control (`proc_guard_is_the_difference`, `factory/selftest.sh:4300` here and `:4061` when that issue was filed) both read the unstamped fixture, so both stay coin flips -- which is what run 43532152285 proves, three days after `H-0135` planted the polarities. Option 2 was refused on what the assertion is for: "A ticked whenever A got quarantined, wherever it sorted" is true of the broken order too, and run 43532152285 is precisely the run where that would have printed an ok over a pass that dispatched the clean unit first; the leg exists to pin "the quarantine stopped the pass before the healthy unit", and the run's own journal says why -- `…and gives the rescued unit its turn` PASSED beside it, so A did tick after line 14 and only B's position moved. Option 4 held the measurement for two `gh` reads and then went: #335 reserves a diagnosis ("the second boundary between them is a coin toss under CPU load"), not a repair, and none of the four reserved classes is anywhere in this. Nor is this branch's diff implicated: `git diff --name-only origin/main...HEAD` at the red head is `DECISIONS.md` plus seven `testing/capture` and `scripts/attack-capture-self-test.py` paths, no `factory/` file and no `.go` file -- `check-mutations` printed an empty name list and `grep -l` over `scripts/mutations/*.json` for `common.sh`, `factory.sh` and `selftest.sh` answers nothing, so the pre-existing flake had to be fixed where it lives. Tie-break 1 is silent (no `go.mod` change, stdlib only, #856); tie-break 2 does not apply -- nothing here decides a lockout, and the sentinel's direction is untouched (an unstamped unit still answers 999999999, still first, still what that comment has always promised); tie-break 3 is the refusal kept inside `factory_age_at` rather than a silent default; tie-break 4 is what chose the argument over hoisting `date` into the loop body -- three files plus the guide, against a new shared helper and the threshold call sites it would drag in. Tie-break 6 is the house pattern, read before writing: `q_halt_now=$(date -u +%s)` at `factory/selftest.sh:4735` takes one reading and computes both of a leg's offsets against it precisely so the leg cannot straddle, and `factory.sh:1257` and `:1303` re-read `now` per iteration on purpose because a pass *budget* is supposed to notice the clock moving -- this harness already separates an instant that must track the clock from one that must not, and the ranking was the site that had not been told which one it was.
+-
+- What it cost, stated plainly. **(a)** The new legs do not execute the shipped ranking loop; they execute the shipped `first-seen` arithmetic in `factory_age_at` and the shipped `sort` flags, retyped in `proc_clock_first`. `proc_mutate_sort` above them keeps those flags honest -- it refuses a `factory.sh` that does not carry `-k2,2nr -k3,3n)` exactly once, so the flags cannot drift from the dispatcher without a leg going red -- but the loop's own plumbing (row serialisation, `factory_slug`, the class rank) is not run here. The end-to-end path stays what it was: a boundary landing about once in 200 passes, now with a leg that schedules one on purpose. **(b)** The clock-stub legs are sensitive to the tick COUNT, which already produced one misleading failure and cost its own assertion: measured under a probe build that read the clock twice per row, the per-row pair came back `1s` and `3s`, and a control demanding exactly `+1` reddened for arithmetic while pointing at the one file that was correct. The control now requires only a positive separation plus the inversion -- the hazard is that two equal stamps stopped being equal, not how far apart they went -- and the monotone cell's message names both readings of a broken delta (a stale snapshot, or a reader consulting the clock itself). **(c)** The text census refuses a `factory_age` call whose first argument is the row variable, so a per-row call spelled another way (a helper `age2=$(row_age "$unit2")`, or the call moved into the row-building printf) would read as clean. The behavioural legs cover the primitive and the site's shape, not every spelling. **(d)** No leg proves the live queue is now stable -- the live supervisor stamps and reads whatever clock the host has, and `next-decision-id.sh`'s own 300s REFRESH bound is measured against the same seconds. What is pinned is that the order of two rows read in one ranking pass is decided by their stamps and nothing else.
+- Checkpoint: 7f3edbdf67569457ebf3f72947d9490400c0bdcc
+- Effect: `factory/common.sh` (`factory_age_at` takes the reading as its first argument and refuses a missing or non-numeric one; `factory_age` becomes the one-line threshold form); `factory/factory.sh` (one `rank_now` before the ranking loop, measured after the stamping loop; the paragraph above the sort states the mechanism the guide had wrong); `factory/selftest.sh` (four legs -- `the ranking age is one clock reading`, pinned from both sides; `control: a per-row reading inverts that pair`, which reproduces both red runs on demand against a `date` stub that advances one second per reading; `the ranking pass takes one clock reading`, a text census of the site; `control: a per-row ranking site is refused`, with two plants, the retired call and a re-read inside the loop, each verified to have landed in a copy outside the repository before it is asserted); `docs/factory.md` (the #307 section: the read boundary replaces the stamp boundary, and the paragraph records that this page carried the wrong mechanism for three days). Measured: `bash factory/selftest.sh` **568 passed, 0 failed** -- 564 before this commit, the four new legs the whole delta, both controls reporting their plants. Adversarial check: `factory_age_at` edited in place to read the clock per row and restored byte-identical from a `/tmp` copy (`cmp` clean) -- `566 passed, 2 failed`, the behavioural leg RED while `the ranking pass takes one clock reading` stayed GREEN, so a semantic revert and a structural revert each need their own leg and neither is redundant. `make verify` **verify: OK**, exit 0, at 00:36:11Z; its first attempt at 00:32:35Z was RED with exit 2 on `check-shell` -- the `export PATH` inside a subshell that this commit's first draft used is the file's only SC2030, and it activated SC2031 on seven pre-existing lines, so the fixture now uses the file's own command-prefix idiom. The run with this entry in the tree, and its exit status, are quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).

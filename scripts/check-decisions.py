@@ -563,18 +563,29 @@ def label_of(e):
 # above this number is refused; a run below it is refused too, because an unlowered number is a ratchet
 # with the pawl filed off -- the next broken pointer hides inside the slack.
 #
-# 517, re-measured on 13 Nov 2026 on the merge of `origin/main` into `issue-318` by `--citations`, AFTER
-# the 54 ambiguous pointers were given their full paths -- 37 on this branch's side, and 17 that arrived
+# 535, re-measured on 14 Nov 2026 on the SECOND merge of `origin/main` into `issue-318` (`8437eea`, 22
+# commits) by `python3 scripts/check-decisions.py --citations | tail -1`. 517 + 18: every one of the 18 is
+# inside `H-0163`..`H-0169`, the five harness entries `main` published while #367 was in review, and none
+# of them was written by this unit. The merge also moved four anchored pointers in this branch's own
+# `H-0162` -- `factory/selftest.sh:11568`->`:11823`, `:11577`->`:11832`, `docs/factory.md:1737`->`:1904`,
+# `:1773`->`:1940` -- and the anchor rule named all four with their new lines, which is the first time
+# this rule caught its own author across a merge. The previous measurement was 517 on 13 Nov, AFTER the
+# 54 ambiguous pointers were given their full paths -- 37 on this branch's side, and 17 that arrived
 # with `main` while this was in review (10 of them a bare `README.md`, which five files here answer to).
-# All 517 were written before this rule existed in the tree -- the rule is only on this branch -- and 4 of
+# All 535 were written before this rule existed in the tree -- the rule is only on this branch -- and 4 of
 # them are the paragraph-length continuations `scan_citations` documents it cannot place. None of them is
 # refused today; every one is visible, and none may grow except by a merge that re-measures. Paying one
 # down means editing this line in the same commit.
-POINTER_DEBT = 517
+POINTER_DEBT = 535
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
 # debt on 13 Nov 2026: 214 entries across the two logs on the merge of `origin/main` into `issue-318`.
+# Re-measured again on 14 Nov with the debt at 535: 222 entries, the eight new ones arriving with `main`.
+# The floor deliberately stays at the older, lower figure: the logs are append-only, so a tree smaller
+# than 214 is a fixture or a fork rather than a checkout one commit behind, and every entry added between
+# 214 and 222 keeps being judged instead of quietly escaping. Raising this number is the one edit that
+# makes the ratchet judge LESS, which is why it does not move with a merge.
 #
 # This is not a rounding convenience; it is the rule not lying to a tree it did not measure.
 # `factory/selftest.sh`'s `gate_verdict_off_refs` leg copies this script into a synthetic repository --

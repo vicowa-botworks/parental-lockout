@@ -370,19 +370,72 @@ gh pr create --base main --title "…" --body "…"
 
 The body says what changed, what the gate printed, and links the issue -- **and it never puts any
 inflection of "close" next to an issue number unless the issue is really finished** (#1256). GitHub
-matches `close|closes|closed|closing` immediately followed by an issue reference with no notion of
-negation: measured on this repository, `**This does not close #10.**` closed issue #10 the second
-the merge landed. For partial work write `Part of #10 only; the umbrella is not finished.` or
-`Refs #10`.
+matches a closing keyword immediately followed by an issue reference, with no notion of negation:
+measured on this repository, `**This does not close #10.**` closed issue #10 the second the merge
+landed. For partial work write `Part of #10 only; the umbrella is not finished.` or `Refs #10`.
 
-Do not try to verify the linkage afterwards, and do not reach for `gh api` to do it: `gh api` is denied
-to this agent, and `gh pr view --json closingIssuesReferences` is not a field `gh` exposes (measured —
-it answers `Unknown JSON field` and lists the fields it does have). A GraphQL read is the only way to
-ask GitHub what a body closed, and that read belongs to the supervisor: `factory/triage.sh` reads
-closing references plus verb-phrases out of every open body and treats either as a claim, which is why
-writing the verb rule correctly the first time is the whole obligation. If you are unsure whether a
-phrase will register, do not write it: use `Refs #10`, and say in the pull-request body what is still
-unfinished.
+**And when the issue really is finished, put the verb where GitHub can see it: in plain text, touching
+the number, never inside a code span.** A keyword wrapped in backticks asks GitHub for nothing. Measured
+over all 180 merged pull requests here, read 14 Nov 2026 (`scripts/check-close-verb.py` ships the
+classifier, and the count comes from that same pattern rather than a re-typed copy): a plain-text verb
+closed its issue within two seconds of the merge **98 times in 100**, with nothing at all in the
+three-to-120-second bucket; a verb inside inline code did it **0 times in 2** -- PR #308's
+`` `Closes #304` `` left #304 to be closed by hand 6086 s later, and PR #338's `` `Closes #301.` `` sat
+on a line stating the keyword was deliberate and left #301 open 14472 s past its merge, which is what
+cost a second full unit on a ticket `main` had already delivered. `factory/triage.sh`'s claim pattern
+takes a backtick as filler, so the harness reads a spanned verb as a claim anyway: the body looks
+linked to every reader in this repository and does nothing to the artifact.
+
+Two more things the parser does not do, both measured rather than assumed. It does not reach: the verb
+has to touch the number (`Closes #10`, `Closes: #10`, `close, #10`), so do not write a sentence with
+prose in between -- `Closes the write half of #10's remaining criteria` asks GitHub for nothing, and it
+is the shape that cost a unit of work when the harness's own scanner claimed it. And it has no `-ing`
+form: GitHub documents `close closes closed fix fixes fixed resolve resolves resolved` and nothing in
+that list ends in `-ing`, while the harness's scanner had `closing` and `resolving` copied in from the
+claim matcher. There is no specimen of either in these 180 bodies, so nothing here claims to have tested
+GitHub with one -- the shipped pattern follows the documented set and drops both.
+
+So do not eyeball this. Run the body file through the checker before you create the pull request --
+it separates the four things that look alike and are not (a verb that fires, a verb on a line saying
+`not` that fires anyway, a verb in a span that will not, and `Refs`/`Part of` that were never
+closers):
+
+```bash
+python3 scripts/check-close-verb.py /tmp/pr-body.md    # exit 1 = something cannot do what it reads
+gh pr create --base main --title "..." --body-file /tmp/pr-body.md
+```
+
+Everything in this page written inside a code span is a *quotation* of a form, which is the inert
+place for one. Write the real thing in running text.
+
+**The same rule covers your commit messages, and `make verify` reads them.** A message is text GitHub
+parses exactly like a body, and its verbs act the moment the commit reaches the default branch. Measured
+on the branch that wrote this paragraph: PR #357 carried two adjacent `-ing` verbs in one commit message,
+in the sentence written to warn about them, and nothing had ever looked. So
+`scripts/check-commit-verbs.sh` -- wired into `make verify` -- reads every message between the base and
+HEAD, one at a time so a refusal names its commit, and refuses an inflection GitHub does not document
+(`Closing #77`, `Resolving #78`) where the body checker would stay silent. Practically: put the
+documented keyword (`Closes #313`) in running text, or write no verb at all, and never an `-ing` form
+beside a number. If a message you have already pushed carries one, do **not** amend or force-push --
+history here is never rewritten and a merge commit makes the message permanent. Read the named artifacts
+back (`gh issue view N --state all --json number,state,closedAt`), decide whether anything is still
+owed, and write that decision into `factory/close-verb-waivers`: full sha, the exact numbers the report
+printed, and what you read back. The check is also the reason a `chore(checkpoint)` or
+`fix(factory)` subject line is not a place to name what a commit "closes" in prose.
+
+Do not try to verify the linkage afterwards — that read is the supervisor's, not yours, and it happens
+twice over: `factory/triage.sh` reads closing references plus verb-phrases out of every open body and
+treats either as a claim, and `factory_verify_closure` (`factory/factory.sh`) asks the same question
+again AT the merge — it re-reads every number the merged body's verb pointed at, compares the close
+timestamp with `merged_at`, and writes what it found onto that ticket: a note in plain text when the
+ticket is still open past a re-probe, a journal line when something else closed it. And do not reach for
+`gh api` to do it: `gh api` is denied to this agent, and `gh pr view --json closingIssuesReferences` is
+not a field `gh` exposes (measured — it answers `Unknown JSON field` and lists the fields it does have).
+A GraphQL read is the only way to ask GitHub what a body closed, and only the supervisor can make it,
+which is why writing the verb rule correctly the first time is the whole obligation. So a verb aimed at
+the wrong number is not a private mistake: it becomes a sentence on somebody's artifact. If you are
+unsure whether a phrase will register, do not write it: use `Refs #10`, and say in the pull-request body
+what is still unfinished.
 
 Requesting the review is **not yours to do**, and the reason is measured, not stylistic: H-0010 found
 `gh pr edit --add-reviewer` fails on this account with nothing but a `Projects (classic) is being
