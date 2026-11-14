@@ -7277,3 +7277,44 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   What it cost, stated plainly. **(a)** The census refuses a file that *prescribes* the dead verb -- a line that begins with it, the shape a command takes in a fenced block or a prompt string -- and deliberately does not redden on the probe quoted mid-sentence, because a leg that ate this repository's own measurements would be widened away inside a month; `esc_not_a_park` records the same objection against reddening on comment lines. A prescription written inside a sentence is therefore invisible to it, and the load-bearing half is the arm check, which reads `factory/factory.sh` as text and never runs a write. **(b)** The leg pins two whole prose phrases, one in the skill and one in the guide, so rewording either sentence reddens a leg: a leg that reads prose constrains prose, and that is #272's cure and its price in the same breath. **(c)** The tick's prompt still interpolates the name (`-- ${FACTORY_ESCALATION_LABEL} --`) while telling the tick to take the name from its one home, because `ask_prompt_assembles_it` requires that variable inside the `address_review` arm and its own failure message endorses the variable as "never spelled out"; a tick could still type the word it was shown, and deleting the interpolation to close that was refused rather than widening a measured leg this unit was not sent to widen. **(d)** No leg proves `gh issue edit` lands a *valid* label on a pull request. That is a network write, and today nobody can run it -- not a tick, not a person -- without answering #311 first, because the name the harness prints is not one of the eighteen. So the verb is verified up to gh's label-resolution step and no further, and the end-to-end escalation write stays unverified until #311 is answered. That is #311's open half, not a new hole. **(e)** #311 is not delivered by this branch. It stays open, still carrying the `blocked` stand-in its own record disclosed, and the only thing still owed on it is the decision itself.
 - Checkpoint: e8db1c223158b2a1cd71843ef07b216255a47040
 - Effect: `.opencode/skills/factory/SKILL.md` (step 2 names the verb a pull request takes; the measurement is the paragraph *after* the code block, beside the probe measurement already there -- a second `gh issue edit … --add-label` line inside the block would break `esc_step_control`'s plant, which requires exactly one); `factory/factory.sh` (the empty-ask branch carries the two calls, with the command substitution escaped so the tick runs it in its own worktree rather than the supervisor expanding it at prompt-build time); `docs/factory.md` (the verb paragraph in "What an escalation leaves on the artifact"); `factory/selftest.sh` (`esc_pr_verb`, plus `esc_pr_verb_control` with three plants -- the dead verb restored as a command line, the two commands lifted out of the instruction, the guide sentence deleted -- each checked to have landed before it is asserted). Measured: `claim_leg` calls 285 → 286; `bash factory/selftest.sh` **564 passed, 0 failed**, all three controls reported; `grep -rn` over `scripts/mutations/*.json` for `factory/factory.sh` and `factory/selftest.sh` answers nothing, so `make check-mutations` was not run for this commit; `make verify` → `verify: OK`, exit 0, run once across the four changed files without this entry and once more with this entry in the tree, both results quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy).
+## H-0158 -- A zero-byte file named after a verdict that was never reached
+
+- Question: every tick that GETS its worktree leaves a zero-byte `factory/run/worktree-error.<pid>` behind,
+  because only the failure arm deletes the file. Is that file a verdict that has to be earned, or is the
+  age-bound sweep the thing to tune?
+- Options: Keep the name `worktree-error.<pid>` and delete the file on both paths | Name the stream for what it is while it is only a stream -- `worktree-stderr.<pid>` -- delete it on both paths, and let the sweep match the retired name beside the new one | Take the file away and have `factory_worktree` journal its own reason before returning, so nothing in the run directory needs deleting | Tune the sweep's age bound, the repair the file's own comment recommended for eight days
+- Chose: Name the stream for what it is while it is only a stream -- `worktree-stderr.<pid>` -- delete it on both paths, and let the sweep match the retired name beside the new one
+- Why: the name is the defect. Measured at 00:54Z on 14 Nov -- four markers in `factory/run/`
+  (`worktree-error.{3101739,3420682,4010611,747393}`, all 0 bytes, stamped 22:03, 22:59, 23:31 and 00:22Z,
+  the last four ticks), and `grep -c 'no worktree' factory/log/supervisor.log` answers **0**: the failure the
+  name reports has never once been journaled on this machine. Three reads of that directory on two days each
+  concluded from those files that the supervisor cannot build trees at all and the queue is stalled; the
+  first two changed what was reported about live queue state. The last option is what the wrong reason
+  produced, and bounding by age is precisely what leaves three hours of alarms standing in the directory at
+  all times. The first removes this incident and keeps the false sentence for the next reader who finds a
+  marker under the bound. The third is the largest change to the refusal sentence -- the reason has to reach
+  the journal line, because a terminal reader and a journalled reader see different amounts
+  (`factory/factory.sh:765-771`), and the file exists at all because folding stderr into the command
+  substitution splices an error sentence into the value assigned to `tree` (`:773-776`).
+- Invariant maintained: the refusal's reason still reaches the journal line -- a leg requires the stream's own
+  words (`checked out in`) inside `TICK-SKIPPED … no worktree for issue-900 ::`, and another forbids the
+  fallback sentence `common.sh gave no reason`, which is what an unread or empty stream produces. A killed
+  tick's stream is still swept, and a marker inside the bound is still spared for a supervisor running right
+  now. Both polarities are legs, not prose.
+- What lost: the success path does a delete that is not needed for correctness -- it is there for the reader,
+  and a control pins it rather than a sentence trusting it. The `find` is one line, which gives up the
+  wrapped readability so a control can replace the command whole instead of retyping tabs and backslashes (a
+  mistyped mutant is a dead mutant, not a guilty one). `worktree-error.` survives only as a sweep term, so
+  anything that counted it now counts nothing new; the only readers in-tree were `factory/factory.sh` itself
+  and this log.
+- Effect: `factory/factory.sh` (the stream name, the success-path delete, the sweep's two names, and the
+  comment whose "eight zero-byte files in a day" claimed eight killed ticks when the run directory held four
+  and the failure sentence had never been written); `factory/selftest.sh` (the new section -- eleven
+  `proc_leg` calls, two of them controls, plus `proc_mutate_last`, because the neighbouring
+  `proc_mutate_factory` refuses an anchor that does not occur exactly once and both arms of this `if` carry
+  the same `rm -f` sentence); `docs/factory.md` (the run directory as a reader meets it).
+- Checkpoint: 874d9a4ddc9bbbb5012e8f3a0957e15cf52fd6c3
+- Refs: #351, #216 (where the wrong reason entered), #228, H-0044 (the verdict has to be sayable in the
+  journal line)
+- Follow-up: none. Ask 3 of #351 -- correct the comment instead of letting the sweep stay the repair -- is in
+  the same commit as the sentence it corrects.

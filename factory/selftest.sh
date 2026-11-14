@@ -3508,6 +3508,284 @@ proc_next_activation_runs() {
 }
 proc_leg 'the next activation still works' 'exits 0, both units ticked, streak cleared to 0' proc_next_activation_runs
 
+# ------------------------------------- the run directory holds a stream, not a verdict (#351)
+
+# `factory_worktree`'s stderr goes to a per-PID file so a refusal can be read back by name. Until
+# #351 that file was `worktree-error.<pid>` and only the FAILURE arm deleted it, so every tick that
+# GOT its tree left a zero-byte file whose name asserts a failure. Measured at 00:54Z on 14 Nov:
+# four of them in `factory/run/` (`worktree-error.{3101739,3420682,4010611,747393}`, all 0 bytes,
+# stamped 22:03, 22:59, 23:31 and 00:22Z -- the last four ticks), while
+# `grep -c 'no worktree' factory/log/supervisor.log` answers 0: the failure the name reports has
+# never once been journaled on this machine. Two separate reads of that directory, days apart,
+# concluded the supervisor cannot build trees at all and the queue is stalled.
+
+# So the stream is `worktree-stderr.<pid>`, both paths delete it, and the sweep keeps matching the
+# retired name so files written before this change do not become permanent for lack of anything that
+# looks for them. Both halves of the fix are in the supervisor, so the pin runs the supervisor as a
+# process over the fixture rather than reading the arm.
+
+# Every count here is over the glob `worktree-*`, not one name. What a reader does at 3 a.m. is count
+# that glob and call the number `failed ticks`; a leg that grepped the new name alone would go green
+# on a rename that put the alarm right back.
+
+# Markers in the run directory of the scenario built last -- one name per line, sorted.
+proc_markers() {
+	find "$proc_rundir" -maxdepth 1 -name 'worktree-*' -printf '%f\n' 2>/dev/null | LC_ALL=C sort
+}
+
+# One per line, indented, for a failure message. Through sed rather than an unquoted printf
+# argument, which is the same split without asking shellcheck to forgive it.
+proc_markers_indented() {
+	proc_markers | sed 's/^/                /'
+}
+
+proc_no_markers() { # <which pass> -- a pass that should have left nothing behind
+	local got count
+	got=$(proc_markers)
+	count=$(printf '%s\n' "$got" | grep -c . || true)
+	[ -z "$got" ] || {
+		printf '            %s left %s file(s) in the run directory, each named after a verdict\n' "$1" "$count" >&2
+		printf '            it did not earn. A reader counts these and calls the count "failed\n' >&2
+		printf '            ticks"; the directory holds:\n' >&2
+		proc_markers_indented >&2
+		return 1
+	}
+	return 0
+}
+
+proc_marker_present() { # <which pass> <name> -- the sweep has to SPARE a file as well as take one
+	proc_markers | grep -qxF -- "$2" || {
+		printf '            %s: %s is gone. The sweep took a file it was told to spare -- anything\n' "$1" "$2" >&2
+		printf '            younger than the bound could belong to a supervisor running right now.\n' >&2
+		proc_markers_indented >&2
+		return 1
+	}
+	return 0
+}
+
+proc_marker_absent() { # <which pass> <name> <why it had to go>
+	if proc_markers | grep -qxF -- "$2"; then
+		printf '            %s: %s survived, and %s. The directory holds:\n' "$1" "$2" "$3" >&2
+		proc_markers_indented >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_took_tree() { # <journal> <rc> -- the success path ran, so a marker count means what it claims
+	local line
+	[ "$2" = 0 ] || {
+		printf '            the pass exited %s rather than 0, so its run directory says nothing about\n' "$2" >&2
+		printf '            a tick that got its tree. Its journal:\n' >&2
+		sed 's/^/              /' "$1" | cut -c1-150 >&2
+		return 1
+	}
+	line=$(proc_journal_line "$1" 'TICK-START unclaimed:900')
+	[ -n "$line" ] || {
+		printf '            unit A was never ticked, so no tree was asked for and no stream file was\n' >&2
+		printf '            opened: a marker count over an untouched run directory would pass for the\n' >&2
+		printf '            wrong reason. The journal:\n' >&2
+		sed 's/^/              /' "$1" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	*' tree='*) return 0 ;;
+	*) printf '            TICK-START carries no tree= field, so this pass did not take a tree:\n' >&2
+	printf '              %s\n' "$line" >&2
+	return 1 ;;
+esac
+}
+
+# proc_mutate_last <needle> -> the fixture's factory.sh with the LAST line carrying needle replaced
+# by $PROC_MUT_LINE (empty deletes it). The neighbour below, proc_mutate_factory, refuses any anchor
+# that does not occur exactly once -- the right rule, and unusable here, because both arms of the same
+# `if` carry the same `rm -f -- "$werr"` sentence. A helper that took the FIRST match would control the
+# failure path while claiming to blind the success path, so this one takes the last and says so.
+# PROC_MUT_LINE arrives from the caller as a command prefix and awk reads it out of ENVIRON, because
+# awk's -v would eat the backslashes in a replacement line. Every refusal below is the same rule: a
+# dead mutant is not a guilty one, so a control that cannot be planted has to be loud.
+proc_mutate_last() { # <needle>
+	local needle=$1 hits
+	hits=$(grep -cF -- "$needle" "$HERE/factory.sh" || true)
+	[ "$hits" -ge 1 ] || {
+		printf '            nothing in factory/factory.sh carries %s, so this control ran shipped\n' "$needle" >&2
+		printf '            code while reporting a mutation.\n' >&2
+		return 1
+	}
+	if ! awk -v n="$hits" -v needle="$needle" '
+		{
+			if (index($0, needle) && ++seen == n) {
+				if (length(ENVIRON["PROC_MUT_LINE"]) > 0) print ENVIRON["PROC_MUT_LINE"]
+				next
+			}
+			print
+		}' "$HERE/factory.sh" >"$proc_dir/factory.sh"; then
+		printf '            the mutant could not be written at all: the pass would have run shipped code\n' >&2
+		printf '            or none. A dead mutant is not a guilty one.\n' >&2
+		return 1
+	fi
+	[ -s "$proc_dir/factory.sh" ] || {
+		printf '            the mutant is empty: a dead mutant, not a guilty one.\n' >&2
+		return 1
+	}
+	if [ -n "${PROC_MUT_LINE:-}" ]; then
+		grep -qF -- "$PROC_MUT_LINE" "$proc_dir/factory.sh" || {
+			printf '            the mutant line is not in the copy, so the control ran shipped code:\n' >&2
+			printf '              %s\n' "$PROC_MUT_LINE" >&2
+			return 1
+		}
+	fi
+	bash -n "$proc_dir/factory.sh" || {
+		printf '            the mutant does not parse: the pass would die before it journalled a row,\n' >&2
+		printf '            and the control would read as the effect it claims to test.\n' >&2
+		return 1
+	}
+	cmp -s "$HERE/factory.sh" "$proc_dir/factory.sh" && {
+		printf '            the mutant is byte-identical to the shipped file, so this control\n' >&2
+		printf '            measured nothing.\n' >&2
+		return 1
+	}
+	return 0
+}
+
+# Scenario one: the tick that gets its tree -- the path that used to leave the alarm behind.
+proc_new marker-success
+proc_plant
+proc_run marker-success-1
+proc_ms_j=$proc_journal
+proc_ms_rc=$proc_rc
+
+proc_leg 'a tick that got a tree' 'TICK-START names the tree, so the success path is what ran' \
+	proc_took_tree "$proc_ms_j" "$proc_ms_rc"
+proc_leg 'leaves no marker behind' 'a pass that got its tree holds no worktree-* file when it finishes' \
+	proc_no_markers 'a pass that got its tree'
+
+# Scenario two: the tick that does not. `factory_worktree` refuses a branch it finds checked out in a
+# tree it does not own, with a sentence of its own -- and it can only read that sentence before
+# deleting the file, which is what the reason in the journal proves.
+proc_new marker-refused
+git -C "$proc_repo" worktree add -q -b issue-900 "$proc_work/elsewhere" origin/main || true
+proc_run marker-refused-1
+proc_mf_j=$proc_journal
+
+proc_mf_refused_by_name() {
+	local line
+	line=$(proc_journal_line "$proc_mf_j" 'no worktree for issue-900 ::')
+	[ -n "$line" ] || {
+		printf '            the pass never journaled a refusal for issue-900, so nothing below is a\n' >&2
+		printf '            verdict on the path that reads the stream. Its journal:\n' >&2
+		sed 's/^/              /' "$proc_mf_j" | cut -c1-150 >&2
+		return 1
+	}
+	case "$line" in
+	*'checked out in'*) return 0 ;;
+	*) printf '            the refusal did not carry the sentence the stream held, so the file was\n' >&2
+	printf '            deleted before it was read, or never read:\n              %s\n' "$line" >&2
+	return 1 ;;
+esac
+}
+
+proc_mf_no_placeholder() {
+	if [ -n "$(proc_journal_line "$proc_mf_j" 'common.sh gave no reason')" ]; then
+		printf '            the refusal printed the fallback, which is what an empty or unreadable\n' >&2
+		printf '            stream produces: the read is the thing this leg is for.\n' >&2
+		sed 's/^/              /' "$proc_mf_j" | cut -c1-150 >&2
+		return 1
+	fi
+	return 0
+}
+
+proc_leg 'a refusal journals why' 'the reason came out of the stderr file and into the journal line' \
+	proc_mf_refused_by_name
+proc_leg 'not from the fallback' 'the placeholder is absent, so the stream was read and was not empty' \
+	proc_mf_no_placeholder
+proc_leg 'and the refusal cleans up' 'the failure arm still deletes the stream, after reading it' \
+	proc_no_markers 'a tick that was refused its tree'
+
+# Scenario three: the sweep. It exists for a tick killed between the write and the delete, and it has
+# to tell three planted files apart: the retired name past the bound (goes), the new name past the
+# bound (goes), and anything inside the bound (stays, because a live supervisor may be writing it).
+proc_new marker-sweep
+proc_plant
+: >"$proc_rundir/worktree-error.400001"
+: >"$proc_rundir/worktree-stderr.400002"
+: >"$proc_rundir/worktree-error.400003"
+touch -d '4 hours ago' -- "$proc_rundir/worktree-error.400001" "$proc_rundir/worktree-stderr.400002"
+proc_run marker-sweep-1
+
+proc_leg 'the sweep takes old names' 'a worktree-error. file past the bound goes, though nothing writes that name now' \
+	proc_marker_absent 'the sweep pass' 'worktree-error.400001' \
+	'a file nothing writes any more must not outlive the sweep that was its only cleaner'
+proc_leg 'and it takes the stream' 'a worktree-stderr. file past the bound goes too: the killed tick is what this sweep is for' \
+	proc_marker_absent 'the sweep pass' 'worktree-stderr.400002' \
+	'a tick killed between the write and the delete leaves exactly this file'
+proc_leg 'and spares what is fresh' 'a marker under the bound survives, because a supervisor may be writing it right now' \
+	proc_marker_present 'the sweep pass' 'worktree-error.400003'
+
+# ---------------------------------------------------------------------- the two controls
+#
+# Control one deletes the success-path delete. If the leg above still passes with that line gone it
+# was never watching the line. A control that cannot be planted is reported by the leg, not swallowed:
+# `|| true` would silence a dead mutant, which is the false pass this file keeps chasing.
+proc_new marker-ctl-delete
+PROC_MUT_LINE='	: # MUTANT-351 the success-path delete is gone' \
+	proc_mutate_last 'rm -f -- "$werr"' || proc_ctl_delete_planted=0
+proc_plant
+proc_run marker-ctl-delete-1
+proc_cd_j=$proc_journal
+proc_cd_rc=$proc_rc
+
+proc_ctl_one_marker() {
+	local got count
+	[ "${proc_ctl_delete_planted:-1}" != 0 ] || {
+		printf '            the mutant could not be planted, so this control ran shipped code and its\n' >&2
+		printf '            silence proves nothing about the delete it was meant to remove.\n' >&2
+		return 1
+	}
+	got=$(proc_markers)
+	count=$(printf '%s\n' "$got" | grep -c . || true)
+	[ "$count" = 1 ] || {
+		printf '            with the success-path delete removed the pass left %s file(s), not the one\n' "$count" >&2
+		printf '            that line accounts for, so the shipped leg above was not counting this\n' >&2
+		printf '            file. The directory holds:\n' >&2
+		proc_markers_indented >&2
+		return 1
+	}
+	case "$got" in
+	worktree-stderr.*) return 0 ;;
+	*) printf '            the surviving marker is %s, not worktree-stderr.<pid>, so what the\n' "$got" >&2
+	printf '            control left behind is not the file the shipped path writes.\n' >&2
+	return 1 ;;
+esac
+}
+
+proc_leg 'the control still ticks' 'the mutant pass took its tree, so the marker below has an owner' \
+	proc_took_tree "$proc_cd_j" "$proc_cd_rc"
+proc_leg 'the delete is what cleaned it' 'blinding the success-path rm leaves exactly one worktree-stderr file standing' \
+	proc_ctl_one_marker
+
+# Control two takes the retired name out of the sweep's pattern. Same shape: the leg that reads the
+# shipped file is only worth anything if removing the term it depends on brings the file back.
+proc_new marker-ctl-legacy
+PROC_MUT_LINE='	find "$FACTORY_RUN" -maxdepth 1 \( -name "worktree-stderr.*" \) -mmin +180 -delete 2>/dev/null || true # MUTANT-351' \
+	proc_mutate_last "-o -name 'worktree-error.*'" || proc_ctl_legacy_planted=0
+proc_plant
+: >"$proc_rundir/worktree-error.400001"
+touch -d '4 hours ago' -- "$proc_rundir/worktree-error.400001"
+proc_run marker-ctl-legacy-1
+
+proc_ctl_legacy_blinded() {
+	[ "${proc_ctl_legacy_planted:-1}" != 0 ] || {
+		printf '            the mutant could not be planted, so this control ran shipped code: the file\n' >&2
+		printf '            it reports as spared was spared by the sweep it was meant to blind.\n' >&2
+		return 1
+	}
+	proc_marker_present 'the blinded sweep' 'worktree-error.400001'
+}
+
+proc_leg 'the retired name is the sweep' 'blinding the -o term leaves the old worktree-error file standing' \
+	proc_ctl_legacy_blinded
+
 # ---------------------------------------------------- queue order ranks the OLDER unit first (#307)
 #
 # Every leg above reads the shipped fixture, where both units are stamped in the same pass and the
