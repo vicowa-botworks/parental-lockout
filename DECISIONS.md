@@ -4454,3 +4454,112 @@ Three consequences, all deliberate, and the third is no longer a prediction:
   class `DOCUMENTED_HOLES` already describes, now carrying six rows instead of four. What is graded is
   the production guard, not the rule: each of the four `CAUGHT` rows deletes one of the four guards from
   `cdp.py`/`pages.py` and the run goes red, which is the only claim this entry makes about coverage.
+
+## D-0076 · #322: the self-test counted 81 rules and could not see inside one — give every rule a break of its own, change what the count means, or leave the class listed
+
+- Question: `pages.py --self-test` answers `capture self-test: 81 refusal rules hold` and exits 0. The
+  number is `len(ran)`, the list `rule()` appends to once per rule, so the sentence says how many
+  bodies were CALLED and nothing about what any of them checked. Re-measured 14 Nov at `0592233` in a
+  `git archive` copy so the sibling modules matched the tree (#1807): replacing the body of
+  `a_refused_run_says_where_its_frames_are` with `return` answers the same 81-hold line at exit 0 with
+  nothing on stderr (`/tmp/opencode/head322`). #322's title says 76 because it was written at
+  `66c9162`, five rules ago; it is the same measurement. The sibling suite had already filed it as
+  seven rows in one class, `a hollowed rule is invisible to the count`, every one printing `HOLE`, and
+  that class text names the repair this entry carries out: "one probe per rule that breaks the thing
+  that rule names and insists THAT rule goes red". So: give every rule a named break and require that
+  rule to react, change what the count means so an emptied body moves it, move the work into the
+  sibling suite as 81 more rows, or leave the class listed?
+
+- Options: a per-rule probe table inside `pages.py`, applied after the last `rule()`, and the pass itself witnessed by counts held in its caller | keep the count and widen it, so the number tracks rule bodies that can still fail instead of bodies that were called | eighty-one rows in `scripts/attack-capture-self-test.py`, one text patch per rule | leave the class listed as a floor, as `D-0058` chose on scope rather than merit
+
+- Chose: a per-rule probe table inside `pages.py`, applied after the last `rule()`, and the pass itself
+  witnessed by counts held in its caller
+
+- Why: the three refusals are all about what a count can be made to mean, which is the thing #322 is
+  actually about. Widening the number is a proxy: `EXPECTED_RULES` is load-bearing precisely because it
+  pins *reach* — #297's title, and the reason `self_test_verdict` compares `len(ran)` against it — and a
+  body emptied to `return` is still a body, so any statement-counting rule a `return` satisfies is a
+  number that lies in the same direction; it also rewrites the sentence `FAILED_SUMMARY` matches, which
+  is #325's verdict-shape work and not this ticket's. Eighty-one rows in the sibling suite looks
+  cheaper and is the same trap one level up: `EXPECTED_ROWS` counts ROWS, so deleting forty of them
+  prints a smaller confident tally, which is the defect this change is meant to close, and the seven
+  hollowing rows already in that file are the proof that a row list nobody counts can sit beside a hole
+  for days. A probe inside the driver is countable against the thing it covers — `probed != len(registry)`
+  compares probes to REGISTRATIONS, so coverage is enforced by the gate on every run rather than by a
+  number in a file that describes a different file. `D-0058`'s deferral is the fourth option and loses
+  on the same ground it lost on before: the class has a repair that fits in the language it guards.
+  Three mechanics carry the choice. The table keys on each rule's `why` sentence, because that sentence
+  IS the registry key and a renamed body must orphan its entry loudly — both directions are refused, an
+  entry naming no rule and a rule naming no entry, so a corrupted table reads as a verdict failure and
+  not as a smaller claim. The entries are derived, not guessed: every rule was run against every
+  candidate break in an instrumented copy and the entry is the one measured to redden THAT rule
+  (`/tmp/opencode/derive.json`, `/tmp/opencode/table.txt`); six kinds exist because `setattr` cannot
+  reach a rule that reads a template off disk (`shadow`, which copies the tree into a temp box and moves
+  `cdp.HERE` for the one body) or a rule whose subject is a value rather than a call (`data`, `page`,
+  `empty`). And the pass runs after the last `rule()` and before nothing, so the worst thing a leaked
+  break can corrupt is another probe, never a real verdict — which is also why `EXPECTED_RULES` stays
+  81: a probe is not a claim about a driver, so it never enters `ran`, the same discipline `D-0072`
+  held its crash canary to.
+
+- What lost: five things, and the first is the real cost. Sixty-one of the 81 answer their own broken
+  contract by RAISING silently, twenty append a problem sentence, and none are silent — measured by
+  instrumenting the loop and reading which path each body took, not by assuming the table's kind. The
+  pair this entry carried at `0a4a528` was 62 and 19, read off a copy made before the loop counted
+  `reported` separately: that classifier asked "did it raise?" first, so a body that raised *and*
+  appended scored as a raise and one rule moved sides. Corrected here and in the file's own comment in
+  the next commit on this branch, because an entry that quotes a stale measurement is a pointer nobody
+  can re-open. Both retire #322's defect,
+  because a body emptied to `return` does neither and `rule()` turns the raise into a problem named by
+  the rule's own `why` (the arm #323's crash canary witnesses on every run). But the honest reading of
+  a raise is weaker than the sentence in this entry's title: it proves the rule sits on the path of the
+  guard its name names, not that it JUDGES that guard, and only a break that changes what the guard
+  ANSWERS can show the judgement. `if not reported:` is the floor under that — a run in which nothing
+  reports refuses — and it is deliberately not a ratchet on 20, because pinning the number would punish
+  the next unit for improving a spec. Closing the gap needs a `returns`-style break per guard, and that
+  is #378, filed with the measurement above and the acceptance list a unit can re-run; #322's own claim,
+  the silent hollow rule, is what this change delivers. Second, the repair has its own
+  floor and it is bigger than what it replaced: every arm of the harness is one `if`, and deleting the
+  `_rule_probes_are_live` call from `self_test()` is silent, so the suite keeps exactly four
+  documented hole classes and exactly twelve hole rows, 12 -> 12, and the identity of every one of them
+  changed — seven rows left
+  `a hollowed rule is invisible to the count` for `CAUGHT`, two of the verdict class's three did the
+  same, and nine new rows arrived in `a probe-harness arm's own comparison is unguarded`. A hole count
+  that sits still while its contents swap is the shape this whole ticket is about, so it is quoted here
+  rather than smoothed over. The nine new `HOLE` rows are listed with the one shape that
+  would close the load-bearing one (a probe tally HANDED to the verdict as a third argument instead of a
+  list `self_test()` decides to fill). Third, a `PROBE:` finding prints `capture self-test: 0 of 81
+  rules failed`, because `self_test_verdict` counts `ran` and a harness finding is not a rule's problem;
+  the exit code is right and the sentence is wrong, and rewording it is #325's work, named here so the
+  next reader finds it filed rather than missed. Fourth, two numbers moved where a parallel branch will
+  collide: `EXPECTED_ROWS` 54 → 72 and nothing else — `EXPECTED_RULES` untouched at 81 was the point —
+  so a branch that adds a rule now has to add a table entry too, refused loudly if it does not. Fifth,
+  81 lines of table are hand-maintained from here on, and the derivation that produced them is scratch
+  in `/tmp`, so the next re-derivation starts from the entries as written rather than from measurement.
+
+- Checkpoint: 6145245
+
+- Effect: two files, both read back before this line was written. `testing/capture/pages.py`: 541 lines
+  in, 1 out, file 4895 → 5435 — `RULE_PROBES` (81 entries, one per registered rule), `_ProbeUnapplicable`,
+  `_probe_target`, `_probe_shadow`, `_apply_probe`, `_probe_every_rule`, `_probe_harness`,
+  `_rule_probes_are_live`, and one call to the last inside `self_test()` between the canary pair's
+  comparison and `return ran, bad`. `python3 testing/capture/pages.py --self-test` → `capture self-test:
+  81 refusal rules hold`, rc 0, 0.07 s; `python3 -c` over the module reports `entries: 81`, kinds
+  `{'hollow': 74, 'refuse': 2, 'data': 1, 'page': 1, 'empty': 1, 'shadow': 2}`. The defect, re-run the
+  same way against the working tree: the same `return` in the same body now prints `PROBE: a refused run
+  says where its frames are stayed green with its own contract broken (hollow cdp.keep_refused)` plus the
+  coverage line, and exits 1. `scripts/attack-capture-self-test.py`: 137 in, 60 out, file 785 → 862 —
+  `EXPECTED_ROWS` 54 → 72 on eighteen rows added (nine `CAUGHT`, nine `HOLE`), nine hollowing and reach
+  rows flipped `HOLE` → `CAUGHT`, one class deleted from `DOCUMENTED_HOLES` and `HOLE_CLASS`, one added
+  and one narrowed from three rows to one; and one pre-existing row re-pointed because
+  #322's second `body(problems)` made its anchor match twice and the suite refused it as `INVALID`
+  instead of patching two places while reporting one. `python3 scripts/attack-capture-self-test.py` →
+  `TOTAL  72 attacks: 54 caught, 6 honest edits still green, 12 holes, 0 invalid, 0 unexpected` and
+  `VERDICT: 72 attacks, 0 problem(s), 4 hole class(es), 12 hole row(s)`, rc 0, 7.7 s. Against the same
+  command at `0592233`: `TOTAL  54 attacks: 36 caught, 6 honest edits still green, 12 holes, 0 invalid,
+  0 unexpected`, so caught rows moved 36 → 54 and hole rows 12 → 12. A separate
+  throwaway battery of 26 mutants (`/tmp/opencode/battery.py`, each in a fresh `tempfile.mkdtemp` copy
+  per #1807) reports `0 surprise(s)`: 13 kill the run and 13 stay green, and every green one is a row in
+  the new class. `python3 scripts/check-decisions.py` → 231 entries across 2 logs, `path:line` debt 0.
+  `make verify` and the state read after the push are quoted with their exit statuses in the
+  pull-request body, not here, because an `Effect:` written before a gate runs is a prophecy (#1180).
+

@@ -93,33 +93,40 @@ CAUGHT, HOLE, GREEN = "caught", "hole", "green"
 # a fix closes. A NEW hole fails this run, and a listed hole that has stopped being a hole fails it
 # too, so the list cannot rot in either direction.
 #
-# The classes below are four: the floor every suite of this shape has, which shows up at two sites
-# and so counts twice, and the findings this suite made the first time it ran (11 Nov) that are still
-# open -- each one a claim about the guard, filed as an issue so the queue can see it, and kept here
-# as a row so the claim is re-measured on every push instead of remembered:
+# The classes below are four: the floor every guard of this shape has, which now shows up at three
+# sites, and one claim about what the 81 rules do not look at. Each is re-measured by its rows on
+# every push rather than remembered:
 #
-#   1. A counted rule cannot police its own call site -- the class #125 tracks from the other end.
-#      The canary pair proves `rule()` is not hollow; nothing proves a *rule* is not.
-#   2. A check cannot police its own deletion -- the same floor `attack-self-test.py` documents for
-#      `mutate.py`'s `if bad:`. It shows up twice here, at the verdict and at the canary.
-#   3. What the 81 rules do not look at: the bytes of the frame a refusal keeps.
+#   1. A check cannot police its own deletion -- the floor `attack-self-test.py` documents for
+#      `mutate.py`'s `if bad:`. Three sites: the canary pair's comparison, the verdict's `if bad:`,
+#      and the probe harness's own arms. The last is the largest, because what it guards is the
+#      guard for all 81 rules.
+#   2. What the rules do not look at: the bytes of the frame a refusal keeps.
 #
-# A fifth class ran with these for two days and is gone: `rule()`'s crash arm was the third thing
-# the suite could not see, and `pages.py` now carries a canary that raises on purpose, so the arm is
-# witnessed on every run and the row is CAUGHT (#323, `D-0072`).
+# Two classes ran with these and are gone. `rule()`'s crash arm is witnessed by a canary that raises
+# on purpose (#323, `D-0072`). And #322's -- "a hollowed rule is invisible to the count", the class
+# this file was written to describe, whose seven rows all printed `HOLE` -- is closed by `pages.py`'s
+# probe pass: `_probe_every_rule` breaks the contract each rule names and requires THAT rule to go
+# red, so those seven rows read CAUGHT now and the class retires with them. What did not close is the
+# floor under the repair: every arm of the harness is one `if`, and deleting the
+# `_rule_probes_are_live` call is silent. That is class 1 at a new site, listed rather than fixed.
 # ---------------------------------------------------------------------------------------------
 DOCUMENTED_HOLES = {
-    "a hollowed rule is invisible to the count":
-        "Every rule is registered by name and counted by the pin, so replacing a rule body with "
-        "`return` leaves the count at 81 and the transcript green. Measured here, not assumed: all "
-        "seven refusal rules this suite empties came back unseen -- the three #297 wrote, the one "
-        "#304 added, the two #317 adds for the arms it could not reach, and the one #302 adds for the "
-        "fixture named to the publish -- so no rule's *content* is covered by a sibling of another -- "
-        "the count pins how many rules ran and says nothing about what any of them checked. That is "
-        "#297's title read literally. What closes it is the Go battery's design applied to Python: "
-        "one probe per rule that breaks the thing that rule "
-        "names and insists THAT rule goes red, so a hollowed rule retires a row instead of passing "
-        "a gate.",
+    "a probe-harness arm's own comparison is unguarded":
+        "The probe pass is what retired #322's hole, so the pass needs a witness, and the only "
+        "witnesses available in this language are more `if`s in the same file. Measured at the head "
+        "these rows were written, each of these printed `capture self-test: 81 refusal rules hold` "
+        "at exit 0 with the break live: delete the `_rule_probes_are_live(registry, ran, bad)` call "
+        "from `self_test()`; switch off `if probed != len(registry)`, `if not reported`, `if arms != 4`, "
+        "`if shapes != 4`, `if not applied`, `if not restored`, or arm 4's table-coverage witness; or satisfy a "
+        "witness with a constant instead of driving the function it claims to drive. Same floor as "
+        "the verdict's `if bad:` and the canary pair, and the same answer: listed. What would close "
+        "the first of them -- the only one that costs the whole guard -- is a probe tally the verdict "
+        "is HANDED as a third argument rather than a list `self_test()` chooses whether to fill; "
+        "nothing smaller does, because every channel out of `self_test()` is a value it decides to "
+        "put there. The mutations the arms DO catch are rows above: hollowing `_apply_probe`, making "
+        "an undo not undo, dropping a verdict shape, and stopping `rule()` registering its rules all "
+        "come back CAUGHT.",
     "the canary pair's own comparison is unguarded":
         "`if counts != [1, 0] or len(probe_bad) != 1:` is the only sentence proving `rule()` is not "
         "hollow, and it sits one level above the pair it reads: switched off, the canaries are "
@@ -129,10 +136,14 @@ DOCUMENTED_HOLES = {
         "helper in four different ways are all caught, and they are caught *because* this "
         "comparison is live.",
     "the verdict's final decision is unguarded":
-        "`if bad:` is where every problem becomes an exit code, the `len(ran) != EXPECTED_RULES` "
-        "comparison is the reach check, and its `return 1` is the last link. Each is one edit above "
-        "anything a rule compares: a rule that policed its own count check would have to hold the "
-        "number the check exists to hold. This is the floor, so it is listed rather than fixed.",
+        "`if bad:` is where every problem becomes an exit code, and it is the floor for one reason "
+        "the other two arms of that function are not: a finding raised *because* `if bad:` stopped "
+        "printing has nowhere to be printed but `if bad:`. #322's probe harness pinned the other two "
+        "-- `self_test_verdict` is a different function from the one whose findings it reports, so "
+        "arm 2 can ask it four shapes, and switching the reach check off or turning its `return 1` "
+        "into `return 0` is CAUGHT now -- which is why this class is one row where it used to be "
+        "three. What closes the last one is the same thing named above: a probe tally handed to the "
+        "verdict rather than a pair of lists that can be handed to it empty.",
     "the kept frame's bytes are never compared to the bytes the browser returned":
         "`_FakeSession.screenshot()` hands `cdp.capture_refused` a payload and the rules read the "
         "directory back -- names, counts, the note's sentences -- and nothing reads the file's "
@@ -144,26 +155,26 @@ DOCUMENTED_HOLES = {
 
 HOLE_CLASS = {
     "the canary comparison is switched off": "the canary pair's own comparison is unguarded",
-    "one refusal rule's body is emptied -- where its frames are":
-        "a hollowed rule is invisible to the count",
-    "one refusal rule's body is emptied -- frames kept apart per fixture":
-        "a hollowed rule is invisible to the count",
-    "one refusal rule's body is emptied -- the moved-out-of-the-queue claim":
-        "a hollowed rule is invisible to the count",
-    "one refusal rule's body is emptied -- one disposal per refusal":
-        "a hollowed rule is invisible to the count",
-    "one refusal rule's body is emptied -- the fixture arm's disposal":
-        "a hollowed rule is invisible to the count",
-    "one refusal rule's body is emptied -- the sweep's dead keeping":
-        "a hollowed rule is invisible to the count",
-    "one refusal rule's body is emptied -- the fixture named to the publish":
-        "a hollowed rule is invisible to the count",
     "the verdict's problem list is switched off":
         "the verdict's final decision is unguarded",
-    "the reach check is switched off":
-        "the verdict's final decision is unguarded",
-    "the reach check runs and returns success":
-        "the verdict's final decision is unguarded",
+    "the probe pass is deleted from the self-test":
+        "a probe-harness arm's own comparison is unguarded",
+    "the coverage count is switched off":
+        "a probe-harness arm's own comparison is unguarded",
+    "the reports-versus-raises witness is switched off":
+        "a probe-harness arm's own comparison is unguarded",
+    "the arms count is switched off":
+        "a probe-harness arm's own comparison is unguarded",
+    "the shapes count is switched off":
+        "a probe-harness arm's own comparison is unguarded",
+    "the applied witness is switched off":
+        "a probe-harness arm's own comparison is unguarded",
+    "the restore witness is switched off":
+        "a probe-harness arm's own comparison is unguarded",
+    "the table-coverage witness is switched off":
+        "a probe-harness arm's own comparison is unguarded",
+    "the verdict witness answers without asking":
+        "a probe-harness arm's own comparison is unguarded",
     "the kept frame is written as an empty file":
         "the kept frame's bytes are never compared to the bytes the browser returned",
 }
@@ -305,8 +316,17 @@ ROWS = [
     (CAUGHT, "pages.py", "the rule helper drops the problems it was handed",
      "        (bad_to if bad_to is not None else bad).extend(problems)",
      "        pass  # the problems are dropped"),
+    # Row re-pointed 14 Nov by #322, which added a second `body(problems)` -- the probe pass calls a
+    # rule's body a second time on purpose -- so the bare statement matched twice and the suite
+    # refused the row (`INVALID`, exit 1) instead of counting a patch that would have edited two
+    # places while reporting one. The `except` comment is the half that says WHICH call: `rule()`'s
+    # own arm reads "a rule that throws has not passed", the probe's reads "an exception is an answer
+    # here". Anchoring on the pair means the row cannot silently start patching the probe instead.
     (CAUGHT, "pages.py", "the rule helper never calls the rule body it is given",
-     "            body(problems)", "            pass  # the body is never called"),
+     "            body(problems)\n        except Exception as exc:  # a rule that throws has not "
+     "passed",
+     "            pass  # the body is never called\n        except Exception as exc:  # a rule that "
+     "throws has not passed"),
     (CAUGHT, "pages.py", "the canary pair is deleted, leaving nothing that proves the helper is not hollow",
      '    rule("canary", lambda problems: problems.append("a problem"), probe_ran, probe_bad)\n'
      '    rule("canary", lambda problems: None, probe_ran, probe_bad)',
@@ -322,22 +342,27 @@ ROWS = [
      "            pass  # a crashing rule says nothing"),
     (HOLE, "pages.py", "the verdict's problem list is switched off",
      "    if bad:\n        for p in bad:", "    if False:\n        for p in bad:"),
-    (HOLE, "pages.py", "the reach check is switched off",
+    (CAUGHT, "pages.py", "the reach check is switched off",
      "    if len(ran) != EXPECTED_RULES:", "    if False:"),
-    (HOLE, "pages.py", "the reach check runs and returns success",
+    (CAUGHT, "pages.py", "the reach check runs and returns success",
      '              "(a `return` inside self_test() skips every rule below it)", file=sys.stderr)\n'
      "        return 1",
      '              "(a `return` inside self_test() skips every rule below it)", file=sys.stderr)\n'
      "        return 0"),
 
-    # ---- the class #297's title is about: a hollowed rule keeps the count at 81 ----
-    (HOLE, "pages.py", "one refusal rule's body is emptied -- where its frames are",
+    # ---- #297's title, and the class #322 filed about it, closed by `pages.py`'s probe pass. These
+    #      seven bodies are still emptied here on purpose: with the pass live each one reddens the
+    #      run, because `_probe_every_rule` breaks that rule's own contract and insists THAT rule
+    #      report. They stay rows rather than being deleted -- if a table entry is dropped, or the
+    #      pass is switched off, the rule goes back to being hollowable in silence and these rows come
+    #      back as NEW HOLE instead of the count line quietly staying true.
+    (CAUGHT, "pages.py", "one refusal rule's body is emptied -- where its frames are",
      "    def a_refused_run_says_where_its_frames_are(problems):",
      "    def a_refused_run_says_where_its_frames_are(problems):\n        return"),
-    (HOLE, "pages.py", "one refusal rule's body is emptied -- frames kept apart per fixture",
+    (CAUGHT, "pages.py", "one refusal rule's body is emptied -- frames kept apart per fixture",
      "    def each_fixture_keeps_its_refused_frames_apart(problems):",
      "    def each_fixture_keeps_its_refused_frames_apart(problems):\n        return"),
-    (HOLE, "pages.py", "one refusal rule's body is emptied -- the moved-out-of-the-queue claim",
+    (CAUGHT, "pages.py", "one refusal rule's body is emptied -- the moved-out-of-the-queue claim",
      "    def a_kept_frame_is_moved_out_of_the_publish_queue(problems):",
      "    def a_kept_frame_is_moved_out_of_the_publish_queue(problems):\n        return"),
     # Every rule added to this suite inherits the same floor, so every rule added owes a row: the
@@ -346,17 +371,17 @@ ROWS = [
     # keeps it at whatever the pin says, either way. Listing each is the honest price of adding one --
     # the class text claims every rule this suite empties came back unseen, and an unlisted hollowing
     # would make that sentence false in the one direction nothing else checks.
-    (HOLE, "pages.py", "one refusal rule's body is emptied -- one disposal per refusal",
+    (CAUGHT, "pages.py", "one refusal rule's body is emptied -- one disposal per refusal",
      "    def a_refusal_whose_report_cannot_be_written_still_finishes_its_disposal(problems):",
      "    def a_refusal_whose_report_cannot_be_written_still_finishes_its_disposal(problems):\n"
      "        return"),
-    (HOLE, "pages.py", "one refusal rule's body is emptied -- the fixture arm's disposal",
+    (CAUGHT, "pages.py", "one refusal rule's body is emptied -- the fixture arm's disposal",
      "    def a_refusal_in_a_fixture_still_disposes_of_itself_once(problems):",
      "    def a_refusal_in_a_fixture_still_disposes_of_itself_once(problems):\n        return"),
-    (HOLE, "pages.py", "one refusal rule's body is emptied -- the sweep's dead keeping",
+    (CAUGHT, "pages.py", "one refusal rule's body is emptied -- the sweep's dead keeping",
      "    def a_page_whose_keeping_died_does_not_stop_the_sweep(problems):",
      "    def a_page_whose_keeping_died_does_not_stop_the_sweep(problems):\n        return"),
-    (HOLE, "pages.py", "one refusal rule's body is emptied -- the fixture named to the publish",
+    (CAUGHT, "pages.py", "one refusal rule's body is emptied -- the fixture named to the publish",
      "    def a_clean_run_names_its_fixture_to_the_publish(problems):",
      "    def a_clean_run_names_its_fixture_to_the_publish(problems):\n        return"),
 
@@ -390,6 +415,56 @@ ROWS = [
      "                missing = unreported.get(width) or []",
      "                missing = []  # the count is kept from admitting it"),
 
+    # ---- #322: the probe pass, on itself. Nine CAUGHT rows for the machinery, nine HOLE rows for
+    #      the arms. The CAUGHT rows break the pass by breaking what it does -- ignore the table, aim
+    #      every rule at the same harmless break, hollow `_apply_probe`, make an undo not undo, stop
+    #      `rule()` registering, drop a verdict shape -- and each turns the run red. The HOLE rows
+    #      break the checks that watch the pass, which is the floor: see the class text. They are
+    #      listed rather than deleted because a floor nobody re-measures is indistinguishable from a
+    #      floor that was never there.
+    (CAUGHT, "pages.py", "the probe table is ignored, so no rule is broken at all",
+     "        spec = RULE_PROBES.get(why)", "        spec = None"),
+    (CAUGHT, "pages.py", "every rule is probed with the same unrelated break",
+     "        spec = RULE_PROBES.get(why)", '        spec = ("hollow", "cdp.capture_out")'),
+    (CAUGHT, "pages.py", "the probe loop runs over nothing",
+     "    for why, body in registry:", "    for why, body in []:"),
+    (CAUGHT, "pages.py", "a rule that answered its own break is not counted as probed",
+     "        probed += 1", "        probed += 0"),
+    (CAUGHT, "pages.py", "`_apply_probe` is hollowed to a no-op",
+     '    kind = spec[0]\n    if kind in ("hollow", "refuse"):',
+     '    return (lambda: None, "nothing")\n    kind = spec[0]\n'
+     '    if kind in ("hollow", "refuse"):'),
+    (CAUGHT, "pages.py", "a probe's undo does not put the guard back",
+     '        return (lambda: setattr(owner, name, original)), f"{kind} {spec[1]}"',
+     '        return (lambda: None), f"{kind} {spec[1]}"'),
+    (CAUGHT, "pages.py", "`rule()` stops registering its rules, so the table names 81 strangers",
+     "            registry.append((why, body))", "            pass"),
+    # Measured 14 Nov: this one went red on its own, which is why the raise-only degradation is a
+    # caught row and not a listed floor. `if not reported:` is the arm that names it, and the arm is
+    # itself one `if` -- so the degradation is witnessed while the witness stays switchable, and both
+    # halves are rows here rather than one of them being a claim in a comment.
+    (CAUGHT, "pages.py", "no rule is ever counted as having reported a problem",
+     "        if problems:\n            reported += 1", "        if False:\n            reported += 1"),
+    (CAUGHT, "pages.py", "a shape is dropped from the verdict witness",
+     '            ("one harness finding and 81 clean rules", full, [f"{PROBE}: a"], 1),', ""),
+    (HOLE, "pages.py", "the probe pass is deleted from the self-test",
+     "    _rule_probes_are_live(registry, ran, bad)", "    pass"),
+    (HOLE, "pages.py", "the coverage count is switched off",
+     "    if probed != len(registry):", "    if False:"),
+    (HOLE, "pages.py", "the reports-versus-raises witness is switched off",
+     "    if not reported:", "    if False:"),
+    (HOLE, "pages.py", "the arms count is switched off", "    if arms != 4:", "    if False:"),
+    (HOLE, "pages.py", "the shapes count is switched off", "    if shapes != 4:", "    if False:"),
+    (HOLE, "pages.py", "the applied witness is switched off", "    if not applied:", "    if False:"),
+    (HOLE, "pages.py", "the restore witness is switched off", "    if not restored:", "    if False:"),
+    (HOLE, "pages.py", "the table-coverage witness is switched off",
+     '    if not any(p.startswith(f"{PROBE}:") for p in witness):', "    if False:"),
+    (HOLE, "pages.py", "the verdict witness answers without asking",
+     "        with contextlib.redirect_stderr(io.StringIO()), "
+     "contextlib.redirect_stdout(io.StringIO()):\n"
+     "            code = self_test_verdict(list(ran_shape), list(bad_shape))",
+     "        code = want"),
+
     # ---- honest edits: these must stay green, or the guard is matching text it should ignore, and
     #      a guard that is a tax gets switched off ----
     (GREEN, "pages.py", "a comment is added above the rule helper",
@@ -416,7 +491,8 @@ ROWS = [
 # The suite's own count pin, on the pattern of `mutate.py`'s three and `attack-self-test.py`'s one.
 # A row deleted from ROWS makes the tally smaller and every remaining row still reports its expected
 # verdict, so the run prints a confident "40 attacks, 0 problems" over a guard that lost a test.
-EXPECTED_ROWS = 54
+# 54 -> 72 on 14 Nov: the nine rows for #322's probe machinery and the nine for its arms.
+EXPECTED_ROWS = 72
 
 
 def shape_problems():
@@ -610,9 +686,10 @@ def wiring_problems():
     recipe = verify_recipe(text)
     problems = []
     if not re.search(r"python3 scripts/attack-capture-self-test\.py\b", recipe):
-        problems.append("`make verify` no longer runs this suite. Fifty-four attacks nobody invokes "
-                        "are a list of intentions, not a gate; if the step was deleted because this "
-                        "file's verdict became inconvenient, the finding is in the verdict")
+        problems.append("`make verify` no longer runs this suite. "
+                        f"{EXPECTED_ROWS} attacks nobody invokes are a list of intentions, not a "
+                        "gate; if the step was deleted because this file's verdict became "
+                        "inconvenient, the finding is in the verdict")
     if not re.search(r"for runner in [^\n]*attack-capture-self-test\.py", recipe):
         problems.append("`make verify` no longer passes this suite through the empty-filter loop, so "
                         "a filter matching nothing could exit 0 and the run would report a "
