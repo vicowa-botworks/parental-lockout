@@ -7830,7 +7830,7 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   this one. Each placement was decided before the edit by `--citations <path>` -- the highest cited line
   was 50 in `AGENTS.md`, 1083 in `docs/factory.md` and 434 in the skill, so every insertion went below it
   -- and `faf4590` then moved two of those three, which is the rule's thesis stated about its own entry.
-  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:1950` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
+  The `Chose:` here is the third option, and the second is refused by `docs/factory.md:1956` "the exact class of failure the issue was filed about". This entry is the log's first with anchored citations -- 11,
   six checked against the tree and five naming the revision they were read at -- and the gate refused it
   three times on the way in, which is the only proof here that the rule bites: an anchor split by a line
   wrap is no anchor, a bare `5be86e5`-style coordinate is what a revision-qualified citation says instead
@@ -8288,8 +8288,8 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Effect: `scripts/check-decisions.py` gains `no_anchor_note` and `stray_note` (the ambiguity refusal names
   the read that separates "the logs are wrong" from "a stray directory is in the tree": `git ls-files
   --others --ignored --exclude-standard`), `scan_citations` records the gap between a coordinate and a
-  nearby quotation as text rather than as a width -- `x.md:9`'s "…" is three characters wide and the third
-  of them is what the rule declines -- `citation_problems` returns a `CitationVerdict` carrying `judged`
+  nearby quotation as text rather than as a width -- a possessive after a coordinate is three characters
+  of gap, and the third of them is the one the rule declines -- `citation_problems` returns a `CitationVerdict` carrying `judged`
   and `unjudged_because`, refuses the comparison in both directions while anything is unopenable, and
   `main`/`citation_report` print that reason instead of "which may only fall". `docs/factory.md` states the
   guard beside the ratchet and re-measures the two figures it quotes, and the `AGENTS.md` bullet that
@@ -8308,3 +8308,73 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
   this one (`bc1c08c:scripts/check-decisions.py:573` is now spelled with the revision it was read at).
   Refs #367, Refs #318.
 - Checkpoint: 5c10382ff9c175159e769350c8bbb62d870f5e04
+
+## H-0171 · A citation that names no file was skipped rather than refused, and one shape that got away was a `:NNN` continuation of a `./`-prefixed parent
+
+- Question: #367 review #2, reproduced here at `bc1c08c` before any edit: append to `./DECISIONS.md` a
+  line citing gonee.md at line 3 with a faithful 16-character anchor and the gate answers zero problems and
+  leaves the ratcheted number untouched, while the same sentence with a directory in the path is refused
+  outright. The cause is one arm: `classify()` skips `kind == "not-a-path"`, and the only route into
+  `file-missing` required a `/` in the written value -- so 13 bare `AGENTS.md` pointers and every other bare
+  basename sat outside the rule by construction, exactly as the code comment next to that arm claimed and as
+  the code did not do. Measuring the whole blind spot rather than the reported symptom found a second shape
+  in the same class, and the worse one: a continuation inherits `last`, which is already a *resolved* path,
+  and the code re-resolved it by NAME. `./DECISIONS.md:2706` "is a single named file and" is continued by
+  `./DECISIONS.md:2986` "which is a different question about a", and both looked
+  `DECISIONS.md` -- the bare basename -- up in the index, got two candidates back (`./DECISIONS.md` and
+  `factory/DECISIONS.md`), hit
+  the no-guess guard, and fell out as `not-a-path` -- 4 rows in the two logs today (two of
+  `./DECISIONS.md`, and two of the `./README.md` at line 588 whose basename five files answer to), each a
+  coordinate some unit wrote and nothing checks. What may a resolver decline to answer, and when is "I cannot tell" the same as "this is fine"?
+- Options: refuse every row whose file half does not resolve -- uniform, and it also refuses 158 rows that
+  are bare `:NNN` with no file named earlier on their physical line, plus every illustrative coordinate in
+  the logs | ask git whether the name was ever tracked, which separates a file that went from a name that
+  never was in one read and needs no heuristic | treat a bare left half carrying an extension as a path, and
+  let a continuation inherit the resolved file instead of the spelling | refuse a bare name only when it
+  carries an anchor, on the argument that the anchor is what turns a token into a claim
+- Chose: treat a bare left half carrying an extension as a path, and let a continuation inherit the resolved
+  file instead of the spelling
+- Why: the extension is the only marker that survives both spellings -- `triage.sh`, `./DECISIONS.md` and
+  `internal/web/handlers.go` all answer to it, and `pr`, `unclaimed`, `STATE_PROPS`, `D-0033`, `verify` and
+  `make` all refuse it -- so the widening is one regex:
+  `scripts/check-decisions.py:619` "[\w.+-]*[A-Za-z0-9][.][A-Za-z][A-Za-z0-9]*$" . It leaves the six shapes
+  both logs are full of alone.
+  Option one is uniform and wrong on the corpus: 158 rows are an orphan `:NNN` inside a wrapped paragraph, a
+  shape H-0153 already rules on (a continuation inherits the last file resolved on the same *physical* line,
+  never the last line read) and H-0162 measures as the one limit the rule admits; refusing them refuses 158
+  sentences that are true on their own terms, so the limit stays and a must-pass leg now pins it --
+  `orphan-continuation-still-a-limit` fails the self-test if a future widening swallows it. Option two is
+  the best available test and this rule may not use it: `gate_reads_no_refs`
+  (`factory/selftest.sh:11823` "0 when that gate asks git for nothing but object lookups") refuses a gate
+  that reads refs so CI, the review loop and the merge commit return one verdict, and a name-that-was-tracked
+  check would make the verdict depend on the ref store. The weaker test is the price of that, and it is paid
+  in the open rather than in a comment that overstates the code -- which is the defect the reviewer filed.
+  Option four was the front-runner for a commit, and it is the one that keeps the reported bug: an
+  unanchored dead pointer is invisible forever, which is precisely what #367 says is wrong, and 4 of the 5
+  corpus rows it would have exempted turned out to be the continuation bug, not prose naming a shape. The
+  anchor says *how* a claim is checked, not *whether* a file is there; "does this file exist" is answerable
+  either way. What lost: an illustrative coordinate in prose -- a made-up path quoted to explain a shape --
+  is refused too and has to be spelled without the colon or aimed at a real file. That cost landed on this
+  branch first and immediately: `H-0170`, written one commit earlier, quoted a made-up path to explain the
+  separator class and this rule refused it, so the sentence now says "a possessive after a coordinate" and
+  names no file. The second loss is smaller: `--citations` calls the count of what it read `read out of the
+  two logs`, because `resolve against this tree` was never true of the rows the third number names.
+- Effect: `scan_citations` resolves a continuation from `last` directly (a continuation is a file, by
+  construction -- see `scripts/check-decisions.py:766` "A continuation inherits the FILE, not the spelling"),
+  and the absent-file arm admits an extension-bearing bare name beside a slashed path. 4 rows in the two
+  logs move from checked-by-nothing to counted, so the ratcheted number rises 535 -> 539 with nothing added
+  to it by anyone; that is this entry's measurement, and `POINTER_DEBT`'s comment block carries the
+  arithmetic. One row (`x.md` at line 9, in `H-0170`) was refused as a dead pointer and re-spelled rather
+  than exempted. `citation_report`'s `--citations <path>` branch now *returns* its lines instead of printing
+  them and returning `[]`, which is what makes the census assertable -- the leg proving `--citations` finds a
+  pointer whose file is already gone was asserting on an empty list until it was written. `docs/factory.md`
+  gains the shape-table row and the paragraph that states both the extension rule and the orphan-`:NNN`
+  limit; `AGENTS.md` gains nothing new but loses a sentence `H-0170` broke by inserting into the middle of
+  one, repaired forward because force-pushing an in-flight branch is forbidden here. `--self-test` goes
+  47/17 -> 54/21 -> 61/26: 8 new must-fail and 5 new must-pass cases, the reviewer's repro verbatim, the
+  continuation in both directions, the six exempt shapes, the orphan limit, and the gone-file census.
+  Repaired behaviour at this head, the reviewer's own probe: the anchored spelling answers
+  `an anchored citation promises the reader a line and there is no file to read it in` and the bare
+  unanchored one `the file was renamed, deleted, or never lived where the entry said`, both exit 1.
+  Refs #367, Refs #318.
+- Checkpoint: dacaa890bc92619ec530e2be2f1fd3288529580a

@@ -564,6 +564,12 @@ def label_of(e):
 # above this number is refused; a run below it is refused too, because an unlowered number is a ratchet
 # with the pawl filed off -- the next broken pointer hides inside the slack.
 #
+# 539, re-measured on 14 Nov 2026 after the #367 review repairs, by `--citations | tail -1`. 535 + 4, and
+# all four are the SAME defect being paid for rather than four new promises: they are the `:NNN`
+# continuations that re-resolved their parent's basename, got two candidates back, and fell out as
+# `not-a-path` -- checked by nothing, so they were in neither the debt nor the refusal. Making a citation
+# that names no file a defect (H-0171) is what surfaces them, and the rise is recorded beside the entry
+# that measures it, which is the only direction this constant may move up.
 # 535, re-measured on 14 Nov 2026 on the SECOND merge of `origin/main` into `issue-318` (`8437eea`, 22
 # commits) by `python3 scripts/check-decisions.py --citations | tail -1`. 517 + 18: every one of the 18 is
 # inside `H-0163`..`H-0169`, the five harness entries `main` published while #367 was in review, and none
@@ -577,7 +583,7 @@ def label_of(e):
 # them are the paragraph-length continuations `scan_citations` documents it cannot place. None of them is
 # refused today; every one is visible, and none may grow except by a merge that re-measures. Paying one
 # down means editing this line in the same commit.
-POINTER_DEBT = 535
+POINTER_DEBT = 539
 
 # How many entries the two logs held when that number was measured, and therefore the smallest corpus
 # the number is a statement about. The ratchet is judged only at or above this size. Re-measured with the
@@ -604,6 +610,13 @@ POINTER_DEBT_AT = 214
 
 
 CITATION = re.compile(r"`([^\s`]*?):(\d{1,5}(?:\s*-\s*\d{1,5})?)`")
+# Does the left half name a FILE? An extension is the only marker that survives both spellings:
+# `triage.sh`, `./DECISIONS.md`, `internal/web/handlers.go` all answer to it, and `pr`, `unclaimed`,
+# `STATE_PROPS`, `D-0033`, `verify` and `H-0153` all refuse it. It is what separates "a path whose file
+# has gone" from "a triage class, a symbol, an entry id" now that a bare name counts as a path too
+# (#367 review #2): `gonee.md:3` is a promise about a file, and the promise is false when no file answers
+# to it, wherever the entry meant it to live.
+FILENAME_SHAPE = re.compile(r"[\w.+-]*[A-Za-z0-9][.][A-Za-z][A-Za-z0-9]*$")
 # The anchor: a double-quoted fragment that follows the citation with nothing between it and the
 # closing backtick but spaces and an apostrophe -- up to three characters of them, so `` `x.md:9` "…" ``
 # and `` `x.md:9'"…` `` both read. What it does NOT admit is the `s` of a possessive: the corpus shape is
@@ -706,8 +719,11 @@ def scan_citations(text, entries, index):
         inherits the last file resolved on the same line and never the last line read: a continuation
         is a property of its sentence, and inheriting across sentences would silently re-aim a
         pointer at a different file.
+      * `` `gonee.md:3` `` -- a bare name WITH an extension is a path, and a file that is not in the tree
+        is refused, not skipped: the anchor or the coordinate promised a reader something to open.
       * `` `pr:209` ``, `` `STATE_PROPS:1040` `` -- a triage `class:PR` pair and a symbol. Not
-        citations. They fall out because their path half names no file in this tree.
+        citations. They fall out because their left half carries no extension, so it names no file in
+        this tree and could not be made to without reading git for what used to be tracked.
 
     Known limit, measured rather than discovered later. "The same line" is a physical line, and an entry
     in these logs is markdown wrapped at ~110 columns, so one physical line is often a whole paragraph
@@ -746,9 +762,17 @@ def scan_citations(text, entries, index):
             bounds = [int(x) for x in span.replace(" ", "").split("-")]
             low, high = bounds[0], bounds[-1]
             malformed = high < low or low < 1
-            cand = resolve_citation(written, index)
-            if continued and cand and len(cand) > 1:
-                cand = None                    # a continuation inherits a resolved file, not a guess
+            if continued:
+                # A continuation inherits the FILE, not the spelling. `last` is already a resolved
+                # tree-relative path; re-resolving it by NAME can answer two candidates, and the
+                # no-guess guard below then turned the continuation into "no file at all" -- which is how
+                # `./DECISIONS.md:2706` and `:2986` left the continuation checked by nothing, because
+                # `DECISIONS.md` is also `factory/DECISIONS.md` (#367 review #2, found by measuring the
+                # reviewer's own repro: 4 rows in the two logs, all of them a `./`-prefixed parent whose
+                # basename is ambiguous with a nested copy).
+                written, cand = last, [last]
+            else:
+                cand = resolve_citation(written, index)
             if cand:
                 kind = "ambiguous" if len(cand) > 1 else ("bad-range" if malformed else "file")
                 resolved = cand[0] if kind == "file" else None
@@ -762,10 +786,19 @@ def scan_citations(text, entries, index):
                 # pinned spelling is a sha; a branch name is the loose one, and `--citations` counts
                 # them so the loose half stays visible.
                 kind, resolved, cand = "revision-qualified", None, []
-            elif written and "/" in written:
+            elif written and ("/" in written or FILENAME_SHAPE.match(written)):
                 # A path with a directory in it is a path even when nothing answers to it: the file was
-                # renamed, or the entry misremembered where it lived. A bare `pr:209` is not -- that
-                # shape is a triage `class:PR` pair, and it is common in both logs.
+                # renamed, or the entry misremembered where it lived. So is a bare name that carries an
+                # extension -- `gonee.md:3` promised a reader a line in a file, and before #367 that
+                # promise was checked by nothing whenever the file was gone, because this arm could only
+                # be reached by a written value containing `/`. What stays exempt is a left half with no
+                # extension: `pr:209` (a triage `class:PR` pair, common in both logs), `STATE_PROPS:1040`
+                # (a symbol), `D-0033:236` and `H-0153:45` (an entry id and a line of prose about one),
+                # `verify:1` and `make:2`. The cost is honest and measured: an ILLUSTRATIVE coordinate in
+                # prose -- `x.md:9` written to explain a shape -- is refused too, and has to be spelled
+                # without the colon or aimed at a real file. That is one edit in this log today. The read
+                # that would separate the two for free is `git ls-files`, which says whether a name was
+                # ever tracked; this rule reads no git at all (`gate_reads_no_refs`), deliberately.
                 kind = "bad-range" if malformed else "file-missing"
                 resolved, cand = written, [written]
             else:
@@ -1030,13 +1063,17 @@ def citation_report(found, read, only=None, verdict=None):
                                c["low"] if c["high"] == c["low"] else "%d-%d" % (c["low"], c["high"]),
                                c["path"] or "(unresolved)",
                                "anchored" if c["anchor"] else "UNANCHORED"))
-        print("citations pointing at %s (%d):" % (want, len(rows)))
+        # Returned, not printed: the census branch below returns its lines and `main` prints both, and a
+        # function with two output channels is one the self-test cannot assert on (H-0171 found this the
+        # hard way -- the leg that proves `--citations gonee.md` still finds a pointer whose file is
+        # already gone was asserting on `[]`).
+        out = ["citations pointing at %s (%d):" % (want, len(rows))]
         for r in sorted(rows, key=lambda s: s.split("`")[0]):
-            print("  " + r)
+            out.append("  " + r)
         if rows:
-            print("  -- editing that file moves these. Fix them in the same commit, or the log keeps "
-                  "pointing at whatever line arrived where the number used to be.")
-        return []
+            out.append("  -- editing that file moves these. Fix them in the same commit, or the log "
+                       "keeps pointing at whatever line arrived where the number used to be.")
+        return out
 
     if verdict is None:
         # A report asked for on its own has no verdict to borrow; classifying here is the one copy of the
@@ -1450,6 +1487,83 @@ def self_test():
                      "-- %s" % naked.problems)
 
     # ---------------------------------------------------------------------------------------------
+    # #367 review #2: a citation that names no file was skipped instead of refused, and one of the
+    # shapes that got away was a `:NNN` continuation.
+    #
+    # `last` holds a RESOLVED path, and the continuation re-resolved it by name. For `./SKILL.md:1`
+    # -- a root file whose basename three files answer to -- that returned three candidates, the
+    # no-guess guard turned them into "no file", and the continuation fell out as `not-a-path`: a
+    # coordinate in a decision log checked by nothing. The fixture already carries the ambiguity, so
+    # the case below is the bug as written, not a new file invented to hold it.
+    counts[0] += 3
+    counts[1] += 1
+    ROOT_SKILL = "the root skill file is the one a bare name must not silently choose"
+    cite_case('`./SKILL.md:1` "%s", again at `:2` "%s".\n' % (ROOT_SKILL, ROOT_SKILL),
+              "continuation-of-ambiguous-parent-is-checked", "which has 1 lines")
+    cite_ok('`./SKILL.md:1` "%s", again at `:1` "%s".\n' % (ROOT_SKILL, ROOT_SKILL),
+            "continuation-of-ambiguous-parent-resolves")
+    # A bare name with an extension is a promise about a file. Before #367 the absent-file arm could
+    # only be reached by a written value containing `/`, so this exact body -- the reviewer's own
+    # repro, verbatim -- produced zero problems and left the debt untouched.
+    cite_case('`gonee.md:3` "the third line is long enough to anchor a citation".\n',
+              "bare-name-gone-anchored", "there is no file to read it in")
+    cite_case('`gonee.md:3` is where it said so.\n',
+              "bare-name-gone-unanchored", "never lived where the entry said")
+    # The exemption has to survive the widening, and these are shapes both logs are full of. None
+    # carries an extension, so no tree can ever answer to them and refusing them would refuse the
+    # prose that reports triage output, quotes a symbol, or names an entry id and a line about it.
+    for shapes, name in (
+            ("`pr:209`, `unclaimed:263` and `STATE_PROPS:1040` are triage classes and a symbol.\n",
+             "class-pair-and-symbol-stay-exempt"),
+            ("`D-0033:236` is the id of `H-0153:45` in prose, and `verify:1` and `make:2` are a verb "
+             "and a tool.\n", "id-prose-and-verb-stay-exempt")):
+        verdict = citation_problems(cites(shapes), read_fixture, debt=0)
+        if verdict.problems or verdict.measured:
+            fails.append("%s: a citation-shaped token with no extension was refused, or counted as "
+                         "debt -- %s" % (name, verdict.problems))
+        else:
+            counts[1] += 1
+    # A bare `:NNN` with no file named earlier on its own line names no file at all, and is still NOT
+    # refused: that is the documented limit of the inheritance rule (H-0153 -- the same physical line,
+    # never the last line read) and 158 rows of these logs are that shape, so refusing them refuses
+    # 158 true sentences. Pinned as a must-pass so the widening cannot swallow it by accident.
+    counts[1] += 1
+    verdict = citation_problems(cites("`:19` continues nothing on this line and stays a limit.\n"),
+                                read_fixture, debt=0)
+    if verdict.problems or verdict.measured:
+        fails.append("orphan-continuation-still-a-limit: the sentence-limit became a defect -- %s"
+                     % verdict.problems)
+    # A wrapped anchor is not an anchor. The rule reads the coordinate's own physical line, so a
+    # quotation that starts on the next line leaves the citation in the debt instead of checked: a number
+    # moves and nothing is refused. Pinned both ways because these logs are markdown wrapped at ~110
+    # columns, which is exactly where a 20-character fragment wants to go (H-0171 hit it twice).
+    counts[0] += 1
+    counts[1] += 1
+    body = ('`docs/factory.md:3` "the escalation label is printed by\n'
+            '  exactly one script" continues onto the next line.\n')
+    verdict = citation_problems(cites(body), read_fixture, debt=1)
+    if verdict.measured != 1 or verdict.problems:
+        fails.append("wrapped-anchor-is-debt: a quotation on the following line %s -- measured %s, %s"
+                     % ("was treated as an anchor" if verdict.measured == 0 else "was refused",
+                        verdict.measured, verdict.problems))
+    body = ('`docs/factory.md:3` "the escalation label is printed by exactly one script" stays on its '
+            'own line.\n')
+    verdict = citation_problems(cites(body), read_fixture, debt=0)
+    if verdict.measured != 0 or verdict.problems:
+        fails.append("same-line-anchor-is-checked: the unwrapped form of that sentence should be "
+                     "checked, not counted -- %s" % verdict.problems)
+
+    # ... and the affordance still answers the question a deletion asks -- what points at this file --
+    # when the answer is a file that is already gone.
+    counts[0] += 1
+    gone_rows = [l for l in citation_report(cites("`gonee.md:3` is where it said so.\n"),
+                                           read_fixture, only="gonee.md")
+                 if "-> gonee.md" in l]
+    if len(gone_rows) != 1:
+        fails.append("gone-file-census: --citations gonee.md could not find the dead pointer it just "
+                     "refused -- %s" % gone_rows)
+
+    # ---------------------------------------------------------------------------------------------
     # #367 review #1: an untracked directory must not be able to order the ratchet lowered.
     #
     # The fixture's two `SKILL.md` basenames are the reviewer's `vendor/AGENTS.md` in miniature: one extra
@@ -1522,9 +1636,10 @@ def self_test():
           "invocations in `verify`, four Makefiles that delete this gate, the cross-log id rule, "
           "checkpoint existence, the out-of-order refusal in both logs and in a file holding both, and "
           "the `path:line` citation rule (anchor exact, moved, absent, past EOF, ambiguous, absent "
-          "file, revision-qualified, class:PR prose, inherited ranges, the ratchet both ways, the ratchet "
-          "held shut while a pointer cannot be opened, and the refusal that names which anchor floor it "
-          "applied), each asserted both ways" % (counts[0], counts[1]))
+          "file, revision-qualified, class:PR prose and the extension line, inherited ranges and the "
+          "continuation that inherits a file, the ratchet both ways, the ratchet held shut while a "
+          "pointer cannot be opened, and the refusal that names which anchor floor it applied), each "
+          "asserted both ways" % (counts[0], counts[1]))
     return 0
 
 
@@ -1646,7 +1761,7 @@ def main(argv):
         print("check-decisions: %d `path:line` citations checked for anchors, and the recorded debt is "
               "%s" % (len([c for c in found if c["kind"] != "not-a-path"]), debt_note))
     elif judge_debt:
-        print("check-decisions: %d `path:line` citations resolve against this tree, %d of them owing "
+        print("check-decisions: %d `path:line` citations read out of the two logs, %d of them owing "
               "an anchor and %d pointing somewhere a reader cannot open -- %s"
               % (len([c for c in found if c["kind"] != "not-a-path"]), measured,
                  len(verdict.unresolvable) + len(verdict.broken),

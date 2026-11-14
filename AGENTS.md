@@ -57,11 +57,12 @@ rule that exists because of a measured failure, and the measurement is cited.
   write the measured sentence beside the coordinate — `AGENTS.md:52` "naming what is owed, and stop" — and
   `scripts/check-decisions.py` compares the quote with the line and refuses the entry when they part.
   A citation with no quote is allowed but counted, and `POINTER_DEBT` in that script may only fall;
-  that number is not judged at all while any citation cannot be opened, because a stray untracked
-  directory moves pointers out of it and no number measured against it is a statement about the logs.
   a merge that grows the logs re-measures it with `--citations` and records the number in the same
   commit. Before editing a file the logs quote, ask what you are about to move:
   `python3 scripts/check-decisions.py --citations <path>` lists every pointer aimed at it.
+  That number is not judged at all while any citation cannot be opened, because a stray untracked
+  directory moves pointers out of it, and no number measured against such a tree is a statement about
+  the logs.
 
 ## Worktrees
 

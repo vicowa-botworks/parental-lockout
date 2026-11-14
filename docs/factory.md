@@ -1926,7 +1926,12 @@ within the cited range
 (`factory/common.sh:224-235`): no window of tolerance, because a pointer wrong by three lines still
 lands on the wrong sentence, and a check that passes at ±5 is a check that reports drift it cannot name.
 A quotation that sits further away is not an anchor — and since #367 the refusal says which floor it
-applied instead of claiming there was no quotation. Measured on the two logs: 3 citations carry a
+applied instead of claiming there was no quotation. **The quotation has to start on the coordinate's own
+physical line.** These logs are markdown wrapped at ~110 columns, so the natural place for a 20-character
+fragment is the next line, and there it is not an anchor: the citation falls silently into the debt instead
+of being checked, which is a number moving, not an error. Hit twice writing H-0171 — both times the gate
+said `the count went UP` and `--citations` named the two rows in seconds; re-wrap the sentence rather than
+adding an unanchored pointer to the corpus you are paying down. Measured on the two logs: 3 citations carry a
 quotation of 16+ characters within six characters of the coordinate that this class declines (the
 possessive `s ` of `` `README.md:588`'s "…" `` is the ordinary shape), and 2 carry a shorter one; those
 five authors were told their citation had no anchor, by a message that never mentioned the separator.
@@ -1940,9 +1945,10 @@ Shapes that are understood and are not the same claim:
 | `factory/common.sh:235` | a path, looked up exactly |
 | `./DECISIONS.md:1847` | the root's copy — `./` is root-relative and is never matched by basename |
 | `schedule.go:171` | a basename, allowed only while exactly one file answers to it |
+| `gonee.md:3` | a bare name carrying an extension is a path, so a file that is gone is refused, not skipped — the extension is what tells it from the row below |
 | `` `README.md:588` and the table at `:661-662` `` | a bare `:NNN` inherits the file named earlier **on the same line** — and "line" is physical, so inside a wrapped paragraph that is a known limit, not a guarantee: see the third finding below |
 | `origin/main:factory/selftest.sh:4120` | names the revision it was read at, so it owes no anchor and is not checked here |
-| `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half names no file |
+| `pr:209`, `unclaimed:263`, `STATE_PROPS:1040` | a triage `class:PR` pair and a symbol: not citations, because the left half carries no extension, so nothing in the tree could ever answer to it |
 
 **It is judged against the tree, never against the revision that wrote it.** That is the load-bearing
 choice, and #318's own option 2 had it the other way. `AGENTS.md:38` was *correct* at `5be86e5`, the
@@ -1953,8 +1959,10 @@ any git subcommand but `cat-file`, because a verdict that changes between a bran
 and CI reads as flakiness and gets re-run until it agrees. The gate reads the files in front of it and
 answers the same question in every checkout.
 
-**What cannot be checked is counted, and the count may only fall.** 535 of those citations predate this
-rule and carry no anchor; that number is `POINTER_DEBT` in `scripts/check-decisions.py` (re-measured at
+**What cannot be checked is counted, and the count may only fall.** 539 of those citations predate this
+rule and carry no anchor (the four above 535 are pointers that used to be skipped entirely — see the
+paragraph on a name that carries an extension); that number is `POINTER_DEBT` in
+`scripts/check-decisions.py` (re-measured at
 this head: `--citations` answers `debt this gate ratchets on: 535`). Above it the run
 is refused, and so is a run that measures *below* it — an unlowered number is a ratchet with the pawl
 filed off, and the next unanchored citation hides in the slack. **Neither comparison runs while a single
@@ -1965,18 +1973,33 @@ permanently disarms the ratchet, issued to a reader under a green-gate deadline.
 gains candidates, so stray content can only ever push the number down; the guard closes that direction and
 the must-be-zero refusal keeps its own teeth. When it fires, the headline and `--citations` both say
 `NOT judged this run` rather than `which may only fall`, so the pause cannot be read as a pass. A
-merge from `main` raises the count with nothing written by you — measured on this branch's own merge, 11 citations arrived in other units' entries
+merge from `main` raises the count with nothing written by you — measured on this branch's own
+merge, 11 citations arrived in other units' entries
 — so a merge re-measures with `--citations` and raises the constant in the same commit, which is the only
 direction the ratchet permits a rise and the diff is the audit. A citation absent from the tree, or
 ambiguous across two files, is refused outright rather than grandfathered: 54 were made resolvable by
 writing the path, 17 of them delivered by that same merge, and folding that class into the baseline would
 have hidden 54 dead pointers inside 517 with the headline green. A citation that points past the end of a
-file is *not* refused on its own, and that is a choice, not an oversight: the 535 unanchored pointers
+file is *not* refused on its own, and that is a choice, not an oversight: the 539 unanchored pointers
 cannot be length-checked without refusing sentences that are true on their own terms, so the length check
 holds only where an anchor already proves what the line should say — measured on this head, 7 citations sit
 past the end of the file they name, all 7 unanchored, and every one of them is either a continuation a
 wrapped paragraph mis-aimed (4) or a row an entry is *reporting* as past the end (3). Fixing the first four
 needs a rule about sentences, not lines, and that is filed as its own issue.
+
+**A name with an extension is a path, even bare, even when the file is gone.** `gonee.md:3` promises a
+reader a line, and the promise is false whether the entry meant the root or a directory three levels
+down — so it is refused, anchored or not. What stays exempt is a left half with no extension: `pr:209`
+(a triage `class:PR` pair), `STATE_PROPS:1040` (a symbol), `D-0033:236` (an entry id), `verify:1` (a
+verb). The extension is the only marker that survives both `triage.sh` and `internal/web/handlers.go`,
+and it is a weaker test than the one that would be free — `git ls-files` answers "was this name ever
+tracked?" in one read — but this rule reads no git, deliberately, so the weaker test is the price of a
+verdict that is the same in CI, in a merge preview and at a branch head. The cost lands on prose that
+*names a shape*: an illustrative `x.md:9` is refused too and has to be spelled without the colon. The
+limit that remains, stated because it is the one a reader will hit: a bare `:NNN` with no file named
+earlier on the same physical line names no file at all and is not refused, because 158 rows of these
+logs are that shape inside wrapped paragraphs and refusing them refuses 158 true sentences (H-0153 sets
+the same-line rule; the repair is a rule about sentences, and it is filed).
 
 **The floor.** `POINTER_DEBT` is a number about a corpus, so it is a statement only about a tree whose
 logs are that corpus. `POINTER_DEBT_AT` records how many entries the two logs held when it was measured,
