@@ -291,7 +291,7 @@ only one of them is fixable by a person: gh 2.46.0 reads `projectCards` on its w
 that call dies **before** it resolves the label name, which means it cannot land a marker under *any*
 name #311 might choose. `D-0047` measured the split from the other side -- `gh issue edit 240
 --remove-label blocked --remove-label question` exited 0 and read back `labels: []` where `gh pr edit`
-died on that field (`DECISIONS.md:2221-2231`) -- and it is the same reason `gh pr edit --add-reviewer`
+died on that field (`./DECISIONS.md:2221-2231`) -- and it is the same reason `gh pr edit --add-reviewer`
 is refused in Step 5. So: `gh issue edit` to write, on an issue or a pull request alike; `gh pr view`
 to read.
 
@@ -556,3 +556,15 @@ outcome this system produces: it is indistinguishable from a machine that is wor
   because the code changed; fix the anchor, and say so in the PR body.
 - Touching `vendor/` or a submodule to get a build green: there is no `vendor/`.
 - Working outside your worktree, or reading another unit's worktree to "help".
+- A `path:line` citation in a decision entry with nothing beside it but the number. A merge adds lines to
+  the cited file and the pointer moves out from under the sentence that made it — `make verify` cannot see
+  it, and the entry reads as though it is still re-runnable. Write the text you measured after the
+  coordinate: `` `AGENTS.md:52` "naming what is owed, and stop" ``, at least 16 quoted characters, and
+  `scripts/check-decisions.py` refuses the entry when the quote and the line part. Re-read that number with
+  `grep -n` as you write yours — this example's own drifted twice, which is why the gate now checks the
+  files that teach it (`--self-test`'s teaching pass), and why a coordinate and its quotation have to sit on
+  the SAME physical line: the rule reads one line, so a fragment wrapped onto the next one is not an anchor
+  and the citation lands in the debt instead of being checked. A citation with no
+  quote is counted against `POINTER_DEBT` there, and that number may only fall. Before editing any file
+  the logs quote, run `python3 scripts/check-decisions.py --citations <path>` and fix what it lists in the
+  same commit.
