@@ -8548,3 +8548,94 @@ means `H-0013` here. Nothing was renumbered out of existence; the numbers moved 
 - Checkpoint: ec366a074b6ca48de414a16c63f7bbdd7413f9b7
 
 - Effect: `factory/DECISIONS.md` alone; nothing else in this merge needed a hand. Splice geometry, run before any edit, from the two parent blobs and never the conflicted file (`git show origin/main:factory/DECISIONS.md` = 8460 lines, `git show HEAD:factory/DECISIONS.md` = 8185): merged 8532 = git's own auto-merged prefix of 8288 lines, which conflicted nowhere, then `main`'s 8252..8460 (H-0170, H-0171, H-0172, 209 lines), then this branch's 8151..8185 (H-0174, H-0175, 35 lines). Both blocks proved byte-identical to their parent afterwards -- `diff` of `main`'s range against merged 8289..8497 is 2 changed lines, the two factory/selftest.sh:11823 to 12100 coordinates at merged 8325 and 8397, and `diff` of this branch's range against merged 8498..8532 is 1 changed line, the esc_one_home anchor at merged 8528 -- so the two repairs are the whole difference. Neither side lost a line: by line multiset every line of `main`'s blob is in the merged log (0 absent), 35 lines of this branch's blob are absent and every one of them is a line `main` itself rewrote in #367's bare-name repair -- SKILL.md:93 became .opencode/skills/factory/SKILL.md:93, README.md:588 became ./README.md:588 -- each paired to `main`'s replacement at difflib ratio 0.885 or better, and none of them base-and-HEAD-and-dropped-by-the-merge; 0 lines in the merged log are in neither parent; the H sequence ascends 166, 168, 169, 170, 171, 172, 174, 175 and the three conflict markers count 0. Then the ten coordinate edits, each asserted to hit its own line exactly once, digits and an anchor only, no re-wrap, file length 8532 to 8532: 7798, 7800, 7847, 7852 in `H-0162`, 8267 three times in `H-0168`, 8325 and 8397 in `H-0170` and `H-0171`, 8528 in `H-0175`. Gate on those bytes with this entry not yet written: `python3 scripts/check-decisions.py` answers 229 entries across 2 log(s) and 569 path:line citations read, 539 owing an anchor and 0 pointing somewhere a reader cannot open, exit 0 -- before the repairs the same command answered exit 1 with 6 anchored citations pointing at text that is not there and a count of 543, and on that run the ratchet is deliberately not judged, which is why POINTER_DEBT was never edited. The review measured 568 citations read where this tree reads 569, and the one row is the docs/factory.md:1027 coordinate: its recipe writes it out of the citation grammar, this entry stamps it instead, so it stays read and stays exempt. Leg census over `factory/selftest.sh`, same instrument as `H-0168`'s: 451 on the base, 478 on this branch, 451 on `main`, 478 merged = 451 + 27 + 0, so no leg was lost and #367 brought none. This entry mints five anchored citations and two revision-qualified ones and moves the debt by nothing. `index_exec_problems` (`factory/selftest.sh:13786-13793` "the names git does not hold at 100755") is #368 and still reddens the exec-bit leg while any path is unmerged, so `git add` runs before the suite and not after: `make verify`, which runs `bash factory/selftest.sh` and `python3 scripts/check-decisions.py` inside it, was run on the resolved tree with this entry in it and before this commit, and the tally and the last line it printed are quoted in the pull-request body (#1180: an `Effect:` written before the gate runs is a prophecy). Refs #313 for the ticket this branch was cut to deliver; the merge is the work, and merging stays the supervisor's action.
+
+## H-0179 · #311 asks for a name and PR #354 turned the answer into the queue's own brake, so the ticket that cannot be labelled is re-dispatched by the class it exists to arm
+
+- Question: `#311` reserves the escalation marker's name to a person, and `H-0139` priced option 1 at
+  "no queryable queue slice … price it at that and nothing more" on the measured fact that
+  `triage.sh` read no label. `H-0155` shipped `parked` and PR #354 merged it at
+  `2026-11-14T13:41:48Z`, so at this head the label the ticket withholds is read by the classifier
+  (`factory/triage.sh:230` "park_json=$(printf '%s'" reads it into the queue read, and
+  `is_parked` asks the same map at the row emit) and honoured by the dispatcher
+  (`factory/factory.sh:1492` "a stop that no later pass can read is not a stop": the `parked` arm logs
+  `PARKED` and starts no tick). Does a unit create the label, rename
+  the one home at `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}",
+  or stop?
+- Options: create `needs-human` with #311's own `gh label create` line and read an additive reversible
+  write as harness plumbing a tick may do | rename the one home to a label that already exists and let
+  `esc_one_home` decide whether the name is affordable | rename it to `blocked`, the label this ticket
+  already wears as `H-0139`'s disclosed stand-in | re-price both options against the shipped gate and the
+  live queue, report what the previous pricing got wrong, and leave the name to the person #311 reserves
+  it to
+- Chose: escalated
+- Why: the step first, because a prediction about a command is not its exit status. Run as the shipped
+  block spells it, name from its one home, on this ticket:
+  `gh issue edit 311 --add-label "$(factory/escalation-label.sh)"` → `'needs-human' not found`, rc 1;
+  read back `bug,area:ops,blocked` unchanged, `gh label list --limit 200 --json name -q length` 18,
+  `select(.name=="needs-human") | length` 0. Nothing half-applied, and the marker sits last since
+  `H-0141`, so this entry and the comment were committed and read before the refusal — `H-0141`'s own
+  disclosed cost ("every escalation between now and #311 ends with a reported refusal and no marker at
+  all") is now an observation rather than a forecast.
+
+  Then the live queue, because that is where the withheld name now costs something. `bash
+  factory/triage.sh` at `0592233` prints `nothing is parked, and \`needs-human\` is not a label in this
+  repository, so no issue can be parked at all -- #311`, and its census is 35 `unclaimed`, 32
+  `delivered`, 11 `branch_without_pr`, 2 `awaiting_review`, 1 `checks_pending`, **0 `parked`** — the
+  class has never fired. This ticket's own row reads `issue 311 unclaimed`, so the classifier hands
+  #311 to a tick: three activations, `20261112T010939Z` (14m06s, `H-0139`/PR #314),
+  `20261113T025657Z` (24m47s, `H-0140`/PR #339) and this one at `20261114T144953Z`, each against
+  `FACTORY_TICK_TIMEOUT=2700` (`factory/common.sh:151` "FACTORY_TICK_TIMEOUT=${FACTORY_TICK_TIMEOUT:-2700}"). The ticket is inside the loop it was filed to
+  close, and only a person holding a name can stop it.
+
+  The counterfactual prices the answer without writing to GitHub: the same classifier over the same
+  payload with `FACTORY_ESCALATION_LABEL=blocked` flips exactly one row — `issue 311 unclaimed` →
+  `parked` — and the stderr finding goes away. Collateral read in the same breath: 1 open issue carries
+  `blocked`, and it is #311, so no legitimate work would be silently parked today.
+
+  The two names are not equal in front of the gate, and this is the new measurement. Over throwaway
+  clones at `0592233`, never this tree, `bash factory/selftest.sh` (674 legs): a distinctive name
+  (`plock-awaiting-a-human`, invented for the probe) is **674 passed, 0 failed**, rc 0, 37s, so
+  `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}" really is the one line `common.sh` claims it is; `blocked` is **673 passed, 1
+  failed**, rc 1, 36s, sole failure `esc_one_home`, because that leg greps the name as a bare substring
+  across eight live files and finds three spellings outside the home — `factory/selftest.sh:15073` "the pass blocked instead of refusing",
+  `.opencode/skills/factory/SKILL.md:277` "has not yet said what the name" and
+  `.opencode/skills/factory/SKILL.md:293` "exited 0 and read back". The first is not a
+  label at all: it is the English word in an unrelated leg's message ("the pass blocked instead of
+  refusing"). So a name that is ordinary prose cannot be chosen without rewording text that has nothing
+  to do with labels, and `blocked` — the option `H-0139` weighed on its description alone — is the
+  expensive one for a reason no entry had. Tie-break 6 reads the same way: every name this harness has
+  ever used for the marker is distinctive (`needs-human`, the fixture's `plock-awaiting-a-person` at
+  `factory/selftest.sh:6865` "FACTORY_ESCALATION_LABEL=plock-awaiting-a-person").
+
+  What settles it is #311's own last paragraph, unchanged since 12 Nov: either repair is a person's
+  call. Creating the label stays the most tempting option to argue into scope — additive, not a
+  dependency, `gh label create` named in the skill as not a tick's move, and its undo a delete this
+  harness must not take. Renaming the home is a write to the marker's meaning, and choosing a meaning
+  for a label that carries someone else's description is the substituted-marker failure `H-0141`
+  refuses and `D-0047` already lost once (the `blocked` and `question` labels on #240, removed by a
+  probe and never restored).
+
+  What lost, stated as the cost of stopping: every escalation until the answer lands ends the same way
+  this one did — comment, entry, refused marker, disclosed stand-in left on the artifact; `parked` stays
+  a class with no live row; #311 keeps returning at 2700 s a dispatch; and §5 of the new comment on
+  #311 now owes the person a second command neither #311 nor `H-0139` ever said was needed, because the
+  park matches the label on the *artifact* (`factory/triage.sh:230` "park_json=$(printf '%s'") — `gh label create` alone leaves this
+  ticket `unclaimed`, which is exactly the state the 0 `parked` census shows. What the measurements do
+  not establish: no read here proves a label write lands end-to-end, because gh refuses before it asks
+  for a mutation, so the verb is verified up to name resolution and no further (`H-0155`'s (d),
+  unchanged); one selftest run per name prices the gate, not the clock; the probe name is not a proposal.
+- Checkpoint: n/a
+- Awaiting: a person, to make the call in one or two commands and say which. Either: `gh label create
+  needs-human --color B60205 --description "A decision only a human may make: dependency, security or
+  tamper-resistance semantics, publishing, deleting data"` **and then** `gh issue edit 311 --add-label
+  needs-human` — the second command is what arms the park, and neither #311 nor `H-0139` listed it — or
+  one line at `factory/common.sh:242` "FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}" naming a label this repository has, which holds only for a
+  distinctive name (`blocked` measured red above). Until one lands, `triage.sh` will keep printing the
+  finding and the queue will keep handing out #311.
+- Effect: this entry and nothing else in the tree. On the tracker: the comment
+  `https://github.com/vicowa-botworks/parental-lockout/issues/311#issuecomment-6879545452`, read back as
+  5 comments and byte-identical to its 8000-byte source with 0 `clos* #N` adjacencies, superseding the
+  two prices `H-0139` put on the options; the executed marker step and its read-back, which left #311 on
+  `bug,area:ops,blocked` and the label set at 18 names. No label created, none deleted, no governing
+  file edited. Gate on the bytes this commit ships: `python3 scripts/check-decisions.py` and
+  `make verify` quoted in the pull-request body.
