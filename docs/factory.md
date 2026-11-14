@@ -108,6 +108,18 @@ workable instead of being called parked. What the marker may not do is a leg rat
 every label-bearing line in `triage.sh` may name `parked` and no other class, so a unit's own marker can
 stop a dispatch and can neither pick its next assignment nor grade its own work as delivered.
 
+The release is the one write the read above never states, and it belongs in the guide because
+`delivered` states its override outright: take the label off the issue -- `gh issue edit <N>
+--remove-label <the name the row printed>`, the name `factory/escalation-label.sh` prints and never a
+spelling of it here -- and the next pass reads that issue as workable again. Nothing is reopened and no
+marker is cleared, because a park wrote nothing but the label. What `delivered` gets from
+`FACTORY_DELIVERED_WINDOW`, a park does not have: a park has no expiry, so the label is the only release
+and a label nobody removes prints `PARKED` on every pass for as long as it sits. That repetition is the
+same choice the `delivered)` arm defends for itself -- a queue that reports a thing once and then goes
+quiet is a queue nobody can audit -- except `delivered` stops printing on its own when the window runs
+out and `parked` stops only when a person acts, which is why the row carries the name it read rather
+than making anyone guess it.
+
 Precedence is unchanged -- `delivered` is reached only where nothing open claims the issue -- and that
 has a consequence worth writing down before the class surprises anybody, because the open-claim channel
 drops an issue named *anywhere* in any open body, not only one a pull request claims. Running the
