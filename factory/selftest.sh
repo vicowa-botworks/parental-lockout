@@ -2937,7 +2937,11 @@ git -C "$proc_up" commit -qm 'fixture harness: the shipped scripts, and a file t
 # red legs the day the two changes met. A fake that answers less than the code asks for is not a
 # smaller GitHub; it is a different one.
 printf '{"login":"supervisor"}\n' >"$proc_fix/user.json"
-printf '{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]},"issues":{"pageInfo":{"hasNextPage":false},"nodes":[{"number":900,"stateReason":"NONE"},{"number":901,"stateReason":"NONE"}]}}}}\n' >"$proc_fix/graphql.json"
+printf '{"data":{"repository":{"pullRequests":{"pageInfo":{"hasNextPage":false},"nodes":[]},"issues":{"pageInfo":{"hasNextPage":false},"nodes":[{"number":900,"stateReason":"NONE","labels":{"nodes":[]}},{"number":901,"stateReason":"NONE","labels":{"nodes":[]}}]}}}}\n' >"$proc_fix/graphql.json"
+# The label list the tick's classifier sees. The escalation name comes from its one home rather
+# than being spelled, because a leg that hardcodes it goes stale the day #311 renames it (the
+# census is esc_one_home).
+printf '[{"name":"bug"},{"name":"%s"}]\n' "$(bash "$HERE/escalation-label.sh")" >"$proc_fix/labels.json"
 printf '[]\n' >"$proc_fix/pr-open.json"
 printf '[]\n' >"$proc_fix/pr-bodies.json"
 printf '[]\n' >"$proc_fix/pr-merged.json"
@@ -3079,6 +3083,10 @@ case "$1 $2" in
 'api user') emit "$here/user.json" ;;
 'api graphql') emit "$here/graphql.json" ;;
 'issue list') emit "$here/issues.json" ;;
+# #313: triage.sh reads the repository's label list whenever nothing is parked, so a fake that does not
+# answer it would put a read-failure sentence in every tick leg's stderr. Same doctrine as the header
+# above: a fake that answers less than the code asks for is a different GitHub, not a smaller one.
+'label list') emit "$here/labels.json" ;;
 'issue comment') exit 0 ;;
 'pr list')
 	# One read, three payloads, told apart by the flag that differs between them -- the same rule
@@ -5371,6 +5379,21 @@ case "$1 $2" in
 		exit 9 ;;
 	esac ;;
 'issue list') emit "$here/issues.json" ;;
+'label list')
+	# #313's second read, and it needs the same three answers as every other read in this shim: it
+	# answered, it refused, and it answered with prose at exit 0. The third is the shape GitHub
+	# produces on a bad day (see the merged arm above), and the classifier has to tell "the label is
+	# not in this repository" apart from "the list was not a list" -- only the first is a finding
+	# about the repository, and the second is a read that owes an apology.
+	[ -z "${CLAIM_LABEL_FAIL:-}" ] || {
+		printf 'claim-shim: the label read fails on purpose\n' >&2
+		exit "$CLAIM_LABEL_FAIL"
+	}
+	[ -z "${CLAIM_LABEL_GARBAGE:-}" ] || {
+		printf 'gh: could not read the repository labels (http 502)\n'
+		exit 0
+	}
+	emit "$here/labels.json" ;;
 'api '*)
 	# ${2}, the PATH -- not ${3}. This is written here because the wrong index shipped for the whole
 	# life of this fixture and it is the reason #242 had no leg: `api_get` calls
@@ -5478,9 +5501,18 @@ printf '%s' '[]' >"$claim_fix/pr-bodies.json"
 printf '%s' '{"login":"someone-else"}' >"$claim_fix/user.json"
 printf '%s' '{"users":[],"teams":[]}' >"$claim_fix/reviewers.json"
 printf '%s' '[]' >"$claim_fix/reviews.json"
+# The repository's own label list (#313). It carries whatever `factory/escalation-label.sh` prints,
+# because that is the name the classifier is told to look for, and a fixture where the name resolves
+# to nothing would answer every parked leg with the #311 sentence instead of a verdict. The name is
+# not spelled here for the reason `esc_one_home` gives: the one home is `factory/common.sh`, and a
+# fixture that hardcoded the word would go stale on the rename #311 exists to make. The legs that
+# test an absent label rewrite this file, the same way the merged-body legs rewrite `pr-merged.json`.
+jq -cn --arg n "$(bash "$HERE/escalation-label.sh")" \
+	'[{name: "bug"}, {name: "enhancement"}, {name: "area:ops"}, {name: $n}]' >"$claim_fix/labels.json"
 printf '%s' '{"commit":{"committer":{"date":"2026-11-08T00:00:00Z"}}}' >"$claim_fix/commit.json"
 cp "$claim_fix/pr-merged.json" "$claim_work/pr-merged.live.json"
 cp "$claim_fix/issues.json" "$claim_work/issues.live.json"
+cp "$claim_fix/labels.json" "$claim_work/labels.live.json"
 
 # The queue query's payload, derived from the two lists the legs actually edit. Deriving it is what
 # stops the state reason a leg planted in `issues.json` from disagreeing with the one triage.sh
@@ -5492,12 +5524,21 @@ cp "$claim_fix/issues.json" "$claim_work/issues.live.json"
 # forgetting to ask, a leg over the shipped source does that instead -- see
 # `claim_query_asks_for_its_bound`.
 claim_graphql() {
+	# `labels` is projected from the same rows for the same reason #189 was written: two copies of one
+	# fact, and one gate blind to the other. `CLAIM_LABELS_FIELD=missing` deletes the key from every
+	# node, which is the one way a leg can model the payload that is not the one the query asked for
+	# -- a `labels`-less answer is indistinguishable from "nobody ever escalated anything" unless the
+	# classifier says so, and saying so is what that leg checks.
 	jq -cn --slurpfile i "$claim_fix/issues.json" --slurpfile c "$claim_fix/open-claims.json" \
-		--argjson prs "${CLAIM_PAGE_PRS:-false}" --argjson iss "${CLAIM_PAGE_ISSUES:-false}" '
+		--argjson prs "${CLAIM_PAGE_PRS:-false}" --argjson iss "${CLAIM_PAGE_ISSUES:-false}" \
+		--arg fields "${CLAIM_LABELS_FIELD:-present}" '
 		{data: {repository: {
 			pullRequests: {pageInfo: {hasNextPage: $prs}, nodes: ($c[0] | map({number: .number,
 				closingIssuesReferences: {nodes: (.claims | map({number: .}))}}))},
-			issues: {pageInfo: {hasNextPage: $iss}, nodes: ($i[0] | map({number: .number, stateReason: .stateReason}))}
+			issues: {pageInfo: {hasNextPage: $iss}, nodes: ($i[0] | map(
+				{number: .number, stateReason: .stateReason}
+				+ (if $fields == "missing" then {} else {labels: {nodes: ((.labels // []) | map({name: .}))}} end)
+			))}
 		}}}' >"$claim_fix/graphql.json"
 }
 claim_graphql
@@ -5523,6 +5564,8 @@ claim_rows() {
 		FACTORY_DELIVERED_WINDOW="$claim_window" CLAIM_FIXTURE="$claim_fix" \
 		CLAIM_MERGED_FAIL="${CLAIM_MERGED_FAIL:-}" CLAIM_GRAPHQL_FAIL="${CLAIM_GRAPHQL_FAIL:-}" \
 		CLAIM_MERGED_GARBAGE="${CLAIM_MERGED_GARBAGE:-}" \
+		CLAIM_LABEL_FAIL="${CLAIM_LABEL_FAIL:-}" CLAIM_LABEL_GARBAGE="${CLAIM_LABEL_GARBAGE:-}" \
+		FACTORY_ESCALATION_LABEL="${FACTORY_ESCALATION_LABEL:-}" \
 		"${claim_script:-$HERE/triage.sh}" 2>"$claim_err" |
 		tr '\037' '\t' >"$claim_rows_file" || true
 	if [ -n "${CLAIM_DEBUG:-}" ]; then
@@ -5713,6 +5756,10 @@ claim_leg() { # claim_leg <label> command...
 
 # Mutate one list at a time, from the live fixtures, so what a leg breaks is readable as the filter.
 claim_merged() { jq -c "$1" "$claim_work/pr-merged.live.json" >"$claim_fix/pr-merged.json"; }
+# The repository's label list, on the same single-use-fixture footing as the merged bodies: a leg that
+# edits it gets the default back from `claim_reset`, so "the label is absent" is a plant a leg makes
+# rather than a state the section remembers.
+claim_labels() { jq -c "$1" "$claim_work/labels.live.json" >"$claim_fix/labels.json"; }
 claim_issues() {
 	jq -c "$1" "$claim_work/issues.live.json" >"$claim_fix/issues.json"
 	claim_graphql
@@ -5758,6 +5805,10 @@ claim_reset() {
 	CLAIM_MERGED_FAIL=''
 	CLAIM_GRAPHQL_FAIL=''
 	CLAIM_MERGED_GARBAGE=''
+	CLAIM_LABEL_FAIL=''
+	CLAIM_LABEL_GARBAGE=''
+	CLAIM_LABELS_FIELD=''
+	FACTORY_ESCALATION_LABEL=''
 	CLAIM_PAGE_PRS=''
 	CLAIM_PAGE_ISSUES=''
 	# Not a fixture to reset so much as a leak to close: a leg that points the harness at a mutated
@@ -5765,6 +5816,7 @@ claim_reset() {
 	claim_script=''
 	claim_window=100
 	claim_merged '.'
+	claim_labels '.'
 	claim_issues '.'
 	claim_reviews '[]'
 	claim_reviewers
@@ -6738,6 +6790,199 @@ claim_rows >/dev/null
 claim_leg '…while the shipped read still does' claim_class_is 232 delivered
 claim_reset
 
+# ============================================ the label a unit parks its own ticket under (#313)
+#
+# `AGENTS.md` and the skill both end an escalating unit the same way: comment on the issue, apply the
+# label, stop. Only the comment survived a later pass. Measured at `65e980b` and re-measured at
+# `f5e0fe9`: `grep -c labels` answered 0 for `triage.sh` and 0 for `factory.sh`, so nothing had ever
+# read the one half of that ending a machine could see -- and a ticket that ended honestly therefore
+# returned to `unclaimed` and bought another ceiling. The live cost on 13 Nov was `#301`: dispatched at
+# 20:11, 21:07 and 22:03Z, `TICK-FAILED … exit=124 (124 means the 2700s ceiling)` three times running,
+# its `updatedAt` unmoved since the previous day because the terminal write is the first thing a
+# truncated budget costs, and every other row in the queue waiting behind it (`#284` has no unit log at
+# all).
+#
+# Two things shape the legs below. They assert WHOLE sentences, because #329's control was earned the
+# hard way: a classifier that printed its own format string stayed green for two days on legs that
+# each asked for a fragment of it. And nothing here spells the label's name -- the name is read from
+# its one home, the same census `esc_one_home` enforces -- so a rename (#311 is exactly that open
+# decision) moves these legs along with the classifier instead of leaving them defending a word
+# nothing reads any more.
+claim_park_label=$(bash "$HERE/escalation-label.sh") || claim_park_label=''
+if [ -z "$claim_park_label" ]; then
+	fail=$((fail + 1))
+	printf '  FAIL  %-40s the reader printed nothing, so the parked legs have\n' 'the escalation label exists to plant'
+	printf '          nothing to put on an issue and every class below would be an accident.\n'
+fi
+# One label on one planted issue, by name, through the same single-use-fixture footing as the merged
+# bodies: `claim_reset` puts the payload back, so "this issue carries the marker" is a plant a leg
+# makes rather than a state the section remembers.
+claim_park_on() { # claim_park_on <issue> [label]
+	local row=${1:?which issue} label=${2:-$claim_park_label}
+	jq -c --arg l "$label" --argjson n "$row" \
+		'map(if .number == $n then .labels = [$l] else . end)' \
+		"$claim_work/issues.live.json" >"$claim_fix/issues.json"
+	claim_graphql
+}
+# Deletes the marker from the repository's own label list. The program is assembled by jq's own string
+# escaping rather than pasted, so the leg cannot break on a name that would need quoting -- and it
+# still spells nothing.
+claim_park_without() {
+	jq -rn --arg n "$claim_park_label" '"[.[] | select(.name != " + ($n | @json) + ")]"'
+}
+claim_park_many() { # claim_park_many <issue> <jq array of names> -- a full label list, for the bound
+	local row=${1:?which issue} names=${2:?which names}
+	jq -c --argjson l "$names" --argjson n "$row" \
+		'map(if .number == $n then .labels = $l else . end)' \
+		"$claim_work/issues.live.json" >"$claim_fix/issues.json"
+	claim_graphql
+}
+# The sentences, assembled from the same name the classifier assembles them from. Backticks are in the
+# format string, which is why these are `printf` and not double quotes.
+park_detail_want=$(printf 'labelled `%s`: a human owes this one a decision, so nothing is dispatched' \
+	"$claim_park_label")
+park_absent_want=$(printf 'triage: nothing is parked, and `%s` is not a label in this repository, so no issue can be parked at all -- #311' \
+	"$claim_park_label")
+park_failed_want=$(printf 'triage: nothing is parked and the label list could not be read (gh exit=6), so this pass cannot say whether `%s` exists' \
+	"$claim_park_label")
+park_unread_want=$(printf 'triage: nothing is parked and the label list was not a list, so this pass cannot say whether `%s` exists' \
+	"$claim_park_label")
+claim_reset
+claim_park_on 213
+claim_rows >/dev/null
+claim_leg 'the label a unit left is a class, not a comment' claim_class_is 213 parked
+claim_leg '…and the row names the label it read' claim_detail_has 213 "$park_detail_want"
+claim_reset
+claim_rows >/dev/null
+claim_leg 'no label, and the same issue is workable again' claim_class_is 213 unclaimed
+
+# The name is the config's, not the code's. #311 is the open decision about what the label is called,
+# and a reader that hardcoded one would answer that question by accident while matching nothing after
+# a rename. Both directions are asked: a configured name the payload does not carry parks nothing, and
+# a different configured name that it does carry parks the issue.
+claim_reset
+claim_park_on 213
+FACTORY_ESCALATION_LABEL=plock-awaiting-a-person claim_rows >/dev/null
+FACTORY_ESCALATION_LABEL=
+claim_leg 'a renamed label parks nothing it was not told about' claim_class_is 213 unclaimed
+claim_leg '…and the pass says which name it looked for' claim_err_has \
+	"triage: nothing is parked, and \`plock-awaiting-a-person\` is not a label in this repository, so no issue can be parked at all -- #311"
+claim_reset
+claim_labels ". + [{name: \"plock-awaiting-a-person\"}]"
+claim_park_on 213 plock-awaiting-a-person
+FACTORY_ESCALATION_LABEL=plock-awaiting-a-person claim_rows >/dev/null
+FACTORY_ESCALATION_LABEL=
+claim_leg '…while the configured name is the one that parks' claim_class_is 213 parked
+claim_reset
+
+# `delivered` still outranks `parked`: both classes start nothing, and an issue whose fix is
+# verifiably on the trunk is better reported as a delivery than as waiting for a person.
+claim_reset
+claim_park_on 232
+claim_rows >/dev/null
+claim_leg 'a delivery outranks a label on the same issue' claim_class_is 232 delivered
+claim_reset
+
+# The three ways the negative answer arrives, each with its own sentence. They are not interchangeable
+# to a reader: "the label does not exist here" is #311's finding, "the read failed" is nobody's, and
+# "the list was not a list" is a bad day on the network. One message for all three would send a person
+# to the wrong one of the three.
+# The finding needs both halves, and the fixture has to hold both: the name missing from the
+# repository's list, AND nothing in the queue carrying it. Measured the other way first -- a plant that
+# put the label on #213 and then deleted it from `label list` printed no sentence at all, which is the
+# classifier being right and the leg being wrong.
+claim_reset
+claim_labels "$(claim_park_without)"
+claim_rows >/dev/null
+claim_leg 'an absent label is said as a finding about the repo' claim_err_has "$park_absent_want"
+claim_leg '…and the issue is still workable without it' claim_class_is 213 unclaimed
+claim_reset
+# The other polarity is the reason the sentence is conditioned on a pass that parked nothing. An issue
+# carrying the marker parks whether or not the repository's own list names it -- the list is a courtesy
+# to the reader, never the authority on the marker -- and a warning printed over a real parked row
+# would tell a person the class has never fired while it is firing.
+claim_park_on 213
+claim_labels "$(claim_park_without)"
+claim_rows >/dev/null
+claim_leg '…while a marker on the issue parks without the list agreeing' claim_class_is 213 parked
+claim_leg '…and the pass says nothing about the missing name' bash -c \
+	'! grep -qF "is not a label in this repository" "$1"' _ "$claim_err"
+claim_reset
+CLAIM_LABEL_FAIL=6 claim_rows >/dev/null
+claim_leg 'a failed label read is not called an absent label' claim_err_has "$park_failed_want"
+claim_leg '…and it does not claim the label is missing' bash -c \
+	'! grep -qF "is not a label in this repository" "$1"' _ "$claim_err"
+CLAIM_LABEL_FAIL=
+claim_reset
+CLAIM_LABEL_GARBAGE=1 claim_rows >/dev/null
+claim_leg 'prose at exit 0 is read as a payload, not a verdict' claim_err_has "$park_unread_want"
+CLAIM_LABEL_GARBAGE=
+claim_reset
+
+# A payload that does not carry `labels` at all is the hazard #216 named about a file whose name
+# promised a verdict: it reads exactly like a queue in which nobody has ever escalated anything. The
+# field being absent from every node means the payload is not the one this query asked for, and the
+# rows stay workable rather than silently becoming "nothing is parked".
+claim_reset
+claim_park_on 213
+CLAIM_LABELS_FIELD=missing claim_issues '.'
+claim_rows >/dev/null
+claim_leg 'a payload with no labels field says so' claim_err_has \
+	'triage: the queue payload carried no `labels` on any issue, so nothing can be read as parked this pass'
+claim_leg '…and issues stay workable rather than parked' claim_class_is 213 unclaimed
+CLAIM_LABELS_FIELD=
+claim_reset
+
+# `labels(first:10)` is a bound, and it fails one way only: a match at the tenth label is still a
+# match, so only an issue that filled the list WITHOUT matching anything lost information. That is the
+# issue the sentence names, and the ambiguity resolves toward the tick rather than toward quiet.
+claim_reset
+claim_park_many 213 '["area:ops","area:ui","area:web","area:more","bug","enhancement","documentation","good first issue","help wanted","invalid"]'
+claim_rows >/dev/null
+claim_leg 'a full label list names the issue it could not finish reading' claim_err_has \
+	'triage: these open issues filled the labels(first:10) read, so their park status is unknown and they stay workable: 213'
+claim_leg '…and does not pretend the issue is not parked' claim_class_is 213 unclaimed
+claim_reset
+claim_park_many 213 "[\"$claim_park_label\",\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]"
+claim_rows >/dev/null
+claim_leg '…while a park found at the bound is still a park' claim_class_is 213 parked
+claim_leg '…and the bound says nothing about a list it read enough of' bash -c \
+	'! grep -qF "filled the labels(first:10) read" "$1"' _ "$claim_err"
+claim_reset
+
+# The label read has a bound of its own, and the two refusals it can produce are different findings
+# about different things: 199 names with the marker absent is #311's fact about the repository, 200
+# names with it absent is a fact about `--limit 200`. A classifier that printed the first for both
+# would send a person to rename a label when the repair is to page the read.
+claim_labels '[range(0;200) | {name: "l\(.)"}]'
+claim_rows >/dev/null
+claim_leg 'a label read at its bound blames the bound, not #311' claim_err_has \
+	"triage: nothing is parked, and the label read stopped at its 200-name bound, so \`$claim_park_label\` may simply have fallen off it"
+claim_leg '…and does not call the name absent while the page is full' bash -c \
+	'! grep -qF "is not a label in this repository" "$1"' _ "$claim_err"
+claim_reset
+
+# No sentence in this block may print its own format. #329's whole lesson, in one leg: that pass was
+# green because every needle in it was a substring of the garbage.
+claim_leg 'nothing here printed a format slot' bash -c '! grep -qE "%[sd]|\\\\n" "$1"' _ "$claim_err"
+
+# The control, and it is the leg that says the ones above are about the classifier rather than about
+# the fixture: put the shipped decision out of reach and the parked issue must come back as work. The
+# plant is `claim_mutate_triage`, which refuses unless the anchor occurs exactly once, so a silent
+# no-op mutant cannot report a passing control -- the false pass #329's fourth control was written for.
+claim_leg 'the plant lands on the park decision, once' claim_mutate_triage \
+	"$work/mutant/triage-parked.sh" 'if is_parked "$number"; then' 'if false; then'
+claim_script=$work/mutant/triage-parked.sh
+claim_park_on 213
+claim_rows >/dev/null
+claim_leg '…and the mutant is alive, not merely guilty' claim_has_row 213
+claim_leg '…while the parked class is gone with the decision' claim_class_is 213 unclaimed
+claim_script=''
+claim_park_on 213
+claim_rows >/dev/null
+claim_leg '…while the shipped classifier still parks it' claim_class_is 213 parked
+claim_reset
+
 # ============================================ the reviewer's ask, and the review that has none (#242)
 #
 # The dispatch that consumed a worktree, a ceiling and a model on a review whose body never arrived
@@ -7300,21 +7545,53 @@ esc_reader_agrees() { # esc_reader_agrees [root] -- what it prints IS the assign
 }
 claim_leg 'the reader prints the definition' esc_reader_agrees
 
-esc_not_a_park() { # esc_not_a_park [triage.sh to read] -- the marker decides nothing about a unit
+esc_not_a_park() { # esc_not_a_park [triage.sh to read] -- the marker may stop a dispatch, and nothing else
 	local src=${1:-$HERE/triage.sh} hits
 	# Comment lines may mention the word freely -- this is about what the classifier DOES, and a leg
 	# that reddened on a sentence of prose would be widened away inside a month.
-	hits=$(grep -nF -- 'label' "$src" 2>/dev/null |
-		grep -v '^[0-9]*:[[:space:]]*#' || true)
+	#
+	# What this leg guards changed in #313, and the change is the point of keeping it. It used to
+	# refuse ANY non-comment mention of a label, on the argument that no gate reads label
+	# configuration. #313's Option 1 is the classifier reading one, and `triage.sh`'s own header rules
+	# the alternative out -- a ledger would be "the same claim with a filename on it" -- so a blanket
+	# ban would have defended a position the ticket had already argued past. What survives of H-0140's
+	# objection is the half that still protects something real: a marker a unit writes about its own
+	# ticket may say NOTHING IS STARTED, and it may decide nothing else. A label that could select
+	# `unclaimed` is a unit picking its own next assignment; one that could select `delivered` is a
+	# unit grading its own work as shipped. So the rule is a window, not a ban: a label-bearing line,
+	# and the two lines after it, may not name any class except `parked`.
+	[ -f "$src" ] || return 0
+	hits=$(awk '
+		function iscomment(l) { return l ~ /^[ \t]*#/ }
+		{ all[NR] = $0 }
+		END {
+			n = split("merge_now conflict checks_failing checks_pending address_review" \
+				" review_unreadable needs_reviewer awaiting_review awaiting_merge draft" \
+				" branch_without_pr unclaimed delivered", c, " ")
+			for (i = 1; i <= NR; i++) {
+				l = all[i]
+				if (iscomment(l) || l !~ /label/) continue
+				hit = ""
+				for (j = i; j <= i + 2 && j <= NR; j++) {
+					if (iscomment(all[j])) continue
+					for (k = 1; k <= n; k++) {
+						if (all[j] ~ ("(^|[^A-Za-z_])" c[k] "([^A-Za-z_]|$)")) { hit = c[k]; break }
+					}
+					if (hit != "") break
+				}
+				if (hit != "") printf "  %s:%s  a label decides `%s`, which is not a stop\n", FILENAME, i, hit
+			}
+		}' "$src")
 	if [ -n "$hits" ]; then
-		printf '            the classifier reads or writes a label, so a marker now decides what\n' >&2
-		printf '            the supervisor starts -- and no gate reads label configuration:\n' >&2
-		printf '%s\n' "$hits" | sed 's/^/              /' >&2
+		printf '            the classifier lets the marker decide something other than "nothing is\n' >&2
+		printf '            dispatched". #313 made a label able to park a unit; the day it can also\n' >&2
+		printf '            pick a class a tick is dispatched on, a unit controls its own queue.\n' >&2
+		printf '%s\n' "$hits" >&2
 		return 1
 	fi
 	return 0
 }
-claim_leg 'the label has no vote in the queue' esc_not_a_park
+claim_leg 'the marker only ever says nothing is dispatched' esc_not_a_park
 
 esc_controls() {
 	# Three plants, outside the repository, one per leg above. Each is checked to have landed before
@@ -7431,12 +7708,12 @@ esc_controls() {
 	}
 	if esc_not_a_park "$ctrl/park/factory/triage.sh" 2>/dev/null; then
 		fail=$((fail + 1))
-		printf '  FAIL  %-40s a classifier that classes on a label still passes, so the ok above\n' \
+		printf '  FAIL  %-40s a classifier that lets a label decide a class other than a\n' \
 			'control: the park'
-		printf '          is not guarding the two classes it names\n'
+		printf '          stop still passes, so the ok above guards nothing\n'
 	else
-		printf '        control: a classifier planted with one label test is refused, so the ok above\n'
-		printf '        is the reason this repair marks an artifact and leaves the queue alone.\n'
+		printf '        control: a marker planted able to decide `delivered` is refused, so the ok above\n'
+		printf '        is what keeps the parked row the only thing a label may produce (#313).\n'
 	fi
 }
 esc_controls

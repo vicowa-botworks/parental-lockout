@@ -227,11 +227,18 @@ FACTORY_ESCALATE_AFTER=${FACTORY_ESCALATE_AFTER:-86400}
 # Read it with `factory/escalation-label.sh` -- one command, rather than sourcing the 2,850 lines of
 # configuration in `common.sh` in the middle of a step that is already failing. Two legs guard the line. One runs that
 # command and requires its answer to equal the text of the assignment below, and requires no other live
-# file to spell a label name at all. The other guards what this is NOT: an input to the queue.
-# `factory/triage.sh` classes on `unclaimed` and `delivered` and reads no label (measured 12 Nov,
-# `grep -c label factory/triage.sh` answers 0), so applying this marker tells a person something and
-# never parks or releases a unit -- and a label the supervisor obeyed would move the queue's decisions
-# into configuration nothing gates. That is the drift the second leg refuses.
+# file to spell a label name at all. The other guards what this may NOT do: decide a class.
+# #313 changed what it IS. Until then `factory/triage.sh` classed on `unclaimed` and `delivered` and
+# read no label (measured 12 Nov, `grep -c label factory/triage.sh` answered 0), so applying the marker
+# told a person something and never parked or released a unit -- which is also why an honest escalation
+# was re-dispatched every activation and burned a fresh ceiling re-deriving a decision it is forbidden
+# to make (#301, three ticks, `exit=124` three times). Now the classifier reads it and emits `parked`.
+# The direction is the whole of the safety, so the leg enforces the direction rather than the silence:
+# a label-bearing line in `triage.sh` may name `parked` and no other class. That is what keeps this out
+# of being a unit's own throttle: it can say "nothing is started until a person reads this", and it
+# cannot say "this one is mine to work" or "mine is delivered". What still lost, and #311 owns it: the
+# name resolves to one of eighteen labels, none of them this one, so today the reader emits the #311
+# finding on stderr on every pass and no issue parks at all.
 FACTORY_ESCALATION_LABEL=${FACTORY_ESCALATION_LABEL:-needs-human}
 
 # A halt is more urgent than a wait: a wait costs one unit its turn, a halt costs every unit the
