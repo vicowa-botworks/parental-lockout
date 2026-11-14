@@ -15,6 +15,18 @@
 # renumbering. A "smallest gap" allocator would recycle those numbers and turn every historical
 # citation into an alias.
 #
+# Which half raised it. The union is read as two maxima rather than one, because its two halves answer
+# different questions. A ceiling some ref carries is a sibling that took the number. A ceiling ONLY the
+# working file carries is the caller's own uncommitted entry, and the id printed above it is what a
+# SECOND entry would take -- not a collision. Issue #320 measured the single-maximum read in this tree
+# on 12 Nov: the log as committed answers `H-0145`; the same file with an uncommitted `## H-0145`
+# heading answers `H-0146`, while no ref anywhere holds that heading. The skill schedules a re-read
+# immediately before the entry commit, which is precisely when the inflation is certain, and a session
+# handed one unattributed number has two wrong reactions -- yield to the phantom and open a gap no
+# entry explains, or distrust the tool and stop. So the ceiling is attributed on stderr, as PENDING,
+# whenever the working file alone raised it, and the refs' own ceiling is printed beside it. stdout
+# still carries the id alone: the number is still the best answer, merely an unreserved one.
+#
 # What is never allocated. An id is printed only for a path that IS a decision log: named
 # DECISIONS.md, and a regular file in the working tree or a blob in HEAD. A union with no headings in
 # it is not an empty log, it is a wrong path, and answering it prints <prefix>-0001 -- the most-cited
@@ -85,6 +97,12 @@ the reason a sibling could be invisible here and the refresh that would close it
 alone, and the exit status stays 0 either way -- a blind read is still the best read available, and a
 refusal is what sends a session back to numbering by eye. FACTORY_ID_MAX_AGE (default 300 seconds) is
 how stale the read may get before the clock arm calls it blind.
+stderr attributes the ceiling when the working file alone raised it: a PENDING line names the heading
+sitting in that file and on no ref this clone can see -- the entry you are writing -- and the highest id
+the refs really do carry. It is a note, not a refusal: the exit status stays 0 and stdout stays the id
+alone. A re-read taken after you wrote your own entry therefore cannot be mistaken for a sibling taking
+it. The note being absent is the verdict on the other half: since the refresh arms print beside every
+answer, it is the note that is read, never an empty stderr.
 
 Only the decision log itself is answered: DECISIONS.md or factory/DECISIONS.md, as a regular file in the
 working tree or a blob in HEAD. Any other path is refused, including one that exists -- allocating from
@@ -210,7 +228,7 @@ log_is_here ||
 # a sibling branch, because that would let the answer depend on branch ordering. The `|| true` is
 # load-bearing and not decoration: this substitution was the script's whole failure mode. Under
 # `set -euo pipefail` a missing file makes `sed` exit 2, a command-substitution assignment inherits
-# that status, and `set -e` ends the script there -- no id, no message, nothing on stderr. A caller
+# that status, and `set -e` ends the script there -- no id, and no word on either stream. A caller
 # reduced to "the allocator is broken" goes back to numbering by eye, which is the defect #253 is about.
 if [ -z "$prefix" ]; then
 	case "$rel" in
@@ -221,7 +239,12 @@ if [ -z "$prefix" ]; then
 	[ -n "$prefix" ] || prefix=D
 fi
 
-highest=$(
+# Two maxima out of one union pass. `W ` and `R ` tag which half of the union a heading arrived from,
+# the working file or HEAD and the branch refs; the tag is stripped before anything is matched, so the
+# predicate below is byte-for-byte the one the single-maximum read ran and the split adds a source, not
+# a second test. The `for-each-ref` call and the two ref classes beside it are plant targets in
+# `selftest.sh` -- one control per ref class -- so keep both strings on the lines they are on.
+union=$(
 	{
 		# An `if`, not `[ -f ] && cat` -- and not because the AND-list was ever fatal. That claim
 		# shipped in this branch's first draft and is corrected in H-0073: bash exempts a failing
@@ -234,7 +257,7 @@ highest=$(
 		# under `pipefail` a pipeline hands its status to the assignment, so a missing log ended the
 		# script before any message (measured on `91d992d`, the same fixture without `--prefix`: status
 		# 2, stdout and stderr both empty).
-		if [ -f "$target" ]; then cat -- "$target"; fi
+		if [ -f "$target" ]; then sed 's/^/W /' -- "$target"; fi
 
 		# HEAD first, then every branch. A remote-tracking ref may name a commit the local
 		# checkout cannot open (a shallow fetch, for example); the read below is allowed to
@@ -244,24 +267,78 @@ highest=$(
 			printf 'HEAD\n'
 			git -C "$root" for-each-ref --format='%(refname)' refs/heads refs/remotes 2>/dev/null
 		} | sort -u | while IFS= read -r ref; do
-			git -C "$root" show "${ref}^{commit}:$rel" 2>/dev/null || true
+			git -C "$root" show "${ref}^{commit}:$rel" 2>/dev/null | sed 's/^/R /' || true
 		done
 	} | awk -v want="$prefix" '
-	substr($0, 1, 3) == "## " {
-		id = substr($0, 4, 6)
+	{
+		src = substr($0, 1, 1)
+		line = substr($0, 3)
+	}
+	substr(line, 1, 3) == "## " {
+		id = substr(line, 4, 6)
 		if (id !~ /^[DH]-[0-9][0-9][0-9][0-9]$/)
 			next
 		if (substr(id, 1, 1) != want)
 			next
 		n = substr(id, 3) + 0
-		if (n > highest)
-			highest = n
+		if (src == "W") {
+			if (n > work)
+				work = n
+		} else if (src == "R") {
+			if (n > refs)
+				refs = n
+		}
 	}
-	END { print highest + 0 }
+	END { print work + 0, refs + 0 }
 	'
 )
 
-next=$(printf '%s-%04d' "$prefix" "$((highest + 1))")
+work_max=${union%% *}
+refs_max=${union##* }
+ceiling=$work_max
+if [ "$refs_max" -gt "$ceiling" ]; then
+	ceiling=$refs_max
+fi
+
+fmt_id() { printf '%s-%04d' "$prefix" "$1"; }
+
+next=$(fmt_id "$((ceiling + 1))")
+
+# Where the ceiling came from (issue #320). `work > refs` holds in exactly one window: the highest
+# heading in the repository is the one the caller is writing, so no ref carries it and the file being
+# read is the only place it exists. Commit the entry and HEAD joins the union, the two maxima agree,
+# and the note goes quiet by itself -- which is what makes this a verdict about the read rather than a
+# guess about what the caller meant. The id printed over a self-raised ceiling is not somebody else's
+# number; it is what a second entry in the same tick would take. That has to be said, because the
+# other reading is the phantom: #320 measured `H-0145` on a tree whose refs stopped at `H-0144` and
+# `H-0146` once an uncommitted `## H-0145` sat in the file, and the skill's re-read is scheduled at
+# precisely that moment. A session handed a bare higher number renumbers into a gap that
+# `docs/factory.md` says must never be inexplicable, or stops trusting the allocator. Both are wrong,
+# and the second is wrong at the only guard left before a duplicate id.
+#
+# stdout is unchanged and the status stays 0, for the reason the header already gives: a refusal in
+# front of a session sends it back to numbering by eye. The absence of this note is a verdict too -- a
+# ceiling some ref carries raises none, so a higher answer with no PENDING line is the collision this
+# command exists to catch, and the yield rule in `docs/factory.md` is what to do with it. Read the
+# note's absence and never an empty stderr: since PR #307 the two arms below print beside every answer
+# and nothing silences them, so there is no answer that leaves stderr empty -- measured on one fixture
+# at `487d572`, 460 bytes with the tree clean, 855 with the caller's own heading uncommitted, 460 one
+# commit later, and only the middle number moves when this wording does. Nor would silence discriminate
+# if something produced it: on that fixture a ceiling a sibling left on `refs/heads` and a ceiling the
+# caller's own commit put on `HEAD` both answer `H-0042` with the note absent and identical stderr.
+# Durable includes yours, so a committed heading means take the next id rather than yield the one
+# already written; `docs/factory.md` carries both shapes as measured rows.
+if [ "$work_max" -gt "$refs_max" ]; then
+	if [ "$refs_max" -gt 0 ]; then
+		ref_ceiling=$(printf 'HEAD, refs/heads and refs/remotes top out at %s' "$(fmt_id "$refs_max")")
+	else
+		ref_ceiling='No ref here carries a '"$prefix"' id at all'
+	fi
+	printf 'next-decision-id: PENDING %s is in %s and on no ref this clone can see -- so this read\n  says the ceiling came from the log you are writing, not from a sibling. %s.\n' \
+		"$(fmt_id "$work_max")" "$rel" "$ref_ceiling" >&2
+	printf 'next-decision-id:   so %s is free -- and if %s is the entry you are about to commit, %s above\n  it is what a SECOND entry would take, not a claim on yours: keep the id you already took.\n' \
+		"$(fmt_id "$work_max")" "$(fmt_id "$work_max")" "$next" >&2
+fi
 
 # ------------------------------------------------------------------- how far the union reaches
 #

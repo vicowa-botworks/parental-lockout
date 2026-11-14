@@ -870,7 +870,7 @@ def fixture_envs(pages):
     return paths
 
 
-def _refused_frame(cap, keep, out, spec, width, exc, notes):
+def _refused_frame(cap, keep, out, spec, width, exc, notes, unreported=None):
     """One refusal's evidence: the sentence, the frames measured so far, and a frame of this page.
 
     Called from inside the handler, in this order, for two reasons. `cdp.refused_frame` opens the
@@ -884,6 +884,17 @@ def _refused_frame(cap, keep, out, spec, width, exc, notes):
 
     `notes` is the driver's running log of refusals, which becomes REFUSED.txt beside the frames.
     A frame with no sentence next to it is the thing #211 says a frame is not.
+
+    **The keeping cannot take the run with it.** It is wrapped, and a death is recorded rather than
+    raised, because this is the sweep: the three handlers that call it are siblings, so a raise from
+    inside one is not a second refusal any other arm can read, and nothing else catches it -- the one
+    `keep_refused` for the whole run is the statement after both loops. #317 measures one dead
+    `print` at the first refused page costing 11 of 12 measurements, the count sentence, the exit
+    code, and the entire `REFUSED.txt` that #211 exists to require. A page whose disposal died is
+    therefore still counted as refused, still gets its line in the note (with the death named under
+    it), and is named to the operator; `unreported` collects it so the fit count cannot be printed
+    over it without saying so. Losing one page's evidence is the most a run may lose here, and it is
+    the most it does lose.
     """
     notes.append(f"  refused at {width} px: {spec.url} ({spec.artifact}.png)\n"
                  f"    {exc}\n")
@@ -891,7 +902,17 @@ def _refused_frame(cap, keep, out, spec, width, exc, notes):
     # clears the last refusal's frames, and the frame of the refusing page is written after it. The
     # same helper the two single-frame drivers call, so the keeping cannot mean one thing here and
     # another there.
-    cdp.refused_frame(cap, keep, out, frame=f"{spec.artifact}@{width}.png")
+    try:
+        cdp.refused_frame(cap, keep, out, frame=f"{spec.artifact}@{width}.png")
+    except (Exception, SystemExit) as died:  # noqa: BLE001 -- one page's keeping is not the run
+        why = cdp.refusal_reason(died)
+        notes.append(f"    the frames of this refusal could not be kept: {why}\n")
+        if unreported is not None:
+            unreported.append(spec.url)
+        cdp.operator_print(f"  {spec.url} at {width} px refused, and disposing of that refusal died "
+                           f"({why}): the refusal is still recorded in {cdp.REFUSED_NOTE} and its "
+                           f"frames are not, {out} is still untouched, and the run goes on to the "
+                           f"pages after this one")
 
 
 def main(shoot_fn=None, record_fn=None):
@@ -951,10 +972,17 @@ def main(shoot_fn=None, record_fn=None):
     # of re-argue (#220). Built from `cdp.RUNS`, never from `out`; see `cdp.refused_dir`.
     keep = cdp.refused_dir(mode)
     notes = []
+    # Refusals whose own disposal died, per viewport, so the fit count for that viewport cannot be
+    # printed without saying so. A parallel record rather than a fourth clause on `refused`'s tuples
+    # because the refusal branch below already names those tuples, and that statement is an attack
+    # anchor re-pointed once already (D-0062) -- and because `missing` can never be true where
+    # `pages` is empty, so widening them would buy a re-pointed anchor and nothing else.
+    unreported = {}
     with cdp.Capture(mode, CHROME_FLAGS) as cap:
         for width in WIDTHS:
             refused_here = []
             untested_here = []
+            unreported_here = []
             for spec in selected:
                 # Only the artifact viewport owns a filename. The desktop pass is given a label so a
                 # refusal can be attributed to it, and never a path it could stage bytes into.
@@ -971,7 +999,7 @@ def main(shoot_fn=None, record_fn=None):
                     # Before the SystemExit arm, which would otherwise swallow it. Reported exactly
                     # as any other refusal is, and additionally remembered.
                     cdp.report_refusal(name, exc)
-                    _refused_frame(cap, keep, out, spec, width, exc, notes)
+                    _refused_frame(cap, keep, out, spec, width, exc, notes, unreported_here)
                     refused_here.append(spec.url)
                     fixture_failed.add(spec.url)
                 except SystemExit as exc:
@@ -979,16 +1007,21 @@ def main(shoot_fn=None, record_fn=None):
                     # standing between one bad page and the four that were measured fine, and until
                     # this head the helper raised from inside it, so both `append` lines below were
                     # unreachable and the run died on the first refusal while looking like a refusal.
+                    # `_refused_frame` is wrapped for the same reason one step down (#317): a refusal
+                    # reported and then a keeping that raises is the same death one level in, and the
+                    # statement after both loops is the only `keep_refused` this run has.
                     cdp.report_refusal(name, exc)
-                    _refused_frame(cap, keep, out, spec, width, exc, notes)
+                    _refused_frame(cap, keep, out, spec, width, exc, notes, unreported_here)
                     refused_here.append(spec.url)
                 except Exception as exc:  # a traceback is not an answer; a refusal is
                     cdp.report_refusal(name, f"{type(exc).__name__}: {exc}")
                     _refused_frame(cap, keep, out, spec, width, f"{type(exc).__name__}: {exc}",
-                                   notes)
+                                   notes, unreported_here)
                     refused_here.append(spec.url)
                 if outcome == "untested":
                     untested_here.append(spec.url)
+            if unreported_here:
+                unreported[width] = unreported_here
             refused.append((width, refused_here, untested_here))
         # Every viewport is walked even when the first one refuses, and that is a decision rather
         # than a loop nesting. Stopping at the first failing width would report a page that is
@@ -1032,6 +1065,16 @@ def main(shoot_fn=None, record_fn=None):
                     line += f"; refused: {', '.join(pages)}"
                 if untested:
                     line += f"; untested (fixture): {', '.join(untested)}"
+                # The honesty clause (#317). These pages ARE refused -- the numerator and the
+                # `refused:` list both say so -- but their evidence is short: the frames stayed in the
+                # stage and the refused page was never photographed. A fit count over that, with the
+                # only mention of it buried in a per-page line 400 lines above, is the same shape as
+                # the count that used to print `4/4 pages fit` over a refused page.
+                missing = unreported.get(width) or []
+                if missing:
+                    line += (f"; {len(missing)} refusal(s) could not be disposed of "
+                             f"({', '.join(sorted(set(missing)))}) -- recorded in "
+                             f"{cdp.REFUSED_NOTE}, their frames are not here")
                 print(line, file=sys.stderr, flush=True)
             print(f"Nothing was written to {out}.", file=sys.stderr, flush=True)
             if kept is not None:
@@ -1132,9 +1175,14 @@ def main(shoot_fn=None, record_fn=None):
 # page a second time -- two `refusals (1):` blocks, one frame, and the note ending on the diagnostic.
 # That rule drives the same two drivers with the operator's stderr dying once, after the note has
 # landed, and reads back the count, the note's shape and the sentence the operator is still owed.
+# Plus two from #317, which is what that rule's `What lost:` forfeited rather than widen. It renames
+# that rule -- a dying report cannot reach the outer handler any more, so the once-flag is witnessed
+# by a teardown that raises instead -- and adds one for the fixture arm, the one with a single handler
+# and therefore nothing downstream to catch a death, and one for the sweep, where one dead `print` at
+# the first refused page took every page after it with it.
 # The two canaries are registered like every other rule and deliberately not counted: they exist to
 # prove the helper is not hollow.
-EXPECTED_RULES = 78
+EXPECTED_RULES = 80
 
 
 class _FakeSession:
@@ -1187,19 +1235,31 @@ class _FakeCap:
     either: the run directory's name is where it reads fixture.env from, so no fake can produce a
     directory that disagrees with the name it was asked for. An earlier version let `loaded` be set
     apart from it, and the rule built on that pair pinned a state production cannot reach.
+
+    `exit_raises` makes the teardown raise, which is what the real `__exit__` does when the CDP
+    socket is already gone -- and it is the only second event left to the harness once #317 wrapped
+    the disposal. #304's symptom is TWO handlers catching ONE refusal, and before #317 a dying
+    `print` inside the disposal was how the second handler got called. It cannot be any more, so the
+    once-flag is now witnessed by an event that genuinely arrives after the disposal -- the teardown,
+    or a keep that dies with the teardown behind it -- which is the stronger witness of the two: it
+    cannot be satisfied by a report that merely printed the right words.
     """
 
-    def __init__(self, log, fixture_name="pages", die_once=False):
+    def __init__(self, log, fixture_name="pages", die_once=False, exit_raises=False):
         self.log = log
         self.session = _FakeSession(log, die_once=die_once)
         self.base = "http://127.0.0.1:0"
         self.name = fixture_name
+        self.exit_raises = exit_raises
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc):
         self.session.closed = True
+        if self.exit_raises:
+            self.log.append("exit-raised")
+            raise RuntimeError("the browser's teardown died, after the refusal had been disposed of")
         return False
 
     def require_running(self):
@@ -1286,7 +1346,7 @@ def _expected_pass(mode="pages"):
 
 
 def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None, argv=(),
-              out=None, box=None):
+              out=None, box=None, stderr=None, keep_fails=0):
     """Call the real main() with the machine stubbed out; report what the driver actually did.
 
     `refuse` names URLs that fail at EVERY viewport. `refuse_at` names `"url@width"` pairs that
@@ -1297,6 +1357,16 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None,
     `fixture_refuse` names URLs that fail the FIXTURE guards, which the real driver runs on the
     artifact pass only -- the shape the cross-pass carry has to be tested against, because a stub
     that refused at both widths would prove nothing about carrying anything.
+
+    `stderr` hands the run a stderr of the caller's choosing instead of a plain buffer, which is how
+    #317 arms a stream that refuses one write (`_StderrThatDiesOnce`): the sweep's per-page disposal
+    speaks through `cdp.report_refusal`/`cdp.capture_refused`, and the only way to find out what the
+    loop does when one of those sentences dies is to make one die. `keep_fails=N` makes the FIRST N
+    calls to the real `cdp.keep_refused` raise `OSError` before doing anything -- the other way a
+    disposal dies, and the one a defanged `print` cannot reach, because `keep_refused` moves bytes
+    with `os.replace` and creates the drawer with `os.makedirs`. Each is logged as `keep-failed` so a
+    rule can tell "the injection fired" from "the injection was never reached" (#1048's rule against
+    grading a run where nothing was attacked). Neither reaches the tree: the run stays inside `box`.
 
     Returns (rc, entered, stderr_text, stdout_text, published, discard_calls). `rc` is the string
     "raised" when main() let an exception escape instead of returning a code -- itself a finding,
@@ -1324,7 +1394,7 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None,
         return "untested" if fixture_untested else None
 
     rc = "raised"
-    err = io.StringIO()
+    err = stderr if stderr is not None else io.StringIO()
     console = io.StringIO()
     def go(box_dir, out_dir):
         nonlocal rc
@@ -1333,6 +1403,18 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None,
         # and a rule cannot assert about a directory it has not been told the name of.
         log.append(("box", box_dir))
         with _stubbed(log, out_dir):
+            saved_keep = cdp.keep_refused
+            if keep_fails:
+                left = [keep_fails]
+
+                def keep_that_dies(*a, **k):
+                    if left[0] > 0:
+                        left[0] -= 1
+                        log.append("keep-failed")
+                        raise OSError(5, "the keep died")
+                    return saved_keep(*a, **k)
+
+                cdp.keep_refused = keep_that_dies
             saved_argv = list(sys.argv)
             sys.argv = ["pages.py"] + list(argv)
             try:
@@ -1349,6 +1431,7 @@ def _run_main(refuse=(), refuse_at=(), fixture_refuse=(), crash=None, sink=None,
             except SystemExit as exc:
                 rc = f"raised:{exc.code}"
             finally:
+                cdp.keep_refused = saved_keep
                 sys.argv = saved_argv
 
     # Every run gets a scratch tree, not only the rules that ask for one: the refusal path writes
@@ -1662,13 +1745,16 @@ class _StderrThatDiesOnce(io.StringIO):
         return super().write(s)
 
 
-def _run_single_shot(mod, exc, at="page", out_is_keep=False, dies_at=None):
+def _run_single_shot(mod, exc, at="page", out_is_keep=False, dies_at=None, keep_fails=0,
+                     exit_raises=False):
     """Drive one single-frame driver's `main()` with its capture stubbed to refuse, and read the box back.
 
     `at` picks which arm refuses. **"page"** raises from inside the live browser, where every guard
     runs; **"fixture"** raises while the fixture is being loaded, before there is a browser to
     photograph -- the arm an operator meets first, because it is what `lock.py` does when
     `lock-setup.sh` has never run. Both have to keep, and only one of them can produce a picture.
+    #317 measures them as different failures: the page arm had the once-flag and finished with `rc 1`,
+    and the fixture arm had nothing downstream to catch a dying report and finished as a traceback.
 
     `out_is_keep` points `--out` at the refused directory itself, the one way an operator can aim the
     two at each other, which is the case `keep_refused` refuses to write into. A file is planted at
@@ -1678,20 +1764,30 @@ def _run_single_shot(mod, exc, at="page", out_is_keep=False, dies_at=None):
 
     Returns a dict. `frames` is the refused directory's PNG listing, or None when the directory was
     never created; `note` is REFUSED.txt or None; `planted` is the bytes still at `--out`; `keeps`
-    counts the disposal statement and `discards` the destroying one. `dies_at` arms one of three
-    one-shot failures inside the disposal -- `"headline"`, the operator's stderr dying on
-    `report_refusal`'s first line, before anything is written; `"note"`, the same sink dying on the
-    first sentence taken after `REFUSED.txt` exists; `"shot"`, the browser refusing the photograph
-    between the note landing and the frame landing, which is the trigger #304 itself names. Each is the
-    one failure that lets a disposal both write and raise, and each leaves a different thing on disk to
-    be honest about. `report_died` and `shot_refused` say whether the armed injection actually fired, so
-    a rule can refuse to grade a run where nothing was attacked. The frames and the note come off
-    the disk from the real
-    `cdp.keep_refused`/`capture_refused`, because a rule that watched a fake being handed the bytes
-    passes with the fake doing nothing -- #220's reasoning, applied to these two drivers by #296. The
-    disposal is still counted, through a wrapper that calls the real thing, because the property the
-    #149-era rule paid for is that the statement is live *and* runs exactly once; the disk reading is
-    what stops that count from being satisfiable by a hollow keep.
+    counts the disposal statement and `discards` the destroying one; `out_text` is what the driver
+    printed to STDOUT, which since #317 is where a sentence stderr refused has to turn up.
+    `dies_at` arms one of three one-shot failures inside the disposal -- `"headline"`, the operator's
+    stderr dying on `report_refusal`'s first line, before anything is written; `"note"`, the same sink
+    dying on the first sentence taken after `REFUSED.txt` exists; `"shot"`, the browser refusing the
+    photograph between the note landing and the frame landing, which is the trigger #304 itself
+    names. Each is the one failure that lets a disposal both write and raise, and each leaves a
+    different thing on disk to be honest about.
+
+    Two more ways for a disposal to die, neither of them a `print`, both added by #317 because a
+    defanged stream cannot reach them. `keep_fails=N` makes the first N calls to the real
+    `cdp.keep_refused` raise `OSError` before touching the disk -- `os.replace`, `os.makedirs` and
+    `os.listdir` are the other three ways a disposal raises, and only the driver's `return 1` proves
+    the run decided rather than died. `exit_raises` makes the fake browser's teardown raise, which is
+    the second event the once-flag is now witnessed by: since the disposal cannot escape, it is the
+    only way left for the outer handler to be reached with the first refusal already disposed of.
+    `report_died`, `shot_refused`, `keep_failed` and `exit_raised` say whether each armed injection
+    actually fired, so a rule can refuse to grade a run where nothing was attacked. The frames and the
+    note come off the disk from the real `cdp.keep_refused`/`capture_refused`, because a rule that
+    watched a fake being handed the bytes passes with the fake doing nothing -- #220's reasoning,
+    applied to these two drivers by #296. The disposal is still counted, through a wrapper that calls
+    the real thing, because the property the #149-era rule paid for is that the statement is live
+    *and* runs exactly once; the disk reading is what stops that count from being satisfiable by a
+    hollow keep.
     """
     log, keeps = [], []
     with _refusal_box(mod.FIXTURE) as (box, out_dir):
@@ -1715,19 +1811,36 @@ def _run_single_shot(mod, exc, at="page", out_is_keep=False, dies_at=None):
                               SystemExit("capture() ran, so the fixture never refused"))
         cdp.capture_out = lambda name, fixture_flag=False: out
         cdp.discard_stage = lambda: log.append("discard")
-        cdp.keep_refused = lambda *a, **k: (keeps.append("keep"), real_keep(*a, **k))[1]
+        keep_left = [keep_fails]
+
+        def keep_that_counts(*a, **k):
+            # The count is the disposal statement's liveness (#220); the log line says whether the
+            # armed injection fired, which is what keeps a cell from grading a run where nothing was
+            # attacked (#1048). It is counted BEFORE the raise on purpose: a keep that died still ran,
+            # and `keeps > 1` is the reading that catches a re-refusal.
+            keeps.append("keep")
+            if keep_left[0] > 0:
+                keep_left[0] -= 1
+                log.append("keep-failed")
+                raise OSError(5, "the keep died")
+            return real_keep(*a, **k)
+
+        cdp.keep_refused = keep_that_counts
         if at == "fixture":
             cdp.Capture = _raiser(SystemExit(f"{mod.FIXTURE}-setup.sh has never run"))
         elif dies_at == "shot":
-            cdp.Capture = lambda name="pages", *a, **k: _FakeCap(log, name, die_once=True)
+            cdp.Capture = lambda name="pages", *a, **k: _FakeCap(log, name, die_once=True,
+                                                                 exit_raises=exit_raises)
         else:
-            cdp.Capture = lambda name="pages", *a, **k: _FakeCap(log, name)
+            cdp.Capture = lambda name="pages", *a, **k: _FakeCap(log, name,
+                                                                 exit_raises=exit_raises)
         err = (_StderrThatDiesOnce(op.join(keep, cdp.REFUSED_NOTE),
                                    when="headline" if dies_at == "headline" else "note")
                if dies_at in ("headline", "note") else io.StringIO())
         rc = "raised"
+        console = io.StringIO()
         try:
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            with contextlib.redirect_stdout(console), contextlib.redirect_stderr(err):
                 rc = mod.main()
         except SystemExit as se:
             rc = f"raised:{se.code}"
@@ -1744,9 +1857,100 @@ def _run_single_shot(mod, exc, at="page", out_is_keep=False, dies_at=None):
                 note = fh.read()
         got = {"rc": rc, "keeps": len(keeps), "discards": log.count("discard"),
                "err": err.getvalue(), "frames": frames, "note": note, "keep": keep, "out": out,
-               "report_died": getattr(err, "refused", 0), "shot_refused": log.count("shot-refused")}
+               "out_text": console.getvalue(),
+               "report_died": getattr(err, "refused", 0), "shot_refused": log.count("shot-refused"),
+               "keep_failed": log.count("keep-failed"), "exit_raised": log.count("exit-raised")}
         got["planted"] = open(planted_at, "rb").read() if op.exists(planted_at) else None
     return got
+
+
+def _died_disposal_problems(where, got, refused, died_marker, expect_note, expect_frames):
+    """What every "the disposal died" cell owes, whichever step inside it died.
+
+    `refused` is the exception the run was refusing WITH, which is not always the exception the rule
+    injected: the fixture arm's refusal is the one `cdp.Capture` raises, and the note has to end on
+    that sentence, not on the `capture()` refusal a rule passed in to arm the page arm. Passing it in
+    is what keeps the tail check below a check on the driver rather than on the harness.
+
+    Shared by the two single-frame rules because both arms of both drivers are the same contract, and
+    a rule that restates it per arm is a rule one arm can stop meaning -- the reasoning `refusal_note`
+    and `refusal_reason` were moved into `cdp` for (#296, D-0065). The cell-specific sentences are
+    asserted by the caller, never here.
+
+    The five questions, each of which #317 measured being answered wrong on `origin/main`:
+
+      * **`rc == 1`.** An uncaught exception exits 1 too, which is the laundering this whole ticket is
+        about; only the driver's own return proves it finished deciding. This is the assertion the fix
+        turns from `raised:OSError: [Errno 9] Bad file descriptor` into `1`.
+      * **No traceback anywhere.** Both streams are read: a diagnostic that escapes lands on stderr,
+        and a relocated one lands on stdout, and neither may be a stack trace. `lock.py`'s own comment
+        -- "a traceback is not an answer; a refusal is" -- is what this clause enforces.
+      * **Exactly one disposal.** `keeps` counts the `keep_refused` statement including a failing
+        attempt, so `> 1` is #304's double refusal and `< 1` is a refusal that disposed of nothing.
+      * **`--out` byte-identical.** The planted bytes stand for the committed frame (#222), and a run
+        whose disposal was failing is precisely the run that must not have touched them.
+      * **The refusal, once, and named.** One `REFUSED:` line between the two streams however many
+        times it moved; `REFUSED.txt` with one header and one block when the note was reached, and no
+        note at all when it was not; the note's last line the page's own sentence rather than the
+        diagnostic's; and the marker naming what raised, because a report that says something died
+        without saying what is not a diagnosis.
+    """
+    problems = []
+    err, out, both = got["err"], got["out_text"], got["err"] + got["out_text"]
+    note = got["note"]
+    if got["rc"] != 1:
+        problems.append(f"{where}: main() returned {got['rc']!r}, want 1 -- an escaping death exits 1 "
+                        "as well, so only the return proves the driver finished deciding instead of "
+                        "dying inside its own report (#317)")
+    if "Traceback" in both:
+        problems.append(f"{where}: a traceback reached the operator: {both.strip()[-160:]!r} -- a "
+                        "traceback is not an answer; a refusal is")
+    if got["keeps"] > 1:
+        problems.append(f"{where}: one refusal ran the keep {got['keeps']} times, want at most 1 -- "
+                        "the outer handler caught a diagnostic and re-refused a page that had already "
+                        "been refused (#304)")
+    if got["keeps"] < 1:
+        problems.append(f"{where}: the refusal disposed of nothing at all: no `keep_refused` ran, so "
+                        "there is no drawer and no note for a run that says it refused")
+    if got["planted"] != _PLANTED_FRAME:
+        problems.append(f"{where}: the refusal altered {op.basename(got['out'])}/"
+                        f"{cdp.REFUSED_NOTE}'s neighbour at --out while its own disposal was failing "
+                        "(#222: that file is the committed evidence)")
+    if died_marker not in both:
+        problems.append(f"{where}: nothing names what raised ({died_marker!r}), and a report that "
+                        "says something died without saying what is not a diagnosis")
+    if both.count("REFUSED: ") != 1:
+        problems.append(f"{where}: {both.count('REFUSED: ')} `REFUSED:` lines across both streams "
+                        "for one refusal, want the one the page earned -- two is #304's double write "
+                        "with the note removed, none is the refusal lost")
+    if expect_note:
+        if note is None:
+            problems.append(f"{where}: the note was reached and {cdp.REFUSED_NOTE} is not on disk, so "
+                            "the sentence about the kept frame has no file to be in (#211)")
+        else:
+            heads, blocks = note.count("# What this run refused"), note.count("refusals (")
+            if (heads, blocks) != (1, 1):
+                problems.append(f"{where}: {cdp.REFUSED_NOTE} carries {heads} note header(s) and "
+                                f"{blocks} `refusals` block(s) for one refusal, want 1 and 1 -- a file "
+                                "that states the refusal twice answers \"which of these is the "
+                                "frame?\" with whichever was written last")
+            if died_marker in note:
+                problems.append(f"{where}: {cdp.REFUSED_NOTE} records the diagnostic as a refusal, so "
+                                "the operator is told the report broke in the same breath that it "
+                                "claims the page refused")
+            tail = [ln for ln in note.splitlines() if ln.strip()]
+            if tail and tail[-1] != f"  refused: {refused}":
+                problems.append(f"{where}: {cdp.REFUSED_NOTE}'s last line is {tail[-1]!r}, not the "
+                                f"page's own refusal ({f'  refused: {refused}'!r}) -- #304's title "
+                                "symptom: the last words of the note are the diagnostic's")
+    elif note is not None:
+        problems.append(f"{where}: the disposal did not reach the note and one was written anyway "
+                        f"({note.count('refusals (')} block(s) from a disposal that died)")
+    if got["frames"] != expect_frames:
+        problems.append(f"{where}: the refused drawer holds {got['frames']}, want {expect_frames} "
+                        f"-- what the dying step left on disk is the operator's only picture of the "
+                        "page as it stood")
+    return problems
 
 
 def self_test():
@@ -2232,149 +2436,104 @@ def self_test():
                 problems.append(f"{mod_name}: a run aimed straight at --out changed the committed "
                                 "frame it was refusing to overwrite")
 
-    def a_refusal_whose_report_raises_is_disposed_of_once(problems):
-        """#304: a disposal that dies on its own report must not get a second refusal.
+    def a_refusal_whose_report_cannot_be_written_still_finishes_its_disposal(problems):
+        """#304 and #317 together, on the arm that photographs a page.
 
-        Both single-frame handlers are nested inside an outer one that catches `Exception` too, so a
-        raise from *inside* the first disposal arrives at the outer arm looking like the page refusing
-        again. Then the driver refuses twice: `keep_refused` appends a second `refusals (1):` block,
-        `keeps` counts two against a drawer holding one frame, and the sentence the operator reads last
-        is the diagnostic's. Measured 11 Nov on `origin/main` at `1e31cac` with a stderr that dies once,
-        after the note has landed -- two note headers, one frame, and the second block reading
-        `refused: OSError: [Errno 9] Bad file descriptor`.
+        Two tickets own this shape. #304 found that the two single-frame handlers are nested, so a
+        raise from *inside* the first disposal reaches the outer arm looking like the page refusing
+        again -- and then the driver refuses twice, `keep_refused` appends a second `refusals (1):`
+        block, and the last sentence the operator reads is the diagnostic's (measured 11 Nov at
+        `1e31cac`: two note headers, one frame, second block reading `refused: OSError: [Errno 9]
+        Bad file descriptor`). #317 found what that fix could not reach: the disposal was still
+        allowed to ESCAPE, and once it has, the outer arm is the bottom of the stack -- `rc 1` from an
+        uncaught exception, the driver's own `return 1` never run.
 
-        Two moments are attacked, because they owe the operator different sentences and only one of
-        them is this ticket's symptom. `note` is the double write. `headline` kills `report_refusal`'s
-        headline instead, so the disposal dies having written nothing at all -- no note, no drawer --
-        and the guard's sentence is the only thing left to read: it must say the disposal wrote
-        nothing. The first version of the fix printed "that file holds the one note this run wrote"
-        over exactly that state, and the flag that suppressed the second refusal is what made that
-        sentence sound earned. Nothing in the `note` cell can see that lie, so it has its own cell.
-        `shot` is the trigger the ticket itself names -- "a failure inside `refused_frame` *after* the
-        note write, a `Capture` call that raises once". Measured 11 Nov, that route cannot re-refuse
-        anything on this tree: `capture_refused` catches, prints `no frame of the refused page: ...`
-        and returns None, so the disposal finishes with one block and an empty drawer and the outer arm
-        never runs. The double write needs a raise from a step nothing wraps, and the summary `print`
-        after the note is exactly such a step -- which is why `note` is the sink and not the screenshot.
-        What the cell keeps anyway is the sentence over an empty drawer: it used to assert the run "was
-        refused before it had a page in a browser to photograph", printed over a browser that had just
-        answered a page and failed only the picture.
+        Six cells, because there are six ways for the thing after a refusal to go wrong and each one
+        owes a different sentence:
 
-        Three arms have to hold at once, which is why this is a rule and not a line in the other one:
-        the count of disposals, the shape of what is on disk, and what the operator is still told. A fix
-        that silences the second write by swallowing the diagnostic entirely satisfies the first two and
-        leaves the operator hunting for a frame whose pointer sentence died, so the report of the
-        failure is asserted beside the absence of a second refusal. The page arm is the one attacked:
-        the fixture arm has a single handler, so nothing downstream can mistake a dying report for a
-        second refusal there, and a rule that graded it would be grading the absence of a hazard.
+          * `headline` -- stderr dies on `report_refusal`'s first line, before anything is written.
+            One refused write is not a dead stream (#317 measures the next sentence landing fine), so
+            the line moves to stdout WHOLE and the disposal carries on to the note, the frame and the
+            count. It used to abort here with nothing printed anywhere.
+          * `note` -- the same sink dies on the pointer sentence taken once `REFUSED.txt` exists, so
+            the note and the frame are on disk and only the pointer had to move.
+          * `shot` -- the browser refuses the photograph between the note and the frame.
+            `capture_refused` has always caught this; the cell keeps the sentence over the empty
+            drawer honest (it used to blame the fixture over a browser that had just answered a page).
+          * `keep` -- `keep_refused` raises `OSError` and touches nothing. Not a `print`, so
+            `operator_print` cannot help and the wrap in `SingleRefusal.refuse` is what is tested:
+            `rc 1`, not a traceback, and the transcript says the disposal died and wrote no note.
+          * `exit` -- the disposal FINISHES and the browser's teardown then raises. That is the second
+            event the once-flag is witnessed by now: a dying report cannot reach the outer arm any
+            more, and the outer arm still must not answer with a second refusal. The note is on disk,
+            so the sentence must claim it.
+          * `keep-exit` -- the keep dies AND the teardown raises, so the second event arrives with no
+            note on disk. `SingleRefusal.refuse` has to read the filesystem and say "wrote nothing";
+            claiming "holds the one note" here is the invention #304 is about in the other direction.
+
+        Every cell asks the same shared questions (`_died_disposal_problems`) and then its own. The
+        fixture arm is graded by its own rule next door, not here: #317's rows are different there,
+        because a fixture refusal has one handler and no page to photograph.
         """
         exc = SystemExit("the page is 999 px wide at a 360 px viewport")
-        markers = {"note": "the report's own print died",
-                   "headline": "the report's own print died",
-                   "shot": "the photograph died"}
+        cells = (("headline", dict(dies_at="headline"), "report_died", "the report's own print died"),
+                 ("note", dict(dies_at="note"), "report_died", "the report's own print died"),
+                 ("shot", dict(dies_at="shot"), "shot_refused", "the photograph died"),
+                 ("keep", dict(keep_fails=1), "keep_failed", "the keep died"),
+                 ("exit", dict(exit_raises=True), "exit_raised", "teardown died"),
+                 ("keep-exit", dict(keep_fails=1, exit_raises=True), "keep_failed",
+                  "the keep died"))
         for mod_name in ("lock", "testlock"):
             mod = importlib.import_module(mod_name)
             frame = f"{mod.ARTIFACT}@{cdp.WIDTH}.png"
-            for when in ("note", "headline", "shot"):
-                where = f"{mod_name}/report-dies-{when}"
-                got = _run_single_shot(mod, exc, dies_at=when)
-                err = got["err"]
-                note = got["note"]
-                attacked = got["shot_refused"] if when == "shot" else got["report_died"]
-                if not attacked:
-                    problems.append(f"{where}: the report never raised, so nothing was attacked -- "
-                                    "this rule is its own injection and the injection did not fire")
+            for when, kwargs, fired_key, marker in cells:
+                where = f"{mod_name}/page-arm-{when}"
+                got = _run_single_shot(mod, exc, **kwargs)
+                if not got[fired_key]:
+                    problems.append(f"{where}: the injection never fired, so this cell graded a run "
+                                    "where nothing was attacked (#1048)")
                     continue
-                # Shared by all three cells: one refusal, one disposal, exit 1, --out untouched, and
-                # the operator told both that a disposal had happened and what died inside it.
-                if got["keeps"] > 1:
-                    problems.append(f"{where}: one refusal ran the keep {got['keeps']} times, want at "
-                                    "most 1 -- the outer handler caught the diagnostic and re-refused "
-                                    "a page that had already been refused (#304)")
-                if got["rc"] != 1:
-                    problems.append(f"{where}: main() returned {got['rc']!r}, want 1 -- an escaping "
-                                    "diagnostic exits 1 as well, so only the return proves the driver "
-                                    "finished deciding instead of dying in its own report")
-                if got["planted"] != _PLANTED_FRAME:
-                    problems.append(f"{where}: the refusal altered {mod.ARTIFACT}.png at --out while "
-                                    "its own report was failing (#222: that file is the committed "
-                                    "evidence)")
-                if when != "shot" and "disposed of" not in err:
-                    problems.append(f"{where}: nothing says a disposal had already happened, so the "
-                                    f"operator has a dead sentence and a directory to guess about: "
-                                    f"{err.strip()[-160:]!r}")
-                if markers[when] not in err:
-                    problems.append(f"{where}: the report of the failed report does not name what "
-                                    f"raised ({markers[when]!r}), which is the only part of it that is "
-                                    "a diagnosis")
-                if when == "headline":
-                    # Nothing was written, so the only acceptable transcript owns that. The note's
-                    # absence is the assertion and not an oversight: retrying a disposal that wrote
-                    # nothing puts a second death in the outer handler with nothing left to catch it,
-                    # on a stderr that has already refused a write for exactly this reason.
-                    if note is not None:
-                        problems.append(f"{where}: the report died before {cdp.REFUSED_NOTE} existed "
-                                        f"and a note was written anyway "
-                                        f"({note.count('refusals (')} block(s) from a disposal that "
-                                        "never finished) -- the retry is a second chance to die on "
-                                        "the same sink, this time with no handler left")
-                    elif "wrote nothing" not in err:
-                        problems.append(f"{where}: nothing was written and the transcript does not say "
-                                        f"so -- the operator has {err.strip()[-160:]!r} and a drawer "
-                                        f"with no {cdp.REFUSED_NOTE} in it")
-                    elif "holds the one note" in err:
-                        problems.append(f"{where}: the transcript claims a note this run never wrote, "
-                                        "which is the invention #304 is about in the other direction")
-                    continue
-                # The other two cells both got the note written, so the note is the artifact to judge.
-                if got["keeps"] != 1:
-                    problems.append(f"{where}: the disposal ran {got['keeps']} times after writing "
-                                    "the note, want 1")
-                if note is None:
-                    problems.append(f"{where}: a report that raised after writing "
-                                    f"{cdp.REFUSED_NOTE} left no {cdp.REFUSED_NOTE}, so the sentence "
-                                    "about the kept frame has no file to be in (#211)")
-                    continue
-                heads = note.count("# What this run refused")
-                blocks = note.count("refusals (")
-                if (heads, blocks) != (1, 1):
-                    problems.append(f"{where}: {cdp.REFUSED_NOTE} carries {heads} note header(s) and "
-                                    f"{blocks} `refusals` block(s) for one refusal, want 1 and 1 -- a "
-                                    "file that states the refusal twice answers \"which of these is "
-                                    "the frame?\" with whichever was written last")
-                if markers[when] in note:
-                    problems.append(f"{where}: {cdp.REFUSED_NOTE} records the diagnostic as a refusal, "
-                                    "so the operator is told the report broke in the same breath that "
-                                    "it claims the page refused a second time")
-                tail = [ln for ln in note.splitlines() if ln.strip()][-1]
-                if tail != f"  refused: {exc}":
-                    problems.append(f"{where}: {cdp.REFUSED_NOTE}'s last line is {tail!r}, not the "
-                                    f"page's own refusal ({f'  refused: {exc}'!r}) -- #304's title "
-                                    "symptom: the last words of the note are the diagnostic's")
-                if err.count("REFUSED: ") != 1:
-                    problems.append(f"{where}: printed {err.count('REFUSED: ')} `REFUSED:` lines for "
-                                    "one refusal, want the one the page earned -- two of them is the "
-                                    "double write with the note removed")
-                if when == "note":
-                    if "already disposed of" not in err:
-                        problems.append(f"{where}: the note was written and a second disposal was "
-                                        "suppressed, and no line says so")
-                    if got["frames"] != [frame]:
-                        problems.append(f"{where}: a refusal whose report raised kept "
-                                        f"{got['frames']}, want [{frame!r}] -- the frame was written "
-                                        "before the sentence died, so losing the pointer must not "
-                                        "lose the picture")
-                elif got["frames"]:
-                    problems.append(f"{where}: the photograph is what raised and the drawer still "
-                                    f"holds {got['frames']} -- a frame the run never took is worse "
-                                    "than no frame at all")
+                if when.startswith("keep"):
+                    problems.extend(_died_disposal_problems(where, got, exc, died_marker=marker,
+                                                            expect_note=False, expect_frames=None))
+                elif when == "shot":
+                    problems.extend(_died_disposal_problems(where, got, exc, died_marker=marker,
+                                                            expect_note=True, expect_frames=[]))
+                elif when == "exit":
+                    problems.extend(_died_disposal_problems(where, got, exc, died_marker=marker,
+                                                            expect_note=True, expect_frames=[frame]))
                 else:
-                    # The ticket's own trigger, and the reason it is a cell: `capture_refused` reports
-                    # a failed photograph and returns None rather than raising, so nothing re-refuses
-                    # here and the whole duty is that the empty drawer is explained by the truth.
-                    # Measured 11 Nov, that sentence used to say the run "was refused before it had a
-                    # page in a browser to photograph" over a live browser -- and the sentence above it
-                    # already names what the browser answered.
+                    problems.extend(_died_disposal_problems(where, got, exc, died_marker=marker,
+                                                            expect_note=True, expect_frames=[frame]))
+                err, out, both = got["err"], got["out_text"], got["err"] + got["out_text"]
+                if when in ("headline", "note"):
+                    # The moved sentence has to be the one that died, and it has to be whole. A fix
+                    # that swallows a dead write instead of relocating it satisfies every shared
+                    # clause above and leaves the operator with a transcript that is quietly short one
+                    # sentence -- which is the same silence, one print earlier.
+                    if "stderr refused the line below" not in out:
+                        problems.append(f"{where}: a write stderr refused was neither written nor "
+                                        f"said to have moved: stdout holds {out.strip()[-140:]!r}")
+                    if marker not in out:
+                        problems.append(f"{where}: the sentence moved to stdout does not name what "
+                                        f"refused the write ({marker!r})")
+                    if got["frames"] != [frame]:
+                        problems.append(f"{where}: a refused write cost the picture as well "
+                                        f"({got['frames']}); one dead sentence is not a reason to "
+                                        "stop the disposal")
+                    if "already disposed of" in both or "wrote nothing" in both:
+                        problems.append(f"{where}: the run claims a second disposal or an empty "
+                                        "disposal when nothing but the report failed -- the report "
+                                        "finishes its own work now (#317)")
+                    if when == "headline" and f"REFUSED: {exc}" not in out:
+                        problems.append(f"{where}: the page's own `REFUSED:` line is not on stdout, "
+                                        "so the refusal that stderr could not carry was dropped "
+                                        f"rather than moved: stderr={err.strip()[-140:]!r}")
+                    if when == "note" and "what the page actually renders is at" not in out:
+                        problems.append(f"{where}: the pointer at the kept frame is the sentence that "
+                                        "died and it is not on stdout either, so the frame is on disk "
+                                        "and nothing tells anyone where to look")
+                elif when == "shot":
                     if "no frame of the refused page" not in err:
                         problems.append(f"{where}: the photograph died and its own failure is not in "
                                         f"the transcript, so the empty drawer has no cause: "
@@ -2387,6 +2546,219 @@ def self_test():
                     elif "before it had a page in a browser" in err:
                         problems.append(f"{where}: the transcript sends the operator to the fixture "
                                         "for a refusal that had a browser and lost only the picture")
+                elif when == "keep":
+                    if "disposed of ONCE and that disposal died" not in err:
+                        problems.append(f"{where}: the disposal died and no line says so -- the "
+                                        "operator has a refusal, a drawer that does not exist and "
+                                        f"nothing between them: {err.strip()[-160:]!r}")
+                    elif "no REFUSED.txt was written" not in err:
+                        problems.append(f"{where}: the disposal wrote no {cdp.REFUSED_NOTE} and the "
+                                        "transcript does not own that, which is #304's invention read "
+                                        "the other way")
+                    elif "already disposed of" in err:
+                        problems.append(f"{where}: a single refusal was reported as already disposed "
+                                        "of -- the disposal died, it did not run twice")
+                elif when == "exit":
+                    if "already disposed of" not in err:
+                        problems.append(f"{where}: the outer handler caught a second event and "
+                                        "nothing says the refusal was already disposed of, so "
+                                        "the next reader cannot tell this from a double refusal")
+                    elif "holds the one note" not in err:
+                        problems.append(f"{where}: the note IS on disk and the suppression sentence "
+                                        "does not say so -- the operator is left to work out which "
+                                        "file this run wrote")
+                    elif "wrote nothing" in err:
+                        problems.append(f"{where}: the transcript claims a disposal wrote nothing "
+                                        f"while {cdp.REFUSED_NOTE} exists on disk")
+                elif when == "keep-exit":
+                    if "disposed of once already, and that disposal wrote nothing" not in err:
+                        problems.append(f"{where}: the second event reached the outer handler with no "
+                                        "note on disk and no line owns that: "
+                                        f"{err.strip()[-160:]!r}")
+                    elif "holds the one note" in err:
+                        problems.append(f"{where}: the transcript claims a note this run never wrote "
+                                        "-- the flag is not evidence of a note, the disk is (#304)")
+
+    def a_refusal_in_a_fixture_still_disposes_of_itself_once(problems):
+        """#317's own rows: the arm with ONE handler, which had nothing downstream to catch a death.
+
+        `lock.py` and `testlock.py` refuse in two places. The inner handler is inside the `with`
+        because `capture_refused` needs the browser this run opened; the outer one catches the fixture
+        refusing before a browser exists. The page arm therefore has a handler below the disposal and
+        #304's once-flag was enough to stop it refusing twice -- and the fixture arm has none, so a
+        death there had nowhere to go but out of `main()`. Measured on this tree at `e16ab68` before
+        the fix, one stderr that refuses a single write, both drivers, byte-identical rows:
+
+            lock/fixture/headline   rc=raised:OSError: [Errno 9]   blocks=0 frames=None  stderr=""
+            lock/fixture/note       rc=raised:OSError: [Errno 9]   blocks=1 frames=[]
+            testlock/fixture/*      the same two rows
+
+        The headline row is the worst of them: the run wrote nothing, printed nothing, and exited 1 --
+        the code a refusal was supposed to produce, which is what launders all of it (the sentence
+        `cdp.report_refusal`'s own docstring carries about exit codes). The same three injections are
+        armed as on the page arm. `keep` is the one a defanged `print` cannot reach: here the wrap in
+        `SingleRefusal.refuse` is the only thing between the fixture refusal and the traceback, because
+        `keep_refused` raises `OSError` from `os.makedirs` and `os.replace` without printing at all.
+
+        What the fixture arm owes that the page arm does not: no frame, ever, and the reason why said
+        as the fixture ("refused before it had a page in a browser to photograph") rather than as the
+        browser. `refuse_single_shot` chooses between the two by `cap is None`, and this is the cell
+        where `cap is None` is actually true.
+        """
+        exc = SystemExit("the page is 999 px wide at a 360 px viewport")
+        for mod_name in ("lock", "testlock"):
+            mod = importlib.import_module(mod_name)
+            fx = SystemExit(f"{mod.FIXTURE}-setup.sh has never run")
+            for when, kwargs, fired_key, marker in (
+                    ("headline", dict(dies_at="headline"), "report_died",
+                     "the report's own print died"),
+                    ("note", dict(dies_at="note"), "report_died", "the report's own print died"),
+                    ("keep", dict(keep_fails=1), "keep_failed", "the keep died")):
+                where = f"{mod_name}/fixture-arm-{when}"
+                got = _run_single_shot(mod, exc, at="fixture", **kwargs)
+                if not got[fired_key]:
+                    problems.append(f"{where}: the injection never fired, so this cell graded a run "
+                                    "where nothing was attacked (#1048)")
+                    continue
+                problems.extend(_died_disposal_problems(
+                    where, got, fx, died_marker=marker,
+                    expect_note=when != "keep", expect_frames=[] if when != "keep" else None))
+                err, out = got["err"], got["out_text"]
+                if got["rc"] != 1:
+                    # The row #317 was filed with, restated as an assertion. The shared clause above
+                    # already asks for 1; this one is here so the failure names the ticket rather than
+                    # a number, because the difference between `raised:OSError` and `1` is the whole
+                    # defect and the exit code of the process says nothing about it either way.
+                    problems.append(f"{where}: the fixture arm let the death escape main() as "
+                                    f"{got['rc']!r} -- #317's row, and the outer handler below this "
+                                    "one has nothing left to catch it with")
+                if when == "keep":
+                    if "no REFUSED.txt was written" not in err:
+                        problems.append(f"{where}: the keep died and no {cdp.REFUSED_NOTE} exists, "
+                                        "and the transcript does not say so")
+                    continue
+                if "before it had a page in a browser to photograph" not in err + out:
+                    problems.append(f"{where}: the empty drawer is not explained as the fixture, so "
+                                    "the operator has a drawer with no PNG and no reason "
+                                    f"({(err + out).strip()[-140:]!r})")
+                if "the page was up and the photograph of it is what failed" in err + out:
+                    problems.append(f"{where}: the transcript blames the browser for a refusal that "
+                                    "never had one")
+
+    def a_page_whose_keeping_died_does_not_stop_the_sweep(problems):
+        """#317's expensive row: one dead sentence at the first refused page used to end the sweep.
+
+        `pages.py` catches a refusal per page and keeps walking, because the run that stops at the
+        first bad page reports a lie about the rest. What it did not survive was a death INSIDE that
+        handling: the three arms are siblings, not nested, so a raise from one is not a second refusal
+        another arm can read -- it is simply uncaught. And the run's only `keep_refused` is the one
+        statement after both loops, so the raise took the exit code, the count sentence, the note and
+        every page that had not been photographed yet. Measured on this tree at `e16ab68`, two refused
+        pages at two viewports, one injection per run:
+
+            sweep/headline   ESCAPED the driver as OSError: [Errno 9]   entered=1 of 12
+            sweep/keep-dies  ESCAPED the driver as OSError: [Errno 5]   entered=1 of 12
+            sweep/clean      rc=1  entered=12  blocks=1  frames=4
+
+        Both cells therefore ask for the same three things: the loop reached the end (`rc 1`, every
+        page entered, the per-viewport counts printed, `REFUSED.txt` written once), `--out` still got
+        nothing, and the page that lost its evidence is NAMED -- in the count sentence, not only in a
+        per-page line above it. A run that swallows the death quietly satisfies the first two and is
+        the run #220 was filed against: a count with nothing behind it.
+        """
+        cells = (("dead-report", dict(stderr="headline"), "sink", "the report's own print died"),
+                 ("dead-keep", dict(keep_fails=1), "keep-failed", "the keep died"))
+        for when, kwargs, fired, marker in cells:
+            with _refusal_box() as (box, out):
+                rec = []
+                keep = cdp.refused_dir("pages")
+                sink = (_StderrThatDiesOnce(op.join(keep, cdp.REFUSED_NOTE), when="headline")
+                        if kwargs.get("stderr") else None)
+                rc, entered, err, console, published, _discarded = _run_main(
+                    box=box, out=out, sink=rec, refuse=["/", "/users"], stderr=sink,
+                    keep_fails=kwargs.get("keep_fails", 0))
+                note = (open(op.join(keep, cdp.REFUSED_NOTE), encoding="utf-8").read()
+                        if op.isfile(op.join(keep, cdp.REFUSED_NOTE)) else None)
+                frames = (sorted(f for f in os.listdir(keep) if f.endswith(".png"))
+                          if op.isdir(keep) else None)
+                where = f"sweep/{when}"
+                if (sink.refused if sink else rec.count("keep-failed")) < 1:
+                    problems.append(f"{where}: the injection never fired, so this cell graded a run "
+                                    "where nothing was attacked (#1048)")
+                    continue
+                if rc != 1:
+                    problems.append(f"{where}: main() returned {rc!r}, want 1 -- an uncaught OSError "
+                                    "exits 1 as well, which is exactly how one dead print at the "
+                                    "first refusal passed for a refusal for 12 pages")
+                if len(entered) != len(WIDTHS) * len(CENSUS["pages"]):
+                    problems.append(f"{where}: the sweep measured {len(entered)} of "
+                                    f"{len(WIDTHS) * len(CENSUS['pages'])} page-shots -- a death in "
+                                    "one page's disposal may cost that page and nothing else")
+                if published:
+                    problems.append(f"{where}: a refused run published")
+                if op.isdir(out) and any(f.endswith(".png") for f in os.listdir(out)):
+                    problems.append(f"{where}: a refused run wrote a PNG into {out} while its own "
+                                    "disposal was failing (#222)")
+                if note is None:
+                    problems.append(f"{where}: the run never reached the note, so the refusals it did "
+                                    "record are in nobody's file (#211)")
+                elif note.count("refusals (") != 1:
+                    problems.append(f"{where}: {cdp.REFUSED_NOTE} carries "
+                                    f"{note.count('refusals (')} `refusals` blocks for one run")
+                counts = [ln for ln in err.splitlines() if " pages fit at " in ln]
+                if len(counts) != len(WIDTHS):
+                    problems.append(f"{where}: {len(counts)} fit-count line(s) printed, want one per "
+                                    f"viewport ({len(WIDTHS)}): {err.strip()[-160:]!r}")
+                if "REFUSED: " not in err + console:
+                    problems.append(f"{where}: the transcript has no `REFUSED:` line at all, so "
+                                    f"whatever died took the refusal with it")
+                if marker not in err + console:
+                    problems.append(f"{where}: the transcript never names what died ({marker!r}), "
+                                    "which is the only part of the report that is a diagnosis")
+                if when == "dead-report":
+                    # Nothing was actually lost but the one sentence, so nothing may be claimed about
+                    # evidence going missing -- and the frame of each refused page still has to be
+                    # where the count says it is.
+                    if "could not be disposed of" in err:
+                        problems.append(f"{where}: a refused write is reported as a lost disposal, "
+                                        "which sends the operator looking for frames that are there")
+                    if frames is None or len(frames) != 4:
+                        problems.append(f"{where}: {keep} holds {frames}; a dead `print` at the first "
+                                        "refusal must cost that sentence and no frame (4 wanted: two "
+                                        "refused pages at two viewports)")
+                    if note and marker in note:
+                        problems.append(f"{where}: {cdp.REFUSED_NOTE} records the dead write as a "
+                                        "refusal of the page")
+                else:
+                    # A keep that dies costs its page's frames, and the fit count has to say so rather
+                    # than printing a comfortable numerator over the top of it.
+                    said = [ln for ln in counts if "could not be disposed of" in ln]
+                    if len(said) != 1:
+                        problems.append(f"{where}: {len(said)} fit-count line(s) admit an undisposed "
+                                        "refusal, want 1 -- the viewport that lost the evidence is "
+                                        f"the one that must say so: {counts}")
+                    elif "/audit" not in said[0] and "/profiles" not in said[0] and "/" not in said[0]:
+                        problems.append(f"{where}: the fit count admits a lost disposal without "
+                                        f"naming the page: {said[0]!r}")
+                    elif "1 refusal(s)" not in said[0]:
+                        problems.append(f"{where}: the fit count does not count the undisposed "
+                                        f"refusal: {said[0]!r}")
+                    if note and "could not be kept" not in note:
+                        problems.append(f"{where}: {cdp.REFUSED_NOTE} holds the refusal but not the "
+                                        "fact that its frames did not land, so the file and the "
+                                        "directory disagree about this run")
+                    if frames is not None and len(frames) != 3:
+                        problems.append(f"{where}: {keep} holds {len(frames)} frame(s), want 3 -- the "
+                                        "page whose keep died loses its frame and the other three "
+                                        "refusals keep theirs")
+                    announced = re.search(r"^  (\d+) frame\(s\) this run measured are in \S+, with "
+                                          r"REFUSED\.txt beside them", err, re.M)
+                    if announced is None:
+                        problems.append(f"{where}: nothing announces how many frames survived a "
+                                        "failing keep")
+                    elif frames is not None and int(announced.group(1)) != len(frames):
+                        problems.append(f"{where}: the transcript announces {announced.group(1)} "
+                                        f"frame(s) and {keep} holds {len(frames)}: {frames}")
 
     def desktop_only_refusal(problems):
         # The trap #149 exists for: a page that fits at 360 px and is a 1471 px document at
@@ -4114,8 +4486,12 @@ def self_test():
     rule("lock.py and testlock.py keep what a refusal measured and return 1", single_shot)
     rule("a kept POST frame cannot be read as the committed evidence",
          a_single_frame_keep_cannot_be_read_as_evidence)
-    rule("a refusal whose own report raises is disposed of once",
-         a_refusal_whose_report_raises_is_disposed_of_once)
+    rule("a refusal whose report cannot be written still finishes its disposal",
+         a_refusal_whose_report_cannot_be_written_still_finishes_its_disposal)
+    rule("a refusal in a fixture still disposes of itself once",
+         a_refusal_in_a_fixture_still_disposes_of_itself_once)
+    rule("a page whose keeping died does not stop the sweep",
+         a_page_whose_keeping_died_does_not_stop_the_sweep)
     rule("a desktop-only refusal fails the run", desktop_only_refusal)
     rule("every page is measured at every viewport", every_viewport_measured)
     rule("each summary line names its viewport", summary_names_each_viewport)
@@ -4395,6 +4771,37 @@ def self_test():
     if counts != [1, 0] or len(probe_bad) != 1:
         bad.append(f"the rule helper is hollow: the canary pair recorded counts {counts} and "
                    f"{len(probe_bad)} problems, want [1, 0] and 1")
+
+    # Third canary, deliberately raising. Neither of the two above throws, so the `except Exception`
+    # arm one screen up -- the only place a crashing rule becomes a problem -- had no witness at all,
+    # and it is dead code on a clean tree: replacing its single `problems.append` with `pass` printed
+    # `capture self-test: 78 refusal rules hold` at exit 0. Measured further, with a crash that really
+    # happens -- `cdp.refused_dir` patched to `raise RuntimeError('boom')`, a fault in the code under
+    # the rules rather than in a rule's own harness: arm intact, `capture self-test: 17 of 78 rules
+    # failed`, exit 1, each crashed rule named by its `why`; arm emptied, the same crash returns exit
+    # 0 and `boom` appears in the transcript zero times. Seventeen broken rules became a clean bill of
+    # health by deleting the line whose comment says a throwing rule "has not passed" (#323).
+    #
+    # So throw on purpose, into two lists of its own: the arm is then the thing under test on every
+    # run, not only on the run where something else breaks. It is not a claim about a driver, so it
+    # never enters `ran` and `EXPECTED_RULES` stays the count of claims.
+    probe_crash_ran, probe_crash = [], []
+
+    def _throws_in_a_rule(problems):
+        raise RuntimeError("the crash arm is under test")
+
+    rule("crash canary", _throws_in_a_rule, probe_crash_ran, probe_crash)
+    # The arm's whole sentence, not just a count. The pair above is satisfied by any problem reaching
+    # the list; an arm that kept the count and lost the `{why}:` prefix -- `problems.append(str(exc))`
+    # -- would send this canary through while costing a real crash the one thing that made a four-way
+    # crash findable without bisecting, which is the reason `rule()` spells the name out at all.
+    crash_want = ["crash canary: RuntimeError: the crash arm is under test"]
+    crash_counts = [n for _, n in probe_crash_ran]
+    if probe_crash != crash_want or crash_counts != [1]:
+        bad.append("the rule helper's crash arm is hollow: a rule that raised RuntimeError recorded "
+                   f"{probe_crash} with counts {crash_counts}, want {crash_want} and [1] -- a rule "
+                   "that throws has not passed, and this arm is the only thing between one and a "
+                   "green run (#323)")
 
     return ran, bad
 

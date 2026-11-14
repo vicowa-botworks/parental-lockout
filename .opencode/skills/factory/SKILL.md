@@ -167,8 +167,24 @@ When you reach a decision point, do this instead, in this order:
    standing in. Never take the highest heading in
    the current file as the whole answer: a sibling branch's entry is already a durable citation and a
    merge target even though this checkout has never seen it (#253). Re-run the allocator immediately
-   before the entry commit. It is a read, not a reservation, and the second read sees only what moved
-   **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
+   before the entry commit, **and take that re-read before you write the entry, not after it**. The
+   union includes the working file, so once your own heading is in the log the re-read counts it and
+   answers one above the id you hold: measured in `wt/issue-320` on 12 Nov, `H-0145` on the committed
+   log and `H-0146` with an uncommitted `## H-0145` in the file and no ref holding it. That is not a
+   collision, and the allocator says so -- a `PENDING` line on stderr names the heading that is in your
+   working file and on no ref this clone can see, and the id the refs actually top out at. So read a
+   moved answer by its stderr: **`PENDING` naming the id you already hold means nothing was taken** --
+   keep that id, and do not renumber into a gap `docs/factory.md` says must never be inexplicable. A
+   higher answer with **no PENDING line** is the real thing: some ref carries your id, and you yield the
+   way that guide says. Read the note's absence, never the emptiness of stderr. Since PR #307 every
+   answer carries a `REFRESH` or `REFRESH-BLIND` line beside the id and no flag silences it, so there is
+   no answer that leaves stderr empty -- measured at `487d572` on one fixture, 460 bytes with the tree
+   clean, 855 with your own heading uncommitted, 460 one commit later. Nor would silence discriminate if
+   something produced it: a ceiling a sibling left on a ref and a ceiling your own committed entry put
+   on `HEAD` print the same stderr, both without a note. The note goes quiet by itself once the entry is
+   committed, because `HEAD` joins the union -- and durable includes yours, so a second entry in the
+   same tick takes the next id instead of yielding the one already written.
+   It is a read, not a reservation, and the second read sees only what moved **inside this clone**: a sibling that committed in another worktree counts, because worktrees share
    `refs/heads` (measured: `D-0002` before the sibling commits, `D-0010` after, with no fetch), while
    a sibling that pushed from a different clone does not, because an unfetched push never moves
    `refs/remotes` (measured: the same call answers `D-0002` while origin already holds `D-0007`, and
@@ -243,10 +259,12 @@ recommend, and the exact command to proceed…"
 git add "$LOG"          # DECISIONS.md, or factory/DECISIONS.md for harness work
 git commit -m "docs(decisions): escalate D-NNNN (awaiting a human)" -m "Decision: D-NNNN"
 
-# 2. the marker, whose name comes out of its one home.
+# 2. the marker, whose name comes out of its one home. A pull request takes THIS verb with its own
+#    number -- `gh issue edit "$PR"` -- because `gh pr edit` cannot put a label on anything here, and
+#    it fails for a reason that has nothing to do with labels. Measured below the block.
 gh issue edit "$ISSUE" --add-label "$(factory/escalation-label.sh)"
 
-# 3. the read-back, in the same breath as the claim. Same read on a pull request:
+# 3. the read-back, in the same breath as the claim. The read is the one place the `pr` verb is right:
 #    `gh pr view "$PR" --json labels`.
 gh issue view "$ISSUE" --json labels -q '[.labels[].name] | join(",")'
 ```
@@ -261,6 +279,21 @@ result you report and not a step to retry harder. Doing the label last is what m
 one sentence instead of the record: under `set -e` a middle-of-the-step refusal used to kill the
 escalation with the comment written, the label absent, and `Awaiting:` never committed, which is
 indistinguishable from a unit that quietly gave up (#311, #315).
+
+The verb is the other half of the step, and it is the half the harness left unsaid. Measured 12 Nov on
+this box's gh 2.46.0, one 67-character probe name aimed at pull request #314 with its labels read
+before and after: `gh pr edit 314 --add-label zzprobe-does-not-exist-and-sixty-seven-characters-long-so-nothing-can-land`
+printed `GraphQL: Projects (classic) is being deprecated … (repository.pullRequest.projectCards)` for
+exit 1, and `gh issue edit 314` with the same name printed
+`'zzprobe-…' not found` / `failed to update 1 issue` for exit 1, and `gh pr view 314 --json labels`
+read back empty in both cases -- nothing was written either way. Same exit, two different failures, and
+only one of them is fixable by a person: gh 2.46.0 reads `projectCards` on its way into `pr edit`, so
+that call dies **before** it resolves the label name, which means it cannot land a marker under *any*
+name #311 might choose. `D-0047` measured the split from the other side -- `gh issue edit 240
+--remove-label blocked --remove-label question` exited 0 and read back `labels: []` where `gh pr edit`
+died on that field (`DECISIONS.md:2221-2231`) -- and it is the same reason `gh pr edit --add-reviewer`
+is refused in Step 5. So: `gh issue edit` to write, on an issue or a pull request alike; `gh pr view`
+to read.
 
 Never invent a label name. Not by typing one from memory, not by substituting the nearest label that
 exists, not with `gh label create`, and not by skipping the marker on the grounds that the comment is
